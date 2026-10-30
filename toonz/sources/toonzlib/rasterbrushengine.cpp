@@ -384,7 +384,7 @@ double BufferedSurface::coverage(int x, int y) const {
 struct Stroke::Impl {
   Surface &surface;
   const Preset p;
-  size_t budget, used = 0, dabs = 0;
+  size_t budget, dabs = 0;
   std::shared_ptr<MemoryBudget> shared;
   size_t reserved = 0;
   std::string failure;
@@ -428,7 +428,7 @@ struct Stroke::Impl {
           if (mapping.interpolation != Interpolation::NaturalCubic) continue;
           size_t n      = mapping.curve.size(),
                  charge = 2 * n * sizeof(double) + 128;
-          if (charge > budget - used || !shared->reserve(charge)) {
+          if (charge > budget - reserved || !shared->reserve(charge)) {
             failure = "Curve memory limit exceeded";
             return;
           }
@@ -451,7 +451,6 @@ struct Stroke::Impl {
           std::vector<double>().swap(rhs);
           shared->release(n * sizeof(double));
           reserved -= n * sizeof(double);
-          used += charge - n * sizeof(double);
         }
       }
     } catch (const std::bad_alloc &) {
@@ -552,7 +551,7 @@ struct Stroke::Impl {
     auto found     = tiles.find(key);
     if (found != tiles.end()) return found->second.get();
     constexpr size_t charge = sizeof(Tile) + 128;
-    if (charge > budget - used || !shared->reserve(charge)) {
+    if (charge > budget - reserved || !shared->reserve(charge)) {
       failure = "Stroke memory limit exceeded";
       return nullptr;
     }
@@ -569,7 +568,6 @@ struct Stroke::Impl {
         value->base[j * 32 + i] = surface.read(x0 + i, y0 + j);
     Tile *ptr = value.get();
     tiles.emplace(key, std::move(value));
-    used += charge;
     return ptr;
   }
   bool sourceWetDab(const Sample &s) {
@@ -598,7 +596,7 @@ struct Stroke::Impl {
       return false;
     }
     const size_t bytes = size_t(x1 - x0) * (y1 - y0) * sizeof(Pixel);
-    if (bytes > budget - used || !shared->reserve(bytes)) {
+    if (bytes > budget - reserved || !shared->reserve(bytes)) {
       failure = "Source wet snapshot memory limit exceeded";
       return false;
     }
@@ -698,9 +696,15 @@ struct Stroke::Impl {
     spacing               = std::max(.01, diameter * p.spacing);
     const double aspect   = std::max(.01, eval(p.aspect, s));
     const double angle = eval(p.angle, s) * pi / 180, c = std::cos(angle),
-                 sn           = std::sin(angle);
-    const double opacity      = unit(eval(p.opacity, s)),
-                 flow         = unit(eval(p.flow, s));
+                 sn      = std::sin(angle);
+    const double opacity = unit(eval(p.opacity, s));
+    // K5341 build-up uses opacity as dab transparency; static flow is
+    // inactive. Original zero/quarter/half-flow fixtures establish this
+    // distinction from native multiplication and source wash mode.
+    const double flow =
+        p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" && !p.wash
+            ? 1
+            : unit(eval(p.flow, s));
     const double pickup       = p.pickup * eval(p.pickupControl, s),
                  colorRate    = p.colorRate * eval(p.colorRateControl, s);
     const double smudgeRadius = p.smudgeRadius * eval(p.radiusControl, s);
@@ -743,7 +747,7 @@ struct Stroke::Impl {
         // Snapshot all feedback before modifying any destination pixel.
         side         = std::min(256, std::max(2, int(std::ceil(diameter))));
         size_t bytes = size_t(side) * side * sizeof(Pixel);
-        if (bytes * 2 > budget - used || !shared->reserve(bytes)) {
+        if (bytes > budget - reserved || !shared->reserve(bytes)) {
           failure = "Wet brush memory limit exceeded";
           return false;
         }

@@ -20,7 +20,7 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | ABR descriptor/computed-tip/pattern behavioral import | Typed descriptor decoding and legacy 1/2 computed-tip native conversion implemented; modern behavioral binding and patterns pending | Every declared version and active setting; decoding is not behavioral support |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion plus strict fixed-tip source candidate selection; bounded bundle dependency resolution | Unknown/missing active settings retain native conversion; candidate flags do not claim source verification |
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
-| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | Original three-model 64-case gate run passed at edb3e203; expanded feedback/new-Dulling gates pending; full source profiles remain incomplete |
+| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All four models pass the 64 first/second-dab gates at 763fb470; all 32 varied-third-dab cases meet numeric bounds, with a hidden-RGB coverage metric correction awaiting CI; full source profiles remain incomplete |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Six platform/Qt suites passed at `a0ef97ea`; full editor device workflows still require qualification |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
@@ -473,3 +473,31 @@ and newly created unpainted frames are rolled back. Installed-application tests
 exercise both cases. Candidate CPU/memory traces cover hard wash and all four wet
 candidates, including release of retained snapshots at stroke end. These added
 checks are pending exact-head CI and are not completed acceptance claims.
+
+## Third-dab qualification and application transaction checkpoint
+
+At `763fb470`, Linux full-application and installed-application workloads pass,
+including no-op wet initialization on existing and newly created frames. Native
+metrics, fuzzing, tablet repeatability, hard-pixel long strokes, geometry and all
+64 first/second-dab wet gates pass. The six Qt/platform parser suites fail a
+new hand-authored pressure fixture whose size minimum retained the native 0.01
+default despite requesting the strict source linear mapping; the fixture is
+corrected to explicit zero, preserving the runtime guard.
+
+All 32 varied-third-destination cases meet max-channel <= 2/255 and max-alpha
+<= 1/255. Sixteen transparent-destination cases fail raw changed-set IoU because
+source hidden RGB at zero alpha differs while premultiplied visible output is
+identical or within those limits. The correction retains raw changed-set IoU and
+the full raw-union numerical sampling region, adds visible changed-set IoU, and
+uses that visible metric for the unchanged .98 wet coverage threshold. A
+mixed-background synthetic metric regression covers the distinction. Independent
+third-dab numerical fixtures now cover transparent and opaque-yellow destinations
+for all four models, rather than only repeating the same red destination.
+
+The diameter sweep failed before comparison because the integer-only reference
+API received an integral-valued JSON float. The harness now validates integral
+coordinates and explicitly constructs integer points; fractional inputs are
+rejected rather than silently rounded. These corrections await exact-head CI.
+Source pressure, opacity/flow, heterogeneous wet sampling, and broader AA/softness
+remain separate acceptance items. No universal source-compatibility claim follows
+from native application or component successes.

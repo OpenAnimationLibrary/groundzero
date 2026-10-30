@@ -441,9 +441,18 @@ void testImports() {
     for (const QString &mutation :
          {"alphaOff", "radius", "unknown", "missing", "aa"}) {
       auto fallback = importBrush(hardPixelKpp(mutation, model), "kpp", error);
-      require(fallback.complete && fallback.records.front().preset.profile ==
-                                       "groundzero-native-1",
-              "unimplemented wet setting selected candidate");
+      const bool inactiveRadius =
+          mutation == "radius" && model.endsWith("smear");
+      require(fallback.complete &&
+                  fallback.records.front().preset.profile ==
+                      (inactiveRadius ? expected : "groundzero-native-1"),
+              "wet setting eligibility differs from active/inactive contract");
+      if (inactiveRadius)
+        require(fallback.records.front().preset.smudgeRadius == 0 &&
+                    fallback.records.front()
+                            .provenance["inactiveSourceSmudgeRadiusPercent"]
+                            .toDouble() == 1,
+                "inactive source Smear radius was applied or discarded");
     }
   }
   auto dry = importBrush(kpp(), "kpp", error);

@@ -67,6 +67,7 @@ QJsonObject compare(const QImage &base, const QImage &reference,
   QRect refBounds, candidateBounds;
   QRect refAlphaBounds, candidateAlphaBounds;
   qint64 alphaIntersection = 0, alphaUnion = 0;
+  qint64 visibleIntersection = 0, visibleUnion = 0;
   bool transparentBase = true;
   qint64 refCount = 0, candidateCount = 0, intersection = 0, unionCount = 0;
   for (int y = 0; y < h; ++y)
@@ -82,6 +83,15 @@ QJsonObject compare(const QImage &base, const QImage &reference,
       alphaUnion += ra || ca;
       bool r = reference.pixel(x, y) != base.pixel(x, y);
       bool c = candidate.pixel(x, y) != base.pixel(x, y);
+      // Hidden RGB at zero alpha is not a visible change, including on a
+      // partially transparent background. Keep the raw union for error
+      // sampling.
+      const bool rv =
+          r && (qAlpha(reference.pixel(x, y)) || qAlpha(base.pixel(x, y)));
+      const bool cv =
+          c && (qAlpha(candidate.pixel(x, y)) || qAlpha(base.pixel(x, y)));
+      visibleIntersection += rv && cv;
+      visibleUnion += rv || cv;
       if (r) {
         ++refCount;
         refBounds |= QRect(x, y, 1, 1);
@@ -149,6 +159,8 @@ QJsonObject compare(const QImage &base, const QImage &reference,
       {"referenceChangedPixels", double(refCount)},
       {"candidateChangedPixels", double(candidateCount)},
       {"changedPixelIoU", unionCount ? double(intersection) / unionCount : 1},
+      {"visibleChangedPixelIoU",
+       visibleUnion ? double(visibleIntersection) / visibleUnion : 1},
       {"premultipliedRGBMAE", n ? rgbError / n : 0},
       {"alphaMAE", n ? alphaError / n : 0},
       {"maxRGBError", maxRGB},
@@ -186,6 +198,7 @@ int main(int argc, char **argv) {
                               directory.filePath("hidden-rgb.png"));
       require(measured["alphaCoverageIoU"].toDouble() == 1 &&
                   measured["changedPixelIoU"].toDouble() == .5 &&
+                  measured["visibleChangedPixelIoU"].toDouble() == 1 &&
                   measured["maxRGBError"].toDouble() == 0 &&
                   measured["maxAlphaError"].toDouble() == 0,
               "Undefined transparent RGB was counted as painted coverage");
@@ -195,6 +208,20 @@ int main(int argc, char **argv) {
       require(measured["alphaCoverageIoU"].toDouble() == .5 &&
                   measured["maxAlphaError"].toDouble() == 1,
               "Stray visible candidate pixels escaped the union comparison");
+      base.setPixel(0, 1, qRgba(255, 0, 0, 128));
+      reference = base;
+      candidate = base;
+      reference.setPixel(0, 0, qRgba(255, 0, 0, 0));
+      reference.setPixel(1, 0, qRgba(0, 0, 255, 96));
+      candidate.setPixel(1, 0, qRgba(0, 0, 255, 96));
+      measured = compare(base, reference, candidate,
+                         directory.filePath("mixed-alpha-hidden-rgb.png"));
+      require(!measured["transparentBase"].toBool() &&
+                  measured["changedPixelIoU"].toDouble() == .5 &&
+                  measured["visibleChangedPixelIoU"].toDouble() == 1 &&
+                  measured["maxRGBError"].toDouble() == 0 &&
+                  measured["maxAlphaError"].toDouble() == 0,
+              "Hidden RGB contaminated mixed-background coverage");
       // Published numerical pairs, including neutral and hue-wrap boundaries.
       // https://www.ece.rochester.edu/~gsharma/ciede2000/
       const double pairs[][7] = {
@@ -295,9 +322,11 @@ int main(int argc, char **argv) {
           (fixtures["group"].toString() == "wetsteps" ||
            fixtures["group"].toString() == "wethold" ||
            fixtures["group"].toString() == "wetstate" ||
-           (fixtures["group"].toString() == "wettexture" &&
-            source["overrides"].toObject()["SmudgeRadiusValue"].toString() ==
-                "0"));
+           ((fixtures["group"].toString() == "wettexture" ||
+             fixtures["group"].toString() == "wettexture3") &&
+            (name.contains(" smear ") ||
+             source["overrides"].toObject()["SmudgeRadiusValue"].toString() ==
+                 "0")));
       if (sourceWet) {
         const QString model =
             imported.records.front().provenance["sourceSmudgeModel"].toString();
@@ -401,10 +430,11 @@ int main(int argc, char **argv) {
           failedHardCases.append(name);
       }
       if (sourceWet) {
-        const bool passed = metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
-                            metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&
-                            metrics["changedPixelIoU"].toDouble() >= .98 &&
-                            !metrics["emptyCandidateFailure"].toBool();
+        const bool passed =
+            metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
+            metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&
+            metrics["visibleChangedPixelIoU"].toDouble() >= .98 &&
+            !metrics["emptyCandidateFailure"].toBool();
         metrics["wetCandidatePassed"] = passed;
         if (!passed)
           failedHardCases.append(name);

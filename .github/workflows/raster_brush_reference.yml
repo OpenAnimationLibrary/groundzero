@@ -32,7 +32,8 @@ jobs:
       - name: Measure original native traces
         run: |
           lscpu > brush-metrics-machine.txt
-          /usr/bin/time -v -o brush-metrics-memory.txt timeout 300 brush-metrics-build/rasterbrushbenchmark brush-metrics.json || { status=$?; echo "::error::Native benchmark exited with status $status"; exit "$status"; }
+          metric_status=0
+          /usr/bin/time -v -o brush-metrics-memory.txt timeout 300 brush-metrics-build/rasterbrushbenchmark brush-metrics.json || metric_status=$?
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -40,6 +41,10 @@ jobs:
           for row in result['records']:
               print('::notice title=Native brush measurement::' + json.dumps(row))
           PY
+          if [ "$metric_status" -ne 0 ]; then
+            echo "::error::Native benchmark exited with status $metric_status"
+            exit "$metric_status"
+          fi
       - name: Qualify hostile multi-package import peak memory
         shell: bash
         run: |
@@ -85,7 +90,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps, wethold, wetstate, pixelopacity, pixelpressure, wettexture]
+        fixture_group: [pixelpressure, wettexture3, wetstate, wethold, wettexture, pixelopacity, pixelsoft, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -189,7 +194,7 @@ jobs:
                   probes.append(probe)
               # The observed check retained only ten annotations per step. Group the
               # bounded 79-case table instead of silently losing later cases.
-              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wettexture' else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8)
+              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8)
               for start in range(0, len(probes), batch):
                   text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
@@ -205,8 +210,9 @@ jobs:
           path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
           if path.is_file():
               probes = [{'preset': row['preset'], **row['geometryProbe']} for row in json.loads(path.read_text()).get('records', []) if row.get('geometryProbe') is not None]
-              for start in range(0, len(probes), 2):
-                  text = json.dumps(probes[start:start + 2], separators=(',', ':'))
+              batch = 1 if os.environ["BRUSH_REFERENCE_GROUP"] == "pixelpressure" else 2
+              for start in range(0, len(probes), batch):
+                  text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
                       raise RuntimeError('Geometry probe exceeds annotation limit')
                   print('::notice title=Exact source alpha probe; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
@@ -253,7 +259,7 @@ jobs:
               print('No comparison report; inspect the preceding source/build failure.')
               raise SystemExit(0)
           report = json.loads(path.read_text())
-          keys = ('preset', 'premultipliedRGBMAE', 'alphaMAE', 'alphaP99', 'changedPixelIoU', 'referenceBounds', 'candidateBounds', 'deltaE00BlackMean', 'deltaE00WhiteMean', 'sourceReferenceVerified', 'sourceSemanticallySupported')
+          keys = ('preset', 'premultipliedRGBMAE', 'alphaMAE', 'alphaP99', 'changedPixelIoU', 'visibleChangedPixelIoU', 'referenceBounds', 'candidateBounds', 'deltaE00BlackMean', 'deltaE00WhiteMean', 'sourceReferenceVerified', 'sourceSemanticallySupported')
           measurements = [{key: round(row[key], 8) if isinstance(row[key], float) else row[key] for key in keys} for row in report['records']]
           for row, measurement in zip(report['records'], measurements):
               if 'hardPixelCandidatePassed' in row:
@@ -263,7 +269,7 @@ jobs:
                   measurement['wetGate'] = row['wetCandidatePassed']
                   measurement['maxRGB'] = round(row['maxRGBError'], 8)
                   measurement['maxAlpha'] = round(row['maxAlphaError'], 8)
-          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wettexture' else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8)
+          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8)
           for start in range(0, len(measurements), batch):
               text = json.dumps(measurements[start:start + batch], separators=(',', ':'))
               if len(text.encode()) > 3900:

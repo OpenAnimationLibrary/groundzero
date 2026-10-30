@@ -214,3 +214,53 @@ models and radii 0/50/100/300 percent. Radius-zero candidates retain hard gates;
 nonzero-radius conversions remain exploratory until implemented independently.
 The reference matrix runs at most two complete application jobs concurrently;
 all matrix members and comparison thresholds remain enabled.
+
+`pixelsoft` captures twenty isolated 32-pixel circular/rectangular tips across
+five horizontal/vertical fade values and antialiasing on/off. The complete alpha
+window is retained as a source measurement for independently deriving edge
+behavior. Native comparisons remain explicitly unqualified; those measurements
+do not add unsupported softness controls to the strict source candidate.
+Reference matrix ordering prioritizes newly introduced state/setting workloads,
+while retaining all existing regression members with fail-fast disabled.
+
+The varied-third-destination run at `763fb470` meets the channel/alpha bounds
+in all 32 cases. Its transparent-destination coverage failures exposed a metric
+bug: raw changes to hidden RGB at zero alpha were counted as painted coverage.
+The wet gate now uses visible changed-pixel IoU, preserving the raw union (and
+its two-pixel dilation) for numerical error sampling and retaining raw IoU in
+reports. A mixed-background metric fixture checks this distinction; no numerical
+threshold is relaxed. The diameter sweep also validates integral coordinates
+before converting JSON numbers to the integer QPoint required by Node.paintLine.
+These corrections require a new CI run before the affected gates can be called
+passing.
+
+The first `pixelopacity` source run established that build-up treats static flow
+as inactive: quarter/half flow matches full flow, and zero flow still paints.
+The independent hard-pixel candidate now applies opacity alone in build-up,
+while wash retains separate flow. The source no-op expectation is correspondingly
+limited to zero opacity or wash with zero flow. This preserves the measured mode
+distinction; the original mistaken zero-flow assumption stopped that capture
+before the wash cases and requires corrected reference qualification.
+
+Native CPU qualification now enforces the declared standard/heavy event budgets
+(p95/p99 16/33 ms and 33/66 ms respectively) as necessary CPU-only bounds, plus
+completion of each simulated 60-second trace in at most 60 seconds. Every workload
+is measured and the complete JSON is written before reporting a budget failure.
+The workflow publishes measurements even when a CPU gate fails. Hosted CPU gates
+do not replace dirty-preview or physical input-to-display qualification.
+
+All eight radius-zero heterogeneous second-dab cases pass exactly at `763fb470`.
+Smear now accepts a finite serialized radius of 0–300 as explicitly inactive,
+retaining it in provenance while its candidate uses no native radius sampling.
+The documented Smear/Dulling distinction and acquired radius probes justify that
+adapter rule; nonzero Dulling remains unimplemented. `wettexture3` adds a third
+dab after heterogeneous pickup, with hard gates for every Smear radius and
+radius-zero Dulling. This distinguishes state sampling from deposition on the
+second dab and does not infer general Dulling radius behavior from a uniform
+initial pickup.
+
+The first 18 pressure ramps pass nine gates; nine fail, especially wide spacing
+with changing pressure. Constant-pressure cases match exactly. The next run
+exposes exact packed visible-change masks for the six sparse ramps so spacing
+can be inferred from full footprints. The failing fidelity gates stay enabled;
+linear sensor decoding alone does not establish source scheduling parity.

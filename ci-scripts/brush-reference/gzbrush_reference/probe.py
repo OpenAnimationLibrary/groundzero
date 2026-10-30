@@ -52,7 +52,13 @@ class Probe(Extension):
 
     def paint_case(self, app, view, node, case):
         if case.get("delivery") != "Qt tablet events":
-            node.paintLine(QPoint(*case["start"]), QPoint(*case["end"]), *case["pressure"], "ForegroundColor")
+            # Node.paintLine accepts integer QPoint coordinates. Never silently
+            # round a fractional fixture and compare different stroke geometry.
+            points = [case["start"], case["end"]]
+            if any(float(value) != int(value) for point in points for value in point):
+                raise RuntimeError("Node.paintLine fixture requires integral coordinates")
+            start, end = [QPoint(*(int(value) for value in point)) for point in points]
+            node.paintLine(start, end, *case["pressure"], "ForegroundColor")
             return {"mode": "Node.paintLine"}
         # Public action identifier and View transforms; no engine-private API.
         action = app.action("KritaShape/KisToolBrush")
@@ -313,7 +319,7 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
-                    if fixtures.get("group") == "geometry":
+                    if fixtures.get("group") in ("geometry", "pixelsoft"):
                         side = math.ceil(case["diameter"]) + 10
                         left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
                         top = math.floor(case["start"][1] - case["diameter"] / 2) - 4
@@ -326,6 +332,23 @@ class Probe(Extension):
                                   for x in range(left, left + width))
                     geometry = {"rect": rect, "encoding": "zlib-base64-alpha8-row-major",
                                 "data": base64.b64encode(zlib.compress(alpha)).decode("ascii")}
+                if fixtures.get("group") == "pixelpressure" and case["spacing"] == 1:
+                    # Sparse pressure ramps expose individual footprint spacing.
+                    # Preserve exact visible-change bits, including transparent
+                    # strips, rather than infer dab centers from sparse RGB probes.
+                    left, top, width, height = 232, 1000, 1584, 48
+                    packed = bytearray((width * height + 7) // 8)
+                    for y in range(height):
+                        for x in range(width):
+                            offset = ((top + y) * w + left + x) * 4
+                            changed = (raw[offset:offset+4] != initial[offset:offset+4] and
+                                       (raw[offset+3] != 0 or initial[offset+3] != 0))
+                            bit = y * width + x
+                            if changed:
+                                packed[bit // 8] |= 1 << (7 - bit % 8)
+                    geometry = {"rect": [left, top, width, height],
+                                "encoding": "zlib-base64-visible-change1-msb-row-major",
+                                "data": base64.b64encode(zlib.compress(packed)).decode("ascii")}
                 report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents

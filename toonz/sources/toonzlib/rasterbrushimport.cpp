@@ -351,6 +351,15 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
       required[key] = "false";
     required["SmudgeRadiusValue"] = "0";
+    if (preset.wet == Wet::Smear) {
+      // The public K5341 manual defines radius as Dulling-only. Retain the
+      // serialized inactive value as provenance; never apply native radius.
+      bool ok             = false;
+      const double radius = fields.value("SmudgeRadiusValue").toDouble(&ok);
+      if (!ok || !std::isfinite(radius) || radius < 0 || radius > 300)
+        return false;
+      required["SmudgeRadiusValue"] = fields["SmudgeRadiusValue"];
+    }
     for (const QString &key : {"SmudgeRateValue", "ColorRateValue",
                                "SmudgeRateMode", "SmudgeRateUseNewEngine"})
       if (!fields.contains(key)) return false;
@@ -593,6 +602,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
     candidate.wash = fields.value("PaintingMode") == "1";
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
+    if (r.preset.wet == Wet::Smear)
+      r.provenance["inactiveSourceSmudgeRadiusPercent"] =
+          fields.value("SmudgeRadiusValue").toDouble();
     while (diagnostics.size() > diagnosticStart) diagnostics.removeLast();
     r.diagnostics.clear();
     diagnostics

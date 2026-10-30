@@ -26,7 +26,7 @@ struct Canvas : Surface {
     pixels[size_t(y) * side + x] = p;
   }
 };
-void measure(std::ostream &out, const char *name, int side, int rate,
+bool measure(std::ostream &out, const char *name, int side, int rate,
              Preset p) {
   auto canvas = std::make_shared<Canvas>(side);
   auto budget = std::make_shared<MemoryBudget>(256u * 1024u * 1024u);
@@ -65,6 +65,10 @@ void measure(std::ostream &out, const char *name, int side, int rate,
   auto percentile = [&](double q) {
     return latency[size_t(std::ceil(q * latency.size())) - 1];
   };
+  const double p95Limit = side > 2048 ? 33 : 16;
+  const double p99Limit = side > 2048 ? 66 : 33;
+  const bool passed = percentile(.95) <= p95Limit &&
+                      percentile(.99) <= p99Limit && elapsed <= 60000;
   out << "{\"name\":\"" << name << "\",\"canvasSide\":" << side
       << ",\"inputHz\":" << rate
       << ",\"traceSeconds\":60,\"events\":" << latency.size()
@@ -74,7 +78,10 @@ void measure(std::ostream &out, const char *name, int side, int rate,
       << ",\"eventMaxMilliseconds\":" << latency.back()
       << ",\"peakTrackedStrokeBytes\":" << peak
       << ",\"backingRasterBytes\":" << size_t(side) * side * sizeof(Pixel)
-      << ",\"releasedStrokeBytes\":0}";
+      << ",\"releasedStrokeBytes\":0,\"cpuP95LimitMilliseconds\":" << p95Limit
+      << ",\"cpuP99LimitMilliseconds\":" << p99Limit
+      << ",\"cpuBudgetPassed\":" << (passed ? "true" : "false") << '}';
+  return passed;
 }
 } // namespace
 int main(int argc, char **argv) {
@@ -86,14 +93,15 @@ int main(int argc, char **argv) {
       throw std::runtime_error("Cannot create benchmark report");
     out << "{\"scope\":\"native CPU event-to-surface only; hosted runner, no "
            "display/tablet latency claim\",\"records\":[";
+    bool passed = true;
     Preset p;
     p.size.value = 64;
     p.color = {.8, .1, .2, 1};
     p.size.mappings.push_back({Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
-    measure(out, "standard-dry", 2048, 240, p);
+    passed = measure(out, "standard-dry", 2048, 240, p) && passed;
     out << ',';
     p.tip.antialiasEdges = true;
-    measure(out, "standard-dry-antialias", 2048, 240, p);
+    passed = measure(out, "standard-dry-antialias", 2048, 240, p) && passed;
     out << ',';
     p.tip.antialiasEdges = false;
     p.size.value = 256;
@@ -105,11 +113,11 @@ int main(int argc, char **argv) {
     p.texture.scale = 4;
     p.secondary.enabled = true;
     p.secondary.size.value = .8;
-    measure(out, "heavy-texture-dual", 4096, 120, p);
+    passed = measure(out, "heavy-texture-dual", 4096, 120, p) && passed;
     out << ',';
     p.secondary.enabled = false;
     p.wet = Wet::Smear;
-    measure(out, "heavy-smear", 4096, 120, p);
+    passed = measure(out, "heavy-smear", 4096, 120, p) && passed;
     Preset source;
     source.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
     source.size.value = 64;
@@ -117,7 +125,8 @@ int main(int argc, char **argv) {
     source.opacity.value = .5;
     source.flow.value = .5;
     out << ',';
-    measure(out, "source-candidate-hard-wash", 2048, 240, source);
+    passed =
+        measure(out, "source-candidate-hard-wash", 2048, 240, source) && passed;
     for (const auto &model :
          {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
       source = Preset{};
@@ -128,11 +137,14 @@ int main(int argc, char **argv) {
                        ? Wet::Dulling
                        : Wet::Smear;
       out << ',';
-      measure(out, model, 2048, 240, source);
+      passed = measure(out, model, 2048, 240, source) && passed;
     }
     out << "]}\n";
     if (!out)
       throw std::runtime_error("Cannot finish benchmark report");
+    if (!passed)
+      throw std::runtime_error("CPU event budget or real-time trace throughput "
+                               "exceeded; inspect measurements");
   } catch (const std::exception &e) {
     std::cerr << "::error::Native brush benchmark failed: " << e.what() << '\n';
     return 1;

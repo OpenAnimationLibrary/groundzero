@@ -12,7 +12,7 @@ def chunk(kind, data):
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
 
-def preset(name, mode, modern, overrides=None, diameter=32, spacing=0.1, antialias=1):
+def preset(name, mode, modern, overrides=None, diameter=32, spacing=0.1, antialias=1, hardness=1, shape="circle"):
     root = Element("Preset", name=name, paintopid="paintbrush" if mode == "dry" else "colorsmudge")
     fields = {
         "paintop": root.attrib["paintopid"], "CompositeOp": "normal", "EraserMode": "false",
@@ -32,6 +32,7 @@ def preset(name, mode, modern, overrides=None, diameter=32, spacing=0.1, antiali
         "brush_definition": '<Brush type="auto_brush" BrushVersion="2" spacing="0.1" angle="0" randomness="0" density="1" useAutoSpacing="0"><MaskGenerator id="default" type="circle" diameter="32" ratio="1" hfade="1" vfade="1" antialiasEdges="1" spikes="2"/></Brush>',
     }
     fields["brush_definition"] = fields["brush_definition"].replace('diameter="32"', f'diameter="{diameter}"').replace('spacing="0.1"', f'spacing="{spacing}"').replace('antialiasEdges="1"', f'antialiasEdges="{antialias}"')
+    fields["brush_definition"] = fields["brush_definition"].replace('hfade="1"', f'hfade="{hardness}"').replace('vfade="1"', f'vfade="{hardness}"').replace('type="circle"', f'type="{shape}"')
     fields.update(overrides or {})
     for key, value in fields.items():
         SubElement(root, "param", name=key, type="string" if key in ("paintop", "CompositeOp", "brush_definition") else "internal").text = value
@@ -56,10 +57,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelpressure", "wettexture"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelpressure", "wettexture", "wettexture3", "pixelsoft"):
     raise RuntimeError("Unknown reference fixture group")
-profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity", "pixelpressure") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
-if group in ("wetsteps", "wethold", "wetstate", "wettexture"):
+profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity", "pixelpressure", "pixelsoft") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
+if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3"):
     profiles = [("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 for mode, modern in profiles:
     base = "GZ Original " + mode + (" new" if modern else " legacy")
@@ -92,6 +93,9 @@ for mode, modern in profiles:
                      overrides, 32, spacing, [start, end], 1, 1)
                     for start, end in ((0, 1), (1, 0), (.1, 1), (1, .1), (.25, .75), (.5, .5))
                     for spacing in (.1, .25, 1)]
+    if group == "pixelsoft":
+        variants = [(f"soft {shape} hardness {round(hardness * 100):03d} antialias {edge}", {}, 32, 5, [1, 1], 1, 1)
+                    for shape in ("circle", "rect") for hardness in (0, .25, .5, .75, 1) for edge in (0, 1)]
     if mode == "dry" and group == "parameters":
         for length in (1, 2, 3, 4, 7, 16, 32):
             variants.append(("short line " + str(length), {}, 32, .1, [1, 1], 1, 1))
@@ -104,7 +108,7 @@ for mode, modern in profiles:
         if mode == "dulling":
             for value in ("0", "3", "100", "300"):
                 variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
-    if group in ("wetsteps", "wethold", "wetstate", "wettexture"):
+    if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3"):
         variants = [(f"wet step pickup {round(pickup * 100):03d} color {round(color * 100):03d} dabs {dabs}",
                      {"SmudgeRateValue": str(pickup), "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
                      32, 5, [1, 1], 1, 1)
@@ -122,22 +126,25 @@ for mode, modern in profiles:
                      32, 5, [1, 1], 1, 1)
                     for pickup, color in ((.5, 0), (.5, .25), (1, 0), (.25, .125))
                     for third in ("transparent", "yellow")]
-    if group == "wettexture":
-        variants = [(f"wet patch radius {radius} color {round(color * 100):03d} dabs 2",
+    if group in ("wettexture", "wettexture3"):
+        dabs = 3 if group == "wettexture3" else 2
+        variants = [(f"wet patch radius {radius} color {round(color * 100):03d} dabs {dabs}",
                      {"SmudgeRateValue": ".5", "ColorRateValue": str(color), "SmudgeRadiusValue": str(radius)},
                      32, 5, [1, 1], 1, 1)
                     for radius in (0, 50, 100, 300) for color in (0, .25)]
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
-        edge = int(label.rsplit(" ", 1)[1]) if group == "geometry" else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelpressure", "wettexture") else 1)
-        (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge))
+        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelpressure", "wettexture", "wettexture3") else 1)
+        hardness = int(label.split()[3]) / 100 if group == "pixelsoft" else 1
+        shape = label.split()[1] if group == "pixelsoft" else "circle"
+        (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge, hardness, shape))
         names.append(name)
         end_x = 256 + int(label.rsplit(" ", 1)[1]) if label.startswith("short line ") else 1792
-        if group == "geometry":
+        if group in ("geometry", "pixelsoft"):
             end_x = 257
-        expected_empty = (group == "pixelopacity" and (opacity == 0 or flow == 0)) or (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
-        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "background": "transparent" if group == "geometry" or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
-        if group in ("wetsteps", "wethold", "wetstate", "wettexture"):
+        expected_empty = (group == "pixelopacity" and (opacity == 0 or (flow == 0 and overrides["PaintingMode"] == "1"))) or (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
+        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "background": "transparent" if group in ("geometry", "pixelsoft") or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
+        if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3"):
             case = cases[-1]
             dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])
             step = diameter * spacing
@@ -147,9 +154,9 @@ for mode, modern in profiles:
                          "foregroundRGBA8": [0, 255, 0, 255],
                          "expectUnchanged": (not modern and float(overrides["SmudgeRateValue"]) == 0) or
                                             (float(overrides["SmudgeRateValue"]) == 0 and float(overrides["ColorRateValue"]) == 0)})
-            if group == "wettexture":
+            if group in ("wettexture", "wettexture3"):
                 case.update({"wetPattern": "two-pixel-red-yellow",
-                             "probePositions": [412, 414, 416, 418, 420]})
+                             "probePositions": [416, 572, 574, 576, 578, 580] if group == "wettexture3" else [412, 414, 416, 418, 420]})
             if group == "wetstate":
                 case.update({"wetThirdBoundary": 496,
                              "wetThirdRGBA8": [0, 0, 0, 0] if label.endswith("transparent") else [255, 255, 0, 255]})

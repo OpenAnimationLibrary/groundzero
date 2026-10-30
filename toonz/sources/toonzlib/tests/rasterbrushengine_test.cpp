@@ -361,6 +361,8 @@ void testKritaHardPixelCandidate() {
   longStroke.finish();
   require(longStroke.dabCount() == 480,
           "decimal spacing emitted a spurious final source dab");
+  p.size.minimum =
+      0;  // Explicit source curve has no native minimum-size offset.
   p.size.mappings.push_back({Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
   FullCanvas pressured;
   Stroke pressureStroke(pressured, p);
@@ -375,6 +377,18 @@ void testKritaHardPixelCandidate() {
   require(!validate(p).empty(),
           "unqualified nonlinear source pressure curve accepted");
   p.size.mappings.clear();
+  p.opacity.value = .5;
+  p.flow.value    = 0;
+  p.wash          = false;
+  FullCanvas buildUp;
+  Stroke buildUpStroke(buildUp, p);
+  require(buildUpStroke.add(sample(64, 64, 0)) && buildUp.read(64, 64).a == .5,
+          "source build-up incorrectly applied inactive flow");
+  p.wash = true;
+  FullCanvas wash;
+  Stroke washStroke(wash, p);
+  require(washStroke.add(sample(64, 64, 0)) && wash.read(64, 64).a == 0,
+          "source wash ignored zero flow");
   p.tip.antialiasEdges = true;
   require(!validate(p).empty(), "unimplemented source edge model accepted");
 }
@@ -600,8 +614,43 @@ void testSourceWetInitialization() {
     require(std::abs(third.a - (newDulling ? 148 : 160) / 255.0) < 1e-12 &&
                 std::abs(third.b / third.a - (newDulling ? 70 : 102) / 255.0) <
                     2 / 255.0,
-            "source carried paint was replaced by composited canvas feedback");
+            "source arithmetic feedback differs on repeated destinations");
     three.finish();
+    // Independently captured third-dab values with a changed destination
+    // distinguish arithmetic feedback from carried-ink source-over models.
+    for (bool transparent : {true, false}) {
+      Canvas varied = original;
+      for (int y = 0; y < varied.h; ++y)
+        for (int x = 80; x < varied.w; ++x)
+          varied.write(x, y, transparent ? Pixel{} : Pixel{1, 1, 0, 1});
+      Stroke sequence(varied, p);
+      require(
+          sequence.add(sample(10, 64, 0)) && sequence.add(sample(91, 64, 1)),
+          sequence.error().c_str());
+      const Pixel result = varied.read(90, 64);
+      const double expectedAlpha =
+          (transparent ? (newDulling ? 72 : 96) : (newDulling ? 225 : 223)) /
+          255.0;
+      const double expectedBlue =
+          (transparent ? (newDulling ? 145 : 170) : (newDulling ? 46 : 73)) /
+          255.0;
+      require(std::abs(result.a - expectedAlpha) <= 1 / 255.0 &&
+                  std::abs(result.b / result.a - expectedBlue) <= 2 / 255.0,
+              "source feedback differs on a changed third destination");
+      sequence.finish();
+    }
+    auto widerShared = std::make_shared<MemoryBudget>(1024 * 1024);
+    Canvas bounded   = original;
+    Stroke localLimit(bounded, p, 4096, widerShared);
+    require(localLimit.add(sample(30, 64, 0)),
+            "one source snapshot should fit the local budget");
+    require(!localLimit.add(sample(71, 64, 1)),
+            "replacement source snapshot ignored retained local memory");
+    require(
+        widerShared->used() <= 4096,
+        "source stroke exceeded its local limit inside a wider shared budget");
+    localLimit.finish();
+    require(widerShared->used() == 0, "failed source stroke retained memory");
     Stroke denied(original, p, 1);
     require(!denied.add(sample(30, 64, 0)),
             "source initial snapshot bypassed budget");
