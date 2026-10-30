@@ -38,6 +38,10 @@
 #include <QAction>
 #include <stdexcept>
 #include <memory>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <string>
 
 namespace {
 void require(bool ok, const char *message) {
@@ -50,15 +54,56 @@ void setBool(TTool *tool, const char *name, bool value) {
   property->setValue(value);
   tool->onPropertyChanged(name);
 }
-bool sameGeometry(const TVectorImageP &a, const TVectorImageP &b) {
-  if (a->getStrokeCount() != b->getStrokeCount()) return false;
+std::string geometryDifference(const TVectorImageP &a, const TVectorImageP &b) {
+  std::ostringstream difference;
+  difference << std::setprecision(17);
+  if (a->getStrokeCount() != b->getStrokeCount()) {
+    difference << "stroke count: actual " << a->getStrokeCount()
+               << ", expected " << b->getStrokeCount();
+    return difference.str();
+  }
   for (int i = 0; i < int(a->getStrokeCount()); ++i) {
     auto *x = a->getStroke(i), *y = b->getStroke(i);
-    if (x->getControlPointCount() != y->getControlPointCount()) return false;
-    for (int j = 0; j < x->getControlPointCount(); ++j)
-      if (x->getControlPoint(j) != y->getControlPoint(j)) return false;
+    if (x->getControlPointCount() != y->getControlPointCount()) {
+      difference << "stroke " << i << " control-point count: actual "
+                 << x->getControlPointCount() << ", expected "
+                 << y->getControlPointCount();
+      return difference.str();
+    }
+    for (int j = 0; j < x->getControlPointCount(); ++j) {
+      const auto actual = x->getControlPoint(j), expected = y->getControlPoint(j);
+      if (actual != expected) {
+        difference << "stroke " << i << " control point " << j << ": actual ("
+                   << actual.x << ", " << actual.y << ", " << actual.thick
+                   << "), expected (" << expected.x << ", " << expected.y
+                   << ", " << expected.thick << ')';
+        return difference.str();
+      }
+    }
   }
-  return true;
+  return {};
+}
+bool sameGeometry(const TVectorImageP &a, const TVectorImageP &b) {
+  return geometryDifference(a, b).empty();
+}
+void requireGeometry(const TVectorImageP &actual, const TVectorImageP &expected,
+                     const char *phase) {
+  const auto difference = geometryDifference(actual, expected);
+  if (!difference.empty()) throw std::runtime_error(std::string(phase) + ": " + difference);
+}
+void requireFilledCenter(const TVectorImageP &image, const char *phase) {
+  const auto *region = image->getRegion(TPointD(0,0));
+  if (!region || region->getStyle() != 1) {
+    std::ostringstream difference;
+    difference << phase << ": center fill style: actual ";
+    if (region) difference << region->getStyle();
+    else difference << "no region";
+    difference << ", expected 1 (region count " << image->getRegionCount() << ')';
+    throw std::runtime_error(difference.str());
+  }
+}
+void fillCheckpoint(const char *phase) {
+  std::cout << "vector-fill-native: " << phase << std::endl;
 }
 }
 
@@ -91,9 +136,33 @@ void runVectorFillNativeChecks() {
   setBool(tool, "Review Fills", true);
   auto *undo = TUndoManager::manager();
   undo->reset();
-  TVectorImageP original = image->clone();
   TMouseEvent mouse;
   mouse.m_button = Qt::LeftButton; mouse.m_buttons = Qt::LeftButton;
+  // Binding the existing Control Point Editor subdivides odd quadratic spans
+  // between cusp points before a drag transaction starts. Verify that binding
+  // independently, then retain exact control-point equality for drag rollback.
+  // Each straight side of this square is split exactly in half (9 -> 17 CPs).
+  fillCheckpoint("control-point selection normalization");
+  TVectorImageP unbound = image->clone();
+  app->getCurrentScene()->setDirtyFlag(false);
+  tool->mouseMove(TPointD(20,20), mouse);
+  tool->leftButtonDown(TPointD(20,20), mouse);
+  tool->leftButtonUp(TPointD(20,20), mouse);
+  TVectorImageP selectedShape = new TVectorImage;
+  selectedShape->addStroke(new TStroke(std::vector<TThickPoint>{
+      {-20,-20,1}, {-10,-20,1}, {0,-20,1}, {10,-20,1}, {20,-20,1},
+      {20,-10,1}, {20,0,1}, {20,10,1}, {20,20,1}, {10,20,1},
+      {0,20,1}, {-10,20,1}, {-20,20,1}, {-20,10,1}, {-20,0,1},
+      {-20,-10,1}, {-20,-20,1}}));
+  requireGeometry(image, selectedShape, "control-point selection changed square shape");
+  require(image->getStroke(0)->getId() == unbound->getStroke(0)->getId() &&
+              image->getStroke(0)->getStyle() == unbound->getStroke(0)->getStyle() &&
+              image->getStroke(0)->isSelfLoop() == unbound->getStroke(0)->isSelfLoop(),
+          "control-point selection changed stroke identity, style or closure");
+  requireFilledCenter(image, "control-point selection");
+  require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+          "control-point selection changed history or dirty state");
+  TVectorImageP original = image->clone();
   auto pick = [&]() {
     tool->mouseMove(TPointD(20,20), mouse);
     tool->leftButtonDown(TPointD(20,20), mouse);
@@ -127,30 +196,37 @@ void runVectorFillNativeChecks() {
     require(sawDialog, "native control-point drag did not open fill review");
     require(cleanDuringReview, "review dirtied scene or recorded undo before Apply");
   };
+  fillCheckpoint("control-point Restore Original");
   edit(false);
-  require(sameGeometry(image, original) && image->getRegion(TPointD(0,0))->getStyle() == 1,
-          "Restore Original failed to recover geometry and fills");
+  requireGeometry(image, original, "Restore Original failed to recover geometry");
+  requireFilledCenter(image, "Restore Original");
   require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
           "cancel changed history or dirty state");
+  fillCheckpoint("control-point Apply and undo/redo");
   edit(true);
   require(undo->getHistoryCount() == 1 && !sameGeometry(image, original),
           "Apply did not record one changed drawing");
   TVectorImageP proposed = image->clone();
   undo->undo();
-  require(sameGeometry(image, original) && image->getRegion(TPointD(0,0))->getStyle() == 1,
-          "control-point undo lost geometry or fills");
+  requireGeometry(image, original, "control-point undo lost geometry");
+  requireFilledCenter(image, "control-point undo");
   undo->redo();
-  require(sameGeometry(image, proposed) && image->getRegion(TPointD(0,0))->getStyle() == 1,
-          "control-point redo lost geometry or fills");
+  requireGeometry(image, proposed, "control-point redo lost geometry");
+  requireFilledCenter(image, "control-point redo");
   undo->undo(); undo->reset();
   app->getCurrentScene()->setDirtyFlag(false);
+  fillCheckpoint("control-point Escape and tool-switch cancellation");
   pick(); tool->leftButtonDrag(TPointD(25,25), mouse);
   QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
   require(tool->keyDown(&escape), "Escape did not cancel pending control-point drag");
-  require(sameGeometry(image, original) && undo->getHistoryCount() == 0 &&
+  requireGeometry(image, original, "interrupted control-point drag geometry");
+  requireFilledCenter(image, "interrupted control-point drag");
+  require(undo->getHistoryCount() == 0 &&
               !app->getCurrentScene()->getDirtyFlag(), "interrupted drag was not restored");
   edit(false, true);
-  require(sameGeometry(image, original) && undo->getHistoryCount() == 0 &&
+  requireGeometry(image, original, "tool-switch control-point cancellation geometry");
+  requireFilledCenter(image, "tool-switch control-point cancellation");
+  require(undo->getHistoryCount() == 0 &&
               !app->getCurrentScene()->getDirtyFlag(), "tool switch during control-point review was not restored");
 
   // Free Deform and Envelope use the same staged multi-drawing transaction.
@@ -200,30 +276,39 @@ void runVectorFillNativeChecks() {
     require(clean, "multi-drawing review dirtied history before Apply");
   };
   for (bool envelope : {false, true}) {
+    fillCheckpoint(envelope ? "Envelope Restore Original" : "Free Deform Restore Original");
     deform(envelope, false);
-    require(sameGeometry(image, original) && sameGeometry(second, original) &&
-                undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+    requireGeometry(image, original, "deformation cancellation drawing 1");
+    requireGeometry(second, original, "deformation cancellation drawing 2");
+    require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
             "multi-drawing deformation cancel did not restore all drawings");
-    require(image->getRegion(TPointD(0,0))->getStyle() == 1 &&
-                second->getRegion(TPointD(0,0))->getStyle() == 1,
-            "multi-drawing cancellation lost fills");
+    requireFilledCenter(image, "deformation cancellation drawing 1");
+    requireFilledCenter(second, "deformation cancellation drawing 2");
+    fillCheckpoint(envelope ? "Envelope Apply and undo/redo" : "Free Deform Apply and undo/redo");
     deform(envelope, true);
     require(undo->getHistoryCount() == 1, "deformation did not create one undo transaction");
     TVectorImageP changedFirst = image->clone(), changedSecond = second->clone();
     undo->undo();
-    require(sameGeometry(image, original) && sameGeometry(second, original),
-            "multi-drawing deformation undo failed");
+    requireGeometry(image, original, "deformation undo drawing 1");
+    requireGeometry(second, original, "deformation undo drawing 2");
+    requireFilledCenter(image, "deformation undo drawing 1");
+    requireFilledCenter(second, "deformation undo drawing 2");
     undo->redo();
-    require(sameGeometry(image, changedFirst) && sameGeometry(second, changedSecond) &&
-                image->getRegion(TPointD(0,0))->getStyle() == 1 &&
-                second->getRegion(TPointD(0,0))->getStyle() == 1,
-            "multi-drawing deformation redo failed");
+    requireGeometry(image, changedFirst, "deformation redo drawing 1");
+    requireGeometry(second, changedSecond, "deformation redo drawing 2");
+    requireFilledCenter(image, "deformation redo drawing 1");
+    requireFilledCenter(second, "deformation redo drawing 2");
     undo->undo(); undo->reset();
   }
+  fillCheckpoint("Free Deform tool-switch cancellation");
   deform(false, false, true);
-  require(sameGeometry(image, original) && sameGeometry(second, original) &&
-              undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+  requireGeometry(image, original, "tool-switch deformation cancellation drawing 1");
+  requireGeometry(second, original, "tool-switch deformation cancellation drawing 2");
+  requireFilledCenter(image, "tool-switch deformation cancellation drawing 1");
+  requireFilledCenter(second, "tool-switch deformation cancellation drawing 2");
+  require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
           "tool switch during multi-drawing review was not restored");
+  fillCheckpoint("PASS");
 }
 
 void runVectorMorphNativeChecks() {
