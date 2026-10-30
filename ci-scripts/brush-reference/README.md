@@ -128,7 +128,12 @@ now separates measured hard-circle lattice placement and endpoint scheduling
 from the native renderer. It rejects antialiasing, nonintegral diameter,
 noncircular/soft tips, sensors, angle/aspect changes, opacity/flow changes,
 texture, dual masks, wet paint and other unimplemented controls. The profile is
-selected explicitly by this harness, not silently by the foreign importer.
+selected by the importer only for explicit eligible KPP settings. Eligibility
+requires precision five, disabled auto precision, a hard round default mask,
+known static controls, and no unknown brush attributes or settings. Missing
+required fields retain native conversion. The harness requires that import
+selection itself succeeds, and portable-preset tests preserve the profile.
+This selection remains a candidate label, not source verification.
 Six hard one-dab cases must match full-canvas premultiplied RGB and alpha exactly. A `hardpixel` job
 adds nine diameter/spacing combinations (7/32/128 pixels, spacing .1/.25/1) with
 the contract's dry RGB, alpha, p99, IoU and bound-displacement gates enforced.
@@ -162,3 +167,21 @@ established; known zero-strength legacy no-ops still remain assertions. Both
 full rasters and center/edge probes at each dab are retained. This data is for
 independently deriving each model's state equations, not validation of the
 existing native wet conversion. No source implementation is read or copied.
+
+Three independent experimental wet candidates now separate legacy Smear,
+legacy Dulling and new Smear from native wet painting. They initialize without
+painting the first dab and snapshot the previous dab's deposited region before
+writing overlapping destinations. Legacy color loading and modern two-stage
+compositing are distinct equations; RGBA8 quantization occurs after deposition.
+Only fixed hard circles with radius zero and no sensors are accepted. Snapshot
+allocation is charged before allocation and released after each dab. These
+models are inferred from original fixtures, not copied source implementation.
+
+`wetsteps` enforces max premultiplied-channel error <= 2/255, max alpha error
+<= 1/255, changed-pixel IoU >= .98 and no empty-candidate failure on all three
+implemented candidates. New Dulling remains a measured native conversion;
+its apparent attenuation is not assumed to be a universal constant. `wethold`
+adds 40 cases with second/third dabs, diameters 7/32/128 and previously unseen
+strength/color-rate values. Its source candidates use the same gates. Passing
+two-dab examples alone cannot establish feedback state, general sensor behavior,
+nonzero sampling radius, antialiasing, or complete source-engine compatibility.

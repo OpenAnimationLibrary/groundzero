@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps]
+        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps, wethold]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -181,12 +181,12 @@ jobs:
                   probe['view'] = [view.get(key) for key in ('diameter', 'opacity', 'flow')]
                   controls = row.get('effectiveWetControls', {})
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
-                  positions = (240, 256, 272, 400, 416, 432) if row.get('background') == 'wet-halves' else (256, 384, 512, 640, 768, 896, 1024, 1152)
+                  positions = (256, 416, 576) if row.get('background') == 'wet-halves' else (256, 384, 512, 640, 768, 896, 1024, 1152)
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]
                   probes.append(probe)
               # The observed check retained only ten annotations per step. Group the
               # bounded 79-case table instead of silently losing later cases.
-              batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wetsteps' else 8
+              batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold') else 8
               for start in range(0, len(probes), batch):
                   text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
@@ -256,7 +256,11 @@ jobs:
               if 'hardPixelCandidatePassed' in row:
                   measurement['hardGate'] = row['hardPixelCandidatePassed']
                   measurement['alphaIoU'] = round(row['alphaCoverageIoU'], 8)
-          batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wetsteps' else 8
+              if 'wetCandidatePassed' in row:
+                  measurement['wetGate'] = row['wetCandidatePassed']
+                  measurement['maxRGB'] = round(row['maxRGBError'], 8)
+                  measurement['maxAlpha'] = round(row['maxAlphaError'], 8)
+          batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold') else 8
           for start in range(0, len(measurements), batch):
               text = json.dumps(measurements[start:start + batch], separators=(',', ':'))
               if len(text.encode()) > 3900:

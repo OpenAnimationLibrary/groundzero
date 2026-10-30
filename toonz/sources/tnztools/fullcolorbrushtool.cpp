@@ -400,8 +400,9 @@ bool editNativeBrush(RasterBrush::Record &record) {
   dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
   auto layout           = new QVBoxLayout(&dialog);
   const bool conversion = record.provenance.contains("sourceSha256");
+  const bool candidate = record.preset.profile != "groundzero-native-1";
   auto status           = new QLabel(
-      conversion
+      candidate ? QObject::tr("Experimental source profile. Complete source brush behavior is not verified.") : conversion
           ? QObject::tr(
                 "Native conversion. Source brush behavior is not verified.")
           : QObject::tr("Native settings supported. External brush parity is "
@@ -417,7 +418,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
         record.provenance.value("conversionReport").toString();
     if (!previousReport.isEmpty() && !notes.join("\n").contains(previousReport))
       notes << previousReport;
-    notes << QObject::tr("Native profile: %1")
+    notes << QObject::tr("Behavior profile: %1")
                  .arg(QString::fromStdString(record.preset.profile));
     notes << QObject::tr("Decoded native package: %1")
                  .arg(record.decoded ? QObject::tr("yes") : QObject::tr("no"));
@@ -905,9 +906,9 @@ bool FullColorBrushTool::selectNativePreset() {
     }
     if (!imported.diagnostics.isEmpty()) {
       QMessageBox report(QMessageBox::Information,
-                         tr("Native Brush Conversion"),
-                         tr("This import creates a native conversion. Review "
-                            "the details before installing it."),
+                         tr("Raster Brush Import"),
+                         tr("Review each brush’s conversion or experimental profile "
+                            "details before installing it."),
                          QMessageBox::Ok | QMessageBox::Cancel);
       report.setDetailedText(imported.diagnostics.join("\n"));
       report.setDefaultButton(QMessageBox::Cancel);

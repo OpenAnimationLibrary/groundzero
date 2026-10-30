@@ -567,7 +567,9 @@ struct Stroke::Impl {
       ++dabs;
       return true;
     }
-    const double cx = s.x + .5, cy = s.y;
+    // Measured model distinction: Dulling retains the hard Pixel lattice;
+    // Smear transports a pixel-centered footprint instead.
+    const double cx = s.x + (p.wet == Wet::Dulling ? .5 : 0), cy = s.y;
     const int reach = int(std::ceil(radius + 1));
     const int x0    = std::max(0, int(std::floor(cx)) - reach),
               y0    = std::max(0, int(std::floor(cy)) - reach),

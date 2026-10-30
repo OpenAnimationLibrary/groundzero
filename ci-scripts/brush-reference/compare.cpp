@@ -271,7 +271,8 @@ int main(int argc, char **argv) {
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
-      const bool sourceWet = fixtures["group"].toString() == "wetsteps" &&
+      const bool sourceWet = (fixtures["group"].toString() == "wetsteps" ||
+                              fixtures["group"].toString() == "wethold") &&
                              !name.startsWith("GZ Original dulling new");
       if (sourceWet) {
         const QString model =

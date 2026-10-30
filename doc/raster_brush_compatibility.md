@@ -428,7 +428,21 @@ independently measured hard-circle lattice placement and defers an exact
 spacing-boundary endpoint until further movement. This preserves interior dabs
 when a path is split into input events while omitting a terminal boundary dab.
 It is a separate strict profile, not a change to native painting. Unsupported
-settings reject validation. The reference harness selects it for hard-tip cases
-and enforces fidelity gates; the general KPP importer does not automatically
-select it or grant source support/verification. The full K5341 Pixel and all four
+settings reject validation. The general KPP importer now selects this candidate
+only when all required settings are explicit and eligible, with unknown fields
+and attributes retaining native conversion. The harness verifies selection
+through the importer and enforces fidelity gates. Source support/verification
+flags remain false. The full K5341 Pixel and all four
 smudge profiles remain unfinished; this is an implementation slice toward them.
+
+Three separate experimental source wet profiles now implement legacy Smear,
+legacy Dulling and new Smear state equations inferred from original measurements.
+They initialize without depositing the first dab, snapshot feedback before writes,
+use distinct legacy/new color equations and quantize deposited RGBA8 results.
+The first 64-case comparison matched all 16 legacy Dulling cases exactly; Smear
+exposed a separate pixel-centered footprint, corrected independently of Dulling.
+The 40-case holdout adds third-dab feedback, sizes and unseen strengths. All three
+candidates enforce max RGB <=2/255, alpha <=1/255 and changed IoU >=.98. Candidates
+remain restricted to hard circles, fixed controls and sampling radius zero;
+new Dulling and full S-profile behavior remain incomplete. Runtime support for
+an experimental package is not semantic support or verification of its source.
