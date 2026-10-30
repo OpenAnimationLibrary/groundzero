@@ -297,3 +297,18 @@ result means the workload and report completed; it does not enforce the RCP1
 fidelity thresholds. Every current conversion remains source-semantically
 unsupported and source-reference-unverified until its actual behavioral profile
 and required comparison suite are implemented and pass.
+
+
+At `60140f4ff670607af866afcae006fe80fa6be339`, the hostile multi-package
+qualification passed with parent peak RSS **223,744 KiB**. All five initial Krita
+fixtures rendered, but the reference job failed during application teardown;
+those artifacts do not constitute a passing parity gate. The harness now closes
+views/windows through the normal application lifecycle and expands to 68
+original parameter cases. Expected source IDs are checked exactly against the
+generated manifest; duplicate or missing cases fail. Native conversion
+measurements remain separate from foreign semantic support and reference parity.
+
+The real Linux application integration workload passed at
+`c2014651285a44deee6f8195861fc413972ccffe`, including native strokes, exact undo/redo,
+frame/level cancellation and save/reopen. Windows/macOS application runs and
+physical tablet-to-display qualification remain separate release gates.

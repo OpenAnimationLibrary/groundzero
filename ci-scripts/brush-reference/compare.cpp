@@ -139,6 +139,14 @@ int main(int argc, char **argv) {
                 oracle["version"].toString() == "5.3.4.1",
             "Source reference incomplete or wrong version");
     QJsonArray results;
+    QFile manifest(root.filePath("output/fixtures.json"));
+    require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
+    auto fixtures = QJsonDocument::fromJson(manifest.readAll()).object();
+    auto expected = fixtures["presets"].toArray();
+    require(!expected.empty(), "Empty fixture manifest");
+    QStringList remaining;
+    for (const auto &name : expected)
+      remaining.append(name.toString());
     QImage initial(2048, 2048, QImage::Format_ARGB32);
     const QRgb colors[] = {qRgba(0, 0, 255, 255), qRgba(0, 255, 0, 128),
                            qRgba(255, 0, 0, 255), qRgba(0, 0, 0, 0)};
@@ -150,23 +158,27 @@ int main(int argc, char **argv) {
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
       QString name = source["preset"].toString(), error;
+      require(remaining.removeOne(name), "Unexpected or duplicate source case");
       auto imported = importBrushFile(
           root.filePath("data/krita/paintoppresets/" + name + ".kpp"), error);
       require(error.isEmpty() && imported.records.size() == 1,
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
-      p.size.value = 32;
+      p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
-      p.opacity.value = p.flow.value = 1;
+      p.opacity.value = source["opacity"].toDouble();
+      p.flow.value = source["flow"].toDouble();
       Canvas canvas(initial);
       Stroke stroke(canvas, p);
       Sample first, last;
-      first.x = 256;
-      first.y = 1024;
+      first.x = source["start"].toArray()[0].toDouble();
+      first.y = source["start"].toArray()[1].toDouble();
       first.hasPressure = true;
-      first.pressure = 1;
+      first.pressure = source["pressure"].toArray()[0].toDouble();
       last = first;
-      last.x = 1792;
+      last.x = source["end"].toArray()[0].toDouble();
+      last.y = source["end"].toArray()[1].toDouble();
+      last.pressure = source["pressure"].toArray()[1].toDouble();
       last.time = 1;
       QElapsedTimer timer;
       timer.start();
@@ -183,6 +195,7 @@ int main(int argc, char **argv) {
           compare(initial, reference.convertToFormat(QImage::Format_ARGB32),
                   candidate, root.filePath("output/diff-" + basename));
       metrics["preset"] = name;
+      metrics["inputCase"] = source;
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
@@ -192,7 +205,8 @@ int main(int argc, char **argv) {
           QJsonArray::fromStringList(imported.records.front().diagnostics);
       results.append(metrics);
     }
-    require(results.size() == 5, "Incomplete comparison workload");
+    require(remaining.empty() && results.size() == expected.size(),
+            "Incomplete comparison workload");
     QFile report(root.filePath("output/comparison.json"));
     require(report.open(QIODevice::WriteOnly),
             "Cannot write comparison report");

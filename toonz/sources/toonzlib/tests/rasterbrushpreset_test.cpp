@@ -49,6 +49,27 @@ QByteArray gbr(unsigned version = 2, unsigned channels = 1) {
     b.append("\xff\0\0\xff\0\xff\0\0", 8);
   return b;
 }
+QByteArray sampledAbr() {
+  QByteArray abr, sample;
+  auto be = [](QByteArray &out, unsigned n, int length) {
+    for (int i = length - 1; i >= 0; --i) out.append(char(n >> (8 * i)));
+  };
+  be(sample, 0, 4);
+  be(sample, 25, 2);
+  be(sample, 1, 1);
+  for (int n : {0, 0, 1, 2}) be(sample, n, 2);
+  for (int n : {0, 0, 1, 2}) be(sample, n, 4);
+  be(sample, 8, 2);
+  be(sample, 0, 1);
+  sample.append(char(255));
+  sample.append(char(0));
+  be(abr, 1, 2);
+  be(abr, 1, 2);
+  be(abr, 2, 2);
+  be(abr, sample.size(), 4);
+  abr += sample;
+  return abr;
+}
 QByteArray kpp(const QString &engine = "paintbrush") {
   QImage image(2, 2, QImage::Format_ARGB32);
   image.fill(Qt::transparent);
@@ -203,6 +224,12 @@ void testBundles() {
 }
 void testImports() {
   QString error;
+  const size_t abrBytes = 2 * (sizeof(Pixel) + 1);
+  require(importBrush(sampledAbr(), "abr", error, nullptr, abrBytes).complete,
+          "exact ABR scratch/resource budget rejected");
+  require(
+      !importBrush(sampledAbr(), "abr", error, nullptr, abrBytes - 1).complete,
+      "retained ABR byte masks not charged to allocation budget");
   auto dry = importBrush(kpp(), "kpp", error);
   require(dry.complete, qPrintable(error));
   require(!dry.records[0].provenance["sourceSemanticallySupported"].toBool(),
@@ -558,25 +585,7 @@ void writeCorpus(const QString &directory) {
                 {"META-INF/manifest.xml", manifest},
                 {"paintoppresets/original.kpp", kpp()}},
                true));
-  QByteArray abr, sample;
-  auto be = [](QByteArray &out, unsigned n, int length) {
-    for (int i = length - 1; i >= 0; --i) out.append(char(n >> (8 * i)));
-  };
-  be(sample, 0, 4);
-  be(sample, 25, 2);
-  be(sample, 1, 1);
-  for (int n : {0, 0, 1, 2}) be(sample, n, 2);
-  for (int n : {0, 0, 1, 2}) be(sample, n, 4);
-  be(sample, 8, 2);
-  be(sample, 0, 1);
-  sample.append(char(255));
-  sample.append(char(0));
-  be(abr, 1, 2);
-  be(abr, 1, 2);
-  be(abr, 2, 2);
-  be(abr, sample.size(), 4);
-  abr += sample;
-  save("sample-abr", 5, abr);
+  save("sample-abr", 5, sampledAbr());
 }
 }  // namespace
 int main(int argc, char **argv) {

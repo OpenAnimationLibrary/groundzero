@@ -153,7 +153,10 @@ jobs:
           if not path.exists():
               raise SystemExit('::error::Reference plugin produced no status; inspect runtime exit and startup log')
           result = json.loads(path.read_text())
-          if result['status'] != 'complete' or len(result['records']) != 5:
+          fixtures = json.loads((path.parent / 'fixtures.json').read_text())
+          expected = fixtures['presets']
+          actual = [record['preset'] for record in result['records']]
+          if result['status'] != 'complete' or actual != expected or len(set(actual)) != len(expected):
               raise SystemExit('Incomplete source reference workload: ' + str(result))
           PY
           test "$runtime_status" -eq 0

@@ -12,7 +12,7 @@ def chunk(kind, data):
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
 
-def preset(name, mode, modern):
+def preset(name, mode, modern, overrides=None, diameter=32, spacing=0.1):
     root = Element("Preset", name=name, paintopid="paintbrush" if mode == "dry" else "colorsmudge")
     fields = {
         "paintop": root.attrib["paintopid"], "CompositeOp": "normal", "EraserMode": "false",
@@ -29,6 +29,8 @@ def preset(name, mode, modern):
         "SmudgeRateValue": "0.5", "ColorRateValue": "0.25", "SmudgeRadiusValue": "1",
         "brush_definition": '<Brush type="auto_brush" BrushVersion="2" spacing="0.1" angle="0" randomness="0" density="1" useAutoSpacing="0"><MaskGenerator id="default" type="circle" diameter="32" ratio="1" hfade="1" vfade="1" antialiasEdges="1" spikes="2"/></Brush>',
     }
+    fields["brush_definition"] = fields["brush_definition"].replace('diameter="32"', f'diameter="{diameter}"').replace('spacing="0.1"', f'spacing="{spacing}"')
+    fields.update(overrides or {})
     for key, value in fields.items():
         SubElement(root, "param", name=key, type="string" if key in ("paintop", "CompositeOp", "brush_definition") else "internal").text = value
     xml = tostring(root, encoding="utf-8")
@@ -50,9 +52,31 @@ source = Path(__file__).resolve().parent
 shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_reference", dirs_exist_ok=True)
 (resources / "pykrita" / "gzbrush_reference.desktop").write_text("[Desktop Entry]\nType=Service\nServiceTypes=Krita/PythonPlugin\nX-KDE-Library=gzbrush_reference\nX-Python-2-Compatible=false\nName=Brush Reference Fixtures\nComment=Render original API-line fixtures for brush qualification\n")
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
-names = []
+names, cases = [], []
 for mode, modern in [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]:
-    name = "GZ Original " + mode + (" new" if modern else " legacy")
-    (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern))
-    names.append(name)
-(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "presets": names, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Node.paintLine API; not physical tablet delivery"}, indent=2))
+    base = "GZ Original " + mode + (" new" if modern else " legacy")
+    variants = [
+        ("baseline", {}, 32, .1, [1, 1], 1, 1),
+        ("diameter 7", {}, 7, .1, [1, 1], 1, 1),
+        ("diameter 128", {}, 128, .1, [1, 1], 1, 1),
+        ("spacing 025", {}, 32, .25, [1, 1], 1, 1),
+        ("spacing 100", {}, 32, 1, [1, 1], 1, 1),
+        ("opacity half", {}, 32, .1, [1, 1], .5, 1),
+        ("flow half", {}, 32, .1, [1, 1], 1, .5),
+        ("pressure ramp", {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}, 32, .1, [.1, 1], 1, 1),
+    ]
+    if mode != "dry":
+        for value in ("0", "1"):
+            variants.append(("pickup " + value, {"SmudgeRateValue": value}, 32, .1, [1, 1], 1, 1))
+            variants.append(("color rate " + value, {"ColorRateValue": value}, 32, .1, [1, 1], 1, 1))
+        variants.append(("smear alpha off", {"SmudgeRateSmearAlpha": "false"}, 32, .1, [1, 1], 1, 1))
+        variants.append(("smudge length off", {"PressureSmudgeRate": "false"}, 32, .1, [1, 1], 1, 1))
+        if mode == "dulling":
+            for value in ("0", "3"):
+                variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
+    for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
+        name = base if label == "baseline" else base + " " + label
+        (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing))
+        names.append(name)
+        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [1792, 1024], "overrides": overrides})
+(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Node.paintLine API; not physical tablet delivery"}, indent=2))

@@ -612,9 +612,9 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       std::string why;
       AbrParser::Limits limits;
       limits.maxFileBytes    = fileLimit;
-      limits.maxDecodedBytes = std::min(size_t(8 * 1024 * 1024),
-                                        maximumDecodedBytes / sizeof(Pixel));
-      limits.maxRecords      = 256;
+      limits.maxDecodedBytes = std::min(
+          size_t(8 * 1024 * 1024), maximumDecodedBytes / (sizeof(Pixel) + 1));
+      limits.maxRecords = 256;
       if (!AbrParser::parseAbr(
               reinterpret_cast<const unsigned char *>(bytes.constData()),
               bytes.size(), parsed, why, limits))
@@ -627,11 +627,15 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
             << "The ABR contains behavior or records that are not represented "
                "by these native tip conversions.";
       Reader allocator{bytes};
-      allocator.limit = maximumDecodedBytes;
+      size_t grayBytes = 0;
+      for (const auto &tip : parsed.tips) grayBytes += tip.pixels.size();
+      // The parser's byte masks remain alive while native float tips are made.
+      // Reserve both representations, not just the final resource graph.
+      allocator.limit = maximumDecodedBytes - grayBytes;
       for (const auto &tip : parsed.tips) {
         checkCancelled();
-        auto r                              = converted(bytes, kind);
-        r.preset.name                       = tip.name;
+        auto r        = converted(bytes, kind);
+        r.preset.name = tip.name;
         r.diagnostics.append(result.diagnostics);
         r.provenance["containerVersion"]    = parsed.version;
         r.provenance["containerSubversion"] = parsed.subVersion;

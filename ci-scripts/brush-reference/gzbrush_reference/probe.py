@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor
-from PyQt5.QtCore import QByteArray, QPoint, QTimer
+from PyQt5.QtCore import QByteArray, QCoreApplication, QEvent, QPoint, QTimer
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtWidgets import QApplication
 
@@ -43,7 +43,6 @@ class Probe(Extension):
                 progress.write(stage + "\n")
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
         document = None
-        exit_code = 1
         try:
             checkpoint("reference plugin started: " + build)
             if version != "5.3.4.1":
@@ -52,7 +51,8 @@ class Probe(Extension):
             resources = app.resources("preset")
             by_name = {resource.name(): resource for resource in resources.values()}
             w, h = fixtures["width"], fixtures["height"]
-            for name in fixtures["presets"]:
+            for case in fixtures["cases"]:
+                name = case["preset"]
                 if name not in by_name:
                     raise RuntimeError("Original reference preset was not loaded: " + name)
                 checkpoint(name + ": create document")
@@ -73,15 +73,15 @@ class Probe(Extension):
                 document.waitForDone()
                 checkpoint(name + ": select preset")
                 view.setCurrentBrushPreset(by_name[name])
-                view.setBrushSize(32)
-                view.setPaintingOpacity(1.0)
-                view.setPaintingFlow(1.0)
+                view.setBrushSize(case["diameter"])
+                view.setPaintingOpacity(case["opacity"])
+                view.setPaintingFlow(case["flow"])
                 view.setForeGroundColor(ManagedColor.fromQColor(QColor(220, 40, 30, 255), view.canvas()))
                 view.canvas().setZoomLevel(1.0)
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
-                node.paintLine(QPoint(256, 1024), QPoint(1792, 1024), 1.0, 1.0, "ForegroundColor")
+                node.paintLine(QPoint(*case["start"]), QPoint(*case["end"]), *case["pressure"], "ForegroundColor")
                 document.waitForDone()
                 checkpoint(name + ": read painted pixels")
                 raw = bytes(node.pixelData(0, 0, w, h))
@@ -91,14 +91,18 @@ class Probe(Extension):
                 filename = name.replace(" ", "_") + ".png"
                 if not image.save(str(output / filename), "PNG"):
                     raise RuntimeError("Cannot save reference fixture")
-                report["records"].append({"preset": name, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "pressure": [1, 1]})
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine"})
                 checkpoint(name + ": saved output")
                 document.setModified(False)
                 document.close()
+                # Release API wrappers and let deferred view/thumbnail cleanup
+                # finish while QApplication and its display services exist.
+                node = view = None
                 document = None
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                QApplication.processEvents()
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
-            exit_code = 0
         except Exception as error:
             report["status"] = "failed"
             report["error"] = str(error)
@@ -108,5 +112,10 @@ class Probe(Extension):
             if document is not None:
                 document.setModified(False)
                 document.close()
+                node = view = document = None
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             faulthandler.cancel_dump_traceback_later()
-            QTimer.singleShot(0, lambda: QApplication.exit(exit_code))
+            # Closing the main window runs Krita's normal document/view cleanup;
+            # exit() skips it and left display consumers alive during teardown.
+            # CI independently requires a complete status AND a zero exit code.
+            QTimer.singleShot(0, QApplication.closeAllWindows)

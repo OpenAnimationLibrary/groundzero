@@ -1,8 +1,12 @@
 # Original brush reference fixtures
 
 The `Raster Brush Reference` workflow runs the official pinned Krita 5.3.4.1
-Linux application in an isolated CI profile. It generates five original presets:
-Pixel, legacy Smear, legacy Dulling, new Smear and new Dulling. The generated
+Linux application in an isolated CI profile. It generates 68 original parameter cases across five profiles:
+Pixel, legacy Smear, legacy Dulling, new Smear and new Dulling. Each includes
+diameter, spacing, opacity, flow and pressure-ramp probes. Wet profiles also
+probe pickup/color-rate endpoints, smear alpha and the smudge-length toggle;
+Dulling adds radius endpoints. These isolate observable parameter relationships
+for the independent implementation. The generated
 presets and input strip images are dedicated to CC0-1.0. No downloaded brush
 packs or third-party implementation source are included.
 
@@ -20,8 +24,8 @@ native conversions and retains candidate images, full-canvas differences and
 p99, changed-pixel IoU and both extents, using the union of changed pixels dilated
 by two pixels. Missing output fails the workload. Numerical differences are
 reported without a parity pass: the imports remain explicitly converted and
-unverified. This five-fixture workload is initial measurement, not the full
-diameter/spacing/pressure/long-stroke qualification matrix.
+unverified. This parameter workload is initial measurement, not the full
+combination, sensor, texture and long-stroke qualification matrix.
 
 The application is fetched from the official versioned HTTPS download location;
 its recorded hash is evidence of the executed binary, not a prevalidated hash
@@ -35,5 +39,5 @@ References:
 - [Python plugin registration](https://docs.krita.org/en/user_manual/python_scripting/krita_python_plugin_howto.html)
 
 Run through the repository CI workflow; project instructions prohibit local
-builds and tests. A successful workflow only establishes the five listed source
+builds and tests. A successful workflow only establishes the listed source
 fixtures. It never promotes imported presets to reference-verified status.
