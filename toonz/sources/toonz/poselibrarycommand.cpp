@@ -4,6 +4,7 @@
 #include "tundo.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
+#include <QDialog>
 
 #include <algorithm>
 #include <limits>
@@ -63,6 +64,35 @@ public:
   }
   QString getHistoryString() override { return m_label; }
 };
+}
+
+PoseLibraryEditContext::PoseLibraryEditContext()
+    : m_scene(TApp::instance()->getCurrentScene()->getScene()),
+      m_before(m_scene ? *m_scene->getPoseLibrary() : PoseLibrary()),
+      m_valid(m_scene != nullptr) {
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+          this, [this]() { invalidate(); });
+  connect(PoseLibraryNotifier::instance(), &PoseLibraryNotifier::changed,
+          this, [this]() { invalidate(); });
+}
+
+void PoseLibraryEditContext::invalidate() {
+  m_valid = false;
+  if (m_dialog) m_dialog->reject();
+}
+
+bool PoseLibraryEditContext::isCurrent() const {
+  // Never dereference the captured scene before the lifetime/context checks.
+  return m_valid && TApp::instance()->getCurrentScene()->getScene() == m_scene &&
+         equal(m_before, *m_scene->getPoseLibrary());
+}
+
+int PoseLibraryEditContext::exec(QDialog &dialog) {
+  if (!isCurrent()) return QDialog::Rejected;
+  m_dialog = &dialog;
+  const int result = dialog.exec();
+  m_dialog.clear();
+  return isCurrent() ? result : QDialog::Rejected;
 }
 
 bool replacePoseLibrary(ToonzScene *scene, const PoseLibrary &library,

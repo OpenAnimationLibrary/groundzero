@@ -60,6 +60,8 @@
 #include "toonz/txshsoundlevel.h"
 #include <QApplication>
 #include <QDialog>
+#include <QEvent>
+#include <QFileDialog>
 #include <QCheckBox>
 #include <QFile>
 #include <QJsonDocument>
@@ -69,10 +71,13 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QPersistentModelIndex>
 #include <QItemSelectionModel>
 #include <QPushButton>
+#include <QPointer>
+#include <QSlider>
 #include <QTemporaryDir>
 #include <QTextEdit>
 #include <QTimer>
@@ -127,6 +132,76 @@ void writePoses(const TFilePath &file, const PoseLibrary &library) {
   library.saveData(stream);
   stream.closeChild();
   require(stream.checkStatus(), "pose import fixture could not be written");
+}
+
+// Queue the real affirmative button, then invalidate the target before its
+// delivery. Each callback has a QObject lifetime and exceptions stay outside Qt.
+void interruptPoseDialog(const QString &objectName, const QString &choice,
+                         bool mustClose, const std::function<void()> &change,
+                         const std::function<void()> &operation,
+                         const std::function<void(QDialog *)> &prepare = {}) {
+  QTimer inspect, deadline;
+  bool observed = false, changed = false, closed = false, accepted = false;
+  QString failure;
+  QObject::connect(&inspect, &QTimer::timeout, &inspect, [&]() {
+    if (observed) return;
+    auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    if (!dialog) return;
+    observed = true;
+    if (prepare) {
+      try { prepare(dialog); }
+      catch (const std::exception &error) {
+        failure = QString::fromUtf8(error.what()); dialog->reject(); return;
+      }
+    }
+    QPointer<QDialog> guarded(dialog);
+    QPointer<QPushButton> accept;
+    for (auto *button : dialog->findChildren<QPushButton *>())
+      if (button->isVisible() && button->isEnabled() &&
+          button->text().remove('&') == choice) { accept = button; break; }
+    if (dialog->objectName() != objectName || !accept) {
+      failure = QString("Unexpected pose modal %1 / choice %2")
+                    .arg(dialog->objectName(), choice);
+      dialog->reject();
+      return;
+    }
+    QTimer::singleShot(0, &inspect, [&, guarded, accept]() {
+      try {
+        require(guarded && accept, "pose modal disappeared before interruption");
+        require(QMetaObject::invokeMethod(accept, "click", Qt::QueuedConnection),
+                "could not queue actual pose confirmation");
+        change();
+        changed = true;
+        closed = !guarded || !guarded->isVisible();
+        // Reject alone is not a latch. Force delivery in this same modal turn,
+        // while the real button still exists, so a late Accepted result must
+        // still be rejected by the operation's context validation.
+        QCoreApplication::sendPostedEvents(accept, QEvent::MetaCall);
+        accepted = guarded && guarded->result() == QDialog::Accepted;
+      } catch (const std::exception &error) {
+        failure = QString::fromUtf8(error.what());
+        if (guarded) guarded->reject();
+      }
+    });
+  });
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &deadline, [&]() {
+    failure = "Pose context dialog exceeded its 15-second deadlock deadline";
+    if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+      dialog->reject();
+  });
+  inspect.start(0);
+  deadline.start(15000);
+  operation();
+  inspect.stop();
+  deadline.stop();
+  QApplication::processEvents();  // Deliver or discard the queued button click.
+  if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
+  if (!observed || !changed || !accepted || (mustClose && !closed))
+    throw std::runtime_error(QString(
+        "Pose interruption %1: observed=%2 changed=%3 accepted=%4 closed=%5")
+        .arg(objectName).arg(int(observed)).arg(int(changed)).arg(int(accepted))
+        .arg(int(closed)).toStdString());
 }
 void exerciseDirectoryRefresh(ToonzScene *scene, const QString &folder) {
   const QString rootPath = QDir(folder).filePath("browser-refresh");
@@ -270,6 +345,13 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   const int history = TUndoManager::manager()->getHistoryCount();
   dialogs({QObject::tr("Cancel")}, [&]() { require(!LibraryCmd::loadPoseSet(file), "cancelled pose import succeeded"); });
   require(TUndoManager::manager()->getHistoryCount() == history, "cancelled pose import changed undo history");
+  dialogs({QObject::tr("Keep the Scene Poses")}, [&]() {
+    require(LibraryCmd::loadPoseSet(file), "keeping existing pose conflict failed");
+  });
+  require(TUndoManager::manager()->getHistoryCount() == history &&
+              scene->getPoseLibrary()->getPose(0).m_entries.front().m_value == 2.0 &&
+              scene->getPoseLibrary()->getBase().front().m_value == 3.0,
+          "keeping existing poses changed their authored values/base/history");
   dialogs({QObject::tr("Replace")}, [&]() { require(LibraryCmd::loadPoseSet(file), "pose replace failed"); });
   requireNear(scene->getPoseLibrary()->getPose(0).m_entries.front().m_value, 8.0, "pose replace value missing");
   requireNear(scene->getPoseLibrary()->getBase().front().m_value, 3.0, "replace changed existing base");
@@ -400,7 +482,221 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   authoredReload.load(sceneFile);
   require(serialized(*authoredReload.getPoseLibrary()) == authored,
           "directly authored base and poses did not survive scene reload");
+
+  // The visible weight control previews the requested amount without writing
+  // keys; Apply commits that amount once and its native undo restores curves.
+  QSlider *weight = nullptr;
+  QPushButton *apply = nullptr, *cancelDelete = nullptr;
+  for (auto *candidate : pane.findChildren<QSlider *>("poseWeight1"))
+    if (candidate->isVisible()) weight = candidate;
+  for (auto *candidate : pane.findChildren<QPushButton *>("applyPose1"))
+    if (candidate->isVisible()) apply = candidate;
+  for (auto *candidate : pane.findChildren<QPushButton *>("deletePose1"))
+    if (candidate->isVisible()) cancelDelete = candidate;
+  require(weight && apply && cancelDelete, "native authored pose controls missing");
+  const int applyIndex = undo->getCurrentHistoryIndex();
+  const int applyHistory = undo->getHistoryCount();
+  dialogs({QObject::tr("Cancel")}, [&]() { cancelDelete->click(); });
+  require(!app->getCurrentScene()->getDirtyFlag() &&
+              undo->getCurrentHistoryIndex() == applyIndex &&
+              undo->getHistoryCount() == applyHistory &&
+              serialized(*scene->getPoseLibrary()) == authored,
+          "cancelled native pose deletion changed ordered library/history/dirty state");
+  weight->setValue(50);
+  require(x->getKeyframeCount() == 0 && y->getKeyframeCount() == 0 &&
+              undo->getCurrentHistoryIndex() == applyIndex &&
+              serialized(*scene->getPoseLibrary()) == authored,
+          "pose weight control mutated keys or library before Apply");
+  apply->click();
+  require(undo->getCurrentHistoryIndex() == applyIndex + 1 &&
+              x->getKeyframeCount() == 1 && y->getKeyframeCount() == 1,
+          "native pose Apply did not create one undoable key operation");
+  requireNear(x->getValue(app->getCurrentFrame()->getFrame()), 17.5,
+              "weighted native pose Apply lost X offset");
+  requireNear(y->getValue(app->getCurrentFrame()->getFrame()), -1.0,
+              "weighted native pose Apply lost Y offset");
+  const auto appliedX = x->getKeyframe(0), appliedY = y->getKeyframe(0);
+  require(undo->undo() && x->getKeyframeCount() == 0 && y->getKeyframeCount() == 0 &&
+              serialized(*scene->getPoseLibrary()) == authored,
+          "pose Apply undo did not restore untouched authoring state");
+  require(undo->redo() && sameKey(x->getKeyframe(0), appliedX) &&
+              sameKey(y->getKeyframe(0), appliedY) && undo->undo(),
+          "pose Apply repeated history changed exact authored keys");
   pane.hide();
+}
+
+void exercisePoseDialogContexts(const QString &folder) {
+  auto *app = TApp::instance();
+  auto *handle = app->getCurrentScene();
+  auto *undo = TUndoManager::manager();
+  const auto target = TStageObjectId::CameraId(0);
+  PoseLibrary original;
+  original.setBase({{target, "x", 1.0}, {target, "y", -2.0}});
+  original.addPose({"First", {{target, "x", 2.0}, {target, "y", 3.0}}});
+  original.addPose({"Second", {{target, "x", -4.0}}});
+  PoseLibrary edited;
+  edited.setBase({{target, "y", 17.0}, {target, "x", -9.0}});
+  edited.addPose(original.getPose(1));  // Deliberately invalidate the old index.
+  edited.addPose({"Earlier edit", {{target, "y", 7.0}}});
+  const TFilePath importPath(QDir(folder).filePath("pose-context-import.tposes"));
+  writePoses(importPath, original);
+  const TFilePath statePath(QDir(folder).filePath("pose-context-state.tposes"));
+  auto serialized = [&](const PoseLibrary &library) {
+    writePoses(statePath, library);
+    QFile input(statePath.getQString());
+    require(input.open(QIODevice::ReadOnly), "pose context state read failed");
+    return input.readAll();
+  };
+  const QByteArray originalBytes = serialized(original), editedBytes = serialized(edited);
+  auto findVisible = [](PosesPane &pane, const QString &name) {
+    for (auto *button : pane.findChildren<QPushButton *>())
+      if (button->isVisible() &&
+          (button->objectName() == name || button->text() == name)) return button;
+    throw std::runtime_error("pose context native control missing");
+  };
+  auto initialize = [&]() {
+    auto *scene = handle->getScene();
+    require(scene && scene->getLevelSet()->getLevelCount() == 0,
+            "pose context fixture needs an empty scene");
+    *scene->getPoseLibrary() = original;
+    scene->getTopXsheet()->getStageObject(target)->getParam(TStageObject::T_X)
+        ->setDefaultValue(8.0);
+    app->getCurrentObject()->setObjectId(target);
+    TSelection::setCurrent(nullptr);
+    PoseLibraryNotifier::instance()->notifyChanged();
+    undo->reset();
+    handle->setDirtyFlag(false);
+    return scene;
+  };
+
+  // All three editing dialogs must preserve concurrent changes. Exercise
+  // the native notifier, final snapshot guard for silent remaps, and a notified
+  // edit/undo returning to identical bytes before the queued acceptance.
+  for (int mutation = 0; mutation < 3; ++mutation) for (int command = 0; command < 3; ++command) {
+    const bool notify = mutation != 0, restored = mutation == 2;
+    const QByteArray &expectedBytes = restored ? originalBytes : editedBytes;
+    auto *scene = initialize();
+    PosesPane pane;
+    pane.show();
+    const QString objectName = command == 0 ? "poseNameDialog" :
+        command == 1 ? "deletePoseDialog" : "importPoseConflictDialog";
+    const QString choice = command == 0 ? QObject::tr("OK") :
+        command == 1 ? PosesPane::tr("Delete") : QObject::tr("Replace");
+    bool imported = false;
+    const int index = undo->getCurrentHistoryIndex(), count = undo->getHistoryCount();
+    QPointer<QPushButton> staleApply(findVisible(pane, "applyPose0"));
+    QPointer<QPushButton> staleDelete(findVisible(pane, "deletePose0"));
+    interruptPoseDialog(objectName, choice, notify, [&]() {
+      if (notify) {
+        require(replacePoseLibrary(scene, edited, "Concurrent pose edit"),
+                "native concurrent pose edit failed");
+        require(staleApply && staleDelete &&
+                    QMetaObject::invokeMethod(staleApply, "click", Qt::QueuedConnection) &&
+                    QMetaObject::invokeMethod(staleDelete, "click", Qt::QueuedConnection),
+                "could not queue actions on the replaced native pose rows");
+        if (restored)
+          require(undo->undo() && serialized(*scene->getPoseLibrary()) == originalBytes,
+                  "concurrent pose edit could not restore its exact initial state");
+      } else
+        *scene->getPoseLibrary() = edited;
+    }, [&]() {
+      if (command == 2) imported = LibraryCmd::loadPoseSet(importPath);
+      else findVisible(pane, command == 0 ? PosesPane::tr("Add Pose...") :
+                                           QString("deletePose0"))->click();
+    });
+    require(!imported && serialized(*scene->getPoseLibrary()) == expectedBytes &&
+                undo->getCurrentHistoryIndex() == index + int(notify && !restored) &&
+                undo->getHistoryCount() == count + int(notify) &&
+                handle->getDirtyFlag() == notify,
+            "stale pose confirmation overwrote concurrent library/history/dirty state");
+    auto *camera = scene->getTopXsheet()->getStageObject(target);
+    require(camera->getParam(TStageObject::T_X)->getKeyframeCount() == 0 &&
+                camera->getParam(TStageObject::T_Y)->getKeyframeCount() == 0,
+            "queued action from a replaced pose row applied stale keys");
+    if (notify) {
+      const bool firstStep = restored ? undo->redo() : undo->undo();
+      require(firstStep && serialized(*scene->getPoseLibrary()) ==
+                  (restored ? editedBytes : originalBytes),
+              "rejected pose operation contaminated concurrent edit first history step");
+      const bool secondStep = restored ? undo->undo() : undo->redo();
+      require(secondStep && serialized(*scene->getPoseLibrary()) == expectedBytes,
+              "rejected pose operation contaminated concurrent edit undo/redo");
+    }
+    const TFilePath saved(QDir(folder).filePath("pose-context-edited.tnz"));
+    scene->saveCopy(saved);
+    ToonzScene reload;
+    reload.setProject(scene->getProject());
+    reload.load(saved);
+    require(serialized(*reload.getPoseLibrary()) == expectedBytes,
+            "concurrent ordered pose/base state failed native reload");
+    pane.hide();
+  }
+
+  // A real New Scene destroys the old scene later. The pending acceptance
+  // must already be invalidated, and cannot append, remove or import into the
+  // new scene even when its library uses exactly the same pose names.
+  const bool nativeDialogs = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+  struct RestoreDialogs {
+    bool value;
+    ~RestoreDialogs() { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, value); }
+  } restoreDialogs{nativeDialogs};
+  QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+  for (int command = 0; command < 5; ++command) {
+    auto *oldScene = initialize();
+    PosesPane pane;
+    pane.show();
+    const QString objectName = command == 0 ? "poseNameDialog" :
+        command == 1 ? "deletePoseDialog" : command == 2 ? "importPoseConflictDialog" :
+        command == 3 ? "poseSetFileDialog" : "";
+    const QString choice = command == 1 ? PosesPane::tr("Delete") :
+        command == 2 ? QObject::tr("Replace") : command == 3 ?
+        QFileDialog::tr("Open") : QObject::tr("OK");
+    bool importedOrSaved = false;
+    int replacementHistory = -1;
+    const QDir posesFolder(LibraryCmd::getPosesFolder().getQString());
+    const QStringList filesBefore = posesFolder.entryList(QDir::Files);
+    interruptPoseDialog(objectName, choice, command != 4, [&]() {
+      IoCmd::newScene();
+      require(handle->getScene() != oldScene, "native pose context New Scene did not switch");
+      require(replacePoseLibrary(handle->getScene(), edited, "New scene pose library"),
+              "replacement scene pose initialization failed");
+      replacementHistory = undo->getCurrentHistoryIndex();
+      handle->setDirtyFlag(false);
+    }, [&]() {
+      if (command == 2) importedOrSaved = LibraryCmd::loadPoseSet(importPath);
+      else if (command == 4) importedOrSaved = LibraryCmd::savePoseSet();
+      else findVisible(pane, command == 0 ? PosesPane::tr("Add Pose...") :
+          command == 1 ? QString("deletePose0") : PosesPane::tr("Load Pose Set..."))->click();
+    }, [&](QDialog *dialog) {
+      if (command == 4) {
+        auto *name = dialog->findChild<QLineEdit *>();
+        require(name, "pose Save name input missing");
+        const QString uniqueName = QFileInfo(folder).fileName() + "-canceled-pose-save";
+        require(!QFileInfo(posesFolder.filePath(uniqueName + ".tposes")).exists(),
+                "pose Save interruption destination already exists");
+        name->setText(uniqueName);
+        return;
+      }
+      if (command != 3) return;
+      auto *file = qobject_cast<QFileDialog *>(dialog);
+      auto *name = file ? file->findChild<QLineEdit *>("fileNameEdit") : nullptr;
+      require(name, "pose file chooser filename input missing");
+      name->setText(importPath.getQString());
+      require(file->selectedFiles().size() == 1 &&
+                  QFileInfo(file->selectedFiles().front()).canonicalFilePath() ==
+                  QFileInfo(importPath.getQString()).canonicalFilePath(),
+              "pose file chooser did not select the exact fixture");
+    });
+    require(!importedOrSaved && serialized(*handle->getScene()->getPoseLibrary()) == editedBytes &&
+                undo->getCurrentHistoryIndex() == replacementHistory &&
+                !handle->getDirtyFlag() && posesFolder.entryList(QDir::Files) == filesBefore,
+            "queued stale pose choice modified the replacement scene or saved an obsolete file");
+    require(undo->undo() && handle->getScene()->getPoseLibrary()->isEmpty() &&
+                undo->redo() && serialized(*handle->getScene()->getPoseLibrary()) == editedBytes,
+            "stale pose choice contaminated replacement scene undo/redo");
+    handle->setDirtyFlag(false);
+    pane.hide();
+  }
 }
 
 void exerciseRecovery(ToonzScene *scene) {
@@ -1272,6 +1568,9 @@ bool runAnimationWorkflowIntegrationTest(QMainWindow *window, QString *error) {
     dialogs({"exportSupportedContent"}, [&]() { require(ExportFidelity::confirmLottie({"fixture unsupported effect"}), "Lottie explicit consent failed"); });
     dialogs({"cancelExportFidelity"}, [&]() { require(ExportFidelity::chooseAnimatedSvg() == ExportFidelity::Cancel, "SVG cancel accepted export"); });
     dialogs({"renderSceneForExport"}, [&]() { require(ExportFidelity::chooseAnimatedSvg() == ExportFidelity::RenderedScene, "SVG rendered fallback choice failed"); });
+    checkpoint("pose dialog context changes");
+    cleanup();
+    exercisePoseDialogContexts(temporary.path());
     checkpoint("restoring empty scene");
     cleanup();
     require(TApp::instance()->getCurrentScene()->getScene()->getXsheet()->getFrameCount() == 0,
