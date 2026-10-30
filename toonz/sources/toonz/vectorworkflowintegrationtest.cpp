@@ -47,6 +47,7 @@
 #include <QAbstractButton>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QPointer>
 #include <QImage>
 #include <QInputDialog>
 #include <QLabel>
@@ -64,6 +65,11 @@ void require(bool ok, const char *message) {
   if (!ok) throw std::runtime_error(message);
 }
 void settle() { QCoreApplication::processEvents(); }
+QByteArray readBytes(const QString &path) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly), "read native profile library");
+  return file.readAll();
+}
 QDoubleSpinBox *opacityField() {
   for (QWidget *widget : QApplication::allWidgets())
     if (widget->objectName() == "selectionOpacity" && widget->isVisible())
@@ -107,7 +113,8 @@ int pixelDifference(const QImage &a, const QImage &b) {
 }
 std::vector<AlignmentObservation> reviewAlignment(
     QAction *action, bool accept, int drawingCount,
-    const std::function<void()> &whileOpen = {}, bool expectSourceInvalidation = false) {
+    const std::function<void()> &whileOpen = {}, bool expectSourceInvalidation = false,
+    bool expectOwnerCancellation = false) {
   bool visited = false, sourceWarning = false, expired = false;
   std::exception_ptr failure;
   std::vector<AlignmentObservation> result;
@@ -204,9 +211,18 @@ std::vector<AlignmentObservation> reviewAlignment(
       if (whileOpen) whileOpen();
       auto *button = dialog->findChild<QPushButton *>(accept ? "vectorAlignmentApply" :
                                                               "vectorAlignmentCancel");
-      require(button && button->isEnabled(), "alignment preview action unavailable");
+      require(button && (button->isEnabled() || expectOwnerCancellation), "alignment preview action unavailable");
       trace("action click");
-      button->click();
+      if (expectOwnerCancellation) {
+        bool delivered = false;
+        require(!dialog->parentWidget() && !button->isEnabled(),
+                "owner-cancelled alignment still has a parent or actionable Apply");
+        require(QMetaObject::invokeMethod(button,[&] { delivered = true; button->click(); },Qt::QueuedConnection),
+                "owner-cancelled alignment could not queue its actual Apply");
+        QCoreApplication::sendPostedEvents(button,QEvent::MetaCall);
+        require(delivered && dialog->result() == QDialog::Rejected,
+                "queued Apply revived owner-cancelled alignment");
+      } else button->click();
       trace("action click returned");
     } catch (...) {
       failure = std::current_exception();
@@ -282,11 +298,12 @@ void reviewWidthManager(QAction *action, double strength, bool accept,
       // Deliberately deliver the already-queued click even if the callback
       // rejected the dialog through a context signal, or switched away/back.
       if (accept) {
-        require(QMetaObject::invokeMethod(apply,"click",Qt::QueuedConnection),
+        bool delivered = false;
+        require(QMetaObject::invokeMethod(apply,[&] { delivered = true; apply->click(); },Qt::QueuedConnection),
                 "width manager could not queue the Apply click");
         QCoreApplication::sendPostedEvents(apply,QEvent::MetaCall);
-        require(dialog->result() == QDialog::Accepted,
-                "width manager did not receive the queued Apply click");
+        require(delivered && dialog->result() == (dialog->isEnabled() ? QDialog::Accepted : QDialog::Rejected),
+                "width manager queued Apply did not respect review cancellation");
       } else dialog->reject();
     } catch (...) {
       failure = std::current_exception();
@@ -529,7 +546,8 @@ void runVectorWorkflowNativeChecks() {
     require(file.open(QIODevice::ReadOnly), "native gradient palette snapshot unavailable");
     return file.readAll();
   };
-  auto chooseUnique = [&](const QString &choice, const std::function<void()> &whileOpen = {}) {
+  auto chooseUnique = [&](const QString &choice, const std::function<void()> &whileOpen = {},
+                          bool ownerCancelled = false) {
     bool visited = false, expired = false;
     std::exception_ptr failure;
     QTimer drive, deadline; drive.setInterval(20); deadline.setSingleShot(true);
@@ -564,10 +582,19 @@ void runVectorWorkflowNativeChecks() {
         QAbstractButton *selected = choice == "Cancel" ? cancel :
             choice == "Copy Animation" ? animation :
             choice == "Current Appearance" ? appearance : nullptr;
-        require(selected && selected->isEnabled(), "native gradient choice unavailable");
+        require(selected && (selected->isEnabled() || ownerCancelled), "native gradient choice unavailable");
         // Deliver outside the timer callback, including any nested UI work.
-        require(QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection),
-                "native gradient choice could not queue its actual button");
+        if (ownerCancelled) {
+          bool delivered = false;
+          require(!question->parentWidget() && !selected->isEnabled(),
+                  "owner-cancelled gradient retained an actionable choice");
+          require(QMetaObject::invokeMethod(selected,[&] { delivered = true; selected->click(); },Qt::QueuedConnection),
+                  "owner-cancelled gradient could not queue its actual choice");
+          QCoreApplication::sendPostedEvents(selected,QEvent::MetaCall);
+          require(delivered && !question->clickedButton() && question->result() == QDialog::Rejected,
+                  "queued gradient choice revived an owner-cancelled operation");
+        } else require(QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection),
+                       "native gradient choice could not queue its actual button");
       } catch (...) { failure = std::current_exception(); question->reject(); }
     });
     QObject::connect(&deadline,&QTimer::timeout,[&] {
@@ -583,8 +610,18 @@ void runVectorWorkflowNativeChecks() {
   const int unchangedFrame = palette->getFrame();
   const bool cachedFirst = images->isCached(firstId), cachedSecond = images->isCached(secondId);
   const bool paletteDirty = palette->getDirtyFlag(), levelDirty = level->getProperties()->getDirtyFlag();
-  for (int repeat = 0; repeat < 2; ++repeat) {
-    chooseUnique("Cancel"); settle();
+  for (int repeat = 0; repeat < 4; ++repeat) {
+    QPointer<QWidget> previous = QApplication::activeWindow();
+    std::unique_ptr<QWidget> owner;
+    if (repeat >= 2) {
+      owner.reset(new QWidget); owner->resize(320,200); owner->show();
+      QApplication::setActiveWindow(owner.get()); settle();
+      require(QApplication::activeWindow() == owner.get(), "gradient fixture original owner unavailable");
+      chooseUnique(repeat == 2 ? "Copy Animation" : "Current Appearance", [&] {
+        if (repeat == 2) { owner->hide(); owner->show(); } else owner.reset();
+      },true);
+    } else chooseUnique("Cancel");
+    settle();
     require(!images->isModified(firstId) && !images->isModified(secondId) &&
                 images->isCached(firstId) == cachedFirst && images->isCached(secondId) == cachedSecond &&
                 TVectorImageP(level->getFrame(TFrameId(1),false)) == first &&
@@ -595,6 +632,7 @@ void runVectorWorkflowNativeChecks() {
                 palette->getDirtyFlag() == paletteDirty && level->getProperties()->getDirtyFlag() == levelDirty &&
                 undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
             "canceling animated Make Unique changed image/cache/palette/frame/history state");
+    owner.reset(); if (previous) QApplication::setActiveWindow(previous);
   }
   const TPaletteP originalAnimation = palette->clone();
   const std::unique_ptr<TColorStyle> currentAppearance(palette->getStyle(gradientId)->clone());
@@ -728,7 +766,8 @@ void runVectorWorkflowNativeChecks() {
   undo->reset();
   QString error;
   auto taper = WidthProfile::builtIn(WidthProfile::TAPER_BOTH);
-  require(WidthProfile::writeLibrary((TEnv::getConfigDir() + "width_profiles.txt").getQString(), {taper}, error),
+  const QString profilePath = (TEnv::getConfigDir() + "width_profiles.txt").getQString();
+  require(WidthProfile::writeLibrary(profilePath, {taper}, error),
           "native profile fixture library setup failed");
   auto *saved = CommandManager::instance()->getAction(MI_ApplySavedWidthProfile);
   require(saved && saved->isEnabled(), "visual profile command disabled");
@@ -786,6 +825,23 @@ void runVectorWorkflowNativeChecks() {
     frames.selectNone(); frames.select(TFrameId(1)); frames.select(TFrameId(2));
     mode->setValue(L"Selected Frames"); tool->onPropertyChanged("Mode:"); settle();
   };
+  for (int destroy = 0; destroy < 2; ++destroy) {
+    std::cout << "vector-width-context-native: original owner " << (destroy ? "delete" : "hide/show") << std::endl;
+    QPointer<QWidget> previous = QApplication::activeWindow();
+    std::unique_ptr<QWidget> owner(new QWidget);
+    owner->resize(320,200); owner->show(); QApplication::setActiveWindow(owner.get()); settle();
+    require(QApplication::activeWindow() == owner.get(), "width fixture failed to activate its original owner");
+    const QByteArray libraryBefore = readBytes(profilePath);
+    reviewWidthManager(saved,50.,true,[&] {
+      require(!QApplication::activeModalWidget()->parentWidget(), "width review retained QObject owner");
+      if (destroy) owner.reset(); else { owner->hide(); owner->show(); }
+    });
+    unchangedWidth("original owner cancelled");
+    require(readBytes(profilePath) == libraryBefore && !app->getCurrentScene()->getDirtyFlag(),
+            "owner-cancelled width review changed library or scene state");
+    owner.reset(); if (previous) QApplication::setActiveWindow(previous);
+    restoreWidthScope();
+  }
   // A frame switch to a repeated exposure and back still invalidates a
   // previously queued Apply. The source pointer and drawing ID end unchanged.
   for (int repeat = 0; repeat < 2; ++repeat) {
@@ -1017,6 +1073,26 @@ void runVectorWorkflowNativeChecks() {
   tool->setAlignMethod(VectorAlignment::SELECT_AREA);
   auto *align = CommandManager::instance()->getAction(MI_AlignLeft);
   require(align && align->isEnabled(), "selected-drawing alignment action disabled");
+  for (int destroy = 0; destroy < 2; ++destroy) {
+    std::cout << "vector-alignment-native: original owner " << (destroy ? "delete" : "hide/show") << std::endl;
+    std::array<TVectorImageP,3> before;
+    for (int i = 0; i < 3; ++i) before[i] = freezeWidth(level->getFrame(TFrameId(i+1),false));
+    const bool dirty = app->getCurrentScene()->getDirtyFlag();
+    const int history = undo->getHistoryCount();
+    QPointer<QWidget> previous = QApplication::activeWindow();
+    std::unique_ptr<QWidget> owner(new QWidget);
+    owner->resize(320,200); owner->show(); QApplication::setActiveWindow(owner.get()); settle();
+    require(QApplication::activeWindow() == owner.get(), "alignment fixture failed to activate its original owner");
+    reviewAlignment(align,true,2,[&] {
+      if (destroy) owner.reset(); else { owner->hide(); owner->show(); }
+    },false,true);
+    for (int i = 0; i < 3; ++i)
+      require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(i+1),false),before[i]),
+              "owner cancellation changed an alignment drawing");
+    require(undo->getHistoryCount() == history && app->getCurrentScene()->getDirtyFlag() == dirty,
+            "owner cancellation changed alignment history or dirty state");
+    owner.reset(); if (previous) QApplication::setActiveWindow(previous);
+  }
   afterFirst = level->getFrame(TFrameId(1), false); afterSecond = level->getFrame(TFrameId(2), false);
   const TStroke beforeAlignFirst(*afterFirst->getStroke(1)), beforeAlignSecond(*afterSecond->getStroke(1));
   const TVectorImageP untouchedThird = third->cloneWithGroupContext();

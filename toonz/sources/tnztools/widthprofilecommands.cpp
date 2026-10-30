@@ -135,11 +135,11 @@ void manageWidthProfiles(StrokeSelection &selection,
   }
 
   bool invalidated = false;
-  QPointer<QDialog> activeDialog;
+  QPointer<WidthProfile::Manager> activeDialog;
   QObject observer;
   const auto invalidate = [&] {
     invalidated = true;
-    if (activeDialog) activeDialog->reject();
+    if (activeDialog) activeDialog->cancelReview();
   };
   // Install before Manager construction and Capture's nested name prompt.
   QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched, &observer, invalidate);
@@ -160,9 +160,10 @@ void manageWidthProfiles(StrokeSelection &selection,
       selectedImage && level && tool && hasTargets && selection.isEditable(),
       QApplication::activeWindow());
   activeDialog = &manager;
-  if (invalidated) return;
+  if (invalidated || !manager.reviewValid()) return;
   if (captureNew) manager.captureNewProfile();
-  if (invalidated || manager.exec() != QDialog::Accepted || !manager.shouldApply()) return;
+  if (invalidated || !manager.reviewValid() || manager.exec() != QDialog::Accepted ||
+      !manager.shouldApply()) return;
   // A queued button may accept a dialog that a context signal just rejected.
   // The latch cannot be cleared by switching back to the original context.
   if (invalidated) return;

@@ -1,5 +1,6 @@
 #include "tools/widthprofilemanager.h"
 #include <QApplication>
+#include <QAbstractButton>
 #include <QElapsedTimer>
 #include <QImage>
 #include <QLineEdit>
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <utility>
 
 static void require(bool ok, const char *message) {
@@ -419,6 +421,86 @@ static void exportChecks(const QTemporaryDir &temp) {
   expectSaved(output, {selected});
 }
 
+static void ownerLifetimeChecks(const QTemporaryDir &temp) {
+  auto profile = WidthProfile::builtIn(WidthProfile::TAPER_BOTH);
+  for (int destroy = 0; destroy < 2; ++destroy) for (int scenario = 0; scenario < 6; ++scenario) {
+    std::cout << "width-profile-manager: owner " << (destroy ? "delete" : "hide/show")
+              << " nested case=" << scenario << std::endl;
+    const QString path = temp.filePath(QString("owner-%1-%2.txt").arg(destroy).arg(scenario));
+    const QString destination = temp.filePath(QString("owner-export-%1-%2.txt").arg(destroy).arg(scenario));
+    const QString incoming = temp.filePath(QString("owner-import-%1-%2.txt").arg(destroy).arg(scenario));
+    QString reason;
+    require(WidthProfile::writeLibrary(path, {profile}, reason), "owner fixture library");
+    auto imported = WidthProfile::builtIn(WidthProfile::PULSE); imported.name = "Incoming owner profile";
+    require(WidthProfile::writeLibrary(incoming, {imported}, reason), "owner fixture incoming profile");
+    { QFile file(destination); require(file.open(QIODevice::WriteOnly), "owner export sentinel");
+      file.write("existing export must survive cancellation\n"); }
+    const QByteArray original = bytes(path), exported = bytes(destination);
+    std::unique_ptr<QWidget> owner(new QWidget);
+    owner->resize(300,200); owner->show(); QApplication::setActiveWindow(owner.get());
+    WidthProfile::Manager manager(path, profile, true, owner.get());
+    require(!manager.parentWidget(), "stack manager still belongs to its disposable owner");
+    bool invalidated = false, delivered = false, expired = false;
+    auto invalidate = [&](QDialog *dialog, QAbstractButton *choice) {
+      require(dialog && choice && choice->isEnabled(), "owner cancellation lacks an actionable native choice");
+      if (destroy) owner.reset(); else { owner->hide(); owner->show(); }
+      invalidated = true;
+      require(!manager.reviewValid() && !manager.isEnabled(), "owner did not cancel the manager");
+      require(QMetaObject::invokeMethod(choice, [&, choice] {
+        delivered = true; choice->click();
+      }, Qt::QueuedConnection), "owner cancellation queued click");
+      QCoreApplication::sendPostedEvents(choice, QEvent::MetaCall);
+      require(delivered && dialog->result() == QDialog::Rejected,
+              "queued native choice revived an owner-cancelled review");
+    };
+    QTimer deadline; deadline.setSingleShot(true);
+    QObject::connect(&deadline, &QTimer::timeout, [&] { expired = true; manager.cancelReview(); });
+    QTimer::singleShot(0, &manager, [&] {
+      if (scenario == 0) {
+        clickWithDialogs(manager, "Rename…", {inputStep("Unsaved draft")});
+        require(manager.selectedProfile().name == "Unsaved draft", "owner fixture draft edit missing");
+        invalidate(&manager, button(manager, "Save and Apply"));
+      } else if (scenario == 1 || scenario == 2) {
+        clickWithDialogs(manager, scenario == 1 ? "Rename…" : "New…", {{DialogStep::Input,
+            "owner-cancelled profile input", [&](QDialog *dialog) {
+          auto *input = qobject_cast<QInputDialog *>(dialog);
+          if (scenario == 1) input->setTextValue("Should not replace profile");
+          auto *buttons = dialog->findChild<QDialogButtonBox *>();
+          invalidate(dialog, buttons ? buttons->button(QDialogButtonBox::Ok) : nullptr);
+        }}});
+      } else if (scenario == 3) {
+        clickWithDialogs(manager, "Delete…", {{DialogStep::Message,
+            "owner-cancelled delete", [&](QDialog *dialog) {
+          invalidate(dialog, qobject_cast<QMessageBox *>(dialog)->button(QMessageBox::Yes));
+        }}});
+      } else if (scenario == 4) {
+        clickWithDialogs(manager, "Import…", {{DialogStep::File,
+            "owner-cancelled import", [&](QDialog *dialog) {
+          auto *file = qobject_cast<QFileDialog *>(dialog);
+          file->setDirectory(QFileInfo(incoming).absolutePath());
+          auto *name = file->findChild<QLineEdit *>("fileNameEdit");
+          require(name, "owner import filename control"); name->setText(incoming);
+          auto *buttons = file->findChild<QDialogButtonBox *>();
+          invalidate(file, buttons ? buttons->button(QDialogButtonBox::Open) : nullptr);
+        }}});
+      } else {
+        clickWithDialogs(manager, "Export…", {fileStep(destination), {DialogStep::Message,
+            "owner-cancelled export overwrite", [&](QDialog *dialog) {
+          invalidate(dialog, qobject_cast<QMessageBox *>(dialog)->button(QMessageBox::Yes));
+        }}});
+      }
+    });
+    deadline.start(10000);
+    const int result = manager.exec(); deadline.stop();
+    require(!expired && invalidated && delivered && result == QDialog::Rejected &&
+                !manager.shouldApply() && bytes(path) == original && bytes(destination) == exported,
+            "owner cancellation changed library/export bytes or missed the real nested choice");
+    if (scenario == 0) require(manager.selectedProfile().name == "Unsaved draft",
+                              "owner cancellation changed the already prepared draft");
+    else expectProfile(manager.selectedProfile(),profile);
+  }
+}
+
 int main(int argc, char **argv) {
   // Keep the platform's real Qt file chooser and overwrite path observable.
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
@@ -541,5 +623,6 @@ int main(int argc, char **argv) {
   creationAndSaveChecks(temp);
   importChecks(temp);
   exportChecks(temp);
+  ownerLifetimeChecks(temp);
   std::cout << "Native width-profile draft, save, cancel and storage checks passed\n";
 }

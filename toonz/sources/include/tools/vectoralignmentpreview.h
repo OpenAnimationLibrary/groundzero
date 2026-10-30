@@ -3,6 +3,7 @@
 #include "tvectorimage.h"
 #include "tgl.h"
 #include "tools/vectoralignment.h"
+#include "tools/vectormodalguard.h"
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
 #include "toonzqt/planeviewer.h"
@@ -96,7 +97,8 @@ inline QString reference(VectorAlignment::Method method) {
 inline bool review(const std::vector<Entry> &entries, VectorAlignment::Type type,
                    VectorAlignment::Method method, const QString &scope) {
   if (entries.empty()) return false;
-  QDialog dialog(QApplication::activeWindow());
+  VectorModalGuard owner(QApplication::activeWindow());
+  QDialog dialog;
   dialog.setObjectName("vectorAlignmentPreview");
   dialog.setWindowTitle(tr("Preview Alignment and Distribution"));
   bool invalidated = false;
@@ -164,7 +166,7 @@ inline bool review(const std::vector<Entry> &entries, VectorAlignment::Type type
   QObject::connect(frames, QOverload<int>::of(&QComboBox::currentIndexChanged),
                    &dialog, refresh);
   refresh(0);
-  const bool accepted = dialog.exec() == QDialog::Accepted;
+  const bool accepted = owner.exec(dialog) == QDialog::Accepted;
   return accepted && !invalidated;
 }
 } // namespace VectorAlignmentPreview

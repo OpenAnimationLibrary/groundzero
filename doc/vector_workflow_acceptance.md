@@ -1,7 +1,7 @@
 # Vector workflow acceptance
 
 Implementation base: `edition` `aa01975f38d6226156e5b07df7271b8fc199d003`.
-Current integration base: `edition` `b584755dca36e9cc5da1c325a2f11c8b83cd2aa2`.
+Current integration base: `edition` `5fc674f1edefc0a45d377951b8d064ba8b202f44`.
 All eighteen rows have implementation and acceptance source. **Execution is
 pending CI**; source review and a clean diff check are not passing test results.
 Builds and tests are not run locally. Raster brush compatibility and neural
@@ -29,6 +29,29 @@ styling are outside this branch.
 | 36 | Normalized arc-length opacity envelope with native editor, rendering, PLI 150.1, split/join/reverse/Pump/Tape/morph preservation and explicit SVG fidelity contract; editor Apply requires unchanged source contents and a latched original context | `pli_opacityprofile_test.cpp`, editor/morph native fixtures, `strokeopacityeditintegrationtest.cpp`, production renderer and CLI fixtures. New real queued-Apply geometry/envelope/palette and context-change rejection, fresh Cancel/Apply/repeated undo/native reload coverage is source-reviewed; fresh execution and complete platform qualification pending. |
 
 ## Test integration
+
+### Original-window lifetime qualification (pending CI)
+
+Rows 22–25, 27–30, 33 and 36 include source-reviewed original-window
+cancellation work; fresh platform execution remains pending. Stack reviews are
+parentless QObject objects, with native transient placement instead of QWidget
+ownership. Hiding, closing or destroying the original window (including an
+ancestor of the Filmstrip) permanently cancels the current review and its nested
+prompts. Showing the owner again cannot revive it. Reopening a fresh review
+retains ordinary Apply/Cancel behavior.
+
+The native command fixtures hide/show or delete the actual active owner during
+width, fill, alignment, gradient and opacity review, and hide the actual morph
+Filmstrip or its containing area. Receiver-queued callbacks explicitly execute
+the real button click after cancellation; a disabled Apply remains Rejected.
+This strengthens the previous width context oracle, which allowed a queued
+button to mark the dialog Accepted and relied on the caller's later source
+check. Drawing, palette, image identity, history and dirty-state checks remain.
+The standalone manager also cancels naming, New, Delete, Import and nested
+Export overwrite prompts, preserving exact library and destination bytes.
+Library drafts and independent exports completed before cancellation are not
+rolled back. The scope was established by source ownership analysis, not a
+reproduced crash; it is separate from the still-unlocalized native timeout.
 
 The existing `BUILD_UI_PORT_TESTS` gate builds the standalone tests and the real
 application fixtures. `nativeuiintegrationtest.cpp` calls the vector, fill,

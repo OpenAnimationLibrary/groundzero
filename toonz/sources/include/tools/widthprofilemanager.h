@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tools/widthprofile.h"
+#include "tools/vectormodalguard.h"
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -109,6 +110,7 @@ protected:
 };
 
 class Manager final : public QDialog {
+  VectorModalGuard m_owner;
   QString m_path;
   QByteArray m_original;
   std::vector<Profile> m_profiles;
@@ -140,17 +142,18 @@ class Manager final : public QDialog {
   }
 
   void error(const QString &message) {
-    QMessageBox::warning(this, tr("Width Profiles"), message);
+    if (m_owner.canAct(*this)) QMessageBox::warning(this, tr("Width Profiles"), message);
   }
   int index() const {
     const int row = m_list->currentRow();
     return row >= 0 && row < int(m_profiles.size()) ? row : -1;
   }
   QString askName(const QString &initial) {
+    if (!m_owner.canAct(*this)) return {};
     bool ok = false;
     QString name = QInputDialog::getText(this, tr("Profile name"), tr("Name:"),
         QLineEdit::Normal, initial, &ok).trimmed();
-    if (!ok) return QString();
+    if (!ok || !m_owner.canAct(*this)) return QString();
     if (name.isEmpty() || name.startsWith('#') || name.size() > 64 ||
         name.contains('\t') || name.contains('\n') || name.contains('\r')) {
       error(tr("Use a name of 1–64 characters without tabs or line breaks, "
@@ -160,10 +163,12 @@ class Manager final : public QDialog {
     return name;
   }
   bool confirmReplace(const std::string &name) {
-    return QMessageBox::question(this, tr("Replace profile"),
+    if (!m_owner.canAct(*this)) return false;
+    const auto result = QMessageBox::question(this, tr("Replace profile"),
         tr("Replace the saved profile “%1”?").arg(QString::fromStdString(name)),
         QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) ==
         QMessageBox::Yes;
+    return result && m_owner.canAct(*this);
   }
   void refresh(int selected) {
     {
@@ -204,9 +209,10 @@ class Manager final : public QDialog {
     refresh(row);
   }
   void importProfiles() {
+    if (!m_owner.canAct(*this)) return;
     const QString path = QFileDialog::getOpenFileName(this, tr("Import Width Profiles"),
         QString(), tr("Width profiles (*.txt);;All files (*)"));
-    if (path.isEmpty()) return;
+    if (path.isEmpty() || !m_owner.canAct(*this)) return;
     std::vector<Profile> incoming;
     QByteArray bytes; QString reason;
     if (!QFileInfo::exists(path) || !readLibrary(path, incoming, bytes, reason)) {
@@ -225,7 +231,7 @@ class Manager final : public QDialog {
     refresh(0);
   }
   void commit(bool apply) {
-    if (!m_loaded || (apply && index() < 0)) return;
+    if (!m_owner.canAct(*this) || !m_loaded || (apply && index() < 0)) return;
     if (m_dirty) {
       if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) {
         error(tr("The profile folder could not be created.")); return;
@@ -248,7 +254,7 @@ class Manager final : public QDialog {
 public:
   Manager(const QString &path, const Profile &captured, bool canApply,
           QWidget *parent = nullptr)
-      : QDialog(parent), m_path(path), m_captured(captured) {
+      : QDialog(nullptr), m_owner(parent), m_path(path), m_captured(captured) {
     setWindowTitle(tr("Width Profiles"));
     setObjectName("widthProfileManager");
     resize(620, 380);
@@ -278,31 +284,34 @@ public:
       connect(b, &QPushButton::clicked, this, action); return b;
     };
     button(tr("New…"), [this] {
+      if (!m_owner.canAct(*this)) return;
       QStringList choices;
       if (!m_captured.empty()) choices << tr("Selected stroke");
       for (int i = 0; i < BUILTIN_COUNT; ++i) choices << tr(builtInName(i));
       bool ok = false;
       const QString choice = QInputDialog::getItem(this, tr("New Width Profile"),
           tr("Start from:"), choices, 0, false, &ok);
-      if (!ok) return;
+      if (!ok || !m_owner.canAct(*this)) return;
       const int row = choices.indexOf(choice);
       add(!m_captured.empty() && row == 0 ? m_captured
           : builtIn(row - (m_captured.empty() ? 0 : 1)));
     });
     button(tr("Rename…"), [this] { renameProfile(); });
     button(tr("Delete…"), [this] {
+      if (!m_owner.canAct(*this)) return;
       const int row = index(); if (row < 0) return;
       if (QMessageBox::question(this, tr("Delete Width Profile"),
           tr("Delete “%1” from this library?").arg(m_list->currentItem()->text()),
-          QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
+          QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes ||
+          !m_owner.canAct(*this)) return;
       m_profiles.erase(m_profiles.begin() + row); m_dirty = true; refresh(row);
     });
     button(tr("Import…"), [this] { importProfiles(); });
     button(tr("Export…"), [this] {
-      if (index() < 0) return;
+      if (!m_owner.canAct(*this) || index() < 0) return;
       const QString path = QFileDialog::getSaveFileName(this, tr("Export Selected Width Profile"),
           QString(), tr("Width profiles (*.txt)"));
-      if (path.isEmpty()) return;
+      if (path.isEmpty() || !m_owner.canAct(*this)) return;
       const QFileInfo destination(path), library(m_path);
       if (destination.absoluteFilePath() == library.absoluteFilePath() ||
           (!destination.canonicalFilePath().isEmpty() &&
@@ -335,8 +344,11 @@ public:
       save->setEnabled(false); apply->setEnabled(false);
     }
     refresh(0);
+    m_owner.watch(*this);
   }
-  bool shouldApply() const { return m_apply; }
+  bool shouldApply() const { return m_apply && m_owner.accepted(*this); }
+  bool reviewValid() const { return m_owner.accepted(*this); }
+  void cancelReview() { m_owner.cancel(); }
   double strength() const { return .01 * m_strength->value(); }
   bool multiply() const { return m_mode->currentIndex() == 1; }
   Profile selectedProfile() const { return index() < 0 ? Profile() : m_profiles[index()]; }

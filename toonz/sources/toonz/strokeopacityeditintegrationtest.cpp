@@ -30,10 +30,12 @@
 #include <QAction>
 #include <QEvent>
 #include <QPushButton>
+#include <QPointer>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <cmath>
 #include <stdexcept>
+#include <memory>
 
 namespace {
 void require(bool condition, const char *message) {
@@ -270,6 +272,50 @@ void opacityReviewGuards() {
   // Cancellation and a newly opened review still work after each rejected
   // attempt; the accepted edit retains the intervening source as its undo base.
   TVectorImageP before = image->clone();
+  for (int destroy = 0; destroy < 2; ++destroy) {
+    QPointer<QWidget> previous = QApplication::activeWindow();
+    std::unique_ptr<QWidget> owner(new QWidget);
+    owner->resize(320,200); owner->show(); QApplication::setActiveWindow(owner.get());
+    QCoreApplication::processEvents();
+    require(QApplication::activeWindow() == owner.get(), "opacity fixture original owner unavailable");
+    const bool dirty = app->getCurrentScene()->getDirtyFlag(), levelDirty = level->getProperties()->getDirtyFlag();
+    const TPixel32 color = palette->getStyle(1)->getMainColor();
+    bool saw = false, delivered = false, expired = false;
+    std::exception_ptr failure;
+    QTimer response, deadline; response.setSingleShot(true); deadline.setSingleShot(true);
+    QObject::connect(&deadline,&QTimer::timeout,[&] {
+      expired = true;
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+    });
+    QObject::connect(&response,&QTimer::timeout,[&] {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      try {
+        require(dialog && dialog->objectName() == "strokeOpacityEditor" && !dialog->parentWidget(),
+                "opacity owner review is missing or QObject-owned");
+        saw = true;
+        auto *fade = dialog->findChild<QPushButton *>("strokeOpacityFadeOut");
+        auto *apply = dialog->findChild<QPushButton *>("strokeOpacityApply");
+        require(fade && apply && apply->isEnabled(), "opacity owner review controls unavailable");
+        fade->click();
+        if (destroy) owner.reset(); else { owner->hide(); owner->show(); }
+        require(!apply->isEnabled(), "opacity Apply remained enabled after owner cancellation");
+        require(QMetaObject::invokeMethod(apply,[&] { delivered = true; apply->click(); },Qt::QueuedConnection),
+                "opacity owner test could not queue actual Apply");
+        QCoreApplication::sendPostedEvents(apply,QEvent::MetaCall);
+        require(delivered && dialog->result() == QDialog::Rejected,
+                "queued Apply revived owner-cancelled opacity editor");
+      } catch (...) { failure = std::current_exception(); if (dialog) dialog->reject(); }
+    });
+    deadline.start(10000); response.start(0); action->trigger(); deadline.stop();
+    if (failure) std::rethrow_exception(failure);
+    require(saw && delivered && !expired && sameDrawing(image,before) &&
+                TVectorImageP(level->getFrame(TFrameId(1),false)) == image &&
+                palette->getStyle(1)->getMainColor() == color && undo->getHistoryCount() == 0 &&
+                app->getCurrentScene()->getDirtyFlag() == dirty &&
+                level->getProperties()->getDirtyFlag() == levelDirty,
+            "owner-cancelled opacity review changed source/palette/history/dirty state");
+    owner.reset(); if (previous) QApplication::setActiveWindow(previous);
+  }
   auto finish = [&](bool apply) {
     bool saw = false;
     QTimer response; response.setSingleShot(true);

@@ -5,6 +5,7 @@
 #include "tgl.h"
 #include "toonzqt/planeviewer.h"
 #include "tools/tool.h"
+#include "tools/vectormodalguard.h"
 #include "tools/toolhandle.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/tframehandle.h"
@@ -78,7 +79,8 @@ public:
 
 inline bool review(const std::vector<Entry> &entries) {
   if (entries.empty()) return true;
-  QDialog dialog(QApplication::activeWindow());
+  VectorModalGuard owner(QApplication::activeWindow());
+  QDialog dialog;
   bool invalidated = false;
   const auto invalidate = [&] { invalidated = true; dialog.reject(); };
   if (auto *app = TTool::getApplication()) {
@@ -137,7 +139,7 @@ inline bool review(const std::vector<Entry> &entries) {
   QObject::connect(frames, QOverload<int>::of(&QComboBox::currentIndexChanged),
                    &dialog, refresh);
   refresh(0);
-  const bool accepted = dialog.exec() == QDialog::Accepted;
+  const bool accepted = owner.exec(dialog) == QDialog::Accepted;
   // A queued Apply must not revive a review rejected by a context switch,
   // including a round trip to the same frame before the click is delivered.
   return accepted && !invalidated;
