@@ -72,7 +72,8 @@ def main():
         raise AssertionError("Model failed content/style influence checks")
     result = {"runtime": importlib.metadata.version("ai-edge-litert"),
               "platform": platform.system(), "machine": platform.machine(),
-              "content_shape": list(content_shape), "embedding_shape": list(embedding.shape),
+              "content_shape": [int(value) for value in content_shape],
+              "embedding_shape": [int(value) for value in embedding.shape],
               "inference_seconds": time.monotonic() - started,
               "timed_operations": "two style predictions and four content transfers; excludes initialization",
               "mean_content_difference": effect, "mean_reference_difference": reference_effect,
@@ -80,7 +81,7 @@ def main():
               "repeat_max_difference": float(np.max(np.abs(output - repeated))),
               "quality_claim": "Operator/numerical smoke only, not artist or temporal validation"}
     (report / "inference.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    print(json.dumps(result), flush=True)
+    print("::notice title=Neural numerical evaluation::" + json.dumps(result), flush=True)
 
 
 if __name__ == "__main__":

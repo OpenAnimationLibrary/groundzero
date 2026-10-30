@@ -150,6 +150,12 @@ def main():
     if metadata["workspace_bytes"] > MAX_STORAGE or metadata["total_download_bytes"] > MAX_DOWNLOAD:
         raise RuntimeError("Runtime and model artifacts exceed the evaluation budget")
     (REPORT / "provenance.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    print("::notice title=Neural model provenance::" + json.dumps(models), flush=True)
+    measurements = {key: metadata[key] for key in
+                    ("runtime", "version", "wheel_download_bytes", "installed_bytes",
+                     "installed_bytes_excludes", "workspace_bytes", "total_download_bytes")}
+    measurements["runtime_libraries"] = wheels[0]["native_libraries"]
+    print("::notice title=Neural runtime measurements::" + json.dumps(measurements), flush=True)
     command([python, Path(__file__).with_name("smoke.py"), MODELS, REPORT])
     if size(ROOT) > MAX_STORAGE:
         raise RuntimeError("Final evaluation workspace exceeds the 500 MiB budget")
