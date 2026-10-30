@@ -6,6 +6,8 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/tframehandle.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/txsheethandle.h"
 #include "toonz/tpalettehandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txshsimplelevel.h"
@@ -198,6 +200,45 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(!restoredRaster->getFrame(TFrameId(3), false),
               "scene reopening resurrected cancelled frame");
     }
+    checkpoint("creating, undoing and redoing a new raster level");
+    Preferences::instance()->setValue(DefLevelType, OVL_XSHLEVEL);
+    app->getCurrentColumn()->setColumnIndex(1);
+    app->getCurrentFrame()->setFrame(0);
+    app->getCurrentLevel()->setLevel(nullptr);
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    settle();
+    const int levelCount = scene->getLevelSet()->getLevelCount();
+    draw(tool, false);
+    auto createdCell = scene->getXsheet()->getCell(0, 1);
+    require(createdCell.getSimpleLevel(), "stroke did not create raster level");
+    TRasterImageP createdImage(createdCell.getImage(true));
+    require(bool(createdImage), "new level has no painted raster");
+    TRaster32P createdPixels = createdImage->getRaster()->clone();
+    require(scene->getLevelSet()->getLevelCount() == levelCount + 1,
+            "new level was not added to the scene cast");
+    require(undo->undo(), "new-level undo unavailable");
+    require(scene->getXsheet()->getCell(0, 1).isEmpty() &&
+                scene->getLevelSet()->getLevelCount() == levelCount,
+            "new-level undo left scene cells or cast entries");
+    require(undo->redo(), "new-level redo unavailable");
+    auto restoredCell = scene->getXsheet()->getCell(0, 1);
+    TRasterImageP restoredImage(restoredCell.getImage(true));
+    require(restoredImage &&
+                same(createdPixels, TRaster32P(restoredImage->getRaster())) &&
+                scene->getLevelSet()->getLevelCount() == levelCount + 1,
+            "new-level redo lost painted pixels or scene cast entry");
+    checkpoint("cancelling a newly created raster level");
+    app->getCurrentColumn()->setColumnIndex(2);
+    app->getCurrentFrame()->setFrame(0);
+    app->getCurrentLevel()->setLevel(nullptr);
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    settle();
+    history = undo->getHistoryCount();
+    draw(tool, true);
+    require(scene->getXsheet()->getCell(0, 2).isEmpty() &&
+                scene->getLevelSet()->getLevelCount() == levelCount + 1 &&
+                undo->getHistoryCount() == history,
+            "cancelled new level left scene content or undo history");
     tool->onDeactivate();
     undo->reset();
     app->getCurrentScene()->setDirtyFlag(false);

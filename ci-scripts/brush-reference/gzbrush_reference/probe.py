@@ -31,9 +31,11 @@ class Probe(Extension):
             return
         self.started = True
         output = Path(os.environ["BRUSH_REFERENCE_ROOT"]) / "output"
-        report = {"status": "running", "version": app.version(), "records": []}
+        build = app.version()
+        version = build.split()[0] if build.split() else ""
+        report = {"status": "running", "version": version, "build": build, "records": []}
         try:
-            if app.version() != "5.3.4.1":
+            if version != "5.3.4.1":
                 raise RuntimeError("Reference application version mismatch")
             fixtures = json.loads((output / "fixtures.json").read_text())
             resources = app.resources("preset")

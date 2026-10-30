@@ -138,6 +138,7 @@ jobs:
           if result['status'] != 'complete' or len(result['records']) != 5:
               raise SystemExit('Incomplete source reference workload: ' + str(result))
           PY
+          test "$runtime_status" -eq 0
       - name: Report reference failure
         if: failure()
         shell: bash
@@ -169,6 +170,17 @@ jobs:
           cmake -S ci-scripts/brush-parser -B brush-comparison-build -DCMAKE_BUILD_TYPE=Release
           cmake --build brush-comparison-build --target rasterbrushreference --parallel 2 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison-build.log"
           brush-comparison-build/rasterbrushreference "$BRUSH_REFERENCE_ROOT" 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison.log"
+      - name: Report conversion measurements
+        run: |
+          python3 - <<'PYMETRICS'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'comparison.json').read_text())
+          for row in report['records']:
+              measurement = {key: value for key, value in row.items() if key != 'diagnostics'}
+              text = json.dumps(measurement, separators=(',', ':'))
+              print('::notice title=Unqualified conversion measurement::' + text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'))
+          PYMETRICS
       - name: Report comparison build failure
         if: failure()
         shell: bash
