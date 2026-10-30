@@ -51,6 +51,16 @@ fixture title check was corrected using the actual prompt and button roles;
 Qt ignores QMessageBox titles on that platform. No product workaround or
 weakened pixel, state, undo or persistence oracle substitutes for either check.
 
+Windows vector revision `0b5e2c4f` exposed two additional runtime boundaries:
+the width-manager export group encountered an unexpected nested dialog, and
+the full native process timed out after the Envelope Apply/undo checkpoint.
+The exact blocked call is not yet localized. Narrow driver/phase diagnostics
+retain the original assertions and process timeout; no product fix is inferred
+from their presence. The old Shell thumbnail failure has a reviewed standalone
+TNZ correction. Subsequent SeExpr/neural launcher failures rejected retained
+renderer DLLs before execution and do not establish new product regressions.
+All these paths require successful execution on the corrected final revisions.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -88,6 +98,7 @@ and the component ledgers.
 | Linux validation `6f95648db6736487ce680f5f979183317ffe9060` | The corrected 1080p workload passed all eight visible-stroke/color-mixing checks. Isolated Cast passed its actual Library provenance, ownership, UUID, import-undo and collection-rollback checks. Function, timing, Cast/vector and export diagnostics passed. GUI/background context contention passed. | The mandatory sequence and isolated renderer failed a later ordinary PLI-to-PNG oracle. `8c5b21283` corrects the fixture's missing saved palette-page membership and adds native reload preflight; it requires fresh execution. This candidate does not qualify later platform, EXR or performance changes. |
 | Linux validation `b12e763a63e6df3c6b086a51f4417060298c95f7` | All cropped/full-frame attachment comparisons, procedural/shader fallbacks and eight 1080p witnesses passed. Cast fresh-file/dirty/cache state, identity, Library ownership and measured edit checks passed in isolation. The input PLI reload preflight and independent Function/timing/Cast-vector/export checks passed. | The mandatory sequence and isolated renderer still failed ordinary PLI conversion: the decoded output was 1×1 despite valid source geometry and palette. Source review identified palette-less bounds calculation in the converter. Reliability/EXR and installed checks were not reached. This candidate also predates later runner cleanup and gradient-cancel corrections. |
 | Function Editor `e16fab84080d915ee15ab7f18d6dcabcfcb689ae` | Linux, macOS and Windows application and installed-package jobs passed. The native Function workflows, strict fractional-retime reload and clean application exits passed. Windows standalone widgets used their native platform successfully. | New same-xsheet owner-removal, detached-selection and interrupted preset corrections in `4d1e2fc38`/`efdd9139f` still need exact-head CI. Widget-to-image timings do not qualify interaction latency. |
+| Scene Cast `0b4e5032a34c88198204f38982e1d4d82dd7f919` | Native Cast and actual Library workflows passed on Linux, Windows and macOS. Windows/macOS Cast reliability helpers passed. Matching component-context macOS add/remove/rename measured 318/303/304 ms versus 1559/1714/1558 ms on `4016d693f`; identity/order/scroll and one-refresh checks passed. | Overall jobs failed later inherited converter/Shell paths; this is component evidence, not full platform qualification. The updated Cast branch requires its own checks once GitHub synchronizes the PR reference. |
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux's mandatory full native application step, independent artist workload, SeExpr native acceptance, required reliability gates and GLB checks passed. | Linux application and installed-package jobs passed; Windows/macOS remained pending. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
