@@ -10,11 +10,17 @@
 #include "librarycommand.h"
 #include "poselibrarycommand.h"
 #include "posespane.h"
+#include "scenecheckpane.h"
 #include "storyboardtiming.h"
 #include "tapp.h"
 #include "viewerpane.h"
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
+#include "tfx.h"
+#include "tparamcontainer.h"
+#include "tparamset.h"
+#include "ext/plasticskeleton.h"
+#include "ext/plasticskeletondeformation.h"
 #include "tpalette.h"
 #include "tstroke.h"
 #include "tstream.h"
@@ -23,15 +29,19 @@
 #include "tvectorimage.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/fxdag.h"
 #include "toonz/navigationtags.h"
 #include "toonz/preferences.h"
 #include "toonz/scenechecker.h"
 #include "toonz/tcolumnhandle.h"
+#include "toonz/tcolumnfx.h"
+#include "toonz/tcolumnfxset.h"
 #include "toonz/tcamera.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/tstageobjectid.h"
 #include "toonz/tpinnedrangeset.h"
 #include "toonz/tscenehandle.h"
@@ -628,6 +638,112 @@ void exerciseCompatibility(ToonzScene *scene) {
           "nested storyboard timing move/undo failed");
   require(scene->getXsheet()->getCell(0, 2).getFrameId() == TFrameId(1),
           "nested timing move changed parent exposure timing");
+
+  auto *unused = new TXshChildLevel;
+  unused->setName(L"UnusedCompatibilityChild");
+  scene->getLevelSet()->insertLevel(unused);
+  unused->setScene(scene);
+  unused->getXsheet()->getNavigationTags()->addTag(0, "Unused note");
+  unused->getXsheet()->getNavigationTags()->m_tags.front().m_notes = "Saved without exposure";
+  int unusedNotes = 0;
+  for (const auto &issue : SceneChecker::compatibilityReport(scene))
+    if (issue.xsheet == unused->getXsheet() && issue.text.contains("Storyboard notes")) ++unusedNotes;
+  require(unusedNotes == 1, "compatibility omitted an unused child xsheet saved in the Scene Cast");
+
+  // Exercise the same numeric parameters that the native editors expose,
+  // including containers hidden from the normal FX settings UI. Each family
+  // is checked separately so one discovered expression cannot mask omissions.
+  auto *object = nested->getStageObject(TStageObjectId::PegbarId(7));
+  object->insertOffsetLayer(0, object->createOffsetLayer(L"Compatibility offset"));
+  PlasticSkeletonP skeleton = new PlasticSkeleton;
+  const int root = skeleton->addVertex(PlasticSkeletonVertex(TPointD(0, 0)), -1);
+  const int tip = skeleton->addVertex(PlasticSkeletonVertex(TPointD(0, 100)), root);
+  require(skeleton->setVertexName(tip, "CompatibilityTip"), "compatibility Plastic vertex setup failed");
+  PlasticSkeletonDeformationP deformation = new PlasticSkeletonDeformation;
+  deformation->attach(1, skeleton.getPointer());
+  object->setPlasticSkeletonDeformation(deformation);
+  auto *vertex = deformation->vertexDeformation(1, tip);
+  auto *columnFx = dynamic_cast<TLevelColumnFx *>(nested->getColumn(0)->getFx());
+  require(vertex && columnFx, "compatibility native channel owners missing");
+  TFxP probe(TFx::create("STD_blurFx"));
+  require(bool(probe), "compatibility ordinary FX factory failed");
+  TParamSetP container(new TParamSet), inner(new TParamSet);
+  TDoubleParamP leaf(new TDoubleParam);
+  leaf->setName("compatibilityExpression");
+  inner->addParam(leaf, "expression");
+  container->addParam(TParamP(inner.getPointer()), "nested");
+  probe->getParams()->add(new TParamVarT<TParamP>(
+      "compatibilityHidden", nullptr, TParamP(container.getPointer()), true));
+  nested->getFxDag()->assignUniqueId(probe.getPointer());
+  nested->getFxDag()->getInternalFxs()->addFx(probe.getPointer());
+  const std::vector<std::pair<const char *, TDoubleParam *>> curves{
+      {"stage", object->getParam(TStageObject::T_X)},
+      {"offset channel", object->getOffsetParam(0, TStageObject::T_X)},
+      {"offset weight", object->getOffsetLayer(0).m_weight.getPointer()},
+      {"Plastic skeleton", deformation->skeletonIdsParam().getPointer()},
+      {"Plastic vertex", vertex->m_params[SkVD::ANGLE].getPointer()},
+      {"time remap", columnFx->getTimeRemapParam()},
+      {"column color", columnFx->getColorEffectParam(ColumnColorEffect::Brightness)},
+      {"hidden nested FX", leaf.getPointer()}};
+  auto expressionWarnings = [&]() {
+    int count = 0;
+    for (const auto &issue : SceneChecker::compatibilityReport(scene))
+      if (issue.xsheet == nested.getPointer() && issue.text.contains("SeExpr animation")) ++count;
+    return count;
+  };
+  for (const auto &entry : curves) {
+    auto *curve = entry.second;
+    require(curve, "compatibility numeric channel missing");
+    curve->clearKeyframes();
+    curve->setGrammar(nested->getStageObjectTree()->getGrammar());
+    TDoubleKeyframe first(0, 1), last(3, 1);
+    first.m_type = TDoubleKeyframe::Expression;
+    first.m_expressionText = "seexpr1:1";
+    last.m_prevType = TDoubleKeyframe::Expression;
+    last.m_type = TDoubleKeyframe::Linear;
+    curve->setKeyframe(first);
+    curve->setKeyframe(last);
+    const auto before = curve->getKeyframe(0);
+    const bool dirty = TApp::instance()->getCurrentScene()->getDirtyFlag();
+    const int currentHistory = TUndoManager::manager()->getHistoryCount();
+    require(expressionWarnings() == 1,
+            (std::string("compatibility omitted or duplicated SeExpr in ") + entry.first).c_str());
+    require(sameKey(before, curve->getKeyframe(0)) && curve->getKeyframeCount() == 2 &&
+                dirty == TApp::instance()->getCurrentScene()->getDirtyFlag() &&
+                currentHistory == TUndoManager::manager()->getHistoryCount(),
+            "compatibility expression inspection changed animation or authoring state");
+    first.m_type = TDoubleKeyframe::Linear;
+    curve->setKeyframe(first);
+    require(expressionWarnings() == 0, "compatibility treated inactive expression text as active animation");
+    curve->clearKeyframes();
+  }
+  for (const char *type : {"STD_seexprGeneratorFx", "STD_particleCacheFx", "STD_deformerStackFx",
+                          "STD_transform3DFx", "STD_lut3DBakeFx", "STD_neuralStyleFx"}) {
+    TFxP effect(TFx::create(type));
+    require(bool(effect), (std::string("compatibility FX factory unavailable: ") + type).c_str());
+    nested->getFxDag()->assignUniqueId(effect.getPointer());
+    nested->getFxDag()->getInternalFxs()->addFx(effect.getPointer());
+    int found = 0;
+    for (const auto &issue : SceneChecker::compatibilityReport(scene))
+      if (issue.xsheet == nested.getPointer() && issue.text.contains(type) &&
+          issue.text.contains("requires the matching Groundzero effect")) ++found;
+    require(found == 1, (std::string("compatibility omitted or duplicated registered FX: ") + type).c_str());
+  }
+
+  SceneCheckPane pane;
+  auto *compatibility = pane.findChild<QCheckBox *>("sceneCompatibilityCheck");
+  auto *scope = pane.findChild<QLabel *>("sceneCompatibilityScope");
+  require(compatibility && scope && !compatibility->isChecked() && scope->isHidden(),
+          "native compatibility inventory did not start opt-in");
+  pane.show();
+  QApplication::processEvents();
+  compatibility->setChecked(true);
+  require(!scope->isHidden() && scope->text().contains("no historical version") &&
+              scope->text().contains("empty report"),
+          "native compatibility scope was not visible when enabled");
+  compatibility->setChecked(false);
+  require(scope->isHidden(), "native compatibility scope did not follow the option");
+  pane.hide();
 }
 
 void cleanup() {
