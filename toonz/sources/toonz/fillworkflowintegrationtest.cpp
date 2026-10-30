@@ -53,6 +53,7 @@
 #include <QMouseEvent>
 #include <QPointer>
 #include <QScrollArea>
+#include <QResizeEvent>
 #include <algorithm>
 #include <stdexcept>
 #include <exception>
@@ -555,24 +556,73 @@ void morphCallerChecks() {
           "actual Filmstrip Apply did not persist authored geometry/opacity/palette");
   std::cout << "vector-morph-caller: PLI reload matches exact stored/region geometry, width and authored opacity" << std::endl;
 
-  // Closing an active strip must detach its non-owning selection before the
-  // replacement strip makes a new selection current.
-  TSelection *closingSelection = TSelection::getCurrent();
-  auto *closing = area.takeWidget(); delete closing;
-  require(TSelection::getCurrent() != closingSelection,
-          "closing the active Filmstrip retained a dead current selection");
-  strip = new FilmstripFrames(&area); area.setWidget(strip);
-  strip->setLevel(level.getPointer()); strip->setActive(true); strip->show();
-  resetDrawing();
-  require(dynamic_cast<TFilmstripSelection *>(TSelection::getCurrent()) != nullptr,
-          "replacement Filmstrip did not acquire a live selection");
-  invoke(-1);
+  // The scroll-area viewport survives frame replacement. Its old resize
+  // filter must retire before selection-detachment signals can reenter layout,
+  // rather than retaining a raw pointer to the deleted frame widget.
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    std::cout << "vector-morph-caller: retire strip and resize surviving viewport " << cycle << std::endl;
+    TSelection *closingSelection = TSelection::getCurrent();
+    const auto filters = strip->findChildren<QObject *>(
+        "filmstripViewportResizeFilter", Qt::FindDirectChildrenOnly);
+    require(filters.size() == 1, "Filmstrip does not own exactly one viewport resize filter");
+    QPointer<QObject> oldFilter(filters.front());
+    QPointer<FilmstripFrames> oldStrip(strip);
+    bool detached = false, retiredBeforeDetach = false;
+    QObject detachObserver;
+    QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched,
+                     &detachObserver, [&](TSelection *oldSelection, TSelection *selection) {
+      if (oldSelection != closingSelection || selection) return;
+      detached = true;
+      retiredBeforeDetach = oldFilter.isNull();
+      QResizeEvent reentrantResize(area.viewport()->size(), area.viewport()->size());
+      QApplication::sendEvent(area.viewport(), &reentrantResize);
+    });
+    auto *closing = area.takeWidget(); strip = nullptr;
+    require(closing && closing == oldStrip && !closing->parentWidget() && oldFilter,
+            "Filmstrip takeWidget did not detach the still-live strip");
+    // takeWidget removes the frame's QWidget parent before its destructor
+    // runs. Layout cannot consult that missing parent during the live gap.
+    QResizeEvent detachedResize(area.viewport()->size(), area.viewport()->size());
+    QApplication::sendEvent(area.viewport(), &detachedResize);
+    delete closing;
+    require(!oldStrip && !oldFilter && detached && retiredBeforeDetach &&
+                TSelection::getCurrent() != closingSelection,
+            "Filmstrip teardown retained a resize callback or dead selection during layout");
+    QResizeEvent lateResize(area.viewport()->size(), area.viewport()->size());
+    QApplication::sendEvent(area.viewport(), &lateResize);
+    QCoreApplication::processEvents();
+    std::cout << "vector-morph-caller: construct and resize replacement strip " << cycle << std::endl;
+    strip = new FilmstripFrames(&area); area.setWidget(strip);
+    strip->setLevel(level.getPointer()); strip->setActive(true); strip->show();
+    resetDrawing();
+    require(dynamic_cast<TFilmstripSelection *>(TSelection::getCurrent()) != nullptr,
+            "replacement Filmstrip did not acquire a live selection");
+    strip->updateIconLayout();
+    const int viewportWidth = area.viewport()->width(), iconWidth = strip->getIconSize().width();
+    const auto beforeResize = drawings();
+    const int resizeHistory = undo->getHistoryCount();
+    const bool resizeDirty = app->getCurrentScene()->getDirtyFlag();
+    area.resize(area.width() + 64, area.height() + 16);
+    QCoreApplication::processEvents();
+    require(area.viewport()->width() != viewportWidth &&
+                strip->getIconSize().width() - iconWidth == area.viewport()->width() - viewportWidth &&
+                undo->getHistoryCount() == resizeHistory &&
+                app->getCurrentScene()->getDirtyFlag() == resizeDirty,
+            "replacement Filmstrip viewport resize lost responsive layout or changed history");
+    for (const auto &drawing : beforeResize)
+      require(TVectorImageP(level->getFrame(drawing.fid, false)) == drawing.live &&
+                  sameAuthoredDrawing(drawing.live, drawing.expected),
+              "replacement Filmstrip resize changed authored drawings");
+    invoke(-1);
+  }
+  std::cout << "vector-morph-caller: delete strip inside actual preview" << std::endl;
   resetDrawing(); invoke(10);
   require(!strip, "queued Filmstrip destruction did not run inside the actual preview");
   strip = new FilmstripFrames(&area); area.setWidget(strip);
   strip->setLevel(level.getPointer()); strip->setActive(true); strip->show();
   resetDrawing();
   auto *oldScene = app->getCurrentScene()->getScene();
+  std::cout << "vector-morph-caller: replace scene inside actual preview" << std::endl;
   invoke(9);
   require(app->getCurrentScene()->getScene() != oldScene &&
           app->getCurrentLevel()->getLevel() == nullptr && undo->getHistoryCount() == 0,

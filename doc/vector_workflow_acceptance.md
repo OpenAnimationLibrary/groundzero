@@ -81,6 +81,19 @@ Apply/Undo geometry and persisted scalar/profile/style/palette checks remain
 exact. This corrected persistence oracle still awaits fresh CI execution;
 these component passes do not qualify the full branch.
 
+Linux `6392d44` subsequently passed that exact persistence oracle, then the
+original process crashed during the following strip-replacement phase; its GDB
+replay completed. Source review identified a pre-existing viewport-owned resize
+filter retaining a raw pointer to a deleted Filmstrip. The filter now belongs
+to the strip, is removed before selection-detachment signals can reenter layout,
+ignores callbacks after `takeWidget` detaches the still-live strip, and protects
+its own callback against synchronous destruction. Native coverage repeats real
+strip detachment/deletion, reentrant and late viewport Resize events, and
+responsive replacement layout while retaining drawing/history and actual
+modal-cancellation checks. Fresh execution remains pending; without the
+original crash stack this source-proven lifetime defect is not yet a confirmed
+attribution of that process failure.
+
 The existing `BUILD_UI_PORT_TESTS` gate builds the standalone tests and the real
 application fixtures. `nativeuiintegrationtest.cpp` calls the vector, fill,
 contour, brush, morph, opacity editor, renderer, native stroke editing and
