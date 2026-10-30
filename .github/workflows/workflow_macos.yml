@@ -138,6 +138,7 @@ jobs:
             -DBUILD_FXRENDER_TESTS=ON \
             -DBUILD_FFMPEG_TESTS=ON \
             -DBUILD_PSD_TESTS=ON \
+            -DBUILD_EXR_TESTS=ON \
             -DBUILD_SEEXPR_TESTS=ON \
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
@@ -264,7 +265,7 @@ jobs:
             fi
           done
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
-          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
       - name: Upload reliability diagnostics
         if: always()
