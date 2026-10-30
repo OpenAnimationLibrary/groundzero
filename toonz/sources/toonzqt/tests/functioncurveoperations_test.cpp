@@ -8,6 +8,7 @@
 #include "tthread.h"
 #include "tundo.h"
 #include "tunit.h"
+#include "toonz/doubleparamcmd.h"
 #include "toonz/txsheet.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tstageobject.h"
@@ -176,6 +177,113 @@ void timingAndDrivenKeys() {
   require(moved.changes.front().after->getKeyframe(0).m_type == TDoubleKeyframe::Expression,
           "retime changed expression dialect/type");
   TUndoManager::manager()->reset();
+}
+
+void interpolationEndpointTransactions() {
+  auto *undo = TUndoManager::manager();
+  const auto fixture = [](bool linked) {
+    auto value = curve({{0, -3}, {6, 2}, {18, 9}, {30, -1}});
+    value->setWorkspaceId("interpolation-endpoint-owner");
+    value->enableCycle(true);
+    // Distinct dormant handles make failure to restore either endpoint visible.
+    auto first = value->getKeyframe(1), next = value->getKeyframe(2);
+    first.m_speedIn = TPointD(-2, 3);
+    first.m_speedOut = TPointD(1.25, -4);
+    first.m_linkedHandles = linked;
+    first.m_step = 2;
+    next.m_speedIn = TPointD(-1.5, 7);
+    next.m_speedOut = TPointD(2.5, -5);
+    next.m_linkedHandles = linked;
+    value->setKeyframes({{1, first}, {2, next}});
+    return value;
+  };
+  for (const auto type : {TDoubleKeyframe::SpeedInOut,
+                          TDoubleKeyframe::EaseInOut,
+                          TDoubleKeyframe::EaseInOutPercentage}) {
+    for (bool linked : {false, true}) {
+      auto value = fixture(linked);
+      const TDoubleParamP before = new TDoubleParam(*value);
+      undo->reset();
+      { KeyframeSetter(value.getPointer(), value->getKeyframeCount() - 1).setType(type); }
+      require(Ops::matchesSnapshot(value.getPointer(), before.getPointer()) &&
+                  undo->getHistoryCount() == 0,
+              "final-key interpolation request changed data or created history");
+      value->setEditorLocked(true);
+      { KeyframeSetter(value.getPointer(), 1).setType(type); }
+      require(Ops::matchesSnapshot(value.getPointer(), before.getPointer()) &&
+                  value->isEditorLocked() && undo->getHistoryCount() == 0,
+              "locked interpolation changed an endpoint or undo history");
+      value->setEditorLocked(false);
+
+      { KeyframeSetter(value.getPointer(), 1).setType(type); }
+      const TDoubleParamP expected = new TDoubleParam(*before);
+      auto first = before->getKeyframe(1), next = before->getKeyframe(2);
+      first.m_type = type;
+      first.m_speedOut = type == TDoubleKeyframe::SpeedInOut && linked
+                             ? TPointD(2, -3) : TPointD(4, 0);
+      next.m_speedIn = type == TDoubleKeyframe::SpeedInOut && linked
+                          ? TPointD(-2.5, 5) : TPointD(-4, 0);
+      expected->setKeyframes({{1, first}, {2, next}});
+      require(Ops::matchesSnapshot(value.getPointer(), expected.getPointer()) &&
+                  value->getWorkspaceId() == "interpolation-endpoint-owner" &&
+                  undo->getHistoryCount() == 1,
+              "interpolation changed unrelated keys, endpoint metadata or transaction count");
+      { KeyframeSetter(value.getPointer(), 1).setType(type); }
+      require(Ops::matchesSnapshot(value.getPointer(), expected.getPointer()) &&
+                  undo->getHistoryCount() == 1,
+              "repeating interpolation changed data or added another transaction");
+      // Undo remains available when a user locks the channel after editing.
+      value->setEditorLocked(true);
+      for (int repeat = 0; repeat < 2; ++repeat) {
+        require(undo->undo() &&
+                    Ops::matchesSnapshot(value.getPointer(), before.getPointer()) &&
+                    value->isEditorLocked() &&
+                    value->getWorkspaceId() == "interpolation-endpoint-owner",
+                "interpolation undo failed to restore both endpoints exactly");
+        require(undo->redo() &&
+                    Ops::matchesSnapshot(value.getPointer(), expected.getPointer()) &&
+                    value->isEditorLocked(),
+                "interpolation redo failed to restore both endpoints exactly");
+      }
+      { KeyframeSetter(value.getPointer(), 1).setType(TDoubleKeyframe::Linear); }
+      require(Ops::matchesSnapshot(value.getPointer(), expected.getPointer()) &&
+                  undo->getHistoryCount() == 1,
+              "locked interpolation replacement changed data or added history");
+      value->setEditorLocked(false);
+    }
+  }
+
+  auto value = fixture(true);
+  auto first = value->getKeyframe(1), next = value->getKeyframe(2);
+  first.m_type = TDoubleKeyframe::EaseInOut;
+  first.m_speedOut = TPointD(3, 0);
+  next.m_speedIn = TPointD(-1.5, 0);
+  value->setKeyframes({{1, first}, {2, next}});
+  const TDoubleParamP absolute = new TDoubleParam(*value);
+  undo->reset();
+  { KeyframeSetter(value.getPointer(), 1).setType(TDoubleKeyframe::EaseInOutPercentage); }
+  requireNear(value->getKeyframe(1).m_speedOut.x, 25);
+  requireNear(value->getKeyframe(2).m_speedIn.x, -12.5);
+  const TDoubleParamP percentage = new TDoubleParam(*value);
+  { KeyframeSetter(value.getPointer(), 1).setType(TDoubleKeyframe::EaseInOut); }
+  require(Ops::matchesSnapshot(value.getPointer(), absolute.getPointer()) &&
+              undo->getHistoryCount() == 2,
+          "ease-unit conversion changed endpoint values, flags or unrelated keys");
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    require(undo->undo() &&
+                Ops::matchesSnapshot(value.getPointer(), percentage.getPointer()),
+            "absolute-ease undo did not restore both percentage handles");
+    require(undo->undo() &&
+                Ops::matchesSnapshot(value.getPointer(), absolute.getPointer()),
+            "percentage-ease undo did not restore both absolute handles");
+    require(undo->redo() &&
+                Ops::matchesSnapshot(value.getPointer(), percentage.getPointer()),
+            "percentage-ease redo did not restore both converted handles");
+    require(undo->redo() &&
+                Ops::matchesSnapshot(value.getPointer(), absolute.getPointer()),
+            "absolute-ease redo did not restore both converted handles");
+  }
+  undo->reset();
 }
 
 void targetRangeTiming(const QString &directory) {
@@ -767,6 +875,7 @@ int main(int argc, char **argv) {
     TEnv::setStuffDir(TFilePath(temporary.filePath("stuff").toStdWString()));
     numericUnitsAndTransactions();
     timingAndDrivenKeys();
+    interpolationEndpointTransactions();
     targetRangeTiming(temporary.path());
     bakeSamplesCancellationAndFailures();
     checkedNativeEvaluation(temporary.path());

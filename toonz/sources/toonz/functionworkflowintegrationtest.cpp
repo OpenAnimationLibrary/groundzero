@@ -33,6 +33,7 @@
 #include "tfx.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
+#include "tstream.h"
 #include "tundo.h"
 #include "tvectorimage.h"
 #include <QAction>
@@ -42,6 +43,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QEventLoop>
+#include <QFile>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -302,6 +304,32 @@ void renameNativeSet(FunctionViewer *viewer, FunctionTreeView *tree,
     }
   }, [&]() { action->trigger(); });
 }
+void reportNumericRetimeCurve(TDoubleParam *curve, const QTemporaryDir &directory,
+                             const char *phase) {
+  // This fixture owns these three-key numeric channels. Retain their native
+  // resource representation in the report, never the scene's temporary paths.
+  try {
+    if (!curve || curve->getKeyframeCount() != 3) return;
+    for (int key = 0; key < curve->getKeyframeCount(); ++key) {
+      const auto type = curve->getKeyframe(key).m_type;
+      if (type != TDoubleKeyframe::Constant && type != TDoubleKeyframe::Linear &&
+          type != TDoubleKeyframe::Exponential && type != TDoubleKeyframe::SpeedInOut &&
+          type != TDoubleKeyframe::EaseInOut && type != TDoubleKeyframe::EaseInOutPercentage)
+        return;  // Driven/file data could contain unrelated paths or text.
+    }
+    TDoubleParam snapshot(*curve); snapshot.setWorkspaceId("");
+    const QString path = directory.filePath(QString::fromLatin1(phase) + ".curve");
+    { TOStream output{TFilePath(path)}; if (!output) return; snapshot.saveData(output); }
+    QFile persisted(path);
+    if (!persisted.open(QIODevice::ReadOnly)) return;
+    const QByteArray bytes = persisted.read(4097);
+    if (bytes.size() > 4096) return;  // At most 8 KiB for the expected/reopened pair.
+    std::cerr << "function-retime-serialization: " << phase << '\n'
+              << bytes.constData() << "\nfunction-retime-serialization: end" << std::endl;
+  } catch (...) {
+    std::cerr << "function-retime-serialization: unavailable" << std::endl;
+  }
+}
 void retimeNativeRange(FunctionViewer *viewer, ToonzScene *scene,
                        const std::vector<TDoubleParam *> &channels,
                        const QTemporaryDir &directory) {
@@ -377,12 +405,36 @@ void retimeNativeRange(FunctionViewer *viewer, ToonzScene *scene,
     exactFrame(reopened[i]->keyframeIndexToFrame(2), targetLast);
     for (int k = 0; k < 3; ++k) {
       const auto actual = reopened[i]->getKeyframe(k), expected = channels[i]->getKeyframe(k);
-      require(actual.m_frame == expected.m_frame && actual.m_value == expected.m_value &&
+      const bool exact = actual.m_frame == expected.m_frame && actual.m_value == expected.m_value &&
                   actual.m_type == expected.m_type && actual.m_prevType == expected.m_prevType &&
                   actual.m_step == expected.m_step && actual.m_speedIn == expected.m_speedIn &&
                   actual.m_speedOut == expected.m_speedOut && actual.m_linkedHandles == expected.m_linkedHandles &&
-                  actual.m_expressionText == expected.m_expressionText,
-              "Native retime roundtrip changed authored frame/value/handles/interpolation");
+                  actual.m_expressionText == expected.m_expressionText;
+      if (!exact) {
+        std::ostringstream detail; detail.precision(17);
+        detail << "Native retime roundtrip changed authored frame/value/handles/interpolation"
+               << "; channel=" << i << ", key=" << k;
+        const auto mismatch = [&](const char *field, const auto &authored, const auto &observed) {
+          if (authored != observed)
+            detail << "; " << field << " expected=" << authored << ", observed=" << observed;
+        };
+        mismatch("frame", expected.m_frame, actual.m_frame);
+        mismatch("value", expected.m_value, actual.m_value);
+        mismatch("type", int(expected.m_type), int(actual.m_type));
+        mismatch("prevType", int(expected.m_prevType), int(actual.m_prevType));
+        mismatch("step", expected.m_step, actual.m_step);
+        mismatch("speedIn.x", expected.m_speedIn.x, actual.m_speedIn.x);
+        mismatch("speedIn.y", expected.m_speedIn.y, actual.m_speedIn.y);
+        mismatch("speedOut.x", expected.m_speedOut.x, actual.m_speedOut.x);
+        mismatch("speedOut.y", expected.m_speedOut.y, actual.m_speedOut.y);
+        mismatch("linkedHandles", expected.m_linkedHandles, actual.m_linkedHandles);
+        mismatch("expression", expected.m_expressionText, actual.m_expressionText);
+        detail << "; authored interpolation=" << int(expected.m_type)
+               << ", preceding interpolation=" << int(expected.m_prevType);
+        reportNumericRetimeCurve(channels[i], directory, "expected");
+        reportNumericRetimeCurve(reopened[i], directory, "reopened");
+        throw std::runtime_error(detail.str());
+      }
     }
   }
   require(undo->undo(), "Native retime cleanup could not restore original curves");
@@ -498,6 +550,8 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     source->setEditorLocked(true); reset->trigger(); require(Ops::matchesSnapshot(source, beforeHandle.getPointer()), "Locked toolbar reset changed a tangent"); source->setEditorLocked(false);
     require(TUndoManager::manager()->undo(), "Native handle fixture setup has no undo");
     require(TUndoManager::manager()->undo(), "Native interpolation menu has no undo");
+    require(Ops::matchesSnapshot(source, before.getPointer()),
+            "Native interpolation undo did not restore both segment endpoints exactly");
     modal(viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
       auto *mode = dialog->findChild<QComboBox *>("FunctionEditOperation");
       auto *interval = dialog->findChild<QDoubleSpinBox *>("FunctionEditInterval");
