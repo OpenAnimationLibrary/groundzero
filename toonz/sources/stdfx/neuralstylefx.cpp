@@ -13,7 +13,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <iomanip>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <vector>
@@ -21,7 +23,15 @@
 namespace {
 struct Frame { QImage source, coverage, styled; };
 std::mutex cacheMutex;
-QCache<QByteArray,Frame> cache(32*1024); // KiB, complete immutable checkpoints only.
+// Styled results of complete, immutable checkpoints, keyed by the whole chain
+// of inputs before them. Costs are KiB; the cache holds a whole 120-frame shot
+// so seeking within a shot never infers its frames again.
+constexpr int checkpointCost = 384 * 384 * 4 / 1024;
+QCache<QByteArray, QImage> cache(128 * checkpointCost);
+// Regression tests count and replace the frames sent to the model here.
+std::function<bool(const QImage &, const std::vector<QImage> &,
+                   std::vector<QImage> &, QString &)>
+    inferenceForTests;
 QString componentDirectory() {
   return QDir(QCoreApplication::applicationDirPath()).filePath("neural-style");
 }
@@ -114,9 +124,15 @@ class NeuralStyleFx final : public GlobalControllableFx {
   TStringParamP m_profile;
   TDoubleParamP m_strength;
   TIntParamP m_history,m_start,m_end;
+  bool validShot() const {
+    const int start = m_start->getValue(), end = m_end->getValue();
+    return end >= start && end - start < 120;
+  }
   std::vector<double> frames(double frame) const {
     const int start=m_start->getValue()-1,end=m_end->getValue()-1;
-    if(end<start || end-start>=120)throw TException("Neural Style: split shots into ranges of at most 120 frames.");
+    if (!validShot())
+      throw TException(
+          "Neural Style: split shots into ranges of at most 120 frames.");
     if(frame<start || frame>end)return {};
     if(m_history->getValue()==0 || frame!=std::floor(frame))return {frame};
     std::vector<double> result;
@@ -172,11 +188,12 @@ public:
     return m_source->doGetBBox(frame,box,info);
   }
   int getMemoryRequirement(const TRectD &rect,double,const TRenderSettings &info) override {
-    // 512 MiB worker, <=203 MiB canonical input/result history, 32 MiB cache,
+    // 512 MiB worker, <=203 MiB canonical input/result history, 72 MiB cache,
     // flow/intermediate buffers and atomic output/mask tiles. Model input is
     // always 384 square regardless of the camera's output resolution.
     const long double width=std::max(0.0,rect.getLx()+1),height=std::max(0.0,rect.getLy()+1);
-    const long double estimate=800+width*height*info.m_bpp/(2*1024*1024);
+    const long double estimate =
+        840 + width * height * info.m_bpp / (2 * 1024 * 1024);
     return !std::isfinite(estimate) || estimate>std::numeric_limits<int>::max() ?
         std::numeric_limits<int>::max():int(std::ceil(estimate));
   }
@@ -188,7 +205,12 @@ public:
       <<info.m_cameraBox.x0<<','<<info.m_cameraBox.y0<<','<<info.m_cameraBox.x1<<','<<info.m_cameraBox.y1
       <<':'<<m_strength->getValue(frame);
     hash.addData(QByteArray::fromStdString(camera.str()));
-    if(!m_profile->getValue().empty() && m_strength->getValue(frame)>0 && m_source.isConnected())
+    // Previews and histograms ask for aliases on the GUI thread, which cannot
+    // take an exception: an invalid shot gets a fixed alias and fails to render.
+    if (!validShot())
+      hash.addData("invalid-shot-range");
+    else if (!m_profile->getValue().empty() &&
+             m_strength->getValue(frame) > 0 && m_source.isConnected())
       for(const auto f:frames(frame))for(const auto port:{&m_source,&m_mask,&m_ink})
         if(port->isConnected())hash.addData(QByteArray::fromStdString(port->getFx()->getAlias(f,info)));
     return "neural-style-v1:"+hash.result().toHex().toStdString();
@@ -227,36 +249,56 @@ public:
       if(info.m_isCanceled && *info.m_isCanceled)return;
       inputs.push_back(input(f,grid));
     }
-    NeuralStyle::Session session(componentDirectory());
     QByteArray chain=QCryptographicHash::hash(serialized.toUtf8()+componentIdentity()+
         QByteArray::number(m_history->getValue()),QCryptographicHash::Sha256);
     std::vector<QByteArray> keys;
-    std::vector<QImage> pending, fresh(inputs.size());
-    std::vector<size_t> pendingIndices;
-    for(size_t i=0;i<inputs.size();++i) {
-      auto &current=inputs[i];
+    keys.reserve(inputs.size());
+    for (const auto &current : inputs) {
       QCryptographicHash hash(QCryptographicHash::Sha256);hash.addData(chain);
       hashImage(hash,current.source);hashImage(hash,current.coverage);chain=hash.result();
       keys.push_back(chain);
-      {
-        std::lock_guard<std::mutex> lock(cacheMutex);
-        if(const auto found=cache.object(chain))current.styled=found->styled;
-      }
+    }
+    // A checkpoint determines every later frame of the chain, so resume from
+    // the latest cached one. Re-inferring an evicted prefix for every frame
+    // made a sequential render quadratic in the shot length.
+    size_t first = 0;
+    {
+      std::lock_guard<std::mutex> lock(cacheMutex);
+      for (size_t i = inputs.size(); i-- > 0;)
+        if (const auto found = cache.object(keys[i])) {
+          inputs[i].styled = *found;
+          first            = i;
+          break;
+        }
+    }
+    std::vector<QImage> pending, fresh(inputs.size());
+    std::vector<size_t> pendingIndices;
+    for (size_t i = first; i < inputs.size(); ++i) {
+      const auto &current = inputs[i];
       const bool held=i && inputs[i-1].source==current.source && inputs[i-1].coverage==current.coverage;
       if(current.styled.isNull() && !held) {
         pending.push_back(current.source);pendingIndices.push_back(i);
       }
     }
+    // A frame whose checkpoint is cached needs no inference worker.
+    std::unique_ptr<NeuralStyle::Session> session;
     if(!pending.empty()) {
       std::vector<QImage> inferred;
-      if(!session.styleBatch(profile.reference,pending,inferred,error,{nullptr,info.m_isCanceled})) {
+      if (!inferenceForTests)
+        session.reset(new NeuralStyle::Session(componentDirectory()));
+      const bool styled =
+          inferenceForTests
+              ? inferenceForTests(profile.reference, pending, inferred, error)
+              : session->styleBatch(profile.reference, pending, inferred, error,
+                                    {nullptr, info.m_isCanceled});
+      if (!styled) {
         if(info.m_isCanceled && *info.m_isCanceled)return;
         throw TException(error.toStdWString());
       }
       for(size_t i=0;i<pendingIndices.size();++i)fresh[pendingIndices[i]]=inferred[i];
     }
     Frame previous;
-    for(size_t i=0;i<inputs.size();++i) {
+    for (size_t i = first; i < inputs.size(); ++i) {
       if(info.m_isCanceled && *info.m_isCanceled)return;
       auto &current=inputs[i];
       if(current.styled.isNull()) {
@@ -266,11 +308,11 @@ public:
         else if(!NeuralTemporal::stabilize(previous.source,current.source,previous.coverage,current.coverage,
                      previous.styled,fresh[i],m_history->getValue()/100.0,current.styled,info.m_isCanceled))return;
         std::lock_guard<std::mutex> lock(cacheMutex);
-        cache.insert(keys[i],new Frame(current),3*384*384*4/1024);
+        cache.insert(keys[i], new QImage(current.styled), checkpointCost);
       }
       previous=current;
     }
-    session.stop();
+    if (session) session->stop();
     TTile selection,ink;
     if(m_mask.isConnected())m_mask->allocateAndCompute(selection,tile.m_pos,raster->getSize(),raster,frame,info);
     if(m_ink.isConnected())m_ink->allocateAndCompute(ink,tile.m_pos,raster->getSize(),raster,frame,info);

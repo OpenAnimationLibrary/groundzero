@@ -1313,6 +1313,25 @@ QString SeExprEditor::renameVariable(const QString &source, const QString &oldNa
     }
     if (c == '#') { comment = true; result += c; ++position; continue; }
     if (c == '"' || c == '\'') { quoted = true; quote = c; result += c; ++position; continue; }
+    if (c.isDigit() || (c == '.' && position + 1 < source.size() &&
+                        source[position + 1].isDigit())) {
+      // The exponent of a literal such as 2e5 is not the variable e5.
+      int end = position + 1;
+      while (end < source.size()) {
+        const QChar d = source[end];
+        if (d.isDigit() || d == '.')
+          ++end;
+        else if (d == 'e' || d == 'E') {
+          ++end;
+          if (end < source.size() && (source[end] == '+' || source[end] == '-'))
+            ++end;
+        } else
+          break;
+      }
+      result += source.mid(position, end - position);
+      position = end;
+      continue;
+    }
     if (c.isLetter() || c == '_') {
       int end = position + 1;
       while (end < source.size() && (source[end].isLetterOrNumber() || source[end] == '_')) ++end;
