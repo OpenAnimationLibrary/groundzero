@@ -4,6 +4,7 @@
 #include "tinbetweenmatch.h"
 #include "tcurves.h"
 #include "tstroke.h"
+#include "texception.h"
 #include "tpalette.h"
 //#include "tcolorstyles.h"
 //#include "tregion.h"
@@ -744,42 +745,6 @@ TInbetween::StrokeCorrespondence autoPairs(const TVectorImageP &first,
   return pairs;
 }
 
-// Completes \b correspondence with the pairs coming from the match options.
-// Priority: the given pairs, the zone hints, the automatic matching.
-TInbetween::StrokeCorrespondence completeCorrespondence(
-    const TVectorImageP &first, const TVectorImageP &last,
-    const TInbetween::StrokeCorrespondence &correspondence,
-    const TInbetween::MatchOptions &options) {
-  if (!options.m_autoMatch && options.m_zoneHints.empty())
-    return correspondence;
-
-  int count1 = first->getStrokeCount(), count2 = last->getStrokeCount();
-  std::vector<bool> usedFirst(count1, false), usedLast(count2, false);
-
-  // same validity rules as TInbetween::Imp::computeStrokePairs
-  TInbetween::StrokeCorrespondence result;
-  for (const std::pair<int, int> &pair : correspondence) {
-    if (pair.first < 0 || pair.first >= count1 || pair.second < 0 ||
-        pair.second >= count2)
-      continue;
-    if (usedFirst[pair.first] || usedLast[pair.second]) continue;
-    usedFirst[pair.first] = true;
-    usedLast[pair.second] = true;
-    result.push_back(pair);
-  }
-
-  TInbetween::StrokeCorrespondence zones =
-      zonePairs(first, last, options.m_zoneHints, usedFirst, usedLast);
-  result.insert(result.end(), zones.begin(), zones.end());
-
-  if (options.m_autoMatch) {
-    TInbetween::StrokeCorrespondence autos =
-        autoPairs(first, last, usedFirst, usedLast);
-    result.insert(result.end(), autos.begin(), autos.end());
-  }
-  return result;
-}
-
 }  // namespace
 
 class TInbetween::Imp {
@@ -808,21 +773,26 @@ public:
 
   // (first image stroke index, last image stroke index), sorted by the first
   StrokeCorrespondence m_strokePairs;
+  CorrespondenceReview m_review;
+  UnmatchedPolicy m_unmatchedPolicy;
 
   std::vector<StrokeTransform> m_transformation;
 
-  void computeStrokePairs(const StrokeCorrespondence &correspondence);
   void computeTransformation();
 
-  void transferColor(const TVectorImageP &destination) const;
+  void transferColor(const TVectorImageP &destination,
+                     const StrokeCorrespondence &sources) const;
 
   TVectorImageP tween(double t) const;
 
   Imp(const TVectorImageP firstImage, const TVectorImageP lastImage,
       const StrokeCorrespondence &correspondence, const MatchOptions &options)
-      : m_firstImage(firstImage), m_lastImage(lastImage) {
-    computeStrokePairs(
-        completeCorrespondence(firstImage, lastImage, correspondence, options));
+      : m_firstImage(firstImage), m_lastImage(lastImage),
+        m_unmatchedPolicy(options.m_unmatchedPolicy) {
+    m_review = TInbetween::reviewCorrespondence(firstImage, lastImage,
+                                                correspondence, options);
+    for (const auto &pair : m_review.pairs)
+      m_strokePairs.emplace_back(pair.first, pair.last);
     computeTransformation();
   }
 };
@@ -875,57 +845,47 @@ TInbetween::StrokeCorrespondence TInbetween::zoneCorrespondence(
 
 TInbetween::~TInbetween() {}
 
-//-------------------------------------------------------------------
-
-void TInbetween::Imp::computeStrokePairs(
-    const StrokeCorrespondence &correspondence) {
-  int strokeCount1 = m_firstImage->getStrokeCount();
-  int strokeCount2 = m_lastImage->getStrokeCount();
-
-  m_strokePairs.clear();
-
-  if (correspondence.empty()) {
-    // default: strokes are matched by index order
-    int count = std::min(strokeCount1, strokeCount2);
-    m_strokePairs.reserve(count);
-    for (int i = 0; i < count; i++)
-      m_strokePairs.push_back(std::make_pair(i, i));
-    return;
+TInbetween::CorrespondenceReview TInbetween::reviewCorrespondence(
+    const TVectorImageP &first, const TVectorImageP &last,
+    const StrokeCorrespondence &manual, const MatchOptions &options) {
+  CorrespondenceReview result;
+  if (!first || !last) return result;
+  const int n = first->getStrokeCount(), m = last->getStrokeCount();
+  std::vector<bool> usedFirst(n, false), usedLast(m, false);
+  auto append = [&](const StrokeCorrespondence &pairs, MatchSource source) {
+    for (const auto &p : pairs) {
+      if (p.first < 0 || p.first >= n || p.second < 0 || p.second >= m ||
+          usedFirst[p.first] || usedLast[p.second]) continue;
+      result.pairs.push_back({p.first, p.second, source});
+      usedFirst[p.first] = usedLast[p.second] = true;
+    }
+  };
+  append(manual, ManualMatch);
+  // Matching helpers mark their own masks; use copies so append is the sole
+  // authority assigning the shared result and retaining its provenance.
+  auto a = usedFirst, b = usedLast;
+  append(zonePairs(first, last, options.m_zoneHints, a, b), ZoneMatch);
+  if (options.m_autoMatch) {
+    a = usedFirst; b = usedLast;
+    append(autoPairs(first, last, a, b), AutomaticMatch);
   }
-
-  std::vector<int> partner(strokeCount1, -1);
-  std::vector<bool> used(strokeCount2, false);
-
-  // forced pairs first; out of range or already paired strokes are ignored
-  for (const std::pair<int, int> &hint : correspondence) {
-    if (hint.first < 0 || hint.first >= strokeCount1 || hint.second < 0 ||
-        hint.second >= strokeCount2)
-      continue;
-    if (partner[hint.first] >= 0 || used[hint.second]) continue;
-    partner[hint.first] = hint.second;
-    used[hint.second]   = true;
-  }
-
-  // then keep the index order matching wherever both strokes are still free
-  for (int i = 0; i < strokeCount1 && i < strokeCount2; i++) {
-    if (partner[i] >= 0 || used[i]) continue;
-    partner[i] = i;
-    used[i]    = true;
-  }
-
-  // finally match the remaining strokes in index order, so that the stroke
-  // count of the inbetweens is the same as without hints
+  for (int i = 0; i < std::min(n, m); ++i)
+    append({{i, i}}, IndexMatch);
   int j = 0;
-  for (int i = 0; i < strokeCount1; i++) {
-    if (partner[i] >= 0) continue;
-    while (j < strokeCount2 && used[j]) j++;
-    if (j >= strokeCount2) break;
-    partner[i] = j;
-    used[j]    = true;
+  for (int i = 0; i < n; ++i) {
+    if (usedFirst[i]) continue;
+    while (j < m && usedLast[j]) ++j;
+    if (j < m) append({{i, j}}, IndexMatch);
   }
-
-  for (int i = 0; i < strokeCount1; i++)
-    if (partner[i] >= 0) m_strokePairs.push_back(std::make_pair(i, partner[i]));
+  std::sort(result.pairs.begin(), result.pairs.end(),
+            [](const ResolvedPair &a, const ResolvedPair &b) {
+              return a.first < b.first;
+            });
+  for (int i = 0; i < n; ++i)
+    if (!usedFirst[i]) result.unmatchedFirst.push_back(i);
+  for (int i = 0; i < m; ++i)
+    if (!usedLast[i]) result.unmatchedLast.push_back(i);
+  return result;
 }
 
 //-------------------------------------------------------------------
@@ -1626,10 +1586,20 @@ TDebugMessage::flush();
 //-------------------------------------------------------------------
 
 TVectorImageP TInbetween::Imp::tween(double t) const {
+  if (m_unmatchedPolicy != OmitUnmatched) {
+    if (t <= 0) return m_firstImage->clone();
+    if (t >= 1) return m_lastImage->clone();
+  }
   const double step             = 5.0;
   const double interpolateError = 1.0;
 
   TVectorImageP vi = new TVectorImage;
+  StrokeCorrespondence colorSources;
+  // Preserve first-drawing stack order, including disappearing strokes.
+  // Color transfer follows this explicit map after the stack is reordered.
+  std::vector<int> stackOrder;
+  vi->m_imp->m_maxGroupId = m_firstImage->m_imp->m_maxGroupId;
+  vi->m_imp->m_maxGhostGroupId = m_firstImage->m_imp->m_maxGhostGroupId;
 
   UINT strokeCount1 = m_strokePairs.size();
   vi->setPalette(m_firstImage->getPalette());
@@ -1769,33 +1739,93 @@ TVectorImageP TInbetween::Imp::tween(double t) const {
 
     stroke->setStyle(stroke1->getStyle());
     stroke->outlineOptions() = stroke1->outlineOptions();
+    stroke->setOpacity(stroke1->getOpacity() * (1. - t) +
+                       stroke2->getOpacity() * t);
+    if (!stroke->setOpacityProfile(StrokeOpacity::blend(
+            stroke1->getOpacityProfile(), stroke2->getOpacityProfile(), t))) {
+      delete stroke;
+      throw TException("Inbetween opacity envelope exceeds the supported knot limit");
+    }
     VIStroke *firstVs = m_firstImage->getVIStroke(m_strokePairs[i].first);
     VIStroke *vs      = new VIStroke(stroke, firstVs->m_groupId);
     vi->m_imp->m_strokes.push_back(vs);
+    colorSources.emplace_back(m_strokePairs[i].first, -1);
+    stackOrder.push_back(m_strokePairs[i].first);
 
   }  // end for each stroke
 
-  if (m_firstImage->isComputedRegionAlmostOnce()) transferColor(vi);
+  auto addUnmatched = [&](const TVectorImageP &source,
+                          const std::vector<int> &indices, double factor,
+                          bool fromFirst) {
+    for (int index : indices) {
+      TStroke *copy = new TStroke(*source->getStroke(index));
+      if (m_unmatchedPolicy == CollapseUnmatched) {
+        const TPointD center = copy->getBBox().getP00() +
+            TPointD(copy->getBBox().getLx(), copy->getBBox().getLy()) * 0.5;
+        for (int p = 0; p < copy->getControlPointCount(); ++p) {
+          const TThickPoint old = copy->getControlPoint(p);
+          const TPointD moved = center + (TPointD(old.x, old.y) - center) * factor;
+          copy->setControlPoint(p, TThickPoint(moved, old.thick * factor));
+        }
+        copy->invalidate();
+      }
+      TGroupId group = source->getVIStroke(index)->m_groupId;
+      if (!fromFirst) {
+        // A new drawing's numeric group IDs are local to that drawing.
+        // Keep the arriving hierarchy distinct from unrelated first groups.
+        for (int &id : group.m_id) {
+          if (id > 0) id += m_firstImage->m_imp->m_maxGroupId;
+          else if (id < 0) id -= m_firstImage->m_imp->m_maxGhostGroupId;
+        }
+      }
+      vi->m_imp->m_strokes.push_back(new VIStroke(copy, group));
+      colorSources.emplace_back(fromFirst ? index : -1, fromFirst ? -1 : index);
+      stackOrder.push_back(fromFirst ? index : int(m_firstImage->getStrokeCount()) + index);
+    }
+  };
+  if (m_unmatchedPolicy != OmitUnmatched) {
+    addUnmatched(m_firstImage, m_review.unmatchedFirst, 1 - t, true);
+    addUnmatched(m_lastImage, m_review.unmatchedLast, t, false);
+    vi->m_imp->m_maxGroupId += m_lastImage->m_imp->m_maxGroupId;
+    vi->m_imp->m_maxGhostGroupId += m_lastImage->m_imp->m_maxGhostGroupId;
+    std::vector<int> order(stackOrder.size());
+    for (int i = 0; i < int(order.size()); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+      return stackOrder[a] < stackOrder[b];
+    });
+    auto originalStrokes = vi->m_imp->m_strokes;
+    auto originalSources = colorSources;
+    for (int i = 0; i < int(order.size()); ++i) {
+      vi->m_imp->m_strokes[i] = originalStrokes[order[i]];
+      colorSources[i] = originalSources[order[i]];
+    }
+  }
+
+  if (m_firstImage->isComputedRegionAlmostOnce() ||
+      (m_unmatchedPolicy != OmitUnmatched &&
+       m_lastImage->isComputedRegionAlmostOnce())) transferColor(vi, colorSources);
 
   return vi;
 }
 
 //-------------------------------------------------------------------
 
-void TInbetween::Imp::transferColor(const TVectorImageP &destination) const {
+void TInbetween::Imp::transferColor(const TVectorImageP &destination,
+                                   const StrokeCorrespondence &sources) const {
   const TVectorImageP &original = m_firstImage;
   destination->setPalette(original->getPalette());
 
   destination->findRegions();
 
   if (destination->getRegionCount()) {
-    // destination stroke i comes from the original stroke m_strokePairs[i]
-    UINT strokeCount1 = m_strokePairs.size();
+    UINT strokeCount1 = sources.size();
     UINT strokeCount2 = destination->getStrokeCount();
     if (strokeCount1 > strokeCount2) strokeCount1 = strokeCount2;
 
     for (UINT i = 0; i < strokeCount1; i++) {
-      TVectorImage::transferStrokeColors(original, m_strokePairs[i].first,
+      const bool first = sources[i].first >= 0;
+      TVectorImage::transferStrokeColors(first ? m_firstImage : m_lastImage,
+                                         first ? sources[i].first : sources[i].second,
                                          destination, i);
     }
   }

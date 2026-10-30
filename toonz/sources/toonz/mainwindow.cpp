@@ -2558,6 +2558,8 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_WidthProfileTaperBoth,
                         QT_TR_NOOP("Taper &Both Ends"), "");
   createMenuLevelAction(MI_WidthProfilePulse, QT_TR_NOOP("&Pulse"), "");
+  createMenuLevelAction(MI_EditStrokeOpacityProfile,
+                        QT_TR_NOOP("Edit Stroke Opacity Envelope..."), "");
   createMenuLevelAction(MI_ApplySavedWidthProfile,
                         QT_TR_NOOP("Apply S&aved Width Profile..."), "");
   createMenuLevelAction(

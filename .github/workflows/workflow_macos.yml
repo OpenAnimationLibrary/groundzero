@@ -132,10 +132,23 @@ jobs:
         run: |
           set -o pipefail
           export DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          python3 ../../ci-scripts/check_vector_test_registration.py
           QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
       - name: Report native UI failures
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
+
+      - name: Test native application integration
+        id: ui_integration
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 12
+        run: |
+          app_runtime="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          DYLD_LIBRARY_PATH="$app_runtime" QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_runtime/OpenToonz" stuff --output toonz/build/ui-integration-output.txt --require-vector-workflows
+
+      - name: Report native application integration failure
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
 
       - name: Test particle cache integration
         id: particle_tests

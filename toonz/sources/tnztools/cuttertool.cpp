@@ -18,6 +18,7 @@
 #include "tthreadmessage.h"
 
 #include "toonzqt/imageutils.h"
+#include "toonzqt/dvdialog.h"
 #include "toonzqt/tselectionhandle.h"
 
 #include "tgl.h"
@@ -367,6 +368,14 @@ public:
 
       std::vector<TFilledRegionInf> *fillInformation =
           new std::vector<TFilledRegionInf>;
+      try {
+        vi->validateStrokeSplit(strokeIndex, *sortedWRanges);
+      } catch (const std::exception &error) {
+        delete fillInformation;
+        delete sortedWRanges;
+        DVGui::warning(QString::fromUtf8(error.what()));
+        return;
+      }
       ImageUtils::getFillingInformationOverlappingArea(vi, *fillInformation,
                                                        strokeRef->getBBox());
 

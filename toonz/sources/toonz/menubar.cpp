@@ -1701,6 +1701,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(adjustMenu, MI_Binarize);
     addMenuItem(adjustMenu, MI_LinesFade);
   }
+  addMenuItem(levelMenu, MI_EditStrokeOpacityProfile);
   QMenu *widthProfileMenu = levelMenu->addMenu(tr("Width Profile"));
   UiTranslations::bind(widthProfileMenu, "title", "StackedMenuBar",
                        QStringLiteral("Width Profile"));

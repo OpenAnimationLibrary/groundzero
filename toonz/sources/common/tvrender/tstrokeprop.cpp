@@ -189,7 +189,11 @@ void TVectorImagePatternStrokeProp::draw(
     m_styleVersionNumber = m_colorStyle->getVersionNumber();
     m_colorStyle->computeTransformations(m_transformations, m_stroke);
   }
-  m_colorStyle->drawStroke(rd, m_transformations, m_stroke);
+  if (m_stroke->getOpacity() <= 0.0) return;
+  TStrokeOpacityFunction opacity(rd.m_cf, m_stroke->getOpacity());
+  TVectorRenderData data(rd);
+  if (m_stroke->getOpacity() < 1.0) data.m_cf = &opacity;
+  m_colorStyle->drawStroke(data, m_transformations, m_stroke);
 }
 
 //=============================================================================

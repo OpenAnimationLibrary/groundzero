@@ -208,6 +208,8 @@ public:
     else m_cadmiumReferences.erase(fid);
   }
   void clearCadmiumReferences() { m_cadmiumReferences.clear(); }
+  const std::string &getMorphHints() const { return m_morphHints; }
+  void setMorphHints(const std::string &hints) { m_morphHints = hints; }
   QString cadmiumLevelId();
   QString cadmiumSourceLevelId() const { return m_cadmiumSourceLevelId; }
   void setCadmiumSourceLevelId(const QString &id) { m_cadmiumSourceLevelId = id; }
@@ -376,6 +378,7 @@ private:
 
   FramesSet m_frames;
   std::set<TFrameId> m_cadmiumReferences;
+  std::string m_morphHints;
   QString m_cadmiumLevelId;
   QString m_cadmiumSourceLevelId;
   int m_renumberCount = 0;

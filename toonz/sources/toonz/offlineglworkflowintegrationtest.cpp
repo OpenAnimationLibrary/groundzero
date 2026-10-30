@@ -1,0 +1,217 @@
+#include "offlineglworkflowintegrationtest.h"
+#include "tofflinegl.h"
+#include "tpalette.h"
+#include "tstroke.h"
+#include "tsimplecolorstyles.h"
+#include "tvectorimage.h"
+#include "tlevel_io.h"
+#include <QApplication>
+#include <QDir>
+#include <QEvent>
+#include <QFileInfo>
+#include <QImage>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QTemporaryDir>
+#include <QThread>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <iostream>
+#include <mutex>
+#include <stdexcept>
+#include <thread>
+
+namespace {
+void require(bool condition, const char *message) {
+  if (!condition) throw std::runtime_error(message);
+}
+void checkpoint(const char *message) {
+  std::cerr << "offline-gl-workflow: " << message << std::endl;
+}
+
+// A GUI QTimer cannot report a deadlock when that very thread is blocked in a
+// constructor. This watchdog reports the stalled phase independently.
+class Deadline final {
+  std::mutex m_mutex;
+  std::condition_variable m_changed;
+  bool m_finished = false;
+  std::thread m_thread;
+public:
+  Deadline() : m_thread([this] {
+    std::unique_lock<std::mutex> lock(m_mutex);
+    if (!m_changed.wait_for(lock, std::chrono::seconds(45),
+                           [this] { return m_finished; }))
+      qFatal("Concurrent GUI/background offscreen context creation deadlocked");
+  }) {}
+  ~Deadline() {
+    { std::lock_guard<std::mutex> lock(m_mutex); m_finished = true; }
+    m_changed.notify_all(); m_thread.join();
+  }
+};
+
+class GuiContextOverlap final : public QObject {
+  std::atomic<bool> &m_workerEntered;
+public:
+  bool intercepted = false;
+  bool rendered = false;
+  std::exception_ptr error;
+  explicit GuiContextOverlap(std::atomic<bool> &workerEntered)
+      : m_workerEntered(workerEntered) {
+    qApp->installEventFilter(this);
+  }
+protected:
+  bool eventFilter(QObject *receiver, QEvent *event) override {
+    if (receiver != qApp || event->type() != QEvent::MetaCall || intercepted ||
+        !m_workerEntered.load()) return false;
+    // Enter the actual palette context pool before delivering the background
+    // renderer's GUI-thread surface request. The previous global GLX mutex
+    // deadlocked this order: worker held it while waiting for this thread.
+    intercepted = true;
+    checkpoint("GUI palette context overlaps pending background surface request");
+    try {
+      TOfflineGL *paletteContext = TOfflineGL::getStock(TDimension(119, 73));
+      paletteContext->clear(TPixel32(17, 83, 149, 255));
+      const TRaster32P pixels = paletteContext->getRaster();
+      rendered = pixels && pixels->pixels(10)[10] == TPixel32(17, 83, 149, 255);
+      paletteContext->doneCurrent();
+    } catch (...) {
+      // Let Qt deliver the worker's request before reporting a GUI render
+      // failure; exceptions must never escape an event filter.
+      error = std::current_exception();
+    }
+    return false;
+  }
+};
+
+void concurrentContexts() {
+  // Drain earlier application-targeted queued calls before installing the
+  // interceptor; the new worker is the only producer in this fixture.
+  QApplication::sendPostedEvents(qApp, QEvent::MetaCall);
+  std::atomic<bool> entered{false}, finished{false};
+  GuiContextOverlap overlap(entered);
+  Deadline deadline;
+  auto worker = std::async(std::launch::async, [&] {
+    entered.store(true);
+    try {
+      TOfflineGL context(TDimension(97, 61));
+      context.clear(TPixel32(29, 113, 197, 255));
+      const TRaster32P pixels = context.getRaster();
+      const bool valid = pixels && pixels->pixels(10)[10] == TPixel32(29, 113, 197, 255);
+      context.doneCurrent();
+      finished.store(true);
+      return valid;
+    } catch (...) { finished.store(true); throw; }
+  });
+  while (!finished.load()) {
+    QApplication::processEvents();
+    QThread::msleep(1);
+  }
+  require(worker.get(), "background offscreen context returned incorrect pixels");
+  if (overlap.error) std::rethrow_exception(overlap.error);
+  require(overlap.intercepted && overlap.rendered,
+          "GUI palette/background creation overlap was not exercised");
+  checkpoint("GUI and background contexts completed without lock inversion");
+}
+
+QString converterPath() {
+#ifdef _WIN32
+  const QString leaf = "tconverter.exe";
+#else
+  const QString leaf = "tconverter";
+#endif
+  const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(leaf);
+  require(QFileInfo(path).isFile(), "native converter is missing beside the application");
+  return path;
+}
+
+QImage convert(const QString &executable, const QString &source,
+               const QString &destination, bool rasterOnly = false) {
+  QProcess process;
+  process.setProcessChannelMode(QProcess::MergedChannels);
+  auto environment = QProcessEnvironment::systemEnvironment();
+  if (rasterOnly) {
+    // A raster-only command must not load any Qt GUI platform plugin.
+    environment.insert("QT_QPA_PLATFORM", "groundzero-nonexistent-platform");
+    environment.remove("DISPLAY"); environment.remove("WAYLAND_DISPLAY");
+  }
+  process.setProcessEnvironment(environment);
+  process.start(executable, {source, destination});
+  require(process.waitForStarted(10000), "could not start native converter");
+  if (!process.waitForFinished(30000)) {
+    process.kill(); process.waitForFinished(5000);
+    throw std::runtime_error("native converter timed out");
+  }
+  const QByteArray output = process.readAll();
+  std::cerr << output.constData() << std::flush;
+  require(process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0,
+          "native converter failed or crashed");
+  require(!output.toLower().contains("conversion failed"),
+          "native converter reported a frame conversion failure");
+  const QFileInfo target(destination);
+  const QStringList files = target.dir().entryList(
+      {target.completeBaseName() + "*.png"}, QDir::Files);
+  require(files.size() == 1, "native converter did not create exactly one PNG frame");
+  QImage pixels(target.dir().filePath(files.front()));
+  require(!pixels.isNull(), "independent PNG reader rejected converter output");
+  return pixels.convertToFormat(QImage::Format_ARGB32);
+}
+
+int columnAlpha(const QImage &image, int x) {
+  int result = 0;
+  for (int y = 0; y < image.height(); ++y)
+    result = std::max(result, qAlpha(image.pixel(x, y)));
+  return result;
+}
+
+void commandLineConversion() {
+  const QString executable = converterPath();
+  QTemporaryDir directory;
+  require(directory.isValid(), "native converter fixture directory unavailable");
+  TPaletteP palette = new TPalette;
+  const int style = palette->addStyle(new TSolidColorStyle(TPixel32(80, 160, 220, 255)));
+  TVectorImageP image = new TVectorImage;
+  image->setPalette(palette.getPointer());
+  auto *stroke = new TStroke(std::vector<TThickPoint>{{-48, 0, 8}, {0, 0, 8}, {48, 0, 8}});
+  stroke->setStyle(style); image->addStroke(stroke, false);
+  const QString ordinaryPath = directory.filePath("ordinary.pli");
+  {
+    TLevelWriterP writer{TFilePath(ordinaryPath)};
+    writer->getFrameWriter(TFrameId(1))->save(image);
+  }
+  checkpoint("ordinary PLI command-line conversion begins");
+  const QImage ordinary = convert(executable, ordinaryPath, directory.filePath("opaque.png"));
+  require(ordinary.width() > 40 && ordinary.height() > 8 &&
+              columnAlpha(ordinary, ordinary.width() / 2) == 255,
+          "ordinary PLI command-line conversion lost opaque artwork");
+  stroke->setOpacityProfile({{0., 0.}, {1., 1.}});
+  const QString envelopePath = directory.filePath("envelope.pli");
+  {
+    TLevelWriterP writer{TFilePath(envelopePath)};
+    writer->getFrameWriter(TFrameId(1))->save(image);
+  }
+  checkpoint("opacity-envelope PLI command-line conversion begins");
+  const QImage envelope = convert(executable, envelopePath, directory.filePath("fade.png"));
+  require(envelope.size() == ordinary.size(), "envelope conversion changed native drawing bounds");
+  const int left = columnAlpha(envelope, envelope.width() / 4);
+  const int right = columnAlpha(envelope, 3 * envelope.width() / 4);
+  require(left > 0 && right > 2 * left && right < 255,
+          "command-line conversion lost along-stroke opacity");
+
+  const QString rasterPath = directory.filePath("raster-source.png");
+  QImage raster(16, 12, QImage::Format_ARGB32); raster.fill(qRgba(20, 60, 100, 255));
+  require(raster.save(rasterPath), "headless raster input could not be written");
+  checkpoint("display-independent raster command-line conversion begins");
+  const QImage copied = convert(executable, rasterPath, directory.filePath("raster-copy.png"), true);
+  require(copied.size() == raster.size() && copied.pixel(8, 6) == raster.pixel(8, 6),
+          "headless raster conversion changed source pixels");
+}
+}  // namespace
+
+void runOfflineGLWorkflowNativeChecks() {
+  concurrentContexts();
+  commandLineConversion();
+  checkpoint("PASS (concurrent GUI/background contexts; PLI and headless raster CLI)");
+}

@@ -122,7 +122,10 @@ void testMapping() {
   check(fromString("PaintFills") == MODE_PAINT_FILLS, "PaintFills");
   check(fromString("PaintBehind") == MODE_PAINT_BEHIND, "PaintBehind");
   check(fromString("") == MODE_NORMAL, "an empty name is Normal");
-  check(fromString("PaintInside") == MODE_NORMAL, "an unknown name is Normal");
+  check(fromString("PaintInside") == MODE_PAINT_INSIDE, "PaintInside persists");
+  check(fromString("PaintSelection") == MODE_PAINT_SELECTION, "PaintSelection persists");
+  check(fromString("UnknownMode") == MODE_NORMAL, "an unknown name is Normal");
+  check(makesShape(MODE_PAINT_INSIDE) && makesShape(MODE_PAINT_SELECTION), "constrained modes create shapes");
   check(fromString("paintfills") == MODE_NORMAL, "names are case sensitive");
   check(fromString("Paint Fills") == MODE_NORMAL,
         "the menu text is not a saved name");

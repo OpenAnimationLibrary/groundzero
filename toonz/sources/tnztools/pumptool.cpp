@@ -573,6 +573,7 @@ void PumpTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 
   // Revert current deformation, recovering the one from button press
   delete m_outStroke;
+  m_outStroke = nullptr;
 
   // Retrieve cursor's vertical displacement
   TPointD delta = TPointD(0, (pos - m_downPoint).y);
@@ -1406,11 +1407,15 @@ TStroke *PumpTool::mergeStrokes(const std::vector<TStroke *> &strokes) {
       mergedStroke->setSelfLoop(true);
     }
 
-    mergedStroke->outlineOptions() = strokes[0]->outlineOptions();
   } else {
     mergedStroke = new TStroke(*strokes[0]);
     if (m_errorTol > 0.0) mergedStroke->reduceControlPoints(m_errorTol);
   }
+
+  // Pump changes width, not the original stroke's opacity coordinates. The
+  // first temporary piece contains only a sliced envelope; copying it onto
+  // the reassembled stroke would stretch that slice across the whole line.
+  mergedStroke->outlineOptions() = m_inStroke->outlineOptions();
 
   mergedStroke->setStyle(m_strokeStyleId);
   mergedStroke->invalidate();

@@ -2,10 +2,18 @@
 
 #include "tcurves.h"
 #include "tstroke.h"
+#include "tvectorimage.h"
+#include "tpalette.h"
+#include "tcolorstyles.h"
+#include "tsimplecolorstyles.h"
+#include "../common/tvectorimage/tvectorimageP.h"
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <map>
+#include <set>
+#include <stdexcept>
 
 //****************************************************************************************
 //    Local namespace stuff
@@ -213,7 +221,7 @@ void removeDuplicates(std::vector<TPointD> &polygon, double distance) {
 //****************************************************************************************
 
 bool ContourOutline::canConvert(const TStroke &stroke) {
-  if (stroke.getChunkCount() <= 0 || stroke.isSelfLoop()) return false;
+  if (stroke.getChunkCount() <= 0) return false;
 
   const int count = stroke.getControlPointCount();
   for (int i = 0; i < count; i++)
@@ -223,11 +231,30 @@ bool ContourOutline::canConvert(const TStroke &stroke) {
 
 //---------------------------------------------------------------------------------
 
-bool ContourOutline::computeOutlinePolygon(const TStroke &stroke,
-                                           std::vector<TPointD> &polygon,
-                                           double sampleError) {
-  polygon.clear();
-  if (!canConvert(stroke)) return false;
+bool ContourOutline::computeOutlinePolygons(
+    const TStroke &input, std::vector<std::vector<TPointD>> &polygons,
+    double sampleError) {
+  polygons.clear();
+  if (!canConvert(input)) return false;
+  // Put a closed curve's parameter seam inside a quadratic. Its two tangent
+  // limits then coincide, so both offset sides close without end caps or a
+  // bridge across the hollow center. The geometry itself is unchanged.
+  std::unique_ptr<TStroke> rotated;
+  if (input.isSelfLoop() && input.getLength() > c_minLength) {
+    TStroke first, last;
+    input.split(input.getParameterAtControlPoint(1), first, last);
+    std::vector<TThickPoint> points, tail;
+    last.getControlPoints(points);
+    first.getControlPoints(tail);
+    if (!points.empty() && tail.size() >= 3) {
+      points.insert(points.end(), tail.begin() + 1, tail.end());
+      rotated.reset(new TStroke(points));
+      rotated->setSelfLoop(true);
+      rotated->outlineOptions() = input.outlineOptions();
+    }
+  }
+  const TStroke &stroke = rotated ? *rotated : input;
+  std::vector<TPointD> polygon;
 
   const double tolerance                 = std::max(sampleError, 1e-4);
   const TStroke::OutlineOptions &options = stroke.outlineOptions();
@@ -306,6 +333,15 @@ bool ContourOutline::computeOutlinePolygon(const TStroke &stroke,
   for (size_t i = joins.size(); i-- > 0;)
     trimInnerJoin(side[joins[i].m_inner], joins[i]);
 
+  if (stroke.isSelfLoop() && stroke.getLength() > c_minLength) {
+    for (auto &cycle : side) {
+      removeDuplicates(cycle, tolerance * 0.1);
+      if (cycle.size() < 3) return false;
+      polygons.push_back(cycle);
+    }
+    return true;
+  }
+
   // Right side forward, end cap, left side backward, start cap
   polygon = side[0];
 
@@ -344,19 +380,27 @@ bool ContourOutline::computeOutlinePolygon(const TStroke &stroke,
     polygon.clear();
     return false;
   }
+  polygons.push_back(polygon);
   return true;
 }
 
 //---------------------------------------------------------------------------------
 
-bool ContourOutline::makeOutlineControlPoints(
-    const TStroke &stroke, std::vector<TThickPoint> &controlPoints,
-    const Options &options) {
-  controlPoints.clear();
+bool ContourOutline::computeOutlinePolygon(const TStroke &stroke,
+    std::vector<TPointD> &polygon, double sampleError) {
+  polygon.clear();
+  if (stroke.isSelfLoop()) return false; // A single cycle cannot represent a ring.
+  std::vector<std::vector<TPointD>> polygons;
+  if (!computeOutlinePolygons(stroke, polygons, sampleError)) return false;
+  polygon = polygons.front();
+  return true;
+}
 
-  std::vector<TPointD> polygon;
-  if (!computeOutlinePolygon(stroke, polygon, options.m_sampleError))
-    return false;
+namespace {
+bool fitContour(const std::vector<TPointD> &polygon,
+                std::vector<TThickPoint> &controlPoints,
+                const ContourOutline::Options &options) {
+  controlPoints.clear();
 
   std::vector<TThickPoint> points;
   points.reserve(polygon.size() + 1);
@@ -386,6 +430,33 @@ bool ContourOutline::makeOutlineControlPoints(
   return true;
 }
 
+}  // namespace
+
+bool ContourOutline::makeOutlineContours(
+    const TStroke &stroke, std::vector<std::vector<TThickPoint>> &contours,
+    const Options &options) {
+  contours.clear();
+  std::vector<std::vector<TPointD>> polygons;
+  if (!computeOutlinePolygons(stroke, polygons, options.m_sampleError)) return false;
+  for (const auto &polygon : polygons) {
+    std::vector<TThickPoint> points;
+    if (!fitContour(polygon, points, options)) { contours.clear(); return false; }
+    contours.push_back(std::move(points));
+  }
+  return !contours.empty();
+}
+
+bool ContourOutline::makeOutlineControlPoints(
+    const TStroke &stroke, std::vector<TThickPoint> &controlPoints,
+    const Options &options) {
+  controlPoints.clear();
+  if (stroke.isSelfLoop()) return false;
+  std::vector<std::vector<TThickPoint>> contours;
+  if (!makeOutlineContours(stroke, contours, options)) return false;
+  controlPoints = std::move(contours.front());
+  return true;
+}
+
 //---------------------------------------------------------------------------------
 
 TStroke *ContourOutline::makeOutlineStroke(const TStroke &stroke,
@@ -411,4 +482,203 @@ double ContourOutline::polygonArea(const std::vector<TPointD> &polygon) {
     sum += crossProduct(a, b);
   }
   return 0.5 * sum;
+}
+
+namespace {
+bool insideCycles(const std::vector<std::vector<TPointD>> &cycles,
+                  const TPointD &point) {
+  bool inside = false;
+  for (const auto &cycle : cycles)
+    for (size_t i = 0, j = cycle.size() - 1; i < cycle.size(); j = i++) {
+      const auto &a = cycle[i], &b = cycle[j];
+      if ((a.y > point.y) != (b.y > point.y) &&
+          point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x)
+        inside = !inside;
+    }
+  return inside;
+}
+
+struct ConvertedContour {
+  std::vector<std::vector<TThickPoint>> boundaries;
+  std::vector<std::vector<TPointD>> fittedCycles;
+  int fillStyle = 0;
+};
+
+bool supportedContourStyle(const TColorStyle *style) {
+  // Procedural stroke/texture styles do not have an equivalent flat region
+  // appearance. Explicitly refuse them instead of silently changing artwork.
+  return style && style->getTagId() == 3 && style->isStrokeStyle() &&
+         style->isRegionStyle();
+}
+
+void fillContourRegion(TRegion *region, const ConvertedContour &contour) {
+  TPointD point;
+  if (region->getInternalPoint(point))
+    region->setStyle(insideCycles(contour.fittedCycles, point) ? contour.fillStyle : 0);
+  for (UINT i = 0; i < region->getSubregionCount(); ++i)
+    fillContourRegion(region->getSubregion(i), contour);
+}
+
+bool hasPaintedRegion(const TRegion *region) {
+  if (region->getStyle() != 0) return true;
+  for (UINT i = 0; i < region->getSubregionCount(); ++i)
+    if (hasPaintedRegion(region->getSubregion(i))) return true;
+  return false;
+}
+}  // namespace
+
+TVectorImageP ContourOutline::convertImage(
+    const TVectorImageP &source, const std::vector<int> &indices,
+    const Options &options) {
+  if (!source || !source->getPalette()) return TVectorImageP();
+  // Every decision and geometry calculation precedes document mutation.
+  TVectorImageP original = source->clone();
+  original->findRegions();
+  TPalette *sourcePalette = source->getPalette();
+  TPaletteP palette;
+  std::map<std::pair<int, double>, int> opacityStyles;
+  std::map<int, ConvertedContour> contours;
+  for (int index : indices) {
+    if (index < 0 || index >= int(original->getStrokeCount())) continue;
+    const TStroke &stroke = *original->getStroke(index);
+    if (!canConvert(stroke)) continue;
+    if (!stroke.getOpacityProfile().empty())
+      throw std::runtime_error("Contour conversion cannot preserve opacity that varies along a stroke. Remove the opacity profile before converting.");
+    if (stroke.getStyle() < 0 || stroke.getStyle() >= sourcePalette->getStyleCount())
+      throw std::runtime_error("A selected stroke refers to a missing palette style. No drawing was changed.");
+    TColorStyle *style = sourcePalette->getStyle(stroke.getStyle());
+    if (!supportedContourStyle(style))
+      throw std::runtime_error("Contour conversion preserves solid-color strokes. Texture, procedural and region-only styles cannot be preserved as contour fills.");
+    if (sourcePalette->getKeyframeCount(stroke.getStyle()) > 0)
+      throw std::runtime_error("Contour conversion cannot preserve an animated stroke style. Duplicate a non-animated style before converting.");
+    ConvertedContour contour;
+    if (!makeOutlineContours(stroke, contour.boundaries, options))
+      throw std::runtime_error("A selected stroke could not be converted to a closed contour. No drawing was changed.");
+    contour.fillStyle = stroke.getStyle();
+    if (stroke.getOpacity() < 1.0) {
+      if (sourcePalette->isLocked())
+        throw std::runtime_error("Unlock the palette before converting a partially transparent stroke; its opacity needs a new fill style.");
+      const auto key = std::make_pair(stroke.getStyle(), stroke.getOpacity());
+      auto found = opacityStyles.find(key);
+      if (found == opacityStyles.end()) {
+        if (!palette) palette = sourcePalette->clone();
+        std::unique_ptr<TColorStyle> copy(style->clone());
+        copy->setGlobalName(L"");
+        copy->setOriginalName(L"");
+        copy->setIsEditedFlag(false);
+        copy->setName(style->getName() + L" (contour opacity)");
+        for (int c = 0; c < copy->getColorParamCount(); ++c) {
+          TPixel32 color = copy->getColorParamValue(c);
+          color.m = static_cast<UCHAR>(std::lround(color.m * stroke.getOpacity()));
+          copy->setColorParamValue(c, color);
+        }
+        copy->invalidateIcon();
+        const int id = palette->addStyle(copy.release());
+        if (id < 0 || palette->getPageCount() == 0 || palette->getPage(0)->addStyle(id) < 0)
+          throw std::runtime_error("The palette has no room for the contour opacity style. No drawing was changed.");
+        palette->setDirtyFlag(true);
+        opacityStyles[key] = id;
+        contour.fillStyle = id;
+      } else contour.fillStyle = found->second;
+    }
+    for (const auto &points : contour.boundaries) {
+      TStroke boundary(points);
+      std::vector<TPointD> cycle;
+      const int samples = std::max(128, 16 * boundary.getChunkCount());
+      for (int i = 0; i < samples; ++i)
+        cycle.push_back(boundary.getPoint(double(i) / samples));
+      contour.fittedCycles.push_back(std::move(cycle));
+    }
+    contours[index] = std::move(contour);
+  }
+  if (contours.empty()) return TVectorImageP();
+
+  TVectorImageP result = new TVectorImage;
+  result->setPalette(palette ? palette.getPointer() : sourcePalette);
+  result->m_imp->m_autocloseTolerance = original->m_imp->m_autocloseTolerance;
+  result->m_imp->m_maxGroupId = original->m_imp->m_maxGroupId;
+  result->m_imp->m_maxGhostGroupId = original->m_imp->m_maxGhostGroupId;
+  std::vector<std::pair<int, int>> fillSources;
+  std::map<int, int> contourGroups;
+  auto append = [&](TStroke *stroke, const TGroupId &group) {
+    const int outputIndex = int(result->m_imp->m_strokes.size());
+    result->m_imp->m_strokes.push_back(new VIStroke(stroke, group));
+    return outputIndex;
+  };
+  auto child = [&](const TGroupId &parent) {
+    TGroupId group = parent;
+    group.m_id.insert(group.m_id.begin(), ++result->m_imp->m_maxGroupId);
+    return group;
+  };
+  for (int first = 0; first < int(original->getStrokeCount());) {
+    int last = first + 1;
+    while (last < int(original->getStrokeCount()) && original->sameGroup(first, last)) ++last;
+    bool affected = false;
+    for (int i = first; i < last; ++i) affected |= contours.count(i) != 0;
+    const TGroupId oldGroup = original->getVIStroke(first)->m_groupId;
+    if (!affected) {
+      for (int i = first; i < last; ++i) {
+        auto *stroke = new TStroke(*original->getStroke(i));
+        stroke->setId(original->getStroke(i)->getId());
+        fillSources.emplace_back(i, append(stroke, oldGroup));
+      }
+    } else {
+      TGroupId parent = oldGroup;
+      // An implicit group has no named hierarchy to preserve. Give its
+      // replacement one parent so the generated layers remain selectable.
+      if (original->getGroupDepth(first) == 0) {
+        parent.m_id.clear();
+        parent.m_id.push_back(++result->m_imp->m_maxGroupId);
+      }
+      const TGroupId background = child(parent);
+      // Preserve exact fill boundaries, including holes and fills assembled
+      // from several strokes. These helpers are invisible as strokes.
+      bool hasFills = false;
+      for (UINT r = 0; r < original->getRegionCount() && !hasFills; ++r)
+        hasFills = original->sameGroupStrokeAndRegion(first, r) &&
+                   hasPaintedRegion(original->getRegion(r));
+      if (hasFills) {
+        for (int i = first; i < last; ++i) {
+          auto *boundary = new TStroke(*original->getStroke(i));
+          for (int p = 0; p < boundary->getControlPointCount(); ++p) {
+            auto point = boundary->getControlPoint(p);
+            point.thick = 0;
+            boundary->setControlPoint(p, point);
+          }
+          boundary->setStyle(0);
+          boundary->setOpacity(0);
+          fillSources.emplace_back(i, append(boundary, background));
+        }
+      }
+      for (int i = first; i < last; ++i) {
+        const TGroupId paintLayer = child(parent);
+        auto converted = contours.find(i);
+        if (converted == contours.end()) {
+          auto *stroke = new TStroke(*original->getStroke(i));
+          stroke->setId(original->getStroke(i)->getId());
+          append(stroke, paintLayer);
+        } else {
+          int firstBoundary = -1;
+          for (const auto &points : converted->second.boundaries) {
+            auto *boundary = new TStroke(points);
+            boundary->setSelfLoop(true);
+            boundary->setStyle(0);
+            const int at = append(boundary, paintLayer);
+            if (firstBoundary < 0) firstBoundary = at;
+          }
+          contourGroups[firstBoundary] = i;
+        }
+      }
+    }
+    first = last;
+  }
+  result->findRegions();
+  for (const auto &sourceAndTarget : fillSources)
+    TVectorImage::transferStrokeColors(original, sourceAndTarget.first, result,
+                                       sourceAndTarget.second);
+  for (const auto &group : contourGroups)
+    for (UINT r = 0; r < result->getRegionCount(); ++r)
+      if (result->sameGroupStrokeAndRegion(group.first, r))
+        fillContourRegion(result->getRegion(r), contours.at(group.second));
+  return result;
 }

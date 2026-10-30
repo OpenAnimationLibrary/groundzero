@@ -197,11 +197,14 @@ public:
       bool autoGroup = false, bool autoFill = false,
       bool drawFirstStroke = true, bool drawLastStroke = true,
       bool withUndo                  = true,
-      BrushPaintMode::Mode paintMode = BrushPaintMode::MODE_NORMAL);
+      BrushPaintMode::Mode paintMode = BrushPaintMode::MODE_NORMAL,
+      bool validateOnly = false);
   bool doGuidedAutoInbetween(TFrameId cFid, const TVectorImageP &cvi,
                              TStroke *cStroke, bool breakAngles,
                              bool autoGroup = false, bool autoFill = false,
-                             bool drawStroke = true);
+                             bool drawStroke = true,
+                             BrushPaintMode::Mode paintMode = BrushPaintMode::MODE_NORMAL,
+                             int correspondenceIndex = -1);
 
 protected:
   typedef std::vector<StrokeGenerator> TrackList;
@@ -225,6 +228,9 @@ protected:
   TDoubleProperty m_smooth;
   TEnumProperty m_drawOrder;
   TEnumProperty m_paintMode;
+  // Range selection masks are deliberately opt-in, never inferred by stroke
+  // order in another drawing. This session setting is not a brush preset.
+  TEnumProperty m_selectionMask;
   TEnumProperty m_preset;
   TBoolProperty m_breakAngles;
   TBoolProperty m_pressure;

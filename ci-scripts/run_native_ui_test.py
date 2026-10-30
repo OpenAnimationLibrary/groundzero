@@ -21,10 +21,13 @@ def windows_mesa_renderer(executable, runtime):
     names = ("opengl32.dll", "libgallium_wgl.dll")
     sources = [runtime / name for name in names]
     targets = [executable.parent / name for name in names]
-    marker = executable.with_name(executable.name + ".local")
+    markers = [executable.with_name(executable.name + ".local")]
+    converter = executable.with_name("tconverter.exe")
+    if converter.is_file():
+        markers.append(converter.with_name(converter.name + ".local"))
     if not all(source.is_file() for source in sources):
         raise RuntimeError("The verified Mesa runtime is missing a required DLL")
-    if any(path.exists() or path.is_symlink() for path in [*targets, marker]):
+    if any(path.exists() or path.is_symlink() for path in [*targets, *markers]):
         raise RuntimeError("The temporary Mesa renderer would replace a packaged file")
     created = []
     try:
@@ -33,9 +36,10 @@ def windows_mesa_renderer(executable, runtime):
                 created.append(target)
                 with source.open("rb") as original:
                     shutil.copyfileobj(original, destination)
-        with marker.open("xb") as destination:
-            created.append(marker)
-            destination.write(b"native-ui-test-only\n")
+        for marker in markers:
+            with marker.open("xb") as destination:
+                created.append(marker)
+                destination.write(b"native-ui-test-only\n")
         print("native-ui-integration: renderer: Mesa llvmpipe desktop OpenGL", flush=True)
         # The standard DLL name keeps Qt's desktop WGL/GDI dispatch and native
         # opengl32 imports on the same module. Do not load opengl32sw as well.
@@ -138,7 +142,10 @@ def main():
                         help="Local PDB directory for optional Windows crash diagnostics")
     parser.add_argument("--windows-mesa", type=Path,
                         help="Verified Mesa x64 runtime for temporary Windows desktop GL")
+    parser.add_argument("--require-vector-workflows", action="store_true",
+                        help="Require vector/native production renderer and CLI acceptance checkpoints")
     args = parser.parse_args()
+    timeout_seconds = 600 if args.require_vector_workflows else 180
     output, status = "", 1
     native_status = None
     try:
@@ -149,15 +156,21 @@ def main():
                 result = subprocess.run([str(executable), "--test-native-ui"],
                                         cwd=directory, env=environment,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        timeout=180, encoding="utf-8", errors="replace")
+                                        timeout=timeout_seconds, encoding="utf-8", errors="replace")
                 output, status = result.stdout, result.returncode
                 native_status = status
+                if status == 0 and args.require_vector_workflows:
+                    missing = [marker for marker in ("native-ui-integration: PASS", "vector-workflows: PASS", "offline-gl-workflow: PASS")
+                               if marker not in output]
+                    if missing:
+                        output += "\nMissing required native acceptance checkpoints: " + ", ".join(missing) + "\n"
+                        status = 1
                 if status:
                     output += (f"\nNative application exited with status {status} "
                                f"(0x{status & 0xffffffff:08X}).\n")
             except subprocess.TimeoutExpired as error:
                 output = decode_output(error.stdout)
-                output += "\nNative application integration test timed out after 180 seconds.\n"
+                output += f"\nNative application integration test timed out after {timeout_seconds} seconds.\n"
                 status = 1
     except (OSError, RuntimeError, ValueError) as error:
         output += ("\nNative application integration setup, launch or cleanup failed: "

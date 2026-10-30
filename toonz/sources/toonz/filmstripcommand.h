@@ -87,6 +87,7 @@ struct InbetweenOptions {
   std::vector<std::pair<TRectD, TRectD>> m_zoneHints;
   double m_slowStart = 0;  // II_Custom ease strengths, 0..1
   double m_slowEnd   = 0;
+  int m_unmatchedPolicy = 0;  // TInbetween::UnmatchedPolicy
 };
 
 // strokePairs optionally forces the (fid0 stroke index, fid1 stroke index)

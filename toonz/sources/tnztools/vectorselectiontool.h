@@ -138,8 +138,13 @@ public:
   void registerStrokes(bool beforeModify = false);
   void setFlip(bool value) { m_flip = value; }
   void transform(const std::vector<TStroke *> &strokes, FourPoints bbox,
-                 TPointD center, DeformValues deformValue) const;
+                 TPointD center, DeformValues deformValue, bool notify = true) const;
   void restoreRegions() const;
+  void restoreBefore() const;
+  const TVectorImageP &beforeImage() const { return m_beforeImage; }
+  void discardReviewImage() { m_beforeImage = TVectorImageP(); }
+  TVectorImageP currentImage() const;
+  const TFrameId &frameId() const { return m_frameId; }
   void undo() const override;
   void redo() const override;
   int getSize() const override;
@@ -151,6 +156,8 @@ private:
 
   std::vector<int> m_indexes;  //!< Selected indexes at current frame.
   std::vector<TFilledRegionInf> m_regionsData;
+  std::vector<TFilledRegionInf> m_newRegionsData;
+  TVectorImageP m_beforeImage;
 
   int m_selectionCount;
 
@@ -174,6 +181,8 @@ public:
 
   void applyTransform(FourPoints bbox, bool onFastDragging = false) override;
   void addTransformUndo() override;
+  void cancel();
+  bool isReviewing() const { return m_isReviewing; }
 
   /*! Transform whole level and add undo. */
   void transformWholeLevel();
@@ -186,6 +195,10 @@ public:
 
 protected:
   std::unique_ptr<UndoChangeStrokes> m_undo;
+  bool m_cancelled = false;
+  bool m_isReviewing = false;
+
+  bool commitChanges(std::vector<std::unique_ptr<UndoChangeStrokes>> &changes);
 
 protected:
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override {}
@@ -375,6 +388,9 @@ public:
   bool canResetCenter() { return m_resetCenter; }
 
   bool isSelectionEditable() override { return m_strokeSelection.isEditable(); }
+  bool reviewFills() const { return m_reviewFills.getValue(); }
+  bool keyDown(QKeyEvent *event) override;
+  bool isEventAcceptable(QEvent *event) override;
 
 protected:
   void onActivate() override;
@@ -429,6 +445,7 @@ private:
   TBoolProperty m_includeIntersection;
   TBoolProperty m_constantThickness;
   TBoolProperty m_envelope;  //!< Box handles bend the strokes (Envelope).
+  TBoolProperty m_reviewFills;
 
   StrokeSelection m_strokeSelection;        //!< Standard selection of a set of
                                             //! strokes in current image.
@@ -438,7 +455,7 @@ private:
   TEnumProperty m_capStyle;       //!< Style of stroke caps.
   TEnumProperty m_joinStyle;      //!< Style of stroke joins.
   TIntProperty m_miterJoinLimit;  //!< Stroke joins threshold value.
-  TIntProperty m_opacity;  //!< Opacity (percent) of the selected strokes.
+  TDoubleProperty m_opacity;  //!< Opacity (percent) of the selected strokes.
 
   TPropertyGroup m_outlineProps;
 
