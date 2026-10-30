@@ -1,0 +1,325 @@
+#include "toonz/rasterbrushengine.h"
+#include <algorithm>
+#include <cmath>
+#include <map>
+#include <stdexcept>
+
+namespace RasterBrush {
+namespace {
+constexpr double pi = 3.14159265358979323846;
+double unit(double v) { return std::max(0.0, std::min(1.0, v)); }
+Pixel clean(Pixel p) {
+  p.a = unit(p.a);
+  p.r = std::max(0.0, std::min(p.a, p.r));
+  p.g = std::max(0.0, std::min(p.a, p.g));
+  p.b = std::max(0.0, std::min(p.a, p.b));
+  return p;
+}
+Pixel mul(Pixel p, double a) { return {p.r*a, p.g*a, p.b*a, p.a*a}; }
+Pixel mix(Pixel p, Pixel q, double t) {
+  return {p.r+(q.r-p.r)*t, p.g+(q.g-p.g)*t,
+          p.b+(q.b-p.b)*t, p.a+(q.a-p.a)*t};
+}
+double wrap(double x) { return x - std::floor(x); }
+double arc(double x) { return std::remainder(x, 2*pi); }
+double mask(double a, double b, MaskMode mode) {
+  return mode == MaskMode::Multiply ? a*b : std::max(0.0, a-b);
+}
+Pixel texel(const Image &im, double x, double y, bool repeat) {
+  if (repeat) { x = wrap(x); y = wrap(y); }
+  const double fx = x*im.width-0.5, fy = y*im.height-0.5;
+  const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
+  auto at = [&](int a, int b) -> Pixel {
+    if (repeat) { a = (a%im.width+im.width)%im.width;
+                  b = (b%im.height+im.height)%im.height; }
+    if (a < 0 || b < 0 || a >= im.width || b >= im.height) return {};
+    return im.pixels[size_t(b)*im.width+a];
+  };
+  return mix(mix(at(ix,iy),at(ix+1,iy),fx-ix),
+             mix(at(ix,iy+1),at(ix+1,iy+1),fx-ix),fy-iy);
+}
+Pixel tipPixel(const Tip &tip, size_t index, double x, double y) {
+  if (tip.shape == Shape::Bitmap)
+    return texel(*tip.images[index%tip.images.size()], x*0.5+0.5, y*0.5+0.5, false);
+  double d = tip.shape == Shape::Square ? std::max(std::abs(x),std::abs(y))
+                                        : std::hypot(x,y);
+  if (d >= 1) return {};
+  double a = d <= tip.hardness ? 1 : (1-d)/std::max(1e-9,1-tip.hardness);
+  if (tip.shape == Shape::Gaussian) a = (std::exp(-4*d*d)-std::exp(-4.0))/(1-std::exp(-4.0));
+  return {0,0,0,unit(a)};
+}
+bool finitePixel(const Pixel &p) {
+  return std::isfinite(p.r)&&std::isfinite(p.g)&&std::isfinite(p.b)&&std::isfinite(p.a);
+}
+Sample interpolate(const Sample &a, const Sample &b, double t) {
+  Sample s=b;
+  s.x=a.x+(b.x-a.x)*t; s.y=a.y+(b.y-a.y)*t;
+  s.pressure=a.pressure+(b.pressure-a.pressure)*t;
+  s.tiltX=a.tiltX+(b.tiltX-a.tiltX)*t;
+  s.tiltY=a.tiltY+(b.tiltY-a.tiltY)*t;
+  s.rotation=a.rotation+arc(b.rotation-a.rotation)*t;
+  s.time=a.time+(b.time-a.time)*t;
+  return s;
+}
+}  // namespace
+
+Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
+  dst=clean(dst); src=clean(src);
+  if (mode == Blend::Erase) return lockAlpha ? dst : mul(dst,1-src.a);
+  auto channel=[&](double d,double s) {
+    const double cb=dst.a>0?d/dst.a:0, cs=src.a>0?s/src.a:0;
+    double b=cs;
+    if(mode==Blend::Multiply) b=cb*cs;
+    if(mode==Blend::Screen) b=1-(1-cb)*(1-cs);
+    if(mode==Blend::Overlay) b=cb<=0.5?2*cb*cs:1-2*(1-cb)*(1-cs);
+    if(lockAlpha) return dst.a*((1-src.a)*cb+src.a*b);
+    return src.a*(1-dst.a)*cs+src.a*dst.a*b+(1-src.a)*d;
+  };
+  return clean({channel(dst.r,src.r),channel(dst.g,src.g),channel(dst.b,src.b),
+                lockAlpha?dst.a:src.a+dst.a*(1-src.a)});
+}
+
+std::string validate(const Preset &p) {
+  if (p.profile != "groundzero-native-1") return "Unimplemented behavior profile: "+p.profile;
+  auto range=[](double v,double lo,double hi){return std::isfinite(v)&&v>=lo&&v<=hi;};
+  auto dynamic=[&](const Dynamic &d,double lo,double hi) {
+    if(!range(d.value,lo,hi)||!range(d.minimum,0,1)||d.mappings.size()>16) return false;
+    for(const auto &m:d.mappings) {
+      if(!range(m.scale,1e-9,1e9)||m.curve.empty()||m.curve.size()>1024) return false;
+      double last=-1;
+      for(const auto &k:m.curve) {
+        if(!range(k.x,0,1)||!range(k.y,0,1)||k.x<=last) return false;
+        last=k.x;
+      }
+    }
+    return true;
+  };
+  size_t bytes=0;
+  auto image=[&](const std::shared_ptr<const Image> &im) {
+    if(!im) return false;
+    if(im->width<1||im->height<1||im->width>8192||im->height>8192) return false;
+    if(im->pixels.size()!=size_t(im->width)*im->height) return false;
+    size_t n=im->pixels.size()*sizeof(Pixel);
+    if(n>64u*1024u*1024u||bytes>256u*1024u*1024u-n) return false;
+    bytes+=n;
+    for(const auto &v:im->pixels)
+      if(!finitePixel(v)||v.a<0||v.a>1||v.r<0||v.g<0||v.b<0||v.r>v.a||v.g>v.a||v.b>v.a) return false;
+    return true;
+  };
+  auto tip=[&](const Tip &t) {
+    if(!range(t.hardness,0,1)||t.images.size()>256) return false;
+    if(t.shape==Shape::Bitmap&&t.images.empty()) return false;
+    for(const auto &im:t.images) if(!image(im)) return false;
+    return true;
+  };
+  if(!tip(p.tip)||!dynamic(p.size,.25,4096)||!dynamic(p.aspect,.01,1)||
+     !dynamic(p.angle,-36000,36000)||!dynamic(p.opacity,0,1)||
+     !dynamic(p.flow,0,1)||!dynamic(p.scatter,0,5)||!range(p.spacing,.01,5)||
+     !range(p.airbrushRate,0,120)||p.count<1||p.count>64||!finitePixel(p.color))
+    return "Invalid brush geometry, dynamics, image, or resource budget";
+  const auto &t=p.texture;
+  if(t.image&&(!image(t.image)||!range(t.scale,.01,4096)||!range(t.angle,-36000,36000)||
+     !range(t.depth,0,1)||!range(t.contrast,0,10)||!range(t.brightness,-1,1)||
+     !range(t.offsetX,-1e9,1e9)||!range(t.offsetY,-1e9,1e9))) return "Invalid texture";
+  const auto &s=p.secondary;
+  if(s.enabled&&(!tip(s.tip)||!dynamic(s.size,.01,10)||!dynamic(s.angle,-36000,36000)||
+     !dynamic(s.opacity,0,1)||!range(s.aspect,.01,1)||!range(s.scatter,0,5))) return "Invalid secondary tip";
+  if(!range(p.pickup,0,1)||!range(p.colorRate,0,1)||!range(p.reload,0,1)||
+     !range(p.smudgeRadius,0,3)) return "Invalid wet brush settings";
+  if(p.wet!=Wet::Off&&(p.wash||s.enabled||p.blend!=Blend::Normal))
+    return "Wet brushes require normal build-up painting and a single tip";
+  return {};
+}
+
+struct Stroke::Impl {
+  Surface &surface;
+  const Preset p;
+  size_t budget, used=0, dabs=0;
+  std::string failure;
+  Sample previous, first;
+  bool started=false, finished=false;
+  double travel=0, sinceDab=0, sinceTime=0, spacing=1, direction=0, speed=0;
+  std::uint64_t rng;
+  double randomStroke=0, randomDab=0;
+  Pixel reservoir;
+  std::vector<Pixel> smear;
+  int smearSide=0;
+  struct Tile { std::array<Pixel,1024> base{}, paint{}; };
+  std::map<std::pair<int,int>,std::unique_ptr<Tile>> tiles;
+  Impl(Surface &s,const Preset &v,size_t limit):surface(s),p(v),budget(limit),rng(v.seed?v.seed:1),reservoir(v.color) {
+    failure=validate(v); randomStroke=random();
+  }
+  double random() {
+    rng^=rng>>12; rng^=rng<<25; rng^=rng>>27;
+    return double((rng*UINT64_C(2685821657736338717))>>11)*(1.0/9007199254740992.0);
+  }
+  double sensor(const Mapping &m,const Sample &s) const {
+    double v=0;
+    switch(m.sensor) {
+    case Sensor::Pressure:v=s.hasPressure?s.pressure:1;break;
+    case Sensor::TiltX:v=s.hasTilt?(s.tiltX+1)*.5:.5;break;
+    case Sensor::TiltY:v=s.hasTilt?(s.tiltY+1)*.5:.5;break;
+    case Sensor::TiltElevation:v=s.hasTilt?unit(std::hypot(s.tiltX,s.tiltY)):0;break;
+    case Sensor::TiltDirection:v=s.hasTilt?wrap(std::atan2(s.tiltY,s.tiltX)/(2*pi)):0;break;
+    case Sensor::Rotation:v=s.hasRotation?wrap(s.rotation/(2*pi)):0;break;
+    case Sensor::Direction:v=wrap(direction/(2*pi));break;
+    case Sensor::Distance:v=travel;break;
+    case Sensor::Time:v=s.time-first.time;break;
+    case Sensor::Speed:v=speed;break;
+    case Sensor::RandomDab:v=randomDab;break;
+    case Sensor::RandomStroke:v=randomStroke;break;
+    }
+    return unit(v/m.scale);
+  }
+  double eval(const Dynamic &d,const Sample &s) const {
+    double factor=1;
+    for(const auto &m:d.mappings) {
+      double x=sensor(m,s), v=m.curve.back().y;
+      if(x<=m.curve.front().x) v=m.curve.front().y;
+      else for(size_t i=1;i<m.curve.size();++i) if(x<=m.curve[i].x) {
+        const auto &a=m.curve[i-1]; const auto &b=m.curve[i];
+        v=a.y+(b.y-a.y)*(x-a.x)/(b.x-a.x); break;
+      }
+      factor*=v;
+    }
+    return d.value*(d.minimum+(1-d.minimum)*factor);
+  }
+  size_t index(const Tip &t) { return t.images.empty()?0:t.randomSequence?size_t(random()*t.images.size())%t.images.size():dabs%t.images.size(); }
+  Tile *tile(int x,int y) {
+    const auto key=std::make_pair(x/32,y/32);
+    auto found=tiles.find(key); if(found!=tiles.end()) return found->second.get();
+    if(sizeof(Tile)>budget-used) { failure="Stroke memory limit exceeded"; return nullptr; }
+    const int x0=key.first*32,y0=key.second*32;
+    if(!surface.prepare(x0,y0,std::min(x0+32,surface.width()),std::min(y0+32,surface.height()))) {
+      failure="Raster transaction refused the stroke region"; return nullptr;
+    }
+    std::unique_ptr<Tile> value(new Tile);
+    for(int j=0;j<32&&j+y0<surface.height();++j)
+      for(int i=0;i<32&&i+x0<surface.width();++i) value->base[j*32+i]=surface.read(x0+i,y0+j);
+    Tile *ptr=value.get(); tiles.emplace(key,std::move(value)); used+=sizeof(Tile); return ptr;
+  }
+  bool dab(const Sample &s) {
+    if(dabs>=1000000) {failure="Stroke dab limit exceeded";return false;}
+    randomDab=random();
+    const double diameter=std::max(.25,eval(p.size,s)), radius=diameter*.5;
+    spacing=std::max(.01,diameter*p.spacing);
+    const double aspect=std::max(.01,eval(p.aspect,s));
+    const double angle=eval(p.angle,s)*pi/180, c=std::cos(angle), sn=std::sin(angle);
+    const double opacity=unit(eval(p.opacity,s)), flow=unit(eval(p.flow,s));
+    const size_t primaryIndex=index(p.tip), secondIndex=index(p.secondary.tip);
+    const double scatter=eval(p.scatter,s)*diameter;
+    for(int stamp=0;stamp<p.count;++stamp) {
+      const double cx=s.x+(random()*2-1)*scatter,cy=s.y+(random()*2-1)*scatter;
+      const int reach=int(std::ceil(radius*1.415+1));
+      int x0=std::max(0,int(std::floor(cx))-reach),y0=std::max(0,int(std::floor(cy))-reach);
+      int x1=std::min(surface.width(),int(std::ceil(cx))+reach),y1=std::min(surface.height(),int(std::ceil(cy))+reach);
+      if(x0>=x1||y0>=y1) continue;
+      int halo=p.wet==Wet::Off?0:int(std::ceil(radius*p.smudgeRadius));
+      if(!surface.prepare(std::max(0,x0-halo),std::max(0,y0-halo),
+                          std::min(surface.width(),x1+halo),std::min(surface.height(),y1+halo))) {
+        failure="Raster transaction refused the stroke region";return false;
+      }
+      Pixel paint=p.color;
+      std::vector<Pixel> nextSmear;
+      int side=0;
+      if(p.wet!=Wet::Off) {
+        // Snapshot all feedback before modifying any destination pixel.
+        side=std::min(256,std::max(2,int(std::ceil(diameter))));
+        size_t bytes=size_t(side)*side*sizeof(Pixel);
+        if(bytes*2>budget-used) {failure="Wet brush memory limit exceeded";return false;}
+        nextSmear.resize(size_t(side)*side);
+        Pixel avg; double total=0;
+        for(int j=0;j<side;++j) for(int i=0;i<side;++i) {
+          double u=(i+.5)/side*2-1,v=(j+.5)/side*2-1;
+          int xx=int(std::floor(cx+u*radius*std::max(.01,p.smudgeRadius)));
+          int yy=int(std::floor(cy+v*radius*std::max(.01,p.smudgeRadius)));
+          Pixel q=(xx>=0&&yy>=0&&xx<surface.width()&&yy<surface.height())?surface.read(xx,yy):Pixel{};
+          nextSmear[size_t(j)*side+i]=q;
+          double w=tipPixel(p.tip,primaryIndex,u,v).a;
+          avg.r+=q.r*w;avg.g+=q.g*w;avg.b+=q.b*w;avg.a+=q.a*w;total+=w;
+        }
+        if(total>0) avg=mul(avg,1/total);
+        reservoir=mix(reservoir,avg,p.pickup);
+        paint=mix(reservoir,p.color,p.colorRate);
+      }
+      const auto &t=p.texture; const auto &sec=p.secondary;
+      const double tc=std::cos(t.angle*pi/180),ts=std::sin(t.angle*pi/180);
+      const double secondSize=sec.enabled?std::max(.01,eval(sec.size,s)):1;
+      const double secondAngle=sec.enabled?eval(sec.angle,s)*pi/180:0;
+      const double sc=std::cos(secondAngle),ss=std::sin(secondAngle);
+      const double sx=sec.enabled?(random()*2-1)*sec.scatter:0,sy=sec.enabled?(random()*2-1)*sec.scatter:0;
+      for(int y=y0;y<y1;++y) for(int x=x0;x<x1;++x) {
+        double dx=(x+.5-cx)/radius,dy=(y+.5-cy)/radius;
+        double u=(dx*c+dy*sn),v=(-dx*sn+dy*c)/aspect;
+        if(p.flipX)u=-u;if(p.flipY)v=-v;
+        Pixel tip=tipPixel(p.tip,primaryIndex,u,v); double a=tip.a;
+        if(a<=0)continue;
+        if(t.image) {
+          double tx=(t.perDab?x+.5-cx:x+.5)+t.offsetX,ty=(t.perDab?y+.5-cy:y+.5)+t.offsetY;
+          double b=texel(*t.image,(tx*tc+ty*ts)/(t.image->width*t.scale),(-tx*ts+ty*tc)/(t.image->height*t.scale),true).a;
+          b=unit((b-.5)*t.contrast+.5+t.brightness);if(t.invert)b=1-b;
+          a=mask(a,t.mode==MaskMode::Multiply?1-t.depth+t.depth*b:t.depth*b,t.mode);
+        }
+        if(sec.enabled) {
+          double su=(u-sx)/secondSize,sv=(v-sy)/secondSize;
+          double b=tipPixel(sec.tip,secondIndex,su*sc+sv*ss,(-su*ss+sv*sc)/sec.aspect).a*unit(eval(sec.opacity,s));
+          a=mask(a,b,sec.mode);
+        }
+        a*=unit(surface.coverage(x,y));if(a<=0)continue;
+        Pixel ink=paint;
+        bool colorTip=p.tip.shape==Shape::Bitmap&&p.tip.images[primaryIndex]->color;
+        if(colorTip)ink=tip.a>0?mul(tip,1/tip.a):Pixel{};
+        if(p.wet==Wet::Smear&&!smear.empty()) {
+          int ix=std::max(0,std::min(smearSide-1,int((u*.5+.5)*smearSide)));
+          int iy=std::max(0,std::min(smearSide-1,int((v*.5+.5)*smearSide)));
+          ink=mix(mix(paint,smear[size_t(iy)*smearSide+ix],p.pickup),p.color,p.colorRate);
+        }
+        if(p.wash) {
+          Tile *buf=tile(x,y);if(!buf)return false;
+          size_t k=size_t(y%32)*32+x%32;
+          buf->paint[k]=composite(buf->paint[k],mul(ink,a*flow),Blend::Normal);
+          surface.write(x,y,composite(buf->base[k],mul(buf->paint[k],opacity),p.blend,p.lockAlpha));
+        } else surface.write(x,y,composite(surface.read(x,y),mul(ink,a*flow*opacity),p.blend,p.lockAlpha));
+      }
+      if(p.wet!=Wet::Off) {reservoir=mix(reservoir,p.color,p.reload);smear=std::move(nextSmear);smearSide=side;}
+    }
+    ++dabs;return true;
+  }
+};
+
+Stroke::Stroke(Surface &s,const Preset &p,size_t limit):m(new Impl(s,p,limit)) {}
+Stroke::~Stroke()=default;
+bool Stroke::add(const Sample &s) {
+  if(m->finished||!m->failure.empty())return false;
+  if(!std::isfinite(s.x)||!std::isfinite(s.y)||std::abs(s.x)>1e8||std::abs(s.y)>1e8||
+     !std::isfinite(s.time)||!std::isfinite(s.pressure)||!std::isfinite(s.tiltX)||
+     !std::isfinite(s.tiltY)||!std::isfinite(s.rotation)) {
+    m->failure="Invalid tablet sample";return false;
+  }
+  try {
+    if(!m->started) {
+      m->first=m->previous=s;m->started=true;return m->dab(s);
+    }
+    if(s.time<m->previous.time) {m->failure="Tablet timestamps moved backwards";return false;}
+    const Sample from=m->previous;
+    double distance=std::hypot(s.x-from.x,s.y-from.y),dt=s.time-from.time;
+    if(distance>0)m->direction=std::atan2(s.y-from.y,s.x-from.x);
+    m->speed=dt>0?distance/dt:0;
+    double f=0;
+    while(f<1) {
+      double fd=distance>0?(m->spacing-m->sinceDab)/distance:2;
+      double ft=m->p.airbrushRate>0&&dt>0?(1/m->p.airbrushRate-m->sinceTime)/dt:2;
+      double step=std::max(1e-9,std::min(fd,ft));
+      if(f+step>1)break;
+      f+=step;m->travel+=step*distance;
+      if(!m->dab(interpolate(from,s,f)))return false;
+      m->sinceDab=0;m->sinceTime=0;
+    }
+    m->travel+=(1-f)*distance;m->sinceDab+=(1-f)*distance;m->sinceTime+=(1-f)*dt;
+    m->previous=s;return true;
+  } catch(const std::bad_alloc &) {m->failure="Brush allocation failed";return false;}
+}
+void Stroke::finish(){m->finished=true;m->tiles.clear();m->smear.clear();}
+const std::string &Stroke::error()const{return m->failure;}
+size_t Stroke::dabCount()const{return m->dabs;}
+}  // namespace RasterBrush

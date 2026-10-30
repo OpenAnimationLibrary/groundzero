@@ -5,6 +5,9 @@ on:
       - 'toonz/sources/include/toonz/abrparser.h'
       - 'toonz/sources/toonzlib/abrparser.cpp'
       - 'toonz/sources/toonzlib/tests/abrparser_test.cpp'
+      - 'toonz/sources/include/toonz/rasterbrush*'
+      - 'toonz/sources/toonzlib/rasterbrush*'
+      - 'toonz/sources/toonzlib/tests/rasterbrush*'
       - 'ci-scripts/brush-parser/**'
       - '.github/workflows/raster_brush_compatibility.yml'
   workflow_dispatch:
