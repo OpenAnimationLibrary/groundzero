@@ -172,6 +172,189 @@ void timingAndDrivenKeys() {
   TUndoManager::manager()->reset();
 }
 
+void targetRangeTiming(const QString &directory) {
+  TXsheet sheet;
+  auto a = curve({{0, 0}, {10, 10}, {15, 15}, {20, 20}, {40, 40}});
+  auto b = curve({{0, 0}, {12, 12}, {18, 18}, {40, 40}});
+  a->setWorkspaceId("range-arm"); b->setWorkspaceId("range-head");
+  a->enableCycle(true);
+  auto key = a->getKeyframe(1);
+  key.m_type = TDoubleKeyframe::SpeedInOut;
+  key.m_speedOut = TPointD(2, 3); key.m_linkedHandles = false;
+  a->setKeyframe(1, key);
+  key = a->getKeyframe(2);
+  key.m_type = TDoubleKeyframe::EaseInOut;
+  key.m_speedIn = TPointD(-2, -3); key.m_speedOut = TPointD(1, 0);
+  a->setKeyframe(2, key);
+  key = a->getKeyframe(3); key.m_speedIn = TPointD(-1, 0);
+  a->setKeyframe(3, key);
+  b->setGrammar(sheet.getStageObjectTree()->getGrammar());
+  key = b->getKeyframe(1); key.m_type = TDoubleKeyframe::Expression;
+  key.m_expressionText = TExpression::makeSeExprText("frame*2");
+  b->setKeyframe(1, key);
+  const std::string expression = key.m_expressionText;
+  const auto beforeA = TDoubleParamP(new TDoubleParam(*a));
+  const auto beforeB = TDoubleParamP(new TDoubleParam(*b));
+  const std::vector<Ops::Selection> selected{{a, {1, 2, 3}}, {b, {1, 2}}};
+  TUndoManager::manager()->reset();
+  const auto plan = Ops::planRetimeToRange(selected, 11.25, 31.75);
+  require(plan.valid() && plan.changes.size() == 2, qPrintable(plan.error));
+  require(Ops::matchesSnapshot(a.getPointer(), beforeA.getPointer()) &&
+              Ops::matchesSnapshot(b.getPointer(), beforeB.getPointer()) &&
+              TUndoManager::manager()->getHistoryCount() == 0,
+          "target-range preview mutated sources or undo history");
+  auto canceled = plan; canceled.cancelled = true;
+  QString error;
+  require(!Ops::apply(canceled, "canceled range", error) &&
+              TUndoManager::manager()->getHistoryCount() == 0,
+          "canceled target range committed a transaction");
+  apply(plan);
+  // Independent numeric oracle: all channels share the source range 10..20.
+  // The selected interior keys retain their 1/2, 1/5 and 4/5 positions.
+  require(a->keyframeIndexToFrame(1) == 11.25 &&
+              a->keyframeIndexToFrame(3) == 31.75,
+          "target-range endpoints were rounded or reconstructed inexactly");
+  requireNear(a->keyframeIndexToFrame(2), 21.5);
+  requireNear(b->keyframeIndexToFrame(1), 15.35);
+  requireNear(b->keyframeIndexToFrame(2), 27.65);
+  requireNear(a->getKeyframe(1).m_speedOut.x, 4.1);
+  requireNear(a->getKeyframe(2).m_speedIn.x, -4.1);
+  requireNear(a->getKeyframe(2).m_speedOut.x, 2.05);
+  requireNear(a->getKeyframe(3).m_speedIn.x, -2.05);
+  requireNear(a->getKeyframe(1).m_speedOut.y, 3);
+  require(!a->getKeyframe(1).m_linkedHandles && a->isCycleEnabled(),
+          "target range changed handle linkage or curve cycle metadata");
+  for (const auto &value : {a, b}) {
+    requireNear(value->keyframeIndexToFrame(0), 0);
+    requireNear(value->keyframeIndexToFrame(value->getKeyframeCount() - 1), 40);
+  }
+  require(b->getKeyframe(1).m_type == TDoubleKeyframe::Expression &&
+              b->getKeyframe(1).m_expressionText == expression &&
+              b->getKeyframe(1).m_value == beforeB->getKeyframe(1).m_value,
+          "target retiming replaced an expression or its stored source value");
+  require(TUndoManager::manager()->getHistoryCount() == 1,
+          "multi-channel range retime did not create exactly one undo");
+  const auto afterA = TDoubleParamP(new TDoubleParam(*a));
+  const auto afterB = TDoubleParamP(new TDoubleParam(*b));
+  apply(Ops::planRetimeToRange(selected, 11.25, 31.75));
+  require(TUndoManager::manager()->getHistoryCount() == 1 &&
+              Ops::matchesSnapshot(a.getPointer(), afterA.getPointer()) &&
+              Ops::matchesSnapshot(b.getPointer(), afterB.getPointer()),
+          "repeated target Apply changed timing/handles or added an undo");
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    require(TUndoManager::manager()->undo() &&
+                Ops::matchesSnapshot(a.getPointer(), beforeA.getPointer()) &&
+                Ops::matchesSnapshot(b.getPointer(), beforeB.getPointer()),
+            "range undo lost timing, driven source or tangent metadata");
+    require(TUndoManager::manager()->redo() &&
+                Ops::matchesSnapshot(a.getPointer(), afterA.getPointer()) &&
+                Ops::matchesSnapshot(b.getPointer(), afterB.getPointer()),
+            "range redo differs from the applied snapshot");
+  }
+  require(a->getWorkspaceId() == "range-arm" &&
+              b->getWorkspaceId() == "range-head" &&
+              !a->isEditorLocked() && !b->isEditorLocked(),
+          "range transactions changed destination identities or session locks");
+  auto locked = Ops::planRetimeToRange(selected, 12, 32);
+  b->setEditorLocked(true);
+  require(!Ops::apply(locked, "locked range", error) &&
+              Ops::matchesSnapshot(a.getPointer(), afterA.getPointer()) &&
+              Ops::matchesSnapshot(b.getPointer(), afterB.getPointer()) &&
+              b->isEditorLocked(),
+          "locked range destination caused partial mutation or lost its lock");
+  b->setEditorLocked(false);
+  auto stale = Ops::planRetimeToRange(selected, 12, 32);
+  b->setDefaultValue(7);
+  require(!Ops::apply(stale, "stale range", error) &&
+              Ops::matchesSnapshot(a.getPointer(), afterA.getPointer()) &&
+              b->getDefaultValue() == 7,
+          "stale range destination caused partial mutation");
+  b->copy(afterB.getPointer());
+  require(!Ops::planRetimeToRange(selected, 0, 40).valid(),
+          "range endpoint collision with an unselected key was accepted");
+  require(!Ops::planRetimeToRange({{a, {1}}}, 25, 25).valid(),
+          "range translation crossed an unselected interior key");
+  for (const auto &bounds : {std::make_pair(9., 8.), std::make_pair(-1., 20.),
+                             std::make_pair(9., 9.), std::make_pair(9., 9. + 1.e-9),
+                             std::make_pair(0., std::numeric_limits<double>::infinity()),
+                             std::make_pair(std::numeric_limits<double>::quiet_NaN(), 20.)})
+    require(!Ops::planRetimeToRange(selected, bounds.first, bounds.second).valid(),
+            "invalid, collapsed or indistinguishable target bounds were accepted");
+  require(!Ops::planRetimeToRange({}, 1, 2).valid() &&
+              !Ops::planRetimeToRange({{a, {99}}}, 1, 2).valid(),
+          "empty/stale target-range selection was accepted");
+  require(Ops::matchesSnapshot(a.getPointer(), afterA.getPointer()) &&
+              Ops::matchesSnapshot(b.getPointer(), afterB.getPointer()) &&
+              TUndoManager::manager()->getHistoryCount() == 1,
+          "failed target ranges changed sources or undo history");
+  const TFilePath file((directory + "/retimed-expression.xml").toStdWString());
+  { TOStream output(file); b->saveData(output); }
+  TDoubleParamP loaded = new TDoubleParam;
+  loaded->setGrammar(sheet.getStageObjectTree()->getGrammar());
+  { TIStream input(file); loaded->loadData(input); }
+  require(loaded->getWorkspaceId() == "range-head" &&
+              loaded->getKeyframeCount() == 4 &&
+              loaded->getKeyframe(1).m_expressionText == expression &&
+              loaded->getKeyframe(1).m_type == TDoubleKeyframe::Expression,
+          "retimed native scene data lost identity or driven source");
+  requireNear(loaded->keyframeIndexToFrame(1), 15.35);
+  requireNear(loaded->keyframeIndexToFrame(2), 27.65);
+  TUndoManager::manager()->reset();
+
+  auto pointA = curve({{0, 0}, {5, 5}, {10, 10}});
+  auto pointB = curve({{5, 7}});
+  const std::vector<Ops::Selection> points{{pointA, {1}}, {pointB, {0}}};
+  require(!Ops::planRetimeToRange(points, 6, 8).valid(),
+          "one-frame source selection was stretched into a fabricated range");
+  apply(Ops::planRetimeToRange(points, 7.5, 7.5));
+  requireNear(pointA->keyframeIndexToFrame(1), 7.5);
+  requireNear(pointB->keyframeIndexToFrame(0), 7.5);
+  require(TUndoManager::manager()->undo(), "point-range translation has no undo");
+  requireNear(pointA->keyframeIndexToFrame(1), 5);
+  requireNear(pointB->keyframeIndexToFrame(0), 5);
+  TUndoManager::manager()->reset();
+
+  auto precise = curve({{1000000000., 0}, {1000000000.125, 1},
+                         {1000000000.5, 2}});
+  apply(Ops::planRetimeToRange({all(precise)}, .123456789, .987654321));
+  require(precise->keyframeIndexToFrame(0) == .123456789 &&
+              precise->keyframeIndexToFrame(2) == .987654321,
+          "large source coordinates lost exact fractional destination bounds");
+  requireNear(precise->keyframeIndexToFrame(1), .339506172);
+  precise->setDefaultValue(.12345678901234567);
+  key = precise->getKeyframe(0);
+  key.m_type = TDoubleKeyframe::SpeedInOut;
+  key.m_value = .23456789012345678;
+  key.m_speedOut = TPointD(.012345678901234567, .034567890123456789);
+  precise->setKeyframe(0, key);
+  key = precise->getKeyframe(1);
+  key.m_speedIn = TPointD(-.012345678901234567, -.034567890123456789);
+  precise->setKeyframe(1, key);
+  for (const bool inheritedPrecision : {false, true}) {
+    const TFilePath preciseFile((directory + "/retimed-precision.xml").toStdWString());
+    {
+      TOStream output(preciseFile);
+      output.setFullPrecision(inheritedPrecision);
+      precise->saveData(output);
+      require(output.setFullPrecision(false) == inheritedPrecision,
+              "native curve serialization leaked or disabled the caller's precision mode");
+    }
+    TDoubleParamP reloaded = new TDoubleParam;
+    { TIStream input(preciseFile); reloaded->loadData(input); }
+    require(reloaded->getDefaultValue() == precise->getDefaultValue() &&
+                reloaded->getKeyframeCount() == 3,
+            "fractional curve reload changed its default value or key count");
+    for (int i = 0; i < 3; ++i)
+      require(reloaded->keyframeIndexToFrame(i) == precise->keyframeIndexToFrame(i),
+              "fractional target timing lost precision during native scene serialization");
+    require(reloaded->getKeyframe(0).m_value == precise->getKeyframe(0).m_value &&
+                reloaded->getKeyframe(0).m_speedOut == precise->getKeyframe(0).m_speedOut &&
+                reloaded->getKeyframe(1).m_speedIn == precise->getKeyframe(1).m_speedIn,
+            "fractional curve reload rounded values or timing handles");
+  }
+  TUndoManager::manager()->reset();
+}
+
 void bakeSamplesCancellationAndFailures() {
   TXsheet sheet;
   auto formula = curve({{0, 0}, {4, 0}});
@@ -352,6 +535,7 @@ int main(int argc, char **argv) {
     TEnv::setStuffDir(TFilePath(temporary.filePath("stuff").toStdWString()));
     numericUnitsAndTransactions();
     timingAndDrivenKeys();
+    targetRangeTiming(temporary.path());
     bakeSamplesCancellationAndFailures();
     reductionOracleAndPreservedBoundaries();
     presetAndBreakdown();
