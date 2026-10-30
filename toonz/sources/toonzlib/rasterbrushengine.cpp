@@ -179,10 +179,67 @@ std::string validate(const Preset &p) {
   return {};
 }
 
+struct BufferedSurface::Impl {
+  using Tile = std::array<Pixel, 1024>;
+  std::shared_ptr<Surface> backing;
+  std::shared_ptr<MemoryBudget> budget;
+  std::map<std::pair<int, int>, std::unique_ptr<Tile>> tiles;
+  size_t reserved = 0;
+  Impl(std::shared_ptr<Surface> b, std::shared_ptr<MemoryBudget> mem)
+      : backing(std::move(b)), budget(std::move(mem)) {}
+  ~Impl() { budget->release(reserved); }
+};
+BufferedSurface::BufferedSurface(std::shared_ptr<Surface> b,
+                                 std::shared_ptr<MemoryBudget> mem)
+    : m(new Impl(std::move(b), std::move(mem))) {}
+BufferedSurface::~BufferedSurface() = default;
+int BufferedSurface::width() const { return m->backing->width(); }
+int BufferedSurface::height() const { return m->backing->height(); }
+bool BufferedSurface::prepare(int x0, int y0, int x1, int y1) {
+  if (x0 < 0 || y0 < 0 || x1 > width() || y1 > height() || x0 >= x1 || y0 >= y1)
+    return false;
+  const int left = x0 / 32, top = y0 / 32, right = (x1 - 1) / 32,
+            bottom = (y1 - 1) / 32;
+  if (!m->backing->prepare(left * 32, top * 32,
+                           std::min(width(), (right + 1) * 32),
+                           std::min(height(), (bottom + 1) * 32)))
+    return false;
+  try {
+    for (int ty = top; ty <= bottom; ++ty)
+      for (int tx = left; tx <= right; ++tx) {
+        auto key = std::make_pair(tx, ty);
+        if (m->tiles.count(key)) continue;
+        constexpr size_t charge = sizeof(Impl::Tile) + 128;
+        if (!m->budget->reserve(charge)) return false;
+        m->reserved += charge;
+        auto tile = std::make_unique<Impl::Tile>();
+        for (int y = 0; y < 32 && ty * 32 + y < height(); ++y)
+          for (int x = 0; x < 32 && tx * 32 + x < width(); ++x)
+            (*tile)[y * 32 + x] = m->backing->read(tx * 32 + x, ty * 32 + y);
+        m->tiles.emplace(key, std::move(tile));
+      }
+  } catch (const std::bad_alloc &) {
+    return false;
+  }
+  return true;
+}
+Pixel BufferedSurface::read(int x, int y) const {
+  return m->tiles.at({x / 32, y / 32})->at((y % 32) * 32 + x % 32);
+}
+void BufferedSurface::write(int x, int y, const Pixel &p) {
+  m->tiles.at({x / 32, y / 32})->at((y % 32) * 32 + x % 32) = p;
+  m->backing->write(x, y, p);
+}
+double BufferedSurface::coverage(int x, int y) const {
+  return m->backing->coverage(x, y);
+}
+
 struct Stroke::Impl {
   Surface &surface;
   const Preset p;
   size_t budget, used = 0, dabs = 0;
+  std::shared_ptr<MemoryBudget> shared;
+  size_t reserved = 0;
   std::string failure;
   Sample previous, first;
   bool started = false, finished = false;
@@ -197,15 +254,19 @@ struct Stroke::Impl {
     std::array<Pixel, 1024> base{}, paint{};
   };
   std::map<std::pair<int, int>, std::unique_ptr<Tile>> tiles;
-  Impl(Surface &s, const Preset &v, size_t limit)
+  Impl(Surface &s, const Preset &v, size_t limit,
+       std::shared_ptr<MemoryBudget> memory)
       : surface(s)
       , p(v)
       , budget(limit)
+      , shared(memory ? std::move(memory)
+                      : std::make_shared<MemoryBudget>(limit))
       , rng(v.seed ? v.seed : 1)
       , reservoir(v.color) {
     failure      = validate(v);
     randomStroke = random();
   }
+  ~Impl() { shared->release(reserved); }
   double random() {
     rng ^= rng >> 12;
     rng ^= rng << 25;
@@ -283,10 +344,12 @@ struct Stroke::Impl {
     const auto key = std::make_pair(x / 32, y / 32);
     auto found     = tiles.find(key);
     if (found != tiles.end()) return found->second.get();
-    if (sizeof(Tile) > budget - used) {
+    constexpr size_t charge = sizeof(Tile) + 128;
+    if (charge > budget - used || !shared->reserve(charge)) {
       failure = "Stroke memory limit exceeded";
       return nullptr;
     }
+    reserved += charge;
     const int x0 = key.first * 32, y0 = key.second * 32;
     if (!surface.prepare(x0, y0, std::min(x0 + 32, surface.width()),
                          std::min(y0 + 32, surface.height()))) {
@@ -299,7 +362,7 @@ struct Stroke::Impl {
         value->base[j * 32 + i] = surface.read(x0 + i, y0 + j);
     Tile *ptr = value.get();
     tiles.emplace(key, std::move(value));
-    used += sizeof(Tile);
+    used += charge;
     return ptr;
   }
   bool dab(const Sample &s) {
@@ -343,10 +406,11 @@ struct Stroke::Impl {
         // Snapshot all feedback before modifying any destination pixel.
         side         = std::min(256, std::max(2, int(std::ceil(diameter))));
         size_t bytes = size_t(side) * side * sizeof(Pixel);
-        if (bytes * 2 > budget - used) {
+        if (bytes * 2 > budget - used || !shared->reserve(bytes)) {
           failure = "Wet brush memory limit exceeded";
           return false;
         }
+        reserved += bytes;
         nextSmear.resize(size_t(side) * side);
         Pixel avg;
         double total = 0;
@@ -446,7 +510,10 @@ struct Stroke::Impl {
                           p.blend, p.lockAlpha));
         }
       if (p.wet != Wet::Off) {
-        reservoir = mix(reservoir, p.color, p.reload);
+        reservoir            = mix(reservoir, p.color, p.reload);
+        size_t previousBytes = smear.size() * sizeof(Pixel);
+        shared->release(previousBytes);
+        reserved -= previousBytes;
         smear     = std::move(nextSmear);
         smearSide = side;
       }
@@ -456,8 +523,9 @@ struct Stroke::Impl {
   }
 };
 
-Stroke::Stroke(Surface &s, const Preset &p, size_t limit)
-    : m(new Impl(s, p, limit)) {}
+Stroke::Stroke(Surface &s, const Preset &p, size_t limit,
+               std::shared_ptr<MemoryBudget> shared)
+    : m(new Impl(s, p, limit, std::move(shared))) {}
 Stroke::~Stroke() = default;
 bool Stroke::add(const Sample &s) {
   if (m->finished || !m->failure.empty()) return false;
@@ -510,7 +578,9 @@ bool Stroke::add(const Sample &s) {
 void Stroke::finish() {
   m->finished = true;
   m->tiles.clear();
-  m->smear.clear();
+  std::vector<Pixel>().swap(m->smear);
+  m->shared->release(m->reserved);
+  m->reserved = 0;
 }
 const std::string &Stroke::error() const { return m->failure; }
 size_t Stroke::dabCount() const { return m->dabs; }

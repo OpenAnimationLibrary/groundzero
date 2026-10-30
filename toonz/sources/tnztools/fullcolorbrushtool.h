@@ -19,6 +19,7 @@
 #include "toonz/mypaintbrushstyle.h"
 #include "toonz/rasterbrushpreset.h"
 #include "nativerasterbrush.h"
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QStringList>
 
@@ -50,7 +51,7 @@ public:
   class TrackHandler : public TTrackHandler {
   public:
     MyPaintToonzBrush brush;
-    std::unique_ptr<NativeRasterBrushSurface> nativeSurface;
+    std::shared_ptr<RasterBrush::Surface> nativeSurface;
     std::unique_ptr<RasterBrush::Stroke> nativeStroke;
 
     TrackHandler(const TRaster32P &ras, RasterController &controller,
@@ -160,6 +161,9 @@ protected:
   TEnumProperty m_preset;
   TEnumProperty m_nativePreset;
   std::shared_ptr<RasterBrush::Record> m_nativeRecord;
+  std::shared_ptr<RasterBrush::Surface> m_nativeSurface;
+  std::shared_ptr<RasterBrush::MemoryBudget> m_nativeMemory;
+  QTimer m_nativeAirbrushTimer;
 
   TPixel32 m_currentColor;
   bool m_enabledPressure;
@@ -188,6 +192,7 @@ protected:
 
   bool m_started;
   bool m_nativeStrokeFailed = false;
+  bool m_nativeCreatedFrame = false, m_nativeCreatedLevel = false;
   TFrameId m_strokeFrameId;
   TXshSimpleLevelP m_strokeLevel;
 

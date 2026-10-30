@@ -94,157 +94,312 @@ TEnv::StringVar FullcolorNativeBrush("FullcolorNativeBrush", "<legacy>");
 
 namespace {
 QString nativeBrushFolder() {
-  return ToonzFolder::getLibraryFolder().getQString()+"/rasterbrushes";
+  return ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
 }
 class NativeBrushPreview final : public QWidget, public RasterBrush::Surface {
   std::vector<RasterBrush::Pixel> pixels;
   std::unique_ptr<RasterBrush::Stroke> stroke;
   RasterBrush::Preset preset;
-  double tick=0;
+  double tick = 0;
+
 public:
-  explicit NativeBrushPreview(QWidget *parent):QWidget(parent),pixels(320*140) {
-    setFixedSize(320,140);setMouseTracking(true);
+  explicit NativeBrushPreview(QWidget *parent)
+      : QWidget(parent), pixels(320 * 140) {
+    setFixedSize(320, 140);
+    setMouseTracking(true);
   }
-  int width()const override{return 320;}int height()const override{return 140;}
-  bool prepare(int,int,int,int)override{return true;}
-  RasterBrush::Pixel read(int x,int y)const override{return pixels[size_t(y)*320+x];}
-  void write(int x,int y,const RasterBrush::Pixel &p)override{pixels[size_t(y)*320+x]=p;}
+  int width() const override { return 320; }
+  int height() const override { return 140; }
+  bool prepare(int, int, int, int) override { return true; }
+  RasterBrush::Pixel read(int x, int y) const override {
+    return pixels[size_t(y) * 320 + x];
+  }
+  void write(int x, int y, const RasterBrush::Pixel &p) override {
+    pixels[size_t(y) * 320 + x] = p;
+  }
   void configure(const RasterBrush::Preset &p) {
-    preset=p;pixels.assign(320*140,{});stroke.reset();
-    RasterBrush::Stroke demo(*this,preset);
-    for(int i=0;i<240;++i){RasterBrush::Sample s;s.x=20+i;s.y=70+std::sin(i*.025)*25;s.time=i/240.0;s.pressure=.2+.8*std::sin(i/240.0*3.141592653589793);s.hasPressure=true;demo.add(s);}
-    demo.finish();update();
+    preset = p;
+    pixels.assign(320 * 140, {});
+    stroke.reset();
+    RasterBrush::Stroke demo(*this, preset);
+    for (int i = 0; i < 240; ++i) {
+      RasterBrush::Sample s;
+      s.x           = 20 + i;
+      s.y           = 70 + std::sin(i * .025) * 25;
+      s.time        = i / 240.0;
+      s.pressure    = .2 + .8 * std::sin(i / 240.0 * 3.141592653589793);
+      s.hasPressure = true;
+      demo.add(s);
+    }
+    demo.finish();
+    update();
   }
+
 protected:
-  void paintEvent(QPaintEvent*)override{
-    QImage im(320,140,QImage::Format_ARGB32_Premultiplied);
-    auto q=[](double v){return std::max(0,std::min(255,int(v*255+.5)));};
-    for(int y=0;y<140;++y)for(int x=0;x<320;++x){auto p=read(x,y);im.setPixel(x,y,qRgba(q(p.r),q(p.g),q(p.b),q(p.a)));}
-    QPainter painter(this);painter.fillRect(rect(),Qt::white);painter.drawImage(0,0,im);
+  void paintEvent(QPaintEvent *) override {
+    QImage im(320, 140, QImage::Format_ARGB32_Premultiplied);
+    auto q = [](double v) {
+      return std::max(0, std::min(255, int(v * 255 + .5)));
+    };
+    for (int y = 0; y < 140; ++y)
+      for (int x = 0; x < 320; ++x) {
+        auto p = read(x, y);
+        im.setPixel(x, y, qRgba(q(p.r), q(p.g), q(p.b), q(p.a)));
+      }
+    QPainter painter(this);
+    painter.fillRect(rect(), Qt::white);
+    painter.drawImage(0, 0, im);
   }
-  void mousePressEvent(QMouseEvent *e)override{if(e->button()!=Qt::LeftButton)return;stroke.reset(new RasterBrush::Stroke(*this,preset));tick=0;drawAt(e);}
-  void mouseMoveEvent(QMouseEvent *e)override{if(stroke&&e->buttons().testFlag(Qt::LeftButton))drawAt(e);}
-  void mouseReleaseEvent(QMouseEvent*)override{if(stroke)stroke->finish();stroke.reset();}
-  void drawAt(QMouseEvent *e){RasterBrush::Sample s;s.x=e->pos().x();s.y=e->pos().y();s.time=tick;tick+=1.0/120;stroke->add(s);update();}
+  void mousePressEvent(QMouseEvent *e) override {
+    if (e->button() != Qt::LeftButton) return;
+    stroke.reset(new RasterBrush::Stroke(*this, preset));
+    tick = 0;
+    drawAt(e);
+  }
+  void mouseMoveEvent(QMouseEvent *e) override {
+    if (stroke && e->buttons().testFlag(Qt::LeftButton)) drawAt(e);
+  }
+  void mouseReleaseEvent(QMouseEvent *) override {
+    if (stroke) stroke->finish();
+    stroke.reset();
+  }
+  void drawAt(QMouseEvent *e) {
+    RasterBrush::Sample s;
+    s.x    = e->pos().x();
+    s.y    = e->pos().y();
+    s.time = tick;
+    tick += 1.0 / 120;
+    stroke->add(s);
+    update();
+  }
 };
 
 bool editNativeBrush(RasterBrush::Record &record) {
-  QDialog dialog;dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
-  auto form=new QFormLayout(&dialog);auto preview=new NativeBrushPreview(&dialog);
-  auto &p=record.preset;
-  form->addRow(QObject::tr("Preview / scratchpad"),preview);
-  auto refresh=[&](){preview->configure(p);};
-  auto spin=[&](const QString &label,double &value,double lo,double hi){
-    auto box=new QDoubleSpinBox(&dialog);box->setDecimals(3);box->setRange(lo,hi);box->setValue(value);
-    form->addRow(label,box);double *target=&value;
-    QObject::connect(box,static_cast<void(QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),&dialog,[&,target](double v){*target=v;refresh();});
+  QDialog dialog;
+  dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
+  auto form    = new QFormLayout(&dialog);
+  auto preview = new NativeBrushPreview(&dialog);
+  auto &p      = record.preset;
+  form->addRow(QObject::tr("Preview / scratchpad"), preview);
+  auto refresh = [&]() { preview->configure(p); };
+  auto spin = [&](const QString &label, double &value, double lo, double hi) {
+    auto box = new QDoubleSpinBox(&dialog);
+    box->setDecimals(3);
+    box->setRange(lo, hi);
+    box->setValue(value);
+    form->addRow(label, box);
+    double *target = &value;
+    QObject::connect(box,
+                     static_cast<void (QDoubleSpinBox::*)(double)>(
+                         &QDoubleSpinBox::valueChanged),
+                     &dialog, [&, target](double v) {
+                       *target = v;
+                       refresh();
+                     });
   };
-  spin(QObject::tr("Size"),p.size.value,.25,4096);
-  spin(QObject::tr("Aspect ratio"),p.aspect.value,.01,1);
-  spin(QObject::tr("Angle"),p.angle.value,-360,360);
-  spin(QObject::tr("Spacing"),p.spacing,.01,5);
-  spin(QObject::tr("Hardness"),p.tip.hardness,0,1);
-  spin(QObject::tr("Opacity"),p.opacity.value,0,1);
-  spin(QObject::tr("Flow"),p.flow.value,0,1);
-  spin(QObject::tr("Scatter"),p.scatter.value,0,5);
-  spin(QObject::tr("Airbrush dabs/second"),p.airbrushRate,0,120);
-  spin(QObject::tr("Paint pickup"),p.pickup,0,1);
-  spin(QObject::tr("Foreground paint mix"),p.colorRate,0,1);
-  spin(QObject::tr("Paint reload"),p.reload,0,1);
-  auto wet=new QComboBox(&dialog);wet->addItems({QObject::tr("Dry"),QObject::tr("Wet mix"),QObject::tr("Smear")});wet->setCurrentIndex(int(p.wet));form->addRow(QObject::tr("Paint behavior"),wet);
-  auto wash=new QCheckBox(&dialog);wash->setChecked(p.wash);form->addRow(QObject::tr("Per-stroke opacity (wash)"),wash);
-  QObject::connect(wet,static_cast<void(QComboBox::*)(int)>(&QComboBox::currentIndexChanged),&dialog,[&](int n){p.wet=RasterBrush::Wet(n);if(n){wash->setChecked(false);p.wash=false;p.blend=RasterBrush::Blend::Normal;p.secondary.enabled=false;}refresh();});
+  spin(QObject::tr("Size"), p.size.value, .25, 4096);
+  spin(QObject::tr("Aspect ratio"), p.aspect.value, .01, 1);
+  spin(QObject::tr("Angle"), p.angle.value, -360, 360);
+  spin(QObject::tr("Spacing"), p.spacing, .01, 5);
+  spin(QObject::tr("Hardness"), p.tip.hardness, 0, 1);
+  spin(QObject::tr("Opacity"), p.opacity.value, 0, 1);
+  spin(QObject::tr("Flow"), p.flow.value, 0, 1);
+  spin(QObject::tr("Scatter"), p.scatter.value, 0, 5);
+  spin(QObject::tr("Airbrush dabs/second"), p.airbrushRate, 0, 120);
+  spin(QObject::tr("Paint pickup"), p.pickup, 0, 1);
+  spin(QObject::tr("Foreground paint mix"), p.colorRate, 0, 1);
+  spin(QObject::tr("Paint reload"), p.reload, 0, 1);
+  auto wet = new QComboBox(&dialog);
+  wet->addItems(
+      {QObject::tr("Dry"), QObject::tr("Wet mix"), QObject::tr("Smear")});
+  wet->setCurrentIndex(int(p.wet));
+  form->addRow(QObject::tr("Paint behavior"), wet);
+  auto wash = new QCheckBox(&dialog);
+  wash->setChecked(p.wash);
+  form->addRow(QObject::tr("Per-stroke opacity (wash)"), wash);
+  QObject::connect(
+      wet,
+      static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+      &dialog, [&](int n) {
+        p.wet = RasterBrush::Wet(n);
+        if (n) {
+          wash->setChecked(false);
+          p.wash              = false;
+          p.blend             = RasterBrush::Blend::Normal;
+          p.secondary.enabled = false;
+        }
+        refresh();
+      });
 
-  QObject::connect(wash,&QCheckBox::toggled,&dialog,[&](bool v){p.wash=v;if(v){p.wet=RasterBrush::Wet::Off;wet->setCurrentIndex(0);}refresh();});
-  auto buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);form->addRow(buttons);
-  QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-  refresh();return dialog.exec()==QDialog::Accepted;
+  QObject::connect(wash, &QCheckBox::toggled, &dialog, [&](bool v) {
+    p.wash = v;
+    if (v) {
+      p.wet = RasterBrush::Wet::Off;
+      wet->setCurrentIndex(0);
+    }
+    refresh();
+  });
+  auto buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  form->addRow(buttons);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
+  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::reject);
+  refresh();
+  return dialog.exec() == QDialog::Accepted;
 }
 }  // namespace
 
 void FullColorBrushTool::initNativePresets() {
-  const std::wstring selected=QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString();
+  const std::wstring selected =
+      QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString();
   m_nativePreset.deleteAllValues();
-  for(const auto &pair:std::vector<std::pair<std::wstring,QString>>{
-      {L"<legacy>",tr("Legacy MyPaint")},{L"<round>",tr("Native Round")},
-      {L"<wet>",tr("Native Wet Mix")},{L"<smear>",tr("Native Smear")},
-      {L"<import>",tr("Import Native Brush…")},{L"<edit>",tr("Edit / Save Native Brush…")},
-      {L"<export>",tr("Export Native Brush…")}})
-    m_nativePreset.addValueWithUIName(pair.first,pair.second);
-  const QStringList files=QDir(nativeBrushFolder()).entryList({"*.gzbrush"},QDir::Files,QDir::Name);
-  for(const auto &file:files.mid(0,2000)) {
-    QString name=file.section('-',0,-2);if(name.isEmpty())name=file;
-    m_nativePreset.addValueWithUIName(file.toStdWString(),name);
+  for (const auto &pair : std::vector<std::pair<std::wstring, QString>>{
+           {L"<legacy>", tr("Legacy MyPaint")},
+           {L"<round>", tr("Native Round")},
+           {L"<wet>", tr("Native Wet Mix")},
+           {L"<smear>", tr("Native Smear")},
+           {L"<import>", tr("Import Native Brush…")},
+           {L"<edit>", tr("Edit / Save Native Brush…")},
+           {L"<export>", tr("Export Native Brush…")}})
+    m_nativePreset.addValueWithUIName(pair.first, pair.second);
+  const QStringList files =
+      QDir(nativeBrushFolder())
+          .entryList({"*.gzbrush"}, QDir::Files, QDir::Name);
+  for (const auto &file : files.mid(0, 2000)) {
+    QString name = file.section('-', 0, -2);
+    if (name.isEmpty()) name = file;
+    m_nativePreset.addValueWithUIName(file.toStdWString(), name);
   }
-  if(!m_nativePreset.isValue(selected)) {
-    m_nativePreset.setValue(L"<legacy>");m_nativeRecord.reset();
-    if(selected!=L"<legacy>")DVGui::warning(tr("The selected native brush is missing. Reimport it or choose another brush."));
-    FullcolorNativeBrush="<legacy>";
-  }else m_nativePreset.setValue(selected);
-  if(getApplication()&&getApplication()->getCurrentTool())
-    getApplication()->getCurrentTool()->notifyToolComboBoxListChanged("Native Brush:");
+  if (!m_nativePreset.isValue(selected)) {
+    m_nativePreset.setValue(L"<legacy>");
+    m_nativeRecord.reset();
+    if (selected != L"<legacy>")
+      DVGui::warning(
+          tr("The selected native brush is missing. Reimport it or choose "
+             "another brush."));
+    FullcolorNativeBrush = "<legacy>";
+  } else
+    m_nativePreset.setValue(selected);
+  if (getApplication() && getApplication()->getCurrentTool())
+    getApplication()->getCurrentTool()->notifyToolComboBoxListChanged(
+        "Native Brush:");
   selectNativePreset();
 }
 
 bool FullColorBrushTool::selectNativePreset() {
-  if(m_started) {m_nativePreset.setValue(QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString());return true;}
-  QString id=QString::fromStdWString(m_nativePreset.getValue()),error;
-  auto previous=QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString();
-  if(id=="<import>") {
-    QString path=QFileDialog::getOpenFileName(nullptr,tr("Import Native Raster Brush"),QString(),tr("Raster brushes (*.gzbrush *.abr *.gbr *.gih *.kpp)"));
-    m_nativePreset.setValue(previous);if(path.isEmpty())return true;
-    auto imported=RasterBrush::importBrushFile(path,error);
-    if(!error.isEmpty()){DVGui::warning(error);return true;}
-    if(!imported.diagnostics.isEmpty()) {
-      QMessageBox report(QMessageBox::Information,tr("Native Brush Conversion"),
-        tr("This import creates a native conversion. Review the details before installing it."),
-        QMessageBox::Ok|QMessageBox::Cancel);
+  if (m_started) {
+    m_nativePreset.setValue(
+        QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString());
+    return true;
+  }
+  QString id = QString::fromStdWString(m_nativePreset.getValue()), error;
+  auto previous =
+      QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString();
+  if (id == "<import>") {
+    QString path = QFileDialog::getOpenFileName(
+        nullptr, tr("Import Native Raster Brush"), QString(),
+        tr("Raster brushes (*.gzbrush *.abr *.gbr *.gih *.kpp)"));
+    m_nativePreset.setValue(previous);
+    if (path.isEmpty()) return true;
+    auto imported = RasterBrush::importBrushFile(path, error);
+    if (!error.isEmpty()) {
+      DVGui::warning(error);
+      return true;
+    }
+    if (!imported.diagnostics.isEmpty()) {
+      QMessageBox report(QMessageBox::Information,
+                         tr("Native Brush Conversion"),
+                         tr("This import creates a native conversion. Review "
+                            "the details before installing it."),
+                         QMessageBox::Ok | QMessageBox::Cancel);
       report.setDetailedText(imported.diagnostics.join("\n"));
       report.setDefaultButton(QMessageBox::Cancel);
-      if(report.exec()!=QMessageBox::Ok)return true;
+      if (report.exec() != QMessageBox::Ok) return true;
     }
-    if(imported.records.empty())return true;
-    int index=0;
-    if(imported.records.size()>1){
-      QStringList names;for(size_t i=0;i<imported.records.size();++i)
-        names<<QString::number(i+1)+": "+QString::fromStdString(imported.records[i].preset.name);
-      bool ok=false;auto chosen=QInputDialog::getItem(nullptr,tr("Choose a Brush"),tr("Native conversion"),names,0,false,&ok);
-      if(!ok)return true;index=names.indexOf(chosen);
+    if (imported.records.empty()) return true;
+    int index = 0;
+    if (imported.records.size() > 1) {
+      QStringList names;
+      for (size_t i = 0; i < imported.records.size(); ++i)
+        names << QString::number(i + 1) + ": " +
+                     QString::fromStdString(imported.records[i].preset.name);
+      bool ok = false;
+      auto chosen =
+          QInputDialog::getItem(nullptr, tr("Choose a Brush"),
+                                tr("Native conversion"), names, 0, false, &ok);
+      if (!ok) return true;
+      index = names.indexOf(chosen);
     }
-    path=RasterBrush::install(nativeBrushFolder(),imported.records[index],error);
-    if(!error.isEmpty()){DVGui::warning(error);return true;}
-    FullcolorNativeBrush=QFileInfo(path).fileName().toStdString();initNativePresets();return true;
+    path = RasterBrush::install(nativeBrushFolder(), imported.records[index],
+                                error);
+    if (!error.isEmpty()) {
+      DVGui::warning(error);
+      return true;
+    }
+    FullcolorNativeBrush = QFileInfo(path).fileName().toStdString();
+    initNativePresets();
+    return true;
   }
-  if(id=="<edit>"||id=="<export>") {
+  if (id == "<edit>" || id == "<export>") {
     m_nativePreset.setValue(previous);
-    if(!m_nativeRecord){DVGui::warning(tr("Choose a native brush first."));return true;}
-    auto record=*m_nativeRecord;
-    if(id=="<edit>") {
-      if(!editNativeBrush(record))return true;
-      bool ok=false;QString name=QInputDialog::getText(nullptr,tr("Save Native Brush"),tr("Name"),QLineEdit::Normal,QString::fromStdString(record.preset.name),&ok);
-      if(!ok||name.trimmed().isEmpty())return true;record.preset.name=name.trimmed().toStdString();
-      QString path=RasterBrush::install(nativeBrushFolder(),record,error);
-      if(error.isEmpty()){FullcolorNativeBrush=QFileInfo(path).fileName().toStdString();initNativePresets();}
-    }else {
-      QString path=QFileDialog::getSaveFileName(nullptr,tr("Export Native Brush"),QString::fromStdString(record.preset.name)+".gzbrush",tr("Native raster brushes (*.gzbrush)"));
-      if(path.isEmpty())return true;RasterBrush::save(path,record,error);
+    if (!m_nativeRecord) {
+      DVGui::warning(tr("Choose a native brush first."));
+      return true;
     }
-    if(!error.isEmpty())DVGui::warning(error);return true;
+    auto record = *m_nativeRecord;
+    if (id == "<edit>") {
+      if (!editNativeBrush(record)) return true;
+      bool ok      = false;
+      QString name = QInputDialog::getText(
+          nullptr, tr("Save Native Brush"), tr("Name"), QLineEdit::Normal,
+          QString::fromStdString(record.preset.name), &ok);
+      if (!ok || name.trimmed().isEmpty()) return true;
+      record.preset.name = name.trimmed().toStdString();
+      QString path = RasterBrush::install(nativeBrushFolder(), record, error);
+      if (error.isEmpty()) {
+        FullcolorNativeBrush = QFileInfo(path).fileName().toStdString();
+        initNativePresets();
+      }
+    } else {
+      QString path = QFileDialog::getSaveFileName(
+          nullptr, tr("Export Native Brush"),
+          QString::fromStdString(record.preset.name) + ".gzbrush",
+          tr("Native raster brushes (*.gzbrush)"));
+      if (path.isEmpty()) return true;
+      RasterBrush::save(path, record, error);
+    }
+    if (!error.isEmpty()) DVGui::warning(error);
+    return true;
   }
-  if(id=="<legacy>")m_nativeRecord.reset();
+  if (id == "<legacy>")
+    m_nativeRecord.reset();
   else {
     RasterBrush::Record record;
-    if(id=="<round>"||id=="<wet>"||id=="<smear>") {
-      record.preset.name=id=="<round>"?"Native Round":id=="<wet>"?"Native Wet Mix":"Native Smear";
-      record.preset.wet=id=="<round>"?RasterBrush::Wet::Off:id=="<wet>"?RasterBrush::Wet::Dulling:RasterBrush::Wet::Smear;
-      record.preset.size.mappings.push_back({RasterBrush::Sensor::Pressure,{{0,0},{1,1}},1});
-      record.preset.size.minimum=.05;record.decoded=record.semanticallySupported=true;
-    }else record=RasterBrush::load(QDir(nativeBrushFolder()).filePath(id),error);
-    if(!error.isEmpty()){m_nativePreset.setValue(previous);DVGui::warning(error);return true;}
-    m_nativeRecord=std::make_shared<RasterBrush::Record>(record);
+    if (id == "<round>" || id == "<wet>" || id == "<smear>") {
+      record.preset.name = id == "<round>" ? "Native Round"
+                           : id == "<wet>" ? "Native Wet Mix"
+                                           : "Native Smear";
+      record.preset.wet  = id == "<round>" ? RasterBrush::Wet::Off
+                           : id == "<wet>" ? RasterBrush::Wet::Dulling
+                                           : RasterBrush::Wet::Smear;
+      record.preset.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      record.preset.size.minimum = .05;
+      record.decoded = record.semanticallySupported = true;
+    } else
+      record = RasterBrush::load(QDir(nativeBrushFolder()).filePath(id), error);
+    if (!error.isEmpty()) {
+      m_nativePreset.setValue(previous);
+      DVGui::warning(error);
+      return true;
+    }
+    m_nativeRecord = std::make_shared<RasterBrush::Record>(record);
   }
-  FullcolorNativeBrush=id.toStdString();
-  if(getApplication()&&getApplication()->getCurrentTool())getApplication()->getCurrentTool()->notifyToolChanged();
+  FullcolorNativeBrush = id.toStdString();
+  if (getApplication() && getApplication()->getCurrentTool())
+    getApplication()->getCurrentTool()->notifyToolChanged();
   return true;
 }
 
@@ -273,9 +428,10 @@ class FullColorBrushUndo final : public ToolUtils::TFullColorRasterUndo {
 public:
   FullColorBrushUndo(TTileSetFullColor *tileSet, TXshSimpleLevel *level,
                      const TFrameId &frameId, bool isFrameCreated,
-                     const TRasterP &ras, const TPoint &offset)
+                     const TRasterP &ras, const TPoint &offset,
+                     bool isLevelCreated = false)
       : ToolUtils::TFullColorRasterUndo(tileSet, level, frameId, isFrameCreated,
-                                        false, 0)
+                                        isLevelCreated, 0)
       , m_offset(offset)
       , m_rasSize(getRasterMemorySize(ras.getPointer())) {
     static int counter = 0;
@@ -341,6 +497,23 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
     , m_started(false)
     , m_strokeFrameId()
     , m_strokeLevel() {
+  m_nativeAirbrushTimer.setTimerType(Qt::PreciseTimer);
+  m_nativeAirbrushTimer.setInterval(8);
+  QObject::connect(&m_nativeAirbrushTimer, &QTimer::timeout,
+                   &m_nativeAirbrushTimer, [this]() {
+                     if (!m_started || m_nativeStrokeFailed) return;
+                     const auto tracks = m_inputmanager.getInputTracks();
+                     for (const auto &track : tracks)
+                       if (!track->finished() && track->size() > 0) {
+                         const auto point = track->back();
+                         m_inputmanager.trackEvent(
+                             track->deviceId, track->touchId, point.position,
+                             point.pressure, point.tilt, track->hasPressure,
+                             track->hasTilt, false, TToolTimer::ticks(),
+                             point.rotation, point.hasRotation);
+                       }
+                     m_inputmanager.processTracks();
+                   });
   bind(TTool::RasterImage | TTool::EmptyTarget);
   m_thickness.setNonLinearSlider();
 
@@ -560,6 +733,16 @@ void FullColorBrushTool::updateModifiers() {
 //--------------------------------------------------------------------------------------------------
 
 bool FullColorBrushTool::preLeftButtonDown() {
+  if (m_nativeRecord) {
+    TRasterImageP existing = TRasterImageP(getImage(false));
+    if (existing && existing->getRaster() &&
+        !TRaster32P(existing->getRaster())) {
+      DVGui::warning(
+          tr("Native raster brushes require an 8-bit RGBA raster. The drawing "
+             "was not converted."));
+      return false;
+    }
+  }
   updateModifiers();
   touchImage();
 
@@ -622,17 +805,19 @@ void FullColorBrushTool::handleMouseEvent(MouseEventType type,
     double pressure    = hasPressure ? e.m_pressure : defPressure;
     bool   final       = type == ME_UP;
     TPointD tilt;
-    double rotation=e.m_rotation;
-    if(m_nativeRecord && getViewer()) {
-      TAffine orientation=TTrackTransform::makeTiltTransform(getViewer()->getViewMatrix().inv());
-      tilt=orientation*e.m_tilt;
-      TPointD axis=orientation*TPointD(std::cos(rotation),std::sin(rotation));
-      rotation=std::atan2(axis.y,axis.x);
+    double rotation = e.m_rotation;
+    if (m_nativeRecord && getViewer()) {
+      TAffine orientation = TTrackTransform::makeTiltTransform(
+          getViewer()->getViewMatrix().inv());
+      tilt = orientation * e.m_tilt;
+      TPointD axis =
+          orientation * TPointD(std::cos(rotation), std::sin(rotation));
+      rotation = std::atan2(axis.y, axis.x);
     }
-    m_inputmanager.trackEvent(
-      deviceId, 0, pos, pressure, tilt,
-      hasPressure, m_nativeRecord && e.m_hasTilt, final, t,
-      m_nativeRecord ? rotation : 0, m_nativeRecord && e.m_hasRotation);
+    m_inputmanager.trackEvent(deviceId, 0, pos, pressure, tilt, hasPressure,
+                              m_nativeRecord && e.m_hasTilt, final, t,
+                              m_nativeRecord ? rotation : 0,
+                              m_nativeRecord && e.m_hasRotation);
     m_inputmanager.processTracks();
   }
 }
@@ -733,14 +918,18 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
   if (m_skipStrokeUntilDown && busy) return;
   if (m_started == busy) return;
   if (busy) {
-    m_nativeStrokeFailed=false;
+    m_nativeStrokeFailed = false;
+    m_nativeCreatedFrame = m_isFrameCreated;
+    m_nativeCreatedLevel = m_isLevelCreated;
     // begin paint
     TRasterImageP ri = (TRasterImageP)getImage(true);
     if (!ri) return;// ri = (TRasterImageP)touchImage(); touch in preLeftButtonDown
     TRasterP ras = ri->getRaster();
     if (!ras) return;
     if (m_nativeRecord && !TRaster32P(ras)) {
-      DVGui::warning(tr("Native raster brushes require an 8-bit RGBA raster. The drawing was not converted."));
+      DVGui::warning(
+          tr("Native raster brushes require an 8-bit RGBA raster. The drawing "
+             "was not converted."));
       return;
     }
 
@@ -749,6 +938,14 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
     m_workRaster->lock();
     m_tileSet       = new TTileSetFullColor(ras->getSize());
     m_tileSaver     = new TTileSaverFullColor(ras, m_tileSet);
+    if (m_nativeRecord) {
+      m_nativeMemory =
+          std::make_shared<RasterBrush::MemoryBudget>(256u * 1024u * 1024u);
+      auto backing =
+          std::make_shared<NativeRasterBrushSurface>(m_workRaster, *this);
+      m_nativeSurface = std::make_shared<RasterBrush::BufferedSurface>(
+          backing, m_nativeMemory);
+    }
     m_strokeFrameId = getCurrentFid();
     m_strokeLevel   = TXshSimpleLevelP();
     if (TTool::Application *app = TTool::getApplication()) {
@@ -765,6 +962,8 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
     commitStroke();
   }
   m_started = busy;
+  if (busy && m_nativeRecord && m_nativeRecord->preset.airbrushRate > 0)
+    m_nativeAirbrushTimer.start();
 }
 
 //-------------------------------------------------------------------------------------------------------------
@@ -775,9 +974,8 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
                                               bool preview)
 {
   // get raster
-  if (!m_started || !getViewer() || preview || m_nativeStrokeFailed)
-    return;
-  
+  if (!m_started || !getViewer() || preview || m_nativeStrokeFailed) return;
+
   TRasterImageP ri = (TRasterImageP)getImage(true);
   if (!ri) return;
   TRasterP ras = ri->getRaster();
@@ -793,16 +991,22 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     handler->brush.setTip(m_tipImage);
     handler->brush.beginStroke();
     if (m_nativeRecord) {
-      RasterBrush::Preset preset=m_nativeRecord->preset;
-      const double alpha=m_currentColor.m/255.0;
-      preset.color={m_currentColor.r/255.0*alpha,m_currentColor.g/255.0*alpha,
-                    m_currentColor.b/255.0*alpha,alpha};
-      preset.size.value*=std::pow(2.0,m_modifierSize.getValue());
-      preset.opacity.value*=m_modifierOpacity.getValue()/100.0;
-      preset.lockAlpha=m_modifierLockAlpha.getValue();
-      if(m_modifierEraser.getValue()) {preset.blend=RasterBrush::Blend::Erase;preset.wet=RasterBrush::Wet::Off;}
-      handler->nativeSurface.reset(new NativeRasterBrushSurface(m_workRaster,*this));
-      handler->nativeStroke.reset(new RasterBrush::Stroke(*handler->nativeSurface,preset));
+      RasterBrush::Preset preset = m_nativeRecord->preset;
+      const double alpha         = m_currentColor.m / 255.0;
+      preset.color               = {m_currentColor.r / 255.0 * alpha,
+                                    m_currentColor.g / 255.0 * alpha,
+                                    m_currentColor.b / 255.0 * alpha, alpha};
+      preset.size.value *= std::pow(2.0, m_modifierSize.getValue());
+      preset.opacity.value *= m_modifierOpacity.getValue() / 100.0;
+      preset.lockAlpha = m_modifierLockAlpha.getValue();
+      if (m_modifierEraser.getValue()) {
+        preset.blend = RasterBrush::Blend::Erase;
+        preset.wet   = RasterBrush::Wet::Off;
+      }
+      handler->nativeSurface = m_nativeSurface;
+      handler->nativeStroke.reset(
+          new RasterBrush::Stroke(*handler->nativeSurface, preset,
+                                  256u * 1024u * 1024u, m_nativeMemory));
     }
     track.handler = handler;
   }
@@ -816,30 +1020,35 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
   
   // paint stroke
   m_strokeSegmentRect.empty();
-  if(handler->nativeStroke) {
+  if (handler->nativeStroke) {
     RasterBrush::Sample sample;
-    sample.x=point.position.x+rasCenter.x;sample.y=point.position.y+rasCenter.y;
-    sample.pressure=pressure;sample.hasPressure=m_enabledPressure && track.hasPressure;
-    sample.tiltX=point.tilt.x;sample.tiltY=point.tilt.y;
-    sample.hasTilt=track.hasTilt||point.tilt.x!=0||point.tilt.y!=0;
-    sample.rotation=point.rotation;sample.hasRotation=point.hasRotation;sample.time=point.time;
-    if(!handler->nativeStroke->add(sample)) {
+    sample.x           = point.position.x + rasCenter.x;
+    sample.y           = point.position.y + rasCenter.y;
+    sample.pressure    = pressure;
+    sample.hasPressure = m_enabledPressure && track.hasPressure;
+    sample.tiltX       = point.tilt.x;
+    sample.tiltY       = point.tilt.y;
+    sample.hasTilt  = track.hasTilt || point.tilt.x != 0 || point.tilt.y != 0;
+    sample.rotation = point.rotation;
+    sample.hasRotation = point.hasRotation;
+    sample.time        = point.time;
+    if (!handler->nativeStroke->add(sample)) {
       // Abort atomically: restore every region touched by this stroke. Do not
       // publish a half-rendered stroke when a resource budget is exhausted.
-      if(!m_strokeRect.isEmpty()) {
-        TRect restore=m_strokeRect*ras->getBounds();
+      if (!m_strokeRect.isEmpty()) {
+        TRect restore = m_strokeRect * ras->getBounds();
         ras->extract(restore)->copy(m_backUpRas->extract(restore));
         m_workRaster->extract(restore)->copy(m_backUpRas->extract(restore));
       }
-      m_nativeStrokeFailed=true;
+      m_nativeStrokeFailed = true;
       DVGui::warning(QString::fromStdString(handler->nativeStroke->error()));
       handler->nativeStroke->finish();
       return;
     }
-    if(track.pointsAdded==1&&track.finished())handler->nativeStroke->finish();
+    if (track.pointsAdded == 1 && track.finished())
+      handler->nativeStroke->finish();
   } else {
-    handler->brush.strokeTo(point.position + rasCenter,
-                            pressure, point.tilt,
+    handler->brush.strokeTo(point.position + rasCenter, pressure, point.tilt,
                             point.time - track.previous().time);
     if (track.pointsAdded == 1 && track.finished()) handler->brush.endStroke();
   }
@@ -930,17 +1139,20 @@ TPropertyGroup *FullColorBrushTool::getProperties(int targetType) {
 //----------------------------------------------------------------------------------------------------------
 
 bool FullColorBrushTool::keyDown(QKeyEvent *event) {
-  if(event->key()!=Qt::Key_Escape || !m_nativeRecord || !m_started) return false;
-  m_nativeStrokeFailed=true;
-  m_skipStrokeUntilDown=true;
-  // Reset flushes tracks, whose paint callbacks now ignore the cancelled stroke.
+  if (event->key() != Qt::Key_Escape || !m_nativeRecord || !m_started)
+    return false;
+  m_nativeStrokeFailed  = true;
+  m_skipStrokeUntilDown = true;
+  // Reset flushes tracks, whose paint callbacks now ignore the cancelled
+  // stroke.
   m_inputmanager.reset();
-  if(m_started) commitStroke();
+  if (m_started) commitStroke();
   invalidate();
   return true;
 }
 
 void FullColorBrushTool::commitStroke() {
+  m_nativeAirbrushTimer.stop();
   if (!m_started) return;
 
   TFrameId frameId =
@@ -955,34 +1167,41 @@ void FullColorBrushTool::commitStroke() {
   m_lastRect.empty();
   if (m_workRaster) m_workRaster->unlock();
 
-  if (ras && sl && m_tileSet && m_tileSet->getTileCount() > 0 && !m_nativeStrokeFailed) {
+  if (ras && sl && m_tileSet && m_tileSet->getTileCount() > 0 &&
+      !m_nativeStrokeFailed) {
     delete m_tileSaver;
     m_tileSaver     = 0;
     TRasterP subras = ras->extract(m_strokeRect)->clone();
-    TUndoManager::manager()->add(
-        new FullColorBrushUndo(m_tileSet, sl, frameId, m_isFrameCreated, subras,
-                               m_strokeRect.getP00()));
+    TUndoManager::manager()->add(new FullColorBrushUndo(
+        m_tileSet, sl, frameId,
+        m_nativeRecord ? m_nativeCreatedFrame : m_isFrameCreated, subras,
+        m_strokeRect.getP00(), m_nativeRecord && m_nativeCreatedLevel));
     m_tileSet = 0;
   } else {
     delete m_tileSaver;
     m_tileSaver = 0;
-    if(m_nativeStrokeFailed && ras && sl && m_tileSet) {
-      rollback.reset(new FullColorBrushUndo(m_tileSet,sl,frameId,m_isFrameCreated,
-                                            ras->extract(TRect(0,0,0,0))->clone(),TPoint()));
-      m_tileSet=0;
+    if (m_nativeStrokeFailed && ras && sl && m_tileSet) {
+      rollback.reset(
+          new FullColorBrushUndo(m_tileSet, sl, frameId, m_nativeCreatedFrame,
+                                 ras->extract(TRect(0, 0, 0, 0))->clone(),
+                                 TPoint(), m_nativeCreatedLevel));
+      m_tileSet = 0;
     }
     delete m_tileSet;
     m_tileSet = 0;
   }
 
   m_started       = false;
+  m_nativeSurface.reset();
+  m_nativeMemory.reset();
   m_strokeFrameId = TFrameId();
   m_strokeLevel   = TXshSimpleLevelP();
   m_strokeRect.empty();
-  if(rollback) {
+  if (rollback) {
     rollback->undo();
     setWorkAndBackupImages();
-  } else if (ras && sl) notifyImageChanged(frameId, sl);
+  } else if (ras && sl)
+    notifyImageChanged(frameId, sl);
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -1419,7 +1638,9 @@ void FullColorBrushTool::updateCurrentStyle() {
 
   m_enabledPressure = m_pressure.getValue();
   if (m_nativeRecord) {
-    m_minCursorThick=m_maxCursorThick=int(std::ceil(m_nativeRecord->preset.size.value*std::pow(2.0,m_modifierSize.getValue())));
+    m_minCursorThick = m_maxCursorThick =
+        int(std::ceil(m_nativeRecord->preset.size.value *
+                      std::pow(2.0, m_modifierSize.getValue())));
   } else if (TMyPaintBrushStyle *brushStyle = getBrushStyle()) {
     double radiusLog = brushStyle->getBrush().getBaseValue(
                            MYPAINT_BRUSH_SETTING_RADIUS_LOGARITHMIC) +

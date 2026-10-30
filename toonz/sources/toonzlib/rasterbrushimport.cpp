@@ -152,6 +152,72 @@ QMap<QString, QString> kppParameters(const QByteArray &xml, QString &name,
     throw Invalid("Conflicting KPP engine identifiers");
   return fields;
 }
+bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
+                  Dynamic &target, QSet<QString> &mapped,
+                  QStringList &diagnostics, bool enabledByDefault = false) {
+  bool enabled = fields.value("Pressure" + prefix,
+                              enabledByDefault ? "true" : "false") == "true";
+  if (!enabled) return false;
+  if (fields.value(prefix + "UseCurve") != "true") return false;
+  if (fields.value(prefix + "curveMode", "0") != "0") return false;
+  QXmlStreamReader xml(fields.value(prefix + "Sensor"));
+  QString sensor, curve;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isEntityReference()) return false;
+    if (xml.isDTD() && xml.text().toString().trimmed() != "<!DOCTYPE params>")
+      return false;
+    if (!xml.isStartElement()) continue;
+    if (xml.name() == QStringLiteral("params")) {
+      if (!sensor.isEmpty()) return false;
+      sensor = xml.attributes().value("id").toString();
+      // Non-default source-specific sensor options need their own adapter.
+      for (auto a : xml.attributes())
+        if (a.name() != QStringLiteral("id")) return false;
+    } else if (xml.name() == QStringLiteral("curve"))
+      curve = xml.readElementText();
+    else
+      return false;
+  }
+  if (xml.hasError()) return false;
+  const QMap<QString, Sensor> names = {{"pressure", Sensor::Pressure},
+                                       {"xtilt", Sensor::TiltX},
+                                       {"ytilt", Sensor::TiltY},
+                                       {"ascension", Sensor::TiltDirection},
+                                       {"declination", Sensor::TiltElevation},
+                                       {"rotation", Sensor::Rotation},
+                                       {"drawingangle", Sensor::Direction}};
+  if (!names.contains(sensor)) return false;
+  if (fields.value(prefix + "UseSameCurve") == "true")
+    curve = fields.value(prefix + "commonCurve", curve);
+  auto points = curve.split(';', Qt::SkipEmptyParts);
+  if (points.size() < 2 || points.size() > 1024) return false;
+  Mapping mapping;
+  mapping.sensor = names[sensor];
+  mapping.curve.clear();
+  double previous = -1;
+  for (auto point : points) {
+    auto pair = point.split(',');
+    if (pair.size() != 2) return false;
+    bool okx = false, oky = false;
+    double x = pair[0].toDouble(&okx), y = pair[1].toDouble(&oky);
+    if (!okx || !oky || !std::isfinite(x) || !std::isfinite(y) ||
+        x <= previous || x < 0 || x > 1 || y < 0 || y > 1)
+      return false;
+    mapping.curve.push_back({x, y});
+    previous = x;
+  }
+  target.minimum = 0;
+  target.mappings.push_back(mapping);
+  for (auto suffix :
+       {"Sensor", "UseCurve", "UseSameCurve", "commonCurve", "curveMode"})
+    mapped.insert(prefix + suffix);
+  mapped.insert("Pressure" + prefix);
+  diagnostics << prefix +
+                     ": sensor curve converted to native linear interpolation "
+                     "(source spline behavior is unverified).";
+  return true;
+}
 Record convertKpp(const QByteArray &bytes, QStringList &diagnostics) {
   QString error;
   auto png = boundedPng(bytes, error);
@@ -258,6 +324,10 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics) {
                    "Old/new smudge equations, smear-alpha and sensor "
                    "relationships are NOT reproduced.";
   }
+  convertCurve(fields, "Size", r.preset.size, mapped, diagnostics);
+  convertCurve(fields, "Opacity", r.preset.opacity, mapped, diagnostics, true);
+  convertCurve(fields, "Flow", r.preset.flow, mapped, diagnostics, true);
+  convertCurve(fields, "Ratio", r.preset.aspect, mapped, diagnostics);
   QStringList unmapped;
   for (auto i = fields.begin(); i != fields.end(); ++i)
     if (!mapped.contains(i.key())) unmapped << i.key();

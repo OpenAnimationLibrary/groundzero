@@ -143,15 +143,18 @@ Legacy MyPaint is the default. Built-in native round, wet mix and smear presets,
 a scratchpad using the real renderer, basic settings editing, `.gzbrush` import/
 export and a local embedded-resource library are implemented. Pixels are baked
 into the existing raster level and use its normal image saving and undo machinery.
-Application-level save/reopen, cancellation, frame creation and tablet tests remain
-release gates; passing the standalone engine tests does not prove these workflows.
+Host-adapter tests cover actual raster writes, tile undo, PNG save/reopen, input
+rotation and generated pen-up timing. Interactive scene/frame/level lifecycle and
+physical tablet qualification remain release gates; these lower-level tests do
+not prove the entire application workflow.
 
 Native v1 performs encoded-sRGB premultiplied blending, deterministic seeded
 sampling, distance/time dab scheduling, multiplicative linear sensor curves,
 bounded sampled/generated tips, image sequences, textures, secondary masks,
-wash/build-up, alpha lock, erasing, and original wet reservoirs. The host RGBA8
-adapter currently quantizes each write; this differs from the proposed all-float
-stroke/commit boundary and remains an explicit fidelity/performance design issue.
+wash/build-up, alpha lock, erasing, and original wet reservoirs. A shared lazy float tile cache retains sub-byte deposits across dabs and replicated
+tracks while the RGBA8 host receives display pixels. The float cache, wash buffers
+and wet reservoirs share a 256 MiB stroke budget; preset image resources and the
+host application's existing backup/undo buffers have separate budgets.
 
 Foreign resource adapter v1 is an explicit **converted approximation** path:
 GBR 1/2 mask/RGBA resources, GIH single-dimension incremental/random sequences,

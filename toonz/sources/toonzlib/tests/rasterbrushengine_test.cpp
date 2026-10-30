@@ -49,6 +49,37 @@ void line(Canvas &c, Preset p) {
     require(s.add(sample(i, 64, i / 240.0)), s.error().c_str());
   s.finish();
 }
+void testFloatTransaction() {
+  struct Quantized : Canvas {
+    void write(int x, int y, const Pixel &p) override {
+      auto q = [](double v) { return std::floor(v * 255 + .5) / 255; };
+      Canvas::write(x, y, {q(p.r), q(p.g), q(p.b), q(p.a)});
+    }
+  };
+  auto canvas = std::make_shared<Quantized>();
+  auto budget = std::make_shared<MemoryBudget>(2 * 1024 * 1024);
+  {
+    BufferedSurface surface(canvas, budget);
+    Preset p;
+    p.flow.value   = .001;
+    p.airbrushRate = 120;
+    p.size.value   = 4;
+    Stroke stroke(surface, p, 2 * 1024 * 1024, budget);
+    for (int i = 0; i < 240; ++i)
+      require(stroke.add(sample(32, 32, i / 240.0)), stroke.error().c_str());
+    require(canvas->read(32, 32).a > .05,
+            "sub-byte deposits lost to host quantization");
+    stroke.finish();
+    require(budget->used() > 0, "shared surface unaccounted");
+  }
+  require(budget->used() == 0, "shared memory leaked");
+  auto tiny = std::make_shared<MemoryBudget>(1);
+  {
+    BufferedSurface denied(canvas, tiny);
+    require(!denied.prepare(0, 0, 1, 1), "float tile budget ignored");
+  }
+  require(tiny->used() == 0, "denied buffer leaked budget");
+}
 void testComposition() {
   Pixel a{.2, .1, 0, .5}, b{.1, .3, .2, .5};
   Pixel n = composite(a, b, Blend::Normal);
@@ -163,6 +194,7 @@ void testStationaryAndBatching() {
 }  // namespace
 int main() {
   try {
+    testFloatTransaction();
     testComposition();
     testDeterminismAndMasks();
     testWashAndInput();

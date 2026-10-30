@@ -108,6 +108,37 @@ public:
   virtual void write(int x, int y, const Pixel &pixel) = 0;
   virtual double coverage(int, int) const { return 1; }
 };
+// Shared by replicated tracks and their float raster cache. UI-thread only.
+class RASTERBRUSH_API MemoryBudget {
+  size_t limit_, used_ = 0;
+
+public:
+  explicit MemoryBudget(size_t limit) : limit_(limit) {}
+  bool reserve(size_t bytes) {
+    if (bytes > limit_ - used_) return false;
+    used_ += bytes;
+    return true;
+  }
+  void release(size_t bytes) { used_ -= bytes; }
+  size_t used() const { return used_; }
+};
+// Lazy float tiles preserve sub-byte deposits while publishing quantized pixels
+// to a host surface for display. Share one instance across replicated tracks.
+class RASTERBRUSH_API BufferedSurface final : public Surface {
+  struct Impl;
+  std::unique_ptr<Impl> m;
+
+public:
+  BufferedSurface(std::shared_ptr<Surface> backing,
+                  std::shared_ptr<MemoryBudget> budget);
+  ~BufferedSurface();
+  int width() const override;
+  int height() const override;
+  bool prepare(int x0, int y0, int x1, int y1) override;
+  Pixel read(int x, int y) const override;
+  void write(int x, int y, const Pixel &pixel) override;
+  double coverage(int x, int y) const override;
+};
 RASTERBRUSH_API Pixel composite(Pixel dst, Pixel src, Blend mode,
                                 bool lockAlpha = false);
 RASTERBRUSH_API std::string validate(const Preset &preset);
@@ -120,7 +151,8 @@ class RASTERBRUSH_API Stroke {
 
 public:
   Stroke(Surface &surface, const Preset &preset,
-         size_t memoryLimit = 256u * 1024u * 1024u);
+         size_t memoryLimit                         = 256u * 1024u * 1024u,
+         std::shared_ptr<MemoryBudget> sharedBudget = {});
   ~Stroke();
   Stroke(const Stroke &)            = delete;
   Stroke &operator=(const Stroke &) = delete;
