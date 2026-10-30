@@ -485,19 +485,28 @@ class OpacityFramebuffer {
   GLuint m_framebuffer = 0, m_texture = 0, m_depthStencil = 0;
   GLint m_previous = 0;
   static QFunctionPointer address(const char *name) {
-    QFunctionPointer result = nullptr;
-    if (auto *context = QOpenGLContext::currentContext()) result = context->getProcAddress(name);
+    auto lookup = [](const char *entry) {
+      QFunctionPointer result = nullptr;
+      if (auto *context = QOpenGLContext::currentContext())
+        result = context->getProcAddress(entry);
 #ifdef _WIN32
-    if (!result) {
-      auto pointer = wglGetProcAddress(name);
-      if (pointer && pointer != reinterpret_cast<PROC>(1) && pointer != reinterpret_cast<PROC>(2) &&
-          pointer != reinterpret_cast<PROC>(3) && pointer != reinterpret_cast<PROC>(-1))
-        result = reinterpret_cast<QFunctionPointer>(pointer);
-    }
+      if (!result) {
+        auto pointer = wglGetProcAddress(entry);
+        if (pointer && pointer != reinterpret_cast<PROC>(1) && pointer != reinterpret_cast<PROC>(2) &&
+            pointer != reinterpret_cast<PROC>(3) && pointer != reinterpret_cast<PROC>(-1))
+          result = reinterpret_cast<QFunctionPointer>(pointer);
+      }
 #endif
+      return result;
+    };
+    QFunctionPointer result = lookup(name);
+    // Qt's supported compatibility contexts can expose the EXT spellings
+    // instead of the OpenGL 3 core entry points. Signatures and enums match.
+    if (!result) result = lookup((QByteArray(name) + "EXT").constData());
     if (!result) throw std::runtime_error("Stroke opacity envelopes require OpenGL framebuffer support");
     return result;
   }
+
 public:
   OpacityFramebuffer(int width, int height) {
 #ifdef BUILD_UI_PORT_TESTS
