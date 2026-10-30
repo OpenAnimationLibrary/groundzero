@@ -1833,6 +1833,64 @@ void testSourceSmallCircle() {
     require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) < 1e-9,
             "small-circle fade or scalar quantization differs from source");
 }
+void testSourceBarrelGeometry() {
+  // Original static ellipse masks plus the independently captured positive
+  // barrel sign: raw315 degrees matches serialized static+45 degrees.
+  struct Capture {
+    int diameter;
+    double aspect, barrel;
+    int x, y, w, h;
+    uint64_t hash;
+  };
+  const Capture captures[] = {
+      {16, 0.25, 0, -12, -12, 26, 26, 5110072451055542885ull},
+      {16, 0.25, 315, -12, -12, 26, 26, 17554875013171802149ull},
+      {16, 0.25, 270, -12, -12, 26, 26, 15888210921076884757ull},
+      {16, 0.5, 0, -12, -12, 26, 26, 6985544762035993973ull},
+      {16, 0.5, 315, -12, -12, 26, 26, 11519218464571737365ull},
+      {16, 0.5, 270, -12, -12, 26, 26, 6572898940333968981ull},
+      {16, 1, 0, -12, -12, 26, 26, 15671155680365188181ull},
+      {16, 1, 315, -12, -12, 26, 26, 15671155680365188181ull},
+      {16, 1, 270, -12, -12, 26, 26, 15671155680365188181ull},
+      {64, 0.25, 0, -36, -36, 74, 74, 7286171426856152085ull},
+      {64, 0.25, 315, -36, -36, 74, 74, 15881757145890768269ull},
+      {64, 0.25, 270, -36, -36, 74, 74, 6522406809041249397ull},
+      {64, 0.5, 0, -36, -36, 74, 74, 4417048127223711637ull},
+      {64, 0.5, 315, -36, -36, 74, 74, 18082161390857717109ull},
+      {64, 0.5, 270, -36, -36, 74, 74, 11746254902137415701ull},
+      {64, 1, 0, -36, -36, 74, 74, 4871573068758355349ull},
+      {64, 1, 315, -36, -36, 74, 74, 4871573068758355349ull},
+      {64, 1, 270, -36, -36, 74, 74, 4871573068758355349ull}};
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value   = capture.diameter;
+    p.aspect.value = capture.aspect;
+    p.angle.value  = 360;
+    Mapping mapping;
+    mapping.sensor   = Sensor::Rotation;
+    p.angle.mappings = {mapping};
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    auto input        = sample(64, 64, 0);
+    input.hasRotation = true;
+    input.rotation    = capture.barrel * 3.14159265358979323846 / 180;
+    require(stroke.add(input), stroke.error().c_str());
+    uint64_t hash = 14695981039346656037ull;
+    for (int y = 0; y < capture.h; ++y)
+      for (int x = 0; x < capture.w; ++x)
+        hash =
+            (hash ^ uint64_t(std::lround(
+                        canvas.read(64 + capture.x + x, 64 + capture.y + y).a *
+                        255))) *
+            1099511628211ull;
+    require(hash == capture.hash,
+            "source barrel mask disagrees with original ellipse capture");
+    p.opacity.value = .5;
+    require(!validate(p).empty(),
+            "unmeasured barrel/transfer combination admitted");
+  }
+}
 void testSourcePixelPressureTransfer() {
   // Original constant-pressure Node observations: wash opacity scales the
   // stroke, wash flow and build-up opacity accumulate per dab, build-up flow
@@ -1865,10 +1923,44 @@ void testSourcePixelPressureTransfer() {
             std::abs(std::lround(canvas.read(32, 32).a * 255) - two) <= 1 &&
                 std::abs(std::lround(canvas.read(40, 32).a * 255) - three) <= 1,
             "source pressure transfer disagrees with original Node probes");
-        control.mappings.front().curve = {{0, 0}, {1, .5}};
+        control.mappings.front().sensor = Sensor::TiltX;
         require(!validate(p).empty(),
-                "unmeasured Pixel transfer curve admitted");
+                "unmeasured Pixel transfer sensor admitted");
       }
+}
+void testSourceTransferCurves() {
+  // Independent natural-spline solution for (0,0),(.5,1),(1,0):
+  // on [0,.5], f(x)=3*x-4*x^3; f(.25)=.6875.
+  // This verifies the candidate composition, not foreign transfer parity.
+  for (bool wash : {false, true})
+    for (bool opacity : {false, true}) {
+      Preset p;
+      p.profile     = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.size.value  = 32;
+      p.wash        = wash;
+      auto &control = opacity ? p.opacity : p.flow;
+      control.value = .5;
+      Mapping curve;
+      curve.interpolation = Interpolation::NaturalCubic;
+      curve.curve         = {{0, 0}, {.5, 1}, {1, 0}};
+      control.mappings    = {curve};
+      Canvas canvas;
+      Stroke stroke(canvas, p);
+      auto input     = sample(32, 32, 0);
+      input.pressure = .25;
+      require(stroke.add(input), stroke.error().c_str());
+      const double expected = !wash && !opacity ? 1 : .34375;
+      require(std::abs(canvas.read(32, 32).a - expected) <= 1.0 / 255,
+              "source candidate cubic transfer composition changed");
+      control.mappings.front().interpolation = Interpolation::Linear;
+      require(!validate(p).empty(),
+              "source multi-knot transfer admitted linear interpolation");
+      control.mappings.front().interpolation = Interpolation::NaturalCubic;
+      p.profile = "krita-5.3.4.1-legacy-smear-candidate-1";
+      p.wet     = Wet::Smear;
+      require(!validate(p).empty(),
+              "Pixel cubic transfer broadened wet qualification");
+    }
 }
 void testSourceNaturalCubicSize() {
   // Complete original source alpha windows, independent of this evaluator.
@@ -2411,6 +2503,9 @@ int main() {
       {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
       {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
+      {"testSourceBarrelGeometry", testSourceBarrelGeometry},
+      {"testSourcePixelPressureTransfer", testSourcePixelPressureTransfer},
+      {"testSourceTransferCurves", testSourceTransferCurves},
       {"testSourceRectangle", testSourceRectangle},
       {"testSourceWetInitialization", testSourceWetInitialization},
       {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},

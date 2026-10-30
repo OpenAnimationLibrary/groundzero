@@ -554,7 +554,8 @@ int main(int argc, char **argv) {
       const bool sourceHsv = fixtures["group"].toString() == "hsvdynamics" ||
                              fixtures["group"].toString() == "hsvheldout";
       const bool sourceHard =
-          sourceHsv || (textureGate && name.contains("dry legacy")) ||
+          source["sourceBarrelCandidate"].toBool(false) || sourceHsv ||
+          (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
@@ -865,14 +866,14 @@ int main(int argc, char **argv) {
             else
               require(a == 0, "Candidate random stroke escaped fixed region");
           }
-        const int slots =
+        const int slotCount =
             source["resourceProbe"].toObject()["expectedSlots"].toInt();
         const int diameter = source["diameter"].toInt();
-        require(slots == 32 && diameter == 8,
+        require(slotCount == 32 && diameter == 8,
                 "Unexpected stochastic frame-label fixture geometry");
         QJsonArray selections;
         const int radius = diameter / 2 + 2;
-        for (int slot = 0; slot < slots; ++slot) {
+        for (int slot = 0; slot < slotCount; ++slot) {
           const int cx = 256 + slot * diameter * 4;
           quint64 sums[3] = {0, 0, 0};
           for (int y = 1024 - radius; y <= 1024 + radius; ++y)

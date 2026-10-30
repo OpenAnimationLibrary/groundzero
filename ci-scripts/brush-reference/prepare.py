@@ -518,6 +518,25 @@ for mode, modern in profiles:
                         for variant in list(variants)
                         if " action 0 dynamic pressure " in variant[0] and
                            not variant[0].endswith(" Node control"))
+    if group == "pixeltransfer":
+        # Shared option serialization uses the same pressure spline as Size;
+        # these independent Node controls qualify transfer composition itself.
+        for action in (0, 1):
+            for control in ("Opacity", "Flow"):
+                for shape, curve in (("turning", "0,0;.5,1;1,0;"),
+                                     ("nonuniform", "0,.1;.2,.9;.7,.15;1,.8;")):
+                    for mode in ("shared", "local", "disabled"):
+                        overrides = {"PaintOpAction": str(action), control + "Value": ".5",
+                            "Pressure" + control: str(mode != "disabled").lower(),
+                            control + "UseCurve": "true",
+                            control + "UseSameCurve": str(mode != "local").lower(),
+                            control + "commonCurve": curve if mode != "local" else "0,1;1,1;",
+                            control + "Sensor": '<params id="pressure"><curve>' +
+                                (curve if mode == "local" else "0,0;1,1;") + '</curve></params>'}
+                        label = f"transfer spline {control} action {action} {shape} {mode} Node control"
+                        variants.append((label, overrides, 32, .25, [.25, .25],
+                                         .5 if control == "Opacity" else 1,
+                                         .5 if control == "Flow" else 1))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         # Resource names also become KPP filenames. The source treats decimal
         # dot segments as resource versions, so all generated identities use
@@ -667,7 +686,8 @@ for mode, modern in profiles:
             # interface. Never round the fractional Qt precision cases.
             cases[-1]["delivery"] = "Node.paintLine"
             cases[-1].pop("events", None)
-            cases[-1]["pairedQtVariant"] = label.removesuffix(" Node control")
+            if not label.startswith("transfer spline"):
+                cases[-1]["pairedQtVariant"] = label.removesuffix(" Node control")
 (root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events plus paired Node.paintLine controls; not physical tablet delivery" if group in ("pixeltransfer", "pixelprecision") else "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "wetboundary", "pixelprecision") else "Node.paintLine API; not physical tablet delivery"}, indent=2))
 
 finalize_input_contract()

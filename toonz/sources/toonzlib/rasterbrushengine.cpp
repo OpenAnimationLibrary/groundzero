@@ -286,7 +286,7 @@ std::string validate(const Preset &p) {
   // Independently captured nonuniform monotone/turning pressure-size masks
   // establish natural cubic interpolation beyond the affine two-knot case.
   // Wet pressure qualification remains the separate identity-only predicate.
-  auto sourceSizePressure = [](const Dynamic &value) {
+  auto sourcePressureCurve = [](const Dynamic &value) {
     if (value.minimum != 0 || value.mappings.size() != 1) return false;
     const auto &mapping = value.mappings.front();
     return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
@@ -297,7 +297,34 @@ std::string validate(const Preset &p) {
             (mapping.curve.size() > 2 &&
              mapping.interpolation == Interpolation::NaturalCubic));
   };
-  const bool sourcePressureSize = sourceHard && sourceSizePressure(p.size);
+  const bool sourcePressureSize = sourceHard && sourcePressureCurve(p.size);
+  const bool sourceBarrel =
+      sourceHard && !sourceSoft && p.angle.value == 360 &&
+      p.angle.minimum == 0 && p.angle.mappings.size() == 1 &&
+      p.angle.mappings.front().sensor == Sensor::Rotation &&
+      p.angle.mappings.front().scale == 1 &&
+      p.angle.mappings.front().interpolation == Interpolation::Linear &&
+      p.angle.mappings.front().curve.size() == 2 &&
+      p.angle.mappings.front().curve[0].x == 0 &&
+      p.angle.mappings.front().curve[0].y == 0 &&
+      p.angle.mappings.front().curve[1].x == 1 &&
+      p.angle.mappings.front().curve[1].y == 1;
+  if (sourceBarrel && (p.wash || p.blend != Blend::Normal || p.texture.image ||
+                       !p.size.mappings.empty() || p.opacity.value != 1 ||
+                       !p.opacity.mappings.empty() || p.flow.value != 1 ||
+                       !p.flow.mappings.empty()))
+    return "Unimplemented source barrel rotation combination";
+  const bool extendedTransfer =
+      sourceHard &&
+      ((!p.opacity.mappings.empty() && !linearPressure(p.opacity)) ||
+       (!p.flow.mappings.empty() && !linearPressure(p.flow)));
+  if (extendedTransfer &&
+      (p.blend != Blend::Normal || p.texture.image ||
+       !p.size.mappings.empty() || !p.angle.mappings.empty() ||
+       (!p.opacity.mappings.empty() &&
+        (p.flow.value != 1 || !p.flow.mappings.empty())) ||
+       (!p.flow.mappings.empty() && p.opacity.value != 1)))
+    return "Unimplemented source transfer curve combination";
   if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
@@ -313,14 +340,15 @@ std::string validate(const Preset &p) {
         (!sourceSoft && p.tip.antialiasEdges) || !p.tip.images.empty() ||
         (!p.size.mappings.empty() && !sourcePressureSize) ||
         p.size.value != std::floor(p.size.value) ||
-        !p.aspect.mappings.empty() || !p.angle.mappings.empty() ||
+        !p.aspect.mappings.empty() ||
+        (!p.angle.mappings.empty() && !sourceBarrel) ||
         (sourceWet && (!fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||
         (!p.opacity.mappings.empty() &&
-         !((sourceWet || (sourceHard && !sourceSoft)) &&
-           linearPressure(p.opacity))) ||
+         !((sourceWet && linearPressure(p.opacity)) ||
+           (sourceHard && !sourceSoft && sourcePressureCurve(p.opacity)))) ||
         (!p.flow.mappings.empty() &&
-         !((sourceWet || (sourceHard && !sourceSoft)) &&
-           linearPressure(p.flow))) ||
+         !((sourceWet && linearPressure(p.flow)) ||
+           (sourceHard && !sourceSoft && sourcePressureCurve(p.flow)))) ||
         !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
         !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
         !fixed(p.saturation, 1) || !fixed(p.brightness, 1) || p.count != 1 ||
@@ -1302,9 +1330,16 @@ struct Stroke::Impl {
                  radius   = diameter * .5;
     spacing = sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
                                        : diameter * p.spacing;
-    const double aspect = std::max(.01, eval(p.aspect, s));
-    const double angle = eval(p.angle, s) * pi / 180, c = std::cos(angle),
-                 sn      = std::sin(angle);
+    const double aspect       = std::max(.01, eval(p.aspect, s));
+    const double angleDegrees = eval(p.angle, s);
+    // The measured barrel mapping is periodic; evaluate equivalent angles in
+    // a common range so 315 and -45 degrees share the same mask boundary math.
+    const double angle =
+                     (sourcePixelProfile(p.profile) && !p.angle.mappings.empty()
+                          ? std::remainder(angleDegrees, 360.0)
+                          : angleDegrees) *
+                     pi / 180,
+                 c = std::cos(angle), sn = std::sin(angle);
     const double opacity = unit(eval(p.opacity, s));
     // K5341 build-up uses opacity as dab transparency; static flow is
     // inactive. Original zero/quarter/half-flow fixtures establish this

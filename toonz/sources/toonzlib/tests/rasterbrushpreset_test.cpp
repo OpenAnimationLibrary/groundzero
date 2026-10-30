@@ -1004,6 +1004,55 @@ void testImports() {
             restored.preset.flow.mappings.size() == preset.flow.mappings.size(),
         "Pixel pressure transfer lost on portable round trip");
   }
+  for (const QString target : {"Opacity", "Flow"})
+    for (bool local : {false, true}) {
+      QImage image =
+          QImage::fromData(hardPixelKpp("wet" + target + "Pressure"), "PNG");
+      QString xml = image.text("preset");
+      xml.replace("0,0;1,1;", "0,0;.5,1;1,0;");
+      if (local)
+        xml.replace("<param name=\"" + target + "UseSameCurve\">true</param>",
+                    "<param name=\"" + target + "UseSameCurve\">false</param>");
+      image.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      buffer.open(QIODevice::WriteOnly);
+      require(image.save(&buffer, "PNG"),
+              "cannot encode transfer curve fixture");
+      auto imported = importBrush(bytes, "kpp", error);
+      require(imported.complete && imported.records.size() == 1 &&
+                  imported.records.front().preset.profile ==
+                      "krita-5.3.4.1-hard-pixel-candidate-1",
+              "source pressure spline lost candidate eligibility");
+      auto restored = decode(encode(imported.records.front(), error), error);
+      const auto &control =
+          target == "Opacity" ? restored.preset.opacity : restored.preset.flow;
+      require(
+          error.isEmpty() && control.mappings.size() == 1 &&
+              control.mappings.front().interpolation ==
+                  Interpolation::NaturalCubic &&
+              control.mappings.front().curve.size() == 3,
+          "source pressure spline lost interpolation on portable round trip");
+    }
+  auto barrel = importBrush(hardPixelKpp("barrel"), "kpp", error);
+  require(barrel.complete &&
+              barrel.records.front().preset.profile ==
+                  "krita-5.3.4.1-hard-pixel-candidate-1" &&
+              barrel.records.front().preset.angle.value == 360 &&
+              barrel.records.front().preset.angle.mappings.size() == 1 &&
+              barrel.records.front().preset.angle.mappings.front().sensor ==
+                  Sensor::Rotation,
+          "source barrel identity mapping lost eligibility or units");
+  auto barrelCopy = decode(encode(barrel.records.front(), error), error);
+  require(
+      error.isEmpty() && barrelCopy.preset.angle.value == 360 &&
+          barrelCopy.preset.angle.mappings.front().sensor == Sensor::Rotation,
+      "portable source barrel mapping lost units");
+  auto anisotropic =
+      importBrush(hardPixelKpp("barrelAnisotropic"), "kpp", error);
+  require(anisotropic.complete && anisotropic.records.front().preset.profile ==
+                                      "groundzero-native-1",
+          "unmeasured rotating anisotropic spacing entered source candidate");
   auto spline = importBrush(hardPixelKpp("pressureSpline"), "kpp", error);
   require(
       spline.complete &&

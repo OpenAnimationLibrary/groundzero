@@ -1330,3 +1330,42 @@ legacy D56 at the disputed index-81 coordinate, legacy D32 at the independently
 observed index-80 coordinate, and legacy/new D64 at both neighboring coordinates
 for index 100. These distinguish joint sample weights from row/column marginal
 coincidences without assuming a count correction or changing fidelity gates.
+
+### Measured barrel rotation candidate
+
+Original tablet barrel captures distinguish a positive runtime rotation from
+the negative rotation used by serialized fixed brush angles. Left-of-start
+regions at 45/135/359 degrees isolate this orientation from later stamps.
+Eighteen independently captured fixed ellipse masks also match the equivalent
+barrel orientations exactly (including raw315 versus serialized+45 degrees).
+The hard Pixel candidate now maps an explicit identity barrel sensor to a
+periodic 360-degree angle, normalized before trigonometric evaluation. The
+mapping and its units survive portable serialization.
+
+This candidate requires a generated hard ellipse, zero serialized base angle,
+explicit isotropic spacing, Normal build-up, and full fixed opacity/flow.
+Pressure-size/transfer, HSV, texture and other joint combinations are excluded
+until their interactions are qualified. Anisotropic rotating spacing remains a
+required K-contract feature, not silently replaced by isotropic behavior.
+Fourteen appended source fixtures provide enabled/control hard ellipses at
+held-out constant angles and a wraparound ramp; enabled cases enforce existing
+full-image gates. Existing sensor cases and IDs are unchanged. The complete K
+profile and this expanded dynamic region still require source CI qualification.
+
+### General pressure transfer curve candidate
+
+The hard Pixel candidate now shares its independently measured natural-cubic
+pressure evaluator between size, opacity and flow. Two-knot curves remain affine;
+multiple knots use natural endpoint conditions and clamp the evaluated output.
+The source adapter resolves either shared or sensor-local pressure curves, keeps
+disabled curves inactive, and preserves the interpolation in portable presets.
+This extends candidate implementation, not the source-reference-verified claim:
+identity transfer equations and size spline evidence establish the components,
+while 24 original Node transfer captures exercise their composition independently.
+Those captures cover wash/build-up, opacity/flow, turning/nonuniform curves and
+shared/local/disabled states, using the existing full-image comparison thresholds.
+
+Nonidentity transfer is currently restricted to Normal blending, fixed size and
+angle, no texture and one active transfer control with the other at one. Wet
+curves remain identity-only. Combined HSV, multiple sensors and joint dynamic
+controls remain required future work and are not admitted by this extension.
