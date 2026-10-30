@@ -16,6 +16,7 @@
 #include "tproperty.h"
 #include "texception.h"
 #include "toonzqt/planeviewer.h"
+#include "tools/vectoralignmentpreview.h"
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QDir>
@@ -1156,6 +1157,100 @@ void nativeOpacityPicking(const TVectorImageP &image) {
   require(!hit(TPointD()), "native picking changed zero-scalar-opacity semantics");
   context.doneCurrent();
 }
+
+void nativePlanarOpacity(TPalette *palette, int style) {
+  std::cout << "vector-opacity-plane: native PlaneViewer scalar/profile visibility" << std::endl;
+  auto image = imageWith(palette,style);
+  auto *stroke = image->getStroke(0);
+  TVectorImageP empty = new TVectorImage; empty->setPalette(palette);
+  VectorAlignmentPreview::Swatch swatch(nullptr);
+  swatch.resize(320,200);
+  const TRectD bounds(-64,-32,64,32);
+  auto capture = [&](const TVectorImageP &drawing) {
+    swatch.setImage(drawing,bounds);
+    swatch.show(); QCoreApplication::processEvents();
+    const auto pixels = swatch.grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+    require(!pixels.isNull(),"native planar preview returned no pixels");
+    return pixels;
+  };
+  const QImage background = capture(empty), ordinary = capture(image);
+  int visible = 0;
+  for (int y = 0; y < ordinary.height(); ++y)
+    for (int x = 0; x < ordinary.width(); ++x)
+      if (ordinary.pixel(x,y) != background.pixel(x,y)) ++visible;
+  require(visible > 100,"native planar reference did not display the stroke");
+  for (bool profile : {false,true}) for (double amount : {1.,.5,0.}) {
+    stroke->setOpacity(profile ? 1. : amount);
+    stroke->setOpacityProfile(profile ? StrokeOpacity::Profile{{0,amount},{1,amount}}
+                                     : StrokeOpacity::Profile{});
+    const QImage actual = capture(image);
+    require(actual.size() == ordinary.size(),"native planar preview changed capture dimensions");
+    for (int y = 0; y < actual.height(); ++y)
+      for (int x = 0; x < actual.width()*4; ++x) {
+        const double expected = background.constScanLine(y)[x] + amount *
+            (double(ordinary.constScanLine(y)[x])-background.constScanLine(y)[x]);
+        require(std::abs(actual.constScanLine(y)[x]-expected) <= 2.,
+                "flattened native PlaneViewer lost or miscomposited stroke opacity");
+      }
+  }
+  stroke->setOpacity(1.); stroke->setOpacityProfile({{0,0},{1,1}});
+  const QImage envelope = capture(image);
+  const double previewScale = std::min((envelope.width()-20.)/bounds.getLx(),
+                                        (envelope.height()-20.)/bounds.getLy());
+  for (double position : {-.5,.5}) {
+    const int x = int(envelope.width()*.5+48.*position*previewScale);
+    const int y = envelope.height()/2;
+    const double amount = (position+1.)*.5;
+    for (int channel = 0; channel < 4; ++channel) {
+      const int byte = 4*x+channel;
+      const double expected = background.constScanLine(y)[byte] + amount *
+          (double(ordinary.constScanLine(y)[byte])-background.constScanLine(y)[byte]);
+      require(std::abs(envelope.constScanLine(y)[byte]-expected) <= 2.,
+              "flattened PlaneViewer sampled the envelope at the wrong stroke position");
+    }
+  }
+  swatch.hide();
+
+  // Exercise the same rank-three transform with perspective, including a
+  // source stroke crossing w=0. Native clipping decides visible geometry;
+  // the opacity texture must preserve it without inverse-projecting corners.
+  TOfflineGL context(TDimension(256,128)); context.makeCurrent(); context.initMatrix();
+  TVectorRenderData data(TVectorRenderData::ProductionSettings(),TAffine(),TRect(),palette);
+  auto prepare = [&](double perspective, bool degenerate = false) {
+    context.makeCurrent(); context.initMatrix(); context.clear(TPixel32::Transparent);
+    glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity(); glTranslated(128,64,0);
+    glScaled(degenerate ? 0. : 1.,1.,0.);
+    GLdouble projective[] = {1,0,0,perspective, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    glMultMatrixd(projective);
+  };
+  auto pixels = [&]() {
+    TRaster32P raster(256,128); context.getRaster(raster); return raster;
+  };
+  for (double perspective : {0.,.005,.025}) {
+    stroke->setOpacity(1.); stroke->setOpacityProfile({});
+    prepare(perspective); tglDraw(data,image.getPointer()); const auto ordinaryPixels = pixels();
+    for (bool profile : {false,true}) for (double amount : {1.,.5}) {
+      stroke->setOpacity(profile ? 1. : amount);
+      stroke->setOpacityProfile(profile ? StrokeOpacity::Profile{{0,amount},{1,amount}}
+                                       : StrokeOpacity::Profile{});
+      prepare(perspective); tglDraw(data,image.getPointer());
+      scaledPixels(ordinaryPixels,pixels(),amount,"planar perspective opacity changed native clipping");
+    }
+  }
+  prepare(0.,true); const auto original = pixels(); const auto state = depthState();
+  bool rejected = false;
+  try { tglDraw(data,image.getPointer()); }
+  catch (const std::runtime_error &error) {
+    rejected = std::string(error.what()).find("degenerate drawing-plane") != std::string::npos;
+  }
+  require(rejected,"degenerate planar opacity projection was silently omitted");
+  state.requireEqual(depthState());
+  scaledPixels(original,pixels(),1.,"degenerate planar refusal changed the framebuffer",false);
+  context.doneCurrent();
+  std::cout << "vector-opacity-plane: native previews and projective clipping passed" << std::endl;
+}
 }
 
 void runOpacityRenderNativeChecks() {
@@ -1175,6 +1270,7 @@ void runOpacityRenderNativeChecks() {
     styles.push_back(palette->addStyle(style));
   }
   nativeOpacityPicking(imageWith(palette.getPointer(), styles.front()));
+  nativePlanarOpacity(palette.getPointer(),styles.front());
   TPaletteP brushPalette = new TPalette;
   const int brushColor = brushPalette->addStyle(TPixel32(220,80,30,192));
   TVectorImageP brush = new TVectorImage; brush->setPalette(brushPalette.getPointer());
