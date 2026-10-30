@@ -61,6 +61,7 @@ public:
   virtual CastItem *clone() const = 0;
   virtual bool exists() const     = 0;
   virtual TXshLevel *getLevel() const { return nullptr; }
+  virtual void setIconSize(const QSize &) {}
 };
 //-----------------------------------------------------------------------------
 
@@ -72,6 +73,7 @@ public:
   LevelCastItem(TXshLevel *level, QSize itemPixmapSize)
       : m_level(level), m_itemPixmapSize(itemPixmapSize) {}
   TXshLevel *getLevel() const override { return m_level; }
+  void setIconSize(const QSize &size) override { m_itemPixmapSize = size; }
   QString getName() const override;
   QString getToolTip() const override;
   int getFrameCount() const override;
@@ -92,6 +94,7 @@ public:
   SoundCastItem(TXshSoundLevel *soundLevel, QSize itemPixmapSize)
       : m_soundLevel(soundLevel), m_itemPixmapSize(itemPixmapSize) {}
   TXshSoundLevel *getSoundLevel() const override { return m_soundLevel; }
+  void setIconSize(const QSize &size) override { m_itemPixmapSize = size; }
   TXshLevel *getLevel() const override;
   QString getName() const override;
   QString getToolTip() const override;
@@ -113,6 +116,7 @@ public:
   PaletteCastItem(TXshPaletteLevel *paletteLevel, QSize itemPixmapSize)
       : m_paletteLevel(paletteLevel), m_itemPixmapSize(itemPixmapSize) {}
   TXshPaletteLevel *getPaletteLevel() const override { return m_paletteLevel; }
+  void setIconSize(const QSize &size) override { m_itemPixmapSize = size; }
   TXshLevel *getLevel() const override;
   QString getName() const override;
   QString getToolTip() const override;
@@ -134,6 +138,9 @@ public:
 
   void clear();
   void addItem(CastItem *item);
+  // The caller retains the old and new levels until reconciliation completes.
+  // Surviving identities keep their item even when their name/order changes.
+  void reconcile(const std::vector<TXshLevel *> &levels, const QSize &iconSize);
 
   int getItemCount() const { return m_items.size(); }
   CastItem *getItem(int index) const;

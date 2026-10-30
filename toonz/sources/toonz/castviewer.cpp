@@ -823,7 +823,6 @@ void CastBrowser::refreshData() {
   rememberSelection();
   m_rebuilding = true;
   refreshCollections();
-  m_castItems->clear();
   m_assetStatus.clear();
   m_statusBadge.clear();
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
@@ -854,6 +853,8 @@ void CastBrowser::refreshData() {
     usage = CastWorkflow::index(scene->getTopXsheet(), {}, {}, limits);
   }
   const int type = m_type->currentData().toInt();
+  std::vector<TXshLevel *> visible;
+  std::vector<TXshLevelP> retained;
   for (TXshLevel *level : levels) {
     if (!collectionId.isEmpty() &&
         (!members.contains(level->getCastId()) || ambiguousIds.contains(level->getCastId()))) continue;
@@ -875,12 +876,17 @@ void CastBrowser::refreshData() {
     else if (CastBrowserActions::modified(level)) m_statusBadge[level] = '*';
     else if (CastBrowserActions::external(scene, level)) m_statusBadge[level] = 'L';
     else if (CastBrowserActions::cached(level)) m_statusBadge[level] = 'C';
-    QSize iconSize = m_itemViewer->getPanel()->getIconSize();
-    if (level->getSimpleLevel()) m_castItems->addItem(new LevelCastItem(level, iconSize));
-    else if (level->getPaletteLevel()) m_castItems->addItem(new PaletteCastItem(level->getPaletteLevel(), iconSize));
-    else if (level->getSoundLevel()) m_castItems->addItem(new SoundCastItem(level->getSoundLevel(), iconSize));
+    if (level->getSimpleLevel() || level->getPaletteLevel() || level->getSoundLevel()) {
+      visible.push_back(level);
+      retained.emplace_back(level);
+    }
   }
+  // Native castChanged is coarse: predicates and ordering are recomputed, but
+  // unchanged rows retain their identity and no longer require new CastItems.
+  // Keep removed levels alive until old items and selection indices are gone.
+  m_castItems->reconcile(visible, m_itemViewer->getPanel()->getIconSize());
   sortByDataModel(getCurrentOrderType(), isDiscendentOrder());
+  m_displayedLevels = std::move(retained);
   m_rebuilding = false;
   QString count = tr("%1 assets shown").arg(getItemCount());
   if (!collectionId.isEmpty()) {

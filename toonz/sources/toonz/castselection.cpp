@@ -210,6 +210,31 @@ void CastItems::clear() { clearPointerContainer(m_items); }
 
 void CastItems::addItem(CastItem *item) { m_items.push_back(item); }
 
+void CastItems::reconcile(const std::vector<TXshLevel *> &levels,
+                          const QSize &iconSize) {
+  std::set<TXshLevel *> wanted(levels.begin(), levels.end());
+  std::vector<CastItem *> retained;
+  retained.reserve(levels.size());
+  for (auto *item : m_items) {
+    if (wanted.erase(item->getLevel())) {
+      item->setIconSize(iconSize);
+      retained.push_back(item);
+    } else {
+      delete item;
+    }
+  }
+  for (auto *level : levels) {
+    if (!wanted.erase(level)) continue;
+    if (level->getSimpleLevel())
+      retained.push_back(new LevelCastItem(level, iconSize));
+    else if (auto *palette = level->getPaletteLevel())
+      retained.push_back(new PaletteCastItem(palette, iconSize));
+    else if (auto *sound = level->getSoundLevel())
+      retained.push_back(new SoundCastItem(sound, iconSize));
+  }
+  m_items.swap(retained);
+}
+
 //-----------------------------------------------------------------------------
 
 CastItem *CastItems::getItem(int index) const {
