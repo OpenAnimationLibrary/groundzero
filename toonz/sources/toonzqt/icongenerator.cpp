@@ -47,10 +47,12 @@
 #include "toonzqt/icongenerator.h"
 
 #include <QCoreApplication>
+#include <QEvent>
 #include <algorithm>
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <utility>
 #include <vector>
 
 //=============================================================================
@@ -70,6 +72,9 @@ std::set<std::string> iconsMap;
 typedef std::set<std::string>::iterator IconIterator;
 std::map<std::string, std::deque<std::string>> responsiveIconKeys;
 const int kMaxResponsiveIconSizes = 3;
+#ifdef BUILD_UI_PORT_TESTS
+IconGenerator::TaskTestHook taskTestHook;
+#endif
 
 //-----------------------------------------------------------------------------
 
@@ -502,15 +507,26 @@ class IconRenderer : public TThread::Runnable {
   std::string m_id;
 
   bool m_started;
-  bool m_terminated;
   quint64 m_request = 0;
   bool m_completed = false;
+#ifdef BUILD_UI_PORT_TESTS
+  IconGenerator::TaskTestHook m_testHook;
+#endif
 
 public:
   IconRenderer(const std::string &id, const TDimension &iconSize);
   virtual ~IconRenderer();
 
-  void run() override = 0;
+  void run() final {
+#ifdef BUILD_UI_PORT_TESTS
+    if (m_testHook) m_testHook(m_request);
+#endif
+    runIcon();
+  }
+  virtual void runIcon() = 0;
+#ifdef BUILD_UI_PORT_TESTS
+  void setTestHook(const IconGenerator::TaskTestHook &hook) { m_testHook = hook; }
+#endif
 
   void setIcon(const TRaster32P &icon) { m_icon = icon; }
   TRaster32P getIcon() const { return m_icon; }
@@ -519,7 +535,6 @@ public:
   const std::string &getId() const { return m_id; }
 
   bool &hasStarted() { return m_started; }
-  bool &wasTerminated() { return m_terminated; }
   quint64 &requestId() { return m_request; }
   bool &completed() { return m_completed; }
 };
@@ -530,8 +545,7 @@ IconRenderer::IconRenderer(const std::string &id, const TDimension &iconSize)
     : m_icon()
     , m_iconSize(iconSize)
     , m_id(id)
-    , m_started(false)
-    , m_terminated(false) {
+    , m_started(false) {
   connect(this, &IconRenderer::started, IconGenerator::instance(),
           &IconGenerator::onStarted);
   connect(this, &IconRenderer::finished, IconGenerator::instance(),
@@ -566,7 +580,7 @@ class NoImageIconRenderer final : public IconRenderer {
 public:
   NoImageIconRenderer(const std::string &id, const TDimension &iconSize)
       : IconRenderer(id, iconSize) {}
-  void run() override {
+  void runIcon() override {
     try {
       TRaster32P ras(getIconSize());
       ras->fill(TPixel32::Gray);
@@ -608,7 +622,7 @@ public:
       , m_settings(settings) {}
 
   TRaster32P generateRaster(const TDimension &iconSize) const;
-  void run() override;
+  void runIcon() override;
 };
 
 //-----------------------------------------------------------------------------
@@ -637,7 +651,7 @@ TRaster32P VectorImageIconRenderer::generateRaster(
 
 //-----------------------------------------------------------------------------
 
-void VectorImageIconRenderer::run() {
+void VectorImageIconRenderer::runIcon() {
   try {
     TRaster32P ras(generateRaster(getIconSize()));
 
@@ -661,7 +675,7 @@ public:
       : IconRenderer(id, iconSize), m_spline(spline) {}
 
   TRaster32P generateRaster(const TDimension &iconSize) const;
-  void run() override;
+  void runIcon() override;
 };
 
 //-----------------------------------------------------------------------------
@@ -706,7 +720,7 @@ TRaster32P SplineIconRenderer::generateRaster(
 
 //-----------------------------------------------------------------------------
 
-void SplineIconRenderer::run() {
+void SplineIconRenderer::runIcon() {
   TRaster32P raster = generateRaster(getIconSize());
   if (raster) setIcon(raster);
 }
@@ -726,12 +740,12 @@ public:
                           TXshSimpleLevelP sl, const TFrameId &fid)
       : IconRenderer(id, iconSize), m_sl(sl), m_fid(fid) {}
 
-  void run() override;
+  void runIcon() override;
 };
 
 //-----------------------------------------------------------------------------
 
-void RasterImageIconRenderer::run() {
+void RasterImageIconRenderer::runIcon() {
   if (!m_sl->isFid(m_fid)) return;
 
   TImageP image = m_sl->getFrameIcon(m_fid);
@@ -768,7 +782,7 @@ public:
       , m_settings(settings)
       , m_tnzImgIcon(0) {}
 
-  void run() override;
+  void runIcon() override;
 
   void setIcon_TnzImg(const TRasterCM32P &timgp) { m_tnzImgIcon = timgp; }
   TRasterCM32P getIcon_TnzImg() const { return m_tnzImgIcon; }
@@ -776,7 +790,7 @@ public:
 
 //-----------------------------------------------------------------------------
 
-void ToonzImageIconRenderer::run() {
+void ToonzImageIconRenderer::runIcon() {
   if (!m_sl->isFid(m_fid)) return;
 
   TImageP image = m_sl->getFrameIcon(m_fid);
@@ -882,7 +896,7 @@ public:
       , m_settings(settings) {}
 
   TRaster32P generateRaster(const TDimension &iconSize) const;
-  void run() override;
+  void runIcon() override;
 };
 
 //-----------------------------------------------------------------------------
@@ -913,7 +927,7 @@ TRaster32P MeshImageIconRenderer::generateRaster(
 
 //-----------------------------------------------------------------------------
 
-void MeshImageIconRenderer::run() {
+void MeshImageIconRenderer::runIcon() {
   try {
     TRaster32P ras(generateRaster(getIconSize()));
 
@@ -957,7 +971,7 @@ public:
   }
 
   TRaster32P generateRaster(const TDimension &iconSize) const;
-  void run() override;
+  void runIcon() override;
 };
 
 //-----------------------------------------------------------------------------
@@ -1001,7 +1015,7 @@ TRaster32P XsheetIconRenderer::generateRaster(
 
 //-----------------------------------------------------------------------------
 
-void XsheetIconRenderer::run() {
+void XsheetIconRenderer::runIcon() {
   TRaster32P ras = generateRaster(getIconSize());
   if (ras) setIcon(ras);
 }
@@ -1023,7 +1037,7 @@ public:
 
   static std::string getId(const TFilePath &path, const TFrameId &fid);
 
-  void run() override;
+  void runIcon() override;
 };
 
 //-----------------------------------------------------------------------------
@@ -1272,7 +1286,7 @@ TRaster32P IconGenerator::generateSceneFileIcon(const TFilePath &path,
 
 //-----------------------------------------------------------------------------
 
-void FileIconRenderer::run() {
+void FileIconRenderer::runIcon() {
   TDimension iconSize(getIconSize());
   try {
     TRaster32P iconRaster;
@@ -1386,7 +1400,7 @@ public:
 
   static std::string getId() { return "currentScene"; }
 
-  void run() override;
+  void runIcon() override;
   TRaster32P generateIcon(const TDimension &iconSize) const;
 };
 
@@ -1406,7 +1420,7 @@ TRaster32P SceneIconRenderer::generateIcon(const TDimension &iconSize) const {
 
 //-----------------------------------------------------------------------------
 
-void SceneIconRenderer::run() { setIcon(generateIcon(getIconSize())); }
+void SceneIconRenderer::runIcon() { setIcon(generateIcon(getIconSize())); }
 
 //=============================================================================
 
@@ -1481,10 +1495,15 @@ TOfflineGL *IconGenerator::getOfflineGLContext(const TDimension &minSize) {
 
 void IconGenerator::addTask(const std::string &id,
                             TThread::RunnableP iconRenderer) {
+  if (m_shuttingDown) return;
   auto *renderer = static_cast<IconRenderer *>(iconRenderer.getPointer());
   renderer->requestId() = ++m_nextRequest;
   bool accepted = false;
   try {
+#ifdef BUILD_UI_PORT_TESTS
+    renderer->setTestHook(taskTestHook);
+#endif
+    m_admittedRequests.emplace(renderer->requestId(), iconRenderer);
     m_pendingRequests[id] = renderer->requestId();
     iconsMap.insert(id);
     m_executor.addTask(iconRenderer, accepted);
@@ -1508,7 +1527,7 @@ quint64 IconGenerator::pendingIconRequest(TXshSimpleLevel *sl,
 
 quint64 IconGenerator::requestIcon(TXshSimpleLevel *sl, const TFrameId &fid,
                                   bool filmStrip) {
-  if (!sl) return 0;
+  if (!sl || m_shuttingDown) return 0;
   // The shared cache can evict a completed raster while retaining its key.
   // Revive that key only for an explicit request, never for a cache probe.
   if (!pendingIconRequest(sl, fid, filmStrip)) {
@@ -1532,6 +1551,7 @@ void IconGenerator::finishRequest(TThread::RunnableP runnable, bool generated) {
   if (renderer->completed()) return;
   if (isCurrentRequest(runnable)) m_pendingRequests.erase(renderer->getId());
   renderer->completed() = true;
+  m_admittedRequests.erase(renderer->requestId());
   emit iconRequestFinished(renderer->requestId(), generated);
 }
 
@@ -1948,6 +1968,40 @@ void IconGenerator::remap(const std::string &newIconId,
 
 void IconGenerator::clearRequests() { m_executor.cancelAll(); }
 
+void IconGenerator::shutdown() {
+  Q_ASSERT(QThread::currentThread() == thread());
+  if (m_shutdownComplete) return;
+  if (!m_shuttingDown) {
+    // Close admission before cancellation can deliver any callbacks. Executor
+    // retirement atomically cancels the queue and wakes persistent idle workers.
+    m_shuttingDown = true;
+    m_executor.beginRetirement();
+  }
+  while (!m_admittedRequests.empty() || !m_executor.isRetired()) {
+    // QtOfflineGL surface creation uses a blocking GUI invocation. Waiting for
+    // the worker without servicing these events would deadlock ordinary exit.
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 5);
+    QThread::msleep(1);
+  }
+  // Worker QThreadStorage destructors queue offscreen-surface deletion to the
+  // GUI. processEvents alone does not guarantee delivery of DeferredDelete.
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  m_shutdownComplete = true;
+}
+
+#ifdef BUILD_UI_PORT_TESTS
+void IconGenerator::setTaskTestHook(TaskTestHook hook) {
+  Q_ASSERT(QThread::currentThread() == thread());
+  taskTestHook = std::move(hook);
+}
+
+std::vector<TThread::RunnableP> IconGenerator::lifecycleTestTasks() const {
+  std::vector<TThread::RunnableP> tasks;
+  for (const auto &entry : m_admittedRequests) tasks.push_back(entry.second);
+  return tasks;
+}
+#endif
+
 //-----------------------------------------------------------------------------
 
 void IconGenerator::clearSceneIcons() {
@@ -1992,9 +2046,10 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
 
   // Invalidating a frame may queue a replacement before this result arrives.
   // Only that latest generation may publish into the shared cache.
-  if (!isCurrentRequest(iconRenderer) || !iconsMap.count(ir->getId())) {
+  if (m_shuttingDown || !isCurrentRequest(iconRenderer) ||
+      !iconsMap.count(ir->getId())) {
+    if (isCurrentRequest(iconRenderer)) removeIcon(ir->getId());
     finishRequest(iconRenderer, false);
-    if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
     return;
   }
 
@@ -2005,8 +2060,7 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
     if (timgp) {
       ::setIcon_TnzImg(ir->getId(), timgp);
       finishRequest(iconRenderer, true);
-      emit iconGenerated();
-      if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
+      if (!m_shuttingDown) emit iconGenerated();
       return;
     }
   }
@@ -2015,13 +2069,11 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
   if (ir->getIcon()) {
     ::setIcon(ir->getId(), ir->getIcon());
     finishRequest(iconRenderer, true);
-    emit iconGenerated();
+    if (!m_shuttingDown) emit iconGenerated();
   } else {
     removeIcon(ir->getId());
     finishRequest(iconRenderer, false);
   }
-
-  if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
 }
 
 //-----------------------------------------------------------------------------
@@ -2031,8 +2083,6 @@ void IconGenerator::onException(TThread::RunnableP iconRenderer) {
 
   if (isCurrentRequest(iconRenderer)) removeIcon(ir->getId());
   finishRequest(iconRenderer, false);
-
-  if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
 }
 
 //-----------------------------------------------------------------------------
@@ -2040,6 +2090,10 @@ void IconGenerator::onException(TThread::RunnableP iconRenderer) {
 void IconGenerator::onTerminated(TThread::RunnableP iconRenderer) {
   IconRenderer *ir = static_cast<IconRenderer *>(iconRenderer.getPointer());
 
-  ir->wasTerminated() = true;
-  m_iconsTerminationLoop.exec();
+  // A queued terminated signal may follow an already-delivered finish. Test
+  // the actual completion predicate rather than entering an unconditional loop.
+  while (!ir->completed()) {
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 5);
+    QThread::msleep(1);
+  }
 }

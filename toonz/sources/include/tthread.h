@@ -230,6 +230,15 @@ public:
   void removeTask(RunnableP task);
   void cancelAll();
 
+  // Terminal, opt-in shutdown of an executor kept dedicated for every submitted
+  // task (otherwise throws std::logic_error). Closes admission,
+  // cancels queued work and wakes idle workers; active tasks finish normally.
+  // The controller must keep processing Qt events until isRetired(), which
+  // includes QThread::wait confirmation and QThreadStorage cleanup, not just
+  // Runnable::finished. No unrelated executor is canceled or stopped.
+  void beginRetirement();
+  bool isRetired() const;
+
   void setMaxActiveTasks(int count);
   void setMaxActiveLoad(int load);
 

@@ -39,6 +39,7 @@ namespace TThread {
 // Forward declarations
 class ExecutorId;
 class ExecutorImpSlots;
+class Worker;
 }
 
 //=====================================================================
@@ -64,6 +65,8 @@ public:
   // So, specifically, thread creation should happen only in the main thread,
   // not in worker threads.
   void emitRefreshAssignments();
+
+  void retireFinishedWorker(Worker *worker);
 
 Q_SIGNALS:
   void refreshAssignments();
