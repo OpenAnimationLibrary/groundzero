@@ -314,6 +314,7 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
           fixtures["group"].toString() == "pixelpressure" ||
+          fixtures["group"].toString() == "pixelsmallpressure" ||
           fixtures["group"].toString() == "pixelshape" ||
           (fixtures["group"].toString() == "geometry" &&
            name.endsWith("antialias 0"));
@@ -321,10 +322,21 @@ int main(int argc, char **argv) {
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
+      const bool sourceSoft =
+          (fixtures["group"].toString() == "pixelsoft" ||
+           fixtures["group"].toString() == "pixelsoftsize") &&
+          name.contains("soft circle ") && name.endsWith("antialias 0") &&
+          p.tip.hardness < 1;
+      if (sourceSoft)
+        require(p.profile == "krita-5.3.4.1-default-circle-candidate-1",
+                "Strict source default-circle eligibility did not select "
+                "candidate");
       const bool sourceWet =
           (fixtures["group"].toString() == "wetsteps" ||
            fixtures["group"].toString() == "wethold" ||
            fixtures["group"].toString() == "wetstate" ||
+           fixtures["group"].toString() == "wetswitches" ||
+           fixtures["group"].toString() == "wetcombined" ||
            ((fixtures["group"].toString() == "wettexture" ||
              fixtures["group"].toString() == "wettexture3") &&
             (name.contains(" smear ") ||
@@ -401,7 +413,7 @@ int main(int argc, char **argv) {
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
-      if (sourceHard) {
+      if (sourceHard || sourceSoft) {
         const bool alphaCoverage = metrics["transparentBase"].toBool();
         auto rb =
             metrics[alphaCoverage ? "referenceAlphaBounds" : "referenceBounds"]
@@ -420,7 +432,8 @@ int main(int argc, char **argv) {
             metrics["premultipliedRGBMAE"].toDouble() <= 2 / 255.0 &&
             metrics["alphaMAE"].toDouble() <= 1 / 255.0 &&
             metrics["alphaP99"].toDouble() <= 4 / 255.0 &&
-            metrics[alphaCoverage ? "alphaCoverageIoU" : "changedPixelIoU"]
+            metrics[alphaCoverage ? "alphaCoverageIoU"
+                                  : "visibleChangedPixelIoU"]
                     .toDouble() >= .98 &&
             boundsError <= std::max(1.0, source["diameter"].toDouble() * .02) &&
             !metrics["emptyCandidateFailure"].toBool();

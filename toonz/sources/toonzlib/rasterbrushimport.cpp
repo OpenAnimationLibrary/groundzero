@@ -347,6 +347,11 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     for (const QString &key : {"PressureColorRate", "PressureSmudgeRate",
                                "PressureSmudgeRadius", "SmudgeRateSmearAlpha"})
       required[key] = "true";
+    for (const QString &key : {"PressureSmudgeRate", "SmudgeRateSmearAlpha"}) {
+      if (fields.value(key) != "true" && fields.value(key) != "false")
+        return false;
+      required[key] = fields[key];
+    }
     for (const QString &key :
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
       required[key] = "false";
@@ -415,6 +420,18 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       const QString geometry = brush ? "angle" : "ratio";
       exact.remove(geometry);
       variable << geometry;
+    }
+    if (!brush && engine == "paintbrush" && preset.tip.hardness < 1) {
+      bool horizontalOk = false, verticalOk = false;
+      const double horizontal =
+          attributes.value("hfade").toDouble(&horizontalOk);
+      const double vertical = attributes.value("vfade").toDouble(&verticalOk);
+      if (!horizontalOk || !verticalOk || horizontal != vertical ||
+          horizontal != preset.tip.hardness)
+        return false;
+      exact.remove("hfade");
+      exact.remove("vfade");
+      variable << "hfade" << "vfade";
     }
     for (auto i = exact.begin(); i != exact.end(); ++i)
       if (!attributes.hasAttribute(i.key()) ||
@@ -598,13 +615,18 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   Preset candidate = r.preset;
   candidate.profile =
       engine == "paintbrush"
-          ? "krita-5.3.4.1-hard-pixel-candidate-1"
+          ? (candidate.tip.hardness < 1
+                 ? "krita-5.3.4.1-default-circle-candidate-1"
+                 : "krita-5.3.4.1-hard-pixel-candidate-1")
           : "krita-5.3.4.1-" +
                 r.provenance["sourceSmudgeModel"].toString().toStdString() +
                 "-candidate-1";
-  if (engine == "colorsmudge")
+  if (engine == "colorsmudge") {
     candidate.smudgeRadius = 0;
-  else
+    candidate.sourceSmudgeLengthEnabled =
+        fields.value("PressureSmudgeRate") == "true";
+    candidate.sourceSmearAlpha = fields.value("SmudgeRateSmearAlpha") == "true";
+  } else
     candidate.wash = fields.value("PaintingMode") == "1";
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);

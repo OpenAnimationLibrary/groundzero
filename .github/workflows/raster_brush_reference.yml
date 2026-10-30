@@ -90,7 +90,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [pixelpressure, wettexture3, wetstate, wethold, wettexture, pixelopacitytablet, pixelopacity, pixelsoft, pixelshape, wetswitches, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [pixelpressure, wettexture3, wetstate, wethold, wettexture, pixelopacitytablet, pixelopacity, pixelsoft, pixelsoftsize, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -194,13 +194,27 @@ jobs:
                   probes.append(probe)
               # The observed check retained only ten annotations per step. Group the
               # bounded 79-case table instead of silently losing later cases.
-              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches') else 8)
+              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches', 'wetcombined') else 8)
               for start in range(0, len(probes), batch):
                   text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
                       raise RuntimeError('Source probe annotation exceeds the observed 4096-byte limit')
                   print('::notice title=Source parameter probes; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PYPROBES
+      - name: Report bundled public setting metadata
+        if: always()
+        run: |
+          python3 - <<'PYSETTINGS'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'bundled-settings.json'
+          if path.is_file():
+              for row in json.loads(path.read_text()):
+                  text = json.dumps(row, separators=(',', ':'))
+                  if len(text.encode()) > 3900:
+                      raise RuntimeError('Setting metadata exceeds annotation limit')
+                  print('::notice title=Public bundled setting metadata::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYSETTINGS
       - name: Report exact short-stroke alpha probes
         if: always()
         run: |
@@ -210,7 +224,7 @@ jobs:
           path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
           if path.is_file():
               probes = [{'preset': row['preset'], **row['geometryProbe']} for row in json.loads(path.read_text()).get('records', []) if row.get('geometryProbe') is not None]
-              batch = 1 if os.environ["BRUSH_REFERENCE_GROUP"] == "pixelpressure" else 2
+              batch = 1 if os.environ["BRUSH_REFERENCE_GROUP"] in ("pixelpressure", "pixelsmallpressure") else 2
               for start in range(0, len(probes), batch):
                   text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
@@ -269,7 +283,7 @@ jobs:
                   measurement['wetGate'] = row['wetCandidatePassed']
                   measurement['maxRGB'] = round(row['maxRGBError'], 8)
                   measurement['maxAlpha'] = round(row['maxAlphaError'], 8)
-          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches') else 8)
+          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches', 'wetcombined') else 8)
           for start in range(0, len(measurements), batch):
               text = json.dumps(measurements[start:start + batch], separators=(',', ':'))
               if len(text.encode()) > 3900:

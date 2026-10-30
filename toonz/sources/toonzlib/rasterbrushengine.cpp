@@ -13,9 +13,12 @@ bool sourceWetProfile(const std::string &profile) {
          profile == "krita-5.3.4.1-new-smear-candidate-1" ||
          profile == "krita-5.3.4.1-new-dulling-candidate-1";
 }
-bool sourceProfile(const std::string &profile) {
+bool sourcePixelProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
-         sourceWetProfile(profile);
+         profile == "krita-5.3.4.1-default-circle-candidate-1";
+}
+bool sourceProfile(const std::string &profile) {
+  return sourcePixelProfile(profile) || sourceWetProfile(profile);
 }
 double unit(double v) { return std::max(0.0, std::min(1.0, v)); }
 Pixel clean(Pixel p) {
@@ -176,8 +179,10 @@ Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
 }
 
 std::string validate(const Preset &p) {
-  const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
-  const bool sourceWet  = sourceWetProfile(p.profile);
+  const bool sourceHard = sourcePixelProfile(p.profile);
+  const bool sourceSoft =
+      p.profile == "krita-5.3.4.1-default-circle-candidate-1";
+  const bool sourceWet = sourceWetProfile(p.profile);
   if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
     return "Unimplemented behavior profile: " + p.profile;
   bool sourceLinearPressure = false;
@@ -194,7 +199,9 @@ std::string validate(const Preset &p) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
     };
-    if (p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
+    if (p.tip.shape != Shape::Round || (!sourceSoft && p.tip.hardness != 1) ||
+        (sourceSoft && (p.tip.hardness >= 1 || !p.size.mappings.empty() ||
+                        !fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||
         p.tip.antialiasEdges || !p.tip.images.empty() ||
         (!p.size.mappings.empty() && !sourceLinearPressure) ||
         p.size.value != std::floor(p.size.value) ||
@@ -209,8 +216,7 @@ std::string validate(const Preset &p) {
         p.flipX || p.flipY || p.blend != Blend::Normal ||
         (sourceHard && p.wet != Wet::Off) || p.texture.image ||
         p.secondary.enabled || p.color.a != 1)
-      return "Unimplemented setting in the experimental Krita hard-pixel "
-             "profile";
+      return "Unimplemented setting in the experimental Krita source profile";
   }
   if (sourceWet &&
       (p.wet != ((p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1" ||
@@ -579,12 +585,17 @@ struct Stroke::Impl {
     spacing             = std::max(.01, p.size.value * p.spacing);
     // Measured model distinction: Dulling retains the hard Pixel lattice;
     // Smear transports a pixel-centered footprint instead.
-    const double cx = s.x + (p.wet == Wet::Dulling ? .5 : 0), cy = s.y;
-    const int reach = int(std::ceil(radius + 1));
-    const int x0    = std::max(0, int(std::floor(cx)) - reach),
-              y0    = std::max(0, int(std::floor(cy)) - reach),
-              x1    = std::min(surface.width(), int(std::ceil(cx)) + reach),
-              y1    = std::min(surface.height(), int(std::ceil(cy)) + reach);
+    // Exact odd-diameter source masks are symmetric about pixel centers:
+    // Smear's 7px rows are 3/5/7/7/7/5/3; even masks retain their half-pixel
+    // center. Dulling uses the independently measured Pixel lattice instead.
+    const double oddOffset = (int(p.size.value) & 1) ? .5 : 0;
+    const double cx        = s.x + (p.wet == Wet::Dulling ? .5 : oddOffset),
+                 cy        = s.y - (p.wet == Wet::Smear ? oddOffset : 0);
+    const int reach        = int(std::ceil(radius + 1));
+    const int x0           = std::max(0, int(std::floor(cx)) - reach),
+              y0           = std::max(0, int(std::floor(cy)) - reach),
+              x1 = std::min(surface.width(), int(std::ceil(cx)) + reach),
+              y1 = std::min(surface.height(), int(std::ceil(cy)) + reach);
     if (x0 >= x1 || y0 >= y1) {
       previousSourceDab = s;
       ++dabs;
@@ -645,8 +656,8 @@ struct Stroke::Impl {
                         p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
     // Radius-zero new Dulling attenuation measured across 7/32/128-pixel
     // tips and independent strengths. Nonzero radius remains rejected.
-    const double strength =
-        p.pickup * (modern && p.wet == Wet::Dulling ? .8 : 1);
+    const double strength = (p.sourceSmudgeLengthEnabled ? p.pickup : 1) *
+                            (modern && p.wet == Wet::Dulling ? .8 : 1);
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
         double dx = (x + .5 - cx) / radius, dy = (y + .5 - cy) / radius;
@@ -658,7 +669,12 @@ struct Stroke::Impl {
           feedback[index] = paint;
           continue;
         }
-        if (modern) {
+        if (modern && p.wet == Wet::Dulling && !p.sourceSmearAlpha) {
+          paint = mix(surface.read(x, y),
+                      composite(paint, mul(p.color, p.colorRate * p.colorRate),
+                                Blend::Normal),
+                      strength);
+        } else if (modern) {
           paint =
               composite(mix(surface.read(x, y), paint, strength),
                         mul(p.color, p.colorRate * p.colorRate), Blend::Normal);
@@ -670,7 +686,13 @@ struct Stroke::Impl {
                         Blend::Normal),
               strength);
         }
-        feedback[index] = quantize(paint);
+        // Alpha transport disabled retains source-over feedback separately
+        // from the displayed arithmetic mix. First-dab initialization above
+        // remains unchanged. Three-dab fixtures distinguish the two states.
+        feedback[index] =
+            quantize(p.sourceSmearAlpha
+                         ? paint
+                         : composite(surface.read(x, y), paint, Blend::Normal));
         if (coverage > 0)
           surface.write(x, y,
                         quantize(mix(surface.read(x, y), paint, coverage)));
@@ -709,9 +731,7 @@ struct Stroke::Impl {
     // inactive. Original zero/quarter/half-flow fixtures establish this
     // distinction from native multiplication and source wash mode.
     const double flow =
-        p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" && !p.wash
-            ? 1
-            : unit(eval(p.flow, s));
+        sourcePixelProfile(p.profile) && !p.wash ? 1 : unit(eval(p.flow, s));
     const double pickup       = p.pickup * eval(p.pickupControl, s),
                  colorRate    = p.colorRate * eval(p.colorRateControl, s);
     const double smudgeRadius = p.smudgeRadius * eval(p.radiusControl, s);
@@ -726,9 +746,8 @@ struct Stroke::Impl {
       // Independently measured K5341 hard-circle lattice: integer x and
       // half-integer y distances from an integral API stroke position. The
       // native profile retains its pixel-center convention unchanged.
-      const double sourceOffset =
-          p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" ? .5 : 0;
-      const double cx = s.x + sourceOffset +
+      const double sourceOffset = sourcePixelProfile(p.profile) ? .5 : 0;
+      const double cx           = s.x + sourceOffset +
                         (p.scatterBothAxes ? scatterX
                                            : -std::sin(direction) * scatterX),
                    cy = s.y + (p.scatterBothAxes
@@ -818,6 +837,19 @@ struct Stroke::Impl {
                        vy = fv * c / (radius * aspect);
           Pixel tip = filteredTip(p.tip, primaryIndex, u, v, ux, uy, vx, vy);
           double a  = tip.a;
+          if (p.profile == "krita-5.3.4.1-default-circle-candidate-1") {
+            // Independently recovered from complete alpha masks at five fade
+            // values. Default circles fade in squared distance, with a
+            // one-pixel minimum inner radius, rather than native linear
+            // falloff.
+            const double inner =
+                std::min(1.0, std::max(p.tip.hardness, 1 / radius));
+            const double d2       = u * u + v * v;
+            const double coverage = inner == 1
+                                        ? (d2 < 1 ? 1 : 0)
+                                        : unit((1 - d2) / (1 - inner * inner));
+            a                     = std::floor(coverage * 255 + .5) / 255;
+          }
           if (a <= 0) continue;
           if (t.image) {
             double tx = (t.perDab ? x + .5 - cx : x + .5) + t.offsetX,

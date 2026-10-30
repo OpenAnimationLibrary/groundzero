@@ -31,6 +31,8 @@
 #include <QDir>
 #include <QFile>
 #include <QKeyEvent>
+#include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 
@@ -48,6 +50,35 @@ bool same(const TRaster32P &a, const TRaster32P &b) {
     for (int x = 0; x < a->getLx(); ++x)
       if (a->pixels(y)[x] != b->pixels(y)[x]) return false;
   return true;
+}
+void requireSame(const TRaster32P &expected, const TRaster32P &actual,
+                 const QString &context) {
+  if (same(expected, actual)) return;
+  std::cerr << "raster-brush-integration: pixel mismatch "
+            << context.toStdString() << " expected "
+            << (expected ? expected->getLx() : -1) << 'x'
+            << (expected ? expected->getLy() : -1) << " actual "
+            << (actual ? actual->getLx() : -1) << 'x'
+            << (actual ? actual->getLy() : -1) << std::endl;
+  if (expected && actual && expected->getSize() == actual->getSize()) {
+    int differences = 0, maxChannel = 0;
+    for (int y = 0; y < expected->getLy(); ++y)
+      for (int x = 0; x < expected->getLx(); ++x) {
+        const auto a = expected->pixels(y)[x], b = actual->pixels(y)[x];
+        if (a == b) continue;
+        maxChannel = std::max(
+            {maxChannel, std::abs(int(a.r) - b.r), std::abs(int(a.g) - b.g),
+             std::abs(int(a.b) - b.b), std::abs(int(a.m) - b.m)});
+        if (++differences <= 8)
+          std::cerr << "pixel " << x << ',' << y << " RGBA " << int(a.r) << ','
+                    << int(a.g) << ',' << int(a.b) << ',' << int(a.m) << " -> "
+                    << int(b.r) << ',' << int(b.g) << ',' << int(b.b) << ','
+                    << int(b.m) << std::endl;
+      }
+    std::cerr << "different pixels " << differences << " max channel "
+              << maxChannel << std::endl;
+  }
+  throw std::runtime_error(context.toStdString());
 }
 TRaster32P raster(TXshSimpleLevel *level, int frame) {
   TRasterImageP image(level->getFrame(TFrameId(frame), true));
@@ -178,6 +209,29 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       app->getCurrentFrame()->setFid(TFrameId(1));
       settle();
     }
+    checkpoint("qualifying exact premultiplied PNG persistence");
+    {
+      // Exercise every valid 8-bit alpha/channel pair through real file I/O.
+      // Two cycles also expose cumulative rounding drift.
+      TRaster32P values(256, 256);
+      for (int alpha = 0; alpha < 256; ++alpha)
+        for (int channel = 0; channel < 256; ++channel) {
+          const int c                    = std::min(channel, alpha);
+          values->pixels(alpha)[channel] = TPixel32(c, alpha - c, c / 2, alpha);
+        }
+      const TRaster32P originalValues = values->clone();
+      const TFilePath path(
+          QDir::current().filePath("premultiplied-roundtrip.png"));
+      for (int cycle = 0; cycle < 2; ++cycle) {
+        TImageWriter::save(path, TRasterP(values));
+        TRasterP decoded;
+        require(TImageReader::load(path, decoded),
+                "cannot read PNG channel fixture");
+        values = TRaster32P(decoded);
+        requireSame(originalValues, values,
+                    "PNG premultiplied channel round trip");
+      }
+    }
     checkpoint("qualifying source wet stroke transactions and persistence");
     for (const QString &model :
          {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
@@ -223,9 +277,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           QDir::current().filePath("source-" + model + ".png"));
       TImageWriter::save(output, TRasterP(painted));
       TRasterP reopened;
-      require(TImageReader::load(output, reopened) &&
-                  same(painted, TRaster32P(reopened)),
-              "source wet save/reopen changed committed pixels");
+      require(TImageReader::load(output, reopened),
+              "source wet PNG could not reopen");
+      requireSame(painted, TRaster32P(reopened),
+                  "source wet save/reopen changed committed pixels: " + model);
       require(undo->undo() && same(baseline, raster(level, 1)),
               "source wet second undo failed");
       undo->reset();

@@ -305,3 +305,20 @@ stroke-level wash behavior. The zero-flow API expectation was corrected to the
 observed behavior, while candidate pixel thresholds remain enforced. The new
 freehand group distinguishes delivery from settings semantics. Odd-size Smear
 failures retain their gates and now publish exact second-dab BGRA footprints.
+
+Dry changed-set gates now use the same visible-pixel definition as wet gates on
+mixed backgrounds. Raw changed-set IoU and the raw-union numerical region remain
+in the report. At 0c514ec2, three pressure cases had raw IoU .974–.978 solely due
+to invisible RGB changes; visible IoU was .997–.998 and all numeric/bounds gates
+passed. Zero-pressure endpoint cases retain real channel/bounds failures and
+remain failing. This is a shared metric correction, not a wider tolerance.
+
+At 0c514ec2 the 48 alpha/Smudge Length source measurements completed. The next
+head binds both switches to explicit portable candidate state and applies the
+existing channel/alpha/visible-coverage gates to those cases and 24 combined
+cases. Odd-size Smear is corrected from the full acquired 7px mask. The ellipse
+fixture now sets its requested source rotation; the previous harness explicitly
+reset it to zero, explaining the unrotated reference bounds. Synthetic freehand
+opacity still ignored both serialized PaintingMode variants, so public bundled
+setting metadata and isolated PaintOpAction/PressureFlow cases resolve the
+setting keys before further mode claims. They are exploratory and not parity.

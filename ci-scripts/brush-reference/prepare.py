@@ -58,10 +58,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelpressure", "wettexture", "wettexture3", "wetswitches", "pixelsoft", "pixelshape"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "pixelsoft", "pixelsoftsize", "pixelshape"):
     raise RuntimeError("Unknown reference fixture group")
-profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity", "pixelopacitytablet", "pixelpressure", "pixelsoft", "pixelshape") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
-if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches"):
+profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "pixelsoft", "pixelsoftsize", "pixelshape") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
+if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined"):
     profiles = [("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 for mode, modern in profiles:
     base = "GZ Original " + mode + (" new" if modern else " legacy")
@@ -91,7 +91,14 @@ for mode, modern in profiles:
                      {"PaintingMode": str(painting), "OpacityValue": str(opacity), "FlowValue": str(flow)},
                      32, .1, [1, 1], opacity, flow)
                     for painting in (0, 1) for opacity, flow in ((.25, 1), (.5, 1), (1, .25), (1, .5), (.5, .5), (0, 1), (1, 0))]
-    if group == "pixelpressure":
+    if group == "pixelcontrols":
+        variants = [(f"pixel action {action} pressureflow {enabled} opacity {round(opacity * 100):03d} flow {round(flow * 100):03d}",
+                     {"PaintOpAction": str(action), "PressureFlow": enabled,
+                      "OpacityValue": str(opacity), "FlowValue": str(flow)},
+                     32, .1, [1, 1], opacity, flow)
+                    for action in (0, 1) for enabled in ("false", "true")
+                    for opacity, flow in ((.25, 1), (1, .25), (1, 0))]
+    if group in ("pixelpressure", "pixelsmallpressure"):
         overrides = {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}
         variants = [(f"pixel pressure {round(start * 100):03d} to {round(end * 100):03d} spacing {round(spacing * 100):03d}",
                      overrides, 32, spacing, [start, end], 1, 1)
@@ -100,9 +107,17 @@ for mode, modern in profiles:
         variants.extend((f"pixel constant pressure {round(value * 1000):04d} spacing 100",
                          overrides, 32, 1, [value, value], 1, 1)
                         for value in (.1, .244, .501, .9))
+    if group == "pixelsmallpressure":
+        variants = [(f"small pressure {round(start * 10000):04d} to {round(end * 10000):04d} spacing {round(spacing * 100):03d}",
+                     overrides, 32, spacing, [start, end], 1, 1)
+                    for start, end in ((.04, .04), (.05, .05), (.0625, .0625), (0, .05), (.05, 0))
+                    for spacing in (.1, .25, 1)]
     if group == "pixelsoft":
         variants = [(f"soft {shape} hardness {round(hardness * 100):03d} antialias {edge}", {}, 32, 5, [1, 1], 1, 1)
                     for shape in ("circle", "rect") for hardness in (0, .25, .5, .75, 1) for edge in (0, 1)]
+    if group == "pixelsoftsize":
+        variants = [(f"soft circle hardness {round(hardness * 100):03d} diameter {diameter} antialias 0", {}, diameter, 5, [1, 1], 1, 1)
+                    for diameter in (7, 64, 128) for hardness in (0, .25, .5, .75)]
     if mode == "dry" and group == "parameters":
         for length in (1, 2, 3, 4, 7, 16, 32):
             variants.append(("short line " + str(length), {}, 32, .1, [1, 1], 1, 1))
@@ -115,7 +130,7 @@ for mode, modern in profiles:
         if mode == "dulling":
             for value in ("0", "3", "100", "300"):
                 variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
-    if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches"):
+    if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined"):
         variants = [(f"wet step pickup {round(pickup * 100):03d} color {round(color * 100):03d} dabs {dabs}",
                      {"SmudgeRateValue": str(pickup), "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
                      32, 5, [1, 1], 1, 1)
@@ -145,24 +160,30 @@ for mode, modern in profiles:
                      32, 5, [1, 1], 1, 1)
                     for control in ("SmudgeRateSmearAlpha", "PressureSmudgeRate")
                     for color in (0, .25) for dabs in (1, 2, 3)]
+    if group == "wetcombined":
+        variants = [(f"wet combined color {round(color * 100):03d} dabs {dabs}",
+                     {"SmudgeRateValue": ".5", "ColorRateValue": str(color), "SmudgeRadiusValue": "0",
+                      "SmudgeRateSmearAlpha": "false", "PressureSmudgeRate": "false"},
+                     32, 5, [1, 1], 1, 1)
+                    for color in (0, .25) for dabs in (1, 2, 3)]
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
-        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelpressure", "wettexture", "wettexture3", "wetswitches", "pixelshape") else 1)
-        hardness = int(label.split()[3]) / 100 if group == "pixelsoft" else 1
-        shape = label.split()[1] if group == "pixelsoft" else "circle"
+        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft", "pixelsoftsize") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "pixelshape") else 1)
+        hardness = int(label.split()[3]) / 100 if group in ("pixelsoft", "pixelsoftsize") else 1
+        shape = label.split()[1] if group in ("pixelsoft", "pixelsoftsize") else "circle"
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge, hardness, shape,
             float(label.split()[4]) if group == "pixelshape" else 1,
             float(label.split()[6]) * 3.141592653589793 / 180 if group == "pixelshape" else 0))
         names.append(name)
         end_x = 256 + int(label.rsplit(" ", 1)[1]) if label.startswith("short line ") else 1792
-        if group in ("geometry", "pixelsoft", "pixelshape"):
+        if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelshape"):
             end_x = 257
         # The measured Node.paintLine route ignores static flow in both modes.
         # Keep its candidate comparison; do not mistake that API observation
         # for a qualification of the freehand tool's stroke transaction.
         expected_empty = (group in ("pixelopacity", "pixelopacitytablet") and opacity == 0) or (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
-        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "background": "transparent" if group in ("geometry", "pixelsoft", "pixelshape") or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
-        if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches"):
+        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "brushRotationDegrees": float(label.split()[6]) if group == "pixelshape" else 0, "background": "transparent" if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelshape") or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
+        if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined"):
             case = cases[-1]
             dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])
             step = diameter * spacing
@@ -180,13 +201,13 @@ for mode, modern in profiles:
                              "wetThirdRGBA8": [0, 0, 0, 0] if label.endswith("transparent") else [255, 255, 0, 255]})
             if dabs == 1:
                 case["changeExpectation"] = "measure first-dab initialization"
-        if group == "pixelopacitytablet" and flow == 0:
+        if group in ("pixelopacitytablet", "pixelcontrols") and flow == 0:
             cases[-1]["changeExpectation"] = "measure freehand zero-flow boundary; candidate gate remains enforced"
-        if group in ("tablet", "pixelopacitytablet"):
+        if group in ("tablet", "pixelopacitytablet", "pixelcontrols"):
             case = cases[-1]
             case.update({"start": [768, 1024], "end": [1280, 1024], "background": "transparent", "delivery": "Qt tablet events"})
             case["events"] = [{"x": 768 + i * 8, "y": 1024,
                                "pressure": pressure[0] + (pressure[1] - pressure[0]) * i / 64,
                                "tiltX": 0, "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)} for i in range(65)]
-(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet") else "Node.paintLine API; not physical tablet delivery"}, indent=2))
+(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols") else "Node.paintLine API; not physical tablet delivery"}, indent=2))

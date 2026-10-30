@@ -292,6 +292,8 @@ QByteArray encode(const Record &r, QString &error) {
         {"brightness", dynamicJson(p.brightness)},
         {"wet", wets[int(p.wet)]},
         {"pickup", p.pickup},
+        {"sourceSmudgeLengthEnabled", p.sourceSmudgeLengthEnabled},
+        {"sourceSmearAlpha", p.sourceSmearAlpha},
         {"pickupControl", dynamicJson(p.pickupControl)},
         {"colorRateControl", dynamicJson(p.colorRateControl)},
         {"radiusControl", dynamicJson(p.radiusControl)},
@@ -385,16 +387,44 @@ Record decode(const QByteArray &bytes, QString &error,
       rd.assets[i.key()] = im;
     }
     auto o = object(root["settings"]);
-    keys(o,
-         {"name",          "profile",    "tip",           "size",
-          "aspect",        "angle",      "opacity",       "flow",
-          "scatter",       "spacing",    "airbrushRate",  "count",
-          "wash",          "lockAlpha",  "flipX",         "flipY",
-          "blend",         "color",      "wet",           "pickup",
-          "colorRate",     "reload",     "smudgeRadius",  "seed",
-          "texture",       "secondary",  "pickupControl", "colorRateControl",
-          "radiusControl", "background", "backgroundMix", "hue",
-          "saturation",    "brightness", "countControl",  "scatterBothAxes"});
+    keys(o, {"name",
+             "profile",
+             "tip",
+             "size",
+             "aspect",
+             "angle",
+             "opacity",
+             "flow",
+             "scatter",
+             "spacing",
+             "airbrushRate",
+             "count",
+             "wash",
+             "lockAlpha",
+             "flipX",
+             "flipY",
+             "blend",
+             "color",
+             "wet",
+             "pickup",
+             "colorRate",
+             "reload",
+             "smudgeRadius",
+             "seed",
+             "texture",
+             "secondary",
+             "pickupControl",
+             "colorRateControl",
+             "radiusControl",
+             "background",
+             "backgroundMix",
+             "hue",
+             "saturation",
+             "brightness",
+             "countControl",
+             "scatterBothAxes",
+             "sourceSmudgeLengthEnabled",
+             "sourceSmearAlpha"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
@@ -413,8 +443,12 @@ Record decode(const QByteArray &bytes, QString &error,
     double count   = number(o["count"]);
     if (count < 1 || count > 64 || count != std::floor(count))
       throw Invalid("Invalid dab count");
-    p.count     = int(count);
-    p.wash      = boolean(o["wash"]);
+    p.count = int(count);
+    p.wash  = boolean(o["wash"]);
+    if (o.contains("sourceSmudgeLengthEnabled"))
+      p.sourceSmudgeLengthEnabled = boolean(o["sourceSmudgeLengthEnabled"]);
+    if (o.contains("sourceSmearAlpha"))
+      p.sourceSmearAlpha = boolean(o["sourceSmearAlpha"]);
     p.lockAlpha = boolean(o["lockAlpha"]);
     p.flipX     = boolean(o["flipX"]);
     p.flipY     = boolean(o["flipY"]);

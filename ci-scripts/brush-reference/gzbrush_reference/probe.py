@@ -176,6 +176,24 @@ class Probe(Extension):
             fixtures = json.loads((output / "fixtures.json").read_text())
             resources = app.resources("preset")
             by_name = {resource.name(): resource for resource in resources.values()}
+            if fixtures.get("group") == "pixelcontrols":
+                # Inspect only public serialized setting metadata from bundled
+                # presets. No brush images or engine implementation are copied.
+                metadata = []
+                for resource_name in sorted(by_name):
+                    if "basic" not in resource_name.lower() or resource_name.startswith("GZ Original"):
+                        continue
+                    root = fromstring(Preset(by_name[resource_name]).toXML())
+                    if root.attrib.get("paintopid") != "paintbrush":
+                        continue
+                    fields = {p.attrib["name"]: (p.text or "")[:160]
+                              for p in root.findall("param") if "name" in p.attrib and
+                              any(key in p.attrib["name"].lower() for key in ("flow", "opacity", "painting", "paintopaction"))}
+                    metadata.append({"preset": resource_name, "settings": fields})
+                    if len(metadata) == 3:
+                        break
+                report["bundledSettingMetadata"] = metadata
+                (output / "bundled-settings.json").write_text(json.dumps(metadata, indent=2))
             w, h = fixtures["width"], fixtures["height"]
             checkpoint("create reference document")
             document = app.createDocument(w, h, "Original reference canvas", "RGBA", "U8", "sRGB-elle-V2-srgbtrc.icc", 72.0)
@@ -214,7 +232,7 @@ class Probe(Extension):
                 view.setBrushSize(case["diameter"])
                 view.setPaintingOpacity(case["opacity"])
                 view.setPaintingFlow(case["flow"])
-                view.setBrushRotation(0)
+                view.setBrushRotation(case.get("brushRotationDegrees", 0))
                 view.setEraserMode(False)
                 view.setGlobalAlphaLock(False)
                 view.setDisablePressure(False)
@@ -232,7 +250,7 @@ class Probe(Extension):
                         abs(effective_view[key] - case[key]) > 1 / 255 + 1e-9
                         for key in ("opacity", "flow")):
                     raise RuntimeError("Source view did not apply requested brush controls")
-                if (effective_view["rotation"] != 0 or effective_view["blend"] != "normal" or
+                if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > 1e-5 or effective_view["blend"] != "normal" or
                         any(effective_view[key] for key in ("eraser", "alphaLock", "disablePressure"))):
                     raise RuntimeError("Source view retained an unexpected painting modifier")
                 # Read back the selected source settings through the public API;
@@ -319,7 +337,7 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
-                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelshape"):
+                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelshape"):
                         side = math.ceil(case["diameter"]) + 10
                         left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
                         top = math.floor(case["start"][1] - case["diameter"] / 2) - 4
@@ -341,7 +359,7 @@ class Probe(Extension):
                     geometry = {"rect": [left, top, width, height],
                                 "encoding": "zlib-base64-bgra8-row-major",
                                 "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
-                if fixtures.get("group") == "pixelpressure" and case["spacing"] == 1:
+                if fixtures.get("group") in ("pixelpressure", "pixelsmallpressure") and case["spacing"] == 1:
                     # Sparse pressure ramps expose individual footprint spacing.
                     # Preserve exact visible-change bits, including transparent
                     # strips, rather than infer dab centers from sparse RGB probes.

@@ -46,7 +46,9 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   if (!model.isEmpty()) {
     for (const QString &key :
          {"PressureColorRate", "PressureSmudgeRate", "PressureSmudgeRadius"})
-      param(key, "true");
+      param(key, mutation == "lengthOff" && key == "PressureSmudgeRate"
+                     ? "false"
+                     : "true");
     for (const QString &key :
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
       param(key, "false");
@@ -63,6 +65,10 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
       "useAutoSpacing=\"0\"><MaskGenerator id=\"default\" type=\"circle\" "
       "diameter=\"32\" ratio=\"1\" hfade=\"1\" vfade=\"1\" "
       "antialiasEdges=\"0\" spikes=\"2\"/></Brush>";
+  if (mutation == "soft" || mutation == "unequalFade") {
+    brush.replace("hfade=\"1\"", "hfade=\"0.5\"");
+    if (mutation == "soft") brush.replace("vfade=\"1\"", "vfade=\"0.5\"");
+  }
   if (mutation == "aa")
     brush.replace("antialiasEdges=\"0\"", "antialiasEdges=\"1\"");
   if (mutation == "attribute")

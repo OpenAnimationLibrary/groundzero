@@ -791,7 +791,18 @@ public:
       }
 
       TPixel32 depix = *pix;
-      if (m_matte && depix.m != 0) depremult(depix);
+      if (m_matte && depix.m != 0) {
+        // PNG stores straight alpha. Rounding the inverse preserves every
+        // valid 8-bit premultiplied channel when the reader premultiplies
+        // with nearest rounding; truncation can lose a unit on each reopen.
+        const auto straight = [alpha = unsigned(depix.m)](unsigned channel) {
+          return static_cast<UCHAR>(
+              std::min(255u, (channel * 255u + alpha / 2) / alpha));
+        };
+        depix.r = straight(depix.r);
+        depix.g = straight(depix.g);
+        depix.b = straight(depix.b);
+      }
 
       if (m_matte) {
 #if defined(TNZ_MACHINE_CHANNEL_ORDER_MRGB)

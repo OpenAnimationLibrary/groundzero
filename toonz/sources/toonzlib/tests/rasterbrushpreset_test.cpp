@@ -359,6 +359,18 @@ void testImports() {
                                      "groundzero-native-1",
             "unclassified setting incorrectly selected source candidate");
   }
+  auto soft = importBrush(hardPixelKpp("soft"), "kpp", error);
+  require(
+      soft.complete &&
+          soft.records.front().preset.profile ==
+              "krita-5.3.4.1-default-circle-candidate-1" &&
+          soft.records.front().preset.tip.hardness == .5 &&
+          !soft.records.front().provenance["sourceReferenceVerified"].toBool(),
+      "explicit default-circle fade lost its candidate identity");
+  auto unequal = importBrush(hardPixelKpp("unequalFade"), "kpp", error);
+  require(unequal.complete &&
+              unequal.records.front().preset.profile == "groundzero-native-1",
+          "unequal fade was silently collapsed");
   auto ellipse = importBrush(hardPixelKpp("ellipse"), "kpp", error);
   require(
       ellipse.complete &&
@@ -383,8 +395,22 @@ void testImports() {
     require(error.isEmpty() && restored.preset.profile == expected &&
                 !restored.provenance["sourceReferenceVerified"].toBool(),
             "wet candidate portable qualification mismatch");
+    for (const QString &mutation : {"alphaOff", "lengthOff"}) {
+      auto flags = importBrush(hardPixelKpp(mutation, model), "kpp", error);
+      require(flags.complete &&
+                  flags.records.front().preset.profile ==
+                      "krita-5.3.4.1-" + model.toStdString() + "-candidate-1",
+              "source wet switch lost strict eligibility");
+      auto restored = decode(encode(flags.records.front(), error), error);
+      require(
+          error.isEmpty() &&
+              restored.preset.sourceSmearAlpha == (mutation != "alphaOff") &&
+              restored.preset.sourceSmudgeLengthEnabled ==
+                  (mutation != "lengthOff"),
+          "source wet switches lost portable round trip");
+    }
     for (const QString &mutation :
-         {"alphaOff", "radius", "unknown", "missing", "aa", "ellipse"}) {
+         {"radius", "unknown", "missing", "aa", "ellipse"}) {
       auto fallback = importBrush(hardPixelKpp(mutation, model), "kpp", error);
       const bool inactiveRadius =
           mutation == "radius" && model.endsWith("smear");

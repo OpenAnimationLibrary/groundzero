@@ -501,3 +501,57 @@ rejected rather than silently rounded. These corrections await exact-head CI.
 Source pressure, opacity/flow, heterogeneous wet sampling, and broader AA/softness
 remain separate acceptance items. No universal source-compatibility claim follows
 from native application or component successes.
+
+## Measured state corrections and default-circle implementation
+
+Published head `0c514ec2` separates Dulling previous-center feedback from Smear's
+transported field and samples pressure at the measured next integral path-distance
+position. It also fixes tablet transform column normalization and the Qt6 QMenu
+include, and adds real-application original-KPP import/install/select/paint,
+undo/redo/cancel/PNG reopen and independent-stroke checks for all four wet profiles.
+Exact-head CI is pending. These changes do not qualify broad source compatibility.
+
+At `997ba9b3`, all six Qt/platform parser suites, import fuzzing, CPU/memory gates,
+hard-pixel, geometry, tablet, first/second wet dabs, varied third destinations,
+second-dab texture and Linux installed-application checks passed. Pressure,
+patterned third-dab Dulling, seven-pixel Smear footprints and opacity/flow remained
+red. The first two have implementation corrections; exact odd-size BGRA masks and
+Qt freehand opacity delivery now distinguish the unresolved source behaviors.
+Node.paintLine accumulated opacity and ignored flow in both serialized modes,
+so that API alone cannot establish stroke-level wash semantics. No fidelity
+threshold was weakened. The observed zero-flow API expectation was corrected.
+
+The new experimental `krita-5.3.4.1-default-circle-candidate-1` implements equal
+horizontal/vertical default-circle fade with antialiasing disabled, fixed integral
+size, unit aspect and zero rotation. Full captured 32-pixel alpha masks at hardness
+0, .25, .5, .75 and 1 exactly match a squared-distance fade with a one-pixel
+minimum inner radius. Four captured point regressions per soft setting and twelve
+7/64/128-pixel source gates qualify the implementation beyond those original
+masks. This implementation is pending CI; AA, unequal fades, soft ellipses and
+soft pressure mappings are explicitly rejected by candidate eligibility. Native
+conversion remains available with honest provenance. Source verification flags
+remain false. No engine source was copied or consulted to derive the fade rule.
+
+The next implementation slice adds explicit, portable source-wet alpha and
+Smudge Length switches. Acquired three-dab control fixtures distinguish displayed
+paint from source-over feedback when alpha transport is disabled. New Dulling
+also applies foreground color before pickup in that state. Disabling Smudge
+Length selects full pickup strength while legacy color attenuation still uses
+the serialized rate. The 48 individual-control cases now enforce source gates;
+24 combined-control cases independently qualify their interaction. Native wet
+paint retains its existing equations. These changes await exact-head CI.
+
+Exact odd-size Smear masks establish 3/5/7/7/7/5/3 coverage rows for a 7px tip,
+versus Dulling's distinct lattice. The runtime now implements that odd-size
+placement with captured footprint regressions. The ellipse reference harness
+had reset source rotation to zero after selecting a rotated fixture; it now
+applies and verifies the requested rotation rather than compare unlike inputs.
+
+Actual-application qualification caught a PNG round-trip mismatch. The 8-bit
+PNG writer demonstrably truncated straight-alpha conversion: channel 130 at
+alpha 200 reopened as 129. Its conversion now rounds, and an exhaustive
+alpha/channel fixture exercises two real PNG save/reopen cycles. Wet-paint
+persistence equality remains exact, with first-pixel and dimension diagnostics
+retained to expose any additional cause. The PNG edit is limited to 8-bit
+straight-alpha encoding; it does not modify TLV, 16-bit conversion, or shared
+pixel utility semantics. Full application and cross-platform CI are pending.
