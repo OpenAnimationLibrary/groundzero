@@ -102,6 +102,15 @@ comparison, document and history oracles. Saved-set Save/Rename/Delete/reopen is
 also covered. These are source-reviewed changes awaiting execution; prior
 Function passes do not qualify the newly identified boundaries.
 
+Source review also reopened Cast panel lifetime handling. The new Collections
+and Actions menus and several asset dialogs are stack objects parented to the
+browser, with raw browser accesses after nested event loops. Browser deletion
+can destroy those stack objects; hiding does not consistently cancel queued
+actions. This is a source exposure, not a reproduced crash. The Cast owner is
+auditing all added modal entry points and preparing safe ownership, sticky
+cancellation and actual browser hide/delete regressions. Earlier Cast passes
+do not close this newly identified interruption boundary.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -271,20 +280,20 @@ the CI-only harness verifies isolation and failure retention.
 | 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; reviewed snapshot/context guards await CI; full converter/render baseline passed on Linux |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
-| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; CI pending |
-| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Source-ready; CI pending |
+| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Pending; Cast panel lifetime and queued navigation guard under review |
+| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Pending; Cast modal ownership and interrupted asset preparation under review |
 | 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Source-ready; fresh CI pending |
-| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; CI pending |
+| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Pending; Cast panel lifetime and queued confirmation guard under review |
 | 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; CI pending |
 | 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
 | 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; fresh CI pending |
 | 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; fresh CI pending |
-| 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; fresh CI pending |
+| 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Pending; Cast menu/nested dialog lifetime and late-action guards under review |
 | 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; CI pending |
 | 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; focused Linux measured improvement, final-head/platform qualification pending |
-| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Source-ready; CI pending |
-| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Source-ready; CI pending |
-| 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Source-ready; fresh CI pending |
+| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Pending; Cast modal ownership and interrupted review under review |
+| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Pending; Cast modal ownership and interrupted report actions under review |
+| 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Pending; Cast modal ownership and interrupted asset preparation under review |
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; detached scene/library context guards and native interruption checks await CI |
 | 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; fresh CI pending |
 | 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; fresh CI pending |
