@@ -71,6 +71,13 @@ add_test(NAME uniquestyle COMMAND uniquestyle_test)
 
 # artlayer.h needs TStroke, so only in the full build
 if(TARGET tnzcore)
+    # tgeometry.h imports explicitly instantiated geometry templates on
+    # Windows. These tests still need the library even when a particular
+    # optimizer happens to inline every use of a point or rectangle.
+    foreach(geometry_test vectoralignment_test bilineardeform_test
+                          envelopelayout_test gradienthandles_test)
+        target_link_libraries(${geometry_test} PRIVATE tnzcore)
+    endforeach()
     add_executable(styleanimationcopy_test styleanimationcopy_test.cpp)
     target_include_directories(styleanimationcopy_test PRIVATE ../../include)
     target_link_libraries(styleanimationcopy_test PRIVATE tnzcore ${TEST_QT_LIBS})
