@@ -24,6 +24,30 @@ No item is CI-qualified yet. Draft publication starts validation and does not
 close the remaining work. The detailed ledgers record implemented source and
 remaining checks separately:
 
+All 60 items have implementations and acceptance fixtures; no item is omitted
+or replaced by a UI placeholder. Qualification is still finding corrections.
+The published Function Editor head `23aa137e0f1baa7f24216f547341dee731a68b26`
+passed Linux, macOS and Windows, including installed-application checks. The
+subsequent unkeyed-channel identity persistence correction `b2f7ad003` needs
+fresh qualification, so those earlier results do not qualify the current source.
+
+The current unresolved checks are native 3D vector opacity (items 20 and 36),
+macOS batch relink (item 40), Windows exporter interaction (item 57), and combined
+clone/persistence/export acceptance. The depth correction `fa2735198` and the
+Windows contour-test identifier correction `0bbdb8347` are committed for CI.
+Relink and exporter diagnostics retain their original assertions and will guide
+any product correction. The combined clone fixture now uses the active numeric
+parameter API rather than an obsolete no-op setter. Unkeyed identities must
+survive reload without creating artificial animation keys.
+
+The scene-loading ownership correction `623763b59` has executed successfully on
+Linux: repeated output-properties assignment and scene/PLI reload no longer
+crash. Independent combined diagnostics then reached the identity and clone
+assertions above. This is evidence for that correction, not a passing result for
+the full combined sequence. Dedicated CI validation refs preserve running PR
+checks; their changes will be folded into the same five PRs before final
+qualification. No additional feature ownership or PR is created by these refs.
+
 * Function Editor: source and full-application fixtures published, including quantization,
   marker snapping and preset filtering; exact-head CI is pending.
   See `doc/function_editor_acceptance.md` in #116.
