@@ -1272,6 +1272,16 @@ is >> m_imp->m_defaultValue;
 //---------------------------------------------------------
 
 void TDoubleParam::saveData(TOStream &os) {
+  // Fractional retiming and sampled values must survive scene/preset reload.
+  // Keep this local to native curve data and restore the caller's stream mode,
+  // including when serializing a child throws.
+  struct PrecisionScope {
+    TOStream &stream;
+    bool previous;
+    explicit PrecisionScope(TOStream &value)
+        : stream(value), previous(value.setFullPrecision(true)) {}
+    ~PrecisionScope() { stream.setFullPrecision(previous); }
+  } precision(os);
   // os.child("type") << (int)m_imp->m_type;
   if (m_imp->m_workspaceId.empty())
     os.child("default") << m_imp->m_defaultValue;

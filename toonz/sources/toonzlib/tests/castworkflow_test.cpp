@@ -2,10 +2,13 @@
 #include "toonz/levelset.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshexrlevel.h"
 #include "toonz/txshsoundlevel.h"
 #include "toonz/txshpalettelevel.h"
+#include "toonz/txshchildlevel.h"
+#include "toonz/txshsoundtextlevel.h"
 #include "toonz/txshleveltypes.h"
 #include "tenv.h"
 #include "tstream.h"
@@ -14,6 +17,8 @@
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <iostream>
 #include <stdexcept>
 
@@ -110,6 +115,112 @@ void tagsRoundTrip(const QString &directory) {
     require(!file.readAll().contains("castTags"), "untagged asset added new serialization");
   }
 }
+void collectionsRoundTrip(const QString &directory) {
+  ToonzScene scene;
+  TProjectManager::instance()->initializeScene(&scene);
+  auto *a = scene.createNewLevel(PLI_XSHLEVEL, L"Collection A");
+  auto *b = scene.createNewLevel(PLI_XSHLEVEL, L"Collection B");
+  const QString aId = a->getCastId(), bId = b->getCastId();
+  require(!aId.isEmpty() && aId != bId, "new levels reused Cast identity");
+  TSceneProperties::CastCollection collection;
+  collection.id = "collection-fixture";
+  collection.name = QString::fromUtf8("café <&\" collection");
+  collection.members = {aId, bId};
+  scene.getProperties()->setCastCollections({collection});
+  TXshSimpleLevel clone;
+  clone.copyCastMetadataFrom(a);
+  require(clone.getCastId() != aId && clone.getCastId() != bId, "metadata clone copied membership identity");
+  const TFilePath path(QDir(directory).filePath("collections.tnz"));
+  scene.save(path, nullptr, false);
+  ToonzScene restored;
+  restored.loadTnzFile(path);
+  require(restored.getProperties()->getCastCollections() == QList<TSceneProperties::CastCollection>{collection},
+          "named collection metadata lost Unicode or exact membership on native scene reload");
+  require(restored.getLevelSet()->getLevel(L"Collection A")->getCastId() == aId &&
+          restored.getLevelSet()->getLevel(L"Collection B")->getCastId() == bId,
+          "scene reload did not preserve member asset identity");
+  require(!restored.getLevelSet()->getLevel(L"Collection A")->sourceExpectedOnDisk(),
+          "unsaved source was relabeled missing after native reload");
+  TSceneProperties copied;
+  copied.assign(restored.getProperties());
+  require(copied.getCastCollections() == restored.getProperties()->getCastCollections(),
+          "scene property copy omitted named collections");
+  copied.setCastCollections({});
+  require(!restored.getProperties()->getCastCollections().empty(), "collection copies share mutable membership");
+  const TFilePath defaults(QDir(directory).filePath("collection-project-defaults.xml"));
+  { TOStream os(defaults); os.openChild("properties"); scene.getProperties()->saveData(os); os.closeChild(); }
+  { TIStream is(defaults); std::string tag; require(is.matchTag(tag), "missing project-properties fixture"); copied.loadData(is, true); }
+  require(copied.getCastCollections().empty(), "scene-specific asset UUIDs leaked into project defaults");
+}
+void ownershipRoundTrip(const QString &directory) {
+  using Origin = TXshLevel::LibraryProvenance;
+  Origin origin;
+  origin.itemId = "fixture-library-item";
+  origin.itemPath = QString::fromUtf8("/Library/templates/café & rig.tnz");
+  origin.kind = "rig";
+  origin.sourceAssetPath = "/Library/templates/rig/asset.pli";
+  origin.revision = 7;
+  origin.relationship = Origin::LocalCopy;
+  for (int type : {PLI_XSHLEVEL, OVL_XSHLEVEL, SND_XSHLEVEL, PLT_XSHLEVEL,
+                   CHILD_XSHLEVEL, SND_TXT_XSHLEVEL}) {
+    TXshLevelP source;
+    switch (type) {
+    case PLI_XSHLEVEL: source = new TXshSimpleLevel(L"Provenance"); source->setType(type); break;
+    case OVL_XSHLEVEL: source = new TXshExrLevel(L"Provenance EXR"); break;
+    case SND_XSHLEVEL: source = new TXshSoundLevel(L"Provenance audio"); break;
+    case PLT_XSHLEVEL: source = new TXshPaletteLevel(L"Provenance palette"); break;
+    case CHILD_XSHLEVEL: source = new TXshChildLevel(L"Provenance snapshot"); break;
+    case SND_TXT_XSHLEVEL: source = new TXshSoundTextLevel(L"Provenance text"); break;
+    }
+    source->setLibraryProvenance(origin);
+    const QString identity = source->getCastId();
+    require(!identity.isEmpty() && !source->sourceExpectedOnDisk(), "new asset identity/save state is invalid");
+    for (bool expected : {false, true}) {
+      source->setSourceExpectedOnDisk(expected);
+      const TFilePath path(QDir(directory).filePath(QString("ownership-%1.xml").arg(type)));
+      { TOStream os(path); os << source.getPointer(); }
+      TPersist *loaded = nullptr;
+      { TIStream is(path); is >> loaded; }
+      TXshLevelP restored = dynamic_cast<TXshLevel *>(loaded);
+      require(restored && restored->getCastId() == identity &&
+                  restored->getLibraryProvenance() == origin && restored->sourceExpectedOnDisk() == expected,
+              "native ownership metadata did not round-trip on every Cast level type");
+      TXshSimpleLevel cloned;
+      const QString cloneId = cloned.getCastId();
+      cloned.copyCastMetadataFrom(restored.getPointer());
+      require(cloned.getCastId() == cloneId && cloneId != identity &&
+                  !cloned.sourceExpectedOnDisk() && cloned.getLibraryProvenance() == origin,
+              "metadata clone copied UUID/save state or lost Library attribution");
+    }
+  }
+  // Invalid metadata cannot invent an identity or a Library relationship.
+  const TFilePath invalid(QDir(directory).filePath("invalid-ownership.xml"));
+  QJsonObject forged{{"id", "item"}, {"item", "/external/file.tnz"}, {"kind", "rig"},
+                     {"revision", -1}, {"relationship", int(Origin::Linked)}};
+  { TOStream os(invalid);
+    os.openChild("path", {{"castId", "not-a-uuid"},
+                           {"libraryOrigin", QJsonDocument(forged).toJson(QJsonDocument::Compact).toStdString()}});
+    os << TFilePath("asset.pli"); os.closeChild(); }
+  TXshSimpleLevel recipient;
+  const QString identity = recipient.getCastId();
+  { TIStream is(invalid); std::string tag; require(is.matchTag(tag), "malformed metadata fixture missing");
+    recipient.loadCastTags(is); }
+  require(recipient.getCastId() == identity && recipient.getLibraryRelationship() == Origin::NotRecorded &&
+              recipient.sourceExpectedOnDisk(),
+          "invalid metadata overrode fresh identity, origin or legacy expected-source state");
+  origin.relationship = Origin::Linked;
+  recipient.setLibraryProvenance(origin);
+  recipient.setPath(TFilePath(origin.sourceAssetPath), true);
+  require(recipient.getLibraryRelationship() == Origin::Linked, "recorded source path lost its link");
+  recipient.setPath(TFilePath("/elsewhere/replaced.pli"), true);
+  require(recipient.getLibraryRelationship() == Origin::Replaced, "changed path still claimed Library file ownership");
+  TXshSimpleLevel replacedClone;
+  replacedClone.copyCastMetadataFrom(&recipient);
+  replacedClone.detachLibrarySource(Origin::LocalCopy);
+  require(replacedClone.getLibraryRelationship() == Origin::Replaced &&
+              replacedClone.getLibraryProvenance().itemId == origin.itemId,
+          "copying a replaced source falsely restored Library ownership or discarded attribution");
+}
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
@@ -119,7 +230,8 @@ int main(int argc, char **argv) {
     QString stuff = QDir(dir.path()).filePath("stuff");
     QDir().mkpath(QDir(stuff).filePath("profiles/layouts/rooms/Default"));
     TEnv::setStuffDir(TFilePath(stuff));
-    queryAndTags(); occurrencePaths(); tagsRoundTrip(dir.path()); soundReplacementDuration();
+    queryAndTags(); occurrencePaths(); tagsRoundTrip(dir.path()); ownershipRoundTrip(dir.path()); soundReplacementDuration();
+    collectionsRoundTrip(dir.path());
     std::cout << "PASS: Cast queries, instance navigation, limits and native tag persistence\n";
     return 0;
   } catch (const std::exception &error) {

@@ -4,8 +4,10 @@
 #define SCENERESOURCES_INCLUDED
 
 #include "tfilepath.h"
+#include "toonz/txshlevel.h"
 #include <map>
 #include <memory>
+#include <vector>
 
 #undef DVAPI
 #undef DVVAR
@@ -288,6 +290,14 @@ Set sound track path to old path.
 //=============================================================================
 
 class DVAPI SceneResources {
+  struct CastSourceState {
+    TXshLevelP level;
+    TFilePath path, scanPath;
+    TXshLevel::LibraryProvenance provenance;
+    bool expectedOnDisk;
+  };
+  std::vector<CastSourceState> m_castSources;
+  bool m_processingPaths = false;
   std::vector<SceneResource *> m_resources;
   ToonzScene *m_scene;
   TXsheet *m_subXsheet;

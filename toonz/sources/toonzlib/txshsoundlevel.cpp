@@ -9,6 +9,7 @@
 #include "tstream.h"
 #include "toutputproperties.h"
 #include "tconvert.h"
+#include "tsystem.h"
 
 //-----------------------------------------------------------------------------
 
@@ -43,6 +44,7 @@ TXshSoundLevel *TXshSoundLevel::clone() const {
   sound->m_frameSoundCount = m_frameSoundCount;
   sound->m_fps             = m_fps;
   sound->copyCastMetadataFrom(this);
+  sound->setSourceExpectedOnDisk(sourceExpectedOnDisk());
   return sound;
 }
 
@@ -85,6 +87,7 @@ void TXshSoundLevel::loadSoundTrack(const TFilePath &fileName) {
       m_duration = st->getDuration();
       setName(fileName.getWideName());
       setSoundTrack(st);
+      setSourceExpectedOnDisk(true);
     }
   } catch (TException &) {
     return;
@@ -102,7 +105,9 @@ void TXshSoundLevel::save() { save(m_path); }
 //-----------------------------------------------------------------------------
 
 void TXshSoundLevel::save(const TFilePath &path) {
-  TSoundTrackWriter::save(path, m_soundTrack);
+  const bool saved = TSoundTrackWriter::save(path, m_soundTrack);
+  if (saved && getScene() && TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------

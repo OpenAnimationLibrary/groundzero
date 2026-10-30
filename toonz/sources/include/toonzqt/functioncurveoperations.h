@@ -56,6 +56,10 @@ DVAPI Plan planFrameOffset(const std::vector<Selection> &selection,
                           double frames);
 DVAPI Plan planRetime(const std::vector<Selection> &selection, double pivot,
                      double positiveScale);
+// Map the bounds of the complete multi-channel selection to exact destinations.
+// A selection at one frame can only be translated to one destination frame.
+DVAPI Plan planRetimeToRange(const std::vector<Selection> &selection,
+                            double targetFirst, double targetLast);
 DVAPI Plan planQuantize(const std::vector<Selection> &selection, double pivot,
                        double positiveInterval);
 DVAPI Plan planBreakdown(const std::vector<Selection> &selection, double frame,

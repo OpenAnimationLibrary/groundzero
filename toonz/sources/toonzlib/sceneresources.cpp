@@ -406,7 +406,12 @@ public:
     processor->process(source);
     propagatePath(source->getPath(), false);
     for (TXshExrLevel *level : m_levels)
-      if (level != source) level->setDirtyFlag(source->getDirtyFlag());
+      if (level != source) {
+        level->setDirtyFlag(source->getDirtyFlag());
+        if (!processor->aborted() && source->getLibraryRelationship() == TXshLevel::LibraryProvenance::LocalCopy)
+          level->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+        level->setSourceExpectedOnDisk(source->sourceExpectedOnDisk());
+      }
   }
 
   bool isDirty() override {
@@ -735,6 +740,11 @@ bool SceneLevel::save() {
       saveSucceeded = false;
     }
   }
+  if (saveSucceeded && TSystem::doesExistFileOrLevel(actualFp)) {
+    if (actualFp != oldActualPath)
+      m_sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+    m_sl->setSourceExpectedOnDisk(true);
+  }
   fp = m_oldScannedPath;
   if (fp != TFilePath()) {
     SceneResource::updatePath(fp);
@@ -841,6 +851,9 @@ bool ScenePalette::save() {
       TSystem::copyFile(actualFp, m_oldActualPath);
     }
     m_pl->save();  // actualFp non so perche' era cosi'
+    if (actualFp != m_oldActualPath)
+      m_pl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+    m_pl->setSourceExpectedOnDisk(true);
     return true;
   } catch (...) {
     TLogger::error() << "Can't save " << actualFp;
@@ -898,6 +911,9 @@ bool SceneSound::save() {
     } else if (actualFp != m_oldActualPath) {
       TSystem::copyFile(actualFp, m_oldActualPath);
     }
+    if (actualFp != m_oldActualPath)
+      m_sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+    m_sl->setSourceExpectedOnDisk(true);
     return true;
   } catch (...) {
     TLogger::error() << "Can't save " << actualFp;
@@ -935,6 +951,17 @@ SceneResources::SceneResources(ToonzScene *scene, TXsheet *subXsheet)
     , m_commitDone(false)
     , m_wasUntitled(scene->isUntitled())
     , m_subXsheet(subXsheet) {
+  std::vector<TXshLevel *> levels;
+  scene->getLevelSet()->listLevels(levels);
+  for (auto *level : levels) {
+    CastSourceState state;
+    state.level = level;
+    state.path = level->getPath();
+    if (auto *simple = level->getSimpleLevel()) state.scanPath = simple->getScannedPath();
+    state.provenance = level->getLibraryProvenance();
+    state.expectedOnDisk = level->sourceExpectedOnDisk();
+    m_castSources.push_back(state);
+  }
   getResources();
 }
 
@@ -1067,13 +1094,33 @@ void SceneResources::updatePaths() {
 //-----------------------------------------------------------------------------
 
 void SceneResources::rollbackPaths() {
+  std::set<TXshSimpleLevel *> rebind;
+  if (m_processingPaths) for (const auto &state : m_castSources)
+    if (auto *simple = state.level->getSimpleLevel())
+      if (simple->getPath() != state.path || simple->getScannedPath() != state.scanPath)
+        rebind.insert(simple);
   for (int i = 0; i < (int)m_resources.size(); i++)
     m_resources[i]->rollbackPath();
+  for (const auto &state : m_castSources) {
+    // Import/Collect transactions also run for titled scenes. Preserve their
+    // original source and metadata together if a later resource aborts.
+    if (m_processingPaths) {
+      if (auto *simple = state.level->getSimpleLevel()) {
+        simple->setPath(state.path, true);
+        simple->setScannedPath(state.scanPath);
+        if (rebind.count(simple)) simple->rebindFrameSources();
+      } else if (auto *sound = state.level->getSoundLevel()) sound->setPath(state.path);
+      else if (auto *palette = state.level->getPaletteLevel()) palette->setPath(state.path);
+    }
+    state.level->setLibraryProvenance(state.provenance);
+    state.level->setSourceExpectedOnDisk(state.expectedOnDisk);
+  }
 }
 
 //-----------------------------------------------------------------------------
 
 void SceneResources::accept(ResourceProcessor *processor, bool autoCommit) {
+  m_processingPaths = dynamic_cast<ResourceImporter *>(processor) || dynamic_cast<ResourceCollector *>(processor);
   for (int i = 0; i < (int)m_resources.size() && !processor->aborted(); i++)
     m_resources[i]->accept(processor);
   if (autoCommit && !processor->aborted()) commit();
@@ -1174,6 +1221,8 @@ void ResourceImporter::process(TXshSimpleLevel *sl) {
 
   if (suffix != "") newPath = buildPsd(newPath, suffix);
 
+  if (!aborted() && m_scene->decodeFilePath(sl->getPath()) != m_dstScene->decodeFilePath(newPath))
+    sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
   sl->setPath(newPath);
   if (sl->getScannedPath() != TFilePath()) {
     newPath =
@@ -1189,6 +1238,8 @@ void ResourceImporter::process(TXshPaletteLevel *pl) {
   if (pl->getPath().isAbsolute()) return;
   TFilePath newPath;
   newPath = m_importStrategy.process(m_dstScene, m_scene, pl->getPath());
+  if (!aborted() && m_scene->decodeFilePath(pl->getPath()) != m_dstScene->decodeFilePath(newPath))
+    pl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
   pl->setPath(newPath);
 }
 
@@ -1198,6 +1249,8 @@ void ResourceImporter::process(TXshSoundLevel *sl) {
   if (sl->getPath().isAbsolute()) return;
   TFilePath newPath;
   newPath = m_importStrategy.process(m_dstScene, m_scene, sl->getPath());
+  if (!aborted() && m_scene->decodeFilePath(sl->getPath()) != m_dstScene->decodeFilePath(newPath))
+    sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
   sl->setPath(newPath);
 }
 
@@ -1283,13 +1336,21 @@ void ResourceCollector::process(SceneFxResource *resource) {
 //-----------------------------------------------------------------------------
 
 void ResourceCollector::process(TXshSimpleLevel *sl) {
+  if (sl->getLibraryRelationship() == TXshLevel::LibraryProvenance::Replaced)
+    sl->detachLibrarySource(TXshLevel::LibraryProvenance::Replaced);
   TFilePath path     = sl->getPath();
   std::string suffix = ResourceImporter::extractPsdSuffix(path);
   std::map<TFilePath, TFilePath>::iterator it = m_collectedFiles.find(path);
   if (it != m_collectedFiles.end()) {
     TFilePath destPath = it->second;
+    if (!TSystem::doesExistFileOrLevel(m_scene->decodeFilePath(destPath))) {
+      m_fxFailed = true;
+      return;
+    }
     if (suffix != "") destPath = ResourceImporter::buildPsd(destPath, suffix);
     sl->setPath(destPath);
+    sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+    sl->setSourceExpectedOnDisk(true);
   } else {
     TFilePath collectedPath = path;
     if (getCollectedPath(m_scene, collectedPath)) {
@@ -1300,12 +1361,20 @@ void ResourceCollector::process(TXshSimpleLevel *sl) {
           TSystem::touchParentDir(actualCollectedPath);
           TXshSimpleLevel::copyFiles(actualCollectedPath, path);
         } catch (...) {
+          m_fxFailed = true;
+          return;
         }
+      }
+      if (!TSystem::doesExistFileOrLevel(actualCollectedPath)) {
+        m_fxFailed = true;
+        return;
       }
       ++m_count;
       TFilePath destPath = collectedPath;
       if (suffix != "") destPath = ResourceImporter::buildPsd(destPath, suffix);
       sl->setPath(destPath);
+      sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+      sl->setSourceExpectedOnDisk(true);
       m_collectedFiles[path] = collectedPath;
     }
   }
@@ -1320,7 +1389,13 @@ void ResourceCollector::process(TXshSimpleLevel *sl) {
           TSystem::touchParentDir(actualCollectedPath);
           TXshSimpleLevel::copyFiles(actualCollectedPath, path);
         } catch (...) {
+          m_fxFailed = true;
+          return;
         }
+      }
+      if (!TSystem::doesExistFileOrLevel(actualCollectedPath)) {
+        m_fxFailed = true;
+        return;
       }
       sl->setScannedPath(collectedPath);
       m_count++;
@@ -1332,6 +1407,8 @@ void ResourceCollector::process(TXshSimpleLevel *sl) {
 //-----------------------------------------------------------------------------
 
 void ResourceCollector::process(TXshSoundLevel *sl) {
+  if (sl->getLibraryRelationship() == TXshLevel::LibraryProvenance::Replaced)
+    sl->detachLibrarySource(TXshLevel::LibraryProvenance::Replaced);
   TFilePath path          = sl->getPath();
   TFilePath collectedPath = path;
   if (!getCollectedPath(m_scene, collectedPath)) return;
@@ -1343,15 +1420,25 @@ void ResourceCollector::process(TXshSoundLevel *sl) {
       TXshSimpleLevel::copyFiles(actualCollectedPath, path);
 
     } catch (...) {
+      m_fxFailed = true;
+      return;
     }
   }
+  if (!TSystem::doesExistFileOrLevel(actualCollectedPath)) {
+    m_fxFailed = true;
+    return;
+  }
   sl->setPath(collectedPath);
+  sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+  sl->setSourceExpectedOnDisk(true);
   m_count++;
 }
 
 //-----------------------------------------------------------------------------
 
 void ResourceCollector::process(TXshPaletteLevel *pl) {
+  if (pl->getLibraryRelationship() == TXshLevel::LibraryProvenance::Replaced)
+    pl->detachLibrarySource(TXshLevel::LibraryProvenance::Replaced);
   TFilePath path          = pl->getPath();
   TFilePath collectedPath = path;
   if (!getCollectedPath(m_scene, collectedPath)) return;
@@ -1363,8 +1450,16 @@ void ResourceCollector::process(TXshPaletteLevel *pl) {
       TXshSimpleLevel::copyFiles(actualCollectedPath, path);
 
     } catch (...) {
+      m_fxFailed = true;
+      return;
     }
   }
+  if (!TSystem::doesExistFileOrLevel(actualCollectedPath)) {
+    m_fxFailed = true;
+    return;
+  }
   pl->setPath(collectedPath);
+  pl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+  pl->setSourceExpectedOnDisk(true);
   m_count++;
 }

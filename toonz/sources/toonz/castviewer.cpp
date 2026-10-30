@@ -5,6 +5,8 @@
 // Tnz6 includes
 #include "castselection.h"
 #include "castbrowseractions.h"
+#include "castinspector.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/castworkflow.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
@@ -61,12 +63,51 @@
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QScrollBar>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QUuid>
+#include <QSet>
 
 const char *AudioFolderName = "Audio";
 
 using namespace DVGui;
 
 namespace {
+
+QSet<QString> ambiguousCastIds(const std::vector<TXshLevel *> &levels) {
+  QSet<QString> seen, ambiguous;
+  for (const auto *level : levels) {
+    const QString id = level->getCastId();
+    if (id.isEmpty() || seen.contains(id)) ambiguous.insert(id);
+    seen.insert(id);
+  }
+  return ambiguous;
+}
+
+class CastCollectionsUndo final : public TUndo {
+  ToonzScene *m_scene;
+  QList<TSceneProperties::CastCollection> m_before, m_after;
+  void apply(const QList<TSceneProperties::CastCollection> &collections) const {
+    if (TApp::instance()->getCurrentScene()->getScene() != m_scene) return;
+    m_scene->getProperties()->setCastCollections(collections);
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+    TApp::instance()->getCurrentScene()->notifyCastChange();
+  }
+public:
+  CastCollectionsUndo(ToonzScene *scene, const QList<TSceneProperties::CastCollection> &after)
+      : m_scene(scene), m_before(scene->getProperties()->getCastCollections()), m_after(after) {}
+  void undo() const override { apply(m_before); }
+  void redo() const override { apply(m_after); }
+  int getSize() const override {
+    int size = sizeof(*this);
+    for (const auto &list : {m_before, m_after}) for (const auto &collection : list) {
+      size += 2 * (collection.id.size() + collection.name.size());
+      for (const auto &id : collection.members) size += 2 * id.size();
+    }
+    return size;
+  }
+  QString getHistoryString() override { return QObject::tr("Edit Scene Cast Collections"); }
+};
 
 // Se il widget del cast viewer viene spostato in toonzqt (e quindi fatto
 // dipendere dallo sceneHandle)
@@ -623,8 +664,15 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   m_status = new QComboBox(box);
   m_status->setObjectName("CastStatusFilter");
   m_status->setAccessibleName(tr("Asset status"));
-  m_status->addItems({tr("All statuses"), tr("Used in scene"), tr("Unused"),
-                      tr("Not saved / missing"), tr("External links")});
+  m_status->addItem(tr("All statuses"), CastBrowserActions::All);
+  m_status->addItem(tr("Used in scene"), CastBrowserActions::Used);
+  m_status->addItem(tr("Unused"), CastBrowserActions::Unused);
+  m_status->addItem(tr("Absent on disk (new or missing)"), CastBrowserActions::Absent);
+  m_status->addItem(tr("External links"), CastBrowserActions::External);
+  m_status->addItem(tr("Modified assets"), CastBrowserActions::Modified);
+  m_status->addItem(tr("New / not saved"), CastBrowserActions::Unsaved);
+  m_status->addItem(tr("Missing saved assets"), CastBrowserActions::Missing);
+  m_status->addItem(tr("Decoded drawings cached"), CastBrowserActions::Cached);
   auto *filterRow = new QHBoxLayout;
   filterRow->addWidget(m_scope); filterRow->addWidget(m_type);
   filterRow->addWidget(m_status);
@@ -633,6 +681,15 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   m_actions = new QPushButton(tr("Asset Actions…"), box);
   m_actions->setAccessibleName(tr("Scene Cast asset actions"));
   connect(m_actions, &QPushButton::clicked, this, &CastBrowser::showActions);
+  m_collection = new QComboBox(box);
+  m_collection->setObjectName("CastCollectionFilter");
+  m_collection->setAccessibleName(tr("Scene Cast collection"));
+  m_collection->addItem(tr("All assets"), QString());
+  m_collectionActions = new QPushButton(tr("Collections…"), box);
+  m_collectionActions->setObjectName("CastCollectionActions");
+  m_collectionActions->setAccessibleName(tr("Manage named asset collections"));
+  connect(m_collectionActions, &QPushButton::clicked, this, &CastBrowser::showCollectionActions);
+  connect(m_collection, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) { refresh(); });
   m_filterTimer = new QTimer(this);
   m_filterTimer->setSingleShot(true);
   m_filterTimer->setInterval(150);
@@ -645,6 +702,9 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
           this, &CastBrowser::rememberSelection);
   boxLayout->addWidget(m_search);
   boxLayout->addLayout(filterRow);
+  auto *collections = new QHBoxLayout;
+  collections->addWidget(m_collection, 1); collections->addWidget(m_collectionActions);
+  boxLayout->addLayout(collections);
   boxLayout->addWidget(m_resultCount);
   boxLayout->addWidget(m_actions);
   boxLayout->addWidget(m_folderName);
@@ -657,6 +717,9 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 
   addWidget(m_treeViewer);
   addWidget(box);
+  m_inspector = new CastInspector(this);
+  addWidget(m_inspector);
+  m_inspector->hide();
 
   setStretchFactor(1, 2);
 
@@ -664,6 +727,8 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 
   connect(sceneHandle, &TSceneHandle::sceneSwitched, this, [this]() {
     m_rememberedSelection.clear();
+    { QSignalBlocker blocked(m_collection); m_collection->setCurrentIndex(0); }
+    m_inspector->setLevels({});
     QSignalBlocker blocked(m_itemViewer->getPanel()->getSelection());
     m_itemViewer->getPanel()->getSelection()->selectNone();
     refresh();
@@ -757,6 +822,7 @@ void CastBrowser::refreshData() {
   if (m_rebuilding) return;
   rememberSelection();
   m_rebuilding = true;
+  refreshCollections();
   m_castItems->clear();
   m_assetStatus.clear();
   m_statusBadge.clear();
@@ -766,6 +832,7 @@ void CastBrowser::refreshData() {
   m_folderName->setText(m_scope->currentIndex() == 1 ? tr("All scene folders") : toQString(folder));
   std::vector<TXshLevel *> all, levels;
   levelSet->listLevels(all);
+  const QSet<QString> ambiguousIds = ambiguousCastIds(all);
   std::set<TXshLevel *> live(all.begin(), all.end());
   m_rememberedSelection.erase(std::remove_if(m_rememberedSelection.begin(),
       m_rememberedSelection.end(), [&](const TXshLevelP &p) { return !live.count(p.getPointer()); }),
@@ -773,7 +840,13 @@ void CastBrowser::refreshData() {
   if (m_scope->currentIndex() == 1 || folder == TFilePath()) levels = all;
   else levelSet->listLevels(levels, folder);
   CastWorkflow::Index usage;
-  const int status = m_status->currentIndex();
+  const int status = m_status->currentData().toInt();
+  QSet<QString> members;
+  const QString collectionId = m_collection->currentData().toString();
+  if (!collectionId.isEmpty())
+    for (const auto &collection : scene->getProperties()->getCastCollections())
+      if (collection.id == collectionId)
+        for (const QString &member : collection.members) members.insert(member);
   if (status == 1 || status == 2) {
     CastWorkflow::Limits limits;
     limits.recordOccurrences = false;
@@ -782,6 +855,8 @@ void CastBrowser::refreshData() {
   }
   const int type = m_type->currentData().toInt();
   for (TXshLevel *level : levels) {
+    if (!collectionId.isEmpty() &&
+        (!members.contains(level->getCastId()) || ambiguousIds.contains(level->getCastId()))) continue;
     if (type && level->getType() != type &&
         !(type == OVL_XSHLEVEL && level->getType() == TZI_XSHLEVEL)) continue;
     if (!CastWorkflow::matches(m_search->text(), QString::fromStdWString(level->getName()),
@@ -790,15 +865,16 @@ void CastBrowser::refreshData() {
     if (status == 2 && (!usage.complete || usage.cycle || usage.used.count(level))) continue;
     if (status == 3 && !CastBrowserActions::missing(scene, level)) continue;
     if (status == 4 && !CastBrowserActions::external(scene, level)) continue;
+    if (status == CastBrowserActions::Modified && !CastBrowserActions::modified(level)) continue;
+    if (status == CastBrowserActions::Unsaved && !CastBrowserActions::unsaved(scene, level)) continue;
+    if (status == CastBrowserActions::Missing && (!level->sourceExpectedOnDisk() || !CastBrowserActions::missing(scene, level))) continue;
+    if (status == CastBrowserActions::Cached && !CastBrowserActions::cached(level)) continue;
     m_assetStatus[level] = CastBrowserActions::status(scene, level);
-    auto *simple = level->getSimpleLevel();
-    auto *palette = level->getPaletteLevel();
-    const bool modified = (simple && (simple->getProperties()->getDirtyFlag() ||
-        (simple->getPalette() && simple->getPalette()->getDirtyFlag()))) ||
-        (palette && palette->getPalette() && palette->getPalette()->getDirtyFlag());
-    if (CastBrowserActions::missing(scene, level)) m_statusBadge[level] = '!';
-    else if (modified) m_statusBadge[level] = '*';
+    if (CastBrowserActions::unsaved(scene, level)) m_statusBadge[level] = 'N';
+    else if (CastBrowserActions::missing(scene, level)) m_statusBadge[level] = '!';
+    else if (CastBrowserActions::modified(level)) m_statusBadge[level] = '*';
     else if (CastBrowserActions::external(scene, level)) m_statusBadge[level] = 'L';
+    else if (CastBrowserActions::cached(level)) m_statusBadge[level] = 'C';
     QSize iconSize = m_itemViewer->getPanel()->getIconSize();
     if (level->getSimpleLevel()) m_castItems->addItem(new LevelCastItem(level, iconSize));
     else if (level->getPaletteLevel()) m_castItems->addItem(new PaletteCastItem(level->getPaletteLevel(), iconSize));
@@ -807,9 +883,21 @@ void CastBrowser::refreshData() {
   sortByDataModel(getCurrentOrderType(), isDiscendentOrder());
   m_rebuilding = false;
   QString count = tr("%1 assets shown").arg(getItemCount());
+  if (!collectionId.isEmpty()) {
+    QSet<QString> liveIds;
+    for (auto *level : all) liveIds.insert(level->getCastId());
+    int absent = 0;
+    for (const QString &id : members) if (!liveIds.contains(id)) ++absent;
+    count += tr(" / %1 collection members").arg(members.size());
+    if (absent) count += tr("; %1 removed assets retained for Undo").arg(absent);
+    int ambiguous = 0;
+    for (const QString &id : members) if (ambiguousIds.contains(id)) ++ambiguous;
+    if (ambiguous) count += tr("; %1 ambiguous asset IDs withheld").arg(ambiguous);
+  }
   if ((status == 1 || status == 2) && (!usage.complete || usage.cycle))
     count += tr(" — incomplete usage index; unused results are withheld");
   m_resultCount->setText(count);
+  m_inspector->setLevels(selectedLevels());
 }
 
 std::vector<TXshLevel *> CastBrowser::selectedLevels() const {
@@ -827,6 +915,7 @@ void CastBrowser::rememberSelection() {
       m_rememberedSelection.end(), [&](const TXshLevelP &p) { return visible.count(p.getPointer()) != 0; }),
       m_rememberedSelection.end());
   for (auto *level : selectedLevels()) m_rememberedSelection.push_back(TXshLevelP(level));
+  if (m_inspector) m_inspector->setLevels(selectedLevels());
 }
 
 void CastBrowser::restoreSelection() {
@@ -841,6 +930,118 @@ void CastBrowser::restoreSelection() {
 
 void CastBrowser::showEvent(QShowEvent *event) {
   QSplitter::showEvent(event);
+  refresh();
+}
+
+void CastBrowser::showInspector(const std::vector<TXshLevel *> &levels) {
+  m_inspector->setLevels(levels);
+  m_inspector->show();
+  // Opening repeatedly must not collapse either the list or the inspector.
+  const auto widths = sizes();
+  if (widths.size() == 3 && widths[2] < 240)
+    setSizes({std::max(120, width() / 6), std::max(240, width() / 2), std::max(260, width() / 3)});
+}
+
+void CastBrowser::refreshCollections() {
+  const QString selected = m_collection->currentData().toString();
+  QSignalBlocker blocked(m_collection);
+  m_collection->clear(); m_collection->addItem(tr("All assets"), QString());
+  for (const auto &collection : TApp::instance()->getCurrentScene()->getScene()->getProperties()->getCastCollections())
+    m_collection->addItem(collection.name, collection.id);
+  const int at = m_collection->findData(selected);
+  m_collection->setCurrentIndex(at < 0 ? 0 : at);
+}
+
+void CastBrowser::showCollectionActions() {
+  ToonzScene *source = TApp::instance()->getCurrentScene()->getScene();
+  QMenu menu(this);
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &menu, &QMenu::close);
+  auto *create = menu.addAction(tr("New Collection from Selected…"));
+  auto *add = menu.addAction(tr("Add Selected to Collection…"));
+  auto *remove = menu.addAction(tr("Remove Selected from Collection"));
+  menu.addSeparator();
+  auto *rename = menu.addAction(tr("Rename Collection…"));
+  auto *erase = menu.addAction(tr("Delete Collection…"));
+  const bool selectedCollection = !m_collection->currentData().toString().isEmpty();
+  create->setEnabled(!selectedLevels().empty());
+  add->setEnabled(!source->getProperties()->getCastCollections().empty() && !selectedLevels().empty());
+  remove->setEnabled(selectedCollection && !selectedLevels().empty());
+  rename->setEnabled(selectedCollection); erase->setEnabled(selectedCollection);
+  QAction *action = menu.exec(m_collectionActions->mapToGlobal(QPoint(0, m_collectionActions->height())));
+  if (!action || TApp::instance()->getCurrentScene()->getScene() != source) return;
+  if (action == create || action == add || action == remove) {
+    std::vector<TXshLevel *> levels; source->getLevelSet()->listLevels(levels);
+    const auto ambiguous = ambiguousCastIds(levels);
+    for (auto *level : selectedLevels()) if (ambiguous.contains(level->getCastId())) {
+      QMessageBox::warning(this, tr("Asset Collections"),
+          tr("Selected assets share an ambiguous identity in this scene. Collection membership was not changed."));
+      return;
+    }
+  }
+  const auto before = source->getProperties()->getCastCollections();
+  auto after = before;
+  QString collectionId = m_collection->currentData().toString();
+  int index = -1;
+  for (int i = 0; i < after.size(); ++i) if (after[i].id == collectionId) index = i;
+  if (action != create && action != add && index < 0) return;
+  if (action == add) {
+    QInputDialog choose(this);
+    choose.setObjectName("CastCollectionTarget");
+    choose.setWindowTitle(tr("Add Assets to Collection"));
+    choose.setLabelText(tr("Collection"));
+    QStringList names;
+    for (const auto &collection : after) names << collection.name;
+    choose.setComboBoxItems(names); choose.setComboBoxEditable(false);
+    if (index >= 0) choose.setTextValue(after[index].name);
+    connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &choose, &QInputDialog::reject);
+    if (choose.exec() != QDialog::Accepted || TApp::instance()->getCurrentScene()->getScene() != source) return;
+    index = names.indexOf(choose.textValue());
+    if (index < 0) return;
+    collectionId = after[index].id;
+  }
+  if (action == create || action == rename) {
+    if (action == create && (selectedLevels().empty() || after.size() >= 128)) return;
+    QInputDialog input(this);
+    input.setObjectName("CastCollectionName");
+    input.setWindowTitle(action == create ? tr("New Asset Collection") : tr("Rename Asset Collection"));
+    input.setLabelText(tr("Collection name (up to 80 characters)"));
+    if (action == rename) input.setTextValue(after[index].name);
+    connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &input, &QInputDialog::reject);
+    if (input.exec() != QDialog::Accepted || TApp::instance()->getCurrentScene()->getScene() != source) return;
+    const QString name = input.textValue().trimmed();
+    bool conflict = name.isEmpty() || name.size() > 80;
+    for (int i = 0; i < after.size(); ++i)
+      if (!(action == rename && i == index) && after[i].name.compare(name, Qt::CaseInsensitive) == 0) conflict = true;
+    if (conflict) { QMessageBox::warning(this, tr("Asset Collections"), tr("Use a unique, nonempty name of at most 80 characters.")); return; }
+    if (action == create) {
+      TSceneProperties::CastCollection collection;
+      collection.id = QUuid::createUuid().toString(QUuid::WithoutBraces); collection.name = name;
+      for (auto *level : selectedLevels()) collection.members.append(level->getCastId());
+      if (collection.members.empty() || collection.members.size() > 100000) return;
+      collectionId = collection.id; after.append(collection);
+    } else after[index].name = name;
+  } else if (action == erase) {
+    if (QMessageBox::question(this, tr("Delete Asset Collection"),
+          tr("Delete collection “%1”? Assets and files will remain unchanged.").arg(after[index].name)) != QMessageBox::Yes) return;
+    after.removeAt(index);
+  } else {
+    auto &members = after[index].members;
+    for (auto *level : selectedLevels()) {
+      if (action == remove) members.removeAll(level->getCastId());
+      else if (!members.contains(level->getCastId())) members.append(level->getCastId());
+    }
+    if (members.size() > 100000) {
+      QMessageBox::warning(this, tr("Asset Collections"), tr("A collection can contain at most 100,000 assets.")); return;
+    }
+  }
+  // Another Cast may have edited collections during a native modal dialog.
+  if (TApp::instance()->getCurrentScene()->getScene() != source ||
+      source->getProperties()->getCastCollections() != before || before == after) return;
+  auto *undo = new CastCollectionsUndo(source, after);
+  undo->redo(); TUndoManager::manager()->add(undo);
+  refreshCollections();
+  const int at = m_collection->findData(collectionId);
+  m_collection->setCurrentIndex(at < 0 ? 0 : at);
   refresh();
 }
 
@@ -867,6 +1068,9 @@ void CastBrowser::showActions() {
   menu.addAction(tr("Review Duplicate Assets…"), this, [this]() { CastBrowserActions::duplicates(this); });
   menu.addAction(tr("Collection Report…"), this, [this]() { CastBrowserActions::collectionReport(this); });
   menu.addSeparator();
+  menu.addAction(m_inspector->isHidden() ? tr("Show Inspector") : tr("Hide Inspector"), this, [this]() {
+    if (m_inspector->isHidden()) showInspector(selectedLevels()); else m_inspector->hide();
+  });
   menu.addAction(tr("Refresh Disk Status"), this, [this]() { refresh(); });
   menu.exec(m_actions->mapToGlobal(QPoint(0, m_actions->height())));
 }

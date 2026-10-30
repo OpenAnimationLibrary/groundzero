@@ -15,6 +15,7 @@
 #include "tpixelutils.h"
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
 //**********************************************************************************
@@ -23,7 +24,7 @@
 
 namespace {
 
-inline void deleteValue(const std::pair<std::string, TPropertyGroup *> &p) {
+inline void deleteValue(const std::pair<const std::string, TPropertyGroup *> &p) {
   delete p.second;
 }
 
@@ -77,50 +78,31 @@ TOutputProperties::TOutputProperties()
     , m_maxTileSizeIndex(0)
     , m_threadIndex(2)
     , m_subcameraPreview(false)
-    , m_boardSettings(new BoardSettings())
+    , m_boardSettings()
     , m_formatTemplateFId()
     , m_syncColorSettings(true)
     , m_aspectMode(NoAspectExport)
     , m_aspectRatio(1.85)
     , m_aspectColor(TPixel32::Black) {
-  m_renderSettings = new TRenderSettings();
-  m_nonlinearBpp   = m_renderSettings->m_bpp;
+  auto renderSettings = std::make_unique<TRenderSettings>();
+  auto boardSettings = std::make_unique<BoardSettings>();
+  m_nonlinearBpp = renderSettings->m_bpp;
+  m_renderSettings = renderSettings.release();
+  m_boardSettings = boardSettings.release();
 }
 
 //-------------------------------------------------------------------
 
 TOutputProperties::TOutputProperties(const TOutputProperties &src)
-    : m_path(src.m_path)
-    , m_formatProperties(src.m_formatProperties)
-    , m_renderSettings(new TRenderSettings(*src.m_renderSettings))
-    , m_frameRate(src.m_frameRate)
-    , m_from(src.m_from)
-    , m_to(src.m_to)
-    , m_whichLevels(src.m_whichLevels)
-    , m_offset(src.m_offset)
-    , m_step(src.m_step)
-    , m_multimediaRendering(src.m_multimediaRendering)
-    , m_maxTileSizeIndex(src.m_maxTileSizeIndex)
-    , m_threadIndex(src.m_threadIndex)
-    , m_subcameraPreview(src.m_subcameraPreview)
-    , m_boardSettings(new BoardSettings(*src.m_boardSettings))
-    , m_formatTemplateFId(src.m_formatTemplateFId)
-    , m_syncColorSettings(src.m_syncColorSettings)
-    , m_nonlinearBpp(src.m_nonlinearBpp)
-    , m_aspectMode(src.m_aspectMode)
-    , m_aspectRatio(src.m_aspectRatio)
-    , m_aspectColor(src.m_aspectColor) {
-  std::map<std::string, TPropertyGroup *>::iterator ft,
-      fEnd = m_formatProperties.end();
-  for (ft = m_formatProperties.begin(); ft != fEnd; ++ft) {
-    if (ft->second) ft->second = ft->second->clone();
-  }
+    : TOutputProperties() {
+  *this = src;
 }
 
 //-------------------------------------------------------------------
 
 TOutputProperties::~TOutputProperties() {
   delete m_renderSettings;
+  delete m_boardSettings;
 
   std::for_each(m_formatProperties.begin(), m_formatProperties.end(),
                 ::deleteValue);
@@ -129,7 +111,24 @@ TOutputProperties::~TOutputProperties() {
 //-------------------------------------------------------------------
 
 TOutputProperties &TOutputProperties::operator=(const TOutputProperties &src) {
+  if (this == &src) return *this;
+
+  // Clone every owned value before replacing the destination. In particular,
+  // assigning defaults must remove old format keys, not leave freed pointers
+  // for the next scene reset or the destructor to delete again.
+  auto renderSettings = std::make_unique<TRenderSettings>(*src.m_renderSettings);
+  auto boardSettings = std::make_unique<BoardSettings>(*src.m_boardSettings);
+  std::map<std::string, std::unique_ptr<TPropertyGroup>> formatOwners;
+  for (const auto &entry : src.m_formatProperties) {
+    std::unique_ptr<TPropertyGroup> copy(entry.second ? entry.second->clone() : nullptr);
+    formatOwners.emplace(entry.first, std::move(copy));
+  }
+  std::map<std::string, TPropertyGroup *> formatProperties;
+  for (const auto &entry : formatOwners)
+    formatProperties.emplace(entry.first, entry.second.get());
+
   m_path        = src.m_path;
+  m_formatTemplateFId = src.m_formatTemplateFId;
   m_from        = src.m_from;
   m_to          = src.m_to;
   m_frameRate   = src.m_frameRate;
@@ -141,22 +140,19 @@ TOutputProperties &TOutputProperties::operator=(const TOutputProperties &src) {
   m_maxTileSizeIndex    = src.m_maxTileSizeIndex;
   m_threadIndex         = src.m_threadIndex;
   m_subcameraPreview    = src.m_subcameraPreview;
+  m_syncColorSettings   = src.m_syncColorSettings;
+  m_nonlinearBpp        = src.m_nonlinearBpp;
 
   delete m_renderSettings;
-  m_renderSettings = new TRenderSettings(*src.m_renderSettings);
+  m_renderSettings = renderSettings.release();
 
-  std::for_each(m_formatProperties.begin(), m_formatProperties.end(),
+  m_formatProperties.swap(formatProperties);
+  for (auto &entry : formatOwners) entry.second.release();
+  std::for_each(formatProperties.begin(), formatProperties.end(),
                 ::deleteValue);
 
-  std::map<std::string, TPropertyGroup *>::const_iterator sft,
-      sfEnd = src.m_formatProperties.end();
-  for (sft = src.m_formatProperties.begin(); sft != sfEnd; ++sft)
-    m_formatProperties[sft->first] = sft->second->clone();
-
   delete m_boardSettings;
-  m_boardSettings = new BoardSettings(*src.m_boardSettings);
-
-  m_formatTemplateFId = src.m_formatTemplateFId;
+  m_boardSettings = boardSettings.release();
 
   m_aspectMode  = src.m_aspectMode;
   m_aspectRatio = src.m_aspectRatio;
