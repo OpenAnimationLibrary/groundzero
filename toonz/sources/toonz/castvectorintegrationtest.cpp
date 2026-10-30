@@ -24,6 +24,7 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonzqt/functioncurveoperations.h"
 #include "tlevel_io.h"
 #include "toutputproperties.h"
 #include "tpalette.h"
@@ -688,6 +689,11 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
             "Cast/vector empty clone created absent columns or stage objects");
     nested->setCell(0, 0, TXshCell(level, TFrameId(1)));
     nested->setCell(1, 0, TXshCell(level, TFrameId(999)));
+    // setCell can leave valid source-column stage data lazy. Materialize and
+    // author that existing node before comparing counts with newly added nodes.
+    auto *sourceStage = nested->getStageObject(TStageObjectId::ColumnId(0));
+    auto *sourceX = sourceStage->getParam(TStageObject::T_X);
+    require(sourceX->setValue(6., 12.), "Cast/vector source key fixture failed");
     const int originalColumns = nested->getColumnCount();
     const int originalStageObjects = nested->getStageObjectTree()->getStageObjectCount();
     require(!MatchlineCommands::cloneLevels(range, "Cast_vector_missing_drawing") &&
@@ -702,21 +708,50 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
             "Cast/vector clone into missing destination failed");
     TXshSimpleLevelP generated = nested->getCell(0, 3).getSimpleLevel();
     auto *generatedColumn = nested->getColumn(3);
+    auto *generatedStage = nested->getStageObject(TStageObjectId::ColumnId(3));
+    TDoubleParamP generatedX = generatedStage->getParam(TStageObject::T_X);
     require(generated && nested->getColumnCount() == 4,
             "Cast/vector clone did not create required intermediate columns");
+    // A later Function Editor undo entry owns the exact curve, not a column ID.
+    // Recreating a default stage during clone redo would detach that later edit.
+    TDoubleParamP authored = generatedX->clone();
+    require(authored->setValue(6., 23.), "Cast/vector cloned-column key fixture failed");
+    QString curveError;
+    require(FunctionCurveOperations::apply(
+                FunctionCurveOperations::planRestore({{generatedX, authored}}),
+                "Cloned column curve fixture", curveError),
+            "Cast/vector cloned-column Function Editor edit failed");
     for (int cycle = 0; cycle != 2; ++cycle) {
+      require(TUndoManager::manager()->undo() && generatedX->getKeyframeCount() == 0,
+              "Cast/vector cloned-column curve undo failed");
       require(TUndoManager::manager()->undo() &&
                   nested->getColumnCount() == originalColumns &&
                   nested->getStageObjectTree()->getStageObjectCount() == originalStageObjects &&
                   scene->getLevelSet()->getLevelCount() == levelCount,
               "Cast/vector clone undo retained newly created columns or stage objects");
+      for (int col = 1; col != 4; ++col)
+        require(!nested->getStageObjectTree()->getStageObject(TStageObjectId::ColumnId(col), false),
+                "Cast/vector clone undo retained an absent destination stage");
+      require(nested->getStageObject(TStageObjectId::ColumnId(0)) == sourceStage &&
+                  sourceStage->getParam(TStageObject::T_X) == sourceX &&
+                  sourceX->isKeyframe(6.) && sourceX->getValue(6.) == 12.,
+              "Cast/vector clone undo replaced or changed the authored source stage");
       require(TUndoManager::manager()->redo() &&
                   nested->getColumnCount() == 4 && nested->getColumn(3) == generatedColumn &&
                   nested->getCell(0, 3) == TXshCell(generated.getPointer(), TFrameId(1)) &&
                   scene->getLevelSet()->getLevelCount() == levelCount + 1,
               "Cast/vector missing-destination redo changed original clone identities");
+      require(nested->getStageObject(TStageObjectId::ColumnId(3)) == generatedStage &&
+                  generatedStage->getParam(TStageObject::T_X) == generatedX.getPointer() &&
+                  generatedX->getKeyframeCount() == 0,
+              "Cast/vector clone redo replaced the stage or its original curve");
+      require(TUndoManager::manager()->redo() && generatedX->isKeyframe(6.) &&
+                  nested->getStageObject(TStageObjectId::ColumnId(3))
+                      ->getParam(TStageObject::T_X, 6.) == 23.,
+              "Cast/vector Function Editor redo edited a detached clone curve");
       expectDrawing(generated.getPointer(), 1, 0., sourceProfile, .327);
     }
+    require(TUndoManager::manager()->undo(), "Cast/vector final cloned-column key undo missing");
     require(TUndoManager::manager()->undo(), "Cast/vector missing-destination final undo missing");
   }
 

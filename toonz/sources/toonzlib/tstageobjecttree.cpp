@@ -198,13 +198,21 @@ TStageObject *TStageObjectTree::getStageObject(const TStageObjectId &id,
 //-----------------------------------------------------------------------------
 
 void TStageObjectTree::insertColumn(int index) {
+  insertColumn(index, nullptr);
+}
+
+void TStageObjectTree::insertColumn(int index, TStageObject *object) {
   assert(0 <= index);
+  assert(!object || (object->m_tree == this && object->getId().isColumn() &&
+                    !object->m_parent));
+  assert(!object || getStageObject(object->getId(), false) != object);
 #ifndef NDEBUG
   checkIntegrity();
 #endif
 
   TStageObjectId id       = TStageObjectId::ColumnId(index);
-  TStageObject *pegbar    = new TStageObject(this, id);
+  TStageObject *pegbar    = object ? object : new TStageObject(this, id);
+  pegbar->setId(id);
   TStageObjectId parentId = TStageObjectId::TableId;
   pegbar->setParent(parentId);
   // mi assicuro che il padre esista

@@ -247,6 +247,7 @@ class CloneLevelNoSaveUndo final : public TUndo {
   TXsheetP m_xsh;
   std::map<TXshSimpleLevel *, TXshLevelP> m_createdLevels;
   std::map<int, TXshColumnP> m_insertedColumns;
+  std::map<int, TStageObjectP> m_insertedStageObjects;
   std::map<std::pair<int, int>, TXshCell> m_cells;
   std::map<int, std::string> m_oldColumnNames, m_newColumnNames;
 
@@ -279,8 +280,11 @@ public:
       const std::set<int> &insertedColumnIndices,
       const std::map<int, std::string> &oldColumnNames)
       : m_xsh(xsh), m_createdLevels(createdLevels), m_oldColumnNames(oldColumnNames) {
-    for (int col : insertedColumnIndices)
+    for (int col : insertedColumnIndices) {
       m_insertedColumns.emplace(col, xsh->getColumn(col));
+      m_insertedStageObjects.emplace(
+          col, xsh->getStageObject(TStageObjectId::ColumnId(col)));
+    }
     for (int col = range.m_c1 + 1; col <= range.m_c1 + range.getColCount(); ++col) {
       if (xsh->getColumn(col))
         m_newColumnNames[col] = xsh->getStageObject(TStageObjectId::ColumnId(col))->getName();
@@ -312,7 +316,8 @@ public:
     for (const auto &entry : m_createdLevels)
       m_xsh->getScene()->getLevelSet()->insertLevel(entry.second.getPointer());
     for (const auto &entry : m_insertedColumns)
-      m_xsh->insertColumn(entry.first, entry.second.getPointer());
+      m_xsh->insertColumn(entry.first, entry.second.getPointer(),
+                         m_insertedStageObjects.at(entry.first).getPointer());
     for (const auto &entry : m_cells)
       restoreCell(entry.first.first, entry.first.second, entry.second);
     for (const auto &entry : m_newColumnNames)
@@ -324,7 +329,8 @@ public:
     return sizeof *this + (sizeof(TXshLevelP) + sizeof(TXshSimpleLevel *)) *
                               m_createdLevels.size() +
            sizeof(decltype(m_cells)::value_type) * m_cells.size() +
-           sizeof(decltype(m_insertedColumns)::value_type) * m_insertedColumns.size();
+           sizeof(decltype(m_insertedColumns)::value_type) * m_insertedColumns.size() +
+           sizeof(decltype(m_insertedStageObjects)::value_type) * m_insertedStageObjects.size();
   }
 };
 
