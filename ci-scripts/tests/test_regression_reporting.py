@@ -175,6 +175,43 @@ class RegressionReportingTest(unittest.TestCase):
         self.assertNotIn(b"timed out", annotations[0])
         self.assertIn(b"secondary diagnostic: cast-workflow::Failure: Isolated diagnostic timed out after 120 seconds.", annotations[1])
 
+    def test_first_native_assertion_precedes_lifecycle_and_isolated_failures(self):
+        original = (
+            "native-ui-integration: checkpoint: checking gradient owner\n"
+            "native-ui-integration: FAIL: gradient owner 動画 50% unavailable\n"
+            "native-ui-integration: checkpoint: native application event loop returned\n"
+            "icon-lifecycle-native: scene retention and reinstatement PASS\n"
+            "native-ui-integration: FAIL: icon lifecycle: missing fixture 🎨.pli\n"
+            "Native application exited with status 1 (0x00000001).\n"
+            "\nIndependent diagnostics; original all-workflows result unchanged:\n"
+            "cast-workflow=FAIL (status 1)\n"
+            "\n--- Independent native diagnostic: cast-workflow ---\n"
+            "native-ui-integration: FAIL: fresh Cast tag acceptance\n"
+            "native-ui-integration: checkpoint: native application event loop returned\n"
+            "native-ui-integration: FAIL: icon lifecycle: missing fixture 🎨.pli\n"
+            "Independent native diagnostic: cast-workflow exited with status 1 (0x00000001).\n"
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "native-output.txt"
+            report.write_bytes(original)
+            status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+            self.assertEqual(report.read_bytes(), original)
+        self.assertEqual(status, 0)
+        annotations = output.splitlines()
+        self.assertEqual(len(annotations), 4)
+        self.assertTrue(annotations[0].startswith(
+            "::error title=Native UI regression::Failure: native-ui-integration: FAIL: gradient owner 動画 50%25 unavailable".encode("utf-8")))
+        self.assertTrue(annotations[1].startswith(
+            b"::error title=Native UI regression - additional native failure 2::Failure: native-ui-integration: FAIL: icon lifecycle:"))
+        self.assertTrue(annotations[2].startswith(
+            b"::error title=Native UI regression - secondary diagnostic: cast-workflow::Failure: native-ui-integration: FAIL: fresh Cast tag acceptance"))
+        self.assertTrue(annotations[3].startswith(
+            b"::error title=Native UI regression - secondary diagnostic: cast-workflow - additional native failure 2::Failure: native-ui-integration: FAIL: icon lifecycle:"))
+        for annotation in annotations:
+            body = unquote_to_bytes(annotation.split(b"::", 2)[2])
+            self.assertLessEqual(len(body), 3500)
+            body.decode("utf-8", errors="strict")
+
     def test_standalone_failure_and_each_secondary_excerpt_remain_bounded_utf8(self):
         for diagnostics in (False, True):
             with self.subTest(diagnostics=diagnostics), tempfile.TemporaryDirectory() as directory:

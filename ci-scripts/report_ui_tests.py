@@ -4,8 +4,27 @@ import re
 import sys
 
 
+NATIVE_FAILURE = re.compile(r"^native-ui-integration: FAIL:.*$", re.M)
+NATIVE_TIMEOUT = re.compile(
+    r"^(?:Native application integration test|Isolated diagnostic) "
+    r"timed out after \d+(?:\.\d+)? seconds\.\r?$", re.M)
+
+
 def escape(value):
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def process_failure_reports(suffix, output):
+    """Keep the first assertion and separately expose later cleanup failures."""
+    yield suffix, output
+    failures = list(NATIVE_FAILURE.finditer(output))
+    # A timeout remains the primary process result. Otherwise its first native
+    # assertion is already the headline; later lifecycle failures cannot replace
+    # it, but each still needs its own visible annotation.
+    first_additional = 0 if NATIVE_TIMEOUT.search(output) else 1
+    for index in range(first_additional, len(failures)):
+        yield (suffix + " - additional native failure " + str(index + 1),
+               failures[index].group())
 
 
 def failure_reports(output):
@@ -17,7 +36,7 @@ def failure_reports(output):
     """
     primary, boundary, diagnostics = output.partition(
         "\nIndependent diagnostics; original all-workflows result unchanged:\n")
-    yield "", primary
+    yield from process_failure_reports("", primary)
     if not boundary:
         return
     sections = re.split(
@@ -28,7 +47,8 @@ def failure_reports(output):
             r"(?m)^([a-z0-9-]+)=(PASS|FAIL) \(status (-?\d+)\)\r?$", sections[0]):
         suite, outcome, status = result.groups()
         if outcome == "FAIL" or int(status) != 0:
-            yield " - secondary diagnostic: " + suite, details.get(suite, result.group())
+            yield from process_failure_reports(
+                " - secondary diagnostic: " + suite, details.get(suite, result.group()))
 
 
 def failure_excerpt(output):
@@ -42,11 +62,10 @@ def failure_excerpt(output):
         r"\bFAIL(?:ED)?\b|Traceback|Assertion.*failed|assertion.*failed|"
         r"\*\*\*Exception|received signal|SIGSEGV|SIGABRT|\b\w*Error:", re.I)
     candidates = [i for i, line in enumerate(lines) if failure.search(line)]
-    native = [i for i in candidates if "native-ui-integration: FAIL:" in lines[i]]
-    timeouts = [i for i, line in enumerate(lines) if re.fullmatch(
-        r"(?:Native application integration test|Isolated diagnostic) "
-        r"timed out after \d+(?:\.\d+)? seconds\.", line)]
-    index = (timeouts or native or candidates or [max(0, len(lines) - 1)])[-1]
+    native = [i for i in candidates if NATIVE_FAILURE.fullmatch(lines[i])]
+    timeouts = [i for i, line in enumerate(lines) if NATIVE_TIMEOUT.fullmatch(line)]
+    index = (timeouts[-1] if timeouts else native[0] if native else
+             (candidates or [max(0, len(lines) - 1)])[-1])
     phases = [line for line in lines[:index]
               if "checkpoint:" in line or "workflow:" in line or "-native:" in line]
     sections = []
