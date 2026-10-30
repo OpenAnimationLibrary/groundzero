@@ -177,6 +177,7 @@ public:
     // with matching names under a different directory are different items.
     removeChildren(0, static_cast<int>(m_children.size()));
     m_path = path;
+    m_existsChecked = false;
     refreshChildren();
   }
 };
