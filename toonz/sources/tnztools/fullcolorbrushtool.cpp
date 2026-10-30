@@ -726,6 +726,7 @@ void FullColorBrushTool::initNativePresets() {
            {L"<round>", tr("Native Round")},
            {L"<wet>", tr("Native Wet Mix")},
            {L"<smear>", tr("Native Smear")},
+           {L"<browse>", tr("Find Native Brush…")},
            {L"<import>", tr("Import Native Brush…")},
            {L"<edit>", tr("Edit / Save Native Brush…")},
            {L"<export>", tr("Export Native Brush…")}})
@@ -735,10 +736,9 @@ void FullColorBrushTool::initNativePresets() {
   QDirIterator iterator(root.path(), {"*.gzbrush"},
                         QDir::Files | QDir::NoSymLinks,
                         QDirIterator::Subdirectories);
-  while (iterator.hasNext() && files.size() < 2000)
-    files << root.relativeFilePath(iterator.next());
+  while (iterator.hasNext()) files << root.relativeFilePath(iterator.next());
   files.sort();
-  for (const auto &file : files.mid(0, 2000)) {
+  for (const auto &file : files) {
     QString name = QFileInfo(file).fileName().section('-', 0, -2);
     if (name.isEmpty()) name = file;
     m_nativePreset.addValueWithUIName(file.toStdWString(), name);
@@ -768,6 +768,57 @@ bool FullColorBrushTool::selectNativePreset() {
   QString id = QString::fromStdWString(m_nativePreset.getValue()), error;
   auto previous =
       QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString();
+  if (id == "<browse>") {
+    m_nativePreset.setValue(previous);
+    QDialog chooser;
+    chooser.setWindowTitle(tr("Find Native Brush"));
+    auto layout = new QVBoxLayout(&chooser);
+    auto search = new QLineEdit(&chooser);
+    search->setPlaceholderText(tr("Search brush names or collection paths"));
+    auto list = new QListWidget(&chooser);
+    layout->addWidget(search);
+    layout->addWidget(list);
+    QDir root(nativeBrushFolder());
+    QDirIterator iterator(root.path(), {"*.gzbrush"},
+                          QDir::Files | QDir::NoSymLinks,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+      const QString path = root.relativeFilePath(iterator.next());
+      auto item          = new QListWidgetItem(path, list);
+      item->setData(Qt::UserRole, path);
+      if (path.toStdWString() == previous) list->setCurrentItem(item);
+    }
+    list->sortItems();
+    auto buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &chooser);
+    layout->addWidget(buttons);
+    QObject::connect(
+        search, &QLineEdit::textChanged, &chooser,
+        [list](const QString &query) {
+          for (int i = 0; i < list->count(); ++i)
+            list->item(i)->setHidden(
+                !list->item(i)->text().contains(query, Qt::CaseInsensitive));
+        });
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &chooser,
+                     &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &chooser,
+                     &QDialog::reject);
+    QObject::connect(list, &QListWidget::itemDoubleClicked, &chooser,
+                     [&chooser](QListWidgetItem *) { chooser.accept(); });
+    chooser.resize(640, 520);
+    search->setFocus();
+    if (chooser.exec() != QDialog::Accepted || !list->currentItem() ||
+        list->currentItem()->isHidden())
+      return true;
+    const auto chosen =
+        list->currentItem()->data(Qt::UserRole).toString().toStdWString();
+    if (m_nativePreset.isValue(chosen)) {
+      m_nativePreset.setValue(chosen);
+      return selectNativePreset();
+    }
+    DVGui::warning(tr("The brush library changed. Reopen the brush selector."));
+    return true;
+  }
   if (id == "<import>") {
     QString path = QFileDialog::getOpenFileName(
         nullptr, tr("Import Native Raster Brush"), QString(),

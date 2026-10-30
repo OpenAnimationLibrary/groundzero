@@ -23,8 +23,8 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Four Krita smudge profiles and native wet | Native wet/smear implemented; four source models still planned | Native deterministic pickup tests; foreign models must not alias native wet |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Full app CI and device qualification pending |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Cross-platform package CI passes; application workflows pending |
-| Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Application scene/lifecycle tests still required |
-| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; process isolation and sustained fuzzing pending | Sanitizers, malformed corpus, cancellation and limits |
+| Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Actual-tool undo, redo, cancellation, frame creation and PNG reopen workload added; full application CI pending |
+| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; libFuzzer target and original corpus added; process isolation and sustained qualification pending | Sanitizers, malformed corpus, cancellation and limits |
 | Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
 | Must-have pack parity including any wet/Mixer/bristle/TPL expansion | Unresolved target | Pack revision/preset identity and authorized reference access |
 
@@ -225,3 +225,33 @@ and smudge traces, event-to-surface CPU percentiles, tracked active-stroke memor
 and separate backing-raster memory. Hosted-runner results are measurements, not
 hardware/display latency qualification. Foreign reference qualification remains
 pending; the expanded native workflow does not satisfy those unfinished rows.
+
+## Native qualification progress
+
+The application CI workload now drives the real raster brush tool and undo
+manager in a disposable profile. It checks one-transaction strokes, exact
+undo/redo, cancellation without history entries, new-frame undo/redo and
+cancellation, and PNG reopening. Passing lower-level tests is not a substitute
+for this workload, which remains pending until its exact-head CI run succeeds.
+The native library also provides filename/collection search and no longer
+silently truncates the selector at 2,000 installed packages.
+
+The import fuzz job uses original generated native, KPP, GBR, GIH, bundle and
+ABR inputs and bounded libFuzzer mutations with address/undefined sanitizers.
+A short CI fuzz run is regression evidence, not proof of parser safety or a
+substitute for process isolation. Long native wet traces check repeatability,
+premultiplied color invariants and memory release through 10,000 dabs; foreign
+smudge drift and cross-platform scalar-reference tolerances remain separate.
+
+Hosted Ubuntu measurements at `b784908cb703c638c83cc11193e274f7ba69deb9`:
+
+| Original 60-second workload | Event CPU p95 / p99 | Peak tracked stroke bytes |
+|---|---|---|
+| Dry, 2048², 64 px, 240 Hz | 0.413 / 0.468 ms | 42,995,072 |
+| Texture + dual, 4096², 256 px, 120 Hz | 7.326 / 8.226 ms | 202,672,256 |
+| Smear, 4096², 256 px, 120 Hz | 10.740 / 12.234 ms | 247,838,880 |
+
+All three released tracked allocations after stroke completion. Backing rasters
+are accounted separately (128 MiB dry; 512 MiB heavy). These are CPU measurements
+on a hosted runner, not physical tablet-to-display latency. The native-metrics
+check passed at that commit; subsequent-head results must be checked separately.

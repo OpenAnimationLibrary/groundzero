@@ -247,6 +247,57 @@ void testColorDynamics() {
   p.background.r = 1;
   require(!validate(p).empty(), "non-premultiplied background accepted");
 }
+void testLongWetTrace() {
+  // Original color/alpha strips and a long reversing path exercise reservoir
+  // accumulation, transparency, deterministic sampling and lifetime accounting.
+  // This proves native repeatability, not agreement with another application.
+  for (auto mode : {Wet::Dulling, Wet::Smear}) {
+    Canvas first, repeated;
+    for (int y = 0; y < first.h; ++y)
+      for (int x = 0; x < first.w; ++x) {
+        double alpha = (x % 16) / 15.0;
+        first.pixels[size_t(y) * first.w + x] =
+            (x / 16) % 2 ? Pixel{alpha, 0, 0, alpha}
+                         : Pixel{0, alpha * .5, alpha, alpha};
+      }
+    repeated.pixels = first.pixels;
+    Preset p;
+    p.wet        = mode;
+    p.size.value = 4;
+    p.spacing    = .25;
+    p.pickup     = .75;
+    p.colorRate  = .125;
+    p.reload     = .015625;
+    p.color      = {.125, .25, 0, .5};
+    auto budget  = std::make_shared<MemoryBudget>(1024 * 1024);
+    Stroke a(first, p, 1024 * 1024, budget), b(repeated, p);
+    const size_t checkpoints[] = {1, 10, 100, 1000, 10000};
+    size_t checkpoint          = 0;
+    for (int i = 0; checkpoint < 5 && i < 50000; ++i) {
+      const int phase = i % 512;
+      const double x  = 16 + (phase <= 256 ? phase : 512 - phase) * .25;
+      auto event      = sample(x, 64, i / 256.0);
+      require(a.add(event) && b.add(event), "long native wet trace failed");
+      if (a.dabCount() < checkpoints[checkpoint]) continue;
+      require(a.dabCount() == checkpoints[checkpoint],
+              "long wet trace skipped a dab checkpoint");
+      require(same(first, repeated), "native wet drift is not repeatable");
+      for (const auto &pixel : first.pixels)
+        require(std::isfinite(pixel.a) && std::isfinite(pixel.r) &&
+                    std::isfinite(pixel.g) && std::isfinite(pixel.b) &&
+                    pixel.a >= 0 && pixel.a <= 1 && pixel.r >= 0 &&
+                    pixel.g >= 0 && pixel.b >= 0 &&
+                    pixel.r <= pixel.a + 1e-12 && pixel.g <= pixel.a + 1e-12 &&
+                    pixel.b <= pixel.a + 1e-12,
+                "long wet trace left the premultiplied color domain");
+      ++checkpoint;
+    }
+    require(checkpoint == 5, "long wet trace did not reach 10000 dabs");
+    a.finish();
+    b.finish();
+    require(budget->used() == 0, "long wet trace retained reservoir memory");
+  }
+}
 void testCubicCurves() {
   Preset p;
   p.opacity.mappings.push_back({Sensor::Pressure,
@@ -281,6 +332,7 @@ int main() {
     testStationaryAndBatching();
     testColorDynamics();
     testCubicCurves();
+    testLongWetTrace();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

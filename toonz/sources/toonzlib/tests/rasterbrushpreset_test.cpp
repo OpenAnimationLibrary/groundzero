@@ -379,6 +379,62 @@ void testCollection() {
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
 }
+void writeCorpus(const QString &directory) {
+  require(QDir().mkpath(directory), "cannot create original fuzz corpus");
+  auto save = [&](const char *name, int format, const QByteArray &bytes) {
+    QFile file(QDir(directory).filePath(QString::fromLatin1(name)));
+    require(file.open(QIODevice::WriteOnly), "cannot write original corpus");
+    QByteArray seed(1, char(format));
+    seed += bytes;
+    require(file.write(seed) == seed.size(), "short corpus write");
+  };
+  QString error;
+  Record record;
+  record.preset.opacity.mappings.push_back({Sensor::Pressure,
+                                            {{0, 0}, {.5, 1}, {1, 0}},
+                                            1,
+                                            Interpolation::NaturalCubic});
+  save("native", 0, encode(record, error));
+  require(error.isEmpty(), "cannot encode native corpus");
+  save("pixel-kpp", 1, kpp());
+  save("smudge-kpp", 1, kpp("colorsmudge"));
+  save("gray-gbr", 2, gbr());
+  save("rgba-gbr", 2, gbr(2, 4));
+  save("sequence-gih", 3,
+       QByteArray(
+           "Original\n2 ncells:2 step:25 dim:1 rank0:2 sel0:incremental\n") +
+           gbr() + gbr());
+  QByteArray manifest =
+      "<manifest:manifest "
+      "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
+      "manifest:version=\"1.2\"><manifest:file-entry "
+      "manifest:full-path=\"paintoppresets/original.kpp\" "
+      "manifest:media-type=\"paintoppresets\"/></manifest:manifest>";
+  save("bundle", 4,
+       archive({{"mimetype", "application/x-krita-resourcebundle"},
+                {"META-INF/manifest.xml", manifest},
+                {"paintoppresets/original.kpp", kpp()}},
+               true));
+  QByteArray abr, sample;
+  auto be = [](QByteArray &out, unsigned n, int length) {
+    for (int i = length - 1; i >= 0; --i) out.append(char(n >> (8 * i)));
+  };
+  be(sample, 0, 4);
+  be(sample, 25, 2);
+  be(sample, 1, 1);
+  for (int n : {0, 0, 1, 2}) be(sample, n, 2);
+  for (int n : {0, 0, 1, 2}) be(sample, n, 4);
+  be(sample, 8, 2);
+  be(sample, 0, 1);
+  sample.append(char(255));
+  sample.append(char(0));
+  be(abr, 1, 2);
+  be(abr, 1, 2);
+  be(abr, 2, 2);
+  be(abr, sample.size(), 4);
+  abr += sample;
+  save("sample-abr", 5, abr);
+}
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
@@ -387,6 +443,8 @@ int main(int argc, char **argv) {
     testImports();
     testBundles();
     testCollection();
+    if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--write-corpus")
+      writeCorpus(QString::fromLocal8Bit(argv[2]));
     std::cout << "Native brush package tests passed\n";
     return 0;
   } catch (const std::exception &e) {
