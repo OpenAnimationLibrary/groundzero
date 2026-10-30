@@ -15,6 +15,7 @@
 #include "tools/toolutils.h"
 #include "tools/artlayer.h"
 #include "tools/strokeopacityeditor.h"
+#include "tools/vectoralignmentpreview.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -1687,6 +1688,55 @@ public:
     return QObject::tr("Align and Distribute Vector Strokes");
   }
 };
+
+bool sameAlignmentRegion(const TRegion *a, const TRegion *b) {
+  if (a->getStyle() != b->getStyle() ||
+      a->getEdgeCount() != b->getEdgeCount() ||
+      a->getSubregionCount() != b->getSubregionCount()) return false;
+  for (UINT i = 0; i < a->getEdgeCount(); ++i) {
+    const auto *x = a->getEdge(i), *y = b->getEdge(i);
+    if (x->m_index != y->m_index || x->m_w0 != y->m_w0 ||
+        x->m_w1 != y->m_w1 || x->m_styleId != y->m_styleId) return false;
+  }
+  for (int i = 0; i < a->getSubregionCount(); ++i)
+    if (!sameAlignmentRegion(a->getSubregion(i), b->getSubregion(i))) return false;
+  return true;
+}
+
+// A modal event loop may run a script or reload an asset. Check every reviewed
+// source, including unchanged strokes/fills/groups, before the first live edit.
+// Region computation is confined to detached clones even during validation.
+bool sameAlignmentSource(const TVectorImageP &live, const TVectorImageP &before) {
+  if (!live || live->getStrokeCount() != before->getStrokeCount() ||
+      live->isInsideGroup() != before->isInsideGroup() ||
+      live->getAutocloseTolerance() != before->getAutocloseTolerance()) return false;
+  for (UINT i = 0; i < live->getStrokeCount(); ++i) {
+    const auto *a = live->getStroke(i), *b = before->getStroke(i);
+    const auto &x = a->outlineOptions(), &y = b->outlineOptions();
+    if (a->getId() != b->getId() || *a != *b || a->getStyle() != b->getStyle() ||
+        a->isSelfLoop() != b->isSelfLoop() ||
+        x.m_capStyle != y.m_capStyle || x.m_joinStyle != y.m_joinStyle ||
+        x.m_miterLower != y.m_miterLower || x.m_miterUpper != y.m_miterUpper ||
+        x.m_patternFrameOffset != y.m_patternFrameOffset ||
+        x.m_patternFrameStep != y.m_patternFrameStep || x.m_opacity != y.m_opacity ||
+        x.m_opacityProfile != y.m_opacityProfile ||
+        live->getGroupDepth(i) != before->getGroupDepth(i) ||
+        live->getGroupByStroke(i) != before->getGroupByStroke(i) ||
+        live->isEnteredGroupStroke(i) != before->isEnteredGroupStroke(i) ||
+        (i && live->getCommonGroupDepth(i-1, i) != before->getCommonGroupDepth(i-1, i)))
+      return false;
+  }
+  const auto *a = live->getPalette(), *b = before->getPalette();
+  if (bool(a) != bool(b) || (a && a->getStyleCount() != b->getStyleCount())) return false;
+  if (a) for (int i = 0; i < a->getStyleCount(); ++i)
+    if (!(*a->getStyle(i) == *b->getStyle(i))) return false;
+  TVectorImageP current = live->cloneWithGroupContext();
+  current->findRegions();
+  if (current->getRegionCount() != before->getRegionCount()) return false;
+  for (UINT i = 0; i < current->getRegionCount(); ++i)
+    if (!sameAlignmentRegion(current->getRegion(i), before->getRegion(i))) return false;
+  return true;
+}
 }  // namespace
 
 std::vector<int> StrokeSelection::selectionOrder() const {
@@ -1757,6 +1807,22 @@ void StrokeSelection::alignStrokes(VectorAlignment::Type type) {
   // Prepare all results before changing any drawing. A locked drawing rejects
   // the operation as a whole, and repeated exposures are processed once.
   std::vector<std::unique_ptr<AlignStrokesUndo>> edits;
+  std::vector<VectorAlignmentPreview::Entry> previews;
+  std::vector<std::pair<TFrameId, TVectorImageP>> sources;
+  const auto selectedIndexes = selectionOrder();
+  const auto targetFrames = selectionTool->getTargetFrames();
+  const auto reviewFramesMode = selectionTool->levelSelection().framesMode();
+  const auto reviewFilter = selectionTool->levelSelection().filter();
+  const auto reviewStyles = selectionTool->levelSelection().styles();
+  ToonzScene *const reviewScene = app->getCurrentScene()->getScene();
+  const auto reviewFrameType = app->getCurrentFrame()->getFrameType();
+  const int reviewFrame = app->getCurrentFrame()->getFrame();
+  const TFrameId reviewFid = app->getCurrentFrame()->getFid();
+  const int reviewColumn = app->getCurrentColumn()->getColumnIndex();
+  const auto reviewObject = app->getCurrentObject()->getObjectId();
+  const TVectorImageP reviewImage = m_vi;
+  const bool levelScope = selectionTool->isLevelType();
+  const bool selectedScope = selectionTool->isSelectedFramesType();
   for (const TFrameId &fid : frames) {
     if (level->isFrameReadOnly(fid)) {
       DVGui::warning(QObject::tr("A selected drawing is read-only. No drawings were aligned."));
@@ -1789,6 +1855,13 @@ void StrokeSelection::alignStrokes(VectorAlignment::Type type) {
         indexes.insert(indexes.end(), objects[i].strokes.begin(), objects[i].strokes.end());
     if (indexes.empty()) continue;
     proposed->findRegions();
+    TVectorImageP before = proposed->cloneWithGroupContext();
+    // Freeze palette appearance as well as geometry in the review snapshots.
+    if (auto *palette = proposed->getPalette()) {
+      TPaletteP frozenPalette = palette->clone();
+      before->setPalette(frozenPalette.getPointer());
+      proposed->setPalette(frozenPalette.getPointer());
+    }
     auto undo = std::make_unique<AlignStrokesUndo>(level, fid, proposed, indexes);
     std::vector<std::unique_ptr<TStroke>> previous;
     std::vector<TStroke *> previousPtrs;
@@ -1803,9 +1876,52 @@ void StrokeSelection::alignStrokes(VectorAlignment::Type type) {
     }
     proposed->notifyChangedStrokes(indexes, previousPtrs);
     undo->captureAfter(proposed);
+    previews.push_back({QString::fromStdString(fid.expand()), before, proposed});
+    sources.emplace_back(fid, image);
     edits.push_back(std::move(undo));
   }
   if (edits.empty()) return;
+  const QString scope = levelScope ? VectorAlignmentPreview::tr("Whole Level") :
+      selectionTool->isOnionSkinFramesType() ? VectorAlignmentPreview::tr("Onion Skin Drawings") :
+      selectedScope ? VectorAlignmentPreview::tr("Selected Drawings") :
+                      VectorAlignmentPreview::tr("Current Stroke Selection");
+  if (!VectorAlignmentPreview::review(previews, type, method, scope)) return;
+  bool valid = app->getCurrentScene()->getScene() == reviewScene &&
+      app->getCurrentFrame()->getFrameType() == reviewFrameType &&
+      app->getCurrentFrame()->getFrame() == reviewFrame &&
+      app->getCurrentFrame()->getFid() == reviewFid &&
+      app->getCurrentColumn()->getColumnIndex() == reviewColumn &&
+      app->getCurrentObject()->getObjectId() == reviewObject && m_vi == reviewImage &&
+      app->getCurrentLevel()->getSimpleLevel() == level &&
+      app->getCurrentTool()->getTool() == tool && tool->isEnabled() && isEditable() &&
+      TVectorImageP(tool->getImage(false)) == m_vi && !tool->isDragging() &&
+      !app->getCurrentObject()->isSpline() && tool->getAlignMethod() == method &&
+      levelScope == selectionTool->isLevelType() &&
+      selectedScope == selectionTool->isSelectedFramesType() &&
+      reviewFramesMode == selectionTool->levelSelection().framesMode() &&
+      reviewFilter == selectionTool->levelSelection().filter() &&
+      reviewStyles == selectionTool->levelSelection().styles() &&
+      targetFrames == selectionTool->getTargetFrames() && selectedIndexes == selectionOrder();
+  if (valid && levelScope) {
+    std::vector<TFrameId> currentFrames;
+    level->getFids(currentFrames);
+    valid = currentFrames == frames;
+  }
+  for (size_t i = 0; valid && i < sources.size(); ++i) {
+    const auto &source = sources[i];
+    TVectorImageP live = level->getFrame(source.first, false);
+    if (live != source.second || level->isFrameReadOnly(source.first)) {
+      valid = false;
+      break;
+    }
+    QMutexLocker lock(live->getMutex());
+    valid = sameAlignmentSource(live, previews[i].before);
+  }
+  if (!valid) {
+    DVGui::warning(QObject::tr("A reviewed drawing or selection changed. No drawings were aligned. "
+                              "Run the command again to review the updated drawings."));
+    return;
+  }
   TUndoManager::manager()->beginBlock();
   for (auto &undo : edits) {
     undo->redo();
