@@ -20,6 +20,7 @@
 #include <map>
 #include <vector>
 #include <set>
+#include <functional>
 
 #undef DVAPI
 #undef DVVAR
@@ -37,6 +38,7 @@
 
 class TFilePath;
 class TXshLevel;
+class TXshSimpleLevel;
 class TXsheet;
 class TStageObjectSpline;
 class ToonzScene;
@@ -112,6 +114,14 @@ public:
   // icons from toonz levels
   QPixmap getIcon(TXshLevel *sl, const TFrameId &fid, bool filmStrip = true,
                   bool onDemand = false);
+  // GUI-thread requests share the existing renderer/cache. A nonzero token
+  // identifies one actual generation, not a level/frame key. It completes once
+  // on success, error or cancellation; running cancellations finish normally.
+  quint64 requestIcon(TXshSimpleLevel *sl, const TFrameId &fid,
+                      bool filmStrip = true);
+  // Cache-only query: never queues or decodes a drawing.
+  quint64 pendingIconRequest(TXshSimpleLevel *sl, const TFrameId &fid,
+                             bool filmStrip = true) const;
   QPixmap getSizedIcon(TXshLevel *sl, const TFrameId &fid, std::string newId,
                        TDimension dim = TDimension(0, 0));
   QPixmap getResponsiveIcon(TXshLevel *sl, const TFrameId &fid,
@@ -141,6 +151,18 @@ public:
   void clearRequests();
   void clearSceneIcons();
 
+  // GUI-thread, terminal and idempotent. Keep the scene, cache and QApplication
+  // alive until this returns: it services events while retiring all accepted
+  // requests and their workers, including worker-local OpenGL resources.
+  void shutdown();
+  bool isShutdownComplete() const { return m_shutdownComplete; }
+
+#ifdef BUILD_UI_PORT_TESTS
+  using TaskTestHook = std::function<void(quint64)>;
+  void setTaskTestHook(TaskTestHook hook);
+  std::vector<TThread::RunnableP> lifecycleTestTasks() const;
+#endif
+
   static TRaster32P generateVectorFileIcon(const TFilePath &path,
                                            const TDimension &iconSize,
                                            const TFrameId &fid);
@@ -158,10 +180,13 @@ public:
   // This function is called when only colors of styles are changed in toonz
   // raster levels. In such case it doesn't need to re-compute icons but needs
   // to let panels to update. See TApp::onLevelColorStyleChanged() for details.
-  void notifyIconGenerated() { emit iconGenerated(); }
+  void notifyIconGenerated() {
+    if (!m_shuttingDown) emit iconGenerated();
+  }
 signals:
 
   void iconGenerated();
+  void iconRequestFinished(quint64 request, bool generated);
 
 public slots:
 
@@ -176,13 +201,18 @@ private:
   QThreadStorage<TOfflineGL *> m_contexts;
   TDimension m_iconSize;
 
-  QEventLoop m_iconsTerminationLoop;  //!< Event loop used to wait for icons
-                                      //! termination.
-
   Settings m_settings;
+  quint64 m_nextRequest = 0;
+  std::map<std::string, quint64> m_pendingRequests;
+  // Includes superseded generations; the latest-per-key map cannot prove drain.
+  std::map<quint64, TThread::RunnableP> m_admittedRequests;
+  bool m_shuttingDown = false;
+  bool m_shutdownComplete = false;
 
 private:
   void addTask(const std::string &id, TThread::RunnableP iconRenderer);
+  bool isCurrentRequest(TThread::RunnableP iconRenderer) const;
+  void finishRequest(TThread::RunnableP iconRenderer, bool generated);
 };
 
 //**********************************************************************************
