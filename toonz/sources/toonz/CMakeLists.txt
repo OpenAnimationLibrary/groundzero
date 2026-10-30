@@ -1094,6 +1094,7 @@ if(BUILD_UI_PORT_TESTS)
         functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h
         castworkflowintegrationtest.cpp
         libraryprovenanceintegrationtest.cpp)
+    target_sources(OpenToonz PRIVATE functionrigbenchmarkintegrationtest.cpp functionrigbenchmarkintegrationtest.h)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)

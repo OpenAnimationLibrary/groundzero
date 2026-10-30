@@ -359,6 +359,12 @@ void BaseViewerPanel::showEvent(QShowEvent *event) {
                        SLOT(changeWindowTitle()));
   ret = ret && connect(frameHandle, SIGNAL(frameSwitched()), this,
                        SLOT(changeWindowTitle()));
+  // Two columns/sheets may show the same level, so a levelSwitched signal is
+  // not guaranteed when their remap/editing context changes.
+  ret = ret && connect(app->getCurrentColumn(), SIGNAL(columnIndexSwitched()),
+                       this, SLOT(changeWindowTitle()));
+  ret = ret && connect(xshHandle, SIGNAL(xsheetSwitched()), this,
+                       SLOT(changeWindowTitle()));
 
   // updateFrameRange(): update the frame slider's range
   ret = ret && connect(levelHandle, SIGNAL(xshLevelChanged()), this,
@@ -406,6 +412,7 @@ void BaseViewerPanel::hideEvent(QHideEvent *event) {
   disconnect(app->getCurrentFrame(), nullptr, this, nullptr);
   disconnect(app->getCurrentScene(), nullptr, this, nullptr);
   disconnect(app->getCurrentLevel(), nullptr, this, nullptr);
+  disconnect(app->getCurrentColumn(), nullptr, this, nullptr);
   disconnect(app->getCurrentXsheet(), nullptr, this, nullptr);
 
   m_flipConsole->setActive(false);

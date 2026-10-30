@@ -13,14 +13,21 @@
 #include "tthread.h"
 #include "tfunctorinvoker.h"
 #include "tundo.h"
+#include "tstream.h"
+#include "tunit.h"
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
+#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -29,6 +36,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QMessageBox>
 #include <QProcess>
 #include <QPushButton>
 #include <QPointer>
@@ -207,6 +215,20 @@ void savedSetRename() {
     }, [&]() { action->trigger(); });
     require(savedSets() == expected, "context replacement committed pending set rename");
   }
+  Fixture captureContext;
+  auto *captureAction = captureContext.viewer.findChild<QAction *>("FunctionChannelSetsAction");
+  inspectModal(&captureContext.viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    QObject delivery; bool canceledPrompt = false;
+    QTimer::singleShot(0, &delivery, [&]() {
+      auto *prompt = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+      if (!prompt || prompt->objectName() != "FunctionChannelSetCaptureName") return;
+      prompt->setTextValue("Uncommitted capture"); captureContext.model->resetAll();
+      canceledPrompt = !prompt->isVisible() && !dialog->isVisible();
+    });
+    dialog->findChild<QPushButton *>("FunctionChannelSetSave")->click();
+    require(canceledPrompt && savedSets() == expected && captureContext.a->getWorkspaceId().empty(),
+            "context replacement retained a set-capture prompt or assigned unpublished identities");
+  }, [&]() { captureAction->trigger(); });
   checkpoint("saved-set rename persisted across process/reopen and canceled across contexts");
 }
 void nativeTargetRangeDialog() {
@@ -517,6 +539,8 @@ void nativeBatchDialog() {
   selection->select(f.a.getPointer(), 1); selection->select(f.a.getPointer(), 2);
   auto *button = f.viewer.findChild<QToolButton *>("FunctionEditKeys"); require(button, "native batch action missing");
   TDoubleParamP comparison = new TDoubleParam(*f.a); f.graph->setComparison({{f.a, comparison}});
+  QString captureError; require(f.graph->freezeComparison(captureError), qPrintable(captureError));
+  const auto frozenBefore = f.graph->comparisonState().frozen.front().samples;
   QString failure;
   QTimer::singleShot(0, [&]() {
     try {
@@ -542,6 +566,9 @@ void nativeBatchDialog() {
   button->click(); require(failure.isEmpty(), qPrintable(failure));
   checkpoint("batch dialog closed");
   require(f.graph->comparison().size() == 1 && f.graph->comparison()[0].second == comparison, "Modal edit discarded an artist comparison snapshot");
+  require(f.graph->comparisonState().frozen.size() == 1 &&
+              f.graph->comparisonState().frozen.front().samples == frozenBefore,
+          "Modal edit reevaluated the captured comparison display");
   requireNear(comparison->getKeyframe(1).m_value, 100);
   requireNear(f.a->getKeyframe(1).m_value, 110);
   require(TUndoManager::manager()->undo(), "native batch undo missing"); requireNear(f.a->getKeyframe(1).m_value, 105);
@@ -552,6 +579,8 @@ void contextCancellation() {
     TSceneHandle scene; TXsheetHandle xsheet;
     Fixture f; f.viewer.setSceneHandle(&scene); f.viewer.setXsheetHandle(&xsheet);
     TDoubleParamP original = new TDoubleParam(*f.a);
+    f.graph->setComparison({{f.a, original}});
+    QString captureError; require(f.graph->freezeComparison(captureError), qPrintable(captureError));
     f.viewer.getSelection()->select(f.a.getPointer(), 1);
     auto *button = f.viewer.findChild<QToolButton *>("FunctionEditKeys");
     require(button, "context cancellation editor action is missing");
@@ -570,7 +599,172 @@ void contextCancellation() {
     }, [&]() { button->click(); });
     checkpoint("context cancellation dialog closed");
     require(FunctionCurveOperations::matchesSnapshot(f.a.getPointer(), original.getPointer()), "context change committed a pending edit");
+    require(f.graph->comparison().empty() && f.graph->comparisonState().frozen.empty(),
+            "context cancellation retained a comparison bound to the old scene");
   }
+  TSceneHandle scene; Fixture f; f.viewer.setSceneHandle(&scene);
+  TDoubleParamP original = new TDoubleParam(*f.a);
+  auto *capture = f.viewer.findChild<QAction *>("FunctionCaptureComparison");
+  auto *restore = f.viewer.findChild<QAction *>("FunctionRestoreComparison");
+  require(capture && restore, "Comparison context controls are missing"); capture->trigger();
+  TUndoManager::manager()->reset(); scene.setDirtyFlag(false);
+  QObject delivery; bool confirmedAfterReset = false; int editNotifications = 0;
+  QObject::connect(&f.viewer, &FunctionViewer::curveChanged, &delivery, [&]() { ++editNotifications; });
+  QTimer deadline; deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &delivery, []() { qFatal("Stale comparison confirmation timed out"); });
+  QTimer::singleShot(0, &delivery, [&]() {
+    auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+    if (!box || box->windowTitle() != "Restore Curves" || !box->button(QMessageBox::Yes)) return;
+    f.model->resetAll(); confirmedAfterReset = true; box->button(QMessageBox::Yes)->click();
+  });
+  deadline.start(15000); restore->trigger(); deadline.stop();
+  require(confirmedAfterReset && editNotifications == 0 && !scene.getDirtyFlag() && TUndoManager::manager()->getHistoryCount() == 0 &&
+              f.graph->comparisonState().frozen.empty() && Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()),
+          "stale comparison confirmation edited or dirtied its replacement context");
+}
+void nativePresetImport() {
+  Fixture f;
+  auto *measure = new TMeasure("function_widget_preset",
+                               new TUnit(L"internal", new TSimpleUnitConverter));
+  TMeasureManager::instance()->add(measure);
+  f.a->setMeasureName("function_widget_preset"); f.a->setWorkspaceId("preset-target-owner");
+  f.a->enableCycle(true);
+  for (auto *channel : f.tree->channels()) if (channel->getParam() == f.a.getPointer()) channel->setIsCurrent(true);
+  TDoubleParamP original = new TDoubleParam(*f.a);
+  QTemporaryDir sourceDirectory; require(sourceDirectory.isValid(), "preset source storage unavailable");
+  TDoubleParamP raw = new TDoubleParam;
+  raw->setWorkspaceId("foreign-owner-must-not-transfer");
+  raw->setKeyframe(TDoubleKeyframe(2, 2)); raw->setKeyframe(TDoubleKeyframe(12, 6));
+  const QString nativeFile = sourceDirectory.filePath("existing.curve");
+  { TOStream output{TFilePath(nativeFile)}; raw->saveData(output); }
+  auto driven = raw->getKeyframe(0); driven.m_type = TDoubleKeyframe::Expression; driven.m_expressionText = "frame";
+  raw->setKeyframe(0, driven);
+  const QString drivenFile = sourceDirectory.filePath("driven.curve");
+  { TOStream output{TFilePath(drivenFile)}; raw->saveData(output); }
+  raw->setKeyframe(0, TDoubleKeyframe(2, 2)); raw->enableCycle(true);
+  const QString cyclicFile = sourceDirectory.filePath("cyclic.curve");
+  { TOStream output{TFilePath(cyclicFile)}; raw->saveData(output); }
+  const QString library = (ToonzFolder::getMyModuleDir() + TFilePath("function-presets")).getQString();
+  const QString published = QDir(library).filePath("Imported native.fcurve");
+  auto *action = f.viewer.findChild<QAction *>("FunctionMotionPresetsAction"); require(action, "Motion Presets action missing");
+  TUndoManager::manager()->reset();
+  auto importFile = [&](QDialog *dialog, const QString &path, int cancelStage,
+                        const QString &presetName = QString("Imported native")) {
+    QTimer driver; bool selectedFile = false, named = false; QString failure;
+    QObject::connect(&driver, &QTimer::timeout, dialog, [&]() {
+      try {
+        if (auto *file = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+          if (selectedFile) return;
+          require(file->objectName() == "FunctionPresetImportFile", "unexpected preset file dialog");
+          selectedFile = true;
+          if (cancelStage == 1) { file->reject(); return; }
+          file->setDirectory(QFileInfo(path).absolutePath()); file->selectFile(path);
+          QTimer::singleShot(0, file, [file]() { QMetaObject::invokeMethod(file, "accept", Qt::DirectConnection); });
+        } else if (auto *name = qobject_cast<QInputDialog *>(QApplication::activeModalWidget())) {
+          if (named) return;
+          require(name->objectName() == "FunctionPresetImportName" && name->labelText().contains("current channel"),
+                  "native curve import did not disclose its measure interpretation");
+          named = true;
+          if (cancelStage == 2) name->reject();
+          else { name->setTextValue(presetName); name->accept(); }
+        }
+      } catch (const std::exception &problem) {
+        failure = QString::fromUtf8(problem.what());
+        if (auto *active = qobject_cast<QDialog *>(QApplication::activeModalWidget())) active->reject();
+      }
+    });
+    driver.start(5); dialog->findChild<QPushButton *>("FunctionPresetImport")->click(); driver.stop();
+    require(failure.isEmpty() && selectedFile, qPrintable(failure));
+    return named;
+  };
+  inspectModal(&f.viewer, "FunctionMotionPresets", [&](QDialog *dialog) {
+    auto *list = dialog->findChild<QListWidget *>("FunctionPresetList");
+    auto *status = dialog->findChild<QLabel *>("FunctionPresetStatus");
+    require(list && status && list->count() == 0, "preset fixture did not start with an empty library");
+    importFile(dialog, nativeFile, 1); importFile(dialog, nativeFile, 2);
+    require(!QFileInfo::exists(published) && list->count() == 0 && Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()),
+            "canceled preset import changed the library or native destination");
+    require(!importFile(dialog, drivenFile, 0) && list->count() == 0 && !QFileInfo::exists(published),
+            "driven native curve was silently imported as numeric data");
+    require(importFile(dialog, nativeFile, 0) && list->count() == 1 && QFileInfo::exists(published),
+            "preexisting raw native curve could not be imported into the browser");
+    require(Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()) && TUndoManager::manager()->getHistoryCount() == 0,
+            "importing a preset changed destination animation/history");
+    QFile file(published); require(file.open(QIODevice::ReadOnly), "imported preset was not readable");
+    const QByteArray bytes = file.readAll(); file.close();
+    require(!bytes.contains("foreign-owner"), "native curve import persisted a foreign owner identity");
+    importFile(dialog, nativeFile, 0);
+    require(file.open(QIODevice::ReadOnly) && file.readAll() == bytes && list->count() == 1,
+            "duplicate native preset import overwrote the previous file"); file.close();
+    auto *search = dialog->findChild<QLineEdit *>("FunctionPresetSearch");
+    search->setText("absent"); require(list->item(0)->isHidden(), "preset search did not filter imported native curve");
+    search->setText("native"); require(!list->item(0)->isHidden(), "preset search did not restore imported curve"); list->setCurrentRow(0);
+    dialog->findChild<QCheckBox *>("FunctionPresetFavorite")->setChecked(true);
+    dialog->findChild<QDoubleSpinBox *>("FunctionPresetFirstFrame")->setValue(21);
+    dialog->findChild<QDoubleSpinBox *>("FunctionPresetDuration")->setValue(8);
+    dialog->findChild<QDoubleSpinBox *>("FunctionPresetAmplitude")->setValue(2);
+    dialog->findChild<QDoubleSpinBox *>("FunctionPresetOffset")->setValue(3);
+    dialog->findChild<QPushButton *>("FunctionPresetPreview")->click();
+    require(Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()) && f.graph->comparison().size() == 1,
+            "native imported preset preview mutated destination or omitted overlay");
+    auto *apply = dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply);
+    f.a->setEditorLocked(true); apply->click();
+    require(Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()) && TUndoManager::manager()->getHistoryCount() == 0,
+            "native preset Apply ignored the destination lock");
+    f.a->setEditorLocked(false); apply->click();
+    require(f.a->getKeyframeCount() == 2 && f.a->getWorkspaceId() == "preset-target-owner" &&
+                f.a->getMeasureName() == "function_widget_preset" && !f.a->isCycleEnabled() &&
+                TUndoManager::manager()->getHistoryCount() == 1,
+            "native imported preset lost owner/units/history or inherited the destination's cycle flag");
+    requireNear(f.a->keyframeIndexToFrame(0), 20); requireNear(f.a->keyframeIndexToFrame(1), 28);
+    requireNear(f.a->getKeyframe(0).m_value, 5); requireNear(f.a->getKeyframe(1).m_value, 13);
+    apply->click(); require(TUndoManager::manager()->getHistoryCount() == 1, "repeated identical preset Apply added history");
+    require(importFile(dialog, cyclicFile, 0, "Imported cyclic") && list->count() == 2 && !f.a->isCycleEnabled(),
+            "cyclic preset import changed destination animation before Apply");
+    require(search->text().isEmpty() && list->currentItem() && !list->currentItem()->isHidden() &&
+                list->currentItem()->data(Qt::UserRole).toString() == "Imported cyclic.fcurve",
+            "import selected a hidden preset behind the previous search filter");
+    apply->click(); require(f.a->isCycleEnabled(), "cyclic raw curve lost its explicit cycle setting");
+    require(TUndoManager::manager()->undo() && !f.a->isCycleEnabled(), "cyclic preset undo did not restore the prior noncyclic animation");
+    dialog->findChild<QDoubleSpinBox *>("FunctionPresetOffset")->setValue(999);
+    dialog->findChild<QPushButton *>("FunctionPresetPreview")->click();
+  }, [&]() { action->trigger(); });
+  requireNear(f.a->getKeyframe(1).m_value, 13);
+  require(TUndoManager::manager()->undo() && Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()),
+          "native imported preset undo did not restore the exact destination");
+  require(TUndoManager::manager()->redo(), "native imported preset redo missing"); requireNear(f.a->getKeyframe(1).m_value, 13);
+  inspectModal(&f.viewer, "FunctionMotionPresets", [&](QDialog *dialog) {
+    auto *list = dialog->findChild<QListWidget *>("FunctionPresetList");
+    require(list && list->count() == 2, "imported native presets did not survive reopening"); list->setCurrentRow(0);
+    require(dialog->findChild<QCheckBox *>("FunctionPresetFavorite")->isChecked(), "native preset favorite did not persist");
+    QObject delivery; bool canceledFile = false;
+    QTimer::singleShot(0, &delivery, [&]() {
+      auto *file = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+      if (!file || file->objectName() != "FunctionPresetImportFile") return;
+      f.model->resetAll();
+      canceledFile = !file->isVisible() && !dialog->isVisible();
+    });
+    dialog->findChild<QPushButton *>("FunctionPresetImport")->click();
+    require(canceledFile && QFileInfo::exists(published),
+            "context replacement left the native import modal active or removed the saved preset");
+  }, [&]() { action->trigger(); });
+  TUndoManager::manager()->reset();
+  Fixture saveContext;
+  auto *saveAction = saveContext.viewer.findChild<QAction *>("FunctionMotionPresetsAction");
+  const QString canceledFile = QDir(library).filePath("Uncommitted save.fcurve");
+  inspectModal(&saveContext.viewer, "FunctionMotionPresets", [&](QDialog *dialog) {
+    QObject delivery; bool canceledPrompt = false;
+    QTimer::singleShot(0, &delivery, [&]() {
+      auto *prompt = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+      if (!prompt || prompt->objectName() != "FunctionPresetSaveName") return;
+      prompt->setTextValue("Uncommitted save"); saveContext.model->resetAll();
+      canceledPrompt = !prompt->isVisible() && !dialog->isVisible();
+    });
+    dialog->findChild<QPushButton *>("FunctionPresetSave")->click();
+    require(canceledPrompt && !QFileInfo::exists(canceledFile),
+            "context replacement retained a preset-save prompt or published its pending name");
+  }, [&]() { saveAction->trigger(); });
+  checkpoint("native curve preset import, adaptation, cancellation and persistence completed");
 }
 void denseGraphMeasurement() {
   Fixture f;
@@ -628,6 +822,7 @@ int main(int argc, char **argv) {
     checkpoint("saved-set rename begins"); savedSetRename();
     checkpoint("target-range modal begins"); nativeTargetRangeDialog();
     checkpoint("context cancellation begins"); contextCancellation();
+    checkpoint("native preset import begins"); nativePresetImport();
     checkpoint("dense graph measurement begins"); denseGraphMeasurement();
     checkpoint("all workflow checks completed");
     TUndoManager::manager()->reset(); std::cout << "Native Function Editor workflow checks passed\n"; return 0;
