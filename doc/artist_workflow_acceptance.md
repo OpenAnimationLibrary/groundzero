@@ -1,10 +1,10 @@
 # Artist workflow acceptance ledger
 
-Current baseline: `edition` at `dc2592a1e86319c1f9e5334b41f0cdf99c485b36` (2026-10-30),
+Current baseline: `edition` at `d510cf089e03e8887f315bb6ff8b88d985687539` (2026-10-30),
 including the separately owned reference/neural work in #114 and build-artifact
 ignore rules in #121, the Qt translation configuration correction in #122,
 and the native UI stability, particle-cache safety and Qt 6 build corrections
-in #123–125. Original research
+in #123–125, plus the SeExpr/neural state corrections in #126. Original research
 baseline: `aa01975f38d6226156e5b07df7271b8fc199d003`.
 
 All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. Drafts remain open while qualification is pending.
@@ -26,33 +26,42 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 ## Execution checkpoint — 2026-10-30
 
 All 60 improvements remain in the acceptance ledger. Product implementations
-and acceptance fixtures are present, but the Filmstrip lifetime correction
-described below still requires execution and full qualification is incomplete. Source review,
-executed CI and physical artist qualification remain separate. The following
-heads were published together at 19:27 UTC against the baseline above; later
-revisions require their own exact-head checks.
+and acceptance fixtures are present. The corrected full combined native sequence
+has passed Linux, but full platform qualification remains incomplete. Source
+review, executed CI and physical artist qualification remain separate. The
+following published checkpoints used edition `dc2592a1e86319c1f9e5334b41f0cdf99c485b36`;
+#120 and #118 were updated at 19:58 UTC. Integration of the newer baseline above
+requires its own exact-head checks; earlier results do not qualify that merge.
 
 | PR | Owned items | Published checkpoint head |
 |---|---|---|
 | #116 Function Editor and shared native safety | 1–18 | `6dddd7eaf2bc09f3a915967967fb57b0c328b926` |
 | #117 Animation workflow and reliability | 53–58 | `3608cb1f0b342b33a5677f462880c85bf7ce2a6f` |
 | #119 Scene Cast | 37–52 | `e979d684e453cdb8e8d4bddd686d1b768f674c6b` |
-| #120 Vector editing | 19–36 | `64dda5d47c12ac845584a848aa803b0d1dd1b7bf` |
-| #118 Performance/cache and combined acceptance | 59–60 and combined gates | `6392d44f30b91396ef24a66f8d4928bc96fd33a9` |
+| #120 Vector editing | 19–36 | `abf80f6554900bd5503a936ffb61cab469eb231c` |
+| #118 Performance/cache and combined acceptance | 59–60 and combined gates | `30363faaff8dcdb90fb6aed08385f008214804ae` |
 
-#119 Linux application, standalone UI and reliability checks passed at the
-recorded head. This supplies exact-head Linux evidence; it does not complete
-platform/package qualification. Remaining gates must be reported individually,
-and earlier green revisions do not qualify later changes.
+#116 and #119 passed Linux main and installed-package jobs at the recorded
+heads. Installed checks launch the extracted package's native SeExpr/neural
+smoke fixtures; they do not repeat every artist workflow. Remaining platforms
+must be reported individually, and earlier green revisions do not qualify
+later changes.
 
-Combined Linux at the recorded #118 head passed the corrected Filmstrip native
-PLI-reload assertion, then its original mandatory process exited with SIGSEGV
-(`-11`) before terminal lifecycle checks. No original-process crash stack was
-captured. The required separate reviewed-clear process and all six isolated
-diagnostic processes passed with zero exit and the required lifecycle, drain
-and cleanup evidence. Automatic debugger replay also completed normally. These
-passes do not replace the failed original mandatory process.
-[Combined Linux run](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41115427301).
+Combined Linux at `30363faaf` passed the original full native sequence,
+including the exact Filmstrip PLI-reload oracle, repeated viewport teardown,
+Function/timing/Cast/vector interactions, and both required terminal processes
+with cleanup and zero exit. Standalone UI passed 19/19, reliability 17/17
+including the actual EXR test, SeExpr 16/16 and GLB 6/6. The independent artist
+workload and new original-core/reporting contracts also passed. Its package
+qualification was still pending at this checkpoint.
+[Combined Linux run](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41119544321).
+
+Earlier combined `6392d44` and vector `64dda5d` passed exact PLI persistence,
+then their original processes exited with SIGSEGV (`-11`) before terminal
+lifecycle checks. Original crash stacks were not captured. Their separate
+reviewed-clear processes and debugger replays passed; combined's six isolated
+diagnostics also passed. Those later passes did not qualify the failed original
+processes. The subsequent original-sequence success above is separate evidence.
 
 Source review found a concrete Filmstrip use-after-free path: its viewport
 resize filter outlives a deleted frames widget while retaining a raw pointer
@@ -61,9 +70,9 @@ correction gives the filter the strip's lifetime, removes it before teardown
 signals, and rejects callbacks after detachment from its viewport. Native
 coverage repeats detached, deleting and replaced-strip resize paths while
 retaining exact drawing/history and modal cancellation checks. This finding
-does not establish the cause of the observed SIGSEGV. Original-process core
-capture preserves evidence if it recurs; that diagnostic change has no executed
-capture evidence yet.
+does not establish the uncaptured historical SIGSEGV's cause. Original-process
+core capture preserves evidence if it recurs. Its CI contracts passed; no new
+native crash occurred to exercise collection of an actual application core.
 
 The earlier PLI mismatch was existing native coordinate encoding and region-grid
 normalization. Its corrected oracle checks the exact stored representation while
