@@ -56,6 +56,7 @@
 #include "toonzqt/uitranslations.h"
 
 #include <QApplication>
+#include <QByteArray>
 #include <QComboBox>
 #include <QDir>
 #include <QDirIterator>
@@ -671,6 +672,31 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
+    // Diagnostic selectors are interpreted only after the normal test-only
+    // startup has validated a disposable profile. They never qualify the
+    // mandatory all-workflows pass or emit its completion marker.
+    const QByteArray diagnosticSuite = qgetenv("GROUNDZERO_NATIVE_UI_SUITE");
+    if (!diagnosticSuite.isEmpty()) {
+      require(!qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"),
+              "Native diagnostic suites cannot select the artist benchmark");
+      if (diagnosticSuite == "combined-timing") {
+        QString error;
+        if (!runFunctionTimingIntegrationTest(window, &error)) {
+          std::cerr << "native-ui-integration: FAIL: combined-timing: "
+                    << error.toStdString() << std::endl;
+          return 1;
+        }
+      } else if (diagnosticSuite == "combined-cast-vector") {
+        runCastVectorIntegrationTest(window);
+      } else if (diagnosticSuite == "combined-fidelity") {
+        runCombinedFidelityIntegrationTest(window);
+      } else {
+        require(false, "Unknown native UI diagnostic suite selector");
+      }
+      std::cout << "native-ui-diagnostic: PASS " << diagnosticSuite.constData()
+                << std::endl;
+      return 0;
+    }
     if (qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"))
       return runArtistWorkflowBenchmark(window);
     QString cacheError;

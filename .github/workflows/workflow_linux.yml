@@ -40,6 +40,9 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Verify native diagnostic isolation
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
     - name: Install libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,
@@ -75,6 +78,7 @@ jobs:
         make -j $(nproc)
 
     - name: Build cel regression targets
+      id: native_targets
       run: |
         export CCACHE_DIR=/home/runner/.ccache
         export CC="ccache ${{ matrix.cc }}"
@@ -138,6 +142,8 @@ jobs:
 
     - name: Test native application integration
       id: ui_integration
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      timeout-minutes: 22
       env:
         GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |
@@ -145,6 +151,7 @@ jobs:
 
     - name: Measure native artist workloads
       id: artist_benchmark
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
       run: |
         QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --artist-benchmark --output toonz/build/artist-workload-output.txt
 
@@ -159,7 +166,7 @@ jobs:
         name: artist-workflow-linux-${{ matrix.cxx }}
         path: |
           toonz/build/artist-workload-output.*
-          toonz/build/ui-integration-output.txt
+          toonz/build/ui-integration-output*.txt
           toonz/build/ui-tests-output.txt
         if-no-files-found: ignore
 

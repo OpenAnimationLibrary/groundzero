@@ -52,6 +52,16 @@ The standalone performance/cache head `eae9ff422` passed Linux build, native
 workloads and installed-application checks. The combined final revision adds an
 opacity-envelope workload and must be qualified again.
 
+When the mandatory native pass fails with `--require-combined-workflows`, the
+runner also collects independent timing, Cast/vector and export diagnostics.
+Each group gets a fresh application process and disposable profile, runs
+sequentially, and has a 120-second limit. The original failure remains the CI
+result; isolated completion markers cannot satisfy the mandatory pass. Reports
+are retained separately as `ui-integration-output-combined-*.txt` and appended to
+the original report. Passing these diagnostics does not qualify the shared
+application sequence. CI-only harness contracts are in
+`ci-scripts/tests/test_native_ui_diagnostics.py`.
+
 ## Acceptance
 
 `Pending` means not yet accepted, including source work in progress. `Source-ready` requires complete implementation and fixtures; `CI-qualified` additionally requires all selected checks to pass on the exact revision. `Already satisfied` requires a source/test citation. `Blocked` requires the exact dependency, action and reason. Each track's detailed ledger supplies baseline evidence and implementation/test links.

@@ -66,6 +66,10 @@ def isolated_fixture(source, executable, mesa_runtime=None):
         shutil.copytree(source, directory / "portablestuff")
         (directory / ".groundzero-native-ui-test").write_bytes(b"groundzero-native-ui-test\n")
         environment = os.environ.copy()
+        # Every ordinary, benchmark and debugger launch starts unselected.
+        # Only the bounded diagnostic launcher below opts into a known suite.
+        environment.pop("GROUNDZERO_NATIVE_UI_SUITE", None)
+        environment.pop("GROUNDZERO_ARTIST_BENCHMARK", None)
         # Python and Qt/Windows consult temporary-directory variables in
         # different orders. Preserve the native strict-descendant check.
         for key in ("TMPDIR", "TEMP", "TMP"):
@@ -84,6 +88,60 @@ def isolated_fixture(source, executable, mesa_runtime=None):
 
 def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
+
+
+def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=None):
+    """Collect isolated evidence without changing the original failed result."""
+    suites = (("combined-timing", "function-timing-native: PASS"),
+              ("combined-cast-vector", "cast-vector-native: PASS"),
+              ("combined-fidelity", "combined-fidelity-native: PASS"))
+    timeout_seconds = 120
+    reports, results = [], []
+    for suite, marker in suites:
+        label = f"Independent native diagnostic: {suite}"
+        print(f"\n{label} (not an all-workflows qualification).", flush=True)
+        output, status = "", 1
+        try:
+            # These launches must remain sequential: the Windows renderer
+            # installs and removes temporary DLLs beside the shared executable.
+            with isolated_fixture(source, executable, mesa_runtime) as (directory, environment):
+                environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
+                try:
+                    result = subprocess.run([str(executable), "--test-native-ui"],
+                                            cwd=directory, env=environment,
+                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            timeout=timeout_seconds, encoding="utf-8", errors="replace")
+                    output, status = result.stdout, result.returncode
+                    required = (marker, f"native-ui-diagnostic: PASS {suite}")
+                    missing = [value for value in required if value not in output]
+                    if status == 0 and missing:
+                        output += "\nMissing isolated diagnostic checkpoints: " + ", ".join(missing) + "\n"
+                        status = 1
+                except subprocess.TimeoutExpired as error:
+                    output = decode_output(error.stdout)
+                    output += f"\nIsolated diagnostic timed out after {timeout_seconds} seconds.\n"
+                    status = 1
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            output += ("\nIsolated diagnostic setup, launch or cleanup failed: "
+                       f"{type(error).__name__}: {error}\n")
+            status = 1
+        output = (f"\n--- {label} ---\n" + output +
+                  f"\n{label} exited with status {status} (0x{status & 0xffffffff:08X}).\n"
+                  "The original all-workflows failure remains authoritative.\n")
+        report = output_path.with_name(output_path.stem + f"-{suite}.txt")
+        try:
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(output, encoding="utf-8")
+        except (OSError, ValueError) as error:
+            output += f"Could not save isolated diagnostic report: {error}\n"
+            status = 1
+        results.append(f"{suite}={'PASS' if status == 0 else 'FAIL'} (status {status})")
+        reports.append(output)
+        print(f"{label}: {'PASS' if status == 0 else 'FAIL'} (status {status}).", flush=True)
+    # Keep every result in the original report too, so existing artifact and
+    # failure-report collection retains diagnostics without workflow changes.
+    return ("\nIndependent diagnostics; original all-workflows result unchanged:\n" +
+            "\n".join(results) + "\n" + "".join(reports))
 
 
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
@@ -179,11 +237,11 @@ def main():
     timeout_seconds = 600 if args.require_vector_workflows else 180
     output, status = "", 1
     native_status = None
+    executable, source = None, None
     try:
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
         with isolated_fixture(source, executable, args.windows_mesa) as (directory, environment):
-            environment.pop("GROUNDZERO_ARTIST_BENCHMARK", None)
             if args.artist_benchmark:
                 environment["GROUNDZERO_ARTIST_BENCHMARK"] = "1"
             try:
@@ -240,6 +298,15 @@ def main():
         if missing:
             output += "\nMissing required combined acceptance checkpoints: " + ", ".join(missing) + "\n"
             status = 1
+    if status != 0 and args.require_combined_workflows and not args.artist_benchmark:
+        # Validation above uses only the original process output. Separate
+        # diagnostic markers can never satisfy its qualification requirements,
+        # and neither their success nor failure changes its nonzero status.
+        if executable is not None and source is not None:
+            output += combined_failure_diagnostics(executable, source, args.output,
+                                                  args.windows_mesa)
+        else:
+            output += "\nIndependent diagnostics unavailable: executable or fixture source could not be resolved.\n"
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")

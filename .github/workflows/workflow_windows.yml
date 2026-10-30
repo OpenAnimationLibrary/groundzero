@@ -190,6 +190,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Verify native diagnostic isolation
+        run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
       - name: Install SeExpr parser tools
         shell: pwsh
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
@@ -409,7 +412,7 @@ jobs:
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
-        timeout-minutes: 14
+        timeout-minutes: 22
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"

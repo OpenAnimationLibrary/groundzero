@@ -70,6 +70,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Verify native diagnostic isolation
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
       - name: Select SeExpr parser tools
         run: |
           brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"
@@ -169,7 +172,7 @@ jobs:
 
       - name: Test native application integration
         id: ui_integration
-        timeout-minutes: 14
+        timeout-minutes: 22
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -201,7 +204,7 @@ jobs:
           name: artist-workflow-macos
           path: |
             toonz/build/artist-workload-output.*
-            toonz/build/ui-integration-output.txt
+            toonz/build/ui-integration-output*.txt
             toonz/build/ui-tests-output.txt
           if-no-files-found: ignore
 
@@ -235,7 +238,7 @@ jobs:
           path: |
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
-            toonz/build/ui-integration-output.txt
+            toonz/build/ui-integration-output*.txt
             toonz/build/stdfx/fxrender-output
             toonz/build/image/ffmpeg-test-output
           if-no-files-found: ignore
