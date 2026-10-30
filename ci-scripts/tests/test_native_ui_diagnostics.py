@@ -75,7 +75,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
         return subprocess.CompletedProcess(command, 0, output)
 
     def test_original_failure_cannot_be_replaced_by_diagnostic_success(self):
-        for original_failure in ("nonzero", "timeout", "missing-marker"):
+        for original_failure in ("nonzero", "timeout", "missing-marker", "missing-cast-marker"):
             with self.subTest(original_failure=original_failure):
                 def response(suite, command, options):
                     if suite is not None:
@@ -85,6 +85,9 @@ class NativeDiagnosticContracts(unittest.TestCase):
                     if original_failure == "missing-marker":
                         return subprocess.CompletedProcess(command, 0,
                                                            FULL_OUTPUT.replace(MARKERS["combined-fidelity"], ""))
+                    if original_failure == "missing-cast-marker":
+                        return subprocess.CompletedProcess(command, 0,
+                                                           FULL_OUTPUT.replace(MARKERS["cast-workflow"], ""))
                     return subprocess.CompletedProcess(command, 17, "native-ui-integration: FAIL: original failure\n")
 
                 status, calls, output = self.invoke(response)

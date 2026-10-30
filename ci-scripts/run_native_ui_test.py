@@ -329,7 +329,9 @@ def main():
         output += "\nThe required native Function Editor workflow fixture did not run.\n"
         status = 1
     if args.require_combined_workflows and not args.artist_benchmark and status == 0:
-        missing = [marker for marker in ("function-timing-native: PASS",
+        missing = [marker for marker in ("function-workflow-native: PASS",
+                                         "cast-native-workflow: PASS",
+                                         "function-timing-native: PASS",
                                          "cast-vector-native: PASS",
                                          "combined-fidelity-native: PASS")
                    if marker not in output]
