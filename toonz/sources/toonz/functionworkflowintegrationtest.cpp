@@ -53,7 +53,7 @@ void checkpoint(const char *message) {
   std::cerr << "function-workflow-native: " << message << std::endl;
 }
 void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
-void near(double actual, double expected) { require(std::isfinite(actual) && std::abs(actual - expected) < 1.e-7, "Native Function Editor value differs from its oracle"); }
+void requireNear(double actual, double expected) { require(std::isfinite(actual) && std::abs(actual - expected) < 1.e-7, "Native Function Editor value differs from its oracle"); }
 void settle() { QApplication::sendPostedEvents(); QApplication::processEvents(QEventLoop::ExcludeUserInputEvents); }
 void keys(TDoubleParam *curve, double from, double to, const std::string &formula = {}) {
   curve->clearKeyframes();
@@ -179,10 +179,10 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
       auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview"); require(preview, "Native breakdown Preview missing"); preview->click();
       require(angle->getKeyframeCount() == 2 && offset->getKeyframeCount() == 2, "Breakdown preview changed native rig curves");
       buttons->button(QDialogButtonBox::Apply)->click();
-      near(angle->getValue(10), 60); near(offset->getValue(10), 3);
+      requireNear(angle->getValue(10), 60); requireNear(offset->getValue(10), 3);
     }, [&]() { edit->click(); });
     require(TUndoManager::manager()->undo(), "Native rig breakdown has no undo"); require(angle->getKeyframeCount() == 2 && offset->getKeyframeCount() == 2, "Native rig undo missed a channel");
-    require(TUndoManager::manager()->redo(), "Native rig breakdown has no redo"); near(angle->getValue(10), 60); near(offset->getValue(10), 3);
+    require(TUndoManager::manager()->redo(), "Native rig breakdown has no redo"); requireNear(angle->getValue(10), 60); requireNear(offset->getValue(10), 3);
     checkpoint("checking native graph drag and snapping");
     // Native mouse routes use display coordinates and an off-center hit, proving
     // grid/key snapping is anchored to the selected key, not the click pixel.
@@ -191,20 +191,20 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     graph->setNormalized(false); graph->fitRegion(0, Ops::displayValue(source, 0), 24, Ops::displayValue(source, 10)); graph->setSnap(4, false); paint(graph);
     auto point = [&]() { return QPoint(qRound(graph->frameToX(10)) + 3, qRound(graph->valueToY(source, 4))); };
     const int dx = qRound(graph->frameToX(2.2) - graph->frameToX(0));
-    drag(graph, point(), point() + QPoint(dx, 0)); near(source->keyframeIndexToFrame(1), 14);
-    require(TUndoManager::manager()->undo(), "Native snapped drag has no undo"); near(source->keyframeIndexToFrame(1), 10); paint(graph);
-    drag(graph, point(), point() + QPoint(dx, 0), Qt::AltModifier); near(source->keyframeIndexToFrame(1), 12);
+    drag(graph, point(), point() + QPoint(dx, 0)); requireNear(source->keyframeIndexToFrame(1), 14);
+    require(TUndoManager::manager()->undo(), "Native snapped drag has no undo"); requireNear(source->keyframeIndexToFrame(1), 10); paint(graph);
+    drag(graph, point(), point() + QPoint(dx, 0), Qt::AltModifier); requireNear(source->keyframeIndexToFrame(1), 12);
     require(TUndoManager::manager()->undo(), "Native snap bypass has no undo"); paint(graph);
     auto *nearby = object->getParam(TStageObject::T_Y); nearby->setKeyframe(TDoubleKeyframe(13, 0)); nearby->setKeyframe(TDoubleKeyframe(30, 1));
     find(tree, nearby)->setIsActive(true); graph->setSnap(4, true); paint(graph);
     int nearDx = qRound(graph->frameToX(2.9) - graph->frameToX(0));
-    drag(graph, point(), point() + QPoint(nearDx, 0)); near(source->keyframeIndexToFrame(1), 13);
+    drag(graph, point(), point() + QPoint(nearDx, 0)); requireNear(source->keyframeIndexToFrame(1), 13);
     require(TUndoManager::manager()->undo(), "Native key snapping has no undo");
     find(tree, nearby)->setIsActive(false); graph->setSnap(4, false);
     scene->getProperties()->setMarkers(6, 1); viewer->refreshModel();
     find(tree, source)->setIsCurrent(true); viewer->getSelection()->selectNone(); viewer->getSelection()->select(source, 1);
     graph->setSnapMarkers(true); paint(graph);
-    drag(graph, point(), point() + QPoint(nearDx, 0)); near(source->keyframeIndexToFrame(1), 13);
+    drag(graph, point(), point() + QPoint(nearDx, 0)); requireNear(source->keyframeIndexToFrame(1), 13);
     require(TUndoManager::manager()->undo(), "Native scene-marker snapping has no undo"); graph->setSnapMarkers(false); paint(graph);
     TDoubleParamP before = new TDoubleParam(*source); source->setEditorLocked(true);
     drag(graph, point(), point() + QPoint(dx, -20)); require(Ops::matchesSnapshot(source, before.getPointer()), "Locked native drag mutated the curve"); source->setEditorLocked(false);
@@ -222,7 +222,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     require(!Ops::matchesSnapshot(source, beforeHandle.getPointer()), "Native handle mouse drag did not edit its tangent");
     require(TUndoManager::manager()->undo() && Ops::matchesSnapshot(source, beforeHandle.getPointer()), "Native handle drag undo lost its tangent");
     auto *reset = viewer->findChild<QAction *>("FunctionResetHandles"); require(reset, "Native handle reset action missing");
-    reset->trigger(); near(source->getKeyframe(1).m_speedOut.y, 0);
+    reset->trigger(); requireNear(source->getKeyframe(1).m_speedOut.y, 0);
     require(TUndoManager::manager()->undo() && Ops::matchesSnapshot(source, beforeHandle.getPointer()), "Native handle reset undo lost its tangent");
     source->setEditorLocked(true); reset->trigger(); require(Ops::matchesSnapshot(source, beforeHandle.getPointer()), "Locked toolbar reset changed a tangent"); source->setEditorLocked(false);
     require(TUndoManager::manager()->undo(), "Native handle fixture setup has no undo");
@@ -234,10 +234,10 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
       auto *buttons = dialog->findChild<QDialogButtonBox *>();
       require(mode && interval && pivot && buttons, "Native quantization controls missing");
       mode->setCurrentIndex(7); interval->setValue(4); pivot->setValue(1);
-      auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview"); require(preview, "Native quantization Preview missing"); preview->click(); near(source->keyframeIndexToFrame(1), 10);
-      buttons->button(QDialogButtonBox::Apply)->click(); near(source->keyframeIndexToFrame(1), 12);
+      auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview"); require(preview, "Native quantization Preview missing"); preview->click(); requireNear(source->keyframeIndexToFrame(1), 10);
+      buttons->button(QDialogButtonBox::Apply)->click(); requireNear(source->keyframeIndexToFrame(1), 12);
     }, [&]() { edit->click(); });
-    require(TUndoManager::manager()->undo(), "Native quantization has no undo"); near(source->keyframeIndexToFrame(1), 10);
+    require(TUndoManager::manager()->undo(), "Native quantization has no undo"); requireNear(source->keyframeIndexToFrame(1), 10);
     checkpoint("checking scene and channel identity roundtrip");
     source->setWorkspaceId("native-source-stable-id"); offset->setWorkspaceId("native-offset-stable-id"); angle->setWorkspaceId("native-plastic-stable-id");
     object->setName("Renamed rig");
@@ -250,12 +250,12 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     require(loadedOffset && loadedDeformation, "Saved native rig structure did not reload");
     auto *loadedVertex = loadedDeformation->vertexDeformation("FunctionTip"); require(loadedVertex, "Reloaded Plastic vertex missing");
     auto *loadedAngle = loadedVertex->m_params[SkVD::ANGLE].getPointer();
-    near(loadedAngle->getValue(10), 60); near(loadedOffset->getValue(10), 3);
+    requireNear(loadedAngle->getValue(10), 60); requireNear(loadedOffset->getValue(10), 3);
     require(loadedObject->getParam(TStageObject::T_X)->getWorkspaceId() == "native-source-stable-id" && loadedOffset->getWorkspaceId() == "native-offset-stable-id" && loadedAngle->getWorkspaceId() == "native-plastic-stable-id", "Scene save/reload lost renamed channel identities");
     auto *loadedNative = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(1))->getParam(TStageObject::T_X);
     auto *loadedSeexpr = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(2))->getParam(TStageObject::T_X);
     require(loadedNative->getKeyframe(0).m_expressionText == nativeText && loadedSeexpr->getKeyframe(0).m_expressionText == seexprText, "Native workflow changed formula source while saving");
-    near(loadedNative->getValue(7), nativeValue); near(loadedSeexpr->getValue(7), seexprValue);
+    requireNear(loadedNative->getValue(7), nativeValue); requireNear(loadedSeexpr->getValue(7), seexprValue);
     app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); viewer->hide();
     std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, scene roundtrip)\n";
     return true;
