@@ -1000,7 +1000,7 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
 
   TPaletteHandle *ph   = paletteHandle();
   TPalette *pl         = ph ? ph->getPalette() : 0;
-  TVectorImageP vi     = TImageP(getImage(true));
+  TVectorImageP vi     = TImageP(getImage(false));
   TRegion *region      = gradientRegionAt(vi, m_anchor);
   TPalette::Page *page = pl ? pl->getStylePage(m_styleId) : 0;
   if (!pl || !page || !region || region->getStyle() != m_styleId) {
@@ -1012,8 +1012,6 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
 
   TPaletteP paletteLifetime(pl);
   int oldStyleId  = m_styleId;
-  int indexInPage = page->search(oldStyleId) + 1;  // right after the original
-  int newStyleId  = pl->getStyleCount();           // TPalette::addStyle appends
 
   bool copyAnimation = false;
   if (pl->getKeyframeCount(oldStyleId)) {
@@ -1040,6 +1038,15 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
     reason = QObject::tr("The picked region changed while the dialog was open. Pick it again.");
     return false;
   }
+  // The modal event loop can also edit the same palette. Never retain its
+  // page pointer, insertion position or append ID across that event loop.
+  page = pl->getStylePage(oldStyleId);
+  if (!page) {
+    reason = QObject::tr("The gradient's palette page changed while the dialog was open. Pick it again.");
+    return false;
+  }
+  const int indexInPage = page->search(oldStyleId) + 1;
+  const int newStyleId = pl->getStyleCount();
 
   // The copy looks the same, has its own name and, like a new style, is not
   // linked to a studio palette (in a studio palette it gets its own global
@@ -1055,6 +1062,13 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
   else
     copy->setGlobalName(L"");
 
+  // Readback and a canceled choice must not mark the image modified or
+  // invalidate its texture. Request writable access only for the accepted edit.
+  if (TVectorImageP(getImage(true)) != vi) {
+    delete copy;
+    reason = QObject::tr("The gradient target changed. Pick it again.");
+    return false;
+  }
   TUndoManager::manager()->beginBlock();
   PaletteCmd::addStyles(ph, page->getIndex(), indexInPage,
                         std::vector<TColorStyle *>(1, copy));
@@ -1151,8 +1165,8 @@ GradientTransformToolOptionsBox::GradientTransformToolOptionsBox(
       "GradientTransformTool",
       "Make Unique Style: give the picked region its own copy of the style "
       "(added to the palette after the original), so that the handles "
-      "change this region only. Available when other regions of the drawing "
-      "use the same style."));
+      "change this region only. Other drawings using the original style "
+      "keep their appearance and animation."));
   m_layout->addWidget(m_makeUniqueButton, 0);
 
   m_stateLabel = new QLabel;

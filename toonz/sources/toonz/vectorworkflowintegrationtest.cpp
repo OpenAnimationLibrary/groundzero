@@ -19,6 +19,8 @@
 #include "toonz/txsheethandle.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/imagemanager.h"
+#include "toonz/levelproperties.h"
 #include "toonz/txshcell.h"
 #include "toonz/txsheet.h"
 #include "toonz/tcolumnhandle.h"
@@ -30,6 +32,8 @@
 #include "tcolorstyles.h"
 #include "tundo.h"
 #include "tlevel_io.h"
+#include "tlevel.h"
+#include "tstream.h"
 #include <QAction>
 #include <QApplication>
 #include <QDoubleSpinBox>
@@ -37,12 +41,14 @@
 #include <QMessageBox>
 #include <QAbstractButton>
 #include <QTemporaryDir>
+#include <QFile>
 #include <QImage>
 #include <QLabel>
 #include <cmath>
 #include <array>
 #include <exception>
 #include <functional>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 
@@ -389,23 +395,146 @@ void runVectorWorkflowNativeChecks() {
   // The real animation-choice dialog must preserve the source keys and make
   // one independent animated gradient, with one undo for palette and region.
   first->getRegion(TPointD(0,0))->setStyle(gradientId);
+  palette->getStyle(gradientId)->setGlobalName(L"fixture-gradient-source");
+  palette->getStyle(gradientId)->setOriginalName(L"Linked gradient");
+  palette->getStyle(gradientId)->setIsEditedFlag(true);
   palette->getStyle(gradientId)->setMainColor(TPixel32::Red);
   palette->setKeyframe(gradientId, 0);
   palette->getStyle(gradientId)->setMainColor(TPixel32::Blue);
   palette->setKeyframe(gradientId, 10);
   palette->setFrame(5);
-  tool->rightButtonDown(TPointD(0,0), TMouseEvent());
-  QTimer::singleShot(0, [] {
-    for (QWidget *widget : QApplication::topLevelWidgets())
-      if (auto *question = qobject_cast<QMessageBox *>(widget))
+  // Establish an actually saved, clean drawing. A test that starts with a
+  // modified image cannot detect the canceled dialog's old writable readback.
+  QTemporaryDir gradientStorage;
+  require(gradientStorage.isValid(), "gradient persistence fixture directory unavailable");
+  const TFilePath gradientPath(gradientStorage.filePath("gradient-choices.pli"));
+  level->setPath(gradientPath,true);
+  level->setDirtyFlag(true); palette->setDirtyFlag(true); level->save();
+  palette->setFrame(5); // Preview an interpolated appearance, not an endpoint.
+  auto *images = ImageManager::instance();
+  const auto firstId = level->getImageId(TFrameId(1)), secondId = level->getImageId(TFrameId(2));
+  require(!images->isModified(firstId) && !images->isModified(secondId),
+          "saved gradient fixture did not establish clean native image state");
+  app->getCurrentScene()->setDirtyFlag(false);
+  auto paletteBytes = [&] {
+    const QString path = gradientStorage.filePath("palette-snapshot.tpl");
+    { TOStream output{TFilePath(path)}; palette->saveData(output); }
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly), "native gradient palette snapshot unavailable");
+    return file.readAll();
+  };
+  auto chooseUnique = [&](const QString &choice, const std::function<void()> &whileOpen = {}) {
+    bool visited = false, expired = false;
+    std::exception_ptr failure;
+    QTimer drive, deadline; drive.setInterval(20); deadline.setSingleShot(true);
+    QObject::connect(&drive,&QTimer::timeout,[&] {
+      if (visited) return;
+      auto *question = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+      if (!question) return;
+      visited = true;
+      try {
+        require(question->windowTitle() == "Make Unique Gradient", "unexpected native gradient dialog");
+        if (whileOpen) whileOpen();
+        QAbstractButton *selected = choice == "Cancel" ? question->button(QMessageBox::Cancel) : nullptr;
         for (auto *button : question->buttons())
-          if (button->text() == "Copy Animation") { button->click(); return; }
-  });
-  unique->trigger(); settle();
+          if (button->text() == choice) selected = button;
+        require(selected && selected->isEnabled(), "native gradient choice unavailable");
+        // Deliver outside the timer callback, including any nested UI work.
+        QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection);
+      } catch (...) { failure = std::current_exception(); question->reject(); }
+    });
+    QObject::connect(&deadline,&QTimer::timeout,[&] {
+      expired = true;
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+    });
+    drive.start(); deadline.start(5000); unique->trigger(); drive.stop(); deadline.stop();
+    if (failure) std::rethrow_exception(failure);
+    require(visited && !expired,"native gradient choice workflow did not complete");
+  };
+  tool->rightButtonDown(TPointD(0,0), TMouseEvent());
+  const auto unchangedPalette = paletteBytes();
+  const int unchangedFrame = palette->getFrame();
+  const bool cachedFirst = images->isCached(firstId), cachedSecond = images->isCached(secondId);
+  const bool paletteDirty = palette->getDirtyFlag(), levelDirty = level->getProperties()->getDirtyFlag();
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    chooseUnique("Cancel"); settle();
+    require(!images->isModified(firstId) && !images->isModified(secondId) &&
+                images->isCached(firstId) == cachedFirst && images->isCached(secondId) == cachedSecond &&
+                TVectorImageP(level->getFrame(TFrameId(1),false)) == first &&
+                TVectorImageP(level->getFrame(TFrameId(2),false)) == second &&
+                first->getRegion(TPointD(0,0))->getStyle() == gradientId &&
+                second->getRegion(TPointD(0,0))->getStyle() == gradientId &&
+                palette->getFrame() == unchangedFrame && paletteBytes() == unchangedPalette &&
+                palette->getDirtyFlag() == paletteDirty && level->getProperties()->getDirtyFlag() == levelDirty &&
+                undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+            "canceling animated Make Unique changed image/cache/palette/frame/history state");
+  }
+  const TPaletteP originalAnimation = palette->clone();
+  const std::unique_ptr<TColorStyle> currentAppearance(palette->getStyle(gradientId)->clone());
+  auto checkCopy = [&](TPalette *candidate, int id, bool animated) {
+    require(candidate->getKeyframeCount(gradientId) == 2 &&
+                candidate->getKeyframe(gradientId,0) == 0 && candidate->getKeyframe(gradientId,1) == 10 &&
+                candidate->getKeyframeCount(id) == (animated ? 2 : 0) &&
+                candidate->getStyle(id)->getGlobalName().empty() &&
+                candidate->getStyle(id)->getOriginalName().empty(),
+            "unique gradient lost exact keys or retained a shared style link");
+    if (animated) require(candidate->getKeyframe(id,0) == 0 && candidate->getKeyframe(id,1) == 10,
+                          "copied gradient changed native keyframe positions");
+    TPaletteP sampled = candidate->clone(), reference = originalAnimation->clone();
+    for (int frame = 0; frame <= 10; ++frame) {
+      sampled->setFrame(frame); reference->setFrame(frame);
+      require(*sampled->getStyle(gradientId) == *reference->getStyle(gradientId),
+              "Make Unique changed source gradient animation");
+      std::unique_ptr<TColorStyle> expected((animated ? reference->getStyle(gradientId)
+                                                    : currentAppearance.get())->clone());
+      expected->setName(sampled->getStyle(id)->getName());
+      expected->setGlobalName(L""); expected->setOriginalName(L""); expected->setIsEditedFlag(false);
+      require(*sampled->getStyle(id) == *expected,
+              "unique gradient did not retain the chosen animation/current appearance");
+    }
+  };
+  auto reopenCopy = [&](int id, bool animated) {
+    const int frame = palette->getFrame();
+    level->save();
+    palette->setFrame(frame);
+    TLevelReaderP reader{gradientPath};
+    const TLevelP saved = reader->loadInfo();
+    require(saved && saved->getPalette(),"saved unique gradient palette unavailable");
+    checkCopy(saved->getPalette(),id,animated);
+    const TVectorImageP a = reader->getFrameReader(TFrameId(1))->load();
+    const TVectorImageP b = reader->getFrameReader(TFrameId(2))->load();
+    require(a && b && a->getRegion(TPointD(0,0))->getStyle() == id &&
+                b->getRegion(TPointD(0,0))->getStyle() == gradientId,
+            "unique gradient reload changed current/shared drawing ownership");
+  };
+  chooseUnique("Current Appearance"); settle();
+  const int appearanceCopy = first->getRegion(TPointD(0,0))->getStyle();
+  require(appearanceCopy != gradientId && undo->getHistoryCount() == 1 &&
+              second->getRegion(TPointD(0,0))->getStyle() == gradientId,
+          "current-appearance gradient copy did not retain other drawing identity");
+  checkCopy(palette.getPointer(),appearanceCopy,false); reopenCopy(appearanceCopy,false);
+  undo->undo();
+  require(first->getRegion(TPointD(0,0))->getStyle() == gradientId,
+          "current-appearance gradient undo lost original region style");
+  undo->redo(); checkCopy(palette.getPointer(),appearanceCopy,false);
+  undo->undo(); undo->reset();
+  tool->rightButtonDown(TPointD(0,0), TMouseEvent());
+  int queuedStyle = -1;
+  chooseUnique("Copy Animation", [&] {
+    // A queued same-palette edit changes both the append ID and insertion
+    // position while the question is open. The accepted copy must re-resolve.
+    queuedStyle = palette->addStyle(TPixel32(12,34,56));
+    auto *page = palette->getStylePage(gradientId);
+    page->insertStyle(page->search(gradientId),queuedStyle);
+  }); settle();
   const int animatedCopy = first->getRegion(TPointD(0,0))->getStyle();
   require(animatedCopy != gradientId && palette->getKeyframeCount(animatedCopy) == 2 &&
           palette->getKeyframeCount(gradientId) == 2 && undo->getHistoryCount() == 1,
           "native animated unique gradient did not copy keys atomically");
+  auto *copiedPage = palette->getStylePage(gradientId);
+  require(animatedCopy > queuedStyle && copiedPage->getStyleId(copiedPage->search(gradientId)+1) == animatedCopy &&
+              palette->getStyle(queuedStyle)->getMainColor() == TPixel32(12,34,56),
+          "accepted Make Unique used stale palette insertion state");
   for (int frame : {0, 3, 5, 10}) {
     palette->setFrame(frame);
     require(palette->getStyle(animatedCopy)->getMainColor() == palette->getStyle(gradientId)->getMainColor(),
@@ -413,10 +542,13 @@ void runVectorWorkflowNativeChecks() {
   }
   undo->undo();
   require(first->getRegion(TPointD(0,0))->getStyle() == gradientId &&
-          palette->getKeyframeCount(gradientId) == 2, "native animated unique undo affected source");
+          palette->getKeyframeCount(gradientId) == 2 && palette->getStylePage(queuedStyle) &&
+          palette->getStyle(queuedStyle)->getMainColor() == TPixel32(12,34,56),
+          "native animated unique undo affected source or earlier palette edit");
   undo->redo();
   require(first->getRegion(TPointD(0,0))->getStyle() == animatedCopy &&
           palette->getKeyframeCount(animatedCopy) == 2, "native animated unique redo lost keys");
+  checkCopy(palette.getPointer(),animatedCopy,true); reopenCopy(animatedCopy,true);
   undo->reset();
 
   // Select two unique drawing IDs through the same Filmstrip selection API
