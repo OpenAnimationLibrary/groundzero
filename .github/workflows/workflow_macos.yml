@@ -93,6 +93,11 @@ jobs:
       - name: Verify native diagnostic isolation
         run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
 
+      - name: Verify original native crash identity and process contracts
+        run: |
+          python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
+          python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+
       - name: Select SeExpr parser tools
         run: |
           brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"

@@ -44,7 +44,7 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(native, "os", native_os), \
                     patch.object(native, "signal", SimpleNamespace(SIGKILL=9)), \
-                    patch.object(native.subprocess, "Popen", side_effect=launch) as popen, \
+                    patch.object(native, "launch_captured_process", side_effect=launch) as popen, \
                     patch.object(native.subprocess, "run", taskkill or Mock(
                         return_value=SimpleNamespace(returncode=0, stdout=b"tree stopped\n"))) as cleanup, \
                     patch.object(native.time, "monotonic", clock), \
@@ -259,7 +259,7 @@ class IsolatedFixtureLifetimeTest(unittest.TestCase):
             fixture = result = None
             try:
                 with patch.object(native, "os", native_os), \
-                        patch.object(native.subprocess, "Popen", side_effect=launch), \
+                        patch.object(native, "launch_captured_process", side_effect=launch), \
                         patch.object(native.subprocess, "run", return_value=SimpleNamespace(
                             returncode=128, stdout=b"descendants unknown\n")):
                     with self.assertRaisesRegex(RuntimeError, "retained"):

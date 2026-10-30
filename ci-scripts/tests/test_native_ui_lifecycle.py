@@ -4,6 +4,7 @@ import importlib.util
 import io
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -11,6 +12,7 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "run_native_ui_test.py"
+sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("function_native_ui_runner", SCRIPT)
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)

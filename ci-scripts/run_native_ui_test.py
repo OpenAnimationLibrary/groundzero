@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from windows_process import WindowsJobProcess
 
 
 @contextmanager
@@ -73,6 +74,8 @@ def windows_mesa_renderer(executable, runtime, cleanup_allowed=None):
 
 def stop_process_tree(process):
     """Bound the complete tree cleanup to 15 seconds; uncertainty is not success."""
+    if isinstance(process, WindowsJobProcess):
+        return process.retire(timeout=15)
     deadline = time.monotonic() + 15
     stopped = False
     notes = b""
@@ -125,6 +128,13 @@ def stop_process_tree(process):
     return stopped, notes
 
 
+def launch_captured_process(command, **options):
+    if os.name == "nt":
+        return WindowsJobProcess(command, cwd=options["cwd"], env=options["env"],
+                                 stdout=options["stdout"])
+    return subprocess.Popen(command, **options)
+
+
 def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
     """Capture flushed bytes even if a Windows descendant prevents pipe EOF.
 
@@ -136,6 +146,7 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
     capture = Path(name)
     runtime_state["capture_path"] = capture
     notes = b""
+    process = None
 
     def captured():
         with capture.open("rb") as source:
@@ -147,7 +158,8 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
 
     try:
         with os.fdopen(descriptor, "wb", buffering=0) as destination:
-            process = subprocess.Popen(command, cwd=cwd, env=environment,
+            runtime_state["started_at"] = time.time()
+            process = launch_captured_process(command, cwd=cwd, env=environment,
                                        stdout=destination, stderr=subprocess.STDOUT,
                                        start_new_session=os.name != "nt")
             # This is the directly launched OpenToonz PID. xvfb-run wraps this
@@ -156,16 +168,19 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
             runtime_state["safe_to_release"] = False
             try:
                 status = process.wait(timeout=timeout)
+                runtime_state["finished_at"] = time.time()
             except subprocess.TimeoutExpired:
                 safe, notes = stop_process_tree(process)
                 runtime_state["safe_to_release"] = safe
+                runtime_state["finished_at"] = time.time()
                 raise subprocess.TimeoutExpired(command, timeout, output=captured())
             except BaseException:
                 safe, notes = stop_process_tree(process)
                 runtime_state["safe_to_release"] = safe
+                runtime_state["finished_at"] = time.time()
                 captured()
                 raise
-            if status != 0:
+            if status != 0 or isinstance(process, WindowsJobProcess):
                 # A crashed parent can leave converter descendants behind even
                 # though wait() returned. Keep its exact status/output, and do
                 # not release shared files unless tree exit is confirmed.
@@ -178,6 +193,8 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
                 runtime_state["safe_to_release"] = True
             return subprocess.CompletedProcess(command, status, stdout=captured())
     finally:
+        if isinstance(process, WindowsJobProcess):
+            process.close()
         if runtime_state["safe_to_release"]:
             capture.unlink()
 
@@ -506,6 +523,8 @@ def main():
                         help="Require the real application Function Editor fixture checkpoint")
     parser.add_argument("--windows-crash-debugger", action="store_true",
                         help="Capture a separate CDB stack after a Windows native exception")
+    parser.add_argument("--windows-original-dump-directory", type=Path,
+                        help="Capture and decode a bounded WER dump of the original Windows process; no replay")
     parser.add_argument("--linux-crash-debugger", action="store_true",
                         help="Capture a separate GDB stack after a Linux native signal")
     parser.add_argument("--linux-original-core-directory", type=Path,
@@ -525,6 +544,8 @@ def main():
     args = parser.parse_args()
     if args.linux_original_core_directory and (not sys.platform.startswith("linux") or args.artist_benchmark):
         parser.error("--linux-original-core-directory requires the Linux native qualification run")
+    if args.windows_original_dump_directory and (os.name != "nt" or args.artist_benchmark):
+        parser.error("--windows-original-dump-directory requires the Windows native qualification run")
     if args.isolated_timing_lifecycle and any((args.artist_benchmark,
             args.require_function_workflow, args.require_offline_gl_workflow,
             args.require_vector_workflows, args.require_combined_workflows)):
@@ -535,6 +556,7 @@ def main():
     output, status = "", 1
     native_status = None
     executable, source = None, None
+    original_windows = None
     runtime_state = {"safe_to_release": True}
     try:
         executable = args.executable.resolve(strict=True)
@@ -546,10 +568,15 @@ def main():
                 environment["GROUNDZERO_ARTIST_BENCHMARK"] = "1"
             try:
                 core_limit = nullcontext()
+                dump_capture = nullcontext(None)
                 if args.linux_original_core_directory:
                     from native_ui_core import original_core_limit
                     core_limit = original_core_limit(args.linux_original_core_directory)
-                with core_limit:
+                if args.windows_original_dump_directory:
+                    from native_ui_windows_dump import OriginalWindowsDump
+                    dump_capture = OriginalWindowsDump(executable, args.windows_original_dump_directory,
+                                                       runtime_state=runtime_state)
+                with core_limit, dump_capture as original_windows:
                     result = run_captured_process([str(executable), "--test-native-ui"],
                                                   cwd=directory, environment=environment,
                                                   timeout=timeout_seconds, runtime_state=runtime_state)
@@ -558,6 +585,25 @@ def main():
                     if status:
                         output += (f"\nNative application exited with status {status} "
                                    f"(0x{status & 0xffffffff:08X}).\n")
+                    if original_windows is not None and (status & 0xc0000000) == 0xc0000000:
+                        if runtime_state["safe_to_release"]:
+                            dump_output = original_windows.collect(runtime_state.get("pid"),
+                                runtime_state.get("started_at"), runtime_state.get("finished_at"),
+                                args.debugger_symbols, run_captured_process)
+                        else:
+                            original_windows.safe_to_release = False
+                            dump_output = ("Original Windows dump analysis was not launched: "
+                                "original process-tree exit is uncertain. Raw dump resources retained "
+                                "outside report artifacts; original status remains authoritative.\n")
+                        output += "\n--- Original Windows process dump (no replay) ---\n" + dump_output
+                        if not original_windows.safe_to_release:
+                            runtime_state["safe_to_release"] = False
+                        report = args.output.with_name(args.output.stem + "-original-windows-dump.txt")
+                        report.parent.mkdir(parents=True, exist_ok=True)
+                        report.write_text(dump_output, encoding="utf-8")
+                if original_windows is not None:
+                    if original_windows.restore_failed and status == 0:
+                        status = 1
                 if args.linux_original_core_directory and native_status < 0:
                     from native_ui_core import collect_original_core
                     core_output = collect_original_core(executable,
@@ -569,6 +615,20 @@ def main():
                         report.write_text(core_output, encoding="utf-8")
                     except (OSError, ValueError) as error:
                         output += f"Could not save original core diagnostic report: {error}\n"
+                if sys.platform == "darwin" and native_status < 0 and runtime_state["safe_to_release"]:
+                    from native_macos_crash import collect_original_macos_crash
+                    crash_output = collect_original_macos_crash(executable, runtime_state.get("pid"),
+                        runtime_state.get("started_at"), runtime_state.get("finished_at"))
+                    output += "\n--- Original macOS process crash report (no replay) ---\n" + crash_output
+                    try:
+                        report = args.output.with_name(args.output.stem + "-original-macos-crash.txt")
+                        report.parent.mkdir(parents=True, exist_ok=True)
+                        report.write_text(crash_output, encoding="utf-8")
+                    except (OSError, ValueError) as error:
+                        detail = str(getattr(error, "strerror", None) or type(error).__name__)
+                        detail = detail.replace("\r", " ").replace("\n", " ")[:160]
+                        output += (f"Could not save original macOS crash report: {type(error).__name__} "
+                                   f"(errno={getattr(error, 'errno', None)}): {detail}\n")
                 if status == 0 and selected_suite:
                     lines = output.splitlines()
                     timing_pass = "function-timing-native: PASS"
@@ -608,6 +668,8 @@ def main():
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
         status = 1
+    if original_windows is not None:
+        output += "\n".join(original_windows.notes) + "\n"
     if selected_suite and status == 0:
         output += "\nRequired isolated combined-timing lifecycle: PASS (process exited with status 0).\n"
     if args.artist_benchmark and status == 0:
@@ -711,7 +773,8 @@ def main():
         except (OSError, ValueError) as error:
             diagnostics += f"Could not save native debugger report: {error}\n"
         print(diagnostics, end="")
-    if (runtime_state["safe_to_release"] and args.windows_crash_debugger and not args.artist_benchmark and os.name == "nt" and native_status is not None
+    if (runtime_state["safe_to_release"] and args.windows_crash_debugger and not args.windows_original_dump_directory
+            and not args.artist_benchmark and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,
