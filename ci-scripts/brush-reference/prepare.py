@@ -66,19 +66,64 @@ source = Path(__file__).resolve().parent
 shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_reference", dirs_exist_ok=True)
 (resources / "pykrita" / "gzbrush_reference.desktop").write_text("[Desktop Entry]\nType=Service\nServiceTypes=Krita/PythonPlugin\nX-KDE-Library=gzbrush_reference\nX-Python-2-Compatible=false\nName=Brush Reference Fixtures\nComment=Render original API-line fixtures for brush qualification\n")
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
+def finalize_input_contract():
+    """Pin the source input flag explicitly for every generator's cases."""
+    path = root / "output" / "fixtures.json"
+    fixture = json.loads(path.read_text())
+    for case in fixture["cases"]:
+        diagnostic = case.get("variant", "").endswith(" pressure-flag false control")
+        case["sourcePressureFlag"] = case.get("delivery") == "Qt tablet events" and not diagnostic
+        if diagnostic:
+            case["sourceInputDiagnosticOnly"] = True
+    path.write_text(json.dumps(fixture, indent=2))
+
+
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group == "texturepickup":
+    from texture_pickup_fixtures import prepare as prepare_texture_pickup
+    prepare_texture_pickup(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group in ("maskwash", "maskbuildup"):
+    from masked_fixtures import prepare as prepare_masked
+    prepare_masked(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group in ("airbrushtimed", "timedsensors"):
+    from timed_fixtures import prepare as prepare_timed
+    prepare_timed(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "hsvjoint":
+    from hsv_joint_fixtures import prepare as prepare_hsv_joint
+    prepare_hsv_joint(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "hsvheldout":
+    from hsv_heldout_fixtures import prepare as prepare_hsv_heldout
+    prepare_hsv_heldout(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group in ("hsvdynamics", "distancesensors"):
+    from option_fixtures import prepare as prepare_options
+    prepare_options(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "mirrortips":
     from mirror_fixtures import prepare as prepare_mirrors
     prepare_mirrors(root, resources, preset)
+    finalize_input_contract()
     raise SystemExit(0)
 if group in ("tabletsensors", "spacingdynamics"):
     from sensor_fixtures import prepare as prepare_sensors
     prepare_sensors(root, resources, preset, group)
+    finalize_input_contract()
     raise SystemExit(0)
-if group in ("bitmaptips", "gihstatistics"):
+if group in ("bitmaptips", "gihstatistics", "gihlabels"):
     from resource_fixtures import prepare as prepare_resources
     prepare_resources(root, resources, preset, group)
+    finalize_input_contract()
     raise SystemExit(0)
 if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetboundary", "texturemasks", "texturestate", "wetkernel", "wetkernelscale", "wetkernelcount", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelcurveknots", "pixelblend"):
     raise RuntimeError("Unknown reference fixture group")
@@ -377,7 +422,15 @@ for mode, modern in profiles:
                                  overrides, 32, 5, [1, 1], opacity, 1))
             elif invert is False and opacity == 1:
                 for color in (0, .25):
-                    for phase in (0, 1, 4):
+                    # Original captures reject point-only retained pickup for
+                    # these two settings. Adjacent boundary phases distinguish
+                    # filtered/coverage-aware neighborhoods without fitting
+                    # exceptions to the existing phase-zero observation.
+                    phases = (0, 1, 4)
+                    if strength == .5 and ((texturing_mode == 0 and soft) or
+                                           (texturing_mode == 1 and not soft)):
+                        phases += (2, 3, 5, 15)
+                    for phase in phases:
                         for dabs in (2, 3):
                             state_overrides = dict(overrides, ColorRateValue=str(color))
                             variants.append((f"texture state mode {texturing_mode} soft {int(soft)} strength {round(strength * 100):03d} color {round(color * 100):03d} phase {phase} dabs {dabs}",
@@ -422,7 +475,7 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     if group == "wetkernelcount":
         planned = json.loads((source / "wetkernelcount.json").read_text())
-        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 179:
+        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 185:
             raise RuntimeError("Unexpected bounded Dulling probe plan")
         variants = []
         kernel_objectives = {}
@@ -432,12 +485,14 @@ for mode, modern in profiles:
             diameter, radius = probe["diameter"], probe["radiusPercent"]
             axis, offset = probe["axis"], probe["offset"]
             if not (0 < diameter <= 128 and 0 <= radius <= 300 and
-                    axis in ("column", "row") and abs(offset) <= 200):
+                    axis in ("column", "row", "point") and abs(offset) <= 200 and
+                    (axis != "point" or (isinstance(probe.get("offsetY"), int) and abs(probe["offsetY"]) <= 200))):
                 raise RuntimeError("Out-of-bounds Dulling probe")
             dabs = probe.get("dabs", 2)
             if dabs not in (2, 3, 4):
                 raise RuntimeError("Out-of-bounds Dulling state probe")
-            label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis} dabs {dabs}"
+            point_y = f" y {probe['offsetY']}" if axis == "point" else ""
+            label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis}{point_y} dabs {dabs}"
             if label in kernel_objectives:
                 raise RuntimeError("Duplicate Dulling probe")
             kernel_objectives[label] = probe["reason"]
@@ -458,6 +513,11 @@ for mode, modern in profiles:
                 if group == "pixelprecision":
                     precision_positions[node_label] = precision_positions[label]
         variants.extend(paired)
+    if group == "pixeltransfer":
+        variants.extend((variant[0] + " pressure-flag false control", *variant[1:])
+                        for variant in list(variants)
+                        if " action 0 dynamic pressure " in variant[0] and
+                           not variant[0].endswith(" Node control"))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         # Resource names also become KPP filenames. The source treats decimal
         # dot segments as resource versions, so all generated identities use
@@ -531,6 +591,9 @@ for mode, modern in profiles:
                               "wetBoundary": 256 + diameter * spacing * .8,
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetkernelcount":
+            if "axis point" in label:
+                cases[-1]["wetPattern"] = "opaque-black-white-point"
+                cases[-1]["wetKernelOffsetY"] = int(label.split(" y ")[1].split()[0])
             dabs = int(label.rsplit(" ", 1)[1])
             cases[-1]["probePositions"] = [round(256 + diameter * spacing * i) for i in range(dabs)]
             cases[-1].update({"kernelProbeObjective": kernel_objectives[label],
@@ -606,3 +669,5 @@ for mode, modern in profiles:
             cases[-1].pop("events", None)
             cases[-1]["pairedQtVariant"] = label.removesuffix(" Node control")
 (root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events plus paired Node.paintLine controls; not physical tablet delivery" if group in ("pixeltransfer", "pixelprecision") else "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "wetboundary", "pixelprecision") else "Node.paintLine API; not physical tablet delivery"}, indent=2))
+
+finalize_input_contract()

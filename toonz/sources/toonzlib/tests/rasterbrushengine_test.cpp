@@ -622,6 +622,88 @@ void testCountFadeAndDirection() {
     }
   require(outsideCenter, "one-axis scatter did not disperse stamps");
 }
+void testKritaFixedHsvCandidate() {
+  // Independently acquired K5341 opaque center pixels, two foreground colors,
+  // controls 0,.2,.4,.6,.8,1. No expected values come from candidate equations.
+  const int colors[2][3]         = {{173, 91, 47}, {59, 137, 191}};
+  const int observed[3][2][6][3] = {{{{47, 129, 173},
+                                      {116, 47, 173},
+                                      {173, 47, 79},
+                                      {173, 167, 47},
+                                      {47, 173, 66},
+                                      {47, 129, 173}},
+                                     {{191, 113, 59},
+                                      {111, 191, 59},
+                                      {59, 191, 166},
+                                      {60, 59, 191},
+                                      {191, 59, 163},
+                                      {191, 113, 59}}},
+                                    {{{173, 173, 173},
+                                      {173, 140, 123},
+                                      {173, 107, 72},
+                                      {173, 68, 12},
+                                      {173, 60, 0},
+                                      {173, 60, 0}},
+                                     {{191, 191, 191},
+                                      {138, 169, 191},
+                                      {85, 148, 191},
+                                      {22, 122, 191},
+                                      {0, 113, 191},
+                                      {0, 113, 191}}},
+                                    {{{0, 0, 0},
+                                      {69, 36, 19},
+                                      {138, 73, 38},
+                                      {189, 124, 89},
+                                      {222, 189, 172},
+                                      {255, 255, 255}},
+                                     {{0, 0, 0},
+                                      {24, 55, 76},
+                                      {47, 110, 153},
+                                      {98, 161, 204},
+                                      {177, 208, 229},
+                                      {255, 255, 255}}}};
+  for (int channel = 0; channel < 3; ++channel)
+    for (int color = 0; color < 2; ++color)
+      for (int control = 0; control < 6; ++control)
+        for (bool enabled : {false, true}) {
+          Preset p;
+          p.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
+          p.size.value = 24;
+          p.color      = {colors[color][0] / 255., colors[color][1] / 255.,
+                          colors[color][2] / 255., 1};
+          p.sourceHsvChannel =
+              enabled ? SourceHsvChannel(channel + 1) : SourceHsvChannel::Off;
+          p.sourceHsvValue = control / 5.;
+          Canvas canvas;
+          Stroke stroke(canvas, p);
+          require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+          stroke.finish();
+          const Pixel pixel      = canvas.read(64, 64);
+          const double actual[3] = {pixel.r, pixel.g, pixel.b};
+          require(pixel.a == 1, "source HSV changed opaque dab alpha");
+          for (int c = 0; c < 3; ++c) {
+            const int expected = enabled ? observed[channel][color][control][c]
+                                         : colors[color][c];
+            // Saturation has a measured one-byte residual; it remains a
+            // candidate, not byte-exact source verification.
+            const int tolerance = enabled && channel == 1 ? 1 : 0;
+            require(std::abs(int(std::floor(actual[c] * 255 + .5)) -
+                             expected) <= tolerance,
+                    "source HSV differs from independently captured RGB");
+          }
+        }
+  Preset invalid;
+  invalid.sourceHsvChannel = SourceHsvChannel::Hue;
+  require(!validate(invalid).empty(), "native profile admitted source HSV");
+  invalid.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+  invalid.wash    = true;
+  require(!validate(invalid).empty(), "unqualified source HSV wash admitted");
+  invalid.wash       = false;
+  invalid.flow.value = .5;
+  require(!validate(invalid).empty(),
+          "unqualified source HSV transfer admitted");
+}
+
 void testKritaHardPixelCandidate() {
   struct FullCanvas : Canvas {
     double coverage(int, int) const override { return 1; }
@@ -1022,6 +1104,78 @@ void testNativeWetAnalyticalDrift() {
       require(budget->used() == 0,
               "cancelled native wet stroke retained field memory");
     }
+}
+void testSourceWetOffCanvasState() {
+  struct UnselectedCanvas : Canvas {
+    double coverage(int, int) const override { return 1; }
+  };
+  // Cropping the host raster must not alter a continuous stroke's transient
+  // off-canvas transport. A larger transparent canvas is an independent
+  // boundary oracle; only the finite host writes are compared.
+  for (const char *model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"})
+    for (double colorRate : {0.0, .25})
+      for (double pickupRadius : {0.0, 1.0, 3.0}) {
+        UnselectedCanvas finite, padded;
+        padded.w = 512;
+        padded.h = 256;
+        padded.pixels.assign(size_t(padded.w) * padded.h, {});
+        for (int y = 0; y < finite.h; ++y)
+          for (int x = 0; x < finite.w; ++x) {
+            Pixel pixel = x < 64 ? Pixel{0, 0, 1, 1}
+                                 : Pixel{128 / 255.0, 0, 0, 128 / 255.0};
+            finite.write(x, y, pixel);
+            padded.write(x + 192, y + 64, pixel);
+          }
+        Preset p;
+        p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+        p.wet     = std::string(model).find("dulling") != std::string::npos
+                        ? Wet::Dulling
+                        : Wet::Smear;
+        if ((p.wet == Wet::Smear && pickupRadius != 0) ||
+            (std::string(model) == "legacy-dulling" && pickupRadius > 1))
+          continue;
+        p.tip.antialiasEdges = false;
+        p.size.value         = 16;
+        p.spacing            = .5;
+        p.smudgeRadius       = pickupRadius;
+        p.color              = {0, 1, 0, 1};
+        p.colorRate          = colorRate;
+        auto shared          = std::make_shared<MemoryBudget>(8 * 1024 * 1024);
+        Stroke clipped(finite, p, 8 * 1024 * 1024, shared), full(padded, p);
+        const std::pair<int, int> path[] = {
+            {64, 48}, {-64, 48}, {-64, 80}, {64, 80}};
+        double time = 0;
+        for (int segment = 0; segment < 3; ++segment) {
+          const auto a = path[segment], b = path[segment + 1];
+          const int steps = std::max(std::abs(a.first - b.first),
+                                     std::abs(a.second - b.second)) /
+                            4;
+          for (int i = segment ? 1 : 0; i <= steps; ++i) {
+            const double x = a.first + (b.first - a.first) * double(i) / steps,
+                         y = a.second +
+                             (b.second - a.second) * double(i) / steps;
+            require(clipped.add(sample(x, y, time)), clipped.error().c_str());
+            require(full.add(sample(x + 192, y + 64, time)),
+                    full.error().c_str());
+            time += 1 / 240.0;
+          }
+        }
+        for (int y = 0; y < finite.h; ++y)
+          for (int x = 0; x < finite.w; ++x) {
+            const Pixel a = finite.read(x, y), b = padded.read(x + 192, y + 64);
+            require(
+                std::abs(a.r - b.r) < 1e-12 && std::abs(a.g - b.g) < 1e-12 &&
+                    std::abs(a.b - b.b) < 1e-12 && std::abs(a.a - b.a) < 1e-12,
+                "off-canvas wet state differs from transparent padded canvas");
+          }
+        require(shared->used() > 0,
+                "off-canvas state escaped memory accounting");
+        clipped.finish();
+        full.finish();
+        require(shared->used() == 0,
+                "finished off-canvas wet state retained memory");
+      }
 }
 void testSourceTextureMasks() {
   auto mask   = std::make_shared<Image>();
@@ -1679,6 +1833,43 @@ void testSourceSmallCircle() {
     require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) < 1e-9,
             "small-circle fade or scalar quantization differs from source");
 }
+void testSourcePixelPressureTransfer() {
+  // Original constant-pressure Node observations: wash opacity scales the
+  // stroke, wash flow and build-up opacity accumulate per dab, build-up flow
+  // is inactive. Source byte rounding is allowed one byte at these probes.
+  for (bool wash : {false, true})
+    for (bool opacityControl : {false, true})
+      for (double pressure : {.25, .75}) {
+        Preset p;
+        p.profile        = "krita-5.3.4.1-hard-pixel-candidate-1";
+        p.size.value     = 32;
+        p.spacing        = .25;
+        p.wash           = wash;
+        Dynamic &control = opacityControl ? p.opacity : p.flow;
+        control.value    = .5;
+        control.mappings = {Mapping{}};
+        Canvas canvas;
+        Stroke stroke(canvas, p);
+        auto first = sample(32, 32, 0), last = sample(48, 32, 1);
+        first.pressure = last.pressure = pressure;
+        require(stroke.add(first) && stroke.add(last), stroke.error().c_str());
+        const bool inactive      = !wash && !opacityControl;
+        const bool strokeOpacity = wash && opacityControl;
+        const int two            = inactive        ? 255
+                                   : strokeOpacity ? (pressure == .25 ? 32 : 96)
+                                                   : (pressure == .25 ? 60 : 156);
+        const int three          = inactive        ? 255
+                                   : strokeOpacity ? two
+                                                   : (pressure == .25 ? 84 : 193);
+        require(
+            std::abs(std::lround(canvas.read(32, 32).a * 255) - two) <= 1 &&
+                std::abs(std::lround(canvas.read(40, 32).a * 255) - three) <= 1,
+            "source pressure transfer disagrees with original Node probes");
+        control.mappings.front().curve = {{0, 0}, {1, .5}};
+        require(!validate(p).empty(),
+                "unmeasured Pixel transfer curve admitted");
+      }
+}
 void testSourceNaturalCubicSize() {
   // Complete original source alpha windows, independent of this evaluator.
   struct Capture {
@@ -1705,8 +1896,9 @@ void testSourceNaturalCubicSize() {
   };
   for (const auto &capture : captures) {
     Preset p;
-    p.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
-    p.size.value = 64;
+    p.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value   = 64;
+    p.size.minimum = 0;
     Mapping curve;
     curve.sensor        = Sensor::Pressure;
     curve.interpolation = Interpolation::NaturalCubic;
@@ -1715,6 +1907,7 @@ void testSourceNaturalCubicSize() {
             ? std::vector<Knot>{{0, .25}, {.25, .875}, {.75, .125}, {1, .75}}
             : std::vector<Knot>{{0, .125}, {.25, .25}, {.75, .75}, {1, .875}};
     p.size.mappings = {curve};
+    require(validate(p).empty(), "captured source cubic fixture is invalid");
     Canvas canvas;
     Stroke stroke(canvas, p);
     auto input     = sample(64, 64, 0);
@@ -2179,48 +2372,71 @@ void testNativeSpacingAndWorkLimits() {
 }
 }  // namespace
 int main() {
-  try {
-    testNativeEraseCoverage();
-    testFloatTransaction();
-    testSnapshotAndPrepareBudgets();
-    testComposition();
-    testAreaCoverage();
-    testDeterminismAndMasks();
-    testDisabledSecondaryAndExtremeTransforms();
-    testNativeTextureCoverage();
-    testWashAndInput();
-    testResourcesAndWet();
-    testWetPressure();
-    testWetPickupGeometry();
-    testCountFadeAndDirection();
-    testSecondaryCountAndMirror();
-    testIndependentSecondarySpacing();
-    testIndependentSecondaryDynamics();
-    testNativeSpacingAndWorkLimits();
-    testKritaHardPixelCandidate();
-    testStationaryAndBatching();
-    testColorDynamics();
-    testCubicCurves();
-    testSourceDefaultCircle();
-    testSourceDullingRadiusImpulses();
-    testSourceWetPressureColorAttenuation();
-    testSourceWashLattice();
-    testSourceSmallCircle();
-    testSourceHardCircleAA();
-    testSourceWetWorkBounds();
-    testSourcePixelBlendCandidates();
-    testSourceSmallHardCircleAA();
-    testSourceNaturalCubicSize();
-    testSourceRectangle();
-    testSourceWetInitialization();
-    testSourceTextureMasks();
-    testSourceWetOpacityTransport();
-    testSourceWetDisabledControls();
-    testLongWetTrace();
-    testNativeWetAnalyticalDrift();
-  } catch (const std::exception &e) {
-    std::cerr << e.what() << '\n';
+  struct Case {
+    const char *name;
+    void (*run)();
+  };
+  const Case cases[] = {
+      {"testNativeEraseCoverage", testNativeEraseCoverage},
+      {"testFloatTransaction", testFloatTransaction},
+      {"testSnapshotAndPrepareBudgets", testSnapshotAndPrepareBudgets},
+      {"testComposition", testComposition},
+      {"testAreaCoverage", testAreaCoverage},
+      {"testDeterminismAndMasks", testDeterminismAndMasks},
+      {"testDisabledSecondaryAndExtremeTransforms",
+       testDisabledSecondaryAndExtremeTransforms},
+      {"testNativeTextureCoverage", testNativeTextureCoverage},
+      {"testWashAndInput", testWashAndInput},
+      {"testResourcesAndWet", testResourcesAndWet},
+      {"testWetPressure", testWetPressure},
+      {"testWetPickupGeometry", testWetPickupGeometry},
+      {"testCountFadeAndDirection", testCountFadeAndDirection},
+      {"testSecondaryCountAndMirror", testSecondaryCountAndMirror},
+      {"testIndependentSecondarySpacing", testIndependentSecondarySpacing},
+      {"testIndependentSecondaryDynamics", testIndependentSecondaryDynamics},
+      {"testNativeSpacingAndWorkLimits", testNativeSpacingAndWorkLimits},
+      {"testKritaHardPixelCandidate", testKritaHardPixelCandidate},
+      {"testKritaFixedHsvCandidate", testKritaFixedHsvCandidate},
+      {"testStationaryAndBatching", testStationaryAndBatching},
+      {"testColorDynamics", testColorDynamics},
+      {"testCubicCurves", testCubicCurves},
+      {"testSourceDefaultCircle", testSourceDefaultCircle},
+      {"testSourceDullingRadiusImpulses", testSourceDullingRadiusImpulses},
+      {"testSourceWetPressureColorAttenuation",
+       testSourceWetPressureColorAttenuation},
+      {"testSourceWashLattice", testSourceWashLattice},
+      {"testSourceSmallCircle", testSourceSmallCircle},
+      {"testSourceHardCircleAA", testSourceHardCircleAA},
+      {"testSourceWetWorkBounds", testSourceWetWorkBounds},
+      {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
+      {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
+      {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
+      {"testSourceRectangle", testSourceRectangle},
+      {"testSourceWetInitialization", testSourceWetInitialization},
+      {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},
+      {"testSourceTextureMasks", testSourceTextureMasks},
+      {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},
+      {"testSourceWetDisabledControls", testSourceWetDisabledControls},
+      {"testLongWetTrace", testLongWetTrace},
+      {"testNativeWetAnalyticalDrift", testNativeWetAnalyticalDrift},
+  };
+  int failures = 0;
+  for (const auto &test : cases) {
+    try {
+      test.run();
+      std::cout << "PASS " << test.name << '\n';
+    } catch (const std::exception &error) {
+      ++failures;
+      std::cerr << "FAIL " << test.name << ": " << error.what() << '\n';
+    } catch (...) {
+      ++failures;
+      std::cerr << "FAIL " << test.name << ": unknown exception\n";
+    }
+  }
+  if (failures) {
+    std::cerr << failures << " native raster engine cases failed\n";
     return 1;
   }
   std::cout << "Native raster engine regression passed\n";
+  return 0;
 }

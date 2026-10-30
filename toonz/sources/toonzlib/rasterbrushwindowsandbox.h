@@ -176,6 +176,9 @@ class WindowsImportSandbox final {
   }
 
 public:
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+  PSID packageSidForTest() const { return sid; }
+#endif
   QString input;
   QString program;
   QString launchError;
@@ -220,7 +223,7 @@ public:
     // redirect the AppContainer profile environment. A stripped environment
     // without it fails with ERROR_ENVVAR_NOT_FOUND before the worker starts.
     // Resolve an OS known folder rather than importing arbitrary environment.
-    PWSTR knownFolder = nullptr;
+    PWSTR knownFolder          = nullptr;
     const HRESULT folderResult = SHGetKnownFolderPath(
         FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &knownFolder);
     if (SUCCEEDED(folderResult) && knownFolder)

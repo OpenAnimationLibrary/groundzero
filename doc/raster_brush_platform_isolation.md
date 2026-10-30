@@ -59,8 +59,20 @@ OS-public resources and its private profile remain available: this is not an
 absolute deny-all-files claim.
 
 The Windows denial probe requires private-file reads/writes and staged-input writes
-to fail, and loopback connection to fail specifically with `WSAEACCES` (a missing
-server is not evidence). Regular PNG/GBR import and cancellation run through the
+to fail, and loopback connection to a parent-held live listener to fail with
+`WSAEACCES` or `WSAECONNREFUSED`. Ordinary parent connections must succeed before
+and after the worker probe; refusal from an unused port is not evidence. The
+parent listener is not inherited by the worker, and positive-control waits are
+bounded. A pending connection is a distinct failure outcome, never sufficient
+by itself. Test-only read-only WFP enumeration can qualify it only with a recent
+kernel classify/capability drop matching the staged helper application ID, its
+unique AppContainer SID, and the live IPv4/TCP loopback endpoint. Enumeration is
+capped at 4,096 events and two seconds. Missing event access, disabled event
+collection or no matching drop keeps the test failed; the observer never changes
+firewall policy or event-collection settings. Matcher negative fixtures reject
+wrong applications, SIDs, ports, stale timestamps, allow events and nonloopback
+events. This observer is absent from production builds.
+Regular PNG/GBR import and cancellation run through the
 same boundary. The packaged-runtime smoke imports an original fixture, compares
 installed runtime ACLs before/after, and rejects a changed manifest-listed file.
 CI must qualify Windows loader/Qt deployment and profile cleanup.

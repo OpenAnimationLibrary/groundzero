@@ -5,15 +5,18 @@ ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
 Strict experimental K5341 component profiles are implemented; none of the full
 foreign behavior profiles below is complete or reference-verified. Keep this work separate from vector/touch usability and neural styling.
 
-Current platform qualification is incomplete. The signed macOS helper now starts,
-but its prior memory admission used adjusted task accounting instead of Darwin's
-raw mapping size. The replacement enumerates bounded top-level mappings and keeps
-the fixed growth budget and allocation-refusal probes; CI qualification is pending.
-Neither this growth limit nor the separate sampled footprint watchdog establishes
-an absolute OS-enforced resident-memory ceiling. Windows overlap qualification
-also remains pending after correcting an already-exited-child wait race. See
-[platform boundaries](raster_brush_platform_isolation.md) for current mechanisms;
-historical checkpoints below do not qualify the latest boundary.
+At published `82f806b58`, Linux and macOS Qt5/Qt6 parser suites and import
+fuzzing passed, including signed macOS helper startup and allocation-refusal
+checks. The macOS mapping-growth limit and sampled footprint watchdog still do
+not establish an absolute OS-enforced resident-memory ceiling. Windows live
+network-denial qualification remains open: its connection attempt stalled, so
+bounded readiness and public OS isolation diagnostics now distinguish a pending
+attempt from an actual denial. Linux/macOS application fixtures stalled in the
+explicit-conversion workflow; Windows application compilation exposed an old
+Qt5 container comparison incompatible with the current compiler. These are open
+qualification failures, not passes or source-parity results. See
+[platform boundaries](raster_brush_platform_isolation.md). Historical checkpoints
+below never qualify a later head automatically.
 
 Native preset alpha preservation is combined with the toolbar lock instead of
 being overwritten by an unchecked modifier. The global eraser explicitly clears
@@ -39,9 +42,9 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
 | ABR descriptor/computed-tip/pattern behavioral import | Typed descriptors, bounded pattern decoding, legacy 1/2 computed tips and ABR 6/2 sampled-ID/static native binding implemented; other version bindings and source dynamics pending | Every declared version and active setting; decoding is not behavioral support |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion plus strict fixed-tip source candidate selection; bounded bundle dependency resolution | Unknown/missing active settings retain native conversion; candidate flags do not claim source verification |
-| Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
-| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All 48 wet-pressure gates passed at 5423354f; 215 enforced full-image kernel gates passed at 99ca200c, including nonzero-radius legacy/new Dulling. Earlier fixed/control/state gates passed; full dynamics/geometry/texture profiles remain incomplete |
-| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
+| Independent dry renderer and defined dynamics/combinations | Native CPU renderer and strict source geometry/curve component candidates implemented | Pressure-size natural-cubic fixtures and held-out source curves passed at `82f806b58`; full geometry, sensor and combination scope remains incomplete |
+| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | Admitted texture gates passed at `82f806b58`; expanded kernel and off-canvas state probes expose unresolved cases. Earlier pressure/kernel passes do not cover the full dynamics/geometry/texture profiles |
+| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Current host fixture corrected to use radians with the radians API; application qualification and physical device checks remain open |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor, provenance-aware manifest/permitted/private packaging and exact pixel-hash relink/repair implemented | Portable protocol regressions and application workflow fixtures implemented; final-head application export/repair qualification remains open |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
 | Parser isolation/fuzzing/cancel and complete resource budgets | Pre-allocation shared budgets, anchored no-follow response reads, Linux confinement, private Windows AppContainer runtime and signed macOS App Sandbox helper implemented | Historical six-platform parser/fuzz passes do not qualify later isolation changes; exact-head sandbox, malicious-response, cancellation and packaging checks remain release gates |
@@ -1153,12 +1156,14 @@ varying-pressure long-stroke source parity.
 
 ### Continuous off-document wet-state qualification
 
-Empty source-dab clips currently advance the previous dab position and count but
-retain the earlier field at its old absolute bounds, without pickup/injection.
-Reentry lookup therefore commonly returns transparent feedback; this is a
-potential lost-feedback boundary behavior, not proof that stale ink is replayed.
-The source application's off-document layer storage and transport must be
-measured before changing this recurrence.
+Original source captures establish off-document paint storage during a continuous
+stroke: the outside probes retain alpha after exit, accumulate injected color
+before entry, and carry residual paint around the reentry path. The candidate
+therefore advances the complete moving wet field outside the finite host raster
+and retains painted outside pixels in budgeted sparse transient tiles. Host
+reads/writes and undo preparation stay clipped; the outside state is released
+on finish/cancel. This models within-stroke transport only. Groundzero does not
+persist an infinite outside layer across strokes or through save/reopen.
 
 The `wetboundary` group contains 96 original cases: four models, four document
 edges, entry/exit/reentry paths and color rate 0/0.25. Each uses one continuous
@@ -1172,8 +1177,12 @@ bounded 128-pixel outside margin between independent strokes.
 Whole-canvas candidate image gates remain enforced. Compact inside-edge and
 outside-layer RGBA probes distinguish visible clipping from persistent source
 paint beyond the document, without claiming access to hidden reservoirs.
-Boundary recurrence changes remain pending these source measurements; no
-source behavior is inferred from a native-only boundary test.
+The measured state correction is independently checked against a transparent
+padded-canvas crop invariant for all four models and both color-rate settings.
+A host test exhausts the outside allocation budget after earlier paint and
+checks pre-write refusal, storage release and exact tile-undo recovery. Final
+source-region fidelity still requires the unchanged reference gates; input and
+sampling discrepancies are not hidden by the new transient storage.
 
 ### Pixel pressure-transfer evidence acquisition
 
@@ -1258,3 +1267,66 @@ nonuniform and overshooting curves exercise additional pressure positions,
 output clamping, shared/local selection and disabled settings. Those cases
 require CI qualification; source verification flags remain false, and this is
 not completion of the full K dynamics contract.
+
+### Measured Pixel identity pressure transfer
+
+Paired Node controls now distinguish source behavior from the unresolved Qt
+pressure-delivery discrepancy. With static control 0.5, pressure 0.25/0.75
+produces wash opacity alpha 32/96. Wash flow and build-up opacity accumulate
+like static values 0.125/0.375: the recorded two-/three-dab overlaps are
+60/84 and 156/193. Build-up flow is inactive even with its pressure curve active.
+Strict hard Pixel candidates now admit explicit identity pressure curves for
+opacity/flow (or explicitly disabled retained identity curves). Other transfer
+curve shapes and sensor combinations remain outside this qualification.
+Portable presets retain the mappings and enable semantics; paired Node cases
+now enforce existing full-image source gates.
+
+Qt captures preserve active pressure settings before proximity, after proximity
+and immediately before contact, with `disablePressure=false` and the authored
+QTabletEvent pressure. Nevertheless, their rendered response remains at full
+pressure. The paired integer Node precision controls match pressure-sized masks
+exactly, including 1.6/16/30.8/31.4px effective diameters. Thus preset activation
+is established, while consumed Qt pressure is not. Existing Qt fidelity gates
+remain unchanged and failing; native or Node results do not substitute for that
+missing delivery qualification. No pressure-insensitive source equation is
+inferred from these synthetic Qt traces.
+
+### Pinned tablet pressure flag contract
+
+Inspection of the public K5341 input adapter identifies the delivery discrepancy:
+its flag starts false, is assigned directly from the `DisablePressure` canvas
+resource, and chooses constant full pressure when false versus calibrated event
+pressure when true. See the pinned
+[input adapter initialization and resource read](https://github.com/KDE/krita/blob/bd6e8d0/libs/ui/tool/kis_painting_information_builder.cpp#L31)
+and [input normalization branch](https://github.com/KDE/krita/blob/bd6e8d0/libs/ui/tool/kis_painting_information_builder.cpp#L131).
+This is an input-interface observation, not a copied paint algorithm, and must
+not be generalized to other application versions from the API name.
+
+Every generated case now records the explicit boolean `sourcePressureFlag`:
+true for authored Qt tablet delivery and false for Node controls. The harness
+sets and checks the exact value before proximity, after proximity, and before
+contact. Four additional wash opacity/flow probes retain false as diagnostic
+controls with unchanged authored pressures. Existing Node controls and Qt source
+gates remain; a successful future capture must demonstrate actual pressure-sized
+masks and pressure transfer rather than merely recording event pressure. Cached
+source controls must match this explicit flag. No runtime input equation is
+changed to compensate for the former harness setting.
+
+### New Dulling texture pickup discriminators
+
+The 128 phase/deposit captures rule out simple center-only pickup. A proposed
+coverage-aware neighborhood matches their sampled third-dab colors within two
+bytes, but that does not uniquely establish its threshold, filtering or empty
+neighborhood fallback. The separate `texturepickup` workload contains 64 original
+held-outs: asymmetric masks differing only at center bytes 127/128/129, an
+isolated off-axis pixel, holes of radius two/four, an asymmetric ramp and a
+sparse diagonal. Each has two/three-dab traces, zero/nonzero color injection and
+uniform versus nonuniform RGBA backdrops. Exact per-case pattern pixels and
+32×32 result regions are captured. These are discriminating acquisitions, not
+source-candidate admission or relaxed fidelity gates.
+
+The existing kernel workload now also includes six isolated off-axis impulses:
+legacy D56 at the disputed index-81 coordinate, legacy D32 at the independently
+observed index-80 coordinate, and legacy/new D64 at both neighboring coordinates
+for index 100. These distinguish joint sample weights from row/column marginal
+coincidences without assuming a count correction or changing fidelity gates.

@@ -48,7 +48,7 @@ int probeWindowsImportLimits();
 int probeWindowsImportSandbox(const QString &, const QString &, const QString &,
                               const QString &);
 int probeWindowsImportSandboxWorker(const QString &, const QString &,
-                                    const QString &);
+                                    const QString &, quint16);
 }  // namespace RasterBrush
 #endif
 namespace {
@@ -159,7 +159,7 @@ void testGihSelectionLifecycle() {
                 selected == render(record.preset, false),
             "GIH selection changed after reopen, restart or event partition");
     if (random) {
-      Preset resolved = restored.preset;
+      Preset resolved            = restored.preset;
       resolved.varySeedPerStroke = true;
       require(selected == render(resolved, false) &&
                   selected == render(resolved, true),
@@ -820,6 +820,55 @@ void testImports() {
     require(!importBrush(computedAbr(version, 0), "abr", error).complete,
             "unimplemented zero spacing was silently approximated");
   }
+  // Original fixed-channel source metadata, with disabled and unsupported
+  // variants exercising eligibility rather than merely round-tripping fields.
+  for (const QString &target : {QString("h"), QString("s"), QString("v")})
+    for (int variant = 0; variant < 4; ++variant) {
+      QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
+      QString xml  = image.text("preset"), extra;
+      auto param   = [&](const QString &key, const QString &value) {
+        extra +=
+            "<param name=\"" + key + "\">" + value.toHtmlEscaped() + "</param>";
+      };
+      for (const QString &key : {QString("h"), QString("s"), QString("v")})
+        param("Pressure" + key,
+              key == target && variant != 1 ? "true" : "false");
+      const QString curve = variant == 2 ? "0,0.2;1,0.8;" : "0,0.6;1,0.6;";
+      param(target + "UseCurve", "true");
+      param(target + "UseSameCurve", "true");
+      param(target + "Value", "1");
+      param(target + "curveMode", "0");
+      param(target + "commonCurve", curve);
+      param(target + "Sensor",
+            "<params id=\"" + QString(variant == 3 ? "rotation" : "pressure") +
+                "\"><curve>" + curve + "</curve></params>");
+      xml.replace("</Preset>", extra + "</Preset>");
+      image.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      buffer.open(QIODevice::WriteOnly);
+      require(image.save(&buffer, "PNG"), "source HSV fixture encoding failed");
+      const auto imported = importBrush(bytes, "kpp", error);
+      require(imported.records.size() == 1, "source HSV import lost preset");
+      const auto &record = imported.records.front();
+      const bool candidate =
+          record.preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
+      require(candidate == (variant < 2),
+              "source HSV eligibility admitted unsupported controls");
+      if (candidate) {
+        const auto expected = variant == 1    ? SourceHsvChannel::Off
+                              : target == "h" ? SourceHsvChannel::Hue
+                              : target == "s" ? SourceHsvChannel::Saturation
+                                              : SourceHsvChannel::Value;
+        require(record.preset.sourceHsvChannel == expected,
+                "source HSV enabled state lost");
+        const auto restored = decode(encode(record, error), error);
+        require(
+            error.isEmpty() && restored.preset.sourceHsvChannel == expected &&
+                restored.preset.sourceHsvValue == record.preset.sourceHsvValue,
+            "source HSV portable lifecycle lost versioned settings");
+      }
+    }
   auto numericSpelling =
       importBrush(hardPixelKpp("numericSpelling"), "kpp", error);
   require(numericSpelling.complete &&
@@ -932,6 +981,28 @@ void testImports() {
               imported.records.front().preset.profile == "groundzero-native-1",
           "unknown active sensor declaration entered a source candidate");
     }
+  }
+  for (const QString variant :
+       {"wetOpacityPressure", "wetFlowPressure", "wetFlowDisabled"}) {
+    auto transfer = importBrush(hardPixelKpp(variant), "kpp", error);
+    require(
+        transfer.complete && transfer.records.size() == 1 &&
+            transfer.records.front().preset.profile ==
+                "krita-5.3.4.1-hard-pixel-candidate-1",
+        "measured Pixel identity pressure transfer lost candidate eligibility");
+    const auto &preset = transfer.records.front().preset;
+    const auto &control =
+        variant == "wetOpacityPressure" ? preset.opacity : preset.flow;
+    require(control.mappings.size() == (variant == "wetFlowDisabled" ? 0u : 1u),
+            "Pixel pressure enable flag not preserved");
+    const auto restored =
+        decode(encode(transfer.records.front(), error), error);
+    require(
+        error.isEmpty() && restored.preset.profile == preset.profile &&
+            restored.preset.opacity.mappings.size() ==
+                preset.opacity.mappings.size() &&
+            restored.preset.flow.mappings.size() == preset.flow.mappings.size(),
+        "Pixel pressure transfer lost on portable round trip");
   }
   auto spline = importBrush(hardPixelKpp("pressureSpline"), "kpp", error);
   require(
@@ -1487,7 +1558,7 @@ void testPackage() {
   r.preset.secondary.flipX = r.preset.secondary.flipY = true;
   r.preset.saturation.value                           = .7;
   r.preset.brightness.value                           = 1.2;
-  r.preset.seed = UINT64_C(18446744073709551615);
+  r.preset.seed              = UINT64_C(18446744073709551615);
   r.preset.varySeedPerStroke = true;
   QString error;
   auto bytes = encode(r, error);
@@ -2682,9 +2753,10 @@ int main(int argc, char **argv) {
     return probeWindowsImportSandbox(
         QCoreApplication::applicationFilePath(), app.arguments().at(2),
         app.arguments().at(3), app.arguments().at(4));
-  if (argc == 5 && app.arguments().at(1) == "--test-windows-sandbox-worker")
+  if (argc == 6 && app.arguments().at(1) == "--test-windows-sandbox-worker")
     return probeWindowsImportSandboxWorker(
-        app.arguments().at(2), app.arguments().at(3), app.arguments().at(4));
+        app.arguments().at(2), app.arguments().at(3), app.arguments().at(4),
+        app.arguments().at(5).toUShort());
   if (argc == 2 && app.arguments().at(1) == "--test-windows-worker-limits")
     return probeWindowsImportLimits();
   if (argc == 2 && app.arguments().at(1) == "--test-worker-ping") return 0;

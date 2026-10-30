@@ -33,8 +33,11 @@
 #include <QMainWindow>
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QLineEdit>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QTabletEvent>
@@ -54,6 +57,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 void require(bool value, const char *message) {
@@ -62,6 +66,30 @@ void require(bool value, const char *message) {
 void settle() {
   QCoreApplication::sendPostedEvents();
   QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+}
+bool submitFileDialog(QFileDialog *picker, const QString &path) {
+  // A visible Qt 5 QFileDialog deliberately leaves a focused filename editor
+  // untouched in selectFile(). Our timer operates after show, so transfer focus
+  // first, then verify the actual selection before invoking the normal accept.
+  if (auto focus = picker->focusWidget()) focus->clearFocus();
+  picker->selectFile(path);
+  const auto selected = picker->selectedFiles();
+  if (selected.size() != 1 || QFileInfo(selected.front()).absoluteFilePath() !=
+                                  QFileInfo(path).absoluteFilePath()) {
+    std::cerr << "raster-brush-integration: file picker did not select fixture"
+              << std::endl;
+    picker->reject();
+    return false;
+  }
+  if (QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection))
+    return true;
+  picker->reject();
+  return false;
+}
+bool sameFiles(const QStringList &a, const QStringList &b) {
+  // Qt 5.15's QList equality instantiates removed MSVC stdext iterators.
+  // Compare the same ordered entries without that implementation dependency.
+  return a.size() == b.size() && std::equal(a.cbegin(), a.cend(), b.cbegin());
 }
 bool same(const TRaster32P &a, const TRaster32P &b) {
   if (!a || !b || a->getSize() != b->getSize()) return false;
@@ -431,16 +459,25 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "cannot remove invalid installed fixture");
     }
     checkpoint("qualifying explicit source-to-native copy conversion");
-    for (bool wetConversion : {false, true}) {
+    for (int conversionKind : {0, 1, 2}) {
+      const bool wetConversion = conversionKind == 1;
+      const bool hsvConversion = conversionKind == 2;
       RasterBrush::Record fixture;
       fixture.preset.name    = wetConversion ? "Original wet conversion fixture"
-                                             : "Original pixel conversion fixture";
+                               : hsvConversion
+                                   ? "Original HSV conversion fixture"
+                                   : "Original pixel conversion fixture";
       fixture.preset.profile = wetConversion
                                    ? "krita-5.3.4.1-legacy-dulling-candidate-1"
                                    : "krita-5.3.4.1-hard-pixel-candidate-1";
       fixture.preset.wet =
           wetConversion ? RasterBrush::Wet::Dulling : RasterBrush::Wet::Off;
       fixture.preset.smudgeRadius = 0;
+      if (hsvConversion) {
+        fixture.preset.sourceHsvChannel =
+            RasterBrush::SourceHsvChannel::Saturation;
+        fixture.preset.sourceHsvValue = .75;
+      }
       // A forged classification must not hide the actual source runtime in
       // the editor; the explicit conversion action is still required.
       fixture.provenance["conversionKind"] = "native-reinterpretation";
@@ -451,12 +488,17 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       auto texture   = std::make_shared<RasterBrush::Image>();
       texture->width = texture->height = 1;
       texture->pixels                  = {{0, 0, 0, 1}};
-      fixture.preset.texture.image     = texture;
+      // The experimental source HSV profile excludes texture resources
+      // entirely. Pixel/wet cases retain the resource-rights preservation
+      // coverage.
+      if (!hsvConversion) fixture.preset.texture.image = texture;
       const auto assets = RasterBrush::resources(fixture, importError);
-      require(importError.isEmpty() && assets.size() == 1,
-              "source conversion resource fixture invalid");
-      fixture.resourceRights[assets.front().hash] = QJsonObject{
-          {"redistribution", "restricted"}, {"license", "Original fixture"}};
+      require(
+          importError.isEmpty() && assets.size() == (hsvConversion ? 0u : 1u),
+          "source conversion resource fixture invalid");
+      if (!hsvConversion)
+        fixture.resourceRights[assets.front().hash] = QJsonObject{
+            {"redistribution", "restricted"}, {"license", "Original fixture"}};
       const QString folder =
           ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
       const QString originalPath =
@@ -496,12 +538,17 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 if (!confirmation || confirmation->objectName() !=
                                          "nativeBrushConfirmNativeConversion")
                   return;
-                confirmed = confirmation->defaultButton() ==
-                                confirmation->button(QMessageBox::Cancel) &&
-                            confirmation->text().contains(
-                                "original remains unchanged") &&
-                            (!wetConversion || confirmation->text().contains(
-                                                   "native wet mixing"));
+                confirmed =
+                    confirmation->defaultButton() ==
+                        confirmation->button(QMessageBox::Cancel) &&
+                    confirmation->text().contains(
+                        "original remains unchanged") &&
+                    (!wetConversion ||
+                     confirmation->text().contains("native wet mixing")) &&
+                    (!hsvConversion ||
+                     (confirmation->text().contains(
+                          "HSV color adjustment will be removed") &&
+                      confirmation->text().contains("different equations")));
                 if (outcome == 0)
                   confirmation->reject();
                 else {
@@ -579,7 +626,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           require(
               converted.preset.profile == "groundzero-native-1" &&
                   converted.preset.size.value == 32.5 &&
-                  converted.preset.texture.image &&
+                  converted.preset.sourceHsvChannel ==
+                      RasterBrush::SourceHsvChannel::Off &&
+                  converted.preset.sourceHsvValue == .5 &&
+                  bool(converted.preset.texture.image) == !hsvConversion &&
                   converted.resourceRights == fixture.resourceRights &&
                   converted.provenance["sourceProfileBeforeNativeConversion"]
                           .toString() ==
@@ -591,8 +641,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "native conversion lost assets, declarations, edited values or "
               "reset semantics");
           const QString portable = QDir::current().filePath(
-              wetConversion ? "converted-wet.gzbrush"
-                            : "converted-pixel.gzbrush");
+              wetConversion   ? "converted-wet.gzbrush"
+              : hsvConversion ? "converted-hsv.gzbrush"
+                              : "converted-pixel.gzbrush");
           require(RasterBrush::savePortable(
                       portable, converted,
                       RasterBrush::ResourcePackaging::PrivateCopy, importError),
@@ -602,6 +653,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           require(
               importError.isEmpty() && reopened.complete &&
                   reopened.records.size() == 1 &&
+                  reopened.records.front().preset.sourceHsvChannel ==
+                      RasterBrush::SourceHsvChannel::Off &&
+                  reopened.records.front().preset.sourceHsvValue == .5 &&
                   reopened.records.front().provenance["conversionKind"] ==
                       "native-reinterpretation" &&
                   reopened.records.front()
@@ -648,15 +702,42 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         bool acceptanceSeen = false, defaultCancel = false,
              labelsCorrect = false, pickerSubmitted = false;
-        int attempts = 0;
+        bool driverExpired = false;
+        QString previousModal;
+        QElapsedTimer deadline;
+        deadline.start();
+        std::cerr << "raster-brush-integration: import "
+                  << (kind.isEmpty() ? "unclassified" : kind.toStdString())
+                  << " accept=" << acceptImport
+                  << " duplicate=" << alreadyInstalled << std::endl;
         QTimer modalDriver;
         QObject::connect(&modalDriver, &QTimer::timeout, [&]() {
           auto modal = QApplication::activeModalWidget();
+          const QString identity =
+              modal ? QString::fromLatin1(modal->metaObject()->className()) +
+                          ":" + modal->objectName() + ":" + modal->windowTitle()
+                    : QString("no active modal");
+          if (identity != previousModal) {
+            std::cerr << "raster-brush-integration: acceptance modal "
+                      << identity.toStdString() << std::endl;
+            previousModal = identity;
+          }
+          if (deadline.elapsed() > 15000) {
+            driverExpired = true;
+            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+            return;
+          }
           if (auto picker = qobject_cast<QFileDialog *>(modal)) {
             if (!pickerSubmitted) {
               pickerSubmitted = true;
-              picker->selectFile(sourcePath);
-              QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+              // Exercise the focused filename condition that previously made
+              // selectFile a no-op and left the real picker open indefinitely.
+              if (auto filename =
+                      picker->findChild<QLineEdit *>("fileNameEdit")) {
+                filename->setFocus();
+                filename->clear();
+              }
+              if (!submitFileDialog(picker, sourcePath)) driverExpired = true;
             }
           } else if (modal && modal->objectName() ==
                                   "nativeBrushApproximationAcceptance") {
@@ -691,8 +772,6 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               } else
                 report->reject();
             }
-          } else if (++attempts > 2400) {
-            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
           }
         });
         modalDriver.start(25);
@@ -701,25 +780,35 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         modalDriver.stop();
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
                                    nativeDialogsDisabled);
-        require(handled && acceptanceSeen && defaultCancel && labelsCorrect,
+        require(!driverExpired && handled && acceptanceSeen && defaultCancel &&
+                    labelsCorrect,
                 "foreign import lacked explicit approximation acceptance with "
                 "Cancel default");
         const auto afterFiles =
             library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
-        require(
-            (acceptImport && !alreadyInstalled ? afterFiles != beforeFiles
-                                               : afterFiles == beforeFiles) &&
-                same(baseline, raster(level, 1)) &&
-                undo->getHistoryCount() == 0,
-            "approximation acceptance did not control installation "
-            "independently of document state");
+        require((acceptImport && !alreadyInstalled
+                     ? !sameFiles(afterFiles, beforeFiles)
+                     : sameFiles(afterFiles, beforeFiles)) &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "approximation acceptance did not control installation "
+                "independently of document state");
         if (acceptImport) alreadyInstalled = true;
         if (acceptImport && !kind.isEmpty()) {
-          bool statusCorrect = false;
-          QTimer::singleShot(0, [&]() {
+          checkpoint("checking installed approximation editor classification");
+          bool statusCorrect = false, editorExpired = false;
+          QElapsedTimer editorDeadline;
+          editorDeadline.start();
+          QTimer editorDriver;
+          QObject::connect(&editorDriver, &QTimer::timeout, [&]() {
             auto editor =
                 qobject_cast<QDialog *>(QApplication::activeModalWidget());
-            if (!editor) return;
+            if (editorDeadline.elapsed() > 15000) {
+              editorExpired = true;
+              if (editor) editor->reject();
+              return;
+            }
+            if (!editor || editor->objectName() != "nativeBrushEditor") return;
             auto status =
                 editor->findChild<QLabel *>("nativeBrushCompatibilityStatus");
             statusCorrect =
@@ -730,9 +819,12 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                                                : "Static native conversion");
             editor->reject();
           });
+          editorDriver.start(25);
           property->setValue(L"<edit>");
+          const bool edited = tool->onPropertyChanged("Native Brush:");
+          editorDriver.stop();
           require(
-              tool->onPropertyChanged("Native Brush:") && statusCorrect,
+              edited && statusCorrect && !editorExpired,
               "portable conversion classification was lost in editor status");
         }
       }
@@ -871,6 +963,85 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 "repeated source wet undo failed");
         undo->reset();
         if (variant == "halfOpacity") verifyMidStrokeFrameSwitch();
+        if (variant.isEmpty() &&
+            (model == "legacy-smear" || model == "new-dulling")) {
+          checkpoint("qualifying actual source wet canvas exit and reentry");
+          auto boundaryStroke = [&](bool cancel, bool outsideOnly) {
+            TMouseEvent event;
+            event.m_button   = Qt::LeftButton;
+            event.m_buttons  = Qt::LeftButton;
+            event.m_isTablet = true;
+            event.m_pressure = 1;
+            // Existing fixture is128px wide, centered at tool coordinate0.
+            // x=160 is fully outside, including the source pickup footprint.
+            // The separate new-frame case uses10000 to remain outside even
+            // if automatic creation adopts the scene camera dimensions.
+            const std::vector<TPointD> points =
+                outsideOnly ? std::vector<TPointD>{{10000, 0},
+                                                   {10016, 0},
+                                                   {10016, 24},
+                                                   {10000, 24}}
+                            : std::vector<TPointD>{
+                                  {-20, 0}, {160, 0}, {160, 24}, {-20, 24}};
+            require(tool->preLeftButtonDown(), "source boundary input refused");
+            tool->leftButtonDown(points.front(), event);
+            for (size_t segment = 1; segment < points.size(); ++segment) {
+              const auto from = points[segment - 1], to = points[segment];
+              for (int sample = 1; sample <= 24; ++sample)
+                tool->leftButtonDrag(from + (to - from) * (sample / 24.0),
+                                     event);
+            }
+            if (cancel) {
+              require(!same(baseline, raster(level, 1)),
+                      "source boundary cancel fixture did not paint first");
+              QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape,
+                               Qt::NoModifier);
+              require(tool->keyDown(&escape), "source boundary Escape failed");
+            }
+            event.m_buttons = Qt::NoButton;
+            tool->leftButtonUp(points.back(), event);
+            settle();
+          };
+          boundaryStroke(false, false);
+          const TRaster32P boundaryPixels = raster(level, 1)->clone();
+          bool changedAtEdge              = false;
+          for (int y = 0; y < baseline->getLy(); ++y)
+            for (int x = baseline->getLx() - 4; x < baseline->getLx(); ++x)
+              changedAtEdge = changedAtEdge || baseline->pixels(y)[x] !=
+                                                   boundaryPixels->pixels(y)[x];
+          require(changedAtEdge && undo->getHistoryCount() == 1,
+                  "source exit/reentry failed to paint the actual canvas edge");
+          verifyScenePersistence(boundaryPixels, label + "-boundary");
+          require(undo->undo() && same(baseline, raster(level, 1)),
+                  "source boundary undo did not restore original pixels");
+          require(undo->redo() && same(boundaryPixels, raster(level, 1)),
+                  "source boundary redo rerendered or lost committed pixels");
+          require(undo->undo(), "source boundary second undo failed");
+          undo->reset();
+          boundaryStroke(true, false);
+          require(
+              same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source boundary cancel left paint or undo history");
+          boundaryStroke(false, false);
+          requireSame(
+              boundaryPixels, raster(level, 1),
+              "source outside feedback leaked across cancelled strokes");
+          require(undo->undo() && same(baseline, raster(level, 1)),
+                  "source boundary repeated undo failed");
+          undo->reset();
+          require(!level->getFrame(TFrameId(5), false),
+                  "outside-only source fixture frame already exists");
+          app->getCurrentFrame()->setFid(TFrameId(5));
+          settle();
+          boundaryStroke(false, true);
+          require(!level->getFrame(TFrameId(5), false) &&
+                      undo->getHistoryCount() == 0,
+                  "outside-only source stroke retained an empty created frame");
+          app->getCurrentFrame()->setFid(TFrameId(1));
+          settle();
+          requireSame(baseline, raster(level, 1),
+                      "outside-only source stroke changed the previous frame");
+        }
       }
     checkpoint("qualifying combined portable resources and native dynamics");
     for (bool wet : {false, true}) {
@@ -996,8 +1167,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           if (auto picker = qobject_cast<QFileDialog *>(modal)) {
             if (!picker->property("fixtureSubmitted").toBool()) {
               picker->setProperty("fixtureSubmitted", true);
-              picker->selectFile(uiExport);
-              QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+              submitFileDialog(picker, uiExport);
             }
           } else if (modal &&
                      modal->objectName() == "nativeBrushExportResources") {
@@ -1039,9 +1209,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             if (auto picker = qobject_cast<QFileDialog *>(modal)) {
               if (!picker->property("fixtureSubmitted").toBool()) {
                 picker->setProperty("fixtureSubmitted", true);
-                picker->selectFile(pickers++ == 0 ? uiExport : ownCopy);
-                QMetaObject::invokeMethod(picker, "accept",
-                                          Qt::QueuedConnection);
+                submitFileDialog(picker, pickers++ == 0 ? uiExport : ownCopy);
               }
             } else if (modal &&
                        modal->objectName() == "nativeBrushRelinkResources") {
@@ -1073,8 +1241,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   "foreign conversion");
           if (!repairResources)
             require(property->getValue() == previousSelection &&
-                        library.entryList(QDir::AllEntries |
-                                          QDir::NoDotAndDotDot) == beforeFiles,
+                        sameFiles(library.entryList(QDir::AllEntries |
+                                                    QDir::NoDotAndDotDot),
+                                  beforeFiles),
                     "cancelled unresolved-resource repair installed or "
                     "selected a preset");
           else {
@@ -1242,7 +1411,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         tool->onImageChanged();
         undo->reset();
         draw(tool, false);
-        const auto painted = raster(level, 1)->clone();
+        const TRaster32P painted = raster(level, 1)->clone();
         bool alphaChanged = false, transparentPainted = false,
              alphaReduced = false, alphaIncreased = false;
         for (int y = 0; y < alphaRamp->getLy(); ++y)
@@ -1382,8 +1551,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot select stationary airbrush fixture");
-      const auto baseline = raster(level, 1)->clone();
-      auto pump           = [](int milliseconds) {
+      const TRaster32P baseline = raster(level, 1)->clone();
+      auto pump                 = [](int milliseconds) {
         QEventLoop loop;
         QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
         loop.exec();
@@ -1406,7 +1575,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       begin();
       const auto initialDab = raster(level, 1)->clone();
       pump(250);
-      const auto accumulated = raster(level, 1)->clone();
+      const TRaster32P accumulated = raster(level, 1)->clone();
       require(!same(initialDab, accumulated),
               "stationary airbrush did not accumulate without move events");
       for (int y = 0; y < baseline->getLy(); ++y)

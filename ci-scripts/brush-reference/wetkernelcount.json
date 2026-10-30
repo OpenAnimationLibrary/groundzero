@@ -1449,6 +1449,60 @@
       "offset": 0,
       "dabs": 4,
       "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 56,
+      "radiusPercent": 100,
+      "axis": "point",
+      "offset": 2,
+      "offsetY": -28,
+      "reason": "Disputed last Halton index81: distinguish missing sample from row marginal overlap"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 100,
+      "axis": "point",
+      "offset": -15,
+      "offsetY": 15,
+      "reason": "Minimum80 control: older dense data requires index80 to remain present"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "point",
+      "offset": -22,
+      "offsetY": -6,
+      "reason": "Disputed index100: distinguish nominal coordinate from neighboring half-round coordinate"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "point",
+      "offset": -23,
+      "offsetY": -6,
+      "reason": "Disputed index100: distinguish nominal coordinate from neighboring half-round coordinate"
+    },
+    {
+      "model": "new",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "point",
+      "offset": -22,
+      "offsetY": -6,
+      "reason": "Disputed index100: distinguish nominal coordinate from neighboring half-round coordinate"
+    },
+    {
+      "model": "new",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "point",
+      "offset": -23,
+      "offsetY": -6,
+      "reason": "Disputed index100: distinguish nominal coordinate from neighboring half-round coordinate"
     }
   ]
 }

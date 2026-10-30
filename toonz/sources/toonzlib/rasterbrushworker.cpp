@@ -29,8 +29,10 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <winsock2.h>
+#include <netfw.h>
 #include <windows.h>
 #include "rasterbrushwindowsandbox.h"
+#include "rasterbrushwfp_test.h"
 #endif
 #ifdef __linux__
 #include <cerrno>
@@ -333,8 +335,8 @@ int probeMacWorkerTransport() {
 
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
 int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
-                                    const QString &forbidden) {
-  if (!isWindowsImportContainer() || !limitWindowsImport()) return 1;
+                                    const QString &forbidden, quint16 port) {
+  if (!port || !isWindowsImportContainer() || !limitWindowsImport()) return 1;
   if (QFileInfo(input).fileName() == "overlap") {
     if (!writeFile(QDir(output).filePath("entered"),
                    QByteArray::number(QDateTime::currentMSecsSinceEpoch())))
@@ -356,26 +358,132 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
   sockaddr_in address{};
   address.sin_family      = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  address.sin_port        = htons(9);
-  const int connected =
+  address.sin_port        = htons(port);
+  u_long nonblocking      = 1;
+  if (ioctlsocket(socketHandle, FIONBIO, &nonblocking)) {
+    closesocket(socketHandle);
+    WSACleanup();
+    return 5;
+  }
+  int connected =
       connect(socketHandle, reinterpret_cast<const sockaddr *>(&address),
               sizeof(address));
-  const int networkError = WSAGetLastError();
+  int networkError = connected == 0 ? 0 : WSAGetLastError();
+  int readiness    = -1;
+  if (connected != 0 && networkError == WSAEWOULDBLOCK) {
+    WSAPOLLFD pending{socketHandle, POLLWRNORM, 0};
+    readiness = WSAPoll(&pending, 1, 3000);
+    if (readiness > 0) {
+      int length = sizeof(networkError);
+      if (getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
+                     reinterpret_cast<char *>(&networkError), &length))
+        networkError = WSAGetLastError();
+      else if (networkError == 0)
+        connected = 0;
+    } else if (readiness < 0) {
+      networkError = WSAGetLastError();
+    }
+  }
   closesocket(socketHandle);
   WSACleanup();
-  // Connection refusal alone is not evidence of isolation. Windows must deny
-  // the capability, independently of whether any service listens at the port.
-  if (connected == 0 || networkError != WSAEACCES) {
+  // A pending connection is not proof of a missing capability. Keep the
+  // verdict fail-closed and report the public OS capability diagnosis so CI
+  // can distinguish packet filtering from an unrelated connectivity failure.
+  if (connected == 0 ||
+      (networkError != WSAEACCES && networkError != WSAECONNREFUSED)) {
+    DWORD diagnosticStatus           = ERROR_PROC_NOT_FOUND;
+    NETISO_ERROR_TYPE isolationError = NETISO_ERROR_TYPE_NONE;
+    HMODULE firewall = LoadLibraryExW(L"FirewallAPI.dll", nullptr,
+                                      LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (firewall) {
+      using Diagnose      = DWORD(WINAPI *)(LPCWSTR, NETISO_ERROR_TYPE *);
+      const auto diagnose = reinterpret_cast<Diagnose>(GetProcAddress(
+          firewall, "NetworkIsolationDiagnoseConnectFailureAndGetInfo"));
+      if (diagnose) diagnosticStatus = diagnose(L"127.0.0.1", &isolationError);
+      FreeLibrary(firewall);
+    }
     std::fprintf(stderr,
-                 "AppContainer loopback denial probe: connect=%d Winsock=%d "
-                 "(required WSAEACCES=%d)\n",
-                 connected, networkError, WSAEACCES);
+                 "AppContainer live-loopback probe: connect=%d Winsock=%d "
+                 "readiness=%d diagnosticStatus=%lu isolationError=%d\n",
+                 connected, networkError, readiness,
+                 static_cast<unsigned long>(diagnosticStatus),
+                 int(isolationError));
+    // Distinct non-success outcome: only an independently matched kernel drop
+    // event in the parent can qualify this pending connection.
+    if (connected != 0 && networkError == WSAEWOULDBLOCK && readiness == 0) {
+      // Preserve the worker's output-write proof on the pending path. The
+      // final success marker belongs to the parent only after kernel proof.
+      return writeFile(QDir(output).filePath("sandbox-network-pending"),
+                       "pending")
+                 ? 18
+                 : 7;
+    }
     return 6;
   }
   return writeFile(QDir(output).filePath("sandbox-passed"), "passed") ? 0 : 7;
 }
 int probeWindowsImportSandbox(const QString &executable, const QString &input,
                               const QString &output, const QString &forbidden) {
+  if (!BrushWfpDropEvidence::testMatcher()) return 19;
+  // Test-only live endpoint, never inherited by the sandbox. Positive
+  // controls establish listener availability rather than relying on port 9.
+  struct Listener {
+    bool initialized = false;
+    SOCKET handle    = INVALID_SOCKET;
+    sockaddr_in address{};
+    ~Listener() {
+      if (handle != INVALID_SOCKET) closesocket(handle);
+      if (initialized) WSACleanup();
+    }
+    bool positiveControl() {
+      SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+      if (client == INVALID_SOCKET) return false;
+      u_long nonblocking = 1;
+      bool connected     = false;
+      if (!ioctlsocket(client, FIONBIO, &nonblocking)) {
+        const int result =
+            connect(client, reinterpret_cast<const sockaddr *>(&address),
+                    sizeof(address));
+        if (result == 0) {
+          connected = true;
+        } else if (WSAGetLastError() == WSAEWOULDBLOCK) {
+          WSAPOLLFD pending{client, POLLWRNORM, 0};
+          int error = 0, errorSize = sizeof(error);
+          connected =
+              WSAPoll(&pending, 1, 2000) > 0 &&
+              !getsockopt(client, SOL_SOCKET, SO_ERROR,
+                          reinterpret_cast<char *>(&error), &errorSize) &&
+              error == 0;
+        }
+      }
+      closesocket(client);
+      if (!connected) return false;
+      WSAPOLLFD pending{handle, POLLRDNORM, 0};
+      if (WSAPoll(&pending, 1, 2000) <= 0) return false;
+      SOCKET accepted = accept(handle, nullptr, nullptr);
+      if (accepted == INVALID_SOCKET) return false;
+      closesocket(accepted);
+      return true;
+    }
+  } listener;
+  WSADATA data{};
+  if (WSAStartup(MAKEWORD(2, 2), &data)) return 16;
+  listener.initialized             = true;
+  listener.handle                  = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  listener.address.sin_family      = AF_INET;
+  listener.address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (listener.handle == INVALID_SOCKET ||
+      bind(listener.handle,
+           reinterpret_cast<const sockaddr *>(&listener.address),
+           sizeof(listener.address)) ||
+      listen(listener.handle, 4))
+    return 16;
+  int addressSize = sizeof(listener.address);
+  if (getsockname(listener.handle,
+                  reinterpret_cast<sockaddr *>(&listener.address),
+                  &addressSize) ||
+      !listener.positiveControl())
+    return 16;
   QString error;
   WindowsImportSandbox sandbox;
   if (!prepareWorkerCodecs() ||
@@ -385,6 +493,8 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
                  static_cast<unsigned long>(GetLastError()));
     return 10;
   }
+  BrushWfpDropEvidence dropEvidence;
+  const bool observerReady = dropEvidence.begin(sandbox.program);
   QProcess process;
   sandbox.configure(process);
   process.setWorkingDirectory(output);
@@ -392,8 +502,9 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   // This test-only helper prints bounded stage diagnostics. Forward them to
   // the probe parent, whose output the regression driver captures.
   process.setProcessChannelMode(QProcess::ForwardedErrorChannel);
-  process.start(sandbox.program, {"--test-windows-sandbox-worker",
-                                  sandbox.input, output, forbidden});
+  process.start(sandbox.program,
+                {"--test-windows-sandbox-worker", sandbox.input, output,
+                 forbidden, QString::number(ntohs(listener.address.sin_port))});
   if (!process.waitForStarted(5000)) {
     std::fprintf(stderr, "Windows sandbox launch failed: %s; modifier=%s\n",
                  process.errorString().toUtf8().constData(),
@@ -405,9 +516,21 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
     process.waitForFinished(5000);
     return 11;
   }
-  const int status =
+  int status =
       process.exitStatus() == QProcess::NormalExit ? process.exitCode() : 12;
+  const bool endpointAlive = listener.positiveControl();
+  const bool kernelProvedDenial =
+      status == 18 && endpointAlive && observerReady &&
+      dropEvidence.dropped(ntohs(listener.address.sin_port),
+                           sandbox.packageSidForTest());
   if (!sandbox.close()) return 13;
+  if (!endpointAlive) return 17;
+  if (kernelProvedDenial) {
+    // Emit the common success contract only after the child's file probes,
+    // live controls, exact kernel drop and successful privilege cleanup.
+    if (!writeFile(QDir(output).filePath("sandbox-passed"), "passed")) return 7;
+    status = 0;
+  }
   if (status)
     std::fprintf(stderr, "Windows sandbox child exit=%d status=%d\n",
                  process.exitCode(), int(process.exitStatus()));

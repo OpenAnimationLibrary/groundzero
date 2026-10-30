@@ -43,6 +43,56 @@ struct Transaction : RasterController {
     }
   }
 };
+void testSourceOffCanvasFailureRollback() {
+  using namespace RasterBrush;
+  TRaster32P raster(128, 128);
+  raster->fill(TPixel32(0, 0, 255, 255));
+  TRaster32P original = raster->clone();
+  Transaction transaction(raster);
+  const size_t limit = 4 * 1024 * 1024;
+  auto memory        = std::make_shared<MemoryBudget>(limit);
+  size_t obstruction = 0;
+  {
+    auto backing =
+        std::make_shared<NativeRasterBrushSurface>(raster, transaction);
+    BufferedSurface surface(backing, memory);
+    Preset p;
+    p.profile            = "krita-5.3.4.1-legacy-smear-candidate-1";
+    p.wet                = Wet::Smear;
+    p.smudgeRadius       = 0;
+    p.tip.antialiasEdges = false;
+    p.size.value         = 16;
+    p.spacing            = .5;
+    p.color              = {0, 1, 0, 1};
+    Stroke stroke(surface, p, limit, memory);
+    Sample point;
+    point.x = 64;
+    point.y = 64;
+    require(stroke.add(point), stroke.error().c_str());
+    point.x    = 16;
+    point.time = 1;
+    require(stroke.add(point), stroke.error().c_str());
+    require(!same(original, raster), "source rollback fixture did not paint");
+    TRaster32P beforeFailure = raster->clone();
+    obstruction              = limit - memory->used() - 50000;
+    require(memory->reserve(obstruction),
+            "cannot constrain source outside budget");
+    point.x    = 0;
+    point.time = 2;
+    require(!stroke.add(point) &&
+                stroke.error() == "Source off-canvas memory limit exceeded",
+            "off-canvas allocation failure was not bounded before host writes");
+    require(same(beforeFailure, raster),
+            "failed outside allocation partially published dab");
+    stroke.finish();
+  }
+  require(memory->used() == obstruction,
+          "failed source stroke leaked accounted storage");
+  memory->release(obstruction);
+  transaction.undo(raster);
+  require(same(original, raster),
+          "off-canvas failure lost host rollback pixels");
+}
 void testRaster(const QString &directory) {
   TRaster32P raster(128, 128);
   raster->fill(TPixel32(16, 32, 64, 255));
@@ -121,9 +171,10 @@ void testRotation() {
   require(
       mid.hasRotation && std::abs(std::remainder(mid.rotation, 2 * pi)) < 1e-10,
       "barrel rotation crossed long arc");
-  a.tilt           = TPointD(.5, .25);
-  a.rotation       = 0;
-  auto transformed = TTrackTransform(TAffine::rotation(90)).apply(a);
+  a.tilt     = TPointD(.5, .25);
+  a.rotation = 0;
+  // TAffine::rotation takes radians; TRotation takes degrees.
+  auto transformed = TTrackTransform(TAffine::rotation(pi / 2)).apply(a);
   require(std::abs(transformed.rotation - pi / 2) < 1e-10,
           "barrel rotation not transformed");
   require(std::abs(transformed.tilt.x + .25) < 1e-10 &&
@@ -149,6 +200,7 @@ int main(int argc, char **argv) {
     TThread::init();
     initImageIo();
     testRaster(directory.path());
+    testSourceOffCanvasFailureRollback();
     testRotation();
     std::cout << "Native host raster, tile undo, image persistence and input "
                  "tests passed\n";

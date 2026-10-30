@@ -761,7 +761,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
     layout->addWidget(convert);
     QObject::connect(convert, &QPushButton::clicked, &dialog, [&]() {
       const bool wet = record.preset.wet != RasterBrush::Wet::Off;
-      const QString changes =
+      QString changes =
           wet ? QObject::tr(
                     "Source wet equations will be replaced by native wet "
                     "mixing, which produces different results. "
@@ -780,6 +780,11 @@ bool editNativeBrush(RasterBrush::Record &record) {
                     "settings, image resources and "
                     "resource-rights declarations are retained. Results can "
                     "differ from the source profile.");
+      if (record.preset.sourceHsvChannel != RasterBrush::SourceHsvChannel::Off)
+        changes += QObject::tr(
+            " The fixed source HSV color adjustment will be removed. Native "
+            "saturation and value controls use different equations and do not "
+            "preserve that adjustment.");
       QMessageBox confirmation(
           QMessageBox::Warning, QObject::tr("Convert a Copy to Native"),
           changes + "\n\n" +
@@ -801,6 +806,8 @@ bool editNativeBrush(RasterBrush::Record &record) {
       native.sourceSmudgeLengthEnabled  = native.sourceSmearAlpha =
           native.sourceColorRateEnabled = true;
       native.sourceTextureSoftTexturing = false;
+      native.sourceHsvChannel           = RasterBrush::SourceHsvChannel::Off;
+      native.sourceHsvValue             = .5;
       if (wet) {
         native.pickup        = .5;
         native.colorRate     = .25;
@@ -1000,14 +1007,15 @@ bool editNativeBrush(RasterBrush::Record &record) {
       });
   auto seed = new QLineEdit(QString::number(qulonglong(p.seed)), &dialog);
   form->addRow(QObject::tr("Random seed"), seed);
-  QObject::connect(seed, &QLineEdit::textEdited, &dialog, [&](const QString &text) {
-    bool ok = false;
-    const auto value = text.toULongLong(&ok);
-    if (ok) {
-      p.seed = value;
-      refresh();
-    }
-  });
+  QObject::connect(seed, &QLineEdit::textEdited, &dialog,
+                   [&](const QString &text) {
+                     bool ok          = false;
+                     const auto value = text.toULongLong(&ok);
+                     if (ok) {
+                       p.seed = value;
+                       refresh();
+                     }
+                   });
   auto varySeed =
       new QCheckBox(QObject::tr("Vary random seed for each stroke"), &dialog);
   varySeed->setObjectName("nativeBrushVarySeedPerStroke");

@@ -487,6 +487,66 @@ bool eligiblePressureSensor(const QString &sensorXml) {
   }
   return !xml.hasError() && depth == 0 && roots == 1 && curves == 1;
 }
+// Versioned source HSV admission: independently measured, one constant
+// pressure curve at a time. Unknown sensors, active combinations and varying
+// curves remain explicit native conversions rather than source candidates.
+bool sourceHsvSettings(const QMap<QString, QString> &fields,
+                       SourceHsvChannel &channel, double &value,
+                       QMap<QString, QString> &accepted) {
+  channel = SourceHsvChannel::Off;
+  value   = .5;
+  const QStringList prefixes{"h", "s", "v"};
+  const QStringList suffixes{"UseCurve",  "UseSameCurve", "Value",
+                             "curveMode", "commonCurve",  "Sensor"};
+  bool present = false;
+  for (const auto &prefix : prefixes) {
+    present = present || fields.contains("Pressure" + prefix);
+    for (const auto &suffix : suffixes)
+      present = present || fields.contains(prefix + suffix);
+  }
+  if (!present) return true;
+  int payloads = 0;
+  for (int index = 0; index < prefixes.size(); ++index) {
+    const QString prefix = prefixes[index], flag = "Pressure" + prefix;
+    if (fields.value(flag) != "false" && fields.value(flag) != "true")
+      return false;
+    accepted[flag] = fields[flag];
+    bool payload   = false;
+    for (const auto &suffix : suffixes)
+      payload = payload || fields.contains(prefix + suffix);
+    if (!payload) {
+      if (fields[flag] == "true") return false;
+      continue;
+    }
+    if (++payloads > 1 || fields.value(prefix + "UseCurve") != "true" ||
+        fields.value(prefix + "UseSameCurve") != "true" ||
+        fields.value(prefix + "Value") != "1" ||
+        fields.value(prefix + "curveMode") != "0" ||
+        !eligiblePressureSensor(fields.value(prefix + "Sensor")))
+      return false;
+    auto active  = fields;
+    active[flag] = "true";
+    Dynamic curve{1, 0, {}};
+    QSet<QString> mapped;
+    QStringList diagnostics;
+    if (!convertCurve(active, prefix, curve, mapped, diagnostics) ||
+        curve.mappings.size() != 1)
+      return false;
+    const auto &knots = curve.mappings.front().curve;
+    if (knots.size() != 2 || knots[0].x != 0 || knots[1].x != 1 ||
+        knots[0].y != knots[1].y)
+      return false;
+    for (const auto &suffix : suffixes) {
+      if (!fields.contains(prefix + suffix)) return false;
+      accepted[prefix + suffix] = fields[prefix + suffix];
+    }
+    if (fields[flag] == "true") {
+      channel = SourceHsvChannel(index + 1);
+      value   = knots[0].y;
+    }
+  }
+  return true;
+}
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
   if (engine != "paintbrush" && engine != "colorsmudge") return false;
@@ -513,6 +573,18 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
       {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
       {"KisPrecisionOption/precisionLevel", "5"}};
+  SourceHsvChannel hsvChannel;
+  double hsvValue;
+  QMap<QString, QString> hsvFields;
+  if (!sourceHsvSettings(fields, hsvChannel, hsvValue, hsvFields) ||
+      hsvChannel != preset.sourceHsvChannel ||
+      hsvValue != preset.sourceHsvValue ||
+      (!hsvFields.empty() && engine != "paintbrush"))
+    return false;
+  for (auto i = hsvFields.begin(); i != hsvFields.end(); ++i)
+    required[i.key()] = i.value();
+  if (fields.contains("Spacing/Isotropic"))
+    required["Spacing/Isotropic"] = "false";
   if (fields.value("Texture/Pattern/Enabled") == "true") {
     if (!preset.texture.image) return false;
     const QMap<QString, QString> textureFixed = {
@@ -607,6 +679,37 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     // curve. The candidate uses measured natural cubic interpolation for
     // multiple knots; native conversion retains its explicit linear mapping.
     if (fields.contains("SizecurveMode")) required["SizecurveMode"] = "0";
+  }
+  if (engine == "paintbrush") {
+    // Original paired Node traces establish pressure multiplication for hard
+    // Pixel opacity and wash flow. Build-up flow remains inactive. Do not
+    // infer these equations from Qt events whose source pressure consumption
+    // has not yet been established.
+    for (const QString prefix : {"Opacity", "Flow"}) {
+      if (fields.value(prefix + "UseCurve") != "true") continue;
+      const QString enabled = fields.value("Pressure" + prefix);
+      if (enabled != "true" && enabled != "false") return false;
+      auto active                 = fields;
+      active["Pressure" + prefix] = "true";
+      Dynamic retained{1, 0, {}};
+      QSet<QString> mapped;
+      QStringList diagnostics;
+      if (!convertCurve(active, prefix, retained, mapped, diagnostics) ||
+          retained.mappings.size() != 1)
+        return false;
+      const auto &mapping = retained.mappings.front();
+      if (mapping.sensor != Sensor::Pressure || mapping.curve.size() != 2 ||
+          mapping.curve[0].x != 0 || mapping.curve[0].y != 0 ||
+          mapping.curve[1].x != 1 || mapping.curve[1].y != 1)
+        return false;
+      required["Pressure" + prefix]     = enabled;
+      required[prefix + "UseCurve"]     = "true";
+      required[prefix + "UseSameCurve"] = "true";
+      required[prefix + "commonCurve"]  = "0,0;1,1;";
+      required[prefix + "Sensor"]       = fields.value(prefix + "Sensor");
+      if (fields.contains(prefix + "curveMode"))
+        required[prefix + "curveMode"] = "0";
+    }
   }
   if (engine == "colorsmudge") {
     for (const QString &key : {"PressureColorRate", "PressureSmudgeRate",
@@ -1058,6 +1161,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   if (engine == "paintbrush" && candidate.size.mappings.size() == 1 &&
       candidate.size.mappings.front().curve.size() > 2)
     candidate.size.mappings.front().interpolation = Interpolation::NaturalCubic;
+  QMap<QString, QString> hsvFields;
+  sourceHsvSettings(fields, candidate.sourceHsvChannel,
+                    candidate.sourceHsvValue, hsvFields);
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
     if (engine == "colorsmudge" && fields.value("FlowUseCurve") == "true") {
