@@ -79,6 +79,7 @@ class MainWindow final : public QMainWindow {
   Q_OBJECT
 
   bool m_saveSettingsOnQuit;
+  bool m_closeInProgress = false;
   bool m_startupPopupShown = false;
   bool m_wasMaximized      = false;
   int m_oldRoomIndex;

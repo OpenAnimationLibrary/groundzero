@@ -4,6 +4,8 @@
 #define TSCENEHANDLE_H
 
 #include <QObject>
+#include <map>
+#include <memory>
 
 #include "tcommon.h"
 
@@ -30,12 +32,21 @@ class DVAPI TSceneHandle final : public QObject {
 
   ToonzScene *m_scene;
   bool m_dirtyFlag;
+  struct RetainedScene;
+  static std::shared_ptr<RetainedScene> retainedScene(ToonzScene *scene);
 
 public:
   TSceneHandle();
   ~TSceneHandle();
 
   ToonzScene *getScene() const;
+
+  // Keep the current scene alive across event service and delayed retirement.
+  // This does not transfer ownership of the current scene to the handle/token.
+  // The token is independent of the handle and may safely outlive it. Acquire
+  // on the GUI thread; final release on a worker defers destruction to the GUI.
+  std::shared_ptr<void> retainScene();
+  static std::shared_ptr<void> retainScene(ToonzScene *scene);
 
   void setScene(ToonzScene *scene);
   void notifySceneChanged(bool setDirty = true) {
