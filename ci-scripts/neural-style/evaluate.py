@@ -30,7 +30,14 @@ def size(directory):
 
 
 def command(args):
-    subprocess.run([str(a) for a in args], check=True, timeout=300)
+    result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, timeout=300)
+    print(result.stdout, flush=True)
+    if result.returncode:
+        # Runner log downloads are not available in every review environment.
+        # Include the actual dependency/runtime error in check annotations.
+        detail = " | ".join(result.stdout.splitlines()[-15:])
+        raise RuntimeError("Evaluation command failed: " + detail[-5000:])
 
 
 def digest(path):
