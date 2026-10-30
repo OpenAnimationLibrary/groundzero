@@ -48,7 +48,8 @@ TRaster32P render(const TVectorImageP &image, bool depth = false,
   if (depth) {
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,256,0,128,-256,256);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS);
+    // SceneViewer::drawCameraStand uses LEQUAL for coplanar vector layers.
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL);
     glColor4d(0,0,1,1); glBegin(GL_QUADS);
     glVertex3d(0,0,0); glVertex3d(256,0,0); glVertex3d(256,128,0); glVertex3d(0,128,0); glEnd();
     glTranslated(128,64,0); glRotated(25,0,1,0);
@@ -148,6 +149,11 @@ void runOpacityRenderNativeChecks() {
     scaledPixels(base, render(image), 0., "zero-opacity native style still renders");
     stroke->setOpacity(1.); stroke->setOpacityProfile({{0,1},{1,1}});
     scaledPixels(base, render(image), 1., "identity envelope altered style spacing or alpha");
+    stroke->setOpacityProfile({});
+    const auto ordinaryDepth = render(image, true);
+    stroke->setOpacityProfile({{0,1},{1,1}});
+    scaledPixels(ordinaryDepth, render(image, true), 1.,
+        "style opacity identity changed native 3D viewer occlusion");
   }
   // Failures must remain observable and restore every caller GL stack/state.
   {
@@ -198,9 +204,16 @@ void runOpacityRenderNativeChecks() {
   require(QOpenGLContext::currentContext() == outerContext, "renderer destruction lost parent context");
   outer.doneCurrent();
 
+  TOfflineGL transferred(TDimension(256,128));
+  transferred.doneCurrent();
   std::atomic<bool> done{false};
   auto worker = std::async(std::launch::async, [&] {
-    try { auto pixels = render(image); done.store(true); return pixels; }
+    try {
+      auto pixels = render(image);
+      scaledPixels(pixels, render(image, false, &transferred), 1.,
+          "released production context could not transfer to a render thread");
+      done.store(true); return pixels;
+    }
     catch (...) { done.store(true); throw; }
   });
   QElapsedTimer deadline; deadline.start();
@@ -209,6 +222,8 @@ void runOpacityRenderNativeChecks() {
   }
   if (!done.load()) qFatal("Background production render timed out");
   scaledPixels(fade, worker.get(), 1., "background production render differs");
+  scaledPixels(fade, render(image, false, &transferred), 1.,
+      "released production context could not return to the GUI thread");
 
   TPropertyGroup properties;
   TEnumProperty mode("Stroke Mode"); mode.addValue(L"Outline"); properties.bind(mode);

@@ -19,9 +19,6 @@
 #include <atomic>
 #include <string>
 
-// toonz
-#include "traster.h"
-
 // {A20E2270-0FE1-421D-A34E-98C26C13F9DB}
 static const GUID CLSID_ToonzThumbnailProvider
     = {0xa20e2270,
@@ -113,7 +110,5 @@ extern HINSTANCE g_hInst;
 // Helpers
 void DebugLog(const std::string &message);
 std::string WideToNarrow(const std::wstring &wideStr);
-void EnsureQtApplication();
-HBITMAP RasterToHBITMAP(const TRaster32P &ras);
 
 #endif  // TOONZPREVIEW_H
