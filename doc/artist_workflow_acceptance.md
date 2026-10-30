@@ -1,8 +1,10 @@
 # Artist workflow acceptance ledger
 
-Current baseline: `edition` at `5fc674f1edefc0a45d377951b8d064ba8b202f44` (2026-10-30),
+Current baseline: `edition` at `dc2592a1e86319c1f9e5334b41f0cdf99c485b36` (2026-10-30),
 including the separately owned reference/neural work in #114 and build-artifact
-ignore rules in #121, plus the Qt translation configuration correction in #122. Original research
+ignore rules in #121, the Qt translation configuration correction in #122,
+and the native UI stability, particle-cache safety and Qt 6 build corrections
+in #123–125. Original research
 baseline: `aa01975f38d6226156e5b07df7271b8fc199d003`.
 
 All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. Drafts remain open while qualification is pending.
