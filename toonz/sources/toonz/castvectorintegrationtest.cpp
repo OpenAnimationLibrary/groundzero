@@ -463,16 +463,25 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   clean(duplicate);
   sheet->setCell(4, 2, TXshCell(duplicate, TFrameId(3)));
   auto consolidate = [&](bool expectRejected) {
-    bool reviewed = false, confirmed = false, rejected = false;
+    bool reviewed = false, reviewReturned = false, confirmed = false, rejected = false;
     const int before = TUndoManager::manager()->getCurrentHistoryIndex();
     DialogDriver driver([&](QDialog *dialog) {
       if (dialog->windowTitle() == "Duplicate Asset Review") {
-        if (reviewed) { dialog->reject(); return; }
+        if (reviewed) {
+          // Validation pumps events before its progress window is visible.
+          // The report can be the active modal while review is still running;
+          // closing it then correctly cancels the original Cast operation.
+          if (reviewReturned) dialog->reject();
+          return;
+        }
         if (auto *button = dialog->findChild<QPushButton *>("CastReviewConsolidation")) {
           reviewed = true;
           // The click opens another modal event loop. A timer cannot reenter
           // its own timeout callback to drive that nested dialog.
-          QMetaObject::invokeMethod(button, "click", Qt::QueuedConnection);
+          QTimer::singleShot(0, button, [button, &reviewReturned]() {
+            button->click();
+            reviewReturned = true;
+          });
         }
       } else if (dialog->objectName() == "CastConsolidationReview") {
         if (auto *table = dialog->findChild<QTableWidget *>())
@@ -495,7 +504,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
       }
     });
     CastBrowserActions::duplicates(window);
-    require(reviewed && !driver.expired &&
+    require(reviewed && reviewReturned && !driver.expired &&
                 (expectRejected ? (rejected && !confirmed &&
                     TUndoManager::manager()->getCurrentHistoryIndex() == before)
                                 : (confirmed && !rejected &&
