@@ -311,6 +311,8 @@ set(SOURCES
     tapp.cpp
     toolbar.cpp
     batchserversviewer.cpp
+    castassetops.cpp
+    castbrowseractions.cpp
     castviewer.cpp
     exportlevelpopup.cpp
     exportalllevelspopup.cpp
@@ -394,12 +396,14 @@ set(SOURCES
     timestretchpopup.cpp
     trackerpopup.cpp
     alignmentpane.cpp
+    poselibrarycommand.cpp
     posespane.cpp
     referencepanel.cpp
     purerefboard.cpp
     drawingsubstitutionpane.cpp
     drawingsubstitutionundo.cpp
     substitutionsliderpane.cpp
+    storyboardtiming.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
@@ -496,6 +500,7 @@ set(SOURCES
     importpdf.cpp
     importpdf.h
     animatedsvgexport.cpp
+    exportfidelity.cpp
     lottieexport.cpp
     xdtsimportpopup.cpp
     expressionreferencemanager.cpp
@@ -1079,6 +1084,14 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
+        animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h
+        functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h
+        castworkflowintegrationtest.cpp)
+    target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
+    target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
+    add_custom_target(ui_port_tests)
+    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test)
     target_sources(OpenToonz PRIVATE vectorworkflowintegrationtest.cpp vectorworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE opacityrenderintegrationtest.cpp opacityrenderintegrationtest.h)
     target_sources(OpenToonz PRIVATE offlineglworkflowintegrationtest.cpp offlineglworkflowintegrationtest.h)
@@ -1087,10 +1100,6 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE fillworkflowintegrationtest.cpp fillworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE contourworkflowintegrationtest.cpp contourworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE brushworkflowintegrationtest.cpp brushworkflowintegrationtest.h)
-    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h)
-    target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
-    target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
-    add_custom_target(ui_port_tests)
     add_dependencies(ui_port_tests contour_outline_test)
     add_dependencies(ui_port_tests pli_opacityprofile_test morphworkflow_test)
     add_dependencies(ui_port_tests widthprofilemanager_test selectionopacity_test styleanimationcopy_test svg_opacity_test)

@@ -10,10 +10,18 @@
 
 #include "dvitemview.h"
 #include "tfilepath.h"
+#include "toonz/txshlevel.h"
+#include <set>
+#include <map>
+#include <vector>
 
 class QLabel;
 class TLevelSet;
 class CastItems;
+class QLineEdit;
+class QComboBox;
+class QTimer;
+class QPushButton;
 
 //-----------------------------------------------------------------------------
 
@@ -76,6 +84,19 @@ class CastBrowser final : public QSplitter, public DvItemListModel {
   DvItemViewer *m_itemViewer;
 
   std::unique_ptr<CastItems> m_castItems;
+  QLineEdit *m_search;
+  QComboBox *m_scope, *m_type, *m_status;
+  QLabel *m_resultCount;
+  QTimer *m_filterTimer;
+  QPushButton *m_actions;
+  std::vector<TXshLevelP> m_rememberedSelection;
+  std::map<TXshLevel *, QString> m_assetStatus;
+  std::map<TXshLevel *, QChar> m_statusBadge;
+  bool m_rebuilding = false;
+  void rememberSelection();
+  void restoreSelection();
+  std::vector<TXshLevel *> selectedLevels() const;
+  void showActions();
 
 public:
   CastBrowser(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
@@ -101,6 +122,7 @@ public:
   void viewFileInfo();
 
 protected:
+  void showEvent(QShowEvent *event) override;
   bool dropMimeData(QTreeWidgetItem *parent, int index, const QMimeData *data,
                     Qt::DropAction action);
   Qt::DropActions supportedDropActions() const;

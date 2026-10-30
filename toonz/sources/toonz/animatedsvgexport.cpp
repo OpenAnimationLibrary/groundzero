@@ -1,3 +1,4 @@
+#include "exportfidelity.h"
 #include "toonzqt/uitranslations.h"
 #include "ocaio.h"
 
@@ -331,6 +332,10 @@ void ExportAnimatedSVGCommand::execute() {
         new QCheckBox(QObject::tr("Render Scene Before Export"));
     embedImages   = new QCheckBox(QObject::tr("Embed Images in SVG"));
     openInBrowser = new QCheckBox(QObject::tr("Open in Browser When Complete"));
+    rasterizeVectors->setObjectName("svgRasterizeVectors");
+    renderSceneResult->setObjectName("svgRenderScene");
+    embedImages->setObjectName("svgEmbedImages");
+    openInBrowser->setObjectName("svgOpenBrowser");
     rasterizeVectors->setChecked(true);
     openInBrowser->setChecked(true);
     rasterizeVectors->setToolTip(QObject::tr(
@@ -360,6 +365,7 @@ void ExportAnimatedSVGCommand::execute() {
 
     savePopup = new GenericSaveFilePopup(QObject::tr("Export Animated SVG"),
                                          customWidget);
+    savePopup->setObjectName("animatedSvgExportFilePopup");
     savePopup->addFilterType("svg");
   }
 
@@ -371,6 +377,14 @@ void ExportAnimatedSVGCommand::execute() {
   savePopup->setFilename(fp.withoutParentDir());
   fp = savePopup->getPath();
   if (fp.isEmpty()) return;
+
+  // Native SVG assets preserve editable shapes, but not a scene's full
+  // compositing/deformation semantics. Resolve the choice before writing assets.
+  if (!renderSceneResult->isChecked()) {
+    const auto choice = ExportFidelity::chooseAnimatedSvg();
+    if (choice == ExportFidelity::Cancel) return;
+    if (choice == ExportFidelity::RenderedScene) renderSceneResult->setChecked(true);
+  }
 
   TDimension resolution = scene->getCurrentCamera()->getRes();
   double estimatedMb    = double(resolution.lx) * resolution.ly *

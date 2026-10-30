@@ -1,5 +1,6 @@
 #include "toonzqt/uitranslations.h"
 #include "storyboardpane.h"
+#include "storyboardtiming.h"
 
 // Tnz6 includes
 #include "tapp.h"
@@ -155,84 +156,6 @@ public:
         .arg(frameStr)
         .arg(m_oldTag.m_label)
         .arg(m_newTag.m_label);
-  }
-  int getHistoryType() override { return HistoryType::Xsheet; }
-};
-
-//=============================================================================
-// StoryboardMoveUndo
-//-----------------------------------------------------------------------------
-/*! Moves the cells of a panel before or after another one: the rows from
-    \b row0 are replaced, in every cell column, by their permutation, and the
-    navigation tags of the rows follow their cells (keeping captions, colors
-    and notes).                                                           */
-
-class StoryboardMoveUndo final : public TUndo {
-  TXsheetP m_xsh;
-  int m_row0;
-  std::vector<int> m_columns;
-  std::vector<std::vector<TXshCell>> m_oldCells, m_newCells;
-  std::vector<NavigationTags::Tag> m_oldTags, m_newTags;
-
-  void apply(const std::vector<std::vector<TXshCell>> &cells,
-             const std::vector<NavigationTags::Tag> &tags) const {
-    TXsheet *xsh = m_xsh.getPointer();
-    for (int i = 0; i < (int)m_columns.size(); i++)
-      xsh->setCells(m_row0, m_columns[i], (int)cells[i].size(),
-                    cells[i].data());
-    xsh->getNavigationTags()->m_tags = tags;
-    notifyTagsChanged();
-  }
-
-public:
-  /*! \b src holds, for each row from \b row0, the row its cells come from. */
-  StoryboardMoveUndo(TXsheet *xsh, int row0, const std::vector<int> &src)
-      : m_xsh(xsh), m_row0(row0) {
-    int rowCount = (int)src.size();
-    for (int c = 0; c < xsh->getColumnCount(); c++) {
-      TXshColumn *column = xsh->getColumn(c);
-      // sound columns do not keep their clips as plain cells
-      if (!column || column->isEmpty() || column->isLocked() ||
-          !column->getCellColumn() || column->getSoundColumn() ||
-          column->getSoundTextColumn())
-        continue;
-
-      std::vector<TXshCell> oldCells(rowCount), newCells(rowCount);
-      xsh->getCells(row0, c, rowCount, oldCells.data());
-      bool used = false;
-      for (int k = 0; k < rowCount; k++) {
-        newCells[k] = oldCells[src[k] - row0];
-        if (!oldCells[k].isEmpty()) used = true;
-      }
-      if (!used) continue;
-      m_columns.push_back(c);
-      m_oldCells.push_back(oldCells);
-      m_newCells.push_back(newCells);
-    }
-
-    // the tag of a row moves to the row its cells go to
-    std::vector<int> dest(rowCount);
-    for (int k = 0; k < rowCount; k++) dest[src[k] - row0] = row0 + k;
-    m_oldTags = xsh->getNavigationTags()->m_tags;
-    m_newTags = m_oldTags;
-    for (NavigationTags::Tag &tag : m_newTags)
-      if (tag.m_frame >= row0 && tag.m_frame < row0 + rowCount)
-        tag.m_frame = dest[tag.m_frame - row0];
-    std::sort(m_newTags.begin(), m_newTags.end());
-  }
-
-  void undo() const override { apply(m_oldCells, m_oldTags); }
-  void redo() const override { apply(m_newCells, m_newTags); }
-
-  int getSize() const override {
-    int size = sizeof(*this);
-    for (const std::vector<TXshCell> &cells : m_oldCells)
-      size += 2 * cells.size() * sizeof(TXshCell);
-    return size + (int)(m_oldTags.size() + m_newTags.size()) * 64;
-  }
-
-  QString getHistoryString() override {
-    return QObject::tr("Move Storyboard Panel");
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
 };
@@ -902,37 +825,22 @@ void StoryboardPane::movePanel(int from, int to, bool after) {
   int ins = after ? m_panels[to].m_r1 + 1 : m_panels[to].m_r0;
   if (ins >= a0 && ins <= a1 + 1) return;  // already in place
 
-  // src: for each row of the affected range, the row its cells come from
-  int row0 = std::min(a0, ins);
-  std::vector<int> src;
-  if (ins > a1 + 1) {
-    for (int r = a1 + 1; r < ins; r++) src.push_back(r);
-    for (int r = a0; r <= a1; r++) src.push_back(r);
-  } else {
-    for (int r = a0; r <= a1; r++) src.push_back(r);
-    for (int r = ins; r < a0; r++) src.push_back(r);
-  }
-
-  // Locked columns keep their cells: moving the panel would leave them
-  // behind, out of step with the other columns and the tags
-  const int rowCount = (int)src.size();
-  for (int c = 0; c < xsh->getColumnCount(); c++) {
-    TXshColumn *column = xsh->getColumn(c);
-    if (!column || column->isEmpty() || !column->isLocked() ||
-        !column->getCellColumn() || column->getSoundColumn() ||
-        column->getSoundTextColumn())
-      continue;
-    for (int r = row0; r < row0 + rowCount; r++)
-      if (!xsh->getCell(r, c).isEmpty()) {
-        DVGui::warning(
-            UiTranslations::text(tr("The panel cannot be moved: column %1 is locked and has cells "
-               "in the rows to move. Unlock it first."))
-                .arg(c + 1));
-        return;
-      }
-  }
-
-  StoryboardMoveUndo *undo = new StoryboardMoveUndo(xsh, row0, src);
-  TUndoManager::manager()->add(undo);
-  undo->redo();
+  const QString policy = tr(
+      "Move pictures, sound, tags, camera, rig and effect timing together?\n\n"
+      "Sound clips crossing a panel boundary are split with their source offsets. "
+      "Child xsheets keep local timing. Native keys and interpolation move intact "
+      "where cuts are representable; the last frame of each panel holds to its cut.\n\n"
+      "Bake Unsupported Timing additionally samples curves that cannot be cut "
+      "exactly at every scene frame. Those curves lose editable expressions and "
+      "original subframe interpolation. Cycles become finite scene-frame keys; "
+      "time-remap lookups are rebased with their source exposures. Other curves "
+      "keep native keys. Undo "
+      "restores all original curves and clips.\n\n"
+      "Locked columns must be unlocked first.");
+  const int choice = DVGui::MsgBox(DVGui::WARNING, policy,
+      std::vector<QString>{tr("Move Native Timing"), tr("Bake Unsupported Timing"), tr("Cancel")}, 0);
+  if (choice != 1 && choice != 2) return;
+  QString error;
+  if (!moveStoryboardTiming(xsh, a0, a1, ins, &error, choice == 2) && !error.isEmpty())
+    DVGui::warning(error);
 }

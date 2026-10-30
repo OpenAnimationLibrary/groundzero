@@ -42,6 +42,7 @@ TXshSoundLevel *TXshSoundLevel::clone() const {
   sound->m_samplePerFrame  = m_samplePerFrame;
   sound->m_frameSoundCount = m_frameSoundCount;
   sound->m_fps             = m_fps;
+  sound->copyCastMetadataFrom(this);
   return sound;
 }
 
@@ -118,6 +119,7 @@ void TXshSoundLevel::loadData(TIStream &is) {
   for (;;) {
     if (is.matchTag(tagName)) {
       if (tagName == "path") {
+        loadCastTags(is);
         is >> m_path;
         is.matchEndTag();
       } else if (tagName == "type") {
@@ -140,7 +142,7 @@ void TXshSoundLevel::saveData(TOStream &os) {
 
   std::map<std::string, std::string> attr;
   os.child("type") << L"sound";
-  os.child("path") << m_path;
+  saveCastPath(os, m_path);
 }
 
 //-----------------------------------------------------------------------------

@@ -134,21 +134,67 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        python3 ../../ci-scripts/check_vector_test_registration.py
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
+      env:
+        GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --output toonz/build/ui-integration-output.txt --require-vector-workflows
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --linux-crash-debugger
 
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
 
+    - name: Report native application crash stack
+      if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+      run: |
+        if [ -f toonz/build/ui-integration-output-debugger.txt ]; then
+          python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
+        fi
+
+    - name: Upload native animation workflow diagnostics
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: animation-workflow-linux
+        path: toonz/build/ui-integration-output*.txt
+        if-no-files-found: ignore
+
     - name: Report native UI failures
       if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
+
+    - name: Diagnose Function Editor crash
+      if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+      working-directory: toonz/build
+      run: |
+        # Diagnostic only: the original CTest failure remains authoritative.
+        # Run only this crashed fixture, not the complete failed test suite.
+        if grep -Eq 'ui_functionworkflow[[:space:]].*(SegFault|Exception)' ui-tests-output.txt; then
+          set -o pipefail
+          QT_QPA_PLATFORM=offscreen timeout --kill-after=5s 60s gdb --batch \
+            -ex 'set pagination off' -ex 'set print frame-arguments none' \
+            -ex run -ex 'thread apply all backtrace 30' \
+            --args bin/ui_functionworkflow_test 2>&1 | tee function-workflow-debugger.txt
+        fi
+
+    - name: Report Function Editor crash stack
+      if: ${{ failure() && hashFiles('toonz/build/function-workflow-debugger.txt') != '' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/function-workflow-debugger.txt 'Function Editor crash stack'
+
+    - name: Retain native UI diagnostics
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: Native-UI-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
+        path: |
+          toonz/build/ui-tests.xml
+          toonz/build/ui-tests-output.txt
+          toonz/build/ui-integration-output.txt
+          toonz/build/function-workflow-debugger.txt
+        if-no-files-found: ignore
 
     - name: Diagnose cel UI crash
       if: failure()
@@ -256,7 +302,7 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
 
     - name: Upload reliability diagnostics
       if: always()
@@ -265,6 +311,7 @@ jobs:
         name: linux-reliability-results
         path: |
           toonz/build/reliability-tests.xml
+          toonz/build/cast-workflow-metrics.json
           toonz/build/stdfx/fxrender-output
           toonz/build/image/ffmpeg-test-output
         if-no-files-found: ignore
