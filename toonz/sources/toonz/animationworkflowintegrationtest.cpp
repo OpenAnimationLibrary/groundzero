@@ -68,7 +68,7 @@ namespace {
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
-void near(double actual, double expected, const char *message) {
+void requireNear(double actual, double expected, const char *message) {
   require(std::abs(actual - expected) < 1e-8, message);
 }
 bool sameKey(const TDoubleKeyframe &a, const TDoubleKeyframe &b) {
@@ -241,7 +241,7 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   writePoses(file, first);
   require(LibraryCmd::loadPoseSet(file), "native pose import failed");
   require(scene->getPoseLibrary()->getPoseCount() == 1, "pose import missing");
-  near(scene->getPoseLibrary()->getBase().front().m_value, 3.0, "imported base missing");
+  requireNear(scene->getPoseLibrary()->getBase().front().m_value, 3.0, "imported base missing");
   require(TUndoManager::manager()->undo(), "pose import undo missing");
   require(scene->getPoseLibrary()->isEmpty(), "import undo did not restore empty base/library");
   require(TUndoManager::manager()->redo(), "pose import redo missing");
@@ -254,10 +254,10 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   dialogs({QObject::tr("Cancel")}, [&]() { require(!LibraryCmd::loadPoseSet(file), "cancelled pose import succeeded"); });
   require(TUndoManager::manager()->getHistoryCount() == history, "cancelled pose import changed undo history");
   dialogs({QObject::tr("Replace")}, [&]() { require(LibraryCmd::loadPoseSet(file), "pose replace failed"); });
-  near(scene->getPoseLibrary()->getPose(0).m_entries.front().m_value, 8.0, "pose replace value missing");
-  near(scene->getPoseLibrary()->getBase().front().m_value, 3.0, "replace changed existing base");
+  requireNear(scene->getPoseLibrary()->getPose(0).m_entries.front().m_value, 8.0, "pose replace value missing");
+  requireNear(scene->getPoseLibrary()->getBase().front().m_value, 3.0, "replace changed existing base");
   require(TUndoManager::manager()->undo(), "replace undo missing");
-  near(scene->getPoseLibrary()->getPose(0).m_entries.front().m_value, 2.0, "replace undo did not restore pose");
+  requireNear(scene->getPoseLibrary()->getPose(0).m_entries.front().m_value, 2.0, "replace undo did not restore pose");
   require(TUndoManager::manager()->redo(), "replace redo missing");
 
   PosesPane pane;
@@ -276,7 +276,7 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   loaded.setProject(scene->getProject());
   loaded.load(sceneFile);
   require(loaded.getPoseLibrary()->getPoseCount() == 1, "pose library did not persist");
-  near(loaded.getPoseLibrary()->getBase().front().m_value, 3.0, "base did not persist");
+  requireNear(loaded.getPoseLibrary()->getBase().front().m_value, 3.0, "base did not persist");
 }
 
 void exerciseRecovery(ToonzScene *scene) {
@@ -366,13 +366,13 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   for (int row = 0; row < 6; ++row) {
     require(sheet->getCell(row, 0).getFrameId().getNumber() == source[row] + 1, "storyboard picture permutation wrong");
     require(sheet->getCell(row, 1).getFrameId().getNumber() == source[row], "storyboard sound source offset wrong");
-    near(curve->getValue(row), source[row] * 10.0, "storyboard camera timing wrong");
-    near(rig->getValue(row), source[row] == 5 ? 40 : 20, "storyboard rig hold wrong");
+    requireNear(curve->getValue(row), source[row] * 10.0, "storyboard camera timing wrong");
+    requireNear(rig->getValue(row), source[row] == 5 ? 40 : 20, "storyboard rig hold wrong");
   }
   require(rigObject->getPinnedRangeSet()->isPinned(4) &&
           !rigObject->getPinnedRangeSet()->isPinned(0), "rig pin ranges did not follow storyboard timing");
-  near(curve->getValue(0.5), 25, "native interpolation was lost inside panel");
-  near(curve->getValue(3.5), 50, "panel boundary must hold final frame");
+  requireNear(curve->getValue(0.5), 25, "native interpolation was lost inside panel");
+  requireNear(curve->getValue(3.5), 50, "panel boundary must hold final frame");
   require(app->getCurrentFrame()->getFrame() == 3 && app->getCurrentColumn()->getColumnIndex() == 0,
           "storyboard move changed active selection");
   require(sheet->getNavigationTags()->getTagLabel(4) == "First", "storyboard tag timing wrong");
@@ -428,7 +428,7 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   require(moveStoryboardTiming(sheet, 0, 1, 6, &error, true), "opt-in stage cycle move failed");
   require(!camera->isCycleEnabled(), "baked stage cycle still wraps sampled timing");
   for (int row = 0; row < 6; ++row)
-    near(curve->getValue(row), cycled[source[row]], "stage cycle bake changed scene-frame output");
+    requireNear(curve->getValue(row), cycled[source[row]], "stage cycle bake changed scene-frame output");
   require(TUndoManager::manager()->undo() && camera->isCycleEnabled() && curve->getKeyframeCount() == 2,
           "stage cycle undo did not restore cycle and original keys");
   camera->enableCycle(false);
@@ -438,7 +438,7 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   require(moveStoryboardTiming(sheet, 0, 1, 6, &error, true), "parameter cycle bake move failed");
   require(!curve->isCycleEnabled(), "baked parameter cycle still enabled");
   for (int row = 0; row < 6; ++row)
-    near(curve->getValue(row), cycled[source[row]], "parameter cycle bake changed scene-frame output");
+    requireNear(curve->getValue(row), cycled[source[row]], "parameter cycle bake changed scene-frame output");
   require(TUndoManager::manager()->undo() && curve->isCycleEnabled(), "parameter cycle undo failed");
   curve->enableCycle(false);
 }
@@ -553,8 +553,8 @@ void exerciseNativeTimingBoundaries(ToonzScene *scene) {
           sameKey(curve->getKeyframeAt(8), outsideAfter) &&
           sameKey(curve->getKeyframeAt(10), outsideLast),
           "native storyboard move changed untouched keys or handle links");
-  near(curve->getValue(-2.5), beforeSample, "native move changed samples before cut neighbours");
-  near(curve->getValue(9.0), afterSample, "native move changed samples after cut neighbours");
+  requireNear(curve->getValue(-2.5), beforeSample, "native move changed samples before cut neighbours");
+  requireNear(curve->getValue(9.0), afterSample, "native move changed samples after cut neighbours");
   require(TUndoManager::manager()->undo(), "interior timing undo failed");
   require(curve->getKeyframeCount() == int(originals.size()), "interior timing undo changed key count");
   for (size_t i = 0; i < originals.size(); ++i)
