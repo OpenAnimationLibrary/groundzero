@@ -49,6 +49,7 @@ class BaseViewerPanel : public QFrame,
 protected:
   friend class SceneViewer;
   QVBoxLayout *m_mainLayout;
+  QLabel *m_timeRemapStatus;
   SceneViewer *m_sceneViewer;
   ImageUtils::FullScreenWidget *m_fsWidget;
   FlipConsole *m_flipConsole;

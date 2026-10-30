@@ -1,3 +1,4 @@
+#include "exportfidelity.h"
 // File > Export > Export Lottie...: writes the current xsheet as a Lottie
 // animation (Bodymovin JSON), for lottie-web and the iOS and Android players.
 // The export itself is LottieExport::exportXsheet() (toonzlib,
@@ -215,6 +216,10 @@ void ExportLottieCommand::execute() {
     DVGui::error(QObject::tr("No columns can be exported."));
     return;
   }
+
+  // The renderer has only prepared memory buffers so far. Confirm fidelity
+  // losses before creating any output directory or replacing destination files.
+  if (!ExportFidelity::confirmLottie(result.m_skipped)) return;
 
   // Image files
   if (!result.m_imageFiles.empty()) {

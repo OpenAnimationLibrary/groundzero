@@ -1,3 +1,4 @@
+#include "exportfidelity.h"
 #include "toonzqt/uitranslations.h"
 #include "ocaio.h"
 
@@ -371,6 +372,14 @@ void ExportAnimatedSVGCommand::execute() {
   savePopup->setFilename(fp.withoutParentDir());
   fp = savePopup->getPath();
   if (fp.isEmpty()) return;
+
+  // Native SVG assets preserve editable shapes, but not a scene's full
+  // compositing/deformation semantics. Resolve the choice before writing assets.
+  if (!renderSceneResult->isChecked()) {
+    const auto choice = ExportFidelity::chooseAnimatedSvg();
+    if (choice == ExportFidelity::Cancel) return;
+    if (choice == ExportFidelity::RenderedScene) renderSceneResult->setChecked(true);
+  }
 
   TDimension resolution = scene->getCurrentCamera()->getRes();
   double estimatedMb    = double(resolution.lx) * resolution.ly *

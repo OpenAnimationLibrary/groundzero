@@ -167,6 +167,26 @@ jobs:
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
             QT_QPA_PLATFORM=offscreen ctest --test-dir toonz/build --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee toonz/build/seexpr-tests-output.txt
 
+      - name: Test native application integration
+        id: ui_integration
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --output toonz/build/ui-integration-output.txt
+
+      - name: Report native application integration failure
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+      - name: Upload native application integration evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-application-macos
+          path: toonz/build/ui-integration-output.txt
+          if-no-files-found: ignore
+
       - name: Report SeExpr test failures
         if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
         run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt

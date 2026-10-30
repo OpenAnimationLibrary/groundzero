@@ -185,6 +185,8 @@ bool menuContainsAction(QMenu *menu, QAction *target) {
 }
 
 void ensureParticleCacheActions(QMenu *fileMenu) {
+  QAction *recovery = CommandManager::instance()->getAction(MI_RecoveryStatus);
+  if (recovery && !menuContainsAction(fileMenu, recovery)) fileMenu->addAction(recovery);
   QMenu *menu = nullptr;
   const QString title = QCoreApplication::translate("MainWindow", "Particle Caches");
   for (QAction *action : fileMenu->actions()) {
@@ -597,6 +599,7 @@ QMenuBar *StackedMenuBar::createCleanupMenuBar() {
   filesMenu->addSeparator();
   addMenuItem(filesMenu, MI_LoadScene);
   addMenuItem(filesMenu, MI_SaveAll);
+  addMenuItem(filesMenu, MI_RecoveryStatus);
   addMenuItem(filesMenu, MI_OpenRecentScene);
   addMenuItem(filesMenu, MI_SaveScene);
   addMenuItem(filesMenu, MI_SaveSceneAs);
@@ -764,6 +767,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
   filesMenu->addSeparator();
   addMenuItem(filesMenu, MI_LoadScene);
   addMenuItem(filesMenu, MI_SaveAll);
+  addMenuItem(filesMenu, MI_RecoveryStatus);
   addMenuItem(filesMenu, MI_OpenRecentScene);
   addMenuItem(filesMenu, MI_SaveScene);
   addMenuItem(filesMenu, MI_SaveSceneAs);
@@ -977,6 +981,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
   filesMenu->addSeparator();
   addMenuItem(filesMenu, MI_LoadScene);
   addMenuItem(filesMenu, MI_SaveAll);
+  addMenuItem(filesMenu, MI_RecoveryStatus);
   addMenuItem(filesMenu, MI_OpenRecentScene);
   addMenuItem(filesMenu, MI_SaveScene);
   addMenuItem(filesMenu, MI_SaveSceneAs);
@@ -1167,6 +1172,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
                        QStringLiteral("Xsheet"));
   addMenuItem(xsheetMenu, MI_LoadScene);
   addMenuItem(xsheetMenu, MI_SaveAll);
+  addMenuItem(xsheetMenu, MI_RecoveryStatus);
   addMenuItem(xsheetMenu, MI_OpenRecentScene);
   addMenuItem(xsheetMenu, MI_SaveScene);
   addMenuItem(xsheetMenu, MI_SaveSceneAs);
@@ -1513,6 +1519,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(fileMenu, MI_NewScene);
   addMenuItem(fileMenu, MI_LoadScene);
   addMenuItem(fileMenu, MI_SaveAll);
+  addMenuItem(fileMenu, MI_RecoveryStatus);
   addMenuItem(fileMenu, MI_OpenRecentScene);
   addMenuItem(fileMenu, MI_SaveScene);
   addMenuItem(fileMenu, MI_SaveSceneAs);
