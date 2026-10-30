@@ -25,6 +25,18 @@
 
 namespace {
 void require(bool value,const char *message){if(!value)throw std::runtime_error(message);}
+// Full TRasterFx::compute uses a render-scoped resource/cache manager.
+// Match the application's lifecycle rather than calling it outside a render.
+struct RenderContext {
+  TRenderer renderer;
+  unsigned long id;
+  RenderContext():renderer(1),id(TRenderer::buildRenderId()) {
+    renderer.install(id);renderer.declareRenderStart(id);renderer.declareFrameStart(0);
+  }
+  ~RenderContext() {
+    renderer.declareFrameEnd(0);renderer.declareRenderEnd(id);renderer.uninstall();
+  }
+};
 QImage fixture(const QString &path,int side) {
   QFile file(path);require(file.open(QIODevice::ReadOnly),"Missing RGB fixture");
   const auto bytes=file.readAll();require(bytes.size()==side*side*3,"Invalid RGB fixture length");
@@ -270,6 +282,7 @@ int main(int argc,char **argv) {
   TThread::init();TRenderer::initialize();
   struct Shutdown {~Shutdown(){TThread::shutdown();}} shutdown;
   try {
+    RenderContext context;
     std::cerr<<"Neural qualification: profile, motion and compositing"<<std::endl;
     profiles();temporal();preservation<TPixel32>();preservation<TPixel64>();preservation<TPixelF>();
     require(argc==2,"Expected model fixture directory");const QDir fixtures(app.arguments()[1]);
