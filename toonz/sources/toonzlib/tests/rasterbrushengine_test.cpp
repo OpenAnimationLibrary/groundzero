@@ -727,7 +727,7 @@ void testSourceWetInitialization() {
     Stroke denied(original, p, 1);
     require(!denied.add(sample(30, 64, 0)),
             "source initial snapshot bypassed budget");
-    p.smudgeRadius = 1.01;
+    p.smudgeRadius = newDulling ? 3.01 : 1.01;
     require(!validate(p).empty(), "unmeasured source wet radius accepted");
   }
 }
@@ -770,37 +770,73 @@ void testSourceDefaultCircle() {
     require(!validate(p).empty(), "unqualified small-tip AA sampling accepted");
   }
 }
-void testLegacyDullingRadiusImpulses() {
-  const int offsets[]      = {-8, -7, -4, 0, 4, 8, 16};
-  const int captured[2][7] = {{6, 19, 16, 16, 16, 6, 0},
-                              {10, 6, 10, 10, 10, 10, 3}};
-  for (int radius = 0; radius < 2; ++radius)
-    for (int column = 0; column < 7; ++column) {
-      Preset p;
-      p.profile            = "krita-5.3.4.1-legacy-dulling-candidate-1";
-      p.wet                = Wet::Dulling;
-      p.size.value         = 32;
-      p.spacing            = 2;
-      p.tip.antialiasEdges = false;
-      p.pickup             = 1;
-      p.colorRate          = 0;
-      p.smudgeRadius       = radius ? 1 : .5;
-      Canvas canvas;
-      for (int y = 0; y < canvas.h; ++y)
-        for (int x = 0; x < 64; ++x) {
-          const double white = x == 32 + offsets[column] ? 1 : 0;
-          canvas.write(x, y, {white, white, white, 1});
-        }
-      Stroke stroke(canvas, p);
-      require(stroke.add(sample(32, 64, 0)), stroke.error().c_str());
-      require(stroke.add(sample(97, 64, 1)), stroke.error().c_str());
-      stroke.finish();
-      const Pixel pixel = canvas.read(96, 64);
-      require(pixel.a == 1 &&
-                  std::abs(pixel.r * 255 - captured[radius][column]) < 1e-9 &&
-                  pixel.r == pixel.g && pixel.g == pixel.b,
-              "legacy Dulling radius differs from original column impulse");
-    }
+void testSourceDullingRadiusImpulses() {
+  // Captured independently in the pinned source application: orthogonal
+  // impulses distinguish footprint coordinates from color/alpha transport.
+  struct Case {
+    bool modern, row;
+    int radius, offset, value, alpha;
+  };
+  const Case captured[] = {
+      {false, false, 50, -8, 6, 255},   {false, false, 50, -4, 16, 255},
+      {false, false, 50, 0, 16, 255},   {false, false, 50, 4, 16, 255},
+      {false, false, 50, 8, 6, 255},    {false, false, 100, -16, 3, 255},
+      {false, false, 100, -8, 10, 255}, {false, false, 100, -4, 10, 255},
+      {false, false, 100, 0, 10, 255},  {false, false, 100, 4, 10, 255},
+      {false, false, 100, 8, 10, 255},  {false, false, 100, 16, 3, 255},
+      {false, true, 50, -16, 0, 255},   {false, true, 50, -8, 6, 255},
+      {false, true, 50, -4, 19, 255},   {false, true, 50, 0, 16, 255},
+      {false, true, 50, 4, 16, 255},    {false, true, 50, 8, 0, 255},
+      {false, true, 50, 16, 0, 255},    {false, true, 100, -16, 3, 255},
+      {false, true, 100, -8, 10, 255},  {false, true, 100, -4, 6, 255},
+      {false, true, 100, 0, 10, 255},   {false, true, 100, 4, 10, 255},
+      {false, true, 100, 8, 10, 255},   {false, true, 100, 16, 0, 255},
+      {true, false, 50, -8, 6, 204},    {true, false, 50, -4, 16, 204},
+      {true, false, 50, 0, 16, 204},    {true, false, 50, 4, 16, 204},
+      {true, false, 50, 8, 6, 204},     {true, false, 100, -16, 0, 204},
+      {true, false, 100, -8, 12, 204},  {true, false, 100, -4, 12, 204},
+      {true, false, 100, 0, 12, 204},   {true, false, 100, 4, 12, 204},
+      {true, false, 100, 8, 12, 204},   {true, false, 100, 16, 0, 204},
+      {true, false, 300, -16, 0, 204},  {true, false, 300, -8, 12, 204},
+      {true, false, 300, -4, 12, 204},  {true, false, 300, 0, 12, 204},
+      {true, false, 300, 4, 12, 204},   {true, false, 300, 8, 12, 204},
+      {true, false, 300, 16, 0, 204},   {true, true, 50, -16, 0, 204},
+      {true, true, 50, -8, 6, 204},     {true, true, 50, -4, 19, 204},
+      {true, true, 50, 0, 16, 204},     {true, true, 50, 4, 16, 204},
+      {true, true, 50, 8, 0, 204},      {true, true, 50, 16, 0, 204},
+      {true, true, 100, -16, 0, 204},   {true, true, 100, -8, 12, 204},
+      {true, true, 100, -4, 4, 204},    {true, true, 100, 0, 12, 204},
+      {true, true, 100, 4, 12, 204},    {true, true, 100, 8, 8, 204},
+      {true, true, 100, 16, 0, 204}};
+  for (const auto &fixture : captured) {
+    Preset p;
+    p.profile    = fixture.modern ? "krita-5.3.4.1-new-dulling-candidate-1"
+                                  : "krita-5.3.4.1-legacy-dulling-candidate-1";
+    p.wet        = Wet::Dulling;
+    p.size.value = 32;
+    p.spacing    = 2;
+    p.tip.antialiasEdges = false;
+    p.pickup             = 1;
+    p.colorRate          = 0;
+    p.smudgeRadius       = fixture.radius / 100.0;
+    require(validate(p).empty(), "source Dulling fixture rejected");
+    Canvas canvas;
+    for (int y = 0; y < canvas.h; ++y)
+      for (int x = 0; x < 64; ++x) {
+        const double white =
+            fixture.row ? y == 64 + fixture.offset : x == 32 + fixture.offset;
+        canvas.write(x, y, {white, white, white, 1});
+      }
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(32, 64, 0)), stroke.error().c_str());
+    require(stroke.add(sample(97, 64, 1)), stroke.error().c_str());
+    stroke.finish();
+    const Pixel pixel = canvas.read(96, 64);
+    require(std::abs(pixel.a * 255 - fixture.alpha) < 1e-9 &&
+                std::abs(pixel.r / pixel.a * 255 - fixture.value) < 1e-9 &&
+                pixel.r == pixel.g && pixel.g == pixel.b,
+            "Dulling sampling differs from original orthogonal impulse");
+  }
 }
 void testSourceWetPressureColorAttenuation() {
   struct WideCanvas : Canvas {
@@ -967,7 +1003,7 @@ int main() {
     testColorDynamics();
     testCubicCurves();
     testSourceDefaultCircle();
-    testLegacyDullingRadiusImpulses();
+    testSourceDullingRadiusImpulses();
     testSourceWetPressureColorAttenuation();
     testSourceWashLattice();
     testSourceSmallCircle();

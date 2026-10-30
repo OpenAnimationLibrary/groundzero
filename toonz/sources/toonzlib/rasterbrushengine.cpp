@@ -233,7 +233,9 @@ std::string validate(const Preset &p) {
                      : Wet::Smear) ||
        (p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1"
             ? (p.smudgeRadius < 0 || p.smudgeRadius > 1)
-            : p.smudgeRadius != 0) ||
+            : (p.profile == "krita-5.3.4.1-new-dulling-candidate-1"
+                   ? (p.smudgeRadius < 0 || p.smudgeRadius > 3)
+                   : p.smudgeRadius != 0)) ||
        p.reload != 0 || p.pickupControl.value != 1 ||
        (!p.pickupControl.mappings.empty() &&
         !linearPressure(p.pickupControl)) ||
@@ -637,10 +639,13 @@ struct Stroke::Impl {
                  ? sourceField[size_t(y - sourceY) * sourceW + x - sourceX]
                  : Pixel{};
     };
-    // Original impulse measurements at 50/100 percent identify an 80-point
-    // base-2 x sequence for legacy Dulling. The paired base-3 y sequence is
-    // independently qualified by row impulses; this remains a candidate.
-    // Keep it independent of native sampling and the new model's tip clipping.
+    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
+                        p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
+    // Independent column and row impulses identify an 80-point base-2/base-3
+    // sequence over the pixel footprint. Its final y coordinate is one pixel
+    // below the mathematical bottom edge. New Dulling clips sampling to the
+    // tip and caps its extent at one tip radius; legacy sampling is
+    // rectangular.
     auto pickupAt = [&](auto read, double centerX, double centerY) {
       if (p.smudgeRadius == 0)
         return read(int(std::floor(centerX)), int(std::floor(centerY)));
@@ -654,19 +659,28 @@ struct Stroke::Impl {
         return result;
       };
       Pixel sum{};
-      const double extent = radius * p.smudgeRadius;
+      const double extent =
+          radius * (modern ? std::min(1.0, p.smudgeRadius) : p.smudgeRadius);
+      unsigned count = 0;
       for (unsigned i = 1; i <= 80; ++i) {
         const int x = int(
             std::floor(centerX + (2 * radicalInverse(i, 2) - 1) * extent + .5));
-        const int y = int(
-            std::floor(centerY + (2 * radicalInverse(i, 3) - 1) * extent + .5));
+        const int y = int(std::floor(
+            centerY - extent +
+            radicalInverse(i, 3) * std::max(0.0, 2 * extent - 1) + .5));
+        if (modern) {
+          const double dx = (x - centerX) / radius,
+                       dy = (y + .5 - centerY) / radius;
+          if (tipPixel(p.tip, 0, dx, dy).a == 0) continue;
+        }
+        ++count;
         const Pixel sample = read(x, y);
         sum.r += sample.r;
         sum.g += sample.g;
         sum.b += sample.b;
         sum.a += sample.a;
       }
-      return mul(sum, 1.0 / 80);
+      return count ? mul(sum, 1.0 / count) : Pixel{};
     };
     auto surfaceAt = [&](int x, int y) {
       return x >= 0 && y >= 0 && x < surface.width() && y < surface.height()
@@ -699,10 +713,8 @@ struct Stroke::Impl {
                    std::floor(unit(v.g / v.a) * 255 + .5) / 255 * a,
                    std::floor(unit(v.b / v.a) * 255 + .5) / 255 * a, a};
     };
-    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
-                        p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
-    // Radius-zero new Dulling attenuation measured across 7/32/128-pixel
-    // tips and independent strengths. Nonzero radius remains rejected.
+    // New Dulling attenuation measured across 7/32/128-pixel tips and
+    // independent strengths; radius changes pickup sampling, not this scale.
     const double pickup    = p.pickup * eval(p.pickupControl, s);
     const double colorRate = p.colorRate * eval(p.colorRateControl, s);
     const double strength  = (p.sourceSmudgeLengthEnabled ? pickup : 1) *

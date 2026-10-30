@@ -379,11 +379,12 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
         required[prefix + "curveMode"] = "0";
     }
     required["SmudgeRadiusValue"] = "0";
-    if (preset.wet == Wet::Dulling &&
-        fields.value("SmudgeRateUseNewEngine") == "false") {
+    if (preset.wet == Wet::Dulling) {
       bool ok             = false;
       const double radius = fields.value("SmudgeRadiusValue").toDouble(&ok);
-      if (!ok || !std::isfinite(radius) || radius < 0 || radius > 100)
+      const double maximum =
+          fields.value("SmudgeRateUseNewEngine") == "true" ? 300 : 100;
+      if (!ok || !std::isfinite(radius) || radius < 0 || radius > maximum)
         return false;
       required["SmudgeRadiusValue"] = fields["SmudgeRadiusValue"];
     }
@@ -673,7 +674,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                 "-candidate-1";
   if (engine == "colorsmudge") {
     candidate.smudgeRadius =
-        candidate.profile == "krita-5.3.4.1-legacy-dulling-candidate-1"
+        candidate.wet == Wet::Dulling
             ? fields.value("SmudgeRadiusValue").toDouble() / 100
             : 0;
     candidate.sourceSmudgeLengthEnabled =

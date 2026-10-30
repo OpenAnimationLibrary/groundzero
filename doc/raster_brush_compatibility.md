@@ -751,3 +751,17 @@ parser configurations passed. Linux Qt 6 and full application/source suites
 were still pending at this checkpoint. macOS parser success does not establish
 a privilege sandbox, and Windows Job Object success establishes resource limits,
 not filesystem/network privilege isolation.
+
+The independent row gates at 5423354f caught six legacy radius mismatches.
+Their cause is the sampling rectangle: the base-3 vertical sequence spans
+from the top edge to one pixel before the bottom edge. Updating that range
+matches every captured legacy row at 50/100 percent. The new Dulling sampling
+model uses the same sequence, caps its extent at one tip radius, and rejects
+samples outside the hard tip's pixel footprint before averaging. Independent
+calculation matches all acquired new-model row and column impulse values at
+50/100/300 percent, including the unchanged 0.8 transport attenuation. The
+runtime and strict KPP adapter now implement this candidate, with 59 captured
+orthogonal impulse regressions and mandatory full-image/third-dab gates.
+Those new runtime gates are pending CI; this is not a promotion to verified.
+Legacy radius above 100 percent still needs its distinct large-area sampling
+rule, and the full dynamics/geometry/texture contract remains unchanged.

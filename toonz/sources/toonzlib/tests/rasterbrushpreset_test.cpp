@@ -463,11 +463,16 @@ void testImports() {
           mutation == "radius" && model.endsWith("smear");
       require(fallback.complete &&
                   fallback.records.front().preset.profile ==
-                      (inactiveRadius || (mutation == "radius" &&
-                                          model == "legacy-dulling")
-                           ? expected
-                           : "groundzero-native-1"),
+                      (mutation == "radius" ? expected : "groundzero-native-1"),
               "wet setting eligibility differs from active/inactive contract");
+      if (mutation == "radius" && model.endsWith("dulling")) {
+        auto portable = decode(encode(fallback.records.front(), error), error);
+        require(
+            error.isEmpty() && portable.preset.profile == expected &&
+                portable.preset.smudgeRadius == .01 &&
+                !portable.provenance["sourceReferenceVerified"].toBool(),
+            "source Dulling radius lost portable identity or qualification");
+      }
       if (inactiveRadius)
         require(fallback.records.front().preset.smudgeRadius == 0 &&
                     fallback.records.front()

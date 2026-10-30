@@ -371,6 +371,7 @@ int main(int argc, char **argv) {
             (name.contains(" smear ") ||
              source["overrides"].toObject()["SmudgeRadiusValue"].toString() ==
                  "0" ||
+             name.contains("dulling new") ||
              (name.contains("dulling legacy") &&
               source["overrides"]
                       .toObject()["SmudgeRadiusValue"]
@@ -382,7 +383,7 @@ int main(int argc, char **argv) {
         require(p.profile == "krita-5.3.4.1-" + model.toStdString() +
                                  "-candidate-1" &&
                     p.smudgeRadius ==
-                        (model == "legacy-dulling"
+                        ((model == "legacy-dulling" || model == "new-dulling")
                              ? source["overrides"]
                                        .toObject()["SmudgeRadiusValue"]
                                        .toString()
