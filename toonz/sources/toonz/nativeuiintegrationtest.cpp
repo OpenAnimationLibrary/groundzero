@@ -3,6 +3,9 @@
 #include "mediacacheintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
 #include "animationworkflowintegrationtest.h"
+#include "functiontimingintegrationtest.h"
+#include "castvectorintegrationtest.h"
+#include "combinedfidelityintegrationtest.h"
 #include "vectorworkflowintegrationtest.h"
 #include "fillworkflowintegrationtest.h"
 #include "contourworkflowintegrationtest.h"
@@ -607,6 +610,14 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       return 1;
     }
     runCastWorkflowIntegrationTest(window);
+    QString timingError;
+    if (!runFunctionTimingIntegrationTest(window, &timingError)) {
+      std::cerr << "native-ui-integration: function timing: "
+                << timingError.toStdString() << std::endl;
+      return 1;
+    }
+    runCastVectorIntegrationTest(window);
+    runCombinedFidelityIntegrationTest(window);
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {

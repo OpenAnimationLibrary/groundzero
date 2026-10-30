@@ -127,6 +127,9 @@ public:
   // Properties management
   LevelProperties *getProperties() const { return m_properties.get(); }
   void clonePropertiesFrom(const TXshSimpleLevel *oldSl);
+  // Call after cloning frames: keep only authoring references that resolve in
+  // the destination, which may contain a subset of the source drawings.
+  void copyAuthoringMetadataFrom(const TXshSimpleLevel *source);
 
   // Palette management
   TPalette *getPalette() const;

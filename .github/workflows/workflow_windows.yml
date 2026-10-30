@@ -415,7 +415,7 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-vector-workflows --require-combined-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}

@@ -2,17 +2,19 @@
 
 Baseline: `edition` at `aa01975f38d6226156e5b07df7271b8fc199d003` (2026-10-30).
 
-All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. No merge is authorized by this work.
+All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. Drafts remain open while qualification is pending.
 
 ## Ownership and publication
 
 | Track | Items | Branch | PR |
 |---|---|---|---|
 | Function Editor | 1–18 | `improve/function-editor-workflow` | [Draft #116](https://github.com/OpenAnimationLibrary/groundzero/pull/116) |
-| Vector editing | 19–36 | `improve/vector-editing-workflow` | Pending |
+| Vector editing | 19–36 | `improve/vector-editing-workflow` | [Draft #120](https://github.com/OpenAnimationLibrary/groundzero/pull/120) |
 | Scene Cast | 37–52 | `improve/scene-cast-workflow` | [Draft #119](https://github.com/OpenAnimationLibrary/groundzero/pull/119) |
 | Animation workflow and reliability | 53–58 | `improve/animation-workflow-reliability` | [Draft #117](https://github.com/OpenAnimationLibrary/groundzero/pull/117) |
 | Performance and cache management | 59–60 | `improve/artist-workflow-performance` | [Draft #118](https://github.com/OpenAnimationLibrary/groundzero/pull/118) |
+
+Review and validation follow the dependency chain #116 → #117 → #119 → #120 → #118. The final PR includes the shared acceptance fixtures and combined performance measurements.
 
 Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neural/color-style work in PR #114 is separately owned and excluded. Vector opacity/width/paint modes here operate on native vector artwork, not the external raster brush engine. Reuse existing native SeExpr, particle, collection and UI capabilities. Coordinate common CMake, command registrations, preferences and native integration fixtures explicitly.
 
@@ -25,23 +27,30 @@ remaining checks separately:
 * Function Editor: source and full-application fixtures published, including quantization,
   marker snapping and preset filtering; exact-head CI is pending.
   See `doc/function_editor_acceptance.md` in #116.
-* Vector editing: implementation is still being integrated, including versioned
-  opacity envelopes and their native render/export behavior. No draft yet.
+* Vector editing: source and native acceptance fixtures published in #120, including
+  versioned opacity envelopes, production rendering and command-line conversion.
+  Cross-feature export and clone/persistence checks are being qualified together.
 * Scene Cast: source and fixtures published, including confirmed consolidation,
   saved covers, cache restoration and actual relocated-project acceptance.
   See `doc/scene_cast_acceptance.md` in #119; exact-head CI is pending.
 * Animation reliability: source and a review correction preserving untouched storyboard key fields
-  are published, together with full export write/cancel checks. Item 36's compatibility/export findings await vector integration.
+  are published, together with full export write/cancel checks. The combined source
+  now includes opacity-profile compatibility findings and atomic export publication.
   See `doc/animation_workflow_acceptance.md` in #117.
 * Performance/cache: source and fixtures published, including two deterministic
   concurrency regressions and actual native-workload correctness checks.
   See `doc/artist_workload_and_media_cache.md` in #118.
 
-Cross-branch integration must reconcile native UI hooks, CI manifests and
-command registrations, then test their combined behavior. Function Editor
-locks/identities must remain intact through storyboard operations. The new
-vector format must appear in compatibility/export reports. Existing edition
-work remains the base; raster brush and neural changes retain separate owners.
+Combined native hooks and strict CI manifests require all component fixtures.
+`functiontimingintegrationtest.cpp` checks locks, channel identities and nested
+timing through storyboard moves. `castvectorintegrationtest.cpp` checks clone,
+relink, consolidation and renumber metadata across vector and Cast operations.
+`combinedfidelityintegrationtest.cpp` checks real Lottie/SVG publication, cancel,
+independent SVG rendering and the full-camera PNG fallback. These fixtures are
+source-ready and awaiting execution; they do not replace platform qualification.
+The standalone performance/cache head `eae9ff422` passed Linux build, native
+workloads and installed-application checks. The combined final revision adds an
+opacity-envelope workload and must be qualified again.
 
 ## Acceptance
 
@@ -67,24 +76,24 @@ work remains the base; raster brush and neural changes retain separate owners.
 | 16 | Channel dependency inspector | Sources/dependents, invalid references and owner navigation without second evaluator. | Source-ready; CI pending |
 | 17 | Large-rig graph performance | Large-rig correctness fixture and measured CI report; no unmeasured speed claim. | Source-ready; CI pending |
 | 18 | Keyboard/tablet editing | Focus, accessible targets, keyboard nudges/constraints and tablet manual checklist. | Source-ready; CI pending |
-| 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Pending |
-| 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Pending |
-| 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending |
-| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Pending |
-| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending |
-| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Pending |
-| 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Pending |
-| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Pending |
-| 28 | Unmatched stroke handling | Explicit birth/death policy; endpoint and fill preservation, undo. | Pending |
-| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Pending |
-| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Pending |
-| 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Pending |
-| 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Pending |
-| 33 | Multi-drawing alignment | Explicit frame/reference scope; matching, groups and no index-only assumptions. | Pending |
-| 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Pending |
-| 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Pending |
-| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending |
+| 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
+| 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; CI pending |
+| 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; CI pending |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; CI pending |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; CI pending |
+| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; CI pending |
+| 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
+| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; CI pending |
+| 28 | Unmatched stroke handling | Explicit birth/death policy; endpoint and fill preservation, undo. | Source-ready; CI pending |
+| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Source-ready; CI pending |
+| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; CI pending |
+| 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
+| 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope; matching, groups and no index-only assumptions. | Source-ready; CI pending |
+| 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
+| 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
+| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; CI pending |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates, combined with search. | Source-ready; CI pending |
 | 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; CI pending |
@@ -104,8 +113,8 @@ work remains the base; raster brush and neural changes retain separate owners.
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; CI pending |
 | 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; CI pending |
 | 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; CI pending |
-| 56 | Scene compatibility report | Read-only target-feature inventory, unsupported/lossy semantics and navigation. | Pending vector #36 integration; core source ready |
-| 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Pending vector #36 integration; core source ready |
+| 56 | Scene compatibility report | Read-only target-feature inventory, unsupported/lossy semantics and navigation. | Source-ready; CI pending |
+| 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
 | 59 | Artist-workload benchmarks | Actual native pen/scrub/playback/resource-save/memory metrics, correctness and provenance. | Source-ready; CI pending |
 | 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; CI pending |

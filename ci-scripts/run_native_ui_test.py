@@ -173,6 +173,8 @@ def main():
                         help="Verified Mesa x64 runtime for temporary Windows desktop GL")
     parser.add_argument("--require-vector-workflows", action="store_true",
                         help="Require vector/native production renderer and CLI acceptance checkpoints")
+    parser.add_argument("--require-combined-workflows", action="store_true",
+                        help="Require cross-feature timing, vector metadata and export acceptance")
     args = parser.parse_args()
     timeout_seconds = 600 if args.require_vector_workflows else 180
     output, status = "", 1
@@ -230,6 +232,14 @@ def main():
     if args.require_function_workflow and not args.artist_benchmark and status == 0 and "function-workflow-native: PASS" not in output:
         output += "\nThe required native Function Editor workflow fixture did not run.\n"
         status = 1
+    if args.require_combined_workflows and not args.artist_benchmark and status == 0:
+        missing = [marker for marker in ("function-timing-native: PASS",
+                                         "cast-vector-native: PASS",
+                                         "combined-fidelity-native: PASS")
+                   if marker not in output]
+        if missing:
+            output += "\nMissing required combined acceptance checkpoints: " + ", ".join(missing) + "\n"
+            status = 1
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")

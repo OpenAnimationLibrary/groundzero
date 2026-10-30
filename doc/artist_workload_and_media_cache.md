@@ -20,6 +20,9 @@ pixels), then measures:
   stepping with the application's playback state enabled.
 * A separate 50% scalar-opacity vector pass, with a render-change assertion and
   saved-opacity checks, to expose the cost of translucent compositing.
+* A separate native opacity-envelope pass, with the same scene, geometry and
+  scalar opacity, plus independent PLI envelope round-trip checks. This records
+  the additional per-pixel compositing cost in the combined vector workflow.
 * Three complete drawing-resource and scene saves. All drawings are marked
   modified before each sample; this cannot collapse into metadata-only saves.
 * Process peak resident memory, with platform-specific counters.

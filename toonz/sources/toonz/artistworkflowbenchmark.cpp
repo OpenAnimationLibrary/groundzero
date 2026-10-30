@@ -213,8 +213,8 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
     require(drawn && drawn->getStrokeCount() == strokesPerDrawing + penStrokes,
             "Synthetic pressure traces did not create the expected native brush strokes");
     QCryptographicHash rendered(QCryptographicHash::Sha256);
-    std::vector<double> scrub, sequential, translucent;
-    QByteArray opaqueFirstFrame;
+    std::vector<double> scrub, sequential, translucent, profiled;
+    QByteArray opaqueFirstFrame, translucentFirstFrame;
     for (int pass = 0; pass < 2; ++pass) {
       QSet<QByteArray> visibleFrames;
       app->getCurrentFrame()->setPlaying(pass == 1);
@@ -260,9 +260,33 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
       translucent.push_back(timer.nsecsElapsed() / 1000000.0);
       QCryptographicHash transparentFrame(QCryptographicHash::Sha256);
       hashImage(transparentFrame, image);
-      if (frame == 0)
+      if (frame == 0) {
+        translucentFirstFrame = transparentFrame.result();
         require(transparentFrame.result() != opaqueFirstFrame,
                 "Scalar opacity did not change the native rendered drawing");
+      }
+      hashImage(rendered, image);
+    }
+    const StrokeOpacity::Profile envelope{{0., .2}, {.5, 1.}, {1., .2}};
+    for (int frame = 0; frame < frameCount; ++frame) {
+      const TVectorImageP image = vector->getFrame(TFrameId(frame + 1), true);
+      for (unsigned int stroke = 0; stroke < image->getStrokeCount(); ++stroke)
+        require(image->getStroke(stroke)->setOpacityProfile(envelope),
+                "Native workload opacity envelope was rejected");
+    }
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    for (int frame = 0; frame < frameCount; ++frame) {
+      timer.restart();
+      app->getCurrentFrame()->setFrame(frame);
+      settle();
+      const QImage image = viewer->grabFramebuffer();
+      profiled.push_back(timer.nsecsElapsed() / 1000000.0);
+      if (frame == 0) {
+        QCryptographicHash profiledFrame(QCryptographicHash::Sha256);
+        hashImage(profiledFrame, image);
+        require(profiledFrame.result() != translucentFirstFrame,
+                "Opacity envelopes did not change the native rendered drawing");
+      }
       hashImage(rendered, image);
     }
     std::vector<double> saves;
@@ -291,9 +315,12 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
       const TVectorImageP actual = vectorReader->getFrameReader(frame + 1)->load();
       require(actual && actual->getStrokeCount() == strokesPerDrawing + (frame == 0 ? penStrokes : 0),
               "Saved vector drawing did not round-trip");
-      for (unsigned int stroke = 0; stroke < actual->getStrokeCount(); ++stroke)
+      for (unsigned int stroke = 0; stroke < actual->getStrokeCount(); ++stroke) {
         require(actual->getStroke(stroke)->getOpacity() == .5,
                 "Saved scalar opacity did not round-trip");
+        require(actual->getStroke(stroke)->getOpacityProfile() == envelope,
+                "Saved opacity envelope did not round-trip");
+      }
       const TRasterImageP image = rasterReader->getFrameReader(frame + 1)->load();
       require(!!image, "Saved raster drawing is unreadable");
       const TRaster32P pixels = image->getRaster();
@@ -328,6 +355,7 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
         {"random_frame_navigation_and_render", distribution(scrub)},
         {"sequential_playback_mode_frame_render", distribution(sequential)},
         {"translucent_vector_frame_render", distribution(translucent)},
+        {"opacity_envelope_vector_frame_render", distribution(profiled)},
         {"drawing_resources_and_scene_save", distribution(saves)},
         {"peak_resident_bytes", QString::number(peakMemoryBytes())},
         {"framebuffer_checksum", QString::fromLatin1(rendered.result().toHex())},

@@ -357,7 +357,6 @@ void doCloneLevelNoSave(const TCellSelection::Range &range,
           // sl->setPath(scene->codeFilePath(dstPath));
           // sl->setName(newName);
           sl->clonePropertiesFrom(oldSl);
-          sl->copyCastMetadataFrom(oldSl);
           *sl->getHookSet() = *oldSl->getHookSet();
 
           if (levelType == TZP_XSHLEVEL || levelType == PLI_XSHLEVEL) {
@@ -400,6 +399,10 @@ void doCloneLevelNoSave(const TCellSelection::Range &range,
     }
     if (sl) sl->getProperties()->setDirtyFlag(true);
   }
+
+  for (const auto& entry : createdLevels)
+    if (auto* cloned = entry.second->getSimpleLevel())
+      cloned->copyAuthoringMetadataFrom(entry.first);
 
   // Se non e' stata inserita nessuna cella rimuovo le colonne aggiunte e
   // ritorno.
