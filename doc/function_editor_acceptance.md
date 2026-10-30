@@ -25,16 +25,23 @@ and invalidate snapshots that contain scene-owned expression grammars.
 | 8 | Curve identification | Deterministic per-channel colors, visible long-name legend, current/locked annotations; names elide within the graph. Stable UUID colors apply after a set is saved; otherwise structural reference/name hash. | Light/dark themes, 100/150/200% DPI and color-vision accessibility. Color is accompanied by names, not the sole identifier. |
 | 9 | Interpolation/handles toolbar | Dedicated Interpolation menu exposes native Constant/Linear/Speed/Ease/%/Exponential and selected handle link/unlink/reset. Multi-key handle commands form one undo block. | CI native type/lock tests and full-application interpolation, handle drag/reset/locked-reset undo. Remaining manual handle route matrix. |
 | 10 | Snapping | Tools stores frame increment, nearby-key and scene-frame-marker snapping using native marker distance/offset; Alt bypasses snapping for ordinary moves (Shift+Alt retains moves when Alt alone would stretch). Drag uses the clicked selected key's frame anchor. Existing native whole-frame drag collision handling retained. | CI/native drag fixture checks grid, off-center anchor, key, marker, Alt and locked paths. Varying-zoom interaction remains to observe. Fractional retiming belongs to Edit Keys; fractional targets are not falsely snapped by integer drags. |
-| 11 | Before/after comparison | Capture/show/hide dashed curves; restore uses validated snapshot plan and one undo after confirmation. Capture buffers are pruned on model changes and cleared on context replacement. | CI plan restore/staleness; manual driven snapshots, visibility and full scene switch. |
+| 11 | Before/after comparison | Reopened audit gap corrected in source: exact native restore snapshots are separate from frozen evaluated display samples. Capture reports its visible frame domain, sample interval and approximation; native/SeExpr dependency edits, show/hide and modal cancellation do not reevaluate captured samples. Checked evaluation rejects fallback samples. Restore still uses one validated native undo transaction. | New full-application native/SeExpr dependency-edit, show/hide, preview/cancel and exact restore/undo/redo fixture; widget context invalidation and cache retention require fresh CI. Visual review of sampled approximation remains. |
 | 12 | Breakdown/overshoot | Edit Keys slider previews native breakdown favour from -100% to 200%, supports selected native numeric curves and explicit insertion frame. Close cancels; Apply one transaction. | CI breakdown oracle and real application Plastic angle/stage-offset preview/apply/undo/redo/scene reload fixture. Manual Plastic distance visual review. Same native channel type is supported without a rig-specific adapter. |
 | 13 | Key reduction | Preview reports removed keys and maximum sampled display error. Independent original curve/key samples form the oracle; only eligible selected linear, unstepped spans reduce. Holds, nonlinear and driven boundaries stay protected. | CI exact/sample oracle cases; artist review of tolerance. Scope deliberately preserves nonlinear segments rather than approximating them without a continuous error proof. |
 | 14 | Bake driven curves | Cancellable native evaluation at explicit inclusive first/last/interval points, with exact stored sample values. Invalid/nonfinite/native or SeExpr fallback failures abort the whole plan. Outside-range keys retained. | CI native/SeExpr failures, cancellation and sample oracles. Partial boundaries inside a curve must already be keys; cyclic operations stay within the original period. |
-| 15 | Motion presets | Native list/curve thumbnail, names, favorites, search, save, preview and explicit duration/amplitude/value-offset adaptation. Numeric curves only; driven/file sources must be baked. Safe temporary write and non-overwriting publish. | CI adaptation/measure tests; manual save/load/favorites restart on all OSes. No foreign expression binding is imported silently. |
+| 15 | Motion presets | Reopened audit gap corrected in source: Import Existing Curve accepts the native raw `.curve` format through `TDoubleParam::loadData`, as well as `.fcurve` wrappers. Raw curves explicitly adopt the current channel's measure, since the legacy file stores none. Valid numeric data is published into the searchable/favorite preset library; preview/adaptation/Apply preserve destination identity and use one undo step. | Actual native file/name dialogs with preexisting raw `.curve`, both cancellation points, driven-data rejection, duplicate preservation, search, preview, locks, adaptation, undo/redo, favorite/reopen and context cancellation require fresh CI. |
 | 16 | Dependency inspection | Actual native `referenceParams`/`dependsOn` results, expression validation errors with frame, source/dependent navigation, unresolved/outside-model notices. Raw model pointers are invalidated before refresh/reset. | Prepared native/SeExpr resolved binding navigation fixtures in full application; invalid, deleted, circular and external references still need UI observations. No regex claims of complete bindings. |
-| 17 | Dense graph scaling | Visible frame interval limits segment/key/group gadget traversal. Selected handles remain available. Native widget fixture renders a 20,000-key graph through a 50-frame viewport, checks pixels/source integrity and reports timing. | CI timing log and native application benchmark. No speedup or performance budget is claimed without results. |
+| 17 | Dense graph scaling | Visible frame interval limits segment/key/group gadget traversal. The original dense single-curve fixture remains. Reopened coverage gap now has a real native rig workload: 24 parented pegbar owners, 96 Stage/offset channels and 24,576 keys through a 40-frame viewport. Independent curve coordinates and removing individual channels distinguish artwork from background/grid pixels. | New native six-paint timing report includes Qt/platform/architecture/DPI/canvas/dataset provenance and curve-pixel probes. Selection, exact source keys, IDs, dirty state and undo remain checked. Fresh CI execution is pending; no unmeasured speedup or speed budget is claimed. |
 | 18 | Keyboard/accessibility | Arrow keys nudge selected frames/values using the same validated plans; Shift multiplies by ten. Configurable value increment and logical-pixel hit radius, control tooltips and discoverable modifier help. | CI arrow/undo path; keyboard-only, screen-reader labels, tablet and DPI observations. |
 
 ## Registered CI coverage
+
+The final scope audit reopened items 11, 15 and 17. Their corrected source and
+fixtures are now prepared together with the shared checked-evaluation API.
+Earlier Function Editor head `d7c34e6ef` passed Linux, Windows and macOS native
+and installed-application checks. Those results do not qualify these later
+additions or the saved-set/target-range changes. Fresh exact-head CI remains
+required, with no local execution.
 
 `BUILD_UI_PORT_TESTS` creates the following targets, both dependencies of the
 ordinary `ui_port_tests` target. CTest names use the existing `ui_` selection:
@@ -48,6 +55,16 @@ ordinary `ui_port_tests` target. CTest names use the existing `ui_` selection:
   lock commands, keyboard undo, saved-set keyboard rename/reopen/fresh-process
   persistence, target-range preview/repeat/undo, scene/Xsheet/model cancellation
   and dense paints.
+
+The native application fixture also requires
+`functionrigbenchmarkintegrationtest.cpp`: 24 actual parented rig objects and
+96 Stage/offset channels. Its pixel oracle removes one channel at independently
+calculated curve coordinates, rather than accepting background pixels. The
+`function-rig-graph-metrics` JSON in the ordinary native report describes six
+QWidget-to-QImage paint measurements and records the Qt/platform/architecture,
+canvas, pixel ratio and exact data set. It does not measure compositor latency
+or physical input latency, and the fitted frame range includes normal graph
+padding outside the requested bounds.
 
 `functionworkflowintegrationtest.cpp` also runs after the existing native UI
 fixture inside the real application. It opens the registered Function Editor

@@ -1,4 +1,5 @@
 #include "functionworkflowintegrationtest.h"
+#include "functionrigbenchmarkintegrationtest.h"
 #include "nativeuiintegrationtest.h"
 #include "iocommand.h"
 #include "menubarcommandids.h"
@@ -51,6 +52,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
 #include <QSlider>
@@ -157,6 +159,91 @@ void dependencies(FunctionViewer *viewer, FunctionTreeView *tree, TDoubleParam *
     list->itemDoubleClicked(list->item(0));
     require(viewer->getCurrentChannelCurve() == source, "Dependency navigation selected a different channel");
   }, [&]() { action->trigger(); });
+}
+
+void frozenComparison(FunctionViewer *viewer, FunctionTreeView *tree,
+                      FunctionPanel *graph, TDoubleParam *source,
+                      TDoubleParam *native, TDoubleParam *seexpr, TDoubleParam *offset) {
+  checkpoint("frozen native and SeExpr comparison");
+  for (auto *channel : tree->channels())
+    channel->setIsActive(channel->getParam() == source || channel->getParam() == native ||
+                         channel->getParam() == seexpr);
+  find(tree, source)->setIsCurrent(true);
+  // Keep the sampled visible domain inside the two driven endpoint keys.
+  graph->fitRegion(1, Ops::displayValue(source, -5), 19, Ops::displayValue(source, 40));
+  auto *capture = viewer->findChild<QAction *>("FunctionCaptureComparison");
+  auto *toggle = viewer->findChild<QAction *>("FunctionToggleComparison");
+  auto *restore = viewer->findChild<QAction *>("FunctionRestoreComparison");
+  require(capture && toggle && restore, "Comparison controls are missing");
+  TDoubleParamP original = new TDoubleParam(*source);
+  TDoubleParamP originalOffset = new TDoubleParam(*offset);
+  capture->trigger();
+  const auto before = graph->comparisonState();
+  require(before.frozen.size() == 3 && before.intervals >= 64 && before.last > before.first,
+          "Comparison did not capture every visible native/driven channel");
+  auto *info = viewer->findChild<QLabel *>("FunctionComparisonInfo");
+  require(info && info->isVisible() && info->text().contains("frames/sample"),
+          "Comparison does not disclose its sampled domain and resolution");
+  for (const auto &curve : before.frozen) for (const auto &point : curve.samples) {
+    const double factor = curve.owner.getPointer() == native ? 3 : curve.owner.getPointer() == seexpr ? 2 : 1;
+    const double effectiveSource = original->getValue(point.x()) +
+        (factor == 1 ? 0 : originalOffset->getValue(point.x()));
+    requireNear(point.y(), factor * effectiveSource);
+  }
+  auto assertFrozen = [&]() {
+    const auto actual = graph->comparisonState();
+    require(actual.frozen.size() == before.frozen.size() && actual.intervals == before.intervals,
+            "Comparison lost its frozen display");
+    for (size_t i = 0; i < before.frozen.size(); ++i)
+      require(actual.frozen[i].owner == before.frozen[i].owner &&
+                  actual.frozen[i].samples == before.frozen[i].samples,
+              "Comparison reevaluated a captured native/SeExpr dependency");
+  };
+  QString error;
+  require(Ops::apply(Ops::planValues({{source, {0, 1, 2}}}, Ops::ValueMode::Offset,
+                                    Ops::displayValue(source, 2) - Ops::displayValue(source, 0)),
+                     "Comparison fixture source edit", error), qPrintable(error));
+  settle(); paint(graph);
+  requireNear(native->getValue(10), 21); requireNear(seexpr->getValue(10), 14);
+  assertFrozen(); toggle->trigger(); require(graph->comparison().empty(), "Hide retained comparison display");
+  toggle->trigger(); assertFrozen();
+  viewer->getSelection()->selectNone(); viewer->getSelection()->select(source, 1);
+  modal(viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
+    dialog->findChild<QComboBox *>("FunctionEditOperation")->setCurrentIndex(1);
+    dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount")->setValue(999);
+    dialog->findChild<QPushButton *>("FunctionEditPreview")->click();
+    require(graph->comparisonState().intervals == 0, "Preview did not temporarily replace the captured overlay");
+  }, [&]() { viewer->findChild<QToolButton *>("FunctionEditKeys")->click(); });
+  assertFrozen(); requireNear(source->getValue(10), 6);
+  auto confirmation = [&](QMessageBox::StandardButton answer) {
+    QObject delivery; QString failure; bool visited = false;
+    QTimer deadline; deadline.setSingleShot(true);
+    QObject::connect(&deadline, &QTimer::timeout, &delivery, []() { qFatal("Comparison confirmation fixture timed out"); });
+    QTimer::singleShot(0, &delivery, [&]() {
+      auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+      try {
+        require(box && box->windowTitle() == "Restore Curves" && box->button(answer),
+                "Expected comparison restore confirmation was not shown");
+        visited = true; box->button(answer)->click();
+      } catch (const std::exception &problem) { failure = QString::fromUtf8(problem.what()); if (box) box->reject(); }
+    });
+    deadline.start(15000); restore->trigger(); deadline.stop();
+    require(visited && failure.isEmpty(), qPrintable(failure));
+  };
+  const int history = TUndoManager::manager()->getHistoryCount();
+  confirmation(QMessageBox::No);
+  requireNear(source->getValue(10), 6); assertFrozen();
+  require(TUndoManager::manager()->getHistoryCount() == history, "Canceled restore changed history");
+  confirmation(QMessageBox::Yes);
+  require(Ops::matchesSnapshot(source, original.getPointer()), "Restore did not recover exact native source data");
+  require(TUndoManager::manager()->getHistoryCount() == history + 1, "Restore was not one transaction");
+  require(TUndoManager::manager()->undo(), "Comparison restore cannot be undone"); requireNear(source->getValue(10), 6);
+  require(TUndoManager::manager()->redo(), "Comparison restore cannot be redone");
+  require(Ops::matchesSnapshot(source, original.getPointer()) &&
+              native->getKeyframe(0).m_expressionText == "col1.x*3" &&
+              seexpr->getKeyframe(0).m_expressionText == TExpression::makeSeExprText("channel(\"col1.x\")*2"),
+          "Comparison restore baked or rebound native/SeExpr owners");
+  TUndoManager::manager()->reset(); viewer->getSelection()->selectNone(); toggle->trigger();
 }
 void renameNativeSet(FunctionViewer *viewer, FunctionTreeView *tree,
                      const std::vector<TDoubleParam *> &channels) {
@@ -353,6 +440,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     find(tree, angle)->setIsActive(true); find(tree, offset)->setIsActive(true);
     checkpoint("checking native and SeExpr dependency navigation");
     dependencies(viewer, tree, native, source, 1); dependencies(viewer, tree, seexpr, source, 1);
+    frozenComparison(viewer, tree, graph, source, native, seexpr, offset);
     viewer->getSelection()->selectNone(); viewer->getSelection()->select(angle, 0); viewer->getSelection()->select(offset, 0);
     auto *edit = viewer->findChild<QToolButton *>("FunctionEditKeys"); require(edit, "Native numeric editor action missing");
     modal(viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
@@ -509,6 +597,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     requireNear(loadedNative->getValue(7), nativeValue); requireNear(loadedSeexpr->getValue(7), seexprValue);
     renameNativeSet(viewer, tree, {source, offset, angle});
     retimeNativeRange(viewer, scene, {source, offset, angle}, directory);
+    runFunctionRigBenchmarkIntegrationTest(viewer);
     app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); viewer->hide();
     std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, saved-set rename, target-range retiming, scene roundtrip)\n";
     return true;
