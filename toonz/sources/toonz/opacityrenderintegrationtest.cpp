@@ -263,6 +263,26 @@ void drawDepthImage(const TVectorImageP &image) {
   data.m_is3dView = true; data.m_drawRegions = false;
   tglDraw(data,image.getPointer());
 }
+void drawPatternedDepth() {
+  glPushAttrib(GL_ALL_ATTRIB_BITS);
+  glDisable(GL_ALPHA_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_SCISSOR_TEST);
+  glDisable(GL_BLEND); glDisable(GL_TEXTURE_2D); glDisable(GL_CULL_FACE);
+  glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
+  glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS); glDepthMask(GL_TRUE);
+  glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+  GLint matrixMode = 0; glGetIntegerv(GL_MATRIX_MODE,&matrixMode);
+  glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+  auto vertex = [](int x, int y) {
+    const double z = ((x*37+y*19)%251)-125.;
+    glVertex3d(x,y,z);
+  };
+  glBegin(GL_TRIANGLES);
+  for (int y = 0; y < depthHeight; y += 16) for (int x = 0; x < depthWidth; x += 16) {
+    vertex(x,y); vertex(x+16,y); vertex(x+16,y+16);
+    vertex(x,y); vertex(x+16,y+16); vertex(x,y+16);
+  }
+  glEnd(); glPopMatrix(); glMatrixMode(GLenum(matrixMode)); glPopAttrib();
+}
 void requireAttachments(const DepthAttachments &expected,
                         const DepthAttachments &actual, const char *phase,
                         double tolerance = 2. / 255.) {
@@ -462,6 +482,27 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
     require(rejected == failAfterDraw && depthState() == state,
             "offset-viewport solid changed state or failure behavior");
     requireAttachments(before,depthAttachments(),"offset viewport left changes elsewhere in its attachment",0.);
+  }
+  // A constant clear-depth value cannot detect conversion rounding. Produce
+  // varied D24 values through actual triangle rasterization before restoring.
+  for (bool failAfterDraw : {false,true}) {
+    std::cout << "vector-opacity-depth: patterned native depth rollback=" << failAfterDraw << std::endl;
+    prepareDepthTarget(GL_LEQUAL); drawPatternedDepth();
+    const auto before = depthAttachments(); const auto state = depthState();
+    auto distinct = before.depth; std::sort(distinct.begin(),distinct.end());
+    require(std::unique(distinct.begin(),distinct.end())-distinct.begin() > 256,
+            "patterned native fixture did not generate varied depth values");
+    stroke->setOpacity(failAfterDraw ? .5 : 1.);
+    stroke->setOpacityProfile(failAfterDraw ? StrokeOpacity::Profile{} : StrokeOpacity::Profile{{0,0},{1,0}});
+    bool rejected = false;
+    {
+      tglSetOpacityFramebufferFailureForTest(failAfterDraw ? 4 : 0);
+      struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+      try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+    }
+    require(rejected == failAfterDraw && depthState() == state,
+            "patterned native depth changed failure behavior or caller state");
+    requireAttachments(before,depthAttachments(),"patterned native depth was not restored exactly",0.);
   }
   stroke->setStyle(chainStyle);
 
@@ -720,9 +761,10 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
     } else std::cout << "vector-opacity-depth: driver target limit below4096; forced budget refusal checked" << std::endl;
   }
 
-  {
+  for (GLenum requestedDepth : {GLenum(0x81a5),GLenum(0x81a6),GLenum(0x81a7),GLenum(0x8cac)}) {
     // Texture depth attachments expose the same complete-target contract as
-    // renderbuffers, without assuming that a stencil attachment also exists.
+    // renderbuffers. Exercise D16, D24, fixed D32 and D32F separately, without
+    // assuming that a stencil attachment also exists.
     struct RestoreFramebuffer {
       QOpenGLFunctions *functions; GLint framebuffer;
       ~RestoreFramebuffer() { functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer)); }
@@ -737,25 +779,50 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
     } deleteTexture{texture,previousTexture};
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D,0,GL_DEPTH_COMPONENT24,depthWidth,depthHeight,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,nullptr);
+    glTexImage2D(GL_TEXTURE_2D,0,GLint(requestedDepth),depthWidth,depthHeight,0,GL_DEPTH_COMPONENT,
+                 requestedDepth == 0x8cac ? GL_FLOAT : GL_UNSIGNED_INT,nullptr);
     functions->glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_2D,texture,0);
     if (functions->glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-      compareMix(GL_ALWAYS,true,false,1.,true);
-      compareMix(GL_ALWAYS,true,false,.5,false);
-      prepareDepthTarget(GL_ALWAYS); const auto before = depthAttachments();
-      const auto state = depthState(); stroke->setOpacity(.5); stroke->setOpacityProfile({});
-      bool rejected = false;
-      {
-        tglSetOpacityFramebufferFailureForTest(4);
-        struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
-        try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+      GLint depthBits = 0, format = 0;
+      glGetIntegerv(GL_DEPTH_BITS,&depthBits);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_INTERNAL_FORMAT,&format);
+      std::cout << "vector-opacity-depth: depth texture requested=" << requestedDepth
+                << " actual=" << format << " bits=" << depthBits << std::endl;
+      const bool floatingDepth = format == 0x8cac || format == 0x8cad;
+      if (depthBits > 24 && !floatingDepth) {
+        prepareDepthTarget(GL_ALWAYS); drawPatternedDepth();
+        const auto before = depthAttachments(); const auto state = depthState();
+        stroke->setOpacity(.5); stroke->setOpacityProfile({}); bool rejected = false;
+        try { drawDepthImage(image); }
+        catch (const std::runtime_error &error) {
+          rejected = std::string(error.what()).find("fixed or unclassified 32-bit depth") != std::string::npos;
+        }
+        require(rejected && depthState() == state,"fixed D32 target was accepted or changed state");
+        requireAttachments(before,depthAttachments(),"fixed D32 refusal changed native attachments",0.);
+        std::cout << "vector-opacity-depth: actual fixed D32 refusal passed" << std::endl;
+      } else {
+        compareMix(GL_ALWAYS,true,false,1.,true);
+        compareMix(GL_ALWAYS,true,false,.5,false);
+        for (bool failAfterDraw : {false,true}) {
+          prepareDepthTarget(GL_ALWAYS); drawPatternedDepth();
+          const auto before = depthAttachments(); const auto state = depthState();
+          stroke->setOpacity(failAfterDraw ? .5 : 1.);
+          stroke->setOpacityProfile(failAfterDraw ? StrokeOpacity::Profile{} : StrokeOpacity::Profile{{0,0},{1,0}});
+          bool rejected = false;
+          {
+            tglSetOpacityFramebufferFailureForTest(failAfterDraw ? 4 : 0);
+            struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+            try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+          }
+          require(rejected == failAfterDraw && depthState() == state,
+                  "patterned texture depth restoration changed state or failure behavior");
+          requireAttachments(before,depthAttachments(),"patterned texture depth did not restore exactly",0.);
+        }
+        std::cout << "vector-opacity-depth: actual depth-texture identity/mix/patterned rollback passed" << std::endl;
       }
-      require(rejected && depthState() == state,"depth-texture rollback failed or changed state");
-      requireAttachments(before,depthAttachments(),"depth-texture rollback changed attachments",0.);
-      std::cout << "vector-opacity-depth: actual depth-texture identity/mix/rollback passed" << std::endl;
     } else {
       while (glGetError() != GL_NO_ERROR) {}
-      std::cout << "vector-opacity-depth: depth-texture target unavailable on this driver" << std::endl;
+      std::cout << "vector-opacity-depth: depth-texture format " << requestedDepth << " unavailable on this driver" << std::endl;
     }
   }
   {

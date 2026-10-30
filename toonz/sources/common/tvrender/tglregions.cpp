@@ -662,8 +662,11 @@ public:
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
     if (m_functions.clampColor) {
-      m_functions.clampColor(GL_CLAMP_READ_COLOR, GL_FALSE);
-      if (replace) m_functions.clampColor(GL_CLAMP_FRAGMENT_COLOR, GL_FALSE);
+      // Core and ARB use identical enums. macOS compatibility headers expose
+      // the fragment-clamp token only under its ARB spelling.
+      constexpr GLenum readClamp = 0x891C, fragmentClamp = 0x891B;
+      m_functions.clampColor(readClamp, GL_FALSE);
+      if (replace) m_functions.clampColor(fragmentClamp, GL_FALSE);
     }
     m_functions.bindBuffer(GL_PIXEL_PACK_BUFFER, 0); m_functions.bindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     for (GLenum parameter : {GL_PACK_ALIGNMENT, GL_UNPACK_ALIGNMENT}) glPixelStorei(parameter, 1);
@@ -798,8 +801,8 @@ TDimension opacityTargetSize(const OpacityTransferFunctions &functions, GLenum &
 struct OpacityTargetPixels {
   static_assert(sizeof(GLfloat) == sizeof(GLuint), "GL attachment storage must preserve 32-bit depth values");
   std::vector<GLfloat> color;
-  // Raw 32-bit storage: fixed depth uses GL_UNSIGNED_INT, floating depth uses
-  // GL_FLOAT. Copying a saved value never converts or quantizes its bits.
+  // Raw 32-bit FLOAT storage in the integer vector. Native float depth and
+  // fixed depth up to 24 bits are transferred without a UINT32 texture stage.
   std::vector<GLuint> depth, stencil;
   OpacityTargetPixels(size_t count, bool hasStencil)
       : color(count * 4), depth(count), stencil(hasStencil ? count : 0) {}
@@ -833,6 +836,13 @@ void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
   } restoreFramebuffers{functions, originalRead, originalDraw};
   GLenum depthType = GL_UNSIGNED_INT;
   const TDimension target = opacityTargetSize(functions, depthType);
+  GLint depthBits = 0; glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+  if (depthBits > 24 && depthType != GL_FLOAT)
+    throw std::runtime_error("Stroke opacity in a 3D view requires fixed depth of at most 24 bits or known floating depth; fixed or unclassified 32-bit depth cannot be restored exactly");
+  // UINT32 DrawPixels can pass through a normalized 32-bit temporary texture
+  // whose float sampler loses a depth quantum. FLOAT preserves D24 and native
+  // float-depth transfers without that intermediate integer normalization.
+  depthType = GL_FLOAT;
   bool srgbColor = false;
   if (functions.srgb && glIsEnabled(GL_FRAMEBUFFER_SRGB)) {
     GLint framebuffer = 0, attachment = 0, encoding = 0;
@@ -869,8 +879,9 @@ void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
   const size_t count = size_t(width) * size_t(height);
   // Allocate everything before touching the target. The opacity field and
   // transform have already been built; their per-pixel lookup allocates nothing.
-  // Float color preserves 10-bit displays; integer attachment copies retain
-  // native fixed-point depth/stencil values, including zero-opacity holes.
+  // Float color preserves 10-bit displays. Native-compatible depth transfers
+  // and integer stencil copies retain zero-opacity holes without a UINT32
+  // normalized depth texture between readback and replacement.
   OpacityTargetPixels before(count, stencilBits > 0), after(count, stencilBits > 0);
   TStroke unmodulated(stroke);
   unmodulated.setOpacityProfile({}); unmodulated.setOpacity(1.);

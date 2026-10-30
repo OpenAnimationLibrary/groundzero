@@ -1,6 +1,7 @@
 # Vector workflow acceptance
 
 Implementation base: `edition` `aa01975f38d6226156e5b07df7271b8fc199d003`.
+Current integration base: `edition` `b584755dca36e9cc5da1c325a2f11c8b83cd2aa2`.
 All eighteen rows have implementation and acceptance source. **Execution is
 pending CI**; source review and a clean diff check are not passing test results.
 Builds and tests are not run locally. Raster brush compatibility and neural
@@ -84,7 +85,10 @@ after native drawing restore all saved attachments before propagating.
 
 Snapshots cover the full attachment because native fill-mask clears can affect
 stencil outside both the stroke and viewport. Float color preserves high-bit
-targets; fixed and floating depth retain their original 32-bit transfer values.
+targets. Fixed depth of at most 24 bits and native 32-bit floating depth use FLOAT
+transfers to avoid normalized UINT32 sampling loss; exact native depth oracles
+remain mandatory. Fixed or unclassified depth formats above 24 bits are refused
+before drawing because this compatibility path cannot restore them exactly.
 sRGB targets interpolate RGB in linear light. Floating-color targets temporarily
 disable read/fragment clamping during snapshot/replace, preserving untouched
 HDR values while native drawing retains the caller's original clamp policy.
@@ -93,7 +97,7 @@ channel-mask, scissor and separate read-framebuffer state are restored. Field
 lookups are skipped only when every color/depth/stencil value is unchanged.
 
 The supported depth targets are non-multisample Qt windows and FBOs with a depth
-renderbuffer, 2D texture, or cube-map face. Multisample attachments (including a
+renderbuffer, 2D texture, or cube-map face within those precision limits. Multisample attachments (including a
 multisample attachment with one sample) and other texture depth targets are
 rejected before drawing. The application's Qt production backend requests a
 combined depth/stencil FBO with no samples; the ordinary 2D opacity path is
