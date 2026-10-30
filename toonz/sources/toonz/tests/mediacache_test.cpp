@@ -95,6 +95,35 @@ int main(int argc, char **argv) {
     const auto canceled = MediaCache::trim(root, 0, &cancel);
     require(canceled.canceled && QFileInfo::exists(e + ".frames"),
             "canceled cleanup removed pending generations");
+    // Cancellation can arrive after the outer loop check while registration
+    // owns the management gate. It must be observed before atomic retirement.
+    QSemaphore cancelInventory, allowRetirement, retirementGate;
+    MediaCache::testHooks().afterInventory = [&]() {
+      cancelInventory.release();
+      allowRetirement.acquire();
+    };
+    MediaCache::testHooks().onManagementGateContention = [&]() {
+      retirementGate.release();
+    };
+    cancel.store(false);
+    MediaCache::Report canceledAtGate;
+    std::thread blockedCleaner([&]() { canceledAtGate = MediaCache::trim(root, 0, &cancel); });
+    const bool readyForGate = cancelInventory.tryAcquire(1, 5000);
+    QLockFile registration(QDir(root).filePath(".manage.lock"));
+    registration.setStaleLockTime(0);
+    const bool registrationHeld = readyForGate && registration.tryLock(0);
+    allowRetirement.release();
+    const bool reachedRetirementGate = registrationHeld && retirementGate.tryAcquire(1, 5000);
+    cancel.store(true);
+    if (registrationHeld) registration.unlock();
+    blockedCleaner.join();
+    MediaCache::testHooks().afterInventory = {};
+    MediaCache::testHooks().onManagementGateContention = {};
+    require(readyForGate && registrationHeld && reachedRetirementGate,
+            "cancellation fixture did not reach the locked retirement boundary");
+    require(canceledAtGate.canceled && canceledAtGate.errors.isEmpty() &&
+                canceledAtGate.removedGenerations == 0 && QFileInfo::exists(e + ".frames"),
+            "cleanup retired a generation after cancellation while waiting for its gate");
     const QString retired = QDir(root).filePath(".retired-import-v2-" +
         QString(64, 'e') + "-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
     require(QDir().rename(e + ".frames", retired), "cannot stage interrupted retirement");

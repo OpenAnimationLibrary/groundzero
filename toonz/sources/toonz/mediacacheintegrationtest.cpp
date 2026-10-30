@@ -34,9 +34,13 @@ bool runMediaCacheIntegrationTest(QMainWindow *, QString *error) {
     MediaCache::Lease active(base);
     auto *action = CommandManager::instance()->getAction(MI_ManageMediaCache);
     require(action && action->isEnabled(), "Media cache action is unavailable");
-    for (int pass = 0; pass < 2; ++pass) {
+    for (int pass = 0; pass < 3; ++pass) {
       int stage = 0;
       QString failure;
+      QLockFile heldGate(QDir(root).filePath(".manage.lock"));
+      heldGate.setStaleLockTime(0);
+      if (pass == 2)
+        require(heldGate.tryLock(0), "Cannot hold the native cache worker's management gate");
       QElapsedTimer elapsed;
       elapsed.start();
       QTimer driver;
@@ -58,8 +62,23 @@ bool runMediaCacheIntegrationTest(QMainWindow *, QString *error) {
           auto *clear = dialog->findChild<QPushButton *>("mediaCacheClear");
           auto *budget = dialog->findChild<QSpinBox *>("mediaCacheBudgetMiB");
           auto *usage = dialog->findChild<QLabel *>("mediaCacheUsage");
-          require(refresh && apply && clear && budget && usage,
+          auto *cancel = dialog->findChild<QPushButton *>("mediaCacheCancel");
+          require(refresh && apply && clear && budget && usage && cancel,
                   "Native cache controls are missing");
+          if (pass == 2) {
+            if (stage == 4) return;  // The queued worker completion closes it.
+            require(!refresh->isEnabled() && cancel->isEnabled(),
+                    "Native cache inspection was not running when canceled");
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            require(buttons && buttons->button(QDialogButtonBox::Close),
+                    "Native cache Close control is missing");
+            cancel->click();
+            buttons->button(QDialogButtonBox::Close)->click();
+            require(dialog->isVisible(), "Busy cache dialog closed before worker completion");
+            heldGate.unlock();
+            stage = 4;
+            return;
+          }
           if (!refresh->isEnabled()) return;
           if (stage == 0) {
             require(!usage->text().isEmpty() && !budget->accessibleName().isEmpty(),
@@ -91,6 +110,7 @@ bool runMediaCacheIntegrationTest(QMainWindow *, QString *error) {
           }
         } catch (const std::exception &problem) {
           failure = QString::fromUtf8(problem.what());
+          if (pass == 2) heldGate.unlock();
           driver.stop();
           if (auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget())) modal->reject();
           for (auto *widget : QApplication::topLevelWidgets())
@@ -103,6 +123,9 @@ bool runMediaCacheIntegrationTest(QMainWindow *, QString *error) {
       driver.stop();
       if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
       require(stage == 4, "Native cache dialog did not finish the expected workflow");
+      require(QFileInfo::exists(base + ".frames") &&
+                  MediaCache::budget(root) == 1024 * 1024,
+              "Native cancellation changed protected data or the saved policy");
     }
     QString ignored;
     require(MediaCache::setBudget(root, 0, &ignored), "Cannot restore disposable cache policy");

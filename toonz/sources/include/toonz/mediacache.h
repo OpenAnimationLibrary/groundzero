@@ -35,7 +35,8 @@ namespace MediaCache {
 // Deterministic interleaving control for the protocol executable only. These
 // hooks are absent from the application and image library builds.
 struct TestHooks {
-  std::function<void()> afterInventory, afterProtectedGeneration;
+  std::function<void()> afterInventory, onManagementGateContention,
+      afterProtectedGeneration;
 };
 inline TestHooks &testHooks() { static TestHooks hooks; return hooks; }
 #endif
@@ -49,6 +50,11 @@ class Gate {
 public:
   explicit Gate(const QString &root) : m_lock(QDir(root).filePath(".manage.lock")) {
     m_lock.setStaleLockTime(0);
+#ifdef MEDIA_CACHE_TEST_HOOKS
+    if (m_lock.tryLock(0)) return;
+    if (testHooks().onManagementGateContention)
+      testHooks().onManagementGateContention();
+#endif
     if (!m_lock.tryLock(5000))
       throw std::runtime_error("Media cache is busy or not writable");
   }
@@ -248,6 +254,9 @@ inline Report trim(const QString &root, qint64 target,
       QString retired;
       {
         Gate gate(root);
+        // Waiting for another reader's registration can outlive a cancellation.
+        // Do not start a new retirement after acquiring the management gate.
+        if (canceled(cancel)) break;
         if (active(root, entry.name)) {
           report.activeBytes += entry.bytes;
           ++report.activeGenerations;
@@ -259,6 +268,7 @@ inline Report trim(const QString &root, qint64 target,
         if (report.bytes <= target) continue;
         const QString source = dir.filePath(entry.directory);
         if (!QFileInfo(source).isDir() || QFileInfo(source).isSymLink()) continue;
+        if (canceled(cancel)) break;
         retired = dir.filePath(".retired-" + entry.name + "-" +
                                QUuid::createUuid().toString(QUuid::WithoutBraces));
         if (!QDir().rename(source, retired)) {
