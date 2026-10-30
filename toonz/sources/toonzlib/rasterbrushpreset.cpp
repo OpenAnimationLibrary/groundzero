@@ -725,6 +725,8 @@ static Record decodeRecord(
 
 QByteArray readBoundedRegularFile(const QString &path, qint64 maximumBytes,
                                   QString &error) {
+  error.clear();
+  if (!Detail::validateResponsePathInput(path, error)) return {};
   const QFileInfo info(path);
   Detail::RegularResponseDirectory directory;
   if (!directory.open(info.absolutePath(), error)) return {};

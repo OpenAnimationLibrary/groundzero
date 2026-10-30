@@ -800,11 +800,16 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   for (auto i = required.begin(); i != required.end(); ++i)
     if (!fields.contains(i.key()) || fields.value(i.key()) != i.value())
       return false;
-  for (auto i = required.begin(); i != required.end(); ++i)
-    if (i.key().endsWith("Sensor") &&
-        !eligiblePressureSensor(
-            i.value(), i.key() == "RotationSensor" ? "rotation" : "pressure"))
-      return false;
+  for (auto i = required.begin(); i != required.end(); ++i) {
+    if (!i.key().endsWith("Sensor")) continue;
+    const bool eligible =
+        i.key() == "RotationSensor"
+            ? (eligiblePressureSensor(i.value(), "rotation") ||
+               eligiblePressureSensor(i.value(), "xtilt") ||
+               eligiblePressureSensor(i.value(), "ytilt"))
+            : eligiblePressureSensor(i.value());
+    if (!eligible) return false;
+  }
   // These serialized properties belong exclusively to Color Smudge. They
   // are inert in Pixel; no wildcard exemptions for other unknown settings.
   const QSet<QString> inactive = {

@@ -49,8 +49,10 @@
 //    presets (shape dynamics, scattering, textures, dual brush, color
 //    dynamics, transfer, ...), names and spacing. These need independently
 //    specified adapters; current tip conversion imports plain stamps.
-//  - Descriptor references ('obj ') and unknown types reject that descriptor
-//    section. No alias or external reference is resolved or executed.
+//  - Descriptor references ('obj ') retain documented property, class,
+//    enumerated and raw-offset items as typed metadata only. Undocumented
+//    reference layouts and unknown types reject their descriptor section.
+//    No alias or external reference is resolved or executed.
 //  - Pattern texture/brush association and unqualified channel encodings.
 //    Version-1 'patt' resources with version-3 VM arrays are structurally
 //    decoded; raw/VM-ZIP 8- and 16-bit channels yield bytes. No color

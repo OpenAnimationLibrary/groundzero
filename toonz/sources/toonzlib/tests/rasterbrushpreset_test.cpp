@@ -1034,6 +1034,26 @@ void testImports() {
               control.mappings.front().curve.size() == 3,
           "source pressure spline lost interpolation on portable round trip");
     }
+  for (const QString axis : {"xtilt", "ytilt"}) {
+    QImage image = QImage::fromData(hardPixelKpp("barrel"), "PNG");
+    QString xml  = image.text("preset");
+    xml.replace("id=&quot;rotation&quot;", "id=&quot;" + axis + "&quot;");
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    require(image.save(&buffer, "PNG"), "cannot encode tilt sensor fixture");
+    auto imported = importBrush(bytes, "kpp", error);
+    require(imported.complete && imported.records.size() == 1 &&
+                imported.records.front().preset.profile ==
+                    "krita-5.3.4.1-hard-pixel-candidate-1",
+            "symmetric tilt sensor lost candidate eligibility");
+    auto restored = decode(encode(imported.records.front(), error), error);
+    require(error.isEmpty() && restored.preset.angle.mappings.size() == 1 &&
+                restored.preset.angle.mappings.front().sensor ==
+                    (axis == "xtilt" ? Sensor::TiltX : Sensor::TiltY),
+            "symmetric tilt sensor lost portable identity");
+  }
   auto barrel = importBrush(hardPixelKpp("barrel"), "kpp", error);
   require(barrel.complete &&
               barrel.records.front().preset.profile ==
@@ -1737,7 +1757,9 @@ void testPackage() {
   r.preset.color     = {1, 0, 0, .5};
   require(encode(r, error).isEmpty(), "invalid premultiplication accepted");
 }
+void testLongCollectionPaths();
 void testCollection() {
+  testLongCollectionPaths();
   QTemporaryDir directory;
   require(directory.isValid(), "temporary collection directory unavailable");
   Record first, second;
@@ -1778,6 +1800,86 @@ void testCollection() {
           "conflicting collection overwritten");
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
+}
+// Exercise long names without shortening the library or preset identity.
+// Qt writes/renames already use extended paths on Windows; our raw no-follow
+// reads must accept the same files while retaining their security contract.
+void testLongCollectionPaths() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "cannot create long collection fixture");
+  QString directory = temporary.path();
+  while (directory.size() < 280)
+    directory = QDir(directory).filePath(QString(48, 'l'));
+  Record record;
+  record.preset.name = std::string(40, 'p');
+  QString error;
+  const auto paths = installCollection(directory, {record}, error);
+  require(error.isEmpty() && paths.size() == 1, qPrintable(error));
+  require(paths.front().size() > 400, "long collection fixture is too short");
+  const auto restored = load(paths.front(), error);
+  require(error.isEmpty() && restored.preset.name == record.preset.name,
+          qPrintable("long collection load: " + error));
+  const auto duplicate = installCollection(directory, {record}, error);
+  require(error.isEmpty() && duplicate.size() == 1 &&
+              duplicate.front() == paths.front(),
+          qPrintable("long collection reimport: " + error));
+  {
+    Detail::RegularResponseDirectory anchored;
+    require(anchored.open(QFileInfo(paths.front()).absolutePath(), error),
+            qPrintable(error));
+    Detail::readResponseFile(anchored, "../escape", 1024, error);
+    require(!error.isEmpty(), "long-path reader accepted traversal");
+    Detail::readResponseFile(anchored, QFileInfo(paths.front()).fileName(), 1,
+                             error);
+    require(!error.isEmpty(), "long-path reader ignored byte budget");
+#ifdef _WIN32
+    const QString native =
+        QStringLiteral("\\\\?\\") +
+        QDir::toNativeSeparators(QFileInfo(paths.front()).absolutePath());
+    HANDLE deletion = CreateFileW(
+        reinterpret_cast<LPCWSTR>(native.utf16()), DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    const DWORD code = GetLastError();
+    if (deletion != INVALID_HANDLE_VALUE) CloseHandle(deletion);
+    require(deletion == INVALID_HANDLE_VALUE && code == ERROR_SHARING_VIOLATION,
+            "long directory anchor did not prevent replacement");
+#endif
+  }
+#ifdef _WIN32
+  for (const QString &unsupported :
+       {QString("//server/share"), QString("//?/") + directory,
+        QString("//./") + directory,
+        QDir::toNativeSeparators(QString("//?/") + directory)}) {
+    Detail::RegularResponseDirectory rejected;
+    require(
+        !rejected.open(unsupported, error) && error.contains("local disk path"),
+        "long-path support admitted UNC or device-path input");
+    readBoundedRegularFile(unsupported + "/probe", 1024, error);
+    require(error.contains("local disk path"),
+            "public file reader normalized unsupported path before validation");
+  }
+  const QString alias = QDir(directory).filePath("hardlink.gzbrush");
+  const QString nativeAlias =
+      QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(alias);
+  const QString nativeTarget =
+      QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(paths.front());
+  require(
+      CreateHardLinkW(reinterpret_cast<LPCWSTR>(nativeAlias.utf16()),
+                      reinterpret_cast<LPCWSTR>(nativeTarget.utf16()), nullptr),
+      "cannot create long-path hardlink fixture");
+  readBoundedRegularFile(paths.front(), 1024 * 1024, error);
+  require(!error.isEmpty(), "long-path reader accepted a hardlink");
+  require(QFile::remove(alias), "cannot remove long-path hardlink fixture");
+#endif
+  QFile damaged(paths.front());
+  require(damaged.open(QIODevice::WriteOnly) && damaged.write("damaged") == 7,
+          "cannot damage long collection fixture");
+  damaged.close();
+  require(
+      installCollection(directory, {record}, error).empty() && !error.isEmpty(),
+      "long collection reimport overwrote conflicting content");
 }
 void testImportedStatusClaims() {
   Record claimed;

@@ -95,6 +95,11 @@ if group in ("airbrushtimed", "timedsensors"):
     prepare_timed(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
+if group == "wethsv":
+    from wet_hsv_fixtures import prepare as prepare_wet_hsv
+    prepare_wet_hsv(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "hsvjoint":
     from hsv_joint_fixtures import prepare as prepare_hsv_joint
     prepare_hsv_joint(root, resources, preset)
@@ -216,6 +221,7 @@ for mode, modern in profiles:
                             "OpacityValue": str(opacity), "FlowValue": str(flow)},
                             32, .25, [1, 1], opacity, flow))
     precision_positions = {}
+    precision_partitions = {}
     if group == "pixelprecision":
         pressure_curve = {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}
         variants = []
@@ -232,6 +238,18 @@ for mode, modern in profiles:
                 label = f"precision spacing ppm {round(spacing * 1000000):06d} length {length}"
                 variants.append((label, {**pressure_curve, "OpacityValue": ".5"}, 32, spacing, [1, 1], .5, 1))
                 precision_positions[label] = (0, 0, length)
+    if group == "pixelprecision":
+        # Identical linear pressure path, different authored event partitions.
+        # Preserve each delivered trace; no source subdivision invariance is
+        # presumed. The .8px event lands exactly on the first dynamic dab.
+        for label, positions in (("coarse", [0, 16]),
+                                 ("dab boundary", [0, .8, 16]),
+                                 ("integer lookahead", [0, 1, 16]),
+                                 ("dense", [i / 2 for i in range(33)])):
+            label = "pressure partition " + label
+            variants.append((label, pressure_curve, 32, .1, [.25, .75], 1, 1))
+            precision_positions[label] = (0, 0, 16)
+            precision_partitions[label] = positions
     if group == "pixelcurveknots":
         variants = []
         # Nonuniform knots, interior extrema and between-knot probes separate
@@ -585,6 +603,16 @@ for mode, modern in profiles:
                                "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)}
                               for i, point in enumerate((case["start"], case["end"]))]
+        if group == "pixelprecision" and label in precision_partitions:
+            case = cases[-1]
+            case["events"] = [{"x": 256 + distance, "y": 1024,
+                               "pressure": .25 + .5 * distance / 16,
+                               "tiltX": 0, "tiltY": 0, "rotation": 0,
+                               "timeUs": round(distance * 1000000 / 16)}
+                              for distance in precision_partitions[label]]
+            case["partitionProbe"] = {"path": "linear16-pressure-quarter-to-threequarters",
+                                      "partition": label,
+                                      "expectation": "measure source event partition semantics; invariance unverified"}
         if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetkernel", "wetkernelscale", "wetkernelcount"):
             case = cases[-1]
             dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])

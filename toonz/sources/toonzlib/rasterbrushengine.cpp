@@ -301,7 +301,9 @@ std::string validate(const Preset &p) {
   const bool sourceBarrel =
       sourceHard && !sourceSoft && p.angle.value == 360 &&
       p.angle.minimum == 0 && p.angle.mappings.size() == 1 &&
-      p.angle.mappings.front().sensor == Sensor::Rotation &&
+      (p.angle.mappings.front().sensor == Sensor::Rotation ||
+       p.angle.mappings.front().sensor == Sensor::TiltX ||
+       p.angle.mappings.front().sensor == Sensor::TiltY) &&
       p.angle.mappings.front().scale == 1 &&
       p.angle.mappings.front().interpolation == Interpolation::Linear &&
       p.angle.mappings.front().curve.size() == 2 &&
@@ -763,10 +765,12 @@ struct Stroke::Impl {
       v = s.hasPressure ? s.pressure : 1;
       break;
     case Sensor::TiltX:
-      v = s.hasTilt ? (s.tiltX + 1) * .5 : .5;
+      v = sourcePixelProfile(p.profile) ? (s.hasTilt ? std::abs(s.tiltX) : 0)
+                                        : (s.hasTilt ? (s.tiltX + 1) * .5 : .5);
       break;
     case Sensor::TiltY:
-      v = s.hasTilt ? (s.tiltY + 1) * .5 : .5;
+      v = sourcePixelProfile(p.profile) ? (s.hasTilt ? std::abs(s.tiltY) : 0)
+                                        : (s.hasTilt ? (s.tiltY + 1) * .5 : .5);
       break;
     case Sensor::TiltElevation:
       v = s.hasTilt ? unit(std::hypot(s.tiltX, s.tiltY)) : 0;
@@ -1092,6 +1096,12 @@ struct Stroke::Impl {
     // Independent candidate inferred from original first/second-dab fixtures.
     // Model-specific equations are intentionally separate from native wet
     // paint.
+    // Shared source foreground adjustment precedes the model-specific color
+    // injection. Admission remains separate: active wet HSV combinations are
+    // rejected until their original reference interaction has been qualified.
+    // Off is an exact identity, preserving existing wet rounding and alpha.
+    const Pixel foreground =
+        sourceHsvColor(p.color, p.sourceHsvChannel, p.sourceHsvValue);
     const double radius = p.size.value * .5;
     spacing             = std::max(.01, p.size.value * p.spacing);
     // Measured model distinction: Dulling retains the hard Pixel lattice;
@@ -1268,12 +1278,12 @@ struct Stroke::Impl {
         if (modern && p.wet == Wet::Dulling && !p.sourceSmearAlpha) {
           paint = mix(
               sourceRead(x, y),
-              composite(paint, mul(p.color, colorRate * colorRate * opacity),
+              composite(paint, mul(foreground, colorRate * colorRate * opacity),
                         Blend::Normal),
               strength);
         } else if (modern) {
           paint = composite(mix(sourceRead(x, y), paint, strength),
-                            mul(p.color, colorRate * colorRate * opacity),
+                            mul(foreground, colorRate * colorRate * opacity),
                             Blend::Normal);
         } else {
           // Legacy foreground attenuation uses the serialized length setting,
@@ -1282,7 +1292,7 @@ struct Stroke::Impl {
           paint = mix(
               sourceRead(x, y),
               composite(paint,
-                        mul(p.color,
+                        mul(foreground,
                             colorRate * std::max(.2, 1 - p.pickup) * opacity),
                         Blend::Normal),
               strength);

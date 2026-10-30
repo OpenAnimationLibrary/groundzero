@@ -37,6 +37,27 @@ def capture(case, effective_fields, delivery, raw, width):
             if effective_fields.get(key) != case["overrides"][key]:
                 raise RuntimeError("Unexpected active HSV channel: " + key)
             actual[key] = effective_fields[key]
+    if "wetHsvProbe" in case:
+        wet = case["wetHsvProbe"]
+        model = wet["model"]
+        if model not in ("legacy-smear", "legacy-dulling", "new-smear", "new-dulling"):
+            raise RuntimeError("Invalid wet HSV source model")
+        expected_wet = {
+            "paintop": "colorsmudge", "CompositeOp": "normal", "PaintOpAction": "1",
+            "SmudgeRateUseNewEngine": str(model.startswith("new-")).lower(),
+            "SmudgeRateMode": "0" if model.endswith("smear") else "1",
+            "SmudgeRateSmearAlpha": "true", "PressureColorRate": "true",
+            "ColorRateUseCurve": "false", "PressureSmudgeRate": "true",
+            "SmudgeRateUseCurve": "false", "SmudgeRadiusUseCurve": "false",
+        }
+        for key, expected in expected_wet.items():
+            if effective_fields.get(key) != expected:
+                raise RuntimeError("Effective wet HSV option differs: " + key)
+            actual[key] = effective_fields[key]
+        for key, expected in (("ColorRateValue", .25), ("SmudgeRateValue", .5), ("SmudgeRadiusValue", 0)):
+            if float(effective_fields.get(key, "nan")) != expected:
+                raise RuntimeError("Effective wet HSV scalar differs: " + key)
+            actual[key] = effective_fields[key]
     node_delivery = case.get("delivery") == "Node.paintLine"
     if node_delivery:
         expected_events = [

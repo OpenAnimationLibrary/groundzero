@@ -89,6 +89,20 @@ def prepare(root, resources, preset_writer, group):
         plans.append(("Rotation", "rotation", label,
                       trace("east", rotation=lambda t: (315 + 90 * t) % 360)))
         details[label] = {"spacing": 4, "sourceBarrel": True}
+    if group == "tabletsensors":
+        for sensor, axis in (("xtilt", 0), ("ytilt", 1)):
+            for value in (-20, -10, 10, 20):
+                label = "qualified ellipse " + sensor + " " + str(value)
+                events = trace("east", tilt=(value, 0) if axis == 0 else (0, value))
+                plans.append(("Rotation", sensor, label, events))
+                details[label] = {"spacing": 4, "sourceBarrel": True}
+            # Rectangle evidence only identifies orientation modulo180. The
+            # original arrow distinguishes otherwise identical sensor models.
+            for value in (-20, -10, 0, 10, 20):
+                label = "asymmetric " + sensor + " " + str(value)
+                plans.append(("Rotation", sensor, label,
+                              trace("east", tilt=(value, 0) if axis == 0 else (0, value))))
+                details[label] = {"spacing": 4, "asymmetric": True}
     names, cases = [], []
     for target, sensor, label, events in plans:
         spacing = details.get(label, {}).get("spacing", 1)

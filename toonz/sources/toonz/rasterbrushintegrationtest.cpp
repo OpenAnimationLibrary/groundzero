@@ -703,7 +703,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         bool acceptanceSeen = false, defaultCancel = false,
              labelsCorrect = false, pickerSubmitted = false;
         bool driverExpired = false;
-        QString previousModal;
+        QString previousModal, unexpectedWarning;
         QElapsedTimer deadline;
         deadline.start();
         std::cerr << "raster-brush-integration: import "
@@ -721,6 +721,18 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             std::cerr << "raster-brush-integration: acceptance modal "
                       << identity.toStdString() << std::endl;
             previousModal = identity;
+            if (modal && identity.startsWith("DVGui::Dialog:")) {
+              QStringList body;
+              for (auto label : modal->findChildren<QLabel *>())
+                if (!label->text().isEmpty()) body << label->text();
+              unexpectedWarning = identity + " | " + body.join(" | ");
+              std::cerr
+                  << "raster-brush-integration: unexpected import warning "
+                  << unexpectedWarning.toStdString() << std::endl;
+              if (auto dialog = qobject_cast<QDialog *>(modal))
+                dialog->reject();
+              return;
+            }
           }
           if (deadline.elapsed() > 15000) {
             driverExpired = true;
@@ -780,8 +792,11 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         modalDriver.stop();
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
                                    nativeDialogsDisabled);
-        require(!driverExpired && handled && acceptanceSeen && defaultCancel &&
-                    labelsCorrect,
+        require(unexpectedWarning.isEmpty(),
+                qPrintable("Import failed after conversion decision: " +
+                           unexpectedWarning));
+        require(!driverExpired, "conversion import modal driver exceeded 15s");
+        require(handled && acceptanceSeen && defaultCancel && labelsCorrect,
                 "foreign import lacked explicit approximation acceptance with "
                 "Cancel default");
         const auto afterFiles =

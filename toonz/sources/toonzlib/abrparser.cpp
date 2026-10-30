@@ -250,6 +250,37 @@ class DescriptorReader {
       value.children.push_back(std::move(child));
     }
   }
+  void reference(DescriptorValue &value, size_t depth) {
+    const size_t count = word();
+    need(count <= r.remaining() / 4);
+    if (count && depth >= budget.limits.maxDescriptorDepth) {
+      budget.error = "The ABR descriptor nesting limit was exceeded.";
+      throw std::runtime_error(budget.error);
+    }
+    budget.descriptorReserve(count);
+    value.children.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      DescriptorValue child;
+      child.type = bytes(4);
+      // Adobe's published Reference/Property/Class/Enumerated/Offset tables.
+      // Other reference kinds lack a complete layout there: do not guess.
+      if (child.type != "prop" && child.type != "Clss" &&
+          child.type != "Enmr" && child.type != "rele")
+        throw std::runtime_error("unsupported descriptor reference: " +
+                                 child.type);
+      child.name    = unicode();
+      child.classId = id();
+      if (child.type == "prop")
+        child.text = id();
+      else if (child.type == "Enmr") {
+        child.unit = id();  // Reference enum's TypeID, retained verbatim.
+        child.text = id();
+      } else if (child.type == "rele") {
+        child.integer = word();  // Raw32-bit offset, not a resolved index.
+      }
+      value.children.push_back(std::move(child));
+    }
+  }
   void object(DescriptorValue &value, size_t depth) {
     value.name    = unicode();
     value.classId = id();
@@ -262,7 +293,9 @@ class DescriptorReader {
     }
     DescriptorValue value;
     value.type = bytes(4);
-    if (value.type == "Objc" || value.type == "GlbO") {
+    if (value.type == "obj ") {
+      reference(value, depth);
+    } else if (value.type == "Objc" || value.type == "GlbO") {
       object(value, depth);
     } else if (value.type == "VlLs") {
       children(value, depth, false);

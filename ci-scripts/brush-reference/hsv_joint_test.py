@@ -52,6 +52,32 @@ class JointHsvEvidence(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.capture(fields=fields)
 
+    def test_wet_matrix_and_color_rate_readback(self):
+        from wet_hsv_fixtures import prepare as prepare_wet
+        root=Path(self.temp.name)
+        prepare_wet(root, root, lambda *args: b"original fixture placeholder")
+        matrix=json.loads((root / "output" / "fixtures.json").read_text())
+        self.assertEqual(len(matrix["cases"]),96)
+        self.assertEqual({c["wetHsvProbe"]["model"] for c in matrix["cases"]},
+                         {"legacy-smear","legacy-dulling","new-smear","new-dulling"})
+        self.case=matrix["cases"][-1]
+        self.case["sensorProbe"]["rect"]=[0,0,1,1]
+        self.fields={**self.case["overrides"], "brush_definition":"<Brush/>",
+                     "paintop":"colorsmudge", "CompositeOp":"normal", "PaintOpAction":"1",
+                     "SmudgeRateUseNewEngine":"true", "SmudgeRateMode":"1",
+                     "SmudgeRateSmearAlpha":"true", "PressureColorRate":"true",
+                     "ColorRateUseCurve":"false", "PressureSmudgeRate":"true",
+                     "SmudgeRateUseCurve":"false", "SmudgeRadiusUseCurve":"false"}
+        self.delivery={"mode":"Node.paintLine", "events":[
+            {"type":"line-start","position":self.case["start"],"pressure":1},
+            {"type":"line-end","position":self.case["end"],"pressure":1}]}
+        self.assertEqual(self.capture()["effectiveControls"]["ColorRateValue"],"0.25")
+        for key,value in (("ColorRateValue","0"),("SmudgeRateUseNewEngine","false"),
+                          ("ColorRateUseCurve","true")):
+            fields=dict(self.fields); fields[key]=value
+            with self.assertRaises(RuntimeError):
+                self.capture(fields=fields)
+
     def test_wrong_endpoint_or_pressure_is_rejected(self):
         for key, value in (("pressure", 1), ("position", [0, 0])):
             delivery = copy.deepcopy(self.delivery)

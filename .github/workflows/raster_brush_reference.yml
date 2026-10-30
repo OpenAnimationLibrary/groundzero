@@ -100,10 +100,10 @@ jobs:
     strategy:
       # Bound full-application reference runs independently of parser CI.
       # Every matrix member still runs; one mismatch cannot cancel peers.
-      max-parallel: 2
+      max-parallel: 4
       fail-fast: false
       matrix:
-        fixture_group: [hsvjoint, hsvheldout, airbrushtimed, timedsensors, maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, tabletsensors, spacingdynamics, bitmaptips, gihlabels, gihstatistics, pixelcurveknots, texturestate, texturepickup, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [wethsv, texturepickup, wetkernelcount, pixelprecision, tabletsensors, hsvjoint, hsvheldout, airbrushtimed, timedsensors, maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, spacingdynamics, bitmaptips, gihlabels, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, texturemasks, pixelblend, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:

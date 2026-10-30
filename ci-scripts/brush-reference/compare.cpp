@@ -284,6 +284,8 @@ int main(int argc, char **argv) {
               "Incomplete spacing sensor fixture matrix");
     if (fixtures["group"].toString() == "mirrortips")
       require(expected.size() == 42, "Incomplete mirror fixture matrix");
+    if (fixtures["group"].toString() == "wethsv")
+      require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvjoint")
       require(expected.size() == 36, "Incomplete joint HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvheldout")
@@ -345,6 +347,39 @@ int main(int argc, char **argv) {
         for (int c = 0; c < 4; ++c)
           require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
                   "Joint HSV foreground readback differs");
+      }
+      const bool wetHsvCase = fixtures["group"].toString() == "wethsv";
+      if (wetHsvCase) {
+        const auto evidence = source["sensorEvidence"].toObject();
+        const auto controls = evidence["effectiveControls"].toObject();
+        const auto spec = source["wetHsvProbe"].toObject();
+        const auto requested = source["overrides"].toObject();
+        require(evidence["deliveryValuesMatchAuthored"].toBool() &&
+                    evidence["deliveryInterface"].toString() ==
+                        "Node.paintLine" &&
+                    evidence["deliveredContactEvents"].toArray().size() == 2 &&
+                    spec["colorRate"].toDouble() == .25 &&
+                    requested["ColorRateValue"].toString() == "0.25",
+                "Missing wet HSV input/control evidence");
+        const QString target = spec["channel"].toString();
+        require(target == "h" || target == "s" || target == "v",
+                "Invalid wet HSV channel");
+        for (const QString &channel :
+             {QString("h"), QString("s"), QString("v")})
+          require(controls["Pressure" + channel] ==
+                      requested["Pressure" + channel],
+                  "Wet HSV enabled state differs");
+        require(controls[target + "commonCurve"] ==
+                    requested[target + "commonCurve"],
+                "Wet HSV fixed curve differs");
+        const auto foreground =
+            evidence["effectiveForegroundDisplayRGBA8"].toArray();
+        const auto authored = source["foregroundRGBA8"].toArray();
+        require(foreground.size() == 4 && authored.size() == 4,
+                "Missing wet HSV foreground readback");
+        for (int c = 0; c < 4; ++c)
+          require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
+                  "Wet HSV foreground readback differs");
       }
       const bool maskCase = fixtures["group"].toString() == "maskwash" ||
                             fixtures["group"].toString() == "maskbuildup";
@@ -973,6 +1008,34 @@ int main(int argc, char **argv) {
             metrics["maxAlphaError"].toDouble() == 0;
         metrics["fixedHsvCandidatePassed"] = passed;
         metrics["fixedHsvMaxRGBTolerance"] = colorTolerance;
+        if (!passed && !failedHardCases.contains(name))
+          failedHardCases.append(name);
+      }
+      if (wetHsvCase) {
+        const auto spec = source["wetHsvProbe"].toObject();
+        const QString channel = spec["channel"].toString();
+        const auto expectedChannel =
+            !spec["enabled"].toBool() ? SourceHsvChannel::Off
+            : channel == "h"          ? SourceHsvChannel::Hue
+            : channel == "s"          ? SourceHsvChannel::Saturation
+                                      : SourceHsvChannel::Value;
+        const bool eligible =
+            p.profile ==
+                ("krita-5.3.4.1-" + spec["model"].toString() + "-candidate-1")
+                    .toStdString() &&
+            p.sourceHsvChannel == expectedChannel &&
+            (expectedChannel == SourceHsvChannel::Off ||
+             p.sourceHsvValue == spec["value"].toDouble());
+        const bool passed =
+            eligible && metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
+            metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&
+            metrics["visibleChangedPixelIoU"].toDouble() >= .98 &&
+            !metrics["emptyCandidateFailure"].toBool();
+        metrics["wetHsvSourceEligible"] = eligible;
+        metrics["wetHsvCandidatePassed"] = passed;
+        metrics["wetHsvQualification"] =
+            "Full union-region RGBA and source eligibility; native conversion "
+            "cannot pass";
         if (!passed && !failedHardCases.contains(name))
           failedHardCases.append(name);
       }

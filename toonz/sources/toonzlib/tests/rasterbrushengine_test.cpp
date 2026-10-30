@@ -885,6 +885,26 @@ void testStationaryAndBatching() {
   require(sa.dabCount() >= 10 && sa.dabCount() <= 11,
           "airbrush timer did not schedule stationary dabs");
 }
+void testNativePressureDeliveryBatches() {
+  // Batching preserves every authored sample. This does NOT resample a source
+  // path or assert invariance under a changed sequence of tablet events.
+  Preset p;
+  p.size.value    = 24;
+  p.spacing       = .1;
+  p.size.mappings = {Mapping{}};
+  p.opacity.value = .5;
+  Canvas direct, batched;
+  Stroke a(direct, p), b(batched, p);
+  std::vector<Sample> events;
+  for (int i = 0; i <= 32; ++i)
+    events.push_back(sample(32 + i * .5, 32, i / 32.0, .25 + .5 * i / 32.0));
+  for (const auto &event : events) require(a.add(event), a.error().c_str());
+  for (size_t offset = 0; offset < events.size(); offset += 7)
+    for (size_t i = offset; i < std::min(offset + 7, events.size()); ++i)
+      require(b.add(events[i]), b.error().c_str());
+  require(same(direct, batched) && a.dabCount() == b.dabCount(),
+          "native identical pressure events changed when delivered in batches");
+}
 void testColorDynamics() {
   auto deposit = [](Preset p, double pressure) {
     Canvas canvas;
@@ -1261,6 +1281,85 @@ void testSourceTextureMasks() {
   wet.smudgeRadius       = 0;
   wet.texture.image      = mask;
   require(!validate(wet).empty(), "unmeasured new Dulling texture admitted");
+}
+void testSourceWetForegroundTransformPlumbing() {
+  // Original Pixel RGB captures establish the foreground transform separately
+  // from wet transport. Feed the rendered foreground into each existing wet
+  // equation and compare with those captured colors injected directly. This
+  // qualifies composition plumbing, not unmeasured imported wet HSV support.
+  const int captured[3][2][3] = {{{116, 47, 173}, {47, 173, 66}},
+                                 {{173, 140, 123}, {173, 60, 0}},
+                                 {{69, 36, 19}, {222, 189, 172}}};
+  const Pixel original{173 / 255.0, 91 / 255.0, 47 / 255.0, 1};
+  for (const char *model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"})
+    for (int channel = 0; channel < 3; ++channel)
+      for (int setting = 0; setting < 2; ++setting)
+        for (bool enabled : {false, true})
+          for (bool smearAlpha : {false, true}) {
+            Preset dry;
+            dry.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
+            dry.size.value = 24;
+            dry.color      = original;
+            dry.sourceHsvChannel =
+                enabled ? SourceHsvChannel(channel + 1) : SourceHsvChannel::Off;
+            dry.sourceHsvValue = setting ? .8 : .2;
+            Canvas swatch;
+            Stroke transform(swatch, dry);
+            require(transform.add(sample(64, 64, 0)),
+                    transform.error().c_str());
+            transform.finish();
+            Canvas candidate, expected;
+            for (int y = 0; y < candidate.h; ++y)
+              for (int x = 0; x < candidate.w; ++x) {
+                const Pixel background =
+                    x < 40 ? Pixel{0, 0, 1, 1}
+                           : Pixel{128 / 255.0, 0, 0, 128 / 255.0};
+                candidate.write(x, y, background);
+                expected.write(x, y, background);
+              }
+            Preset wet;
+            wet.profile =
+                std::string("krita-5.3.4.1-") + model + "-candidate-1";
+            wet.wet = std::string(model).find("dulling") != std::string::npos
+                          ? Wet::Dulling
+                          : Wet::Smear;
+            wet.size.value         = 8;
+            wet.spacing            = 5;
+            wet.smudgeRadius       = 0;
+            wet.tip.antialiasEdges = false;
+            wet.sourceSmearAlpha   = smearAlpha;
+            wet.color              = swatch.read(64, 64);
+            wet.sourceHsvValue =
+                dry.sourceHsvValue;  // Disabled source value is inert.
+            Preset direct   = wet;
+            const auto &rgb = captured[channel][setting];
+            direct.color    = enabled ? Pixel{rgb[0] / 255.0, rgb[1] / 255.0,
+                                           rgb[2] / 255.0, 1}
+                                      : original;
+            Stroke actualStroke(candidate, wet),
+                expectedStroke(expected, direct);
+            for (const auto &input : {sample(10, 64, 0), sample(91, 64, 1)}) {
+              require(actualStroke.add(input), actualStroke.error().c_str());
+              require(expectedStroke.add(input),
+                      expectedStroke.error().c_str());
+            }
+            actualStroke.finish();
+            expectedStroke.finish();
+            const double tolerance =
+                enabled && channel == 1 ? 1 / 255.0 + 1e-12 : 1e-12;
+            for (size_t i = 0; i < candidate.pixels.size(); ++i) {
+              const Pixel a = candidate.pixels[i], b = expected.pixels[i];
+              require(std::abs(a.r - b.r) <= tolerance &&
+                          std::abs(a.g - b.g) <= tolerance &&
+                          std::abs(a.b - b.b) <= tolerance && a.a == b.a,
+                      "shared source foreground differs from direct wet color "
+                      "injection");
+            }
+            wet.sourceHsvChannel = SourceHsvChannel(channel + 1);
+            require(!validate(wet).empty(),
+                    "unqualified active wet HSV gained eligibility");
+          }
 }
 void testSourceWetOpacityTransport() {
   // Original K5341 straight RGBA8 captures, two/three separated dabs over
@@ -1890,6 +1989,40 @@ void testSourceBarrelGeometry() {
     require(!validate(p).empty(),
             "unmeasured barrel/transfer combination admitted");
   }
+}
+void testSourceSymmetricTiltRotation() {
+  // Original off-grid rectangle observations identify these orientations
+  // modulo180: both signs of10/20 degree tilt yield60/120 degree rotation.
+  // Only symmetric hard ellipses are admitted; asymmetric tips need evidence.
+  for (Sensor sensor : {Sensor::TiltX, Sensor::TiltY})
+    for (double degrees : {-20., -10., 10., 20.}) {
+      Preset p;
+      p.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.size.value   = 24;
+      p.aspect.value = .5;
+      p.angle.value  = 360;
+      Mapping mapping;
+      mapping.sensor   = sensor;
+      p.angle.mappings = {mapping};
+      Canvas tilted, barrel;
+      Stroke a(tilted, p);
+      auto input    = sample(64, 64, 0);
+      input.hasTilt = true;
+      input.tiltX   = sensor == Sensor::TiltX ? degrees / 60 : 0;
+      input.tiltY   = sensor == Sensor::TiltY ? degrees / 60 : 0;
+      require(a.add(input), a.error().c_str());
+      p.angle.mappings.front().sensor = Sensor::Rotation;
+      Stroke b(barrel, p);
+      input.hasRotation = true;
+      input.rotation    = std::abs(degrees) * 6 * 3.14159265358979323846 / 180;
+      require(b.add(input), b.error().c_str());
+      require(same(tilted, barrel),
+              "source tilt normalization disagrees with measured orientation "
+              "class");
+      p.angle.mappings.front().sensor = sensor;
+      p.tip.shape                     = Shape::Square;
+      require(!validate(p).empty(), "unqualified source tilt shape admitted");
+    }
 }
 void testSourcePixelPressureTransfer() {
   // Original constant-pressure Node observations: wash opacity scales the
@@ -2546,6 +2679,7 @@ int main() {
       {"testKritaHardPixelCandidate", testKritaHardPixelCandidate},
       {"testKritaFixedHsvCandidate", testKritaFixedHsvCandidate},
       {"testStationaryAndBatching", testStationaryAndBatching},
+      {"testNativePressureDeliveryBatches", testNativePressureDeliveryBatches},
       {"testColorDynamics", testColorDynamics},
       {"testCubicCurves", testCubicCurves},
       {"testSourceDefaultCircle", testSourceDefaultCircle},
@@ -2560,12 +2694,15 @@ int main() {
       {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
       {"testSourceBarrelGeometry", testSourceBarrelGeometry},
+      {"testSourceSymmetricTiltRotation", testSourceSymmetricTiltRotation},
       {"testSourcePixelPressureTransfer", testSourcePixelPressureTransfer},
       {"testSourceTransferCurves", testSourceTransferCurves},
       {"testSourceRectangle", testSourceRectangle},
       {"testSourceWetInitialization", testSourceWetInitialization},
       {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},
       {"testSourceTextureMasks", testSourceTextureMasks},
+      {"testSourceWetForegroundTransformPlumbing",
+       testSourceWetForegroundTransformPlumbing},
       {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},
       {"testSourceWetDisabledControls", testSourceWetDisabledControls},
       {"testLongWetTrace", testLongWetTrace},

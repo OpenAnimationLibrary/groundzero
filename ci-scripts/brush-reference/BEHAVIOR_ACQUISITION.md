@@ -337,3 +337,17 @@ OpacityValue .1 and FlowValue1 with matching view controls. Previously .1 flow
 with curves disabled could leave the first Build-up dab opaque, hiding subsequent
 timer deposits. All pacing, timing gates, enabled/off controls and effective
 readback are preserved; no tolerance was relaxed.
+
+`wethsv` captures 96 original cases: four Color Smudge models, three isolated
+constant HSV channels, two foreground colors, controls .2/.8 and disabled pairs.
+Node strokes cross a transparent-to-blue boundary with Color Rate .25, smudge
+rate .5 and radius zero. Actual model switches, Color Rate enable/curve/scalar,
+HSV payloads, foreground and endpoint delivery are checked before acquisition
+is accepted. Complete source images, repeats and bounded color notices remain
+available even when candidate comparison fails.
+
+The wet HSV gate requires matching source profile/channel/value eligibility and
+full union-region max RGB <=2/255, max alpha <=1/255, changed-pixel IoU >=.98,
+and nonempty candidate output. Current wet HSV eligibility remains disabled;
+native conversion cannot satisfy this gate. Shared foreground plumbing or
+synthetic all-model equivalence tests do not establish source interaction parity.

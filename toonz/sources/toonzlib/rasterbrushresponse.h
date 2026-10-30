@@ -29,6 +29,21 @@
 
 namespace RasterBrush {
 namespace Detail {
+inline bool validateResponsePathInput(const QString &path, QString &error) {
+  if (path.contains(QChar::Null)) {
+    error = "Invalid response path";
+    return false;
+  }
+#ifdef _WIN32
+  // QFileInfo can normalize an extended/device prefix away. Reject these
+  // namespaces before any normalization, not only on the resulting path.
+  if (QDir::fromNativeSeparators(path).startsWith("//")) {
+    error = "Regular-file protocol requires a local disk path";
+    return false;
+  }
+#endif
+  return true;
+}
 // The worker's directory contents are hostile, including on platforms whose
 // privilege sandbox is not yet complete. Never inspect with QFileInfo and then
 // open with QFile: that follows a replaced link and can block opening a FIFO.
@@ -56,6 +71,7 @@ public:
   }
   bool open(const QString &path, QString &error) {
     error.clear();
+    if (!validateResponsePathInput(path, error)) return false;
     auto fail = [&](const char *message) {
       error = QString::fromLatin1(message);
       return false;
@@ -76,8 +92,12 @@ public:
     QString prefix   = absolute.left(3);
     const auto parts = absolute.mid(3).split('/', Qt::SkipEmptyParts);
     for (int i = 0; i <= parts.size(); ++i) {
-      const QString native = QDir::toNativeSeparators(prefix);
-      HANDLE handle        = CreateFileW(
+      // Qt file APIs already add the extended-length prefix; raw Win32
+      // opens must do so too. Only the validated local disk path above is
+      // eligible: this does not admit UNC or caller-supplied device paths.
+      const QString native =
+          QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(prefix);
+      HANDLE handle = CreateFileW(
           reinterpret_cast<LPCWSTR>(native.utf16()),
           FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
@@ -149,6 +169,7 @@ public:
       return fail(error, "Invalid response file name");
 #ifdef _WIN32
     const QString native =
+        QStringLiteral("\\\\?\\") +
         QDir::toNativeSeparators(QDir(directory.path_).filePath(name));
     handle_ = CreateFileW(
         reinterpret_cast<LPCWSTR>(native.utf16()), GENERIC_READ,
