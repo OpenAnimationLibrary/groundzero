@@ -185,6 +185,7 @@ int main(int argc, char **argv) {
                 oracle["version"].toString() == "5.3.4.1",
             "Source reference incomplete or wrong version");
     QJsonArray results;
+    QStringList failedHardCases;
     QFile manifest(root.filePath("output/fixtures.json"));
     require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
     auto fixtures = QJsonDocument::fromJson(manifest.readAll()).object();
@@ -214,6 +215,11 @@ int main(int argc, char **argv) {
       require(error.isEmpty() && imported.records.size() == 1,
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
+      const bool sourceHard = fixtures["group"].toString() == "hardpixel" ||
+                              (fixtures["group"].toString() == "geometry" &&
+                               name.endsWith("antialias 0"));
+      if (sourceHard)
+        p.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
       p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
       p.opacity.value = source["opacity"].toDouble();
@@ -270,6 +276,31 @@ int main(int argc, char **argv) {
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
+      if (sourceHard) {
+        auto rb = metrics["referenceBounds"].toArray();
+        auto cb = metrics["candidateBounds"].toArray();
+        const double boundsError =
+            std::max({std::abs(rb[0].toDouble() - cb[0].toDouble()),
+                      std::abs(rb[1].toDouble() - cb[1].toDouble()),
+                      std::abs(rb[0].toDouble() + rb[2].toDouble() -
+                               cb[0].toDouble() - cb[2].toDouble()),
+                      std::abs(rb[1].toDouble() + rb[3].toDouble() -
+                               cb[1].toDouble() - cb[3].toDouble())});
+        bool passed =
+            metrics["premultipliedRGBMAE"].toDouble() <= 2 / 255.0 &&
+            metrics["alphaMAE"].toDouble() <= 1 / 255.0 &&
+            metrics["alphaP99"].toDouble() <= 4 / 255.0 &&
+            metrics["changedPixelIoU"].toDouble() >= .98 &&
+            boundsError <= std::max(1.0, source["diameter"].toDouble() * .02) &&
+            !metrics["emptyCandidateFailure"].toBool();
+        if (fixtures["group"].toString() == "geometry")
+          passed = passed && metrics["maxRGBError"].toDouble() == 0 &&
+                   metrics["maxAlphaError"].toDouble() == 0;
+        metrics["hardPixelCandidatePassed"] = passed;
+        metrics["boundsError"] = boundsError;
+        if (!passed)
+          failedHardCases.append(name);
+      }
       metrics["renderMilliseconds"] = elapsed;
       metrics["dabs"] = double(stroke.dabCount());
       metrics["diagnostics"] =
@@ -288,6 +319,9 @@ int main(int argc, char **argv) {
             .toJson());
     std::cout << "Measured " << results.size()
               << " native conversion cases; source parity is not granted.\n";
+    require(failedHardCases.empty(),
+            "Experimental K5341 hard-pixel fidelity gates failed: " +
+                failedHardCases.join(", "));
   } catch (const std::exception &e) {
     std::cerr << "::error::Brush comparison failed: " << e.what() << '\n';
     return 1;

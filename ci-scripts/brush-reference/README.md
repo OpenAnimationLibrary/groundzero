@@ -122,3 +122,25 @@ no-op, records it and compares the candidate normally; it is not omitted or
 reported as general tiny-brush parity. The two measured legacy zero-strength
 cases also require their observed unchanged result. Cleanup diagnostics preserve
 the primary failure instead of replacing it with a shutdown error.
+
+The independently written `krita-5.3.4.1-hard-pixel-candidate-1` runtime profile
+now separates measured hard-circle lattice placement and endpoint scheduling
+from the native renderer. It rejects antialiasing, nonintegral diameter,
+noncircular/soft tips, sensors, angle/aspect changes, opacity/flow changes,
+texture, dual masks, wet paint and other unimplemented controls. The profile is
+selected explicitly by this harness, not silently by the foreign importer.
+Six hard one-dab cases must match full-canvas pixels exactly. A `hardpixel` job
+adds nine diameter/spacing combinations (7/32/128 pixels, spacing .1/.25/1) with
+the contract's dry RGB, alpha, p99, IoU and bound-displacement gates enforced.
+Failing candidate cases retain metrics/images and fail the job; exploratory
+native comparisons still do not grant parity. Passing these cases does not
+complete the Pixel profile, qualify arbitrary settings, or set foreign import
+verification flags. No source implementation was used to derive this profile.
+
+Tablet fixtures explicitly select the source tool's no-smoothing option via its
+Qt control and verify that it remains selected, following the
+[documented smoothing choices](https://docs.krita.org/en/reference_manual/tools/freehand_brush.html).
+Qt device timestamps remain monotonic across separate strokes; authored trace
+times stay relative to the stroke for comparison. The earlier repeated 0-based
+device timestamps were not a valid source input stream. Exact repeated-pixel
+equality remains required after that correction.

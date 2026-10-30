@@ -166,8 +166,27 @@ Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
 }
 
 std::string validate(const Preset &p) {
-  if (p.profile != "groundzero-native-1")
+  const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
+  if (p.profile != "groundzero-native-1" && !sourceHard)
     return "Unimplemented behavior profile: " + p.profile;
+  if (sourceHard) {
+    auto fixed = [](const Dynamic &value, double expected) {
+      return value.value == expected && value.mappings.empty();
+    };
+    if (p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
+        p.tip.antialiasEdges || !p.tip.images.empty() ||
+        !p.size.mappings.empty() || p.size.value != std::floor(p.size.value) ||
+        !fixed(p.aspect, 1) || !fixed(p.angle, 0) || !fixed(p.opacity, 1) ||
+        !fixed(p.flow, 1) || !fixed(p.scatter, 0) ||
+        !fixed(p.countControl, 1) || !fixed(p.backgroundMix, 0) ||
+        !fixed(p.hue, 0) || !fixed(p.saturation, 1) ||
+        !fixed(p.brightness, 1) || p.count != 1 || p.airbrushRate != 0 ||
+        p.wash || p.lockAlpha || p.flipX || p.flipY ||
+        p.blend != Blend::Normal || p.wet != Wet::Off || p.texture.image ||
+        p.secondary.enabled || p.color.a != 1)
+      return "Unimplemented setting in the experimental Krita hard-pixel "
+             "profile";
+  }
   auto range = [](double v, double lo, double hi) {
     return std::isfinite(v) && v >= lo && v <= hi;
   };
@@ -337,7 +356,8 @@ struct Stroke::Impl {
   std::string failure;
   Sample previous, first;
   bool started = false, finished = false;
-  bool hasInitialDirection = false;
+  bool pendingSourceEndpoint = false;
+  bool hasInitialDirection   = false;
   double travel = 0, sinceDab = 0, sinceTime = 0, spacing = 1, direction = 0,
          speed = 0, initialDirection = 0;
   std::uint64_t rng;
@@ -546,17 +566,22 @@ struct Stroke::Impl {
     for (int stamp = 0; stamp < stampCount; ++stamp) {
       const double scatterX = (random() * 2 - 1) * scatter,
                    scatterY = (random() * 2 - 1) * scatter;
-      const double cx       = s.x + (p.scatterBothAxes
-                                         ? scatterX
-                                         : -std::sin(direction) * scatterX),
-                   cy       = s.y + (p.scatterBothAxes
-                                         ? scatterY
-                                         : std::cos(direction) * scatterX);
-      const int reach       = int(std::ceil(radius * 1.415 + 1));
-      int x0                = std::max(0, int(std::floor(cx)) - reach),
-          y0                = std::max(0, int(std::floor(cy)) - reach);
-      int x1 = std::min(surface.width(), int(std::ceil(cx)) + reach),
-          y1 = std::min(surface.height(), int(std::ceil(cy)) + reach);
+      // Independently measured K5341 hard-circle lattice: integer x and
+      // half-integer y distances from an integral API stroke position. The
+      // native profile retains its pixel-center convention unchanged.
+      const double sourceOffset =
+          p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" ? .5 : 0;
+      const double cx = s.x + sourceOffset +
+                        (p.scatterBothAxes ? scatterX
+                                           : -std::sin(direction) * scatterX),
+                   cy = s.y + (p.scatterBothAxes
+                                   ? scatterY
+                                   : std::cos(direction) * scatterX);
+      const int reach = int(std::ceil(radius * 1.415 + 1));
+      int x0          = std::max(0, int(std::floor(cx)) - reach),
+          y0          = std::max(0, int(std::floor(cy)) - reach);
+      int x1          = std::min(surface.width(), int(std::ceil(cx)) + reach),
+          y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
       int halo = p.wet == Wet::Off ? 0 : int(std::ceil(radius * smudgeRadius));
       if (!surface.prepare(std::max(0, x0 - halo), std::max(0, y0 - halo),
@@ -743,6 +768,10 @@ bool Stroke::add(const Sample &s) {
     const Sample from = m->previous;
     double distance   = std::hypot(s.x - from.x, s.y - from.y),
            dt         = s.time - from.time;
+    if (m->pendingSourceEndpoint && distance > 0) {
+      if (!m->dab(from)) return false;
+      m->pendingSourceEndpoint = false;
+    }
     if (distance > 0) {
       m->direction = std::atan2(s.y - from.y, s.x - from.x);
       if (!m->hasInitialDirection) {
@@ -761,6 +790,14 @@ bool Stroke::add(const Sample &s) {
       if (f + step > 1) break;
       f += step;
       m->travel += step * distance;
+      if (f == 1 && m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
+        // The measured source omits a dab exactly at the final endpoint.
+        // Defer it until further movement so splitting the same path into
+        // input events does not lose interior spacing-boundary dabs.
+        m->pendingSourceEndpoint = true;
+        m->sinceDab = m->sinceTime = 0;
+        break;
+      }
       if (!m->dab(interpolate(from, s, f))) return false;
       m->sinceDab  = 0;
       m->sinceTime = 0;
@@ -776,7 +813,8 @@ bool Stroke::add(const Sample &s) {
   }
 }
 void Stroke::finish() {
-  m->finished = true;
+  m->finished              = true;
+  m->pendingSourceEndpoint = false;
   m->tiles.clear();
   m->cubic.clear();
   std::vector<Pixel>().swap(m->smear);

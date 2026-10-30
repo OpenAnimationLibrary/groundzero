@@ -12,7 +12,7 @@ from krita import Krita, Extension, ManagedColor, Preset
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
 from PyQt5.QtGui import QColor, QImage, QTabletEvent
-from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget, QComboBox
 
 
 class Probe(Extension):
@@ -62,6 +62,25 @@ class Probe(Extension):
         window = app.activeWindow().qwindow()
         window.showMaximized()
         yield
+        smoothing = []
+        for combo in window.findChildren(QComboBox):
+            labels = [combo.itemText(i).replace("&", "").strip().lower()
+                      for i in range(combo.count())]
+            if (any("stabilizer" in label for label in labels) and
+                    any("weighted" in label for label in labels) and
+                    any("basic" in label for label in labels)):
+                smoothing.append((combo, labels))
+        if len(smoothing) != 1:
+            raise RuntimeError("Cannot identify the unique source brush smoothing control")
+        combo, labels = smoothing[0]
+        disabled = [i for i, label in enumerate(labels)
+                    if label in ("none", "no smoothing", "no smoothing.")]
+        if len(disabled) != 1:
+            raise RuntimeError("Source smoothing control has no explicit disabled mode: " + str(labels))
+        combo.setCurrentIndex(disabled[0])
+        yield
+        if combo.currentIndex() != disabled[0]:
+            raise RuntimeError("Source smoothing did not remain disabled")
         canvases = [widget for widget in window.findChildren(QWidget)
                     if widget.isVisible() and widget.metaObject().className() in
                     ("KisQPainterCanvas", "KisOpenGLCanvas2")]
@@ -109,6 +128,7 @@ class Probe(Extension):
         send(rows[-1], QEvent.TabletLeaveProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
         yield
         return {"mode": "Qt tablet events", "canvasClass": canvas.metaObject().className(),
+                "smoothing": combo.currentText(),
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
                 "timing": "240 Hz event timestamps; Qt event-loop delivery, not physical device timing"}
 

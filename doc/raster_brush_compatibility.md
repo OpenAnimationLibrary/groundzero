@@ -422,3 +422,13 @@ fixtures check two half-opacity stamps, subtraction, asymmetric bitmap mirrors,
 limits and reopening. Independent secondary spacing and source-specific dual
 brush scheduling remain required adapter work; this native primitive does not
 claim that Photoshop or Krita uses the same union/scheduling rules.
+
+An experimental `krita-5.3.4.1-hard-pixel-candidate-1` runtime profile implements
+independently measured hard-circle lattice placement and defers an exact
+spacing-boundary endpoint until further movement. This preserves interior dabs
+when a path is split into input events while omitting a terminal boundary dab.
+It is a separate strict profile, not a change to native painting. Unsupported
+settings reject validation. The reference harness selects it for hard-tip cases
+and enforces fidelity gates; the general KPP importer does not automatically
+select it or grant source support/verification. The full K5341 Pixel and all four
+smudge profiles remain unfinished; this is an implementation slice toward them.

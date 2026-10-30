@@ -56,9 +56,9 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel"):
     raise RuntimeError("Unknown reference fixture group")
-profiles = [("dry", False)] if group in ("geometry", "tablet") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
+profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 for mode, modern in profiles:
     base = "GZ Original " + mode + (" new" if modern else " legacy")
     variants = [
@@ -76,6 +76,9 @@ for mode, modern in profiles:
                     for diameter in (1, 7, 8, 32, 64, 128) for edge in (0, 1)]
     if group == "tablet":
         variants = [variant for variant in variants if variant[0] in ("baseline", "pressure ramp")]
+    if group == "hardpixel":
+        variants = [(f"hard diameter {diameter} spacing {spacing}", {}, diameter, spacing, [1, 1], 1, 1)
+                    for diameter in (7, 32, 128) for spacing in (.1, .25, 1)]
     if mode == "dry" and group == "parameters":
         for length in (1, 2, 3, 4, 7, 16, 32):
             variants.append(("short line " + str(length), {}, 32, .1, [1, 1], 1, 1))
@@ -90,7 +93,8 @@ for mode, modern in profiles:
                 variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
-        (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, int(label.rsplit(" ", 1)[1]) if group == "geometry" else 1))
+        edge = int(label.rsplit(" ", 1)[1]) if group == "geometry" else (0 if group == "hardpixel" else 1)
+        (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge))
         names.append(name)
         end_x = 256 + int(label.rsplit(" ", 1)[1]) if label.startswith("short line ") else 1792
         if group == "geometry":
