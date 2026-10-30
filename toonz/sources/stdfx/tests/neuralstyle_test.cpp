@@ -188,12 +188,12 @@ QJsonObject longSequence(const QDir &directory,const QString &name,const QImage 
   const QDir folder(directory.filePath(name+"-sequence"));require(QDir().mkpath(folder.absolutePath()),"Cannot create sequence directory");
   std::vector<QImage> frames,inks;
   for(int f=0;f<24;++f) {
-    const int shift=f<8?f*2:(f<=10?14:(f<=20?14+(f-10)*2:34));
+    const double shift=f<8?f*2:(f<=10?14:(f<=20?14+(f-10)*1.5:29));
     QImage frame(384,384,QImage::Format_ARGB32);frame.fill(base.pixel(0,0));
     QImage ink(384,384,QImage::Format_RGB32);ink.fill(Qt::black);
-    {QPainter p(&frame);p.drawImage(shift,0,base);
+    {QPainter p(&frame);p.setRenderHint(QPainter::SmoothPixmapTransform);p.drawImage(QPointF(shift,0),base);
       if(f>=8 && f<=15)p.fillRect(QRect(170,55,45,300),QColor(43,63,73));}
-    {QPainter p(&ink);p.drawImage(shift,0,baseInk);
+    {QPainter p(&ink);p.setRenderHint(QPainter::SmoothPixmapTransform);p.drawImage(QPointF(shift,0),baseInk);
       if(f>=8 && f<=15)p.fillRect(QRect(170,55,45,300),Qt::black);}
     frames.push_back(frame);inks.push_back(ink);
   }
@@ -230,7 +230,7 @@ QJsonObject longSequence(const QDir &directory,const QString &name,const QImage 
   QFile html(folder.filePath("index.html"));require(html.open(QIODevice::WriteOnly),"Cannot save playback viewer");
   html.write(R"HTML(<!doctype html><meta charset="utf-8"><title>Neural animation comparison</title>
 <style>body{font:16px system-ui;background:#eee;margin:24px}img{display:block;max-width:100%;background:white}header{display:flex;justify-content:space-around;max-width:1152px}input{width:400px}</style>
-<h1>Natural reference, 35% strength</h1><p>24 original synthetic frames at 8 fps. Pan: 0–7. Hold: 8–10. Occluder: 8–15. Reveal: 16. Final hold: 20–23.</p>
+<h1>Natural reference, 35% strength</h1><p>24 original synthetic frames at 8 fps. Integer pan: 0–7. Hold: 8–10. Fractional pan: 11–20. Occluder: 8–15. Reveal: 16. Final hold: 20–23.</p>
 <button id="play">Pause</button> <input id="frame" type="range" min="0" max="23" value="0"> <output id="number">0</output>
 <header><span>Source</span><span>Independent</span><span>Temporal 70%</span></header><img id="image" src="comparison-00.png">
 <script>let n=0,running=true;const slider=document.getElementById('frame'),pic=document.getElementById('image'),out=document.getElementById('number'),button=document.getElementById('play');function show(){pic.src='comparison-'+String(n).padStart(2,'0')+'.png';slider.value=n;out.textContent=n;}button.onclick=()=>{running=!running;button.textContent=running?'Pause':'Play';};slider.oninput=()=>{n=+slider.value;running=false;button.textContent='Play';show();};setInterval(()=>{if(running){n=(n+1)%24;show();}},125);</script>)HTML");

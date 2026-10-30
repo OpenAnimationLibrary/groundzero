@@ -1,5 +1,6 @@
 """CI-only application transport qualification, after the native app build."""
 import os
+import json
 import platform
 from pathlib import Path
 import subprocess
@@ -46,6 +47,9 @@ try:
             print(trace.stdout[-16000:], trace.stderr[-3000:], flush=True)
         raise RuntimeError(f"Neural FX qualification failed (exit {result.returncode}): " +
                            result.stdout[-2000:] + result.stderr[-3000:])
+    metrics = json.loads(Path("neural-evaluation/report/artist-review/metrics.json").read_text())
+    for entry in metrics:
+        print("::notice title=Neural visual motion measurements::" + json.dumps(entry), flush=True)
     name = "neuralstyle_editor_test" + (".exe" if os.name == "nt" else "")
     editors = [p for p in Path("toonz/build").rglob(name)
                if p.is_file() and "opentoonz" not in {part.lower() for part in p.parts}]
