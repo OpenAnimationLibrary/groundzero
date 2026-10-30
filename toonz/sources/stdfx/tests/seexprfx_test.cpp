@@ -2,7 +2,9 @@
 #include "tmacrofx.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
+#include <atomic>
 #include <future>
+#include <thread>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -528,6 +530,150 @@ void checkFailuresAndWorkers() {
     require(first->pixels(y)[x] == second->pixels(y)[x], "parallel workers shared mutable interpreter state");
 }
 
+// Control IDs may contain "__": Import Annotations turns `a = curve(...);
+// a__b = 0.5;` into _annot_a and _annot_a__b. Matching parameters by the
+// prefix "seexprControl_c__" read c__x's value as a knot of c, threw
+// std::invalid_argument out of the parameter observer and terminated the app.
+void checkDoubleUnderscoreIds(const QString &directory) {
+  TFxP owner = new SeExprGeneratorFx;
+  auto &fx   = *dynamic_cast<SeExprGeneratorFx *>(owner.getPointer());
+  QJsonObject ramp{
+      {"id", "c"},
+      {"name", "c"},
+      {"label", "Ramp"},
+      {"type", "curve"},
+      {"points", QJsonArray{QJsonArray{0, 0, 1}, QJsonArray{1, 1, 1}}}};
+  QJsonObject amount = scalar("c__x", .25);
+  amount["label"]    = "Amount";
+  document(fx, "[c(0.5),$c__x,0]", "1", {ramp, amount});
+  expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], .5, .25, 0, 1);
+  TParamContainer *params = fx.getParams();
+  require(
+      params->getParam("seexprControl_c__x__value")->getUILabel() == "Amount" &&
+          params->getParam("seexprControl_c__p1")->getUILabel() == "Ramp p1",
+      "a control with a \"__\" ID took another control's label");
+  document(fx, "[0,$c__x,0]", "1", {amount});
+  require(params->getParamVar("seexprControl_c__p0")->isHidden() &&
+              !params->getParamVar("seexprControl_c__x__value")->isHidden(),
+          "archiving a control hid a control whose ID extends its own");
+  document(fx, "[c(0.5),$c__x,0]", "1", {ramp, amount});
+  numeric(fx, "seexprControl_c__x__value")->setValue(2, .75);
+  for (bool compressed : {false, true}) {
+    const TFilePath path((directory + (compressed ? "/underscore-compressed.tnz"
+                                                  : "/underscore.tnz"))
+                             .toStdWString());
+    {
+      TOStream stream(path, compressed);
+      stream << owner.getPointer();
+    }
+    TFxP restored;
+    {
+      TIStream stream(path);
+      stream >> restored;
+    }
+    require(restored &&
+                numeric(*restored, "seexprControl_c__x__value")->isKeyframe(2),
+            "reopening a \"__\" control lost its animation");
+    expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(restored.getPointer()),
+                             1, 1, TPointD(), 2)
+               ->pixels(0)[0],
+           .5, .75, 0, 1);
+  }
+
+  // Exact names can still coincide: key "x_" of animation curve "a" and the
+  // value of scalar "a__kx" are both seexprControl_a__kx__value. That is a
+  // schema error of the declaration, never an exception from the observer.
+  auto rejected = [](TFx &effect, const char *message) {
+    std::string error;
+    auto *source = dynamic_cast<TFxSeExprSource *>(&effect);
+    require(!source->validateSeExprDocument(
+                source->seExprDocumentParam()->getValue(), 0, error) &&
+                error.find("same native parameter") != std::string::npos,
+            "validation accepted a colliding declaration");
+    bool failed = false;
+    try {
+      rendered<TPixelF>(*dynamic_cast<TRasterFx *>(&effect), 1, 1);
+    } catch (const TException &failure) {
+      failed = QString::fromStdWString(failure.getMessage())
+                   .toStdString()
+                   .find("same native parameter") != std::string::npos;
+    }
+    require(failed, message);
+  };
+  QJsonObject motion{{"id", "a"},
+                     {"name", "motion"},
+                     {"type", "animcurve"},
+                     {"keys", QJsonArray{QJsonObject{
+                                  {"id", "x_"}, {"time", 0}, {"value", 0}}}}};
+  QJsonObject gain = scalar("a__kx", .5);
+  gain["name"]     = "gain";
+  SeExprGeneratorFx colliding;
+  document(colliding, "[motion(0),$gain,0]", "1", {motion, gain});
+  rejected(colliding,
+           "colliding native parameter names were not a schema error");
+  SeExprGeneratorFx archived;
+  document(archived, "[$gain,0,0]", "1", {gain});
+  document(archived, "[motion(0),0,0]", "1", {motion});
+  rejected(
+      archived,
+      "a control colliding with an archived control was not a schema error");
+}
+
+// The swatch renders a clone on a worker thread while field edits apply new
+// declarations to it on the GUI thread. Every new curve adds controls and
+// native parameters; a render must never read them while they change.
+void editWhileRendering() {
+  SeExprGeneratorFx fx;
+  set(fx, "width", 4);
+  set(fx, "height", 4);
+  document(fx, "[$c,0,0]", "1", {scalar("c", .5)});
+  std::atomic<bool> done(false);
+  std::atomic<int> renders(0);
+  auto worker = std::async(std::launch::async, [&]() {
+    // A failed render ends the loop; get() below rethrows it.
+    struct Stop {
+      std::atomic<bool> &done;
+      ~Stop() { done = true; }
+    } stop{done};
+    while (!done.load()) {
+      require(!fx.getAlias(0, TRenderSettings()).empty(),
+              "concurrent alias is empty");
+      const auto image = rendered<TPixelF>(fx, 4, 4, TPointD(-2, -2));
+      require(std::abs(image->pixels(3)[3].r - .5) < 1e-6,
+              "a render read a torn declaration");
+      ++renders;
+    }
+  });
+  struct Join {
+    std::atomic<bool> &done;
+    std::future<void> &worker;
+    ~Join() {
+      done = true;
+      if (worker.valid()) worker.wait();
+    }
+  } join{done, worker};
+  while (renders.load() == 0 && !done.load()) std::this_thread::yield();
+  for (int edit = 0; edit < 100 && !done.load(); ++edit) {
+    const QString id = QString("ramp_%1").arg(edit);
+    QJsonObject ramp{
+        {"id", id},
+        {"name", id},
+        {"type", "curve"},
+        {"points", QJsonArray{QJsonArray{0, .5, 1}, QJsonArray{1, .5, 1}}}};
+    document(fx, QString("[%1(0.25)+$c-1,0,0]").arg(id), "1",
+             {scalar("c", 1), ramp});
+    document(fx, "[$c-0.5,0,0]", "1", {scalar("c", 1)});
+  }
+  const int concurrent = renders.load();
+  done                 = true;
+  worker.get();
+  require(concurrent > 1, "the render did not run during the edits");
+}
+void checkConcurrentDocumentEdits() {
+  // Each effect accepts about a hundred new controls; repeat to catch races.
+  for (int round = 0; round < 8; ++round) editWhileRendering();
+}
+
 void expectUnsupportedDocument(TFx &fx, const std::wstring &source,
                                const char *diagnostic) {
   auto *native = dynamic_cast<TFxSeExprSource *>(&fx);
@@ -866,6 +1012,8 @@ int main(int argc, char **argv) {
     checkSurfaceHostBoundary();
     checkNamedControlsAndPersistence(temporary.path());
     checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
+    checkDoubleUnderscoreIds(temporary.path());
+    checkConcurrentDocumentEdits();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

@@ -137,8 +137,10 @@ protected:
 
   std::shared_ptr<const otglb::SurfaceRequest> request(
       double frame, const TRenderSettings &settings) const {
+    const std::string inputs = inputAliases(frame, settings);
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
     demand(m_schemaError.empty(), m_schemaError.c_str());
-    const auto document = SeExprFx::parseDocument(m_document->getValue());
+    const auto document = SeExprFx::parseDocument(m_documentText);
     const std::array<std::string, 4> sources{{document.rgb.toStdString(),
         document.alpha.toStdString(), displacement(document).toStdString(), opacity(document).toStdString()}};
     auto variables = variablesFor(document, frame);
@@ -157,7 +159,8 @@ protected:
     demand(coordinates >= 0 && coordinates <= 2, "unknown surface coordinate space");
     const double limit = finite(m_displacementLimit->getValue(frame), "displacement limit must be finite");
     demand(limit >= 0 && limit <= 1000000000.0, "displacement limit is outside zero to one billion object units");
-    std::string identity = Base::getAlias(frame, settings) + attributes.identity();
+    std::string identity =
+        stateAlias(frame, settings, inputs) + attributes.identity();
     struct Entry { std::string identity; std::shared_ptr<const otglb::SurfaceRequest> value; };
     static thread_local std::list<Entry> cache;
     const auto found = std::find_if(cache.begin(), cache.end(),
@@ -190,6 +193,7 @@ protected:
       std::array<double, 3> &opacityResult, std::string &error) const {
     try {
       if (!validateSeExprDocument(text, frame, error)) return false;
+      std::lock_guard<std::recursive_mutex> state(m_stateMutex);
       const auto document = SeExprFx::parseDocument(text);
       const auto backend = document.backend == "llvm" ? TSeExpr::Backend::LLVM : TSeExpr::Backend::Interpreter;
       const std::array<std::string, 4> sources{{document.rgb.toStdString(),
@@ -242,6 +246,7 @@ public:
       std::string &error, std::vector<TSeExpr::Error> *diagnostics = nullptr) const override {
     try {
       if (!Base::validateSeExprDocument(text, frame, error, diagnostics)) return false;
+      std::lock_guard<std::recursive_mutex> state(m_stateMutex);
       const auto document = SeExprFx::parseDocument(text);
       for (bool geometry : {true, false}) {
         TSeExpr::Program program; TSeExpr::Options options;
