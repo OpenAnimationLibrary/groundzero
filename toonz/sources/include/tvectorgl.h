@@ -18,6 +18,7 @@
 
 //#include "tgeometry.h"
 #include "tcommon.h"
+#include <string>
 
 #undef DVAPI
 #undef DVVAR
@@ -44,6 +45,25 @@ class TVectorRenderData;
 
 //=============================================================================
 
+// Widget paint events and explicit widget framebuffer captures create this
+// scope. Captures throw after Qt finishes if the scope recorded a failure.
+// Native offscreen/file rendering retains its throwing failure contract.
+// Nested widget paints collect their own errors and restore the parent scope.
+class DVAPI TViewerOpacityErrorScope final {
+  TViewerOpacityErrorScope *m_previous;
+  std::string m_error;
+public:
+  TViewerOpacityErrorScope();
+  ~TViewerOpacityErrorScope();
+  TViewerOpacityErrorScope(const TViewerOpacityErrorScope &) = delete;
+  TViewerOpacityErrorScope &operator=(const TViewerOpacityErrorScope &) = delete;
+  const std::string &error() const { return m_error; }
+  void record(const char *message);
+  static bool currentFailed();
+};
+
+//=============================================================================
+
 /*!
   Draw a stroke in a GL context.
   \par stroke is element to draw
@@ -59,7 +79,8 @@ void DVAPI tglDraw(const TVectorRenderData &rd, TRegion *r,
 
 #ifdef BUILD_UI_PORT_TESTS
 // Native acceptance fault injection, absent from production builds. 0 resets,
-// 1 simulates missing FBO entry points, 2 fails after resource allocation.
+// 1 simulates missing FBO entry points, 2 fails after resource allocation,
+// 3 fails only inside an intermediate style capture.
 void DVAPI tglSetOpacityFramebufferFailureForTest(int stage);
 void DVAPI tglSetOpacityViewportCaptureForTest(bool full);
 #endif

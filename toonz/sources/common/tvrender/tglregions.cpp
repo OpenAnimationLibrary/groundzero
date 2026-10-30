@@ -49,6 +49,18 @@
 #define checkErrorsByGL
 
 namespace {
+thread_local TViewerOpacityErrorScope *viewerOpacityErrors = nullptr;
+// An intermediate style framebuffer must fail as a whole. Its nested strokes
+// cannot report success merely because the outer operation is a widget paint.
+class SuspendViewerOpacityErrors {
+  TViewerOpacityErrorScope *m_previous = viewerOpacityErrors;
+  bool m_suspended;
+public:
+  explicit SuspendViewerOpacityErrors(bool suspend = true) : m_suspended(suspend) {
+    if (m_suspended) viewerOpacityErrors = nullptr;
+  }
+  ~SuspendViewerOpacityErrors() { if (m_suspended) viewerOpacityErrors = m_previous; }
+};
 class OpacityRenderError : public std::runtime_error {
 public:
   using std::runtime_error::runtime_error;
@@ -63,7 +75,18 @@ public:
 #ifdef BUILD_UI_PORT_TESTS
 thread_local int opacityFramebufferFailure = 0;
 thread_local bool opacityFullViewportCapture = false;
+thread_local int opacityCaptureDepth = 0;
 #endif
+}
+
+TViewerOpacityErrorScope::TViewerOpacityErrorScope()
+    : m_previous(viewerOpacityErrors) { viewerOpacityErrors = this; }
+TViewerOpacityErrorScope::~TViewerOpacityErrorScope() { viewerOpacityErrors = m_previous; }
+void TViewerOpacityErrorScope::record(const char *message) {
+  if (m_error.empty()) m_error = message;
+}
+bool TViewerOpacityErrorScope::currentFailed() {
+  return viewerOpacityErrors && !viewerOpacityErrors->error().empty();
 }
 #ifdef BUILD_UI_PORT_TESTS
 void tglSetOpacityFramebufferFailureForTest(int stage) { opacityFramebufferFailure = stage; }
@@ -510,7 +533,8 @@ class OpacityFramebuffer {
 public:
   OpacityFramebuffer(int width, int height) {
 #ifdef BUILD_UI_PORT_TESTS
-    if (opacityFramebufferFailure == 1)
+    if (opacityFramebufferFailure == 1 ||
+        (opacityFramebufferFailure == 3 && opacityCaptureDepth > 0))
       throw std::runtime_error("Stroke opacity envelopes require OpenGL framebuffer support");
 #endif
     m_genBuffers = reinterpret_cast<Gen>(address("glGenFramebuffers"));
@@ -657,6 +681,13 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   data.m_clippingRect = TRect();
   {
     TStencilControl::FramebufferScope stencilScope;
+    SuspendViewerOpacityErrors suspendViewerErrors;
+#ifdef BUILD_UI_PORT_TESTS
+    struct CaptureDepth {
+      CaptureDepth() { ++opacityCaptureDepth; }
+      ~CaptureDepth() { --opacityCaptureDepth; }
+    } captureDepth;
+#endif
     tglDraw(data, &unmodulated, true);
   }
   if (hasEnvelope) {
@@ -740,14 +771,33 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
 } // namespace
 
 void tglDraw(const TVectorRenderData &rd, const TStroke *s, bool pushAttribs) {
+  SuspendViewerOpacityErrors strictRender(rd.m_isOfflineRender || rd.m_isIcon);
   assert(s);
   if (!s) return;
   if (s->getOpacity() <= 0.) return;
   if (s->getOpacity() < 1. || !s->getOpacityProfile().empty()) {
+    GLint renderMode = GL_RENDER;
+    glGetIntegerv(GL_RENDER_MODE, &renderMode);
+    if (renderMode == GL_SELECT) {
+      // Native picking records geometric hits, not framebuffer pixels. The
+      // opacity composite rectangle must never replace the stroke's hit area.
+      TStroke geometry(*s);
+      geometry.setOpacity(1.);
+      geometry.setOpacityProfile({});
+      tglDraw(rd, &geometry, pushAttribs);
+      return;
+    }
     try { drawOpacityEnvelope(rd, *s); }
-    catch (const OpacityRenderError &) { throw; }
+    catch (const OpacityRenderError &error) {
+      if (viewerOpacityErrors && !rd.m_isOfflineRender && !rd.m_isIcon)
+        viewerOpacityErrors->record(error.what());
+      else throw;
+    }
     catch (const std::exception &error) {
-      throw OpacityRenderError(std::string("Cannot render stroke opacity: ") + error.what());
+      const std::string message = std::string("Cannot render stroke opacity: ") + error.what();
+      if (viewerOpacityErrors && !rd.m_isOfflineRender && !rd.m_isIcon)
+        viewerOpacityErrors->record(message.c_str());
+      else throw OpacityRenderError(message);
     }
     return;
   }
@@ -1036,6 +1086,7 @@ rdRegions.m_alphaChannel = rdRegions.m_antiAliasing = false;*/
 
 void tglDraw(const TVectorRenderData &rd, const TVectorImage *vim,
              TStroke **guidedStroke) {
+  SuspendViewerOpacityErrors strictRender(rd.m_isOfflineRender || rd.m_isIcon);
   assert(vim);
   if (!vim) return;
 

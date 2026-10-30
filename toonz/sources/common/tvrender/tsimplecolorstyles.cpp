@@ -2114,6 +2114,9 @@ void TVectorImagePatternStrokeStyle::drawStroke(
       CHECK_GL_ERROR
 
       glPushMatrix();
+      struct RestorePatternMatrix {
+        ~RestorePatternMatrix() { glPopMatrix(); }
+      } restorePatternMatrix;
 
       CHECK_GL_ERROR
 
@@ -2144,7 +2147,6 @@ void TVectorImagePatternStrokeStyle::drawStroke(
 
         CHECK_GL_ERROR
       }
-      glPopMatrix();
     }
   }
 }

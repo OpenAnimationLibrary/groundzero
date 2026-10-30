@@ -85,3 +85,21 @@ DLL factory, Unicode paths, small dimensions, cancellation, timeout, malformed
 payloads and temporary-file cleanup. The provider loads only Windows system
 libraries; GUI, GL and image-format dependencies stay in the installed helper.
 All of these execution results remain pending supported CI.
+
+## Recoverable viewer failures
+
+Native GL widgets collect opacity failures only during their actual paint
+events. A mouse-transparent, accessible notice stays above later drawing layers
+and tool overlays; repeated repaint reuses it, framebuffer reuse retains it,
+and successful rendering clears it. Intermediate style captures suspend this
+collection so a failed nested render cannot appear complete. Production,
+thumbnail and file-export renders retain explicit failures.
+
+Explicit viewer framebuffer capture collects errors while Qt completes its
+framebuffer operation, then throws instead of returning a partial image. The
+scene viewer does not freeze an incomplete frame. Native acceptance uses real
+PlaneViewer paint/repaint events, nested widget painting, later opaque layers,
+disabled updates, strict capture and recovery. Results remain pending CI.
+Native selection mode uses the original style geometry without an opacity
+framebuffer; its real selection-buffer tests retain hit names, reject points
+inside only the composite rectangle, and retain zero-scalar-opacity behavior.

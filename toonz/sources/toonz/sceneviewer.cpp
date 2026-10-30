@@ -74,6 +74,7 @@
 #include "tpalette.h"
 #include "tropcm.h"
 #include "tgl.h"
+#include "tvectorgl.h"
 #include "tofflinegl.h"
 #include "tstopwatch.h"
 #include "trop.h"
@@ -2181,7 +2182,7 @@ void SceneViewer::paintGL() {
   drawViewerIndicators();
 
   // Freeze is active and in 'update' state: grab the viewer.
-  if (m_freezedStatus == UPDATE_FREEZED) {
+  if (m_freezedStatus == UPDATE_FREEZED && !TViewerOpacityErrorScope::currentFailed()) {
     m_viewGrabImage = rasterFromQImage(grabFramebuffer());
     m_freezedStatus = NORMAL_FREEZED;
   }
