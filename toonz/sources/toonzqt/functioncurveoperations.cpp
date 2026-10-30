@@ -175,14 +175,9 @@ void appendIfChanged(Plan &plan, const Change &change) {
     plan.changes.push_back(change);
 }
 
-Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
-              double offset, double quantize = 0) {
+Plan mappedTimePlan(const std::vector<Selection> &input,
+                    const std::function<double(double)> &mapFrame) {
   Plan plan;
-  if (!finiteFrame(pivot) || !std::isfinite(scale) || scale <= 0 ||
-      !std::isfinite(offset)) {
-    fail(plan, message("Enter a finite pivot and offset and a positive time scale."));
-    return plan;
-  }
   std::vector<Selection> selections;
   if (!normalize(input, selections, plan)) return plan;
   for (const auto &selection : selections) {
@@ -192,8 +187,7 @@ Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
     for (int i = 0; i < source->getKeyframeCount(); ++i) {
       auto key = source->getKeyframe(i);
       if (selection.indices.count(i)) {
-        key.m_frame = pivot + (key.m_frame - pivot) * scale + offset;
-        if (quantize > 0) key.m_frame = pivot + std::round((key.m_frame - pivot) / quantize) * quantize;
+        key.m_frame = mapFrame(key.m_frame);
       }
       if (!finiteFrame(key.m_frame) ||
           (i && key.m_frame - keys.at(i - 1).m_frame <= FrameSeparation)) {
@@ -224,6 +218,22 @@ Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
     appendIfChanged(plan, change);
   }
   return plan;
+}
+
+Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
+              double offset, double quantize = 0) {
+  if (!finiteFrame(pivot) || !std::isfinite(scale) || scale <= 0 ||
+      !std::isfinite(offset)) {
+    Plan plan;
+    fail(plan, message("Enter a finite pivot and offset and a positive time scale."));
+    return plan;
+  }
+  return mappedTimePlan(input, [=](double frame) {
+    frame = pivot + (frame - pivot) * scale + offset;
+    return quantize > 0
+               ? pivot + std::round((frame - pivot) / quantize) * quantize
+               : frame;
+  });
 }
 
 // TDoubleParam::getValue deliberately uses a safe fallback for invalid SeExpr
@@ -417,6 +427,42 @@ Plan planFrameOffset(const std::vector<Selection> &selection, double frames) {
 
 Plan planRetime(const std::vector<Selection> &selection, double pivot, double scale) {
   return guarded([&] { return timePlan(selection, pivot, scale, 0); });
+}
+
+Plan planRetimeToRange(const std::vector<Selection> &selection,
+                       double targetFirst, double targetLast) {
+  return guarded([&]() {
+    Plan plan;
+    if (!finiteFrame(targetFirst) || !finiteFrame(targetLast) ||
+        targetFirst < 0 || targetLast < targetFirst) {
+      fail(plan, message("Enter a finite increasing destination range at or after the first frame."));
+      return plan;
+    }
+    std::vector<Selection> selections;
+    if (!normalize(selection, selections, plan)) return plan;
+    double first = (std::numeric_limits<double>::max)(), last = -first;
+    for (const auto &entry : selections) for (int index : entry.indices) {
+      const double frame = entry.curve->keyframeIndexToFrame(index);
+      if (!finiteFrame(frame)) {
+        fail(plan, message("A selected key has invalid timing."));
+        return plan;
+      }
+      first = std::min(first, frame); last = std::max(last, frame);
+    }
+    if (first == targetFirst && last == targetLast) return plan;
+    if ((first == last) != (targetFirst == targetLast)) {
+      fail(plan, message(first == last
+          ? "Keys at one source frame need identical destination start and end frames."
+          : "A selection spanning several frames needs a destination range with positive duration."));
+      return plan;
+    }
+    return mappedTimePlan(selections, [=](double frame) {
+      if (frame == first) return targetFirst;
+      if (frame == last) return targetLast;
+      return targetFirst + ((frame - first) / (last - first)) *
+                               (targetLast - targetFirst);
+    });
+  });
 }
 
 Plan planQuantize(const std::vector<Selection> &selection, double pivot, double interval) {
