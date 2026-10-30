@@ -29,14 +29,14 @@
 #include "tvectorrenderdata.h"
 #include "tofflinegl.h"
 
-#if defined(LINUX) || defined(FREEBSD)
 #include <QGuiApplication>
-#elif !defined(_WIN32) && !defined(MACOSX)
 #include <QCoreApplication>
-#endif
 
 // Add memory header for smart pointers
 #include <memory>
+#include <cstring>
+#include "shellthumbnail.h"
+#include "toonz/shellthumbnail.h"
 
 using TCli::ArgumentT;
 using TCli::QualifierT;
@@ -457,20 +457,8 @@ void convert(const TFilePath &source, const TFilePath &dest,
 //------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
-#if defined(LINUX) || defined(FREEBSD)
-  QGuiApplication app(argc, argv);
-#elif !defined(_WIN32) && !defined(MACOSX)
-  // initUserStuffDir() needs applicationDirPath(), so an instance must exist.
-  // QCoreApplication needs no display, unlike QGuiApplication.
-  QCoreApplication app(argc, argv);
-#endif
-
-  TEnv::setRootVarName(rootVarName);
-  TEnv::setSystemVarPrefix(systemVarPrefix);
-  TEnv::setApplicationFileName(argv[0]);
-
-  TEnv::initUserStuffDir();
-
+  if (argc > 1 && std::strcmp(argv[1], ShellThumbnail::Command) == 0)
+    return runShellThumbnail(argc, argv);
   std::string msg;
 
   // Initialize qualifiers
@@ -486,6 +474,20 @@ int main(int argc, char *argv[]) {
   if (!usage.parse(argc, argv)) {
     exit(1);
   }
+
+  // Native vector conversion uses the Qt offscreen OpenGL backend on every
+  // desktop platform. Scene loading can also instantiate vector pattern
+  // styles. Raster-only conversion retains a display-independent application.
+  std::unique_ptr<QCoreApplication> application;
+  if (srcName.getValue().getType() == "pli" || tnzName.isSelected())
+    application.reset(new QGuiApplication(argc, argv));
+  else
+    application.reset(new QCoreApplication(argc, argv));
+
+  TEnv::setRootVarName(rootVarName);
+  TEnv::setSystemVarPrefix(systemVarPrefix);
+  TEnv::setApplicationFileName(argv[0]);
+  TEnv::initUserStuffDir();
 
   try {
     Tiio::defineStd();

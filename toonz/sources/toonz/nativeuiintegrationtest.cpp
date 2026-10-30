@@ -1,6 +1,7 @@
 #include "nativeuiintegrationtest.h"
 #include "animationworkflowintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
+#include "offlineglworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -62,6 +63,7 @@
 #include <QTreeWidget>
 #include <QTranslator>
 
+#include <exception>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -662,6 +664,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       return 1;
     }
     runCastWorkflowIntegrationTest(window);
+    runOfflineGLWorkflowNativeChecks();
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {
