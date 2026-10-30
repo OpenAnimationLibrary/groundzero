@@ -245,6 +245,8 @@ std::string validate(const Preset &p) {
   const bool sourceWet  = sourceWetProfile(p.profile);
   if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
     return "Unimplemented behavior profile: " + p.profile;
+  if (p.varySeedPerStroke && p.profile != "groundzero-native-1")
+    return "Per-stroke seed variation requires the native profile";
   auto linearPressure = [](const Dynamic &value) {
     if (value.minimum != 0 || value.mappings.size() != 1) return false;
     const auto &mapping = value.mappings.front();
@@ -254,18 +256,21 @@ std::string validate(const Preset &p) {
            mapping.curve[0].y == 0 && mapping.curve[1].x == 1 &&
            mapping.curve[1].y == 1;
   };
-  // Two endpoint pressure curves are affine, regardless of the source's
-  // multi-knot spline implementation. Keep wet identity-only qualification
-  // separate from this measured-size candidate region.
-  auto affinePressure = [](const Dynamic &value) {
+  // Independently captured nonuniform monotone/turning pressure-size masks
+  // establish natural cubic interpolation beyond the affine two-knot case.
+  // Wet pressure qualification remains the separate identity-only predicate.
+  auto sourceSizePressure = [](const Dynamic &value) {
     if (value.minimum != 0 || value.mappings.size() != 1) return false;
     const auto &mapping = value.mappings.front();
     return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
-           mapping.interpolation == Interpolation::Linear &&
-           mapping.curve.size() == 2 && mapping.curve[0].x == 0 &&
-           mapping.curve[1].x == 1;
+           mapping.curve.size() >= 2 && mapping.curve.front().x == 0 &&
+           mapping.curve.back().x == 1 &&
+           ((mapping.curve.size() == 2 &&
+             mapping.interpolation == Interpolation::Linear) ||
+            (mapping.curve.size() > 2 &&
+             mapping.interpolation == Interpolation::NaturalCubic));
   };
-  const bool sourceLinearPressure = sourceHard && affinePressure(p.size);
+  const bool sourcePressureSize = sourceHard && sourceSizePressure(p.size);
   if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
@@ -279,7 +284,7 @@ std::string validate(const Preset &p) {
           !p.size.mappings.empty() || !fixed(p.aspect, 1) ||
           !fixed(p.angle, 0))) ||
         (!sourceSoft && p.tip.antialiasEdges) || !p.tip.images.empty() ||
-        (!p.size.mappings.empty() && !sourceLinearPressure) ||
+        (!p.size.mappings.empty() && !sourcePressureSize) ||
         p.size.value != std::floor(p.size.value) ||
         !p.aspect.mappings.empty() || !p.angle.mappings.empty() ||
         (sourceWet && (!fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||

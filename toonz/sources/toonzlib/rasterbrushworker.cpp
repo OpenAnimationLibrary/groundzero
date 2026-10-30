@@ -333,8 +333,8 @@ int probeMacWorkerTransport() {
 
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
 int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
-                                    const QString &forbidden) {
-  if (!isWindowsImportContainer() || !limitWindowsImport()) return 1;
+                                    const QString &forbidden, quint16 port) {
+  if (!port || !isWindowsImportContainer() || !limitWindowsImport()) return 1;
   if (QFileInfo(input).fileName() == "overlap") {
     if (!writeFile(QDir(output).filePath("entered"),
                    QByteArray::number(QDateTime::currentMSecsSinceEpoch())))
@@ -356,20 +356,87 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
   sockaddr_in address{};
   address.sin_family      = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  address.sin_port        = htons(9);
+  address.sin_port        = htons(port);
   const int connected =
       connect(socketHandle, reinterpret_cast<const sockaddr *>(&address),
               sizeof(address));
   const int networkError = WSAGetLastError();
   closesocket(socketHandle);
   WSACleanup();
-  // Connection refusal alone is not evidence of isolation. Windows must deny
-  // the capability, independently of whether any service listens at the port.
-  if (connected == 0 || networkError != WSAEACCES) return 6;
+  // The parent holds a live listener and proves ordinary connectivity both
+  // before and after this probe. A refused connection is meaningful only with
+  // that control; an unused port would not demonstrate network isolation.
+  if (connected == 0 ||
+      (networkError != WSAEACCES && networkError != WSAECONNREFUSED)) {
+    std::fprintf(stderr,
+                 "AppContainer loopback denial probe: connect=%d Winsock=%d "
+                 "against live controlled listener\n",
+                 connected, networkError);
+    return 6;
+  }
   return writeFile(QDir(output).filePath("sandbox-passed"), "passed") ? 0 : 7;
 }
 int probeWindowsImportSandbox(const QString &executable, const QString &input,
                               const QString &output, const QString &forbidden) {
+  // Test-only live endpoint, never inherited by the sandbox. Positive
+  // controls establish listener availability rather than relying on port 9.
+  struct Listener {
+    bool initialized = false;
+    SOCKET handle    = INVALID_SOCKET;
+    sockaddr_in address{};
+    ~Listener() {
+      if (handle != INVALID_SOCKET) closesocket(handle);
+      if (initialized) WSACleanup();
+    }
+    bool positiveControl() {
+      SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+      if (client == INVALID_SOCKET) return false;
+      u_long nonblocking = 1;
+      bool connected     = false;
+      if (!ioctlsocket(client, FIONBIO, &nonblocking)) {
+        const int result =
+            connect(client, reinterpret_cast<const sockaddr *>(&address),
+                    sizeof(address));
+        if (result == 0) {
+          connected = true;
+        } else if (WSAGetLastError() == WSAEWOULDBLOCK) {
+          WSAPOLLFD pending{client, POLLWRNORM, 0};
+          int error = 0, errorSize = sizeof(error);
+          connected =
+              WSAPoll(&pending, 1, 2000) > 0 &&
+              !getsockopt(client, SOL_SOCKET, SO_ERROR,
+                          reinterpret_cast<char *>(&error), &errorSize) &&
+              error == 0;
+        }
+      }
+      closesocket(client);
+      if (!connected) return false;
+      WSAPOLLFD pending{handle, POLLRDNORM, 0};
+      if (WSAPoll(&pending, 1, 2000) <= 0) return false;
+      SOCKET accepted = accept(handle, nullptr, nullptr);
+      if (accepted == INVALID_SOCKET) return false;
+      closesocket(accepted);
+      return true;
+    }
+  } listener;
+  WSADATA data{};
+  if (WSAStartup(MAKEWORD(2, 2), &data)) return 16;
+  listener.initialized             = true;
+  listener.handle                  = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  listener.address.sin_family      = AF_INET;
+  listener.address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (listener.handle == INVALID_SOCKET ||
+      bind(listener.handle,
+           reinterpret_cast<const sockaddr *>(&listener.address),
+           sizeof(listener.address)) ||
+      listen(listener.handle, 4))
+    return 16;
+  int addressSize = sizeof(listener.address);
+  if (getsockname(listener.handle,
+                  reinterpret_cast<sockaddr *>(&listener.address),
+                  &addressSize) ||
+      !listener.positiveControl())
+    return 16;
   QString error;
   WindowsImportSandbox sandbox;
   if (!prepareWorkerCodecs() ||
@@ -383,9 +450,12 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   sandbox.configure(process);
   process.setWorkingDirectory(output);
   process.setStandardOutputFile(QProcess::nullDevice());
-  process.setStandardErrorFile(QProcess::nullDevice());
-  process.start(sandbox.program, {"--test-windows-sandbox-worker",
-                                  sandbox.input, output, forbidden});
+  // This test-only helper prints bounded stage diagnostics. Forward them to
+  // the probe parent, whose output the regression driver captures.
+  process.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+  process.start(sandbox.program,
+                {"--test-windows-sandbox-worker", sandbox.input, output,
+                 forbidden, QString::number(ntohs(listener.address.sin_port))});
   if (!process.waitForStarted(5000)) {
     std::fprintf(stderr, "Windows sandbox launch failed: %s; modifier=%s\n",
                  process.errorString().toUtf8().constData(),
@@ -399,7 +469,9 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   }
   const int status =
       process.exitStatus() == QProcess::NormalExit ? process.exitCode() : 12;
+  const bool endpointAlive = listener.positiveControl();
   if (!sandbox.close()) return 13;
+  if (!endpointAlive) return 17;
   if (status)
     std::fprintf(stderr, "Windows sandbox child exit=%d status=%d\n",
                  process.exitCode(), int(process.exitStatus()));

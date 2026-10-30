@@ -1236,3 +1236,25 @@ small soft masks, and small AA rectangles remain outside this eligibility.
 This identifies behavior of the pinned reference build; it does not establish
 all source CPU implementations use identical rounding. Source verification
 flags remain false until the complete required qualification passes.
+
+### Measured multi-knot pressure-size candidate
+
+The first 36 `pixelcurveknots` source cases completed. Independent mathematical
+analysis matched every captured alpha window exactly: 28 active shared/local
+cases with natural-boundary cubic interpolation, and eight disabled controls
+with the full fixed diameter. Intermediate responses distinguish linear from
+cubic interpolation: the turning curve produces 0.65625 at pressure 0.125 and
+0.34375 at 0.875; the monotone curve produces 0.17578125 and 0.82421875.
+
+The strict hard Pixel candidate now selects `NaturalCubic` for a single
+multi-knot pressure-size mapping with endpoints at 0 and 1. Existing validated
+knot count, separation, finite-range and sensor constraints still apply.
+Two-point curves remain affine; wet eligibility remains identity-only. Native
+conversion remains explicitly linear unless the strict source candidate passes
+all eligibility checks. Portable presets retain the selected interpolation.
+Fourteen complete original mask fingerprints independently regress the active
+runtime, while source CI enforces the existing full-image gates. New held-out
+nonuniform and overshooting curves exercise additional pressure positions,
+output clamping, shared/local selection and disabled settings. Those cases
+require CI qualification; source verification flags remain false, and this is
+not completion of the full K dynamics contract.

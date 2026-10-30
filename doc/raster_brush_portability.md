@@ -91,3 +91,20 @@ and raster save/reopen. Wet and dry cases share this lifecycle. These fixtures
 exercise native portability; foreign-engine reference fidelity remains a
 separate acceptance requirement. CI results, rather than the existence of the
 fixtures, determine qualification.
+
+### Native random-stream policy
+
+Native presets expose **Vary random seed for each stroke** in the editor.
+It is off by default, including when loading older packages without the field:
+the saved 64-bit seed then repeats the same random stream for identical input.
+When enabled, the application mixes that base seed with a process-wide stroke
+sequence once per logical stroke. Replicated tracks share the resolved seed;
+new strokes consume new streams even after cancellation or undo. This is a
+session variation policy, not a promise that a new session resumes the sequence.
+
+The renderer always consumes an explicit seed and remains deterministic.
+Undo/redo restores stored pixels without rerendering or allocating a new stream.
+Interactive scratchpad strokes use the same policy; the automatic sample uses
+the saved seed so editing comparisons remain repeatable. Portable packages retain
+the policy and base seed, not transient session counters. Source profiles reject
+this native-only policy until a separate source input contract is qualified.

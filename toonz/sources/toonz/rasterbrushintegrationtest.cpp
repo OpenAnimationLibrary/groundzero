@@ -1242,7 +1242,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         tool->onImageChanged();
         undo->reset();
         draw(tool, false);
-        const auto painted = raster(level, 1)->clone();
+        const TRaster32P painted = raster(level, 1)->clone();
         bool alphaChanged = false, transparentPainted = false,
              alphaReduced = false, alphaIncreased = false;
         for (int y = 0; y < alphaRamp->getLy(); ++y)
@@ -1298,6 +1298,171 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       property->setValue(previousSelection);
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot restore original brush after alpha qualification");
+      undo->reset();
+    }
+    checkpoint("qualifying fixed and varying native stroke seeds");
+    {
+      const auto previousSelection = property->getValue();
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      for (bool varying : {false, true}) {
+        RasterBrush::Record fixture;
+        fixture.preset.name =
+            varying ? "Varying seed fixture" : "Fixed seed fixture";
+        fixture.preset.size.value        = 9;
+        fixture.preset.scatter.value     = 1;
+        fixture.preset.spacing           = .3;
+        fixture.preset.varySeedPerStroke = varying;
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install seed fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select seed fixture");
+        const auto baseline = raster(level, 1)->clone();
+        auto draw           = [&](bool cancel) {
+          TMouseEvent event;
+          event.m_button   = Qt::LeftButton;
+          event.m_buttons  = Qt::LeftButton;
+          event.m_isTablet = true;
+          event.m_pressure = 1;
+          require(tool->preLeftButtonDown(), "seed fixture refused input");
+          tool->leftButtonDown(TPointD(-35, 0), event);
+          for (int x = -30; x <= 35; x += 5)
+            tool->leftButtonDrag(TPointD(x, 0), event);
+          if (cancel) {
+            QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            require(tool->keyDown(&escape), "seed fixture cancellation failed");
+          }
+          event.m_buttons = Qt::NoButton;
+          tool->leftButtonUp(TPointD(35, 0), event);
+          settle();
+        };
+        draw(false);
+        const auto first = raster(level, 1)->clone();
+        require(!same(first, baseline), "seed fixture did not paint");
+        undo->undo();
+        require(same(raster(level, 1), baseline),
+                "seed fixture undo changed baseline");
+        undo->redo();
+        require(same(raster(level, 1), first),
+                "seed fixture redo rerandomized stroke");
+        undo->undo();
+        draw(false);
+        const auto second = raster(level, 1)->clone();
+        require(same(first, second) != varying,
+                "host failed fixed versus per-stroke variation policy");
+        undo->undo();
+        undo->reset();
+        draw(true);
+        require(
+            same(raster(level, 1), baseline) && undo->getHistoryCount() == 0,
+            "seed fixture cancellation left pixels or history");
+      }
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore brush after seed fixture");
+    }
+    checkpoint(
+        "qualifying stationary airbrush timer lifecycle in the actual tool");
+    {
+      const auto previousSelection = property->getValue();
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original stationary airbrush lifecycle fixture";
+      fixture.preset.size.value   = 20;
+      fixture.preset.flow.value   = .03;
+      fixture.preset.airbrushRate = 30;
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString path = RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !path.isEmpty(),
+              "cannot install stationary airbrush fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select stationary airbrush fixture");
+      const TRaster32P baseline = raster(level, 1)->clone();
+      auto pump           = [](int milliseconds) {
+        QEventLoop loop;
+        QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
+        loop.exec();
+      };
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_buttons  = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = 1;
+      auto begin       = [&]() {
+        event.m_buttons = Qt::LeftButton;
+        require(tool->preLeftButtonDown(), "stationary airbrush refused input");
+        tool->leftButtonDown(TPointD(0, 0), event);
+      };
+      auto release = [&]() {
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(TPointD(0, 0), event);
+        settle();
+      };
+      begin();
+      const auto initialDab = raster(level, 1)->clone();
+      pump(250);
+      const TRaster32P accumulated = raster(level, 1)->clone();
+      require(!same(initialDab, accumulated),
+              "stationary airbrush did not accumulate without move events");
+      for (int y = 0; y < baseline->getLy(); ++y)
+        for (int x = 0; x < baseline->getLx(); ++x)
+          if (std::abs(x - baseline->getLx() / 2) > 24 ||
+              std::abs(y - baseline->getLy() / 2) > 24)
+            require(baseline->pixels(y)[x] == accumulated->pixels(y)[x],
+                    "stationary airbrush changed pixels outside its bounded "
+                    "footprint");
+      release();
+      const auto committed = raster(level, 1)->clone();
+      pump(150);
+      require(
+          same(committed, raster(level, 1)) && undo->getHistoryCount() == 1,
+          "airbrush timer continued painting or adding history after pen-up");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "stationary airbrush undo failed");
+      undo->reset();
+      begin();
+      pump(250);
+      require(!same(baseline, raster(level, 1)),
+              "cancel fixture did not accumulate airbrush paint");
+      QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+      require(tool->keyDown(&escape),
+              "stationary airbrush did not handle Escape");
+      release();
+      pump(150);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled stationary airbrush left pixels/history or restarted "
+              "its timer");
+      TRasterImageP nextFrame(new TRasterImage(baseline->clone()));
+      nextFrame->setDpi(72, 72);
+      level->setFrame(TFrameId(2), nextFrame);
+      begin();
+      pump(250);
+      app->getCurrentFrame()->setFid(TFrameId(2));
+      settle();
+      tool->onImageChanged();
+      const auto frameOne = raster(level, 1)->clone();
+      release();
+      pump(150);
+      require(
+          !same(baseline, frameOne) && same(frameOne, raster(level, 1)) &&
+              same(baseline, raster(level, 2)) && undo->getHistoryCount() == 1,
+          "airbrush timer painted after frame switch or changed the new frame");
+      require(
+          undo->undo() && same(baseline, raster(level, 1)) &&
+              same(baseline, raster(level, 2)),
+          "frame-switched stationary airbrush undo changed the wrong frame");
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(2));
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after airbrush qualification");
       undo->reset();
     }
     checkpoint("rolling back actual-tool work-limit failure");

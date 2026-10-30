@@ -59,8 +59,11 @@ OS-public resources and its private profile remain available: this is not an
 absolute deny-all-files claim.
 
 The Windows denial probe requires private-file reads/writes and staged-input writes
-to fail, and loopback connection to fail specifically with `WSAEACCES` (a missing
-server is not evidence). Regular PNG/GBR import and cancellation run through the
+to fail, and loopback connection to a parent-held live listener to fail with
+`WSAEACCES` or `WSAECONNREFUSED`. Ordinary parent connections must succeed before
+and after the worker probe; refusal from an unused port is not evidence. The
+parent listener is not inherited by the worker, and positive-control waits are
+bounded. Regular PNG/GBR import and cancellation run through the
 same boundary. The packaged-runtime smoke imports an original fixture, compares
 installed runtime ACLs before/after, and rejects a changed manifest-listed file.
 CI must qualify Windows loader/Qt deployment and profile cleanup.

@@ -113,6 +113,8 @@ struct Preset {
   bool sourceTextureSoftTexturing = false;
   Dynamic pickupControl{1, 0, {}}, colorRateControl{1, 0, {}},
       radiusControl{1, 0, {}};
+  // Host policy only: Stroke always renders the explicit resolved seed.
+  bool varySeedPerStroke = false;
   std::uint64_t seed = 1;
 };
 // Canvas coordinates: origin at upper-left, +y down; positive rotation is

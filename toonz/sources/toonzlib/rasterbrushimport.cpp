@@ -604,8 +604,8 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       required["SizecommonCurve"] = fields["SizecommonCurve"];
     required["SizeSensor"] = fields.value("SizeSensor");
     // convertCurve resolves either the shared curve or the sensor-local
-    // curve. validate() admits only two endpoint pressure knots here; a
-    // multi-knot source spline must not silently become linear interpolation.
+    // curve. The candidate uses measured natural cubic interpolation for
+    // multiple knots; native conversion retains its explicit linear mapping.
     if (fields.contains("SizecurveMode")) required["SizecurveMode"] = "0";
   }
   if (engine == "colorsmudge") {
@@ -1055,6 +1055,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       diagnostics << "Source texture candidate requires opaque grayscale; "
                      "color/alpha pattern interpretation is unverified.";
   }
+  if (engine == "paintbrush" && candidate.size.mappings.size() == 1 &&
+      candidate.size.mappings.front().curve.size() > 2)
+    candidate.size.mappings.front().interpolation = Interpolation::NaturalCubic;
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
     if (engine == "colorsmudge" && fields.value("FlowUseCurve") == "true") {

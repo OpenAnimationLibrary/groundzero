@@ -53,72 +53,75 @@ void line(Canvas &c, Preset p) {
 }
 void testNativeEraseCoverage() {
   const Pixel base{.12, .3, .48, .6};
+  for (Wet wet : {Wet::Dulling, Wet::Smear}) {
+    Preset invalid;
+    invalid.wet   = wet;
+    invalid.blend = Blend::Erase;
+    require(!validate(invalid).empty(),
+            "direct wet/erase preset bypassed the single-mode contract");
+  }
   for (int tipKind : {0, 1, 2})
     for (bool wash : {false, true})
-      for (bool locked : {false, true})
-        for (Wet wet : {Wet::Off, Wet::Dulling, Wet::Smear}) {
-          Preset p;
-          p.wet                 = wet;
-          p.blend               = Blend::Erase;
-          p.size.value          = 8;
-          p.tip.shape           = Shape::Square;
-          p.flow.value          = .4;
-          p.opacity.value       = .3;
-          p.airbrushRate        = 10;
-          p.wash                = wash;
-          p.lockAlpha           = locked;
-          const double coverage = tipKind ? .5 : 1;
-          if (tipKind) {
-            auto tip   = std::make_shared<Image>();
-            tip->width = tip->height = 4;
-            tip->color               = tipKind == 2;
-            tip->pixels.assign(16, Pixel{.1, .2, .3, .5});
-            p.tip.shape  = Shape::Bitmap;
-            p.tip.images = {tip};
-          }
-          Canvas reference;
-          bool first = true;
-          for (const Pixel color :
-               {Pixel{}, Pixel{.1, .2, .05, .25}, Pixel{.8, .1, .4, 1}})
-            for (double backgroundMix : {0., .5, 1.}) {
-              p.color               = color;
-              p.background          = {.15, .05, .1, .2};
-              p.backgroundMix.value = backgroundMix;
-              Canvas canvas;
-              std::fill(canvas.pixels.begin(), canvas.pixels.end(), base);
-              Stroke stroke(canvas, p);
-              require(stroke.add(sample(64, 64, 0)) &&
-                          stroke.add(sample(64, 64, .2)),
-                      "native eraser trace failed");
-              const auto count = stroke.dabCount();
-              require(count > 1,
-                      "eraser accumulation fixture lacked repeat dabs");
-              stroke.finish();
-              const double factor =
-                  locked ? 1
-                  : wash
-                      ? 1 - p.opacity.value *
-                                (1 -
-                                 std::pow(1 - coverage * p.flow.value, count))
-                      : std::pow(1 - coverage * p.flow.value * p.opacity.value,
-                                 count);
-              const Pixel center = canvas.read(64, 64);
-              require(std::abs(center.a - base.a * factor) < 1e-12 &&
-                          std::abs(center.r - base.r * factor) < 1e-12 &&
-                          std::abs(center.g - base.g * factor) < 1e-12 &&
-                          std::abs(center.b - base.b * factor) < 1e-12,
-                      "eraser changed coverage, wash, opacity or alpha lock");
-              require(canvas.read(110, 64).a == base.a,
-                      "eraser changed pixels outside the dab");
-              if (first) {
-                reference.pixels = canvas.pixels;
-                first            = false;
-              } else
-                require(
-                    same(reference, canvas),
-                    "eraser strength depends on foreground/background color");
-            }
+      for (bool locked : {false, true}) {
+        Preset p;
+        p.blend               = Blend::Erase;
+        p.size.value          = 8;
+        p.tip.shape           = Shape::Square;
+        p.flow.value          = .4;
+        p.opacity.value       = .3;
+        p.airbrushRate        = 10;
+        p.wash                = wash;
+        p.lockAlpha           = locked;
+        const double coverage = tipKind ? .5 : 1;
+        if (tipKind) {
+          auto tip   = std::make_shared<Image>();
+          tip->width = tip->height = 4;
+          tip->color               = tipKind == 2;
+          tip->pixels.assign(16, Pixel{.1, .2, .3, .5});
+          p.tip.shape  = Shape::Bitmap;
+          p.tip.images = {tip};
         }
+        Canvas reference;
+        bool first = true;
+        for (const Pixel color :
+             {Pixel{}, Pixel{.1, .2, .05, .25}, Pixel{.8, .1, .4, 1}})
+          for (double backgroundMix : {0., .5, 1.}) {
+            p.color               = color;
+            p.background          = {.15, .05, .1, .2};
+            p.backgroundMix.value = backgroundMix;
+            Canvas canvas;
+            std::fill(canvas.pixels.begin(), canvas.pixels.end(), base);
+            Stroke stroke(canvas, p);
+            const bool accepted =
+                stroke.add(sample(64, 64, 0)) && stroke.add(sample(64, 64, .2));
+            require(accepted, stroke.error().c_str());
+            const auto count = stroke.dabCount();
+            require(count > 1,
+                    "eraser accumulation fixture lacked repeat dabs");
+            stroke.finish();
+            const double factor =
+                locked ? 1
+                : wash
+                    ? 1 - p.opacity.value *
+                              (1 - std::pow(1 - coverage * p.flow.value, count))
+                    : std::pow(1 - coverage * p.flow.value * p.opacity.value,
+                               count);
+            const Pixel center = canvas.read(64, 64);
+            require(std::abs(center.a - base.a * factor) < 1e-12 &&
+                        std::abs(center.r - base.r * factor) < 1e-12 &&
+                        std::abs(center.g - base.g * factor) < 1e-12 &&
+                        std::abs(center.b - base.b * factor) < 1e-12,
+                    "eraser changed coverage, wash, opacity or alpha lock");
+            require(canvas.read(110, 64).a == base.a,
+                    "eraser changed pixels outside the dab");
+            if (first) {
+              reference.pixels = canvas.pixels;
+              first            = false;
+            } else
+              require(same(reference, canvas),
+                      "eraser strength depends on foreground/background color");
+          }
+      }
 }
 void testFloatTransaction() {
   struct Quantized : Canvas {
@@ -1676,6 +1679,63 @@ void testSourceSmallCircle() {
     require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) < 1e-9,
             "small-circle fade or scalar quantization differs from source");
 }
+void testSourceNaturalCubicSize() {
+  // Complete original source alpha windows, independent of this evaluator.
+  struct Capture {
+    bool turning;
+    double pressure;
+    int x, y, w, h;
+    uint64_t hash;
+  };
+  const Capture captures[] = {
+      {true, 0.0, -36, -36, 74, 74, 3428123260092120149ull},
+      {true, 0.125, -36, -36, 74, 74, 1679702931769718589ull},
+      {true, 0.25, -36, -36, 74, 74, 4812327144733718197ull},
+      {true, 0.5, -36, -36, 74, 74, 3476452870747138773ull},
+      {true, 0.75, -36, -36, 74, 74, 16804940784029821173ull},
+      {true, 0.875, -36, -36, 74, 74, 11913853263255668941ull},
+      {true, 1.0, -36, -36, 74, 74, 1786701866695526229ull},
+      {false, 0.0, -36, -36, 74, 74, 16804940784029821173ull},
+      {false, 0.125, -36, -36, 74, 74, 3187964990055137253ull},
+      {false, 0.25, -36, -36, 74, 74, 3428123260092120149ull},
+      {false, 0.5, -36, -36, 74, 74, 3476452870747138773ull},
+      {false, 0.75, -36, -36, 74, 74, 1786701866695526229ull},
+      {false, 0.875, -36, -36, 74, 74, 6334138343680221509ull},
+      {false, 1.0, -36, -36, 74, 74, 4812327144733718197ull},
+  };
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value   = 64;
+    p.size.minimum = 0;
+    Mapping curve;
+    curve.sensor        = Sensor::Pressure;
+    curve.interpolation = Interpolation::NaturalCubic;
+    curve.curve =
+        capture.turning
+            ? std::vector<Knot>{{0, .25}, {.25, .875}, {.75, .125}, {1, .75}}
+            : std::vector<Knot>{{0, .125}, {.25, .25}, {.75, .75}, {1, .875}};
+    p.size.mappings = {curve};
+    require(validate(p).empty(), "captured source cubic fixture is invalid");
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    auto input     = sample(64, 64, 0);
+    input.pressure = capture.pressure;
+    require(stroke.add(input), stroke.error().c_str());
+    uint64_t hash = 14695981039346656037ull;
+    for (int y = 0; y < capture.h; ++y)
+      for (int x = 0; x < capture.w; ++x) {
+        const auto byte = uint64_t(std::lround(
+            canvas.read(64 + capture.x + x, 64 + capture.y + y).a * 255));
+        hash            = (hash ^ byte) * 1099511628211ull;
+      }
+    require(hash == capture.hash,
+            "natural cubic size differs from complete source mask");
+    p.size.mappings.front().interpolation = Interpolation::Linear;
+    require(!validate(p).empty(),
+            "multi-knot linear curve admitted as source spline");
+  }
+}
 void testSourceSmallHardCircleAA() {
   // Complete original source masks from integer-position single-dab captures.
   // D5/6 and D11/13/14/15 are held out for full-image source CI comparison.
@@ -2121,47 +2181,69 @@ void testNativeSpacingAndWorkLimits() {
 }
 }  // namespace
 int main() {
-  try {
-    testNativeEraseCoverage();
-    testFloatTransaction();
-    testSnapshotAndPrepareBudgets();
-    testComposition();
-    testAreaCoverage();
-    testDeterminismAndMasks();
-    testDisabledSecondaryAndExtremeTransforms();
-    testNativeTextureCoverage();
-    testWashAndInput();
-    testResourcesAndWet();
-    testWetPressure();
-    testWetPickupGeometry();
-    testCountFadeAndDirection();
-    testSecondaryCountAndMirror();
-    testIndependentSecondarySpacing();
-    testIndependentSecondaryDynamics();
-    testNativeSpacingAndWorkLimits();
-    testKritaHardPixelCandidate();
-    testStationaryAndBatching();
-    testColorDynamics();
-    testCubicCurves();
-    testSourceDefaultCircle();
-    testSourceDullingRadiusImpulses();
-    testSourceWetPressureColorAttenuation();
-    testSourceWashLattice();
-    testSourceSmallCircle();
-    testSourceHardCircleAA();
-    testSourceWetWorkBounds();
-    testSourcePixelBlendCandidates();
-    testSourceSmallHardCircleAA();
-    testSourceRectangle();
-    testSourceWetInitialization();
-    testSourceTextureMasks();
-    testSourceWetOpacityTransport();
-    testSourceWetDisabledControls();
-    testLongWetTrace();
-    testNativeWetAnalyticalDrift();
-  } catch (const std::exception &e) {
-    std::cerr << e.what() << '\n';
+  struct Case {
+    const char *name;
+    void (*run)();
+  };
+  const Case cases[] = {
+      {"testNativeEraseCoverage", testNativeEraseCoverage},
+      {"testFloatTransaction", testFloatTransaction},
+      {"testSnapshotAndPrepareBudgets", testSnapshotAndPrepareBudgets},
+      {"testComposition", testComposition},
+      {"testAreaCoverage", testAreaCoverage},
+      {"testDeterminismAndMasks", testDeterminismAndMasks},
+      {"testDisabledSecondaryAndExtremeTransforms",
+       testDisabledSecondaryAndExtremeTransforms},
+      {"testNativeTextureCoverage", testNativeTextureCoverage},
+      {"testWashAndInput", testWashAndInput},
+      {"testResourcesAndWet", testResourcesAndWet},
+      {"testWetPressure", testWetPressure},
+      {"testWetPickupGeometry", testWetPickupGeometry},
+      {"testCountFadeAndDirection", testCountFadeAndDirection},
+      {"testSecondaryCountAndMirror", testSecondaryCountAndMirror},
+      {"testIndependentSecondarySpacing", testIndependentSecondarySpacing},
+      {"testIndependentSecondaryDynamics", testIndependentSecondaryDynamics},
+      {"testNativeSpacingAndWorkLimits", testNativeSpacingAndWorkLimits},
+      {"testKritaHardPixelCandidate", testKritaHardPixelCandidate},
+      {"testStationaryAndBatching", testStationaryAndBatching},
+      {"testColorDynamics", testColorDynamics},
+      {"testCubicCurves", testCubicCurves},
+      {"testSourceDefaultCircle", testSourceDefaultCircle},
+      {"testSourceDullingRadiusImpulses", testSourceDullingRadiusImpulses},
+      {"testSourceWetPressureColorAttenuation",
+       testSourceWetPressureColorAttenuation},
+      {"testSourceWashLattice", testSourceWashLattice},
+      {"testSourceSmallCircle", testSourceSmallCircle},
+      {"testSourceHardCircleAA", testSourceHardCircleAA},
+      {"testSourceWetWorkBounds", testSourceWetWorkBounds},
+      {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
+      {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
+      {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
+      {"testSourceRectangle", testSourceRectangle},
+      {"testSourceWetInitialization", testSourceWetInitialization},
+      {"testSourceTextureMasks", testSourceTextureMasks},
+      {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},
+      {"testSourceWetDisabledControls", testSourceWetDisabledControls},
+      {"testLongWetTrace", testLongWetTrace},
+      {"testNativeWetAnalyticalDrift", testNativeWetAnalyticalDrift},
+  };
+  int failures = 0;
+  for (const auto &test : cases) {
+    try {
+      test.run();
+      std::cout << "PASS " << test.name << '\n';
+    } catch (const std::exception &error) {
+      ++failures;
+      std::cerr << "FAIL " << test.name << ": " << error.what() << '\n';
+    } catch (...) {
+      ++failures;
+      std::cerr << "FAIL " << test.name << ": unknown exception\n";
+    }
+  }
+  if (failures) {
+    std::cerr << failures << " native raster engine cases failed\n";
     return 1;
   }
   std::cout << "Native raster engine regression passed\n";
+  return 0;
 }

@@ -24,6 +24,14 @@ def capture(case, effective_fields, delivery, raw, width):
     for key, value in requested.attrib.items():
         if sensor.get(key) != value:
             raise RuntimeError("Effective sensor attribute differs: " + key)
+    if spec.get("verifyCurve") and sensor.findtext("curve") != requested.findtext("curve"):
+        raise RuntimeError("Effective sensor curve differs")
+    if spec.get("captureColorNotices"):
+        for channel in ("h", "s", "v"):
+            key = "Pressure" + channel
+            if effective_fields.get(key) != case["overrides"][key]:
+                raise RuntimeError("Unexpected active HSV channel: " + key)
+            actual[key] = effective_fields[key]
     actual[target + "Sensor"] = serialized
     delivered = [event for event in delivery.get("events", [])
                  if event["type"] in (int(QEvent.TabletPress), int(QEvent.TabletMove)) and event["pressure"] > 0]
@@ -53,6 +61,7 @@ def capture(case, effective_fields, delivery, raw, width):
     pixels = b"".join(raw[(y * width + left) * 4:(y * width + left + w) * 4]
                       for y in range(top, top + h))
     return {"effectiveControls": actual, "knownZeroRatioEndpoint": known_noop,
+            "captureColorNotices": spec.get("captureColorNotices", False),
             "effectiveBrushDefinition": effective_fields["brush_definition"], "effectiveSensorAttributes": dict(sensor.attrib),
             "authoredContactEvents": case["events"], "deliveredContactEvents": delivered,
             "deliveryValuesMatchAuthored": True, "rect": spec["rect"],
@@ -83,3 +92,9 @@ def emit_notices(name, evidence):
     for offset in range(0, len(alpha), 3000):
         emit("alpha-chunk", {"rect": evidence["rect"], "encoding": "zlib-base64-alpha8-row-major",
                              "offset": offset, "total": len(alpha), "data": alpha[offset:offset + 3000]})
+
+    if evidence.get("captureColorNotices"):
+        encoded = evidence["data"]
+        for offset in range(0, len(encoded), 3000):
+            emit("color-chunk", {"rect": evidence["rect"], "encoding": evidence["encoding"],
+                                 "offset": offset, "total": len(encoded), "data": encoded[offset:offset + 3000]})

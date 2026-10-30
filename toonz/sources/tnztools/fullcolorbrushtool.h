@@ -191,6 +191,7 @@ protected:
   bool m_firstTime;
 
   bool m_started;
+  std::uint64_t m_nativeResolvedSeed = 1;
   bool m_nativeStrokeFailed  = false;
   bool m_nativePixelsChanged = false;
   bool m_nativeCreatedFrame = false, m_nativeCreatedLevel = false;
