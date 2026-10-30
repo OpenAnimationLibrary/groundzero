@@ -53,5 +53,14 @@ inline void run() {
       require(output==fresh,"Temporal processing moved an already stable translated texture");
     }
   }
+  // A broad opaque occluder disappears while alpha stays unchanged. Fresh pixels
+  // only inside its rectangle would leave a palette seam against retained history.
+  for(int y=0;y<384;++y)for(int x=0;x<384;++x)
+    changed.setPixel(x,y,qRgb(160+x/4,170+y/5,140));
+  source=changed;
+  for(int y=30;y<354;++y)for(int x=150;x<215;++x)source.setPixel(x,y,qRgb(10,20,30));
+  history.fill(Qt::red);fresh.fill(Qt::blue);
+  require(NeuralTemporal::stabilize(source,changed,alpha,alpha,history,fresh,.7,output),"Large reveal processing failed");
+  require(output==fresh,"Large disocclusion left a history/fresh tone seam");
 }
 }

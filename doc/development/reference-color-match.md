@@ -268,6 +268,11 @@ controls blending. This avoids interpolation-induced texture drift on proven
 translated drawings; deformation and occlusion use the existing checked flow.
 Newly revealed regions always start with fresh model output. This cannot make
 every arbitrary reference temporally coherent or recover model-lost detail.
+Large, spatially coherent unmatched regions reset history for the whole frame:
+otherwise fresh reveal patches can have a different tone from retained texture
+around them. Smaller rejected regions feather surrounding history over twelve
+model pixels. These conservative fallbacks prioritize avoiding stale contours
+and rectangular reveal seams over retaining history through every change.
 
 New texture FX start at 35% strength to retain most source detail. Full strength
 is available, and the reference editor explicitly previews raw full-strength

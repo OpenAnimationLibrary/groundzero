@@ -105,6 +105,7 @@ bool stabilize(const QImage &previous, const QImage &current,
   cv::calcOpticalFlowFarneback(b,a,backward,.5,3,21,3,5,1.2,0);
   if(cancel && *cancel) return false;
   QImage complete=fresh.convertToFormat(QImage::Format_RGB32);
+  cv::Mat reliable(384,384,CV_8UC1,cv::Scalar(0)),unmatched(384,384,CV_8UC1,cv::Scalar(0));
   int visible=0,accepted=0;
   for(int y=0;y<384;++y) {
     if(cancel && *cancel) return false;
@@ -113,6 +114,7 @@ bool stabilize(const QImage &previous, const QImage &current,
       const double coverage=qGray(currentAlpha.pixel(x,y))/255.0;
       if(coverage<=0) continue;
       ++visible;
+      unmatched.at<uchar>(y,x)=255;
       const auto motion=backward.at<cv::Vec2f>(y,x);
       const double px=x+motion[0],py=y+motion[1];
       if(!std::isfinite(px) || !std::isfinite(py) || px<0 || py<0 || px>383 || py>383) continue;
@@ -133,6 +135,33 @@ bool stabilize(const QImage &previous, const QImage &current,
                      int(std::clamp(blended[1],0.f,255.f)+.5f),
                      int(std::clamp(blended[2],0.f,255.f)+.5f));
       ++accepted;
+      reliable.at<uchar>(y,x)=255;unmatched.at<uchar>(y,x)=0;
+    }
+  }
+  // Newly revealed content can change the model's palette across the whole
+  // frame. Keeping history around a large fresh patch leaves a rectangular
+  // tone seam even when the rejected pixels themselves are correct. Reset the
+  // whole history contribution when an unmatched region has a substantial
+  // interior, rather than treating narrow motion/antialiasing edges as cuts.
+  cv::Mat distance;cv::distanceTransform(unmatched,distance,cv::DIST_L2,3);
+  int interior=0;
+  for(int y=0;y<384;++y) {
+    if(cancel && *cancel)return false;
+    for(int x=0;x<384;++x)interior+=distance.at<float>(y,x)>8;
+  }
+  if(interior>=std::max(128,visible/200)) {result=fresh;return true;}
+  // Small unmatched regions retain fresh output and taper surrounding history,
+  // avoiding a hard boundary between inferred textures with different tones.
+  cv::distanceTransform(reliable,distance,cv::DIST_L2,3);
+  for(int y=0;y<384;++y) {
+    if(cancel && *cancel)return false;
+    auto row=reinterpret_cast<QRgb *>(complete.scanLine(y));
+    for(int x=0;x<384;++x) {
+      const double weight=std::min(1.,distance.at<float>(y,x)/12.);
+      if(weight>=1)continue;
+      const auto old=row[x],now=fresh.pixel(x,y);
+      const auto blend=[weight](int a,int b){return int(a*weight+b*(1-weight)+.5);};
+      row[x]=qRgb(blend(qRed(old),qRed(now)),blend(qGreen(old),qGreen(now)),blend(qBlue(old),qBlue(now)));
     }
   }
   // Too little reliable overlap is another cut/discontinuity signal.

@@ -67,6 +67,13 @@ try:
     destination = Path(destinations.get(sys.platform, "toonz/build/bin/neural-style"))
     if destination.resolve() != (effects[0].parent / "neural-style").resolve():
         shutil.copytree(package, destination, dirs_exist_ok=True)
+except subprocess.TimeoutExpired as error:
+    for captured in (error.stdout, error.stderr):
+        if captured:
+            text = captured.decode(errors="replace") if isinstance(captured, bytes) else captured
+            print(text[-12000:], flush=True)
+    print("::error title=Neural qualification deadline::" + str(error).replace("\n", " | "), flush=True)
+    raise
 except Exception as error:
     print("::error title=Neural Qt host qualification::" + str(error).replace("\n", " | "), flush=True)
     raise

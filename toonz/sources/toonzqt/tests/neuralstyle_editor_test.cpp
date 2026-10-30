@@ -12,6 +12,8 @@
 #include <QPushButton>
 #include <QLineEdit>
 #include <QPixmap>
+#include <QPointer>
+#include <QFileInfo>
 #include <QVariant>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -21,6 +23,22 @@
 namespace {
 void require(bool ok,const char *message){if(!ok)throw std::runtime_error(message);}
 QPushButton *button(QWidget *dialog,const char *name){return dialog->findChild<QPushButton *>(name);}
+QDialog *editorDialog() {
+  for(auto widget:QApplication::topLevelWidgets())
+    if(auto dialog=qobject_cast<QDialog *>(widget))
+      if(dialog->isVisible() && button(dialog,"neuralPreview"))return dialog;
+  return nullptr;
+}
+QFileDialog *fileDialog() {
+  for(auto widget:QApplication::topLevelWidgets())
+    if(auto dialog=qobject_cast<QFileDialog *>(widget))if(dialog->isVisible())return dialog;
+  return nullptr;
+}
+void rejectDialogs() {
+  for(auto widget:QApplication::topLevelWidgets())
+    if(auto dialog=qobject_cast<QDialog *>(widget))dialog->reject();
+  QCoreApplication::exit(1);
+}
 class InferenceObserver final:public QObject {
 public:
   std::function<void(QDialog *)> action;
@@ -40,6 +58,7 @@ int main(int argc,char **argv) {
   QApplication application(argc,argv);
   try {
     require(argc==2,"Expected visual report directory");const QDir report(application.arguments()[1]);QDir().mkpath(report.absolutePath());
+    std::cerr<<"Editor qualification: embedded profile undo"<<std::endl;
     {
       NeuralStyle::Profile dense;dense.reference=QImage(256,256,QImage::Format_RGB32);quint32 random=2026;
       for(int y=0;y<256;++y)for(int x=0;x<256;++x) {
@@ -62,44 +81,55 @@ int main(int argc,char **argv) {
     NeuralStyle::Profile captured;captured.reference=reference;
     const QString initial=NeuralStyle::serialize(captured);QString profile=initial;
     bool started=false,cancelledDuringInference=false,failed=false;
+    std::cerr<<"Editor qualification: cancellation begins"<<std::endl;
     InferenceObserver cancelObserver;
     cancelObserver.action=[&](QDialog *dialog){
       cancelledDuringInference=true;
+      std::cerr<<"Editor qualification: cancel during inference"<<std::endl;
       failed=button(dialog,"neuralUseReference")->isEnabled() || button(dialog,"neuralExport")->isEnabled();
       dialog->reject();
     };
     QElapsedTimer deadline;deadline.start();QTimer cancelPoll;cancelPoll.setInterval(5);
     QObject::connect(&cancelPoll,&QTimer::timeout,[&]{
-      auto dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());if(!dialog)return;
-      if(deadline.elapsed()>60000){failed=true;dialog->reject();return;}
+      if(deadline.elapsed()>60000){std::cerr<<"Editor cancellation deadline expired"<<std::endl;failed=true;rejectDialogs();return;}
+      auto dialog=editorDialog();if(!dialog)return;
       auto preview=button(dialog,"neuralPreview");if(!preview)return;
       if(!started){started=true;dialog->installEventFilter(&cancelObserver);preview->click();return;}
     });
     cancelPoll.start();const bool accepted=editNeuralStyleProfile(nullptr,profile,{},source);cancelPoll.stop();
+    std::cerr<<"Editor qualification: cancellation returned"<<std::endl;
     require(!accepted && cancelledDuringInference && !failed && profile==initial,"Editor Cancel changed profile or exposed in-flight output");
 
     QTemporaryDir temporary;require(temporary.isValid(),"Reference replacement directory unavailable");
     QImage replacement(256,256,QImage::Format_RGB32);replacement.fill(QColor(20,60,230));
     const QString replacementPath=temporary.filePath("replacement.png");require(replacement.save(replacementPath),"Cannot save replacement fixture");
     profile=initial;started=false;failed=false;bool replacing=false,replaced=false,recaptured=false;int settle=0;
-    QTimer picker;picker.setInterval(5);
+    std::cerr<<"Editor qualification: replacement begins"<<std::endl;
+    QPointer<QFileDialog> selectedPicker;
+    QTimer picker;picker.setInterval(50);
     QObject::connect(&picker,&QTimer::timeout,[&]{
-      if(auto file=qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
-        file->selectFile(replacementPath);QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);
+      if(auto file=fileDialog()) {
+        // Do not restart the Windows filesystem model's directory load on every
+        // timer tick. Select once, then let its asynchronous model become ready.
+        if(selectedPicker!=file) {
+          selectedPicker=file;file->setDirectory(temporary.path());file->selectFile(QFileInfo(replacementPath).fileName());
+          std::cerr<<"Editor qualification: replacement picker selected"<<std::endl;
+        }
+        QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);
       }
     });
     InferenceObserver replaceObserver;
     replaceObserver.action=[&](QDialog *dialog){
       if(replacing)return;
+      std::cerr<<"Editor qualification: replace during inference"<<std::endl;
       replacing=true;picker.start();button(dialog,"neuralLoad1")->click();picker.stop();replaced=true;
+      std::cerr<<"Editor qualification: replacement picker returned"<<std::endl;
     };
     deadline.restart();QTimer replacePoll;replacePoll.setInterval(5);
     QObject::connect(&replacePoll,&QTimer::timeout,[&]{
-      auto dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());if(!dialog)return;
-      if(deadline.elapsed()>60000){failed=true;dialog->reject();return;}
-      if(auto file=qobject_cast<QFileDialog *>(dialog)) {
-        file->selectFile(replacementPath);QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);return;
-      }
+      if(deadline.elapsed()>60000){std::cerr<<"Editor replacement deadline expired"<<std::endl;failed=true;rejectDialogs();return;}
+      if(fileDialog())return;
+      auto dialog=editorDialog();if(!dialog)return;
       auto preview=button(dialog,"neuralPreview");if(!preview)return;
       auto use=button(dialog,"neuralUseReference"),exportButton=button(dialog,"neuralExport");
       if(!started){started=true;dialog->installEventFilter(&replaceObserver);preview->click();return;}
@@ -108,10 +138,11 @@ int main(int argc,char **argv) {
         // Let queued completion/progress messages settle; none may reactivate
         // stale output after the reference changed during inference.
         if(++settle<12)return;
-        recaptured=true;preview->click();return;
+        recaptured=true;std::cerr<<"Editor qualification: recapture begins"<<std::endl;preview->click();return;
       }
       if(recaptured && use->isEnabled()) {
         if(!dialog->grab().save(report.filePath("texture-editor-replacement.png")))failed=true;
+        std::cerr<<"Editor qualification: apply replacement"<<std::endl;
         use->click();
       }
     });

@@ -206,16 +206,17 @@ QJsonObject longSequence(const QDir &directory,const QString &name,const QImage 
   }
   TRenderSettings info;info.m_cameraBox=TRectD(0,0,384,384);
   std::vector<QImage> plain,stable;double plainError=0,stableError=0;int samples=0;
-  QImage contact(1152,384*6,QImage::Format_RGB32);contact.fill(Qt::white);QPainter contactPainter(&contact);int row=0;
+  QImage contact(1152,384*7,QImage::Format_RGB32);contact.fill(Qt::white);QPainter contactPainter(&contact);int row=0;
   for(int f=0;f<24;++f) {
     plain.push_back(render(plainFx,f,info));stable.push_back(render(stableFx,f,info));
     for(int y=0;y<384;++y)for(int x=0;x<384;++x)
       require(qAlpha(stable.back().pixel(x,y))==qAlpha(frames[f].pixel(x,y)),"Sequence alpha changed");
     if(f==9 || f==10 || f>=21)require(stable[f]==stable[f-1],"Long sequence held frame drifted");
+    if(f==16)require(stable[f]==plain[f],"Disocclusion did not reset stale texture history");
     QImage strip(1152,384,QImage::Format_RGB32);strip.fill(Qt::white);
     {QPainter p(&strip);p.drawImage(0,0,frames[f]);p.drawImage(384,0,plain[f]);p.drawImage(768,0,stable[f]);}
     require(strip.save(folder.filePath(QString("comparison-%1.png").arg(f,2,10,QChar('0')))),"Cannot save sequence frame");
-    if(f==0 || f==7 || f==8 || f==15 || f==16 || f==23)contactPainter.drawImage(0,row++*384,strip);
+    if(f==0 || f==7 || f==8 || f==15 || f==16 || f==17 || f==23)contactPainter.drawImage(0,row++*384,strip);
     if(f>0 && f<8)for(int y=0;y<384;++y)for(int x=0;x<382;++x) {
       if(frames[f-1].pixel(x,y)!=frames[f].pixel(x+2,y) || qAlpha(frames[f].pixel(x+2,y))!=255)continue;
       const auto delta=[](QRgb a,QRgb b){return (std::abs(qRed(a)-qRed(b))+std::abs(qGreen(a)-qGreen(b))+std::abs(qBlue(a)-qBlue(b)))/3.0;};
@@ -235,7 +236,7 @@ QJsonObject longSequence(const QDir &directory,const QString &name,const QImage 
 <header><span>Source</span><span>Independent</span><span>Temporal 70%</span></header><img id="image" src="comparison-00.png">
 <script>let n=0,running=true;const slider=document.getElementById('frame'),pic=document.getElementById('image'),out=document.getElementById('number'),button=document.getElementById('play');function show(){pic.src='comparison-'+String(n).padStart(2,'0')+'.png';slider.value=n;out.textContent=n;}button.onclick=()=>{running=!running;button.textContent=running?'Pause':'Play';};slider.oninput=()=>{n=+slider.value;running=false;button.textContent='Play';show();};setInterval(()=>{if(running){n=(n+1)%24;show();}},125);</script>)HTML");
   require(samples>1000,"Long sequence motion samples missing");
-  return QJsonObject{{"example",name+"-24-frame-natural-35"},{"frames",24},{"held_frame_exact",true},
+  return QJsonObject{{"example",name+"-24-frame-natural-35"},{"frames",24},{"held_frame_exact",true},{"reveal_frame_matches_independent",true},
       {"independent_pan_difference",plainError/samples},{"temporal_pan_difference",stableError/samples},{"matched_pixels",samples}};
 }
 void visualExamples(const QDir &directory) {
