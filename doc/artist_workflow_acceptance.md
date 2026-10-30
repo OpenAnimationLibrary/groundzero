@@ -23,10 +23,74 @@ Review and validation follow the dependency chain #116 → #117 → #119 → #12
 
 Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neural/color-style work in PR #114 is separately owned and excluded. Vector opacity/width/paint modes here operate on native vector artwork, not the external raster brush engine. Reuse existing native SeExpr, particle, collection and UI capabilities. Coordinate common CMake, command registrations, preferences and native integration fixtures explicitly.
 
-## Current progress
+## Execution checkpoint — 2026-10-30
 
-The latest executed combined candidate, `a9c687e2b`, and vector candidate
-`ed247a325` still failed qualification. Their field diagnostics identify the
+All 60 improvements remain in the acceptance ledger. Product implementations
+and acceptance fixtures are present, but the Filmstrip lifetime correction
+described below still requires execution and full qualification is incomplete. Source review,
+executed CI and physical artist qualification remain separate. The following
+heads were published together at 19:27 UTC against the baseline above; later
+revisions require their own exact-head checks.
+
+| PR | Owned items | Published checkpoint head |
+|---|---|---|
+| #116 Function Editor and shared native safety | 1–18 | `6dddd7eaf2bc09f3a915967967fb57b0c328b926` |
+| #117 Animation workflow and reliability | 53–58 | `3608cb1f0b342b33a5677f462880c85bf7ce2a6f` |
+| #119 Scene Cast | 37–52 | `e979d684e453cdb8e8d4bddd686d1b768f674c6b` |
+| #120 Vector editing | 19–36 | `64dda5d47c12ac845584a848aa803b0d1dd1b7bf` |
+| #118 Performance/cache and combined acceptance | 59–60 and combined gates | `6392d44f30b91396ef24a66f8d4928bc96fd33a9` |
+
+#119 Linux application, standalone UI and reliability checks passed at the
+recorded head. This supplies exact-head Linux evidence; it does not complete
+platform/package qualification. Remaining gates must be reported individually,
+and earlier green revisions do not qualify later changes.
+
+Combined Linux at the recorded #118 head passed the corrected Filmstrip native
+PLI-reload assertion, then its original mandatory process exited with SIGSEGV
+(`-11`) before terminal lifecycle checks. No original-process crash stack was
+captured. The required separate reviewed-clear process and all six isolated
+diagnostic processes passed with zero exit and the required lifecycle, drain
+and cleanup evidence. Automatic debugger replay also completed normally. These
+passes do not replace the failed original mandatory process.
+[Combined Linux run](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41115427301).
+
+Source review found a concrete Filmstrip use-after-free path: its viewport
+resize filter outlives a deleted frames widget while retaining a raw pointer
+to it. A later viewport resize can dereference that deleted widget. The reviewed
+correction gives the filter the strip's lifetime, removes it before teardown
+signals, and rejects callbacks after detachment from its viewport. Native
+coverage repeats detached, deleting and replaced-strip resize paths while
+retaining exact drawing/history and modal cancellation checks. This finding
+does not establish the cause of the observed SIGSEGV. Original-process core
+capture preserves evidence if it recurs; that diagnostic change has no executed
+capture evidence yet.
+
+The earlier PLI mismatch was existing native coordinate encoding and region-grid
+normalization. Its corrected oracle checks the exact stored representation while
+retaining exact live Apply/Undo, opacity, width, style and palette assertions.
+The earlier repeated-Quit fixture reused an application after terminal thread
+and cache teardown. Both meaningful Quit outcomes now run in separate required
+fresh processes, each with an actual Cancel and one accepted Quit. The old
+nonstandard exception type remains uncaptured. Product shutdown is not reset
+or bypassed.
+
+The integration order remains #116 → #117 → #119 → #120 → #118. Drafts remain
+in validation until their final heads satisfy the required full application,
+installed-package and platform gates and conflicts are resolved. Existing
+performance measurements are synthetic native or widget-rendering workloads.
+Physical tablet latency, presentation pacing and audio playback remain
+unqualified; software depth-opacity cost remains substantial. No all-60
+completion or merge-readiness claim is made.
+
+## Historical execution and diagnosis
+
+The following records describe evidence and requirements at each named
+revision. Later results do not rewrite an earlier failure. Outstanding
+qualification is summarized in the dated checkpoint above; historical
+requirements below are not claims that a corrected boundary has never run.
+
+The previous combined candidate, `a9c687e2b`, and vector candidate
+`ed247a325` failed qualification. Their field diagnostics identified the
 Filmstrip mismatch as unchanged native PLI coordinate normalization: authored
 `(11.902937812669542, 1.614491414073373, 2)` reopens as
 `(11.8984375, 1.609375, 2)`. Palette, style and authored opacity match. The
@@ -35,8 +99,8 @@ coordinate encoding. Reviewed correction `fb19f52e1` checks the exact native
 representation for every control point and width, retaining exact live
 Apply/Undo, profile, scalar, style, closure and palette assertions. This is a
 source-backed correction to an invalid raw-double reload expectation, not a
-new product precision change. Fresh execution of the corrected oracle remains
-required.
+new product precision change. Fresh execution was required at that checkpoint;
+the later combined Linux result is recorded above.
 
 The same revisions completed actual Cancel and the first accepted Quit, then
 failed the fixture's second accepted close. That fixture reopened an application
@@ -47,16 +111,18 @@ processes: unreviewed replacement preservation and explicitly reviewed scene
 clearing after reader retirement. Each requires its own terminal marker,
 lifecycle/drain/cleanup evidence and zero exit. The original mandatory result
 remains authoritative. No product shutdown reset or repeated-terminal workaround
-is introduced. The revised runner and both modes need final-head CI.
+is introduced. The revised runner and both modes required fresh execution;
+their later Linux results and remaining qualification limits are recorded above.
 
 The preceding combined candidate, `dad81dfc3`, failed qualification,
 but completed both exact post-save width Undo/Redo cycles, subsequent alignment
 and manager workflows, and all 19 standalone UI tests. Its first mandatory
-failure is now the actual Filmstrip PLI-reopen comparison of authored geometry,
+failure was the actual Filmstrip PLI-reopen comparison of authored geometry,
 scalar/profile opacity and palette. Actual Apply and three Undo/Redo cycles
-precede that assertion and passed. The mismatched serialized field is not yet
-identified; `277780b09` adds exact field diagnostics and live-save invariance
-without weakening the round-trip assertion. Morph persistence remains pending.
+preceded that assertion and passed. The mismatched serialized field had not yet
+been identified; `277780b09` added exact field diagnostics and live-save invariance
+without weakening the round-trip assertion. The later diagnostics identified
+the native coordinate normalization described above.
 
 All six isolated component fixtures reached their own PASS markers, but all six
 processes failed the common native Quit fixture. Scene retention, reinstatement,
@@ -87,7 +153,8 @@ activation before owner interruption. `9f15d6b81` prevents programmatic scene
 root labels from entering folder-rename undo, with visible/hidden selected-root
 regressions and bounded fresh-tag diagnostics. The old compound tag assertion
 did not localize its mismatched field; the unintended rename path is established
-by source review, and the full tag workflow still needs new-head execution.
+by source review. The full tag workflow required new-head execution at that
+checkpoint; later #119 Linux application evidence is recorded above.
 `7815bdc93` preserves the first native assertion in CI reports and exposes later
 lifecycle failures separately. No timeout, exact state comparison, undo count
 or file assertion was relaxed. These changes are integrated and source-reviewed;
@@ -111,7 +178,8 @@ intervening drawing changes; pose dialogs reject stale scene/library state;
 and fill review retains cancellation across frame switches and queued acceptance.
 Native fixtures exercise the real callers, interrupted dialogs, panel closure,
 Apply/Cancel, repeated undo/redo and persistence where relevant. Their execution
-is pending; source review alone does not close these acceptance items.
+was pending at that checkpoint. Subsequent revision-specific evidence follows;
+source review alone does not close these acceptance items.
 
 Historical macOS isolated combined-timing execution exited with SIGSEGV after
 its assertions and cleanup checkpoints. The mandatory isolated gate at
@@ -140,9 +208,10 @@ weakened pixel, state, undo or persistence oracle substitutes for either check.
 Windows vector revision `0b5e2c4f` exposed two additional runtime boundaries:
 the width-manager export group encountered an unexpected nested dialog, and
 the full native process timed out after the Envelope Apply/undo checkpoint.
-The exact blocked call is not yet localized. Narrow driver/phase diagnostics
+The old blocked call was not localized. Narrow driver/phase diagnostics
 retain the original assertions and process timeout; no product fix is inferred
-from their presence. The old Shell thumbnail failure has a reviewed standalone
+from their presence. Later successful width cycles do not retrospectively
+establish the old timeout's cause. The old Shell thumbnail failure has a reviewed standalone
 TNZ correction. Subsequent SeExpr/neural launcher failures rejected retained
 renderer DLLs before execution and do not establish new product regressions.
 All these paths require successful execution on the corrected final revisions.
@@ -157,7 +226,8 @@ actions. It then exposed a width-fixture palette baseline captured at frame 10
 while the application's current frame was 0. Correction `8d2f19c5a` evaluates
 the palette at the actual frame before capturing the baseline and independently
 rechecks gradient animation; exact drawing comparisons remain unchanged. This
-correction needs fresh execution. The animation/timing failure prefixes are
+correction required fresh execution; later width progress is recorded below.
+The animation/timing failure prefixes are
 also normalized so CI annotations retain the actual cause instead of unrelated
 audio-backend warnings.
 
@@ -169,7 +239,7 @@ overwrite and then cancelling already passes. Reviewed correction `b49b14421`
 tracks only currently executing dialog actions, preserving both paths and every
 export assertion. Its alignment fixture also checks exact intervening opacity,
 frame identity and full drawing content before cleanup. These fixture changes
-need fresh execution. The full application stopped at the old
+required fresh execution at that checkpoint. The full application stopped at the old
 pose fixture; uncertain descendant cleanup retained its renderer, so the artist
 workload correctly refused to overwrite those files and did not execute.
 
@@ -184,8 +254,9 @@ and exact curve baselines refreshed only after successful own Apply. Native
 fixtures exercise 24 actual panel hide/delete routes, including nested prompts,
 and widget fixtures exercise eight foreign-key drift cases with exact frozen
 comparison, document and history oracles. Saved-set Save/Rename/Delete/reopen is
-also covered. These are source-reviewed changes awaiting execution; prior
-Function passes do not qualify the newly identified boundaries.
+also covered. These source-reviewed changes awaited execution at that
+checkpoint. Later `9629a7c5c` executed the panel routes and post-close observer
+notifications; earlier Function passes did not qualify those new boundaries.
 
 Source review also reopened Cast panel lifetime handling. The new Collections
 and Actions menus and several asset dialogs are stack objects parented to the
@@ -196,8 +267,10 @@ actions. This is a source exposure, not a reproduced crash. Reviewed correction
 dialogs, progress, confirmations and publication. It also guards source accesses
 after event-pumping scans and resolves folder items again after confirmation.
 Thirty-three actual interruption boundaries, repeated cancellation and exact
-state/file/navigation/history checks are prepared. Earlier Cast passes do not
-qualify these new guards; fresh supported-platform execution is required.
+state/file/navigation/history checks were prepared, then executed on
+`5d02222bf` as recorded below. That process still failed other gates. Later
+#119 Linux evidence is recorded above; complete supported-platform qualification
+remains required.
 
 Linux candidate `3dd99b2f6` passed 19 native UI tests and the corrected pose and
 width-interruption cases, but the mandatory sequence failed at repeated width
@@ -229,7 +302,9 @@ does not prove that pair completed. The earlier palette-save invariance checks
 and first pair passed. Reviewed correction `d8f696db3` adds precise action/settle
 checkpoints and drives the real modified-resource New Scene confirmation with
 an independent timer. It does not clear dirty resources or relax comparisons,
-and the observed timeout cause remains unlocalized until fresh execution.
+and did not establish the old timeout's cause. Later `dad81dfc3` completed both
+strict post-save width cycles and alignment; that progress does not turn the
+original timeout into a pass or prove its cause.
 
 The same candidate's isolated Cast process crashed after a folder tree remained
 registered as the current selection beyond its destruction. Reviewed correction
@@ -297,17 +372,18 @@ and the component ledgers.
 | Scene Cast `0b4e5032a34c88198204f38982e1d4d82dd7f919` | Native Cast and actual Library workflows passed on Linux, Windows and macOS. Windows/macOS Cast reliability helpers passed. Matching component-context macOS add/remove/rename measured 318/303/304 ms versus 1559/1714/1558 ms on `4016d693f`; identity/order/scroll and one-refresh checks passed. | Overall jobs failed later inherited converter/Shell paths; this is component evidence, not full platform qualification. Later published Cast revisions require their own final checks. |
 | Combined workflow `b00db72a35be48bf7852cbbc49a113622985761d` | Linux passed native UI checks, all six isolated diagnostics and the independent artist workload. Windows passed corrected Shell/profile thumbnails, 19 of 20 native UI tests, all 16 reliability tests including EXR, and all 16 SeExpr tests. | Both mandatory sequences failed in the old pose modal fixture before new native vector editing guards ran. Windows width export failed its extra-dialog oracle and its artist workload did not execute because retained renderer files blocked setup. Linux reliability and both installed checks were skipped. Passing diagnostics do not replace the failed sequences. |
 | Linux validation `15a4593e2247b37000ef22b8c4bd58474002cc7f` | The corrected pose driver passed the full animation workflow. All six isolated diagnostics and the independent artist workload passed. | The mandatory sequence next failed its exact width drawing comparison because the fixture captured an evaluated palette from a different frame. Reviewed fixture correction `8d2f19c5a` retains exact comparisons and gradient assertions but is unexecuted. Reliability and installed checks were skipped. |
-| Linux validation `3dd99b2f69262dbe7612efc90dc452b6fbc48deb` | All 19 native UI tests passed. The full sequence passed pose context changes and width interruption guards. Five isolated groups and the independent artist workload passed. Native saved-set Save/Rename/Delete/reopen, target-range reload and removed-owner guards passed before the separate Function failure. | Mandatory integration failed repeated width Undo after a native PLI save changed the live evaluated palette. The isolated Function process crashed during the actual panel-lifetime matrix in `ParamCalculatorNode::onChange`; observer lifetime is under investigation. Reliability/EXR and installed checks were skipped. This revision predates the Cast modal-lifetime correction. |
-| Linux validation `9629a7c5c216fd72ce4cb5418207ea00dcb5de3a` | Standalone native UI and isolated Function passed, including the 24 panel routes and actual post-close source/dependent notifications. Palette-save invariance and the first post-save width Undo/Redo pair passed. Timing, export, renderer and artist diagnostics passed. | Mandatory integration timed out after 600 seconds; the last checkpoint preceded the second post-save pair. Isolated Cast crashed through stale current selection, and Cast/vector failed the consolidation confirmation oracle. Reliability/EXR and installed checks were skipped. New Cast detach, vector driver, reporting and shutdown corrections are unexecuted. |
+| Linux validation `3dd99b2f69262dbe7612efc90dc452b6fbc48deb` | All 19 native UI tests passed. The full sequence passed pose context changes and width interruption guards. Five isolated groups and the independent artist workload passed. Native saved-set Save/Rename/Delete/reopen, target-range reload and removed-owner guards passed before the separate Function failure. | Mandatory integration failed repeated width Undo after a native PLI save changed the live evaluated palette. The isolated Function process crashed during the actual panel-lifetime matrix in `ParamCalculatorNode::onChange`; observer lifetime was subsequently diagnosed and corrected in `83dcde0e7`, with later execution at `9629a7c5c` recorded above. Reliability/EXR and installed checks were skipped. This revision predates the Cast modal-lifetime correction. |
+| Linux validation `9629a7c5c216fd72ce4cb5418207ea00dcb5de3a` | Standalone native UI and isolated Function passed, including the 24 panel routes and actual post-close source/dependent notifications. Palette-save invariance and the first post-save width Undo/Redo pair passed. Timing, export, renderer and artist diagnostics passed. | Mandatory integration timed out after 600 seconds; the last checkpoint preceded the second post-save pair. Isolated Cast crashed through stale current selection, and Cast/vector failed the consolidation confirmation oracle. Reliability/EXR and installed checks were skipped. Cast detach, vector driver, reporting and shutdown corrections had not executed at that checkpoint; later evidence follows. |
 | Linux validation `5d02222bf8f8fbc4735229d32604ba31a25b2dc1` | Standalone UI passed 18 of 19 tests. All 33 Cast interruption checkpoints completed. The independent artist workload and 26 native-runner contract tests passed. | Mandatory integration first failed gradient owner setup, then lifecycle file setup. All six isolated processes failed lifecycle setup; Cast also failed its fresh-tag undo assertion. Component PASS markers do not count as process passes. The standalone width owner case failed its loaded-sample comparison. Installed checks were skipped. Reviewed fixture, Cast root-label and reporting corrections need new-head execution. |
 | Combined Linux `dad81dfc345b957dac56b876c4ded496f691f01a` | All 19 standalone UI tests passed. Mandatory execution completed both exact post-save width Undo/Redo cycles, alignment and the width-manager workflow. Scene retention, New/Load and retired-source checks passed. Six isolated component fixtures and the independent artist workload reached their own PASS markers. | Mandatory execution failed the Filmstrip PLI-reopen geometry/opacity/palette assertion after live Apply and three Undo/Redo cycles passed. All six isolated processes failed the common repeated-Quit decision fixture, so none qualifies as a process pass. Exact persistence diagnostics and the public-event-loop fixture correction need new execution. Reliability/EXR and installed checks were skipped. |
 | Vector Linux `ed247a3255816f50c6531c4c2cc8e5f67f7dfd90` and combined Linux `a9c687e2b745d40684834d10125995918c54076f` | Standalone UI passed 18/18 and 19/19 respectively. Strict width cycles/alignment passed. Filmstrip Apply, three Undo/Redo cycles and live-save invariance passed. Diagnostics show the exact legacy PLI/region-grid coordinate change, with matching authored opacity/style/palette. Actual Quit Cancel and the first accepted close passed. | Native persistence still used invalid raw-double equality; reviewed correction fb19f52e1 requires new execution. Both processes failed the invalid second terminal close. Combined isolated feature markers passed but every process failed that common fixture. Two fresh terminal processes remain required; reliability/EXR and installed checks were skipped. |
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux application and installed-package jobs passed, including the mandatory native sequence, SeExpr, reliability/EXR and GLB checks. Windows passed its full native sequence, artist workload and reliability/EXR gates. | Windows overall failed standalone width-export and old scene-thumbnail checks, followed by retained-renderer preflight refusals; installed checks were skipped. macOS was superseded during compilation. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
-Current work remains explicit: execute the reviewed native PLI-reopen oracle
-and both fresh-process terminal cases, and obtain complete final-head
-platform and installed-package results. The strict width cycles and subsequent
+At the preceding checkpoint, the reviewed native PLI-reopen oracle and both
+fresh-process terminal cases still required execution. Their later Linux results
+are recorded above; complete final-head platform and installed-package
+qualification remains required. The strict width cycles and subsequent
 alignment completed on `dad81dfc3`; the older timeout is retained as historical
 evidence rather than a still-unexecuted width boundary. The macOS shutdown failure has an actual worker
 stack and must pass on the corrected revision; it is not a speculative defect.
