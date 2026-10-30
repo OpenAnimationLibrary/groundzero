@@ -131,6 +131,16 @@ unchanged. A mismatched widget confirmation now reports the failed identity
 check before its bounded deadline. No production dialog behavior changed;
 fresh supported-platform CI remains required.
 
+At `a6bbf59aa`, Linux passed both Function suites, the full native workflow and
+installed-package lifecycle. Windows compiled and passed native curve operations;
+its step results also report successful full-application integration. The widget
+suite reported an access violation after constructing its stale-comparison fixture. Its last
+checkpoint preceded capture and confirmation, so the original report does not
+establish the crashing operation. Targeted flushed checkpoints and a bounded
+Windows CDB capture now distinguish capture, modal setup, model reset and the
+actual Yes click. The original failed result remains authoritative; no product
+behavior or assertion was changed without a stack establishing the cause.
+
 Combined-workflow Linux head `c7fdf2aec` subsequently reached the real application
 and passed frozen native/SeExpr comparisons, existing graph interactions,
 unkeyed identity persistence and saved-set renaming. The fractional retime scene

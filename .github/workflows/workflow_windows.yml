@@ -461,6 +461,27 @@ jobs:
         shell: pwsh
         run: ./ci-scripts/debug_theme_test_windows.ps1 -BuildDirectory toonz/build -ThemeDirectory stuff/config/qss -TestOutput toonz/build/ui-tests-output.txt -QtDirectory $env:QT_PATH
 
+      - name: Diagnose Function Editor widget crash
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: python ci-scripts/debug_function_test_windows.py --build toonz/build --qt "$env:QT_PATH" --test-output toonz/build/ui-tests-output.txt --output toonz/build/function-workflow-debugger.txt
+
+      - name: Report Function Editor widget crash stack
+        if: ${{ failure() && hashFiles('toonz/build/function-workflow-debugger.txt') != '' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/function-workflow-debugger.txt "Function Editor crash stack"
+
+      - name: Retain Function Editor widget diagnostics
+        if: ${{ !cancelled() && steps.ui_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: function-editor-widget-windows
+          path: |
+            toonz/build/ui-tests.xml
+            toonz/build/ui-tests-output.txt
+            toonz/build/function-workflow-debugger.txt
+          if-no-files-found: ignore
+
       - name: Report Cadmium adapter failures
         if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/cadmium-tests-output.txt "Cadmium adapter regression"

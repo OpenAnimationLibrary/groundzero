@@ -602,11 +602,14 @@ void contextCancellation() {
     require(f.graph->comparison().empty() && f.graph->comparisonState().frozen.empty(),
             "context cancellation retained a comparison bound to the old scene");
   }
+  checkpoint("stale comparison fixture begins");
   TSceneHandle scene; Fixture f; f.viewer.setSceneHandle(&scene);
   TDoubleParamP original = new TDoubleParam(*f.a);
   auto *capture = f.viewer.findChild<QAction *>("FunctionCaptureComparison");
   auto *restore = f.viewer.findChild<QAction *>("FunctionRestoreComparison");
-  require(capture && restore, "Comparison context controls are missing"); capture->trigger();
+  require(capture && restore, "Comparison context controls are missing");
+  checkpoint("stale comparison capture begins"); capture->trigger();
+  checkpoint("stale comparison capture completed");
   TUndoManager::manager()->reset(); scene.setDirtyFlag(false);
   QObject delivery; bool confirmedAfterReset = false; int editNotifications = 0;
   QString confirmationFailure;
@@ -614,6 +617,7 @@ void contextCancellation() {
   QTimer deadline; deadline.setSingleShot(true);
   QObject::connect(&deadline, &QTimer::timeout, &delivery, []() { qFatal("Stale comparison confirmation timed out"); });
   QTimer::singleShot(0, &delivery, [&]() {
+    checkpoint("stale comparison confirmation callback entered");
     auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
     try {
       // QMessageBox window titles are intentionally ignored on macOS.
@@ -625,17 +629,24 @@ void contextCancellation() {
       require(box->standardButtons() == (QMessageBox::Yes | QMessageBox::No) &&
                   box->button(QMessageBox::Yes) && box->button(QMessageBox::Yes)->isEnabled(),
               "Stale comparison confirmation has missing or disabled answer buttons");
-      f.model->resetAll(); confirmedAfterReset = true; box->button(QMessageBox::Yes)->click();
+      checkpoint("stale comparison confirmation identity verified");
+      checkpoint("stale comparison model reset begins"); f.model->resetAll();
+      checkpoint("stale comparison model reset completed"); confirmedAfterReset = true;
+      checkpoint("stale comparison Yes click begins"); box->button(QMessageBox::Yes)->click();
+      checkpoint("stale comparison Yes click completed");
     } catch (const std::exception &problem) {
       confirmationFailure = QString::fromUtf8(problem.what());
       if (box) box->reject();
     }
   });
+  checkpoint("stale comparison question begins");
   deadline.start(15000); restore->trigger(); deadline.stop();
+  checkpoint("stale comparison question returned");
   require(confirmationFailure.isEmpty(), qPrintable(confirmationFailure));
   require(confirmedAfterReset && editNotifications == 0 && !scene.getDirtyFlag() && TUndoManager::manager()->getHistoryCount() == 0 &&
               f.graph->comparisonState().frozen.empty() && Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()),
           "stale comparison confirmation edited or dirtied its replacement context");
+  checkpoint("stale comparison context assertions completed");
 }
 void nativePresetImport() {
   Fixture f;
