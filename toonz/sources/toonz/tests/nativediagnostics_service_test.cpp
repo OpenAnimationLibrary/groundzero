@@ -119,6 +119,32 @@ void run() {
     wait([&] { return !QFileInfo::exists(file); });
     restarted.shutdown();
   }
+#ifndef Q_OS_WIN
+  {
+    // A home directory of "/" (a service account or a container) is no
+    // private prefix: redacting it would remove every separator of a path.
+    const QByteArray home = qgetenv("HOME");
+    qputenv("HOME", "/");
+    NativeDiagnostics rooted;
+    rooted.initialize(settings, directory);
+    rooted.setEnabled(true);
+    wait([&] {
+      return rooted.status().state == NativeDiagnostic::State::Ready;
+    });
+    const quint64 before = rooted.status().written;
+    qWarning("rooted-home /tmp/scene/shot.tnz");
+    wait([&] { return rooted.status().written >= before + 1; });
+    rooted.setEnabled(false);
+    wait([&] { return rooted.status().state == NativeDiagnostic::State::Off; });
+    const QByteArray text = read(file);
+    qputenv("HOME", home);
+    require(text.contains("rooted-home /tmp/scene/shot.tnz"),
+            "a root home directory redacted every path separator");
+    rooted.deleteSavedLogs();
+    wait([&] { return !QFileInfo::exists(file); });
+    rooted.shutdown();
+  }
+#endif
   qInstallMessageHandler(saved);
 }
 }  // namespace

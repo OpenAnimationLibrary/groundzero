@@ -16,6 +16,7 @@
 #include <QUrl>
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace {
 // Qt 5's list equality depends on an iterator extension removed in newer MSVC.
@@ -226,21 +227,63 @@ QString ThemeApplication::currentTheme() const {
 }
 
 bool ThemeApplication::applyTheme(const QString &name, QString *error) {
-  return apply(name, m_settings.additionalStyle ? m_settings.additionalStyle()
-                                              : QString(), false, false, error);
+  return apply(
+      name,
+      m_settings.additionalStyle ? m_settings.additionalStyle() : QString(),
+      false, true, false, error);
 }
 
 bool ThemeApplication::applyAdditionalStyle(const QString &style, QString *error) {
-  return apply(currentTheme(), style, true, false, error);
+  return apply(currentTheme(), style, true, true, false, error);
 }
 
 bool ThemeApplication::reload(QString *error) {
-  return apply(currentTheme(), m_settings.additionalStyle ? m_settings.additionalStyle()
-                                                        : QString(), false, true, error);
+  return apply(
+      currentTheme(),
+      m_settings.additionalStyle ? m_settings.additionalStyle() : QString(),
+      false, true, true, error);
+}
+
+bool ThemeApplication::startup(QString *error) {
+  QString reason;
+  const bool applied = reload(&reason);
+  if (error) *error = reason;
+  if (applied || m_initialized) return applied;
+  const QString saved = currentTheme();
+  const QString additional =
+      m_settings.additionalStyle ? m_settings.additionalStyle() : QString();
+  const QString fallback = QStringLiteral("Default");
+  // The saved selection failed: try it without the additional sheet, then the
+  // Default theme with and without it.
+  std::vector<std::pair<QString, QString>> candidates;
+  if (!additional.isEmpty()) candidates.push_back({saved, QString()});
+  if (saved != fallback) {
+    if (!additional.isEmpty()) candidates.push_back({fallback, additional});
+    candidates.push_back({fallback, QString()});
+  }
+  for (const auto &candidate : candidates) {
+    if (!apply(candidate.first, candidate.second, false, false, true, nullptr))
+      continue;
+    QString used;
+    if (candidate.first == saved)
+      used = tr("The theme is used without the additional style sheet.");
+    else if (candidate.second.isEmpty() && !additional.isEmpty())
+      used = tr("The %1 theme is used without the additional style sheet.")
+                 .arg(fallback);
+    else
+      used = tr("The %1 theme is used.").arg(fallback);
+    if (error)
+      *error = reason + '\n' + used + ' ' +
+               tr("This applies to this session only; the saved theme "
+                  "settings were not changed.");
+    return true;
+  }
+  return false;
 }
 
 bool ThemeApplication::apply(const QString &name, const QString &additional,
-                             bool saveAdditional, bool force, QString *error) {
+                             bool saveAdditional, bool saveTheme, bool force,
+                             QString *error) {
   if (error) error->clear();
   if (!qApp || QThread::currentThread() != qApp->thread() || m_applying)
     return fail(error, tr("The theme cannot be changed during another UI update."));
@@ -278,7 +321,8 @@ bool ThemeApplication::apply(const QString &name, const QString &additional,
     m_appliedStyle = style;
     m_initialized = true;
   }
-  if (m_settings.saveTheme && currentTheme() != name) m_settings.saveTheme(name);
+  if (saveTheme && m_settings.saveTheme && currentTheme() != name)
+    m_settings.saveTheme(name);
   if (saveAdditional && m_settings.saveAdditionalStyle &&
       (!m_settings.additionalStyle || m_settings.additionalStyle() != additional))
     m_settings.saveAdditionalStyle(additional);

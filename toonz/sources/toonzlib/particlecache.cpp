@@ -205,6 +205,42 @@ QString fileDigest(const QString &path, QString &error, const Cancel &cancel) {
   return QString::fromLatin1(hash.result().toHex());
 }
 
+// A rewrite within the timestamp resolution can keep size and times, so
+// stamps are only trusted once a file has been unchanged for this long.
+constexpr qint64 settleMilliseconds = 2000;
+std::mutex digestMutex;
+std::map<QString, QString> digests;  // fileStamp -> SHA-256.
+
+// The content digest of path, memoized by its stamp once the file has settled.
+// stamp/settled describe the file as it was before it was read.
+QString memoizedDigest(const QString &path, QString &stamp, bool &settled,
+                       QString &error, const Cancel &cancel) {
+  stamp = fileStamp(path, &settled);
+  if (stamp.isEmpty()) {
+    error = "Particle cache frame is missing.";
+    return {};
+  }
+  if (settled) {
+    std::lock_guard<std::mutex> lock(digestMutex);
+    const auto found = digests.find(stamp);
+    if (found != digests.end()) return found->second;
+  }
+  const QString digest = fileDigest(path, error, cancel);
+  if (digest.isEmpty() || !settled || fileStamp(path) != stamp) return digest;
+  std::lock_guard<std::mutex> lock(digestMutex);
+  if (digests.size() >= 16384) digests.clear();
+  digests[stamp] = digest;
+  return digest;
+}
+
+// True unless the file read under stamp/digest changed while it was decoded.
+bool unchanged(const QString &path, const QString &stamp, bool settled,
+               const QString &digest, QString &error, const Cancel &cancel) {
+  // A settled file that is rewritten gets a new modification time.
+  if (settled) return fileStamp(path) == stamp;
+  return fileDigest(path, error, cancel) == digest;
+}
+
 void trimCache() {
   while (cacheBytes > cacheLimit && !memoryCache.empty()) {
     auto oldest = std::min_element(memoryCache.begin(), memoryCache.end(),
@@ -477,21 +513,32 @@ SnapshotPtr attachMetadata(SnapshotPtr snapshot, const Sequence &sequence, int f
   return result;
 }
 
-SnapshotPtr frameAt(const Sequence &s, int frame, const Mapping &mapping,
-                    MissingFrame missing, QString &error, const Cancel &cancel) {
-  auto found = s.frames.find(frame);
-  if (found == s.frames.end()) {
-    if (missing == MissingFrame::Empty) return std::make_shared<Snapshot>();
-    if (missing == MissingFrame::Hold) {
-      found = s.frames.upper_bound(frame);
-      if (found == s.frames.begin()) return std::make_shared<Snapshot>();
-      --found;
-    } else { error = QString("Missing particle cache frame %1.").arg(frame); return {}; }
-  }
-  return attachMetadata(loadFrame(found->second, mapping, error, cancel), s, found->first);
+}  // namespace
+
+QString fileStamp(const QString &path, bool *settled) {
+  if (settled) *settled = false;
+  const QFileInfo info(path);
+  const QString canonical = info.canonicalFilePath();
+  if (canonical.isEmpty() || (!info.isFile() && !info.isDir())) return {};
+  const qint64 modified      = info.lastModified().toMSecsSinceEpoch();
+  const QDateTime changeTime = info.metadataChangeTime();
+  const qint64 changed =
+      changeTime.isValid() ? changeTime.toMSecsSinceEpoch() : modified;
+  if (settled)
+    *settled =
+        QDateTime::currentMSecsSinceEpoch() - std::max(modified, changed) >
+        settleMilliseconds;
+  return canonical + QChar('\n') + QString::number(info.size()) + QChar('\n') +
+         QString::number(modified) + QChar('\n') + QString::number(changed);
 }
 
-}  // namespace
+QString fileRevision(const QString &path, QString &error,
+                     const Cancel &cancel) {
+  error.clear();
+  QString stamp;
+  bool settled = false;
+  return memoizedDigest(path, stamp, settled, error, cancel);
+}
 
 std::vector<FormatCapability> capabilities() {
   return {{"bgeo", "Houdini classic BGEO v5", true, true},
@@ -622,11 +669,19 @@ bool openSequence(const QString &path, Sequence &sequence, QString &error) {
       error = "Unsupported particle format. Modern BGEO and .bgeo.sc are not supported; use .bhclassic.";
       return false;
     }
-    const QRegularExpression pattern("^(.*?)(-?[0-9]+)(\\.[^.]+(?:\\.gz)?)$");
+    // A '-' is a sign only at the start or after '.' or '_': "rain-0001.bgeo"
+    // is frame 1 of "rain-", while "rain.-5.bgeo" is frame -5 of "rain.".
+    const QRegularExpression pattern(
+        "^(.*?)((?:(?<![^._])-)?[0-9]+)(\\.[^.]+(?:\\.gz)?)$");
     const auto match = pattern.match(source.fileName());
     if (match.hasMatch()) {
-      const QRegularExpression siblings("^" + QRegularExpression::escape(match.captured(1)) +
-          "(-?[0-9]+)" + QRegularExpression::escape(match.captured(3)) + "$");
+      const QString prefix = match.captured(1);
+      const bool signedFrames =
+          prefix.isEmpty() || prefix.endsWith('.') || prefix.endsWith('_');
+      const QRegularExpression siblings(
+          "^" + QRegularExpression::escape(prefix) +
+          (signedFrames ? "(-?[0-9]+)" : "([0-9]+)") +
+          QRegularExpression::escape(match.captured(3)) + "$");
       for (const auto &name : base.entryList(QDir::Files, QDir::Name)) {
         const auto candidate = siblings.match(name);
         if (!candidate.hasMatch()) continue;
@@ -659,7 +714,9 @@ SnapshotPtr inspectFrame(const QString &path, QString &error, const Cancel &canc
   if (!supported(path, false)) { error = "Unsupported particle cache reader."; return {}; }
   const QFileInfo info(path);
   if (!info.isFile()) { error = "Particle cache frame is missing."; return {}; }
-  const QString digest = fileDigest(path, error, cancel);
+  QString stamp;
+  bool settled         = false;
+  const QString digest = memoizedDigest(path, stamp, settled, error, cancel);
   if (digest.isEmpty()) return {};
   QTemporaryDir staging;
   QString prepared;
@@ -679,7 +736,7 @@ SnapshotPtr inspectFrame(const QString &path, QString &error, const Cancel &canc
     result->particleCount = std::size_t(data->numParticles());
   }
   if (cancelled(cancel, error)) return {};
-  if (fileDigest(path, error, cancel) != digest) {
+  if (!unchanged(path, stamp, settled, digest, error, cancel)) {
     if (error.isEmpty()) error = "Particle cache changed while being inspected; retry.";
     return {};
   }
@@ -700,7 +757,11 @@ SnapshotPtr loadFrame(const QString &path, const Mapping &mapping, QString &erro
   if (!supported(path, false)) { error = "Unsupported particle cache reader."; return {}; }
   const QFileInfo info(path);
   if (!info.isFile()) { error = "Particle cache frame is missing."; return {}; }
-  const QString digest = fileDigest(path, error, cancel);
+  // A settled file's digest is memoized by its stamp, so a memory-cache hit
+  // costs a stat instead of reading and hashing the whole file.
+  QString stamp;
+  bool settled         = false;
+  const QString digest = memoizedDigest(path, stamp, settled, error, cancel);
   if (digest.isEmpty()) return {};
   const QString key = info.canonicalFilePath() + ':' + digest + ':' +
       QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(mappingToJson(mapping)).toJson(QJsonDocument::Compact),
@@ -728,7 +789,7 @@ SnapshotPtr loadFrame(const QString &path, const Mapping &mapping, QString &erro
         !mapParticles(*result, std::size_t(data->numParticles()), mapping, error)) return {};
   }
   if (cancelled(cancel, error)) return {};
-  if (fileDigest(path, error, cancel) != digest) {
+  if (!unchanged(path, stamp, settled, digest, error, cancel)) {
     if (error.isEmpty()) error = "Particle cache changed while being read; retry the frame.";
     return {};
   }
@@ -795,36 +856,140 @@ SnapshotPtr interpolate(const Snapshot &a, const Snapshot &b, double weight, QSt
   return result;
 }
 
-SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
-                           const Playback &playback, const Mapping &mapping,
-                           QString &error, const Cancel &cancel) {
+bool planSample(const Sequence &sequence, double sceneFrame,
+                const Playback &playback, SamplePlan &plan, QString &error) {
   error.clear();
-  if (sequence.frames.empty()) { error = "Particle sequence contains no frames."; return {}; }
-  if (!validMetadata(sequence.metadata, error)) return {};
+  plan = SamplePlan();
+  if (sequence.frames.empty()) {
+    error = "Particle sequence contains no frames.";
+    return false;
+  }
+  if (!validMetadata(sequence.metadata, error)) return false;
   if (!finite(sceneFrame) || !finite(playback.sceneFramesPerSecond) || playback.sceneFramesPerSecond <= 0 ||
       !finite(playback.startFrame) || !finite(playback.offset) || !finite(playback.speed)) {
-    error = "Invalid particle playback timing."; return {};
+    error = "Invalid particle playback timing.";
+    return false;
   }
   const double first = sequence.metadata.firstFrame, last = sequence.metadata.lastFrame;
   double frame = first + (sceneFrame - playback.startFrame) * playback.speed *
       sequence.metadata.framesPerSecond / playback.sceneFramesPerSecond + playback.offset;
-  if (!finite(frame)) { error = "Particle playback time overflow."; return {}; }
+  if (!finite(frame)) {
+    error = "Particle playback time overflow.";
+    return false;
+  }
   if (frame < first || frame > last) {
-    if (playback.end == EndBehavior::Empty) return std::make_shared<Snapshot>();
+    if (playback.end == EndBehavior::Empty) {
+      plan.empty = true;
+      return true;
+    }
     if (playback.end == EndBehavior::Loop) {
       const double length = last - first + 1;
       frame = first + std::fmod(std::fmod(frame - first, length) + length, length);
     } else frame = std::clamp(frame, first, last);
   }
+  const auto &frames = sequence.frames;
   const int left = int(std::floor(frame));
-  const double weight = frame - left;
-  auto a = frameAt(sequence, left, mapping, playback.missing, error, cancel);
-  if (!a || !playback.interpolate || weight < 1e-9 || !a->hasStableIds || a->extra.value("native").toBool()) return a;
+  if (playback.missing == MissingFrame::Hold) {
+    // Interpolate between the nearest stored frames around the sample time,
+    // so a sparse cache keeps its timing instead of jumping at each key.
+    const auto above = frames.upper_bound(left);
+    if (above == frames.begin()) {
+      plan.empty = true;
+      return true;
+    }
+    const auto below = std::prev(above);
+    plan.left = plan.right = below->first;
+    if (!playback.interpolate) return true;
+    double next = 0;
+    if (above != frames.end()) {
+      plan.right = above->first;
+      next       = above->first;
+    } else if (playback.end == EndBehavior::Loop &&
+               frames.begin()->first == first) {
+      plan.right = frames.begin()->first;
+      next       = last + 1;
+    } else
+      return true;
+    plan.weight = (frame - below->first) / (next - below->first);
+    return true;
+  }
+  if (!frames.count(left)) {
+    if (playback.missing == MissingFrame::Empty) {
+      plan.empty = true;
+      return true;
+    }
+    error = QString("Missing particle cache frame %1.").arg(left);
+    return false;
+  }
+  plan.left = plan.right = left;
+  if (!playback.interpolate || frame == left) return true;
   const int right = left >= last
       ? (playback.end == EndBehavior::Loop ? int(first) : int(last)) : left + 1;
-  auto b = frameAt(sequence, right, mapping, playback.missing, error, cancel);
+  // Blending with a transparent missing frame keeps the left sample.
+  if (!frames.count(right) && playback.missing == MissingFrame::Empty)
+    return true;
+  plan.right  = right;
+  plan.weight = frame - left;
+  if (!frames.count(right))
+    plan.rightError = QString("Missing particle cache frame %1.").arg(right);
+  return true;
+}
+
+SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
+                           const Playback &playback, const Mapping &mapping,
+                           QString &error, const Cancel &cancel) {
+  SamplePlan plan;
+  if (!planSample(sequence, sceneFrame, playback, plan, error)) return {};
+  if (plan.empty) return std::make_shared<Snapshot>();
+  auto load = [&](int frame) {
+    return attachMetadata(
+        loadFrame(sequence.frames.at(frame), mapping, error, cancel), sequence,
+        frame);
+  };
+  auto a = load(plan.left);
+  if (!a || plan.weight < 1e-9 || !a->hasStableIds ||
+      a->extra.value("native").toBool())
+    return a;
+  if (!plan.rightError.isEmpty()) {
+    error = plan.rightError;
+    return {};
+  }
+  auto b = load(plan.right);
   if (!b) return {};
-  return interpolate(*a, *b, weight, error);
+  return interpolate(*a, *b, plan.weight, error);
+}
+
+QString sampleIdentity(const Sequence &sequence, double sceneFrame,
+                       const Playback &playback, const Mapping &mapping,
+                       QString &error) {
+  SamplePlan plan;
+  if (!planSample(sequence, sceneFrame, playback, plan, error)) return {};
+  // Content changes within the settle time are not visible in a stamp.
+  auto identity = [](const QString &path) {
+    bool settled   = false;
+    QString result = fileStamp(path, &settled);
+    if (result.isEmpty()) return "missing:" + path;
+    if (!settled) {
+      QString ignored;
+      result += QChar('\n') + fileRevision(path, ignored);
+    }
+    return result;
+  };
+  QString result = "sample-v1";
+  if (!sequence.manifestPath.isEmpty())
+    result += QChar('\n') + identity(sequence.manifestPath);
+  if (plan.empty) return result + "\nempty";
+  result += QString("\n%1\n").arg(plan.left) +
+            identity(sequence.frames.at(plan.left));
+  if (plan.weight > 0) {
+    result +=
+        QString("\n%1\n%2\n").arg(plan.right).arg(plan.weight, 0, 'g', 17) +
+        (plan.rightError.isEmpty() ? identity(sequence.frames.at(plan.right))
+                                   : plan.rightError);
+  }
+  return result + QChar('\n') +
+         QString::fromUtf8(QJsonDocument(mappingToJson(mapping))
+                               .toJson(QJsonDocument::Compact));
 }
 
 namespace {
@@ -1288,6 +1453,10 @@ bool exportFiles(const Sequence &sequence, const QString &directory,
 }
 
 void clearMemoryCache() {
+  {
+    std::lock_guard<std::mutex> lock(digestMutex);
+    digests.clear();
+  }
   std::lock_guard<std::mutex> lock(cacheMutex);
   memoryCache.clear(); cacheBytes = 0;
 }

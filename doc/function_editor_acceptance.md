@@ -1,6 +1,8 @@
 # Function Editor workflow acceptance
 
 Implementation base: `aa01975f38d6226156e5b07df7271b8fc199d003` (`edition`).
+Current integration base: `edition` `dc2592a1e86319c1f9e5334b41f0cdf99c485b36`,
+including the merged native UI, particle-cache safety and Qt 6 build fixes.
 The source workflows below are implemented. **Execution acceptance is pending:**
 `CLAUDE.md` requires builds and tests in CI, so none ran locally. Passing static
 review is not a claim that the application built or that interactive acceptance
