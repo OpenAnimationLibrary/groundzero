@@ -16,6 +16,11 @@ namespace {
 void require(bool v, const char *message) {
   if (!v) throw std::runtime_error(message);
 }
+void finishStroke(RasterBrush::Stroke &stroke) {
+  const bool success = stroke.finish();
+  require(success, stroke.error().c_str());
+}
+
 bool same(const TRaster32P &a, const TRaster32P &b) {
   if (!a || !b || a->getSize() != b->getSize()) return false;
   for (int y = 0; y < a->getLy(); ++y)
@@ -84,7 +89,8 @@ void testSourceOffCanvasFailureRollback() {
             "off-canvas allocation failure was not bounded before host writes");
     require(same(beforeFailure, raster),
             "failed outside allocation partially published dab");
-    stroke.finish();
+    require(!stroke.finish(),
+            "failed source host stroke finalized successfully");
   }
   require(memory->used() == obstruction,
           "failed source stroke leaked accounted storage");
@@ -115,7 +121,7 @@ void testRaster(const QString &directory) {
       s.time = i / 240.0;
       require(stroke.add(s), stroke.error().c_str());
     }
-    stroke.finish();
+    finishStroke(stroke);
   }
   require(!same(before, raster), "host raster did not change");
   require(transaction.tiles.getTileCount() > 0, "host undo was not captured");

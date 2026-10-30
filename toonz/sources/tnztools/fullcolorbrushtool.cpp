@@ -476,7 +476,11 @@ public:
       s.hasPressure = true;
       demo.add(s);
     }
-    demo.finish();
+    if (!demo.finish()) {
+      pixels.assign(320 * 140, {});
+      setToolTip(tr("Brush preview failed: %1")
+                     .arg(QString::fromStdString(demo.error())));
+    }
     update();
   }
 
@@ -534,7 +538,11 @@ protected:
       if (e->type() != QEvent::TabletRelease)
         stroke->add(sample);
       else {
-        stroke->finish();
+        if (!stroke->finish()) {
+          setToolTip(tr("Brush preview failed: %1")
+                         .arg(QString::fromStdString(stroke->error())));
+          pixels.assign(320 * 140, {});
+        }
         stroke.reset();
       }
       update();
@@ -553,8 +561,13 @@ protected:
     if (stroke && e->buttons().testFlag(Qt::LeftButton)) drawAt(e);
   }
   void mouseReleaseEvent(QMouseEvent *) override {
-    if (stroke) stroke->finish();
+    if (stroke && !stroke->finish()) {
+      setToolTip(tr("Brush preview failed: %1")
+                     .arg(QString::fromStdString(stroke->error())));
+      pixels.assign(320 * 140, {});
+    }
     stroke.reset();
+    update();
   }
   void drawAt(QMouseEvent *e) {
     RasterBrush::Sample s;
@@ -785,6 +798,15 @@ bool editNativeBrush(RasterBrush::Record &record) {
             " The fixed source HSV color adjustment will be removed. Native "
             "saturation and value controls use different equations and do not "
             "preserve that adjustment.");
+      if (std::any_of(record.preset.sourceHsvV2.begin(),
+                      record.preset.sourceHsvV2.end(),
+                      [](const RasterBrush::SourceHsvControl &channel) {
+                        return channel.enabled;
+                      }))
+        changes += QObject::tr(
+            " Source HSV sensor controls will be removed, including their "
+            "pressure mappings. Native saturation and value controls use "
+            "different equations and do not preserve those adjustments.");
       QMessageBox confirmation(
           QMessageBox::Warning, QObject::tr("Convert a Copy to Native"),
           changes + "\n\n" +
@@ -808,6 +830,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
       native.sourceTextureSoftTexturing = false;
       native.sourceHsvChannel           = RasterBrush::SourceHsvChannel::Off;
       native.sourceHsvValue             = .5;
+      native.sourceHsvV2                = {};
       if (wet) {
         native.pickup        = .5;
         native.colorRate     = .25;
@@ -2244,7 +2267,11 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     sample.rotation    = -point.rotation;
     sample.hasRotation = point.hasRotation;
     sample.time        = point.time;
-    if (!handler->nativeStroke->add(sample)) {
+    const bool added   = handler->nativeStroke->add(sample);
+    const bool committed =
+        added && (!(track.pointsAdded == 1 && track.finished()) ||
+                  handler->nativeStroke->finish());
+    if (!committed) {
       // Abort atomically: restore every region touched by this stroke. Do not
       // publish a half-rendered stroke when a resource budget is exhausted.
       if (!m_strokeRect.isEmpty()) {
@@ -2254,11 +2281,9 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
       }
       m_nativeStrokeFailed = true;
       DVGui::warning(QString::fromStdString(handler->nativeStroke->error()));
-      handler->nativeStroke->finish();
+      handler->nativeStroke->cancel();
       return;
     }
-    if (track.pointsAdded == 1 && track.finished())
-      handler->nativeStroke->finish();
   } else {
     handler->brush.strokeTo(point.position + rasCenter, pressure, point.tilt,
                             point.time - track.previous().time);

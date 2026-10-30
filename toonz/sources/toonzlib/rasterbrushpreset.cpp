@@ -424,6 +424,14 @@ static QByteArray encodeRecord(
         {"sourceTextureSoftTexturing", p.sourceTextureSoftTexturing},
         {"sourceHsvChannelV1", sourceHsvChannels[int(p.sourceHsvChannel)]},
         {"sourceHsvValueV1", p.sourceHsvValue},
+        {"sourceHsvControlsV2",
+         QJsonArray{
+             QJsonObject{{"enabled", p.sourceHsvV2[0].enabled},
+                         {"control", dynamicJson(p.sourceHsvV2[0].control)}},
+             QJsonObject{{"enabled", p.sourceHsvV2[1].enabled},
+                         {"control", dynamicJson(p.sourceHsvV2[1].control)}},
+             QJsonObject{{"enabled", p.sourceHsvV2[2].enabled},
+                         {"control", dynamicJson(p.sourceHsvV2[2].control)}}}},
         {"pickupControl", dynamicJson(p.pickupControl)},
         {"colorRateControl", dynamicJson(p.colorRateControl)},
         {"radiusControl", dynamicJson(p.radiusControl)},
@@ -580,7 +588,8 @@ static Record decodeRecord(
              "sourceColorRateEnabled",
              "sourceTextureSoftTexturing",
              "sourceHsvChannelV1",
-             "sourceHsvValueV1"});
+             "sourceHsvValueV1",
+             "sourceHsvControlsV2"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
@@ -609,6 +618,17 @@ static Record decodeRecord(
       p.sourceHsvChannel =
           SourceHsvChannel(choice(o["sourceHsvChannelV1"], sourceHsvChannels));
       p.sourceHsvValue = number(o["sourceHsvValueV1"]);
+    }
+    if (o.contains("sourceHsvControlsV2")) {
+      const auto controls = array(o["sourceHsvControlsV2"], 3);
+      if (controls.size() != 3)
+        throw Invalid("Incomplete source HSV V2 channel set");
+      for (int channel = 0; channel < 3; ++channel) {
+        const auto setting = object(controls[channel]);
+        keys(setting, {"enabled", "control"});
+        p.sourceHsvV2[channel].enabled = boolean(setting["enabled"]);
+        p.sourceHsvV2[channel].control = dynamic(setting["control"]);
+      }
     }
     if (o.contains("sourceTextureSoftTexturing"))
       p.sourceTextureSoftTexturing = boolean(o["sourceTextureSoftTexturing"]);

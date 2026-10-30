@@ -95,16 +95,19 @@ its exact serialized registry identifier still requires metadata evidence.
 
 ### Original masked-brush acquisition
 
-`maskwash` and `maskbuildup` each contain108 paired cases: mask off,
+`maskwash` and `maskbuildup` each contain 156 paired cases: the original 108 controls plus 48 color/background heldouts. Original controls cover: mask off,
 Multiply, Subtract; linked master-size coefficients .5/1 and independent-size;
 mask opacity/flow (1,1), (.5,1), (1,.5), (.5,.5); and independent spacing
 controls (primary,mask) (.25,.5), (.25,2), (2,.5). The24px round primary and
 12px rectangular half-aspect secondary are original embedded procedural tips,
 with no external resource lookup or asset licensing dependency. Each source
-stroke uses the public Node.paintLine API at pressure1. Every case repeats from
-an identical transparent canvas. Full-image output and bounded complete320x64
+stroke uses the public Node.paintLine API at pressure1. The original controls repeat from an identical transparent canvas. The 48 appended
+heldouts pair two non-primary foreground colors, transparent versus heterogeneous
+opaque/translucent backgrounds, primary opacity 1/.5 and secondary opacity/flow
+(.5,1)/(1,.5) for all three modes. Foreground readback is checked. Full-image output and bounded complete320x64
 BGRA captures are retained, including nested effective metadata and delivered
-line endpoints. Any painted pixels outside the capture fail acquisition.
+line endpoints. Any visible pixel change outside the capture fails acquisition, compared with
+the exact initial raster; transparent RGB is ignored only where alpha is zero.
 
 Pinned metadata sources (only serialization/registry facts used):
 
@@ -390,3 +393,36 @@ unique composition order: their saturation/value combinations commute.
 above neutral, including an unsaturated foreground and three-channel hue shifts.
 These cases distinguish saturation-before-lightening from the reverse; no order
 is assigned merely because the earlier joint acquisition completed successfully.
+### Time-period and speed-cadence discriminators
+
+The original12 timed-sensor case identities are preserved. Cases012–019 add
+1.25/2.25s paths with time duration1000, periodic/nonperiodic and enabled/off
+pairs, ensuring actual painting continues beyond one and two periods.
+Cases020–027 use17/65 contacts over the same256px path at.25/1s, with paired
+enabled/off speed controls. Together with existing33-contact traces this
+separates physical speed from event cadence. New traces enforce20ms lateness,
+record every actual elapsed timestamp, and retain the same capture area. Maximum
+nominal hold becomes2.25s; the added nominal contact time is19s. No source speed
+normalization or periodic wrapping is inferred before these captures execute.
+
+Completed job124365157160 shows enabled time-size starting at4px and approaching
+16px over1s for serialized duration1000; disabled controls remain16px. The
+independent importer therefore maps only explicit Size/time duration1000,
+periodic0 to the existing **native** elapsed-time sensor with one-second scale.
+Other durations, missing attributes and periodic1 remain unapplied. This is
+portable native unit conversion, explicitly excluded from strict source-profile
+eligibility: source time-to-dab scheduling remains unverified. Original import
+fixtures verify exact admission, rejection of guessed periods and save/reopen.
+
+HSV V2 stores three explicitly enabled/control slots while initially admitting
+only one active Hue or Value identity-pressure curve. Disabled slots must be
+neutral; V1 active state cannot coexist with V2. Saturation pressure, simultaneous
+channels, other sensors and nonidentity curves stay excluded. Existing V1 files
+remain readable unchanged. Actual Node captures give byte-exact H/V values for
+two colors at eleven dabs when evaluated with the independently measured source
+half-pixel future-pressure sample; geometry coordinates are not shifted.
+
+`hsvpressure` adds 16 full-region heldouts with two previously unseen colors and
+opposite .125/.875 pressure ramps. These and the original isolated H/V dynamic
+joint cases require zero full-union RGB and alpha error, alongside geometry and
+source eligibility. Center-sample regressions do not substitute for these gates.

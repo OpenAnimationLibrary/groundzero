@@ -286,6 +286,8 @@ int main(int argc, char **argv) {
       require(expected.size() == 42, "Incomplete mirror fixture matrix");
     if (fixtures["group"].toString() == "wethsv")
       require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
+    if (fixtures["group"].toString() == "hsvpressure")
+      require(expected.size() == 16, "Incomplete pressure HSV heldout matrix");
     if (fixtures["group"].toString() == "hsvorder")
       require(expected.size() == 24,
               "Incomplete order-discriminating HSV matrix");
@@ -300,12 +302,12 @@ int main(int argc, char **argv) {
       require(expected.size() == 32, "Incomplete distance acquisition matrix");
     if (fixtures["group"].toString() == "maskwash" ||
         fixtures["group"].toString() == "maskbuildup")
-      require(expected.size() == 108,
+      require(expected.size() == 156,
               "Incomplete masked-brush acquisition matrix");
     if (fixtures["group"].toString() == "airbrushtimed")
       require(expected.size() == 56, "Incomplete paced airbrush workload");
     if (fixtures["group"].toString() == "timedsensors")
-      require(expected.size() == 12, "Incomplete paced sensor workload");
+      require(expected.size() == 28, "Incomplete paced sensor workload");
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -351,6 +353,26 @@ int main(int argc, char **argv) {
         for (int c = 0; c < 4; ++c)
           require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
                   "Joint HSV foreground readback differs");
+      }
+      if (fixtures["group"].toString() == "hsvpressure") {
+        const auto evidence = source["sensorEvidence"].toObject();
+        const auto controls = evidence["effectiveControls"].toObject();
+        const QString target =
+            source["sensorProbe"].toObject()["target"].toString();
+        require((target == "h" || target == "v") &&
+                    evidence["deliveryValuesMatchAuthored"].toBool() &&
+                    evidence["deliveryInterface"].toString() ==
+                        "Node.paintLine" &&
+                    controls[target + "commonCurve"].toString() == "0,0;1,1;",
+                "Missing dynamic HSV source input/readback");
+        const auto foreground =
+            evidence["effectiveForegroundDisplayRGBA8"].toArray();
+        const auto authored = source["foregroundRGBA8"].toArray();
+        require(foreground.size() == 4 && authored.size() == 4,
+                "Missing dynamic HSV foreground readback");
+        for (int c = 0; c < 4; ++c)
+          require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
+                  "Dynamic HSV foreground differs");
       }
       const bool wetHsvCase = fixtures["group"].toString() == "wethsv";
       if (wetHsvCase) {
@@ -561,9 +583,10 @@ int main(int argc, char **argv) {
         const int base = source["wetKernelComplement"].toBool() ? 255 : 0;
         for (int y = 0; y < initial.height(); ++y)
           for (int x = 0; x < initial.width(); ++x)
-            initial.setPixel(x, y, x >= source["wetBoundary"].toDouble()
-                                      ? qRgba(0, 0, 0, 0)
-                                      : qRgba(base, base, base, 255));
+            initial.setPixel(x, y,
+                             x >= source["wetBoundary"].toDouble()
+                                 ? qRgba(0, 0, 0, 0)
+                                 : qRgba(base, base, base, 255));
         for (const auto &value : source["wetKernelPoints"].toArray()) {
           const auto point = value.toArray();
           initial.setPixel(256 + point[0].toInt(), 1024 + point[1].toInt(),
@@ -603,8 +626,15 @@ int main(int argc, char **argv) {
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
       const bool textureGate = fixtures["group"].toString() == "texturemasks";
+      const auto jointHsv = source["jointHsvProbe"].toObject();
+      const bool dynamicHsv = fixtures["group"].toString() == "hsvpressure" ||
+                              (fixtures["group"].toString() == "hsvjoint" &&
+                               jointHsv["dynamicPressure"].toBool() &&
+                               (jointHsv["channels"].toString() == "h" ||
+                                jointHsv["channels"].toString() == "v"));
       const bool sourceHsv = fixtures["group"].toString() == "hsvdynamics" ||
-                             fixtures["group"].toString() == "hsvheldout";
+                             fixtures["group"].toString() == "hsvheldout" ||
+                             dynamicHsv;
       const bool sourceHard =
           source["sourceBarrelCandidate"].toBool(false) || sourceHsv ||
           (textureGate && name.contains("dry legacy")) ||
@@ -632,7 +662,9 @@ int main(int argc, char **argv) {
                 "candidate");
       if (sourceHsv) {
         const auto probe = source["sensorProbe"].toObject();
-        const QString target = probe["target"].toString();
+        const QString target = dynamicHsv && !jointHsv.isEmpty()
+                                   ? jointHsv["channels"].toString()
+                                   : probe["target"].toString();
         require(target == "h" || target == "s" || target == "v",
                 "Invalid source HSV fixture channel");
         const auto expectedChannel =
@@ -645,10 +677,16 @@ int main(int argc, char **argv) {
         bool ok = false;
         const double expectedValue =
             curve.section(';', 0, 0).section(',', 1, 1).toDouble(&ok);
-        require(ok && p.sourceHsvChannel == expectedChannel &&
-                    (expectedChannel == SourceHsvChannel::Off ||
-                     p.sourceHsvValue == expectedValue),
-                "Source HSV import did not preserve fixed channel control");
+        if (dynamicHsv) {
+          const int index = target == "h" ? 0 : 2;
+          require(p.sourceHsvChannel == SourceHsvChannel::Off &&
+                      p.sourceHsvV2[index].enabled == probe["enabled"].toBool(),
+                  "Source HSV V2 import lost pressure control");
+        } else
+          require(ok && p.sourceHsvChannel == expectedChannel &&
+                      (expectedChannel == SourceHsvChannel::Off ||
+                       p.sourceHsvValue == expectedValue),
+                  "Source HSV import did not preserve fixed channel control");
       }
       const bool sourceSoft =
           (fixtures["group"].toString() == "pixelblend" &&
@@ -817,12 +855,21 @@ int main(int argc, char **argv) {
                   "Missing measured paced source timing");
           auto contacts = evidence["deliveredContacts"].toArray();
           require(contacts.size() == source["events"].toArray().size() &&
-                      (contacts.size() == 1 || contacts.size() == 33),
+                      (contacts.size() == 1 || contacts.size() == 17 ||
+                       contacts.size() == 33 || contacts.size() == 65),
                   "Incomplete paced source contacts");
           const auto spec = source["timedProbe"].toObject();
           const double duration = spec["durationUs"].toDouble();
+          const double maxLateness = spec["maxLatenessUs"].toDouble();
+          const bool strictTiming =
+              duration == 375000 || duration == 1125000 ||
+              duration == 1250000 || duration == 2250000 ||
+              spec["target"].toString().startsWith("speed-cadence-");
+          require(maxLateness == (strictTiming ? 20000 : 250000),
+                  "Unexpected paced lateness contract");
           require(duration == 250000 || duration == 375000 ||
-                      duration == 1000000 || duration == 1125000,
+                      duration == 1000000 || duration == 1125000 ||
+                      duration == 1250000 || duration == 2250000,
                   "Unexpected paced duration");
           const double origin =
               contacts[0].toObject()["monotonicUs"].toDouble();
@@ -878,7 +925,8 @@ int main(int argc, char **argv) {
         require(stroke.add(first) && stroke.add(last),
                 QString::fromStdString(stroke.error()));
       }
-      stroke.finish();
+      if (!stroke.finish())
+        require(false, QString::fromStdString(stroke.error()));
       double elapsed = timer.nsecsElapsed() / 1e6;
       QImage candidate = canvas.image();
       QString basename = source["image"].toString();

@@ -37,12 +37,33 @@ def prepare(root, resources, preset_writer, group):
                             'SizeUseSameCurve': 'true', 'SizeValue': '1', 'SizecurveMode': '0',
                             'SizecommonCurve': curve,
                             'SizeSensor': '<params id="' + sensor + '"' + attrs + '><curve>' + curve + '</curve></params>'}, sensor))
+        for duration in (1250000, 2250000):
+            for periodic in (False, True):
+                for enabled in (False, True):
+                    curve = '0,0.25;1,1;'
+                    plans.append((duration, True, {
+                        'PressureSize': str(enabled).lower(), 'SizeUseCurve': 'true',
+                        'SizeUseSameCurve': 'true', 'SizeValue': '1', 'SizecurveMode': '0',
+                        'SizecommonCurve': curve,
+                        'SizeSensor': '<params id="time" duration="1000" periodic="' + str(int(periodic)) + '"><curve>' + curve + '</curve></params>'}, 'time-beyond-period'))
+        for count in (17, 65):
+            for duration in (250000, 1000000):
+                for enabled in (False, True):
+                    curve = '0,0.25;1,1;'
+                    plans.append((duration, True, {
+                        'PressureSize': str(enabled).lower(), 'SizeUseCurve': 'true',
+                        'SizeUseSameCurve': 'true', 'SizeValue': '1', 'SizecurveMode': '0',
+                        'SizecommonCurve': curve,
+                        'SizeSensor': '<params id="speed"><curve>' + curve + '</curve></params>'}, 'speed-cadence-' + str(count)))
     else:
         raise RuntimeError('Unknown paced acquisition group')
     names, cases = [], []
     for duration, moving, options, target in plans:
         name = 'GZ Original dry ' + group + ' ' + str(len(cases)).zfill(3)
         events = trace('east') if moving else trace('east')[:1]
+        if target.startswith('speed-cadence-'):
+            count = int(target.rsplit('-', 1)[1])
+            events = [{**events[0], 'x': 896 + 256 * i // (count - 1)} for i in range(count)]
         for i, event in enumerate(events):
             event['timeUs'] = round(i * duration / (len(events) - 1)) if moving else 0
         overrides = {'PaintOpAction': '1', 'OpacityValue': '0.1', 'FlowValue': '1',
@@ -60,7 +81,7 @@ def prepare(root, resources, preset_writer, group):
                       'canvasCenter': [1024, 1024], 'events': events,
                       'timedProbe': {'durationUs': duration, 'moving': moving, 'target': target,
                                      'rect': [864, 992, 320, 64],
-                                     'maxLatenessUs': 20000 if duration in (375000, 1125000) else 250000,
+                                     'maxLatenessUs': 20000 if duration in (375000, 1125000, 1250000, 2250000) or target.startswith('speed-cadence-') else 250000,
                                      'qualification': 'paced source acquisition; no physical tablet or source parity claim'}})
     (root / 'output' / 'fixtures.json').write_text(json.dumps({
         'version': '5.3.4.1', 'group': group, 'presets': names, 'cases': cases,

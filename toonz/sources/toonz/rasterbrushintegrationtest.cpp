@@ -459,21 +459,40 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "cannot remove invalid installed fixture");
     }
     checkpoint("qualifying explicit source-to-native copy conversion");
-    for (int conversionKind : {0, 1, 2}) {
-      const bool wetConversion = conversionKind == 1;
-      const bool hsvConversion = conversionKind == 2;
+    const auto noSourceHsvSensors = [](const RasterBrush::Preset &preset) {
+      return std::all_of(preset.sourceHsvV2.begin(), preset.sourceHsvV2.end(),
+                         [](const RasterBrush::SourceHsvControl &channel) {
+                           return !channel.enabled &&
+                                  channel.control.value == .5 &&
+                                  channel.control.minimum == 0 &&
+                                  channel.control.mappings.empty();
+                         });
+    };
+    for (int conversionKind : {0, 1, 2, 3, 4}) {
+      const bool wetConversion       = conversionKind == 1;
+      const bool hsvConversion       = conversionKind >= 2;
+      const bool hsvSensorConversion = conversionKind >= 3;
       RasterBrush::Record fixture;
-      fixture.preset.name    = wetConversion ? "Original wet conversion fixture"
-                               : hsvConversion
-                                   ? "Original HSV conversion fixture"
-                                   : "Original pixel conversion fixture";
+      fixture.preset.name = wetConversion ? "Original wet conversion fixture"
+                            : hsvConversion
+                                ? "Original HSV conversion fixture"
+                                : "Original pixel conversion fixture";
+      if (hsvSensorConversion)
+        fixture.preset.name +=
+            conversionKind == 3 ? " pressure hue" : " pressure value";
       fixture.preset.profile = wetConversion
                                    ? "krita-5.3.4.1-legacy-dulling-candidate-1"
                                    : "krita-5.3.4.1-hard-pixel-candidate-1";
       fixture.preset.wet =
           wetConversion ? RasterBrush::Wet::Dulling : RasterBrush::Wet::Off;
       fixture.preset.smudgeRadius = 0;
-      if (hsvConversion) {
+      if (hsvSensorConversion) {
+        auto &channel = fixture.preset.sourceHsvV2[conversionKind == 3 ? 0 : 2];
+        channel.enabled = true;
+        channel.control = RasterBrush::Dynamic{1, 0, {}};
+        channel.control.mappings.push_back(
+            {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      } else if (hsvConversion) {
         fixture.preset.sourceHsvChannel =
             RasterBrush::SourceHsvChannel::Saturation;
         fixture.preset.sourceHsvValue = .75;
@@ -547,7 +566,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                      confirmation->text().contains("native wet mixing")) &&
                     (!hsvConversion ||
                      (confirmation->text().contains(
-                          "HSV color adjustment will be removed") &&
+                          hsvSensorConversion
+                              ? "HSV sensor controls will be removed"
+                              : "HSV color adjustment will be removed") &&
                       confirmation->text().contains("different equations")));
                 if (outcome == 0)
                   confirmation->reject();
@@ -629,6 +650,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   converted.preset.sourceHsvChannel ==
                       RasterBrush::SourceHsvChannel::Off &&
                   converted.preset.sourceHsvValue == .5 &&
+                  noSourceHsvSensors(converted.preset) &&
                   bool(converted.preset.texture.image) == !hsvConversion &&
                   converted.resourceRights == fixture.resourceRights &&
                   converted.provenance["sourceProfileBeforeNativeConversion"]
@@ -656,6 +678,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   reopened.records.front().preset.sourceHsvChannel ==
                       RasterBrush::SourceHsvChannel::Off &&
                   reopened.records.front().preset.sourceHsvValue == .5 &&
+                  noSourceHsvSensors(reopened.records.front().preset) &&
                   reopened.records.front().provenance["conversionKind"] ==
                       "native-reinterpretation" &&
                   reopened.records.front()
@@ -1648,6 +1671,164 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot restore preset after airbrush qualification");
       undo->reset();
+    }
+    checkpoint("qualifying deferred source taps through actual tool lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const TRaster32P baseline    = raster(level, 1)->clone();
+      RasterBrush::Record fixture;
+      fixture.preset.name         = "Original deferred source tap";
+      fixture.preset.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+      fixture.preset.size.value   = 32;
+      fixture.preset.size.minimum = 0;
+      fixture.preset.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      auto select = [&]() {
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install deferred source tap fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select deferred source tap fixture");
+      };
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = 1;
+      auto begin       = [&](const TPointD &point) {
+        require(tool->preLeftButtonDown(), "brush refused deferred tap");
+        event.m_buttons = Qt::LeftButton;
+        tool->leftButtonDown(point, event);
+        settle();
+      };
+      auto release = [&](const TPointD &point) {
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(point, event);
+        settle();
+      };
+      auto cancel = [&]() {
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        require(tool->keyDown(&escape), "deferred tap ignored cancellation");
+      };
+      select();
+      undo->reset();
+      begin(TPointD());
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source tap painted before deferred finalization");
+      release(TPointD());
+      const TRaster32P painted = raster(level, 1)->clone();
+      require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+              "source tap did not commit at pen-up");
+      verifyScenePersistence(painted, "deferred-source-tap");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(painted, raster(level, 1)) &&
+                  undo->undo() && same(baseline, raster(level, 1)),
+              "deferred tap undo/redo failed to preserve exact pixels");
+      undo->reset();
+      begin(TPointD());
+      cancel();
+      release(TPointD());
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled pending source tap flushed pixels or history");
+      require(!level->getFrame(TFrameId(8), false),
+              "deferred tap scratch frame already exists");
+      for (int outcome : {0, 1, 2}) {
+        app->getCurrentFrame()->setFid(TFrameId(8));
+        settle();
+        tool->onImageChanged();
+        const TPointD point = outcome == 1 ? TPointD(10000, 10000) : TPointD();
+        begin(point);
+        if (outcome == 0) cancel();
+        release(point);
+        if (outcome < 2)
+          require(!level->getFrame(TFrameId(8), false) &&
+                      undo->getHistoryCount() == 0,
+                  "cancelled or off-canvas source tap left a created frame");
+        else {
+          require(bool(raster(level, 8)) && undo->getHistoryCount() == 1,
+                  "released source tap did not create one frame transaction");
+          const TRaster32P frame = raster(level, 8)->clone();
+          require(
+              undo->undo() && !level->getFrame(TFrameId(8), false) &&
+                  undo->redo() && same(frame, raster(level, 8)) &&
+                  undo->undo() && !level->getFrame(TFrameId(8), false),
+              "source tap new-frame undo/redo did not restore exact content");
+          undo->reset();
+        }
+        app->getCurrentFrame()->setFid(TFrameId(1));
+        settle();
+        tool->onImageChanged();
+        require(same(baseline, raster(level, 1)),
+                "source tap new-frame lifecycle changed the original frame");
+      }
+      checkpoint("rolling back a deferred source tap finalization failure");
+      fixture.preset.name       = "Original deferred source budget failure";
+      fixture.preset.size.value = 4096;
+      select();
+      const auto previousResolution = level->getProperties()->getImageRes();
+      level->getProperties()->setImageRes(TDimension(3072, 3072));
+      TRaster32P empty(3072, 3072);
+      empty->clear();
+      TRasterImageP largeImage(new TRasterImage(empty));
+      largeImage->setDpi(72, 72);
+      level->setFrame(TFrameId(8), largeImage);
+      QStringList warnings;
+      QObject capture;
+      QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &capture,
+                       [&](int type, const QString &message) {
+                         if (type == DVGui::WARNING) warnings << message;
+                       });
+      QTimer dismiss;
+      QObject::connect(&dismiss, &QTimer::timeout, &capture, [] {
+        if (auto dialog =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+          dialog->done(0);
+      });
+      // A 4096-pixel source tap needs the whole 3072-square float cache.
+      // Its ~288 MiB exceeds the real tool's 256 MiB shared budget. The
+      // buffered first sample must fail only on release, without test knobs.
+      for (int frame : {8, 9}) {
+        app->getCurrentFrame()->setFid(TFrameId(frame));
+        settle();
+        tool->onImageChanged();
+        warnings.clear();
+        dismiss.start(10);
+        begin(TPointD());
+        require(warnings.empty() && undo->getHistoryCount() == 0,
+                "pending source tap failed before finalization");
+        release(TPointD());
+        dismiss.stop();
+        require(warnings.size() == 1 &&
+                    warnings.front() ==
+                        "Raster transaction refused the stroke region",
+                "source tap finalization did not report cache budget refusal");
+        require(undo->getHistoryCount() == 0,
+                "failed source tap published undo history");
+        if (frame == 9)
+          require(!level->getFrame(TFrameId(9), false),
+                  "failed source tap left a newly created frame");
+        else {
+          const auto result = raster(level, 8);
+          require(bool(result), "failed source tap removed an existing frame");
+          for (int y = 0; y < result->getLy(); ++y)
+            for (int x = 0; x < result->getLx(); ++x)
+              require(result->pixels(y)[x] == TPixel32(0, 0, 0, 0),
+                      "failed source tap left partial pixels");
+        }
+      }
+      level->getProperties()->setImageRes(previousResolution);
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(8));
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after deferred tap qualification");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "deferred tap failure changed original frame or history");
     }
     checkpoint("rolling back actual-tool work-limit failure");
     {

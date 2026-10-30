@@ -56,7 +56,7 @@ bool measure(std::ostream &out, const char *name, int side, int rate,
                   std::chrono::steady_clock::now() - start)
                   .count();
     dabs = stroke.dabCount();
-    stroke.finish();
+    if (!stroke.finish()) throw std::runtime_error(stroke.error());
   }
   if (budget->used() != 0)
     throw std::runtime_error(

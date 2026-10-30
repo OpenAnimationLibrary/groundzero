@@ -390,7 +390,7 @@ class Probe(Extension):
                 # name. Paired false controls prove this baseline-specific rule.
                 view.setDisablePressure(pressure_flag)
                 view.setForeGroundColor(ManagedColor.fromQColor(QColor(*case.get("foregroundRGBA8", [220, 40, 30, 255])), view.canvas()))
-                if case.get("sensorProbe", {}).get("verifyForeground"):
+                if case.get("sensorProbe", {}).get("verifyForeground") or ("maskProbe" in case and "foregroundRGBA8" in case):
                     observed_color = view.foregroundColor().colorForCanvas(view.canvas())
                     observed_rgba = [observed_color.red(), observed_color.green(), observed_color.blue(), observed_color.alpha()]
                     if any(abs(a - b) > 1 for a, b in zip(observed_rgba, case["foregroundRGBA8"])):
@@ -525,7 +525,7 @@ class Probe(Extension):
                     timed_probe.emit_notices(name, timed_evidence)
                     (output / (name.replace(" ", "_") + ".timed.json")).write_text(
                         json.dumps(timed_evidence, indent=2))
-                mask_evidence = (masked_probe.capture(case, effective_fields, delivery, raw, w)
+                mask_evidence = (masked_probe.capture(case, effective_fields, delivery, raw, w, initial)
                                  if "maskProbe" in case else None)
                 if mask_evidence is not None:
                     masked_probe.emit_notices(name, mask_evidence)

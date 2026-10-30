@@ -1454,20 +1454,35 @@ The existing fixed-base-angle/isotropic-spacing/Normal/full-transfer restriction
 remain. Sixteen ellipse source comparisons and twenty original asymmetric-tip
 controls extend the acquisition ledger; asymmetric source admission stays closed.
 
-### Open source pressure resampling contract
+### Measured source pressure resampling contract
 
-Same-event batching is independently checked for moving native pressure strokes.
-That guarantee does not mean changing the event sequence preserves a source
-stroke. The current source size scheduler samples pressure at the next integer
-path distance, bounded by the current event. A 32px diameter at 0.1 spacing and a
-linear pressure ramp from 0.25 to 0.75 over 16px illustrates the gap: an unsplit first
-dab at 0.8px samples pressure at 1px, while an event ending at 0.8px defers the dab
-and currently consumes that endpoint pressure when movement resumes. Those
-pressures are 0.28125 and 0.275, respectively. Four original Qt captures compare
-coarse, exact-dab-boundary, integer-lookahead and dense partitions of the identical
-path with exact delivered samples retained. Source event-resampling acceptance
-remains open; no renderer fix or source invariance claim is inferred before those
-captures establish the actual reference behavior.
+The hard Pixel candidate uses continuous pressure at half a document pixel ahead
+of each geometric dab for its size curve. Four original Qt traces (coarse, exact
+dab-boundary, integer-lookahead and dense event partitions) have identical source
+alpha windows and bounds. The continuous half-pixel model matches every window
+exactly; it also matches all eleven earlier sparse pressure centerline captures,
+including ascending and descending near-zero pressure. This replaces the former
+integer-ceiling approximation. Pressure-size has a measured half-pixel minimum
+diameter. Original subpixel-spacing captures establish a two-percent diameter
+spacing floor; the preset retains its serialized spacing and applies that source
+rule only while rendering. Native and wet profiles retain their own semantics.
+
+The bounded source path history preserves authored position, time, pressure,
+tilt and shortest-arc barrel interpolation. It emits a geometric dab only when
+its half-pixel lookahead is available; it does not extrapolate the unobserved
+terminal tail. Only explicitly qualified channels consume future pressure;
+existing opacity/flow evaluation remains at the geometric sample. The source
+history retains at most 4,096 points, accounts allocation peaks before growth,
+and shares the existing per-input work limit. Resource exhaustion fails the
+transaction instead of dropping events. Native same-event batching is tested
+separately from source path-partition equivalence.
+
+A pressure-size stroke's first dab waits for lookahead. Commit of an otherwise
+unpainted tap uses the original contact sample exactly once; cancellation and
+destruction discard buffered input. `finish()` reports errors so host rendering,
+preview, undo/new-frame transactions and comparisons cannot silently accept a
+failed tap allocation. Full-image CI qualification remains required; the captured
+windows do not establish arbitrary source-engine parity.
 
 ### Shared wet foreground transform plumbing
 
@@ -1481,3 +1496,23 @@ establish source wet HSV interactions. Strict wet HSV eligibility remains closed
 until original enabled/disabled wet captures qualify those interactions. The
 public Color Smudge manual describes the shared foreground-transform order,
 but documentation alone is not treated as complete numerical parity evidence.
+
+### Strict fractional-boundary discriminator
+
+The remaining tiny-tip observation at diameter 1.6 and y-offset 0.3 places an
+upper pixel exactly on the mathematical circle boundary. The source excludes
+that pixel while direct double-precision subtraction at document coordinate
+1024.3 can make it spuriously inside. That alone does not identify whether the
+source quantizes its radius or coordinates. Thirty-six original Qt cases now
+compare diameters 1.6 and 2.6, upper/lower boundary pixels, offsets of minus/zero/
+plus 0.0001, and translated document origins 64, 256 and 1024. Exact authored and
+delivered coordinates and pressure remain recorded; the standard full-image
+gates remain enforced. No special epsilon or fixture lookup is introduced while
+these observations are pending.
+
+Twelve paired short-path probes also qualify pending-tap finalization: ascending
+and descending pressure over distances 0, 0.1, 0.4, 0.5 and 0.6, plus constant
+quarter- and three-quarter-pressure taps. These distinguish the first-sample
+fallback from source behavior when sub-half-pixel motion changes pressure.
+That fallback is implemented and lifecycle-tested, but reference acceptance for
+these changing-pressure short paths remains open until the captures complete.

@@ -1,4 +1,5 @@
 """Original procedural masked-brush acquisitions; no source equations assumed."""
+import copy
 import json
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -41,6 +42,23 @@ def prepare(root, resources, preset_writer, group):
                     if mode != "off":
                         case["changeExpectation"] = "acquire enabled mask result, including explicitly recorded empty output"
                     cases.append(case)
+    # Heldouts distinguish retained colored paint/background compositing from
+    # an alpha-only equation. Preserve the original 108 canonical identities.
+    for mode_index in range(3):
+        for foreground in ([48, 176, 112, 255], [192, 80, 208, 255]):
+            for background in ("transparent", "blend-stripes"):
+                for primary_opacity in (1, .5):
+                    for offset in (3, 6):  # mask opacity .5/flow1 vs opacity1/flow.5
+                        case = copy.deepcopy(cases[mode_index * 36 + offset])
+                        name = "GZ Original dry " + group + " " + str(len(cases)).zfill(3)
+                        case.update(preset=name, foregroundRGBA8=foreground,
+                                    background=background, opacity=primary_opacity)
+                        case["overrides"]["OpacityValue"] = str(primary_opacity)
+                        case["maskProbe"]["qualification"] = "heldout retained color/background composition"
+                        (resources / "paintoppresets" / (name + ".kpp")).write_bytes(
+                            preset_writer(name, "dry", False, case["overrides"], 24, .25, 0))
+                        names.append(name)
+                        cases.append(case)
     (root / "output" / "fixtures.json").write_text(json.dumps({
         "version": "5.3.4.1", "group": group, "presets": names, "cases": cases,
         "license": "CC0-1.0", "width": 2048, "height": 2048,

@@ -100,6 +100,11 @@ if group == "wethsv":
     prepare_wet_hsv(root, resources, preset)
     finalize_input_contract()
     raise SystemExit(0)
+if group == "hsvpressure":
+    from hsv_pressure_fixtures import prepare as prepare_hsv_pressure
+    prepare_hsv_pressure(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group in ("hsvjoint", "hsvorder"):
     from hsv_joint_fixtures import prepare as prepare_hsv_joint
     prepare_hsv_joint(root, resources, preset, group)
@@ -222,6 +227,7 @@ for mode, modern in profiles:
                             32, .25, [1, 1], opacity, flow))
     precision_positions = {}
     precision_partitions = {}
+    precision_boundaries = {}
     if group == "pixelprecision":
         pressure_curve = {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}
         variants = []
@@ -250,6 +256,38 @@ for mode, modern in profiles:
             variants.append((label, pressure_curve, 32, .1, [.25, .75], 1, 1))
             precision_positions[label] = (0, 0, 16)
             precision_partitions[label] = positions
+    if group == "pixelprecision":
+        # Boundary geometry, not a fitted tolerance: two independent radii,
+        # upper/lower tangent pixels, translated document origins and offsets
+        # clearly outside the existing delivery round-trip tolerance.
+        for diameter in (1.6, 2.6):
+            for side in ("upper", "lower"):
+                phase = diameter / 2 - .5 if side == "upper" else 1.5 - diameter / 2
+                for delta in (-.0001, 0, .0001):
+                    for origin in (64, 256, 1024):
+                        label = (f"precision boundary diameter tenths {round(diameter * 10):02d} "
+                                 f"{side} delta micros {round(delta * 1000000):+04d} origin {origin}")
+                        pressure_value = diameter / 32
+                        variants.append((label, pressure_curve, 32, 5,
+                                         [pressure_value, pressure_value], 1, 1))
+                        precision_positions[label] = (0, phase + delta, 1)
+                        precision_boundaries[label] = {"origin": origin, "nominalDiameter": diameter,
+                            "side": side, "phase": phase, "delta": delta,
+                            "objective": "distinguish radius/coordinate quantization from cancellation at a strict boundary"}
+    if group == "pixelprecision":
+        # Probe finalization on both sides of the half-pixel availability
+        # boundary, including zero-motion pressure changes and constant taps.
+        for length in (0, .1, .4, .5, .6):
+            for first, last in ((.25, .75), (.75, .25)):
+                label = (f"pressure short length tenths {round(length * 10):02d} "
+                         f"from {round(first * 100):02d} to {round(last * 100):02d}")
+                variants.append((label, pressure_curve, 32, .1, [first, last], 1, 1))
+                precision_positions[label] = (0, 0, length)
+        for pressure_value in (.25, .75):
+            label = f"pressure constant tap {round(pressure_value * 100):02d}"
+            variants.append((label, pressure_curve, 32, .1,
+                             [pressure_value, pressure_value], 1, 1))
+            precision_positions[label] = (0, 0, 0)
     if group == "pixelcurveknots":
         variants = []
         # Nonuniform knots, interior extrema and between-knot probes separate
@@ -605,10 +643,16 @@ for mode, modern in profiles:
             # case, including its zero-offset baseline. Node.paintLine accepts
             # integer QPoint endpoints and cannot measure subpixel geometry.
             case = cases[-1]
-            case.update({"start": [256 + dx, 1024 + dy],
-                         "end": [256 + dx + length, 1024 + dy],
-                         "probePositions": [256, 257, 258, 259, 260],
-                         "delivery": "Qt tablet events", "canvasCenter": [256, 1024]})
+            origin_x, origin_y = 256, 1024
+            if label in precision_boundaries:
+                origin_x = origin_y = precision_boundaries[label]["origin"]
+                case["boundaryProbe"] = precision_boundaries[label]
+                case["probeY"] = origin_y
+            case.update({"start": [origin_x + dx, origin_y + dy],
+                         "end": [origin_x + dx + length, origin_y + dy],
+                         "probePositions": [origin_x + offset for offset in
+                                            (range(-2, 3) if label in precision_boundaries else range(5))],
+                         "delivery": "Qt tablet events", "canvasCenter": [origin_x, origin_y]})
             case["events"] = [{"x": point[0], "y": point[1],
                                "pressure": pressure[i], "tiltX": 0,
                                "tiltY": 0, "rotation": 0,

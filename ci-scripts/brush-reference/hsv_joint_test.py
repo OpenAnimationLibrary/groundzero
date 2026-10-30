@@ -52,6 +52,18 @@ class JointHsvEvidence(unittest.TestCase):
                 self.assertGreater(value,.5)
             self.assertFalse(case["jointHsvProbe"]["operationOrderAssumed"])
 
+    def test_pressure_heldouts_use_both_ramp_directions(self):
+        from hsv_pressure_fixtures import prepare as prepare_pressure
+        root=Path(self.temp.name)
+        prepare_pressure(root,root,lambda *args:b"original fixture placeholder")
+        matrix=json.loads((root/"output/fixtures.json").read_text())
+        self.assertEqual(len(matrix["cases"]),16)
+        self.assertEqual({tuple(c["pressure"]) for c in matrix["cases"]},
+                         {(.125,.875),(.875,.125)})
+        self.assertEqual({c["sensorProbe"]["target"] for c in matrix["cases"]},{"h","v"})
+        self.assertTrue(all(c["delivery"]=="Node.paintLine" and "events" not in c
+                            for c in matrix["cases"]))
+
     def test_every_channel_payload_is_checked(self):
         for channel in "hsv":
             fields = dict(self.fields)

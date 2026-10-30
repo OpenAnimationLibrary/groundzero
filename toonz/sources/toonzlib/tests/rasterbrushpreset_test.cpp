@@ -55,6 +55,11 @@ namespace {
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
+void finishStroke(RasterBrush::Stroke &stroke) {
+  const bool success = stroke.finish();
+  require(success, stroke.error().c_str());
+}
+
 QByteArray altered(const QByteArray &bytes, const QString &key,
                    const QJsonValue &value) {
   auto root = QJsonDocument::fromJson(bytes).object();
@@ -143,7 +148,7 @@ void testGihSelectionLifecycle() {
       point.time = 1;
       require(stroke.add(point), stroke.error().c_str());
       require(stroke.dabCount() == 32, "GIH fixture dab count changed");
-      stroke.finish();
+      finishStroke(stroke);
       std::vector<int> selected;
       for (int dab = 0; dab < 32; ++dab) {
         const Pixel p = canvas.read(10 + dab * 10, 10);
@@ -823,7 +828,7 @@ void testImports() {
   // Original fixed-channel source metadata, with disabled and unsupported
   // variants exercising eligibility rather than merely round-tripping fields.
   for (const QString &target : {QString("h"), QString("s"), QString("v")})
-    for (int variant = 0; variant < 4; ++variant) {
+    for (int variant = 0; variant < 5; ++variant) {
       QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
       QString xml  = image.text("preset"), extra;
       auto param   = [&](const QString &key, const QString &value) {
@@ -833,7 +838,9 @@ void testImports() {
       for (const QString &key : {QString("h"), QString("s"), QString("v")})
         param("Pressure" + key,
               key == target && variant != 1 ? "true" : "false");
-      const QString curve = variant == 2 ? "0,0.2;1,0.8;" : "0,0.6;1,0.6;";
+      const QString curve = variant == 2   ? "0,0.2;1,0.8;"
+                            : variant == 4 ? "0,0;1,1;"
+                                           : "0,0.6;1,0.6;";
       param(target + "UseCurve", "true");
       param(target + "UseSameCurve", "true");
       param(target + "Value", "1");
@@ -853,10 +860,11 @@ void testImports() {
       const auto &record = imported.records.front();
       const bool candidate =
           record.preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
-      require(candidate == (variant < 2),
+      require(candidate == (variant < 2 || (variant == 4 && target != "s")),
               "source HSV eligibility admitted unsupported controls");
       if (candidate) {
-        const auto expected = variant == 1    ? SourceHsvChannel::Off
+        const auto expected = (variant == 1 || variant == 4)
+                                  ? SourceHsvChannel::Off
                               : target == "h" ? SourceHsvChannel::Hue
                               : target == "s" ? SourceHsvChannel::Saturation
                                               : SourceHsvChannel::Value;
@@ -867,6 +875,26 @@ void testImports() {
             error.isEmpty() && restored.preset.sourceHsvChannel == expected &&
                 restored.preset.sourceHsvValue == record.preset.sourceHsvValue,
             "source HSV portable lifecycle lost versioned settings");
+        const int index = target == "h" ? 0 : target == "s" ? 1 : 2;
+        require(restored.preset.sourceHsvV2[index].enabled == (variant == 4),
+                "source HSV V2 portable enabled state lost");
+        if (variant == 4) {
+          const auto &control = restored.preset.sourceHsvV2[index].control;
+          require(control.value == 1 && control.mappings.size() == 1 &&
+                      control.mappings[0].sensor == Sensor::Pressure &&
+                      control.mappings[0].curve.size() == 2 &&
+                      control.mappings[0].curve[1].y == 1,
+                  "source HSV V2 portable control lost");
+          auto conflict                    = restored;
+          conflict.preset.sourceHsvChannel = SourceHsvChannel::Hue;
+          require(encode(conflict, error).isEmpty(),
+                  "conflicting HSV versions encoded");
+          conflict                       = restored;
+          conflict.preset.sourceHsvV2[1] = conflict.preset.sourceHsvV2[index];
+          require(encode(conflict, error).isEmpty(),
+                  "unqualified joint HSV encoded");
+          error.clear();
+        }
       }
     }
   auto numericSpelling =
@@ -951,6 +979,40 @@ void testImports() {
                 restored.preset.size.mappings.front().curve[1].y == .75 &&
                 !restored.provenance["sourceReferenceVerified"].toBool(),
             "affine source pressure endpoints or qualification lost on reopen");
+  }
+  for (const QString attributes :
+       {"duration=\"1000\" periodic=\"0\"", "duration=\"1000\" periodic=\"1\"",
+        "duration=\"2000\" periodic=\"0\"", "periodic=\"0\""}) {
+    QImage image = QImage::fromData(hardPixelKpp("pressure"), "PNG");
+    QString xml  = image.text("preset");
+    xml.replace("id=\"pressure\"", "id=\"time\" " + attributes);
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+            "Cannot author original time-curve fixture");
+    auto importedTime = importBrush(bytes, "kpp", error);
+    require(error.isEmpty() && importedTime.complete &&
+                importedTime.records.front().preset.profile ==
+                    "groundzero-native-1" &&
+                !importedTime.records.front()
+                     .provenance["sourceReferenceVerified"]
+                     .toBool(),
+            "Time conversion improperly admitted a source profile");
+    const auto &maps     = importedTime.records.front().preset.size.mappings;
+    const bool supported = attributes == "duration=\"1000\" periodic=\"0\"";
+    require(supported ? maps.size() == 1 && maps[0].sensor == Sensor::Time &&
+                            maps[0].scale == 1
+                      : maps.empty(),
+            "Time conversion guessed absent or unmeasured period semantics");
+    if (supported) {
+      auto reopened =
+          decode(encode(importedTime.records.front(), error), error);
+      require(error.isEmpty() && reopened.preset.size.mappings.size() == 1 &&
+                  reopened.preset.size.mappings[0].sensor == Sensor::Time &&
+                  reopened.preset.size.mappings[0].scale == 1,
+              "Native time unit conversion did not survive preset reopen");
+    }
   }
   // Unknown source curve declarations must not be qualified merely because
   // the permissive native decoder can extract an identity point list.

@@ -9,9 +9,9 @@ from PyQt5.QtCore import QEvent
 
 def validate(case):
     spec, rows = case['timedProbe'], case['events']
-    if (spec['durationUs'] not in (250000, 375000, 1000000, 1125000) or
-            spec['maxLatenessUs'] != (20000 if spec['durationUs'] in (375000, 1125000) else 250000) or
-            len(rows) not in (1, 33)):
+    if (spec['durationUs'] not in (250000, 375000, 1000000, 1125000, 1250000, 2250000) or
+            spec['maxLatenessUs'] != (20000 if spec['durationUs'] in (375000, 1125000, 1250000, 2250000) or spec['target'].startswith('speed-cadence-') else 250000) or
+            len(rows) not in (1, 17, 33, 65)):
         raise RuntimeError('Invalid bounded paced acquisition')
     if rows[0]['timeUs'] != 0 or any(type(r['timeUs']) is not int or not 0 <= r['timeUs'] <= spec['durationUs'] for r in rows):
         raise RuntimeError('Invalid paced event deadline')

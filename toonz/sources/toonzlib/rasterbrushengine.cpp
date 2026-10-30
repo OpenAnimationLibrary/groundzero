@@ -374,7 +374,23 @@ std::string validate(const Preset &p) {
       !std::isfinite(p.sourceHsvValue) || p.sourceHsvValue < 0 ||
       p.sourceHsvValue > 1)
     return "Invalid source HSV setting";
-  if (p.sourceHsvChannel != SourceHsvChannel::Off &&
+  int hsvV2Active = 0;
+  for (size_t channel = 0; channel < p.sourceHsvV2.size(); ++channel) {
+    const auto &setting = p.sourceHsvV2[channel];
+    if (setting.enabled) {
+      ++hsvV2Active;
+      if (channel == 1 || setting.control.value != 1 ||
+          !linearPressure(setting.control))
+        return "Unimplemented source HSV V2 control";
+    } else if (setting.control.value != .5 || setting.control.minimum != 0 ||
+               !setting.control.mappings.empty())
+      return "Inactive source HSV V2 control must be neutral";
+  }
+  if (hsvV2Active > 1 ||
+      (hsvV2Active &&
+       (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5)))
+    return "Conflicting source HSV versions or unimplemented composition";
+  if ((p.sourceHsvChannel != SourceHsvChannel::Off || hsvV2Active) &&
       (p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" || p.texture.image ||
        p.wash || p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
        p.tip.antialiasEdges || p.blend != Blend::Normal ||
@@ -614,7 +630,16 @@ struct Stroke::Impl {
   Sample previous, first, previousSourceDab;
   bool started = false, finished = false;
   bool pendingSourceEndpoint = false;
-  bool hasInitialDirection   = false;
+  struct SourcePoint {
+    Sample sample;
+    double distance;
+  };
+  std::vector<SourcePoint> sourcePath;
+  double sourceInputDistance = 0, sourceNextDab = 0;
+  bool sourcePressureLookahead = false;
+  double sourceFuturePressure  = 1;
+  bool sourceFutureHasPressure = false;
+  bool hasInitialDirection     = false;
   double travel = 0, sinceDab = 0, sinceTime = 0, spacing = 1, direction = 0,
          speed = 0, initialDirection = 0;
   std::uint64_t rng, secondaryRng;
@@ -666,12 +691,26 @@ struct Stroke::Impl {
           account(v.tip.images.size(), sizeof(std::shared_ptr<const Image>)) &&
           account(v.secondary.tip.images.size(),
                   sizeof(std::shared_ptr<const Image>));
-      for (const Dynamic *dynamic :
-           {&v.size, &v.aspect, &v.angle, &v.opacity, &v.flow, &v.scatter,
-            &v.countControl, &v.pickupControl, &v.colorRateControl,
-            &v.radiusControl, &v.backgroundMix, &v.hue, &v.saturation,
-            &v.brightness, &v.secondary.size, &v.secondary.angle,
-            &v.secondary.opacity}) {
+      for (const Dynamic *dynamic : {&v.size,
+                                     &v.aspect,
+                                     &v.angle,
+                                     &v.opacity,
+                                     &v.flow,
+                                     &v.scatter,
+                                     &v.countControl,
+                                     &v.pickupControl,
+                                     &v.colorRateControl,
+                                     &v.radiusControl,
+                                     &v.backgroundMix,
+                                     &v.hue,
+                                     &v.saturation,
+                                     &v.brightness,
+                                     &v.secondary.size,
+                                     &v.secondary.angle,
+                                     &v.secondary.opacity,
+                                     &v.sourceHsvV2[0].control,
+                                     &v.sourceHsvV2[1].control,
+                                     &v.sourceHsvV2[2].control}) {
         if (!dynamic->mappings.empty())
           fits = fits && account(dynamic->mappings.size(), sizeof(Mapping));
         for (const auto &mapping : dynamic->mappings)
@@ -683,12 +722,26 @@ struct Stroke::Impl {
       }
       reserved += snapshot;
       p = v;
-      for (const Dynamic *dynamic :
-           {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
-            &p.countControl, &p.pickupControl, &p.colorRateControl,
-            &p.radiusControl, &p.backgroundMix, &p.hue, &p.saturation,
-            &p.brightness, &p.secondary.size, &p.secondary.angle,
-            &p.secondary.opacity}) {
+      for (const Dynamic *dynamic : {&p.size,
+                                     &p.aspect,
+                                     &p.angle,
+                                     &p.opacity,
+                                     &p.flow,
+                                     &p.scatter,
+                                     &p.countControl,
+                                     &p.pickupControl,
+                                     &p.colorRateControl,
+                                     &p.radiusControl,
+                                     &p.backgroundMix,
+                                     &p.hue,
+                                     &p.saturation,
+                                     &p.brightness,
+                                     &p.secondary.size,
+                                     &p.secondary.angle,
+                                     &p.secondary.opacity,
+                                     &p.sourceHsvV2[0].control,
+                                     &p.sourceHsvV2[1].control,
+                                     &p.sourceHsvV2[2].control}) {
         for (const auto &mapping : dynamic->mappings) {
           if (mapping.interpolation != Interpolation::NaturalCubic) continue;
           size_t n      = mapping.curve.size(),
@@ -725,12 +778,26 @@ struct Stroke::Impl {
     }
   }
   void releasePresetStorage() {
-    for (Dynamic *dynamic :
-         {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
-          &p.countControl, &p.pickupControl, &p.colorRateControl,
-          &p.radiusControl, &p.backgroundMix, &p.hue, &p.saturation,
-          &p.brightness, &p.secondary.size, &p.secondary.angle,
-          &p.secondary.opacity})
+    for (Dynamic *dynamic : {&p.size,
+                             &p.aspect,
+                             &p.angle,
+                             &p.opacity,
+                             &p.flow,
+                             &p.scatter,
+                             &p.countControl,
+                             &p.pickupControl,
+                             &p.colorRateControl,
+                             &p.radiusControl,
+                             &p.backgroundMix,
+                             &p.hue,
+                             &p.saturation,
+                             &p.brightness,
+                             &p.secondary.size,
+                             &p.secondary.angle,
+                             &p.secondary.opacity,
+                             &p.sourceHsvV2[0].control,
+                             &p.sourceHsvV2[1].control,
+                             &p.sourceHsvV2[2].control})
       std::vector<Mapping>().swap(dynamic->mappings);
     std::vector<std::shared_ptr<const Image>>().swap(p.tip.images);
     std::vector<std::shared_ptr<const Image>>().swap(p.secondary.tip.images);
@@ -742,6 +809,7 @@ struct Stroke::Impl {
     tiles.clear();
     secondaryMask.clear();
     sourceOutside.clear();
+    std::vector<SourcePoint>().swap(sourcePath);
     cubic.clear();
     releasePresetStorage();
     std::vector<Pixel>().swap(smear);
@@ -766,6 +834,112 @@ struct Stroke::Impl {
   }
   bool independentSecondary() const {
     return p.secondary.enabled && p.secondary.independentSpacing;
+  }
+  bool needsSourcePressureLookahead() const {
+    return !p.size.mappings.empty() || p.sourceHsvV2[0].enabled ||
+           p.sourceHsvV2[2].enabled;
+  }
+  Sample sourcePressureSample(const Sample &geometric) const {
+    Sample value = geometric;
+    if (sourcePressureLookahead) {
+      value.pressure    = sourceFuturePressure;
+      value.hasPressure = sourceFutureHasPressure;
+    }
+    return value;
+  }
+  bool appendSourcePoint(const Sample &s, double distance) {
+    // Dense device input can place arbitrarily many samples in half a pixel.
+    // Bound retained history and charge reallocation peak before allocating.
+    if (sourcePath.size() >= 4096) {
+      failure = "Source input history limit exceeded";
+      return false;
+    }
+    if (sourcePath.size() == sourcePath.capacity()) {
+      const size_t capacity = std::min(
+          size_t(4096), std::max(size_t(16), sourcePath.capacity() * 2));
+      const size_t charge = capacity * sizeof(SourcePoint);
+      if (charge > budget - reserved || !shared->reserve(charge)) {
+        failure = "Source input history memory limit exceeded";
+        return false;
+      }
+      const size_t old = sourcePath.capacity() * sizeof(SourcePoint);
+      try {
+        sourcePath.reserve(capacity);
+      } catch (const std::bad_alloc &) {
+        shared->release(charge);
+        throw;
+      }
+      shared->release(old);
+      reserved += charge - old;
+    }
+    sourcePath.push_back({s, distance});
+    return true;
+  }
+  Sample sourceSampleAt(double distance) const {
+    auto upper =
+        std::lower_bound(sourcePath.begin(), sourcePath.end(), distance,
+                         [](const SourcePoint &point, double value) {
+                           return point.distance < value;
+                         });
+    if (upper == sourcePath.begin()) return upper->sample;
+    if (upper == sourcePath.end()) return sourcePath.back().sample;
+    const auto &lower = *(upper - 1);
+    return interpolate(
+        lower.sample, upper->sample,
+        (distance - lower.distance) / (upper->distance - lower.distance));
+  }
+  bool addSourcePixel(const Sample &s) {
+    if (!started) {
+      if (!appendSourcePoint(s, 0)) return false;
+      first = previous = s;
+      started          = true;
+      // Size and the admitted HSV V2 channels have measured future-pressure
+      // semantics. Transfer retains its geometric-position sample.
+      if (!needsSourcePressureLookahead()) {
+        if (!dab(s)) return false;
+        sourceNextDab = spacing;
+      }
+      return true;
+    }
+    if (s.time < previous.time) {
+      failure = "Tablet timestamps moved backwards";
+      return false;
+    }
+    const double distance = std::hypot(s.x - previous.x, s.y - previous.y);
+    if (distance == 0) {
+      sourcePath.back().sample = s;
+      previous                 = s;
+      return true;
+    }
+    sourceInputDistance += distance;
+    if (!appendSourcePoint(s, sourceInputDistance)) return false;
+    size_t events = 0;
+    while (sourceNextDab + .5 < sourceInputDistance - 1e-12) {
+      if (++events > 65536) {
+        failure = "Stroke input event work limit exceeded";
+        return false;
+      }
+      Sample geometric        = sourceSampleAt(sourceNextDab);
+      const Sample future     = sourceSampleAt(sourceNextDab + .5);
+      sourcePressureLookahead = true;
+      sourceFuturePressure    = future.pressure;
+      sourceFutureHasPressure = future.hasPressure;
+      travel                  = sourceNextDab;
+      if (!dab(geometric)) return false;
+      sourcePressureLookahead = false;
+      sourceNextDab += spacing;
+    }
+    // Preserve the endpoint preceding the next geometric sample and the
+    // unconsumed half-pixel tail; do not resample away authored corner data.
+    auto keep =
+        std::upper_bound(sourcePath.begin(), sourcePath.end(), sourceNextDab,
+                         [](double value, const SourcePoint &point) {
+                           return value < point.distance;
+                         });
+    if (keep != sourcePath.begin()) --keep;
+    sourcePath.erase(sourcePath.begin(), keep);
+    previous = s;
+    return true;
   }
   double sensor(const Mapping &m, const Sample &s) const {
     double v = 0;
@@ -1339,16 +1513,25 @@ struct Stroke::Impl {
       return false;
     }
     if (sourceWetProfile(p.profile)) return sourceWetDab(s);
-    randomDab              = random();
-    const Pixel foreground = sourceHsvColor(
+    randomDab        = random();
+    Pixel foreground = sourceHsvColor(
         hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
             eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s)),
         p.sourceHsvChannel, p.sourceHsvValue);
+    for (size_t channel = 0; channel < p.sourceHsvV2.size(); ++channel)
+      if (p.sourceHsvV2[channel].enabled)
+        foreground = sourceHsvColor(
+            foreground, SourceHsvChannel(channel + 1),
+            eval(p.sourceHsvV2[channel].control, sourcePressureSample(s)));
     if (!dabs) reservoir = foreground;
-    const double diameter = std::max(.25, eval(p.size, s)),
-                 radius   = diameter * .5;
-    spacing = sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
-                                       : diameter * p.spacing;
+    const Sample sizeSample = sourcePressureSample(s);
+    const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
+    const double diameter =
+                     std::max(sourceHard ? .5 : .25, eval(p.size, sizeSample)),
+                 radius       = diameter * .5;
+    spacing                   = sourceHard ? diameter * std::max(.02, p.spacing)
+                                : sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
+                                                           : diameter * p.spacing;
     const double aspect       = std::max(.01, eval(p.aspect, s));
     const double angleDegrees = eval(p.angle, s);
     // The measured barrel mapping is periodic; evaluate equivalent angles in
@@ -1687,6 +1870,8 @@ bool Stroke::add(const Sample &s) {
   }
   try {
     m->inputPixelWork = 0;
+    if (m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1")
+      return m->addSourcePixel(s);
     if (!m->started) {
       m->first = m->previous = s;
       m->started             = true;
@@ -1745,18 +1930,6 @@ bool Stroke::add(const Sample &s) {
         break;
       }
       Sample dabSample = interpolate(from, s, f);
-      if (m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
-          !m->p.size.mappings.empty() && distance > 0) {
-        // Original sparse K5341 pressure footprints establish a one-pixel
-        // distance step for size sampling, independent of fractional dab
-        // placement. Use accumulated path distance, not a canvas-axis snap.
-        // The current event bounds interpolation; no future input is invented.
-        const double nextDistance = std::ceil(m->travel - 1e-12);
-        const double pressureFraction =
-            std::min(1.0, f + (nextDistance - m->travel) / distance);
-        dabSample.pressure =
-            interpolate(from, s, std::max(f, pressureFraction)).pressure;
-      }
       if (!m->dab(dabSample)) return false;
       m->sinceDab  = 0;
       m->sinceTime = 0;
@@ -1771,7 +1944,22 @@ bool Stroke::add(const Sample &s) {
     return false;
   }
 }
-void Stroke::finish() {
+bool Stroke::finish() {
+  if (!m->finished && m->failure.empty() && m->started && !m->dabs &&
+      m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
+    try {
+      m->inputPixelWork          = 0;
+      m->sourcePressureLookahead = false;
+      m->dab(m->first);  // A committed tap has no future motion to sample.
+    } catch (const std::bad_alloc &) {
+      m->failure = "Brush finalization allocation failed";
+    }
+  }
+  const bool success = m->failure.empty();
+  cancel();
+  return success;
+}
+void Stroke::cancel() {
   m->finished              = true;
   m->pendingSourceEndpoint = false;
   m->releaseStorage();

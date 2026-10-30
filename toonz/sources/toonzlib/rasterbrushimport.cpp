@@ -328,16 +328,29 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
     if (xml.name() == QStringLiteral("params")) {
       if (!sensor.isEmpty()) return false;
       sensor = xml.attributes().value("id").toString();
-      // Non-default source-specific sensor options need their own adapter.
-      for (auto a : xml.attributes())
-        if (a.name() != QStringLiteral("id")) return false;
+      // Original real-clock Size captures establish this explicit one-second
+      // nonperiodic unit conversion, not source dab timing or general periods.
+      if (sensor == "time") {
+        if (prefix != "Size" || xml.attributes().value("duration") != "1000" ||
+            xml.attributes().value("periodic") != "0")
+          return false;
+        for (auto a : xml.attributes())
+          if (a.name() != QStringLiteral("id") &&
+              a.name() != QStringLiteral("duration") &&
+              a.name() != QStringLiteral("periodic"))
+            return false;
+      } else {
+        for (auto a : xml.attributes())
+          if (a.name() != QStringLiteral("id")) return false;
+      }
     } else if (xml.name() == QStringLiteral("curve"))
       curve = xml.readElementText();
     else
       return false;
   }
   if (xml.hasError()) return false;
-  const QMap<QString, Sensor> names = {{"pressure", Sensor::Pressure},
+  const QMap<QString, Sensor> names = {{"time", Sensor::Time},
+                                       {"pressure", Sensor::Pressure},
                                        {"xtilt", Sensor::TiltX},
                                        {"ytilt", Sensor::TiltY},
                                        {"ascension", Sensor::TiltDirection},
@@ -493,9 +506,11 @@ bool eligiblePressureSensor(const QString &sensorXml,
 // curves remain explicit native conversions rather than source candidates.
 bool sourceHsvSettings(const QMap<QString, QString> &fields,
                        SourceHsvChannel &channel, double &value,
+                       std::array<SourceHsvControl, 3> &controls,
                        QMap<QString, QString> &accepted) {
-  channel = SourceHsvChannel::Off;
-  value   = .5;
+  channel  = SourceHsvChannel::Off;
+  value    = .5;
+  controls = {};
   const QStringList prefixes{"h", "s", "v"};
   const QStringList suffixes{"UseCurve",  "UseSameCurve", "Value",
                              "curveMode", "commonCurve",  "Sensor"};
@@ -506,7 +521,7 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
       present = present || fields.contains(prefix + suffix);
   }
   if (!present) return true;
-  int payloads = 0;
+  int activeChannels = 0;
   for (int index = 0; index < prefixes.size(); ++index) {
     const QString prefix = prefixes[index], flag = "Pressure" + prefix;
     if (fields.value(flag) != "false" && fields.value(flag) != "true")
@@ -519,7 +534,8 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
       if (fields[flag] == "true") return false;
       continue;
     }
-    if (++payloads > 1 || fields.value(prefix + "UseCurve") != "true" ||
+    if ((fields[flag] == "true" && ++activeChannels > 1) ||
+        fields.value(prefix + "UseCurve") != "true" ||
         fields.value(prefix + "UseSameCurve") != "true" ||
         fields.value(prefix + "Value") != "1" ||
         fields.value(prefix + "curveMode") != "0" ||
@@ -534,16 +550,23 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
         curve.mappings.size() != 1)
       return false;
     const auto &knots = curve.mappings.front().curve;
-    if (knots.size() != 2 || knots[0].x != 0 || knots[1].x != 1 ||
-        knots[0].y != knots[1].y)
-      return false;
+    if (knots.size() != 2 || knots[0].x != 0 || knots[1].x != 1) return false;
+    const bool fixed    = knots[0].y == knots[1].y;
+    const bool identity = knots[0].y == 0 && knots[1].y == 1 &&
+                          (index != 1 || fields[flag] == "false");
+    if (!fixed && !identity) return false;
     for (const auto &suffix : suffixes) {
       if (!fields.contains(prefix + suffix)) return false;
       accepted[prefix + suffix] = fields[prefix + suffix];
     }
     if (fields[flag] == "true") {
-      channel = SourceHsvChannel(index + 1);
-      value   = knots[0].y;
+      if (fixed) {
+        channel = SourceHsvChannel(index + 1);
+        value   = knots[0].y;
+      } else {
+        controls[index].enabled = true;
+        controls[index].control = std::move(curve);
+      }
     }
   }
   return true;
@@ -551,6 +574,10 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
   if (engine != "paintbrush" && engine != "colorsmudge") return false;
+  // Time's native unit adapter is not a source-profile admission. Source
+  // time-to-dab evaluation and periodic behavior are still being acquired.
+  for (const auto &mapping : preset.size.mappings)
+    if (mapping.sensor == Sensor::Time) return false;
   // Explicit eligibility, not inference from a partially decoded preset.
   // Missing defaults and unknown settings stay native conversions.
   QMap<QString, QString> required = {
@@ -577,11 +604,16 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   SourceHsvChannel hsvChannel;
   double hsvValue;
   QMap<QString, QString> hsvFields;
-  if (!sourceHsvSettings(fields, hsvChannel, hsvValue, hsvFields) ||
+  std::array<SourceHsvControl, 3> hsvControls;
+  if (!sourceHsvSettings(fields, hsvChannel, hsvValue, hsvControls,
+                         hsvFields) ||
       hsvChannel != preset.sourceHsvChannel ||
       hsvValue != preset.sourceHsvValue ||
       (!hsvFields.empty() && engine != "paintbrush"))
     return false;
+  for (size_t channel = 0; channel < 3; ++channel)
+    if (hsvControls[channel].enabled != preset.sourceHsvV2[channel].enabled)
+      return false;
   for (auto i = hsvFields.begin(); i != hsvFields.end(); ++i)
     required[i.key()] = i.value();
   if (fields.contains("Spacing/Isotropic"))
@@ -1189,7 +1221,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         control->mappings.front().interpolation = Interpolation::NaturalCubic;
   QMap<QString, QString> hsvFields;
   sourceHsvSettings(fields, candidate.sourceHsvChannel,
-                    candidate.sourceHsvValue, hsvFields);
+                    candidate.sourceHsvValue, candidate.sourceHsvV2, hsvFields);
   if (engine == "paintbrush" && candidate.angle.value == 0 &&
       fields.value("PressureRotation") == "true") {
     Dynamic barrel{360, 0, {}};
