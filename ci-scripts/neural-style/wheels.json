@@ -1,0 +1,257 @@
+[
+  {
+    "name": "ai-edge-litert",
+    "version": "2.3.0",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "ai_edge_litert-2.3.0-cp312-cp312-macosx_12_0_arm64.whl",
+        "bytes": 12825324,
+        "sha256": "2cd92f02fc9616755670027c5b020bfee5c72ae50cf5d33e92465a863b705a8b",
+        "url": "https://files.pythonhosted.org/packages/6f/12/86fe17e7069ae792c6e21c523151b34fc03b29a886340e760feaf40237dc/ai_edge_litert-2.3.0-cp312-cp312-macosx_12_0_arm64.whl"
+      },
+      {
+        "filename": "ai_edge_litert-2.3.0-cp312-cp312-manylinux_2_27_aarch64.whl",
+        "bytes": 14380093,
+        "sha256": "9891611b23a87cc2ace60e4b5ee9a2ee6f0fb7f395f009470961ae6e6310e1b8",
+        "url": "https://files.pythonhosted.org/packages/77/89/2bdb0260c4182358c0948316109a3850c37aa15b87665f4b12fb51ea706c/ai_edge_litert-2.3.0-cp312-cp312-manylinux_2_27_aarch64.whl"
+      },
+      {
+        "filename": "ai_edge_litert-2.3.0-cp312-cp312-manylinux_2_27_x86_64.whl",
+        "bytes": 21781762,
+        "sha256": "dc9f56c23e0dcf182b6c35f23fbb102ed048296588882b806d5eff7654c04c88",
+        "url": "https://files.pythonhosted.org/packages/94/db/defacfb96eb7ddf6145dc6bc0b0c64bc221364e413662ef8216bae8258e8/ai_edge_litert-2.3.0-cp312-cp312-manylinux_2_27_x86_64.whl"
+      },
+      {
+        "filename": "ai_edge_litert-2.3.0-cp312-cp312-win_amd64.whl",
+        "bytes": 20670680,
+        "sha256": "b33b039667da6c57815f88d4709c1b31890375fa2cd35f165a3bf9dfd36f23a3",
+        "url": "https://files.pythonhosted.org/packages/3e/f6/529d465a222282252226d272325d85bcbcf33e618eb3fc241d18f1a645a5/ai_edge_litert-2.3.0-cp312-cp312-win_amd64.whl"
+      }
+    ]
+  },
+  {
+    "name": "numpy",
+    "version": "2.3.5",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-macosx_10_13_x86_64.whl",
+        "bytes": 16733873,
+        "sha256": "74ae7b798248fe62021dbf3c914245ad45d1a6b0cb4a29ecb4b31d0bfbc4cc3e",
+        "url": "https://files.pythonhosted.org/packages/44/37/e669fe6cbb2b96c62f6bbedc6a81c0f3b7362f6a59230b23caa673a85721/numpy-2.3.5-cp312-cp312-macosx_10_13_x86_64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-macosx_11_0_arm64.whl",
+        "bytes": 12259838,
+        "sha256": "ee3888d9ff7c14604052b2ca5535a30216aa0a58e948cdd3eeb8d3415f638769",
+        "url": "https://files.pythonhosted.org/packages/c5/65/df0db6c097892c9380851ab9e44b52d4f7ba576b833996e0080181c0c439/numpy-2.3.5-cp312-cp312-macosx_11_0_arm64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-macosx_14_0_arm64.whl",
+        "bytes": 5088378,
+        "sha256": "612a95a17655e213502f60cfb9bf9408efdc9eb1d5f50535cc6eb365d11b42b5",
+        "url": "https://files.pythonhosted.org/packages/5b/e1/1ee06e70eb2136797abe847d386e7c0e830b67ad1d43f364dd04fa50d338/numpy-2.3.5-cp312-cp312-macosx_14_0_arm64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-macosx_14_0_x86_64.whl",
+        "bytes": 6628559,
+        "sha256": "3101e5177d114a593d79dd79658650fe28b5a0d8abeb8ce6f437c0e6df5be1a4",
+        "url": "https://files.pythonhosted.org/packages/6d/9c/1ca85fb86708724275103b81ec4cf1ac1d08f465368acfc8da7ab545bdae/numpy-2.3.5-cp312-cp312-macosx_14_0_x86_64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+        "bytes": 14250702,
+        "sha256": "8b973c57ff8e184109db042c842423ff4f60446239bd585a5131cc47f06f789d",
+        "url": "https://files.pythonhosted.org/packages/74/78/fcd41e5a0ce4f3f7b003da85825acddae6d7ecb60cf25194741b036ca7d6/numpy-2.3.5-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "bytes": 16606086,
+        "sha256": "0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28",
+        "url": "https://files.pythonhosted.org/packages/b6/23/2a1b231b8ff672b4c450dac27164a8b2ca7d9b7144f9c02d2396518352eb/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-musllinux_1_2_aarch64.whl",
+        "bytes": 16025985,
+        "sha256": "51c1e14eb1e154ebd80e860722f9e6ed6ec89714ad2db2d3aa33c31d7c12179b",
+        "url": "https://files.pythonhosted.org/packages/a0/c5/5ad26fbfbe2012e190cc7d5003e4d874b88bb18861d0829edc140a713021/numpy-2.3.5-cp312-cp312-musllinux_1_2_aarch64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-musllinux_1_2_x86_64.whl",
+        "bytes": 18542976,
+        "sha256": "b46b4ec24f7293f23adcd2d146960559aaf8020213de8ad1909dba6c013bf89c",
+        "url": "https://files.pythonhosted.org/packages/d2/fa/dd48e225c46c819288148d9d060b047fd2a6fb1eb37eae25112ee4cb4453/numpy-2.3.5-cp312-cp312-musllinux_1_2_x86_64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-win32.whl",
+        "bytes": 6285274,
+        "sha256": "3997b5b3c9a771e157f9aae01dd579ee35ad7109be18db0e85dbdbe1de06e952",
+        "url": "https://files.pythonhosted.org/packages/05/79/ccbd23a75862d95af03d28b5c6901a1b7da4803181513d52f3b86ed9446e/numpy-2.3.5-cp312-cp312-win32.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-win_amd64.whl",
+        "bytes": 12782922,
+        "sha256": "86945f2ee6d10cdfd67bcb4069c1662dd711f7e2a4343db5cecec06b87cf31aa",
+        "url": "https://files.pythonhosted.org/packages/2d/57/8aeaf160312f7f489dea47ab61e430b5cb051f59a98ae68b7133ce8fa06a/numpy-2.3.5-cp312-cp312-win_amd64.whl"
+      },
+      {
+        "filename": "numpy-2.3.5-cp312-cp312-win_arm64.whl",
+        "bytes": 10194667,
+        "sha256": "f28620fe26bee16243be2b7b874da327312240a7cdc38b769a697578d2100013",
+        "url": "https://files.pythonhosted.org/packages/78/a6/aae5cc2ca78c45e64b9ef22f089141d661516856cf7c8a54ba434576900d/numpy-2.3.5-cp312-cp312-win_arm64.whl"
+      }
+    ]
+  },
+  {
+    "name": "backports.strenum",
+    "version": "1.3.1",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "backports_strenum-1.3.1-py3-none-any.whl",
+        "bytes": 8304,
+        "sha256": "cdcfe36dc897e2615dc793b7d3097f54d359918fc448754a517e6f23044ccf83",
+        "url": "https://files.pythonhosted.org/packages/d6/50/56cf20e2ee5127b603b81d5a69580a1a325083e2b921aa8f067da83927c0/backports_strenum-1.3.1-py3-none-any.whl"
+      }
+    ]
+  },
+  {
+    "name": "flatbuffers",
+    "version": "25.12.19",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "flatbuffers-25.12.19-py2.py3-none-any.whl",
+        "bytes": 26661,
+        "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+        "url": "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl"
+      }
+    ]
+  },
+  {
+    "name": "tqdm",
+    "version": "4.70.1",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "tqdm-4.70.1-py3-none-any.whl",
+        "bytes": 80199,
+        "sha256": "c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73",
+        "url": "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl"
+      }
+    ]
+  },
+  {
+    "name": "typing-extensions",
+    "version": "4.16.0",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+        "bytes": 45571,
+        "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+        "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl"
+      }
+    ]
+  },
+  {
+    "name": "protobuf",
+    "version": "6.33.5",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "protobuf-6.33.5-cp310-abi3-win32.whl",
+        "bytes": 425769,
+        "sha256": "d71b040839446bac0f4d162e758bea99c8251161dae9d0983a3b88dee345153b",
+        "url": "https://files.pythonhosted.org/packages/b1/79/af92d0a8369732b027e6d6084251dd8e782c685c72da161bd4a2e00fbabb/protobuf-6.33.5-cp310-abi3-win32.whl"
+      },
+      {
+        "filename": "protobuf-6.33.5-cp310-abi3-win_amd64.whl",
+        "bytes": 437118,
+        "sha256": "3093804752167bcab3998bec9f1048baae6e29505adaf1afd14a37bddede533c",
+        "url": "https://files.pythonhosted.org/packages/55/75/bb9bc917d10e9ee13dee8607eb9ab963b7cf8be607c46e7862c748aa2af7/protobuf-6.33.5-cp310-abi3-win_amd64.whl"
+      },
+      {
+        "filename": "protobuf-6.33.5-cp39-abi3-macosx_10_9_universal2.whl",
+        "bytes": 427766,
+        "sha256": "a5cb85982d95d906df1e2210e58f8e4f1e3cdc088e52c921a041f9c9a0386de5",
+        "url": "https://files.pythonhosted.org/packages/a2/6b/e48dfc1191bc5b52950246275bf4089773e91cb5ba3592621723cdddca62/protobuf-6.33.5-cp39-abi3-macosx_10_9_universal2.whl"
+      },
+      {
+        "filename": "protobuf-6.33.5-cp39-abi3-manylinux2014_aarch64.whl",
+        "bytes": 324638,
+        "sha256": "9b71e0281f36f179d00cbcb119cb19dec4d14a81393e5ea220f64b286173e190",
+        "url": "https://files.pythonhosted.org/packages/4e/b1/c79468184310de09d75095ed1314b839eb2f72df71097db9d1404a1b2717/protobuf-6.33.5-cp39-abi3-manylinux2014_aarch64.whl"
+      },
+      {
+        "filename": "protobuf-6.33.5-cp39-abi3-manylinux2014_s390x.whl",
+        "bytes": 339411,
+        "sha256": "8afa18e1d6d20af15b417e728e9f60f3aa108ee76f23c3b2c07a2c3b546d3afd",
+        "url": "https://files.pythonhosted.org/packages/c5/f5/65d838092fd01c44d16037953fd4c2cc851e783de9b8f02b27ec4ffd906f/protobuf-6.33.5-cp39-abi3-manylinux2014_s390x.whl"
+      },
+      {
+        "filename": "protobuf-6.33.5-cp39-abi3-manylinux2014_x86_64.whl",
+        "bytes": 323465,
+        "sha256": "cbf16ba3350fb7b889fca858fb215967792dc125b35c7976ca4818bee3521cf0",
+        "url": "https://files.pythonhosted.org/packages/9b/53/a9443aa3ca9ba8724fdfa02dd1887c1bcd8e89556b715cfbacca6b63dbec/protobuf-6.33.5-cp39-abi3-manylinux2014_x86_64.whl"
+      },
+      {
+        "filename": "protobuf-6.33.5-py3-none-any.whl",
+        "bytes": 170687,
+        "sha256": "69915a973dd0f60f31a08b8318b73eab2bd6a392c79184b3612226b0a3f8ec02",
+        "url": "https://files.pythonhosted.org/packages/57/bf/2086963c69bdac3d7cff1cc7ff79b8ce5ea0bec6797a017e1be338a46248/protobuf-6.33.5-py3-none-any.whl"
+      }
+    ]
+  },
+  {
+    "name": "ml_dtypes",
+    "version": "0.6.0",
+    "only_windows": false,
+    "files": [
+      {
+        "filename": "ml_dtypes-0.6.0-cp312-cp312-macosx_10_13_universal2.whl",
+        "bytes": 565447,
+        "sha256": "5359c588cc62de6f78d7430f06b65853d884955494d86d6ad90b6dd64a3f3a08",
+        "url": "https://files.pythonhosted.org/packages/84/6a/441eb053b078954f7fea284dfb288701884d0a1404d39babb858e1649023/ml_dtypes-0.6.0-cp312-cp312-macosx_10_13_universal2.whl"
+      },
+      {
+        "filename": "ml_dtypes-0.6.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+        "bytes": 360227,
+        "sha256": "37da32aa97749251025666d62372775019594577b9c9e9cfda83bed48d778fdb",
+        "url": "https://files.pythonhosted.org/packages/ed/cf/87e8a6c57eed63a91782a0d229856ddf73e138ce004dd71e2799a9dcdb33/ml_dtypes-0.6.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl"
+      },
+      {
+        "filename": "ml_dtypes-0.6.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "bytes": 409890,
+        "sha256": "3b4a480aa8fd54a1805b8ac10f3f91763926a74f73c0c364c10f9231854f4170",
+        "url": "https://files.pythonhosted.org/packages/c7/f9/7d76c1eae866f5d4636401b31b6d6dd90e4b4ced1fa7cfdfcca9c60e4bd3/ml_dtypes-0.6.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      },
+      {
+        "filename": "ml_dtypes-0.6.0-cp312-cp312-win_amd64.whl",
+        "bytes": 439333,
+        "sha256": "2a3e9d53925597fbffafd2a37048dadeddd0bdaba58058f6ae0869ed709a184d",
+        "url": "https://files.pythonhosted.org/packages/ba/db/9c61ec2760b5cbfb1c6558d5c991a6d8fd3271053c32db20506a9a90272b/ml_dtypes-0.6.0-cp312-cp312-win_amd64.whl"
+      },
+      {
+        "filename": "ml_dtypes-0.6.0-cp312-cp312-win_arm64.whl",
+        "bytes": 552268,
+        "sha256": "6eaed129a4afe90694b8685e2f9b6294849f5eda4af9a15be83a4326eeebd775",
+        "url": "https://files.pythonhosted.org/packages/6a/57/780ca3e5ab135b9fbdd8e5441abf5f801b30398371b691291e05ab9834c0/ml_dtypes-0.6.0-cp312-cp312-win_arm64.whl"
+      }
+    ]
+  },
+  {
+    "name": "colorama",
+    "version": "0.4.6",
+    "only_windows": true,
+    "files": [
+      {
+        "filename": "colorama-0.4.6-py2.py3-none-any.whl",
+        "bytes": 25335,
+        "sha256": "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6",
+        "url": "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl"
+      }
+    ]
+  }
+]

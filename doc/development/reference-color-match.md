@@ -56,8 +56,9 @@ Temporal stylization additionally needs shot boundaries, ordered dependencies,
 held-drawing reuse, motion/occlusion handling and deterministic invalidation.
 It must pass motion, cut, occlusion and random-seek tests before being advertised
 as animation-consistent. None of these capabilities is implied by the native
-color-matching feature. Weight downloads, runtime installation, training and external artwork transfer
-are outside the current implementation authorization.
+color-matching feature. The isolated neural qualification workflow evaluates verified publisher weights
+and pinned registry runtimes with synthetic inputs. Training and external
+artwork transfer are not part of this workflow.
 
 ## Artist workflow
 
@@ -141,6 +142,64 @@ a textured background, a pan and held drawings. No artist validation has occurre
 
 The native baseline is an implementation candidate, not completion of the
 neural-style feature family. Optional neural models, runtime packaging,
-model-provenance clearance, model download management, motion estimation,
+product model installation, motion estimation,
 occlusion handling and temporally coherent texture synthesis remain unimplemented.
 No neural or temporal UI advertises these capabilities as available.
+
+
+## Neural qualification and product integration contract
+
+The official Google publisher pages explicitly identify **Version 1** of both
+[256-int8-prediction](https://www.kaggle.com/models/google/arbitrary-image-stylization-v1/tfLite/256-int8-prediction)
+and
+[256-int8-transfer](https://www.kaggle.com/models/google/arbitrary-image-stylization-v1/tfLite/256-int8-transfer)
+as **Apache-2.0**. Their source links name the corresponding Google/Magenta TFHub
+artifacts. Preserve these links, publisher identity, exact downloaded sizes,
+SHA-256 hashes and license notices in any distributed model manifest. The
+runtime's license alone is not the model license evidence.
+
+`Neural style evaluation` uses LiteRT 2.3.0 with hash-pinned CPython 3.12 registry
+wheels on Linux x64, Windows x64 and macOS ARM64. It limits downloads to 100 MiB
+and its working directory to 500 MiB, installs in an isolated environment,
+retains notices, validates the TFLite identifier, and exercises the two official
+models on synthetic arrays. Numerical checks require finite outputs, repeatable
+inference and separate content/reference influence. This is operator evaluation,
+not artist-quality, peak-memory or temporal qualification. Reported environment
+size excludes the CI-provided Python runtime. Intel macOS has no matching wheel
+in this runtime release and is not qualified by this workflow.
+
+Product integration should use a separate native helper, following existing
+helper packaging in `toonz/sources/toonz/CMakeLists.txt` and QProcess lifecycle
+patterns in `toonz/sources/toonz/purerefboard.cpp`. The optional Python scripting
+and SeExpr SDK do not provide a redistributable Python interpreter. A successful
+Python evaluation does not establish that native helper's packaging.
+
+The proposed worker protocol has these explicit gates; it is not yet exposed as
+an available product feature:
+
+- Handshake: protocol version, worker/runtime versions, supported tensor formats,
+  model manifest hashes, supported dimensions and resource limits. Reject
+  unsupported combinations before submitting artwork.
+- Request: job identifier, content/reference/mask digests, cropped reference,
+  straight RGBA buffers, frame dimensions, shot identifier and immutable settings.
+  Use bounded local pipes or a private job directory; no network inference.
+- Result: matching job/settings digests, complete image dimensions, pixels,
+  timing and status. Publish only complete, current results. Restore original
+  alpha and explicitly protected ink; never interpret model-provided executable
+  code or Python pickle data.
+- Scheduling: one inference worker per bounded queue, cancellation acknowledged
+  or worker terminated, temporary output discarded, no partial render committed.
+  Cache style embeddings by reference/model/preprocessing digest. Cache images by
+  source, mask, settings, runtime/model and temporal dependency digests.
+- Temporal mode: establish shot boundaries and canonical frame dependencies;
+  reuse held drawings; estimate motion and occlusion; reject unreliable warped
+  history; invalidate dependent results after edits. Random seeking must reproduce
+  ordered rendering. A fixed reference or blending the previous image alone is
+  not temporal consistency.
+
+Before product integration is complete, qualify native packaging on every target
+architecture, bounded peak memory, worker crash/cancellation recovery, alpha and
+ink edges, large-frame strategy, color-space conversion, held drawings, motion,
+cuts, occlusions and random seeking. Compare temporal stability against both
+independent-frame styling and the unchanged native color baseline. Keep artist
+approval separate from numerical or synthetic test results.

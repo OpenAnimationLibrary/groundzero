@@ -1,0 +1,45 @@
+name: Neural style evaluation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neural-style-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: LiteRT Linux x64
+            runner: ubuntu-22.04
+          - label: LiteRT Windows x64
+            runner: windows-2025
+          - label: LiteRT macOS ARM64
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Evaluate pinned runtime and official models
+        run: python ci-scripts/neural-style/evaluate.py
+      - name: Retain measurements and license notices
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: neural-style-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn
