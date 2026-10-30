@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QMap>
 #include <QRegularExpression>
+#include <algorithm>
 #include <stdexcept>
 
 namespace RasterBrush {
@@ -221,9 +222,37 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
                      "(source spline behavior is unverified).";
   return true;
 }
+void convertTipToMask(Tip &tip, bool legacyTransparentAlpha = false) {
+  for (auto &image : tip.images) {
+    if (!image->color) continue;
+    // Resources here are freshly decoded and not yet published. Transform in
+    // place so explicit mask selection cannot double the decoded image budget.
+    if (image.use_count() != 1)
+      throw Invalid("Unexpected shared image during tip conversion");
+    auto writable    = std::const_pointer_cast<Image>(image);
+    bool transparent = false;
+    if (legacyTransparentAlpha)
+      for (const auto &pixel : writable->pixels)
+        if (pixel.a < 1) {
+          transparent = true;
+          break;
+        }
+    for (auto &pixel : writable->pixels) {
+      double alpha =
+          transparent
+              ? pixel.a
+              : std::clamp(pixel.a - (.2126 * pixel.r + .7152 * pixel.g +
+                                      .0722 * pixel.b),
+                           0.0, 1.0);
+      pixel = {0, 0, 0, alpha};
+    }
+    writable->color = false;
+  }
+}
 Tip resolveTip(const QMap<QString, QByteArray> *resources,
                const QString &filename, const QString &md5,
-               QStringList &diagnostics, size_t maximumDecodedBytes) {
+               QStringList &diagnostics, size_t maximumDecodedBytes,
+               int application) {
   if (!resources)
     throw Invalid(
         "KPP tip resource is missing; import a bundle containing its "
@@ -246,30 +275,15 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
     auto image =
         decodeImage(resources->value(key), true, error, maximumDecodedBytes);
     if (!image) throw std::runtime_error(error.toStdString());
-    // decodeImage creates a fresh non-const Image. Convert the uniquely owned
-    // result in place before publishing it as an immutable tip, avoiding a
-    // second full float-pixel allocation during mask conversion.
-    if (image.use_count() != 1)
-      throw Invalid("Unexpected shared PNG decode result");
-    auto mask = std::const_pointer_cast<Image>(image);
-    image.reset();
-    mask->color      = false;
-    bool transparent = false;
-    for (const auto &p : mask->pixels)
-      if (p.a < 1) {
-        transparent = true;
-        break;
-      }
-    for (auto &p : mask->pixels) {
-      double a =
-          transparent ? p.a : 1 - (.2126 * p.r + .7152 * p.g + .0722 * p.b);
-      p = {0, 0, 0, a};
-    }
     Tip tip;
     tip.shape = Shape::Bitmap;
-    tip.images.push_back(mask);
-    diagnostics << "PNG tip converted to a native coverage mask; source "
-                   "color/lightness tip application is not reproduced.";
+    tip.images.push_back(std::move(image));
+    if (application != 1) convertTipToMask(tip, application < 0);
+    diagnostics
+        << (application == 1
+                ? "Embedded PNG color image retained for native stamping."
+                : "PNG converted to a native coverage mask; source mask color "
+                  "math remains unverified.");
     return tip;
   }
   if (suffix != "gbr" && suffix != "gih")
@@ -280,7 +294,9 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
   if (!error.isEmpty() || imported.records.size() != 1)
     throw Invalid("Cannot decode KPP tip dependency");
   diagnostics.append(imported.diagnostics);
-  return imported.records[0].preset.tip;
+  auto tip = std::move(imported.records[0].preset.tip);
+  if (application == 0) convertTipToMask(tip);
+  return tip;
 }
 Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                   const QMap<QString, QByteArray> *resources = nullptr,
@@ -318,9 +334,30 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       if (type != "auto_brush") {
         if (type != "png_brush" && type != "gbr_brush" && type != "gih_brush")
           throw Invalid("Unsupported KPP tip type");
+        // Public enumBrushApplication values and serialized preset metadata:
+        // 0 is alpha mask, 1 color image; lightness/gradient modes are outside
+        // this adapter. The modern field overrides the older ColorAsMask flag.
+        int application = -1;
+        if (a.hasAttribute("brushApplication")) {
+          auto mode = a.value("brushApplication").toString();
+          if (mode != "0" && mode != "1")
+            throw Invalid(
+                "Unsupported KPP lightness, gradient or unknown tip "
+                "application");
+          application = mode == "1" ? 1 : 0;
+        } else if (a.hasAttribute("ColorAsMask")) {
+          auto mode = a.value("ColorAsMask").toString();
+          if (mode != "0" && mode != "1")
+            throw Invalid("Invalid KPP color-as-mask flag");
+          application = mode == "0" ? 1 : 0;
+        }
+        r.provenance["sourceTipApplication"] =
+            application < 0    ? "legacy-unspecified"
+            : application == 1 ? "color-image"
+                               : "alpha-mask";
         r.preset.tip = resolveTip(resources, a.value("filename").toString(),
                                   a.value("md5sum").toString(), diagnostics,
-                                  maximumDecodedBytes);
+                                  maximumDecodedBytes, application);
         r.preset.size.value = std::max(r.preset.tip.images[0]->width,
                                        r.preset.tip.images[0]->height) *
                               numeric(a.value("scale").toString());

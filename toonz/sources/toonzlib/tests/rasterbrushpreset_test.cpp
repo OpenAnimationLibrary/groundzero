@@ -15,6 +15,7 @@
 #include <sys/resource.h>
 #endif
 #include <iostream>
+#include <cmath>
 #include <stdexcept>
 using namespace RasterBrush;
 namespace {
@@ -104,16 +105,19 @@ QByteArray kpp(const QString &engine = "paintbrush") {
   require(image.save(&buffer, "PNG"), "cannot create original KPP fixture");
   return bytes;
 }
-QByteArray externalKpp() {
+QByteArray externalKpp(const QString &attributes = {}, bool png = false) {
   QImage image(2, 2, QImage::Format_ARGB32);
   image.fill(Qt::transparent);
   image.setText("version", "2.2");
   image.setText(
       "preset",
-      "<Preset name=\"External fixture\" paintopid=\"paintbrush\"><param "
-      "name=\"brush_definition\"><![CDATA[<Brush type=\"gbr_brush\" "
-      "filename=\"original.gbr\" scale=\"1\" spacing=\"0.25\" "
-      "angle=\"0\"/>]]></param></Preset>");
+      QString(
+          "<Preset name=\"External fixture\" paintopid=\"paintbrush\"><param "
+          "name=\"brush_definition\"><![CDATA[<Brush type=\"%1\" "
+          "filename=\"%2\" scale=\"1\" spacing=\"0.25\" "
+          "angle=\"0\" %3/>]]></param></Preset>")
+          .arg(png ? "png_brush" : "gbr_brush",
+               png ? "original.png" : "original.gbr", attributes));
   QByteArray bytes;
   QBuffer buffer(&bytes);
   buffer.open(QIODevice::WriteOnly);
@@ -220,6 +224,58 @@ void testBundles() {
           "bundle dependency decoded incorrectly");
   require(!importBrush(externalKpp(), "kpp", error).complete,
           "missing external KPP resource accepted");
+  auto colored          = external;
+  colored.back().second = gbr(2, 4);
+  colored[2].second     = externalKpp("ColorAsMask=\"1\"");
+  auto gray             = importBrush(archive(colored, true), "bundle", error);
+  require(gray.complete && !gray.records[0].preset.tip.images[0]->color,
+          "colored GBR alpha-mask selection was ignored");
+  require(std::abs(gray.records[0].preset.tip.images[0]->pixels[0].a - .7874) <
+              1e-12,
+          "native grayscale conversion did not retain weighted red coverage");
+
+  QImage stamp(2, 1, QImage::Format_ARGB32);
+  stamp.setPixel(0, 0, qRgba(255, 255, 255, 255));
+  stamp.setPixel(1, 0, qRgba(255, 0, 0, 128));
+  QByteArray png;
+  QBuffer pngBuffer(&png);
+  pngBuffer.open(QIODevice::WriteOnly);
+  require(stamp.save(&pngBuffer, "PNG"), "cannot create original color stamp");
+  auto pngBundle = colored;
+  pngBundle[1].second.replace("original.gbr", "original.png");
+  pngBundle.back() = {"brushes/original.png", png};
+  for (int application : {0, 1}) {
+    // The modern application value wins over the opposing legacy flag.
+    pngBundle[2].second = externalKpp(
+        QString("brushApplication=\"%1\" ColorAsMask=\"%1\"").arg(application),
+        true);
+    auto record = importBrush(archive(pngBundle, true), "bundle", error,
+                              nullptr, 2 * (sizeof(Pixel) + 16));
+    require(record.complete && record.records.size() == 1, qPrintable(error));
+    auto tip = record.records[0].preset.tip.images[0];
+    require(tip->color == (application == 1),
+            "PNG tip application was discarded");
+    const double alpha = 128 / 255.0;
+    require(std::abs(tip->pixels[1].a - (application ? alpha : alpha * .7874)) <
+                    1e-12 &&
+                std::abs(tip->pixels[0].a - (application ? 1 : 0)) < 1e-12,
+            "color-image or premultiplied mask alpha was changed");
+    if (application)
+      require(tip->pixels[1].r == alpha && tip->pixels[1].g == 0,
+              "embedded stamp color was lost");
+    auto reopened = decode(encode(record.records[0], error), error);
+    require(error.isEmpty() &&
+                reopened.preset.tip.images[0]->color == tip->color &&
+                !reopened.referenceVerified,
+            "portable stamp changed application or gained verification");
+  }
+  for (const QString &application :
+       {QString("2"), QString("3"), QString("99")}) {
+    pngBundle[2].second =
+        externalKpp(QString("brushApplication=\"%1\"").arg(application), true);
+    require(!importBrush(archive(pngBundle, true), "bundle", error).complete,
+            "unsupported lightness/gradient tip silently converted");
+  }
   auto unsafe = entries;
   unsafe.push_back({"../escape", "x"});
   require(!importBrush(archive(unsafe, false), "bundle", error).complete,
@@ -630,6 +686,14 @@ void writeCorpus(const QString &directory) {
                                             Interpolation::NaturalCubic});
   save("native", 0, encode(record, error));
   require(error.isEmpty(), "cannot encode native corpus");
+  record.preset.count = 4;
+  record.preset.countControl.mappings.push_back(
+      {Sensor::DabIndex, {{0, 1}, {1, 0}}, 32});
+  record.preset.angle.mappings.push_back(
+      {Sensor::InitialDirection, {{0, 0}, {1, 1}}, 1});
+  record.preset.scatterBothAxes = false;
+  save("native-count-direction", 0, encode(record, error));
+  require(error.isEmpty(), "cannot encode count/direction corpus");
   save("pixel-kpp", 1, kpp());
   save("smudge-kpp", 1, kpp("colorsmudge"));
   save("gray-gbr", 2, gbr());
@@ -649,6 +713,21 @@ void writeCorpus(const QString &directory) {
                 {"META-INF/manifest.xml", manifest},
                 {"paintoppresets/original.kpp", kpp()}},
                true));
+  manifest.replace(
+      "</manifest:manifest>",
+      "<manifest:file-entry manifest:full-path=\"brushes/original.gbr\" "
+      "manifest:media-type=\"brushes\"/></manifest:manifest>");
+  for (int application : {0, 1}) {
+    save(
+        application ? "bundle-color-stamp" : "bundle-color-mask", 4,
+        archive(
+            {{"mimetype", "application/x-krita-resourcebundle"},
+             {"META-INF/manifest.xml", manifest},
+             {"paintoppresets/original.kpp",
+              externalKpp(QString("brushApplication=\"%1\"").arg(application))},
+             {"brushes/original.gbr", gbr(2, 4)}},
+            true));
+  }
   save("sample-abr", 5, sampledAbr());
   save("computed-abr-v1", 5, computedAbr(1));
   save("computed-abr-v2", 5, computedAbr(2));

@@ -11,7 +11,7 @@ from krita import Krita, Extension, ManagedColor, Preset
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QTimer
 from PyQt5.QtGui import QColor, QImage
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 
 class Probe(Extension):
@@ -126,6 +126,9 @@ class Probe(Extension):
                 effective_name = name.replace(" ", "_") + ".effective.xml"
                 (output / effective_name).write_text(effective_xml)
                 effective_fields = {field.attrib["name"]: field.text or "" for field in effective_root.findall("param") if "name" in field.attrib}
+                if (effective_fields.get("KisPrecisionOption/precisionLevel") != "5" or
+                        effective_fields.get("KisPrecisionOption/AutoPrecisionEnabled") != "false"):
+                    raise RuntimeError("Selected source preset lost fixed precision 5")
                 controls = {key: effective_fields.get(key) for key in ("SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
@@ -182,6 +185,9 @@ class Probe(Extension):
             report["error"] = str(error)
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
             print("::error::Krita reference workload failed: " + str(error), flush=True)
+            # A failed case may not have reached its normal yield. Let queued
+            # document/view notifications run before clearing the dirty flag.
+            yield
         finally:
             if document is not None:
                 document.setModified(False)
@@ -193,9 +199,24 @@ class Probe(Extension):
             # exit() skips it and left display consumers alive during teardown.
             # CI independently requires a complete status AND a zero exit code.
             def verify_closed():
+                for widget in QApplication.topLevelWidgets():
+                    if (isinstance(widget, QMessageBox) and widget.isVisible() and
+                            "Original reference canvas" in widget.text() and
+                            widget.standardButtons() & QMessageBox.Discard and
+                            not report.get("fixtureDiscarded", False)):
+                        # This isolated process owns only the generated fixture
+                        # document. Its output pixels are already retained (or
+                        # its primary failure remains recorded). Discarding this
+                        # disposable document cannot turn a failed case green.
+                        report["fixtureDiscarded"] = True
+                        widget.button(QMessageBox.Discard).click()
+                        QTimer.singleShot(100, verify_closed)
+                        return
                 visible = [widget.metaObject().className() for widget in QApplication.topLevelWidgets() if widget.isVisible()]
                 remaining = len(app.documents())
                 report["shutdown"] = {"visibleWidgets": visible, "remainingDocuments": remaining}
+                report["shutdown"]["messages"] = [widget.text()[:1000] for widget in QApplication.topLevelWidgets()
+                                                    if isinstance(widget, QMessageBox) and widget.isVisible()]
                 checkpoint("normal window close finished: " + json.dumps(report["shutdown"]))
                 if visible or remaining:
                     # A dialog or document still owns native state. Keep it

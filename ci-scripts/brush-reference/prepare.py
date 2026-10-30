@@ -24,6 +24,8 @@ def preset(name, mode, modern, overrides=None, diameter=32, spacing=0.1, antiali
         "Texture/Pattern/Enabled": "false", "MergedPaint": "false", "PaintingMode": "1",
         "PaintOpSettings/isAirbrushing": "false", "PaintOpSettings/ignoreSpacing": "false",
         "PaintOpSettings/updateSpacingBetweenDabs": "false",
+        "KisPrecisionOption/AutoPrecisionEnabled": "false",
+        "KisPrecisionOption/precisionLevel": "5",
         "SmudgeRateMode": "0" if mode == "smear" else "1",
         "SmudgeRateUseNewEngine": str(modern).lower(), "SmudgeRateSmearAlpha": "true",
         "SmudgeRateValue": "0.5", "ColorRateValue": "0.25", "SmudgeRadiusValue": "1",

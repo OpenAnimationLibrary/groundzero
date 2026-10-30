@@ -84,6 +84,15 @@ artifacts and validate requested diameter, opacity, flow and painting modifiers
 through the public View API; effective UI values are recorded separately from
 requested values, including possible one-byte opacity/flow quantization.
 
+Presets explicitly request fixed precision 5 with automatic precision disabled,
+and selected-preset XML must retain both settings. The serialized field names
+come from KDE's public `testing_predefined_lod.kpp` and
+`testing_200px_colorsmudge_lightness_smearing_new_nsa_maskmode.kpp` fixtures;
+only metadata was inspected, and no brush image or engine implementation was
+copied. Earlier runs through `a0ef97ea` omitted these fields and therefore
+measured source defaults, not the fixed-precision contract. They remain useful
+diagnostic evidence but must not be promoted to that contract's reference set.
+
 At integrated head `31a0bee6`, the one-pixel, antialias-off, integer-coordinate
 one-dab fixture returned an unchanged transparent raster. Its old nonempty guard
 was invalid for this aliasing boundary. The fixture now requires that exact

@@ -396,3 +396,18 @@ Native packages without the new fields retain full stamp count and two-axis
 scatter. Original tests cover zero/two stamps, a three-step fade, a direction
 change, perpendicular confinement and portable reopening. These are native
 primitives for the planned adapters, not verification of Photoshop dynamics.
+
+KPP embedded-resource conversion honors explicit `brushApplication` alpha-mask
+and color-image values, with the modern value taking precedence over legacy
+`ColorAsMask`. PNG color stamps retain premultiplied sRGB colors and transparency;
+explicit masks use native inverse weighted encoded-sRGB gray multiplied by alpha.
+GBR/GIH color resources honor the same mask selection. Conversion operates on
+newly decoded images in place and preserves the pre-allocation memory limit.
+Absent flags retain the prior native conversion rule. Lightness, gradient and
+unknown application values reject conversion, matching the stated K/S boundary.
+This is native resource interpretation, not verified Krita mask/color mathematics.
+The numeric mode names were checked against the public
+[brush application enum](https://github.com/KDE/krita/blob/master/libs/brush/kis_brush.h)
+and serialized metadata in KDE's original test presets; no paint-engine
+implementation was copied. The user-facing modes are described in the
+[Krita brush-tip manual](https://docs.krita.org/en/reference_manual/brushes/brush_settings/brush_tips.html).
