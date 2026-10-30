@@ -268,7 +268,9 @@ int main(int argc, char **argv) {
                               (fixtures["group"].toString() == "geometry" &&
                                name.endsWith("antialias 0"));
       if (sourceHard)
-        p.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+        require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
+                "Strict source hard-pixel eligibility did not select the "
+                "candidate");
       const bool sourceWet = fixtures["group"].toString() == "wetsteps" &&
                              !name.startsWith("GZ Original dulling new");
       if (sourceWet) {

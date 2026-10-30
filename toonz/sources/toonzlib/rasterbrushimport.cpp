@@ -298,9 +298,98 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
   if (application == 0) convertTipToMask(tip);
   return tip;
 }
+bool eligibleHardPixel(const QMap<QString, QString> &fields,
+                       const QString &engine, const Preset &preset) {
+  if (engine != "paintbrush") return false;
+  // Explicit eligibility, not inference from a partially decoded preset.
+  // Missing defaults and unknown settings stay native conversions.
+  const QMap<QString, QString> required = {
+      {"paintop", "paintbrush"},
+      {"CompositeOp", "normal"},
+      {"EraserMode", "false"},
+      {"OpacityValue", "1"},
+      {"FlowValue", "1"},
+      {"OpacityUseCurve", "false"},
+      {"FlowUseCurve", "false"},
+      {"PressureSize", "false"},
+      {"PressureRotation", "false"},
+      {"PressureRatio", "false"},
+      {"PressureScatter", "false"},
+      {"PressureSpacing", "false"},
+      {"Texture/Pattern/Enabled", "false"},
+      {"MergedPaint", "false"},
+      {"PaintingMode", "1"},
+      {"PaintOpSettings/isAirbrushing", "false"},
+      {"PaintOpSettings/ignoreSpacing", "false"},
+      {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
+      {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
+      {"KisPrecisionOption/precisionLevel", "5"}};
+  for (auto i = required.begin(); i != required.end(); ++i)
+    if (!fields.contains(i.key()) || fields.value(i.key()) != i.value())
+      return false;
+  // These serialized properties belong exclusively to Color Smudge. They
+  // are inert in Pixel; no wildcard exemptions for other unknown settings.
+  const QSet<QString> inactive = {
+      "PressureColorRate", "PressureSmudgeRate",     "PressureSmudgeRadius",
+      "ColorRateUseCurve", "SmudgeRateUseCurve",     "SmudgeRadiusUseCurve",
+      "SmudgeRateMode",    "SmudgeRateUseNewEngine", "SmudgeRateSmearAlpha",
+      "SmudgeRateValue",   "ColorRateValue",         "SmudgeRadiusValue"};
+  for (auto i = fields.begin(); i != fields.end(); ++i)
+    if (!required.contains(i.key()) && !inactive.contains(i.key()) &&
+        i.key() != "brush_definition")
+      return false;
+  QXmlStreamReader xml(fields.value("brush_definition"));
+  int depth = 0, brushes = 0, masks = 0;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isDTD() || xml.isEntityReference()) return false;
+    if (xml.isEndElement()) {
+      --depth;
+      continue;
+    }
+    if (!xml.isStartElement()) continue;
+    ++depth;
+    const bool brush = xml.name() == QStringLiteral("Brush") && depth == 1;
+    const bool mask =
+        xml.name() == QStringLiteral("MaskGenerator") && depth == 2;
+    if (!brush && !mask) return false;
+    if (brush)
+      ++brushes;
+    else
+      ++masks;
+    const QMap<QString, QString> exact =
+        brush
+            ? QMap<QString, QString>{{"type", "auto_brush"},
+                                     {"BrushVersion", "2"},
+                                     {"angle", "0"},
+                                     {"randomness", "0"},
+                                     {"density", "1"},
+                                     {"useAutoSpacing", "0"}}
+            : QMap<QString, QString>{{"id", "default"}, {"type", "circle"},
+                                     {"ratio", "1"},    {"hfade", "1"},
+                                     {"vfade", "1"},    {"antialiasEdges", "0"},
+                                     {"spikes", "2"}};
+    const auto attributes = xml.attributes();
+    for (auto i = exact.begin(); i != exact.end(); ++i)
+      if (!attributes.hasAttribute(i.key()) ||
+          attributes.value(i.key()) != i.value())
+        return false;
+    const QString variable = brush ? "spacing" : "diameter";
+    if (!attributes.hasAttribute(variable)) return false;
+    for (const auto &attribute : attributes)
+      if (!exact.contains(attribute.name().toString()) &&
+          attribute.name() != variable)
+        return false;
+  }
+  Preset candidate  = preset;
+  candidate.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+  return !xml.hasError() && brushes == 1 && masks == 1 &&
+         validate(candidate).empty();
+}
 Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                   const QMap<QString, QByteArray> *resources = nullptr,
                   size_t maximumDecodedBytes = 256u * 1024u * 1024u) {
+  const int diagnosticStart = diagnostics.size();
   QString error;
   auto png = boundedPng(bytes, error);
   if (!error.isEmpty()) throw std::runtime_error(error.toStdString());
@@ -462,6 +551,19 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
          "native definitions; source edge and spacing mathematics may differ.";
   if (!unmapped.isEmpty())
     diagnostics << "Source settings not reproduced: " + unmapped.join(", ");
+  if (eligibleHardPixel(fields, engine, r.preset)) {
+    r.preset.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+    while (diagnostics.size() > diagnosticStart) diagnostics.removeLast();
+    r.diagnostics.clear();
+    diagnostics << "Strict hard-circle Pixel candidate selected. Original "
+                   "fixed-precision "
+                   "fixtures pass component gates; arbitrary source presets "
+                   "and complete "
+                   "Pixel engine parity are not verified.";
+    r.provenance["conversion"] = "strict source-profile candidate";
+    r.provenance["candidateEligibility"] =
+        "k5341-hard-circle-explicit-settings-1";
+  }
   r.provenance["conversionReport"] = diagnostics.join("\n");
   r.diagnostics.append(diagnostics);
   return r;

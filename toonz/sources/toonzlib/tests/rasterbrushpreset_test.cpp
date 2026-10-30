@@ -105,6 +105,48 @@ QByteArray kpp(const QString &engine = "paintbrush") {
   require(image.save(&buffer, "PNG"), "cannot create original KPP fixture");
   return bytes;
 }
+QByteArray hardPixelKpp(const QString &mutation = {}) {
+  QImage image(2, 2, QImage::Format_ARGB32);
+  image.fill(Qt::transparent);
+  image.setText("version", "2.2");
+  QString xml =
+      "<Preset name=\"Original hard fixture\" paintopid=\"paintbrush\">";
+  auto param = [&](const QString &name, const QString &value) {
+    xml += "<param name=\"" + name + "\">" + value.toHtmlEscaped() + "</param>";
+  };
+  param("paintop", "paintbrush");
+  param("CompositeOp", "normal");
+  for (const QString &key : {"OpacityValue", "FlowValue", "PaintingMode"})
+    param(key, "1");
+  for (const QString &key :
+       {"EraserMode", "OpacityUseCurve", "FlowUseCurve", "PressureSize",
+        "PressureRotation", "PressureRatio", "PressureScatter",
+        "PressureSpacing", "Texture/Pattern/Enabled", "MergedPaint",
+        "PaintOpSettings/isAirbrushing", "PaintOpSettings/ignoreSpacing",
+        "PaintOpSettings/updateSpacingBetweenDabs",
+        "KisPrecisionOption/AutoPrecisionEnabled"})
+    param(key, "false");
+  if (mutation != "missing") param("KisPrecisionOption/precisionLevel", "5");
+  if (mutation == "unknown") param("UnclassifiedActiveSetting", "true");
+  QString brush =
+      "<Brush type=\"auto_brush\" BrushVersion=\"2\" spacing=\"0.1\" "
+      "angle=\"0\" randomness=\"0\" density=\"1\" "
+      "useAutoSpacing=\"0\"><MaskGenerator id=\"default\" type=\"circle\" "
+      "diameter=\"32\" ratio=\"1\" hfade=\"1\" vfade=\"1\" "
+      "antialiasEdges=\"0\" spikes=\"2\"/></Brush>";
+  if (mutation == "aa")
+    brush.replace("antialiasEdges=\"0\"", "antialiasEdges=\"1\"");
+  if (mutation == "attribute")
+    brush.replace("<Brush ", "<Brush unknown=\"1\" ");
+  param("brush_definition", brush);
+  xml += "</Preset>";
+  image.setText("preset", xml);
+  QByteArray bytes;
+  QBuffer buffer(&bytes);
+  buffer.open(QIODevice::WriteOnly);
+  require(image.save(&buffer, "PNG"), "cannot encode hard candidate fixture");
+  return bytes;
+}
 QByteArray externalKpp(const QString &attributes = {}, bool png = false) {
   QImage image(2, 2, QImage::Format_ARGB32);
   image.fill(Qt::transparent);
@@ -321,6 +363,23 @@ void testImports() {
             "computed native preset did not survive portable save/reopen");
     require(!importBrush(computedAbr(version, 0), "abr", error).complete,
             "unimplemented zero spacing was silently approximated");
+  }
+  auto hard = importBrush(hardPixelKpp(), "kpp", error);
+  require(hard.complete && hard.records.size() == 1, qPrintable(error));
+  const auto &hardRecord = hard.records.front();
+  require(hardRecord.preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
+              !hardRecord.provenance["sourceSemanticallySupported"].toBool() &&
+              !hardRecord.provenance["sourceReferenceVerified"].toBool(),
+          "strict hard candidate selection or qualification failed");
+  auto hardRestored = decode(encode(hardRecord, error), error);
+  require(error.isEmpty() &&
+              hardRestored.preset.profile == hardRecord.preset.profile,
+          "hard candidate lost during portable round trip");
+  for (const QString &mutation : {"missing", "unknown", "aa", "attribute"}) {
+    auto fallback = importBrush(hardPixelKpp(mutation), "kpp", error);
+    require(fallback.complete && fallback.records.front().preset.profile ==
+                                     "groundzero-native-1",
+            "unclassified setting incorrectly selected source candidate");
   }
   auto dry = importBrush(kpp(), "kpp", error);
   require(dry.complete, qPrintable(error));
