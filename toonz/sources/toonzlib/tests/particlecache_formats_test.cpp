@@ -641,6 +641,50 @@ void pdc(const QDir &dir) {
               !attribute(*valid, "lifespan"),
           "Valid PDC cache failed: " + error.toStdString());
 }
+
+const QByteArray pdaHeader =
+    "ATTRIBUTES\n position id mass\nTYPES\n V I R\nNUMBER_OF_PARTICLES: "
+    "2\nBEGIN DATA\n";
+
+void pda(const QDir &dir) {
+  QString error;
+  writeRaw(dir.filePath("valid.pda"),
+           pdaHeader + "1 2 3 7 0.5\n4 5 6 9 0.25\n");
+  const auto valid = loadFrame(dir.filePath("valid.pda"), Mapping{}, error);
+  require(valid && valid->particles.size() == 2 &&
+              valid->particles[1].id == 9 &&
+              valid->particles[1].position[2] == 6,
+          "Valid PDA cache failed: " + error.toStdString());
+  // Truncated or malformed data used to load uninitialized particles.
+  int index = 0;
+  for (const char *data :
+       {"", "1 2 3 7 0.5\n", "1 2 3 7 0.5\n4 5 6 9",
+        "1 2 3 x 0.5\n4 5 6 9 0.25\n", "1 2 3 7.5 0.5\n4 5 6 9 0.25\n",
+        "1 2 3 7 1e999\n4 5 6 9 0.25\n"})
+    rejectAll(dir.filePath(QString("data-%1.pda").arg(++index)),
+              pdaHeader + data, true);
+  rejectAll(
+      dir.filePath("unknown-type.pda"),
+      "ATTRIBUTES\n position\nTYPES\n Q\nNUMBER_OF_PARTICLES: 0\nBEGIN DATA\n");
+  rejectAll(dir.filePath("missing-type.pda"),
+            "ATTRIBUTES\n position id\nTYPES\n V\nNUMBER_OF_PARTICLES: "
+            "0\nBEGIN DATA\n");
+  rejectAll(dir.filePath("extra-type.pda"),
+            "ATTRIBUTES\n position\nTYPES\n V I\nNUMBER_OF_PARTICLES: 0\nBEGIN "
+            "DATA\n");
+  rejectAll(dir.filePath("duplicate.pda"),
+            "ATTRIBUTES\n position position\nTYPES\n V V\nNUMBER_OF_PARTICLES: "
+            "0\nBEGIN DATA\n");
+  for (const char *count : {"-1", "10000001", "99999999999", "1x"})
+    rejectAll(
+        dir.filePath(QString("count-%1.pda").arg(count)),
+        QByteArray("ATTRIBUTES\n position\nTYPES\n V\nNUMBER_OF_PARTICLES: ") +
+            count + "\nBEGIN DATA\n");
+  rejectAll(dir.filePath("long-token.pda"),
+            "ATTRIBUTES\n " + QByteArray(5000, 'x') + "\nTYPES\n R\n");
+  rejectAll(dir.filePath("no-data.pda"),
+            "ATTRIBUTES\n position\nTYPES\n V\nNUMBER_OF_PARTICLES: 1\n");
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -655,7 +699,8 @@ int main(int argc, char **argv) {
     bgeo(dir);
     mc(dir);
     pdc(dir);
-    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO/MC/PDC inputs passed.\n";
+    pda(dir);
+    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO/MC/PDC/PDA inputs passed.\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "Particle format reader failure: " << error.what() << '\n';
