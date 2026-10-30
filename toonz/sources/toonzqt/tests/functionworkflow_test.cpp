@@ -609,15 +609,30 @@ void contextCancellation() {
   require(capture && restore, "Comparison context controls are missing"); capture->trigger();
   TUndoManager::manager()->reset(); scene.setDirtyFlag(false);
   QObject delivery; bool confirmedAfterReset = false; int editNotifications = 0;
+  QString confirmationFailure;
   QObject::connect(&f.viewer, &FunctionViewer::curveChanged, &delivery, [&]() { ++editNotifications; });
   QTimer deadline; deadline.setSingleShot(true);
   QObject::connect(&deadline, &QTimer::timeout, &delivery, []() { qFatal("Stale comparison confirmation timed out"); });
   QTimer::singleShot(0, &delivery, [&]() {
     auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-    if (!box || box->windowTitle() != "Restore Curves" || !box->button(QMessageBox::Yes)) return;
-    f.model->resetAll(); confirmedAfterReset = true; box->button(QMessageBox::Yes)->click();
+    try {
+      // QMessageBox window titles are intentionally ignored on macOS.
+      require(box, "Expected stale comparison message box was not shown");
+      require(box->parentWidget() == &f.viewer, "Stale comparison confirmation has the wrong owner");
+      require(box->icon() == QMessageBox::Question && box->text() ==
+                  "Restore all captured channels? Edits since capture will be replaced as one undo step.",
+              "Stale comparison confirmation has the wrong question");
+      require(box->standardButtons() == (QMessageBox::Yes | QMessageBox::No) &&
+                  box->button(QMessageBox::Yes) && box->button(QMessageBox::Yes)->isEnabled(),
+              "Stale comparison confirmation has missing or disabled answer buttons");
+      f.model->resetAll(); confirmedAfterReset = true; box->button(QMessageBox::Yes)->click();
+    } catch (const std::exception &problem) {
+      confirmationFailure = QString::fromUtf8(problem.what());
+      if (box) box->reject();
+    }
   });
   deadline.start(15000); restore->trigger(); deadline.stop();
+  require(confirmationFailure.isEmpty(), qPrintable(confirmationFailure));
   require(confirmedAfterReset && editNotifications == 0 && !scene.getDirtyFlag() && TUndoManager::manager()->getHistoryCount() == 0 &&
               f.graph->comparisonState().frozen.empty() && Ops::matchesSnapshot(f.a.getPointer(), original.getPointer()),
           "stale comparison confirmation edited or dirtied its replacement context");
