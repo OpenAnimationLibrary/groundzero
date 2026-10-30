@@ -24,6 +24,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/imagemanager.h"
 #include "toonz/levelproperties.h"
+#include "toonz/sceneresources.h"
 #include "toonz/txshcell.h"
 #include "toonz/txsheet.h"
 #include "toonz/tcolumnhandle.h"
@@ -107,10 +108,39 @@ int pixelDifference(const QImage &a, const QImage &b) {
 std::vector<AlignmentObservation> reviewAlignment(
     QAction *action, bool accept, int drawingCount,
     const std::function<void()> &whileOpen = {}, bool expectSourceInvalidation = false) {
-  bool visited = false, sourceWarning = false;
+  bool visited = false, sourceWarning = false, expired = false;
   std::exception_ptr failure;
   std::vector<AlignmentObservation> result;
-  QTimer inspect;
+  static int nextReview = 0;
+  const int review = ++nextReview;
+  QString phase = "trigger";
+  const auto trace = [&](const QString &next) {
+    phase = next;
+    std::cout << "vector-alignment-native: review=" << review
+              << " action=" << action->text().toStdString()
+              << " drawings=" << drawingCount << " accept=" << accept
+              << " phase=" << phase.toStdString() << std::endl;
+  };
+  const auto modalDescription = [] {
+    QWidget *modal = QApplication::activeModalWidget();
+    if (!modal) return QString("none");
+    QString labels;
+    for (auto *label : modal->findChildren<QLabel *>()) {
+      labels += label->text() + ' ';
+      if (labels.size() > 400) break;
+    }
+    return QString("class=%1 name=%2 visible=%3 title=%4 text=%5")
+        .arg(modal->metaObject()->className()).arg(modal->objectName().left(100))
+        .arg(modal->isVisible()).arg(modal->windowTitle().left(120)).arg(labels.left(400));
+  };
+  QTimer inspect, deadline;
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, [&] {
+    expired = true;
+    std::cerr << "vector-alignment-native: review=" << review << " deadline phase="
+              << phase.toStdString() << " modal=" << modalDescription().toStdString() << std::endl;
+    if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+  });
   QObject::connect(&inspect, &QTimer::timeout, [&] {
     auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
     if (visited) {
@@ -118,6 +148,7 @@ std::vector<AlignmentObservation> reviewAlignment(
       QString text;
       for (auto *label : dialog->findChildren<QLabel *>()) text += label->text();
       sourceWarning = text.contains("reviewed drawing or selection changed");
+      trace("source warning: " + modalDescription());
       if (!expectSourceInvalidation || !sourceWarning)
         failure = std::make_exception_ptr(std::runtime_error(
             "alignment opened an unexpected dialog: " + text.toStdString()));
@@ -130,6 +161,7 @@ std::vector<AlignmentObservation> reviewAlignment(
       return;
     }
     visited = true;
+    trace("preview received");
     try {
       auto *frames = dialog->findChild<QComboBox *>("vectorAlignmentDrawing");
       auto *before = dynamic_cast<VectorAlignmentPreview::Swatch *>(
@@ -139,11 +171,15 @@ std::vector<AlignmentObservation> reviewAlignment(
       require(frames && frames->count() == drawingCount && before && after,
               "alignment preview missed a changed drawing or native swatch");
       for (int i = 0; i < drawingCount; ++i) {
+        trace(QString("drawing %1 select").arg(i));
         frames->setCurrentIndex(i);
         // Let normal show/resize and drawing-change events initialize each
         // PlaneViewer before inspecting its rendered framebuffer.
+        trace(QString("drawing %1 settle").arg(i));
         settle();
+        trace(QString("drawing %1 capture original").arg(i));
         const QImage original = before->grabFramebuffer();
+        trace(QString("drawing %1 capture proposed").arg(i));
         const QImage proposed = after->grabFramebuffer();
         require(before->bounds() == after->bounds(), "alignment preview uses independent fit scales");
         const int difference = pixelDifference(original, proposed);
@@ -162,21 +198,30 @@ std::vector<AlignmentObservation> reviewAlignment(
         result.push_back({before->image()->cloneWithGroupContext(),
                           after->image()->cloneWithGroupContext(), after->bounds(),
                           after->size(), proposed});
+        trace(QString("drawing %1 comparison passed").arg(i));
       }
+      trace("intervening callback");
       if (whileOpen) whileOpen();
       auto *button = dialog->findChild<QPushButton *>(accept ? "vectorAlignmentApply" :
                                                               "vectorAlignmentCancel");
       require(button && button->isEnabled(), "alignment preview action unavailable");
+      trace("action click");
       button->click();
+      trace("action click returned");
     } catch (...) {
       failure = std::current_exception();
       dialog->reject();
     }
   });
+  trace("trigger");
   inspect.start(0);
+  deadline.start(10000);
   action->trigger();
   inspect.stop();
+  deadline.stop();
+  trace("command returned");
   if (failure) std::rethrow_exception(failure);
+  require(!expired, "alignment native modal workflow exceeded its 10-second deadline");
   require(visited, "alignment command bypassed explicit review");
   require(!expectSourceInvalidation || sourceWarning,
           "alignment failed to explain that a reviewed source changed");
@@ -931,19 +976,30 @@ void runVectorWorkflowNativeChecks() {
   }
   for (int repeat = 0; repeat < 2; ++repeat) {
     std::cout << "vector-width-context-native: Undo/Redo after native PLI write " << repeat << std::endl;
-    undo->undo(); settle();
+    undo->undo();
+    std::cout << "vector-width-context-native: post-write Undo returned; settle " << repeat << std::endl;
+    settle();
     require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),widthOriginals[0]) &&
             VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),widthOriginals[1]),
             "repeated width undo lost original drawing state");
-    undo->redo(); settle();
+    std::cout << "vector-width-context-native: post-write Undo verified; Redo " << repeat << std::endl;
+    undo->redo();
+    std::cout << "vector-width-context-native: post-write Redo returned; settle " << repeat << std::endl;
+    settle();
     require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),appliedWidths[0]) &&
             VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),appliedWidths[1]),
             "repeated width redo did not restore reviewed pressure blend");
+    std::cout << "vector-width-context-native: post-write Redo verified " << repeat << std::endl;
   }
-  undo->undo(); settle(); undo->reset();
+  std::cout << "vector-alignment-native: restore width baseline" << std::endl;
+  undo->undo();
+  std::cout << "vector-alignment-native: width baseline Undo returned; settle" << std::endl;
+  settle(); undo->reset();
+  std::cout << "vector-alignment-native: prepare source geometry" << std::endl;
   // Give alignment an unmistakable translation and unequal object widths;
   // this makes both left/right previews visibly different at native scale.
   for (int i = 1; i <= 3; ++i) {
+    std::cout << "vector-alignment-native: prepare drawing " << i << std::endl;
     TVectorImageP image = level->getFrame(TFrameId(i), false);
     TStroke original(*image->getStroke(1));
     for (int point = 0; point < image->getStroke(1)->getControlPointCount(); ++point) {
@@ -954,7 +1010,10 @@ void runVectorWorkflowNativeChecks() {
     image->getStroke(1)->setOpacityProfile({{0., .25}, {1., 1.}});
     image->notifyChangedStrokes(std::vector<int>{1}, std::vector<TStroke *>{&original});
   }
-  tool->notifyImageChanged(); settle();
+  std::cout << "vector-alignment-native: notify prepared source drawings" << std::endl;
+  tool->notifyImageChanged();
+  std::cout << "vector-alignment-native: settle prepared source drawings" << std::endl;
+  settle();
   tool->setAlignMethod(VectorAlignment::SELECT_AREA);
   auto *align = CommandManager::instance()->getAction(MI_AlignLeft);
   require(align && align->isEnabled(), "selected-drawing alignment action disabled");
@@ -1083,7 +1142,9 @@ void runVectorWorkflowNativeChecks() {
     checkAlignmentOutput(level->getFrame(TFrameId(i+1), false), levelReview[i]);
   undo->undo(); undo->reset();
   mode->setValue(L"Standard"); tool->onPropertyChanged("Mode:");
+  std::cout << "vector-alignment-native: nested group workflows begin" << std::endl;
   nestedGroupChecks(frames);
+  std::cout << "vector-alignment-native: nested group workflows returned" << std::endl;
 
   // Exercise a genuine scene replacement last: IoCmd owns the old scene's
   // delayed deletion. Retain only drawing snapshots across that transition.
@@ -1102,8 +1163,71 @@ void runVectorWorkflowNativeChecks() {
   app->getCurrentScene()->setDirtyFlag(false);
   TVectorImageP replacementDrawing, replacementOriginal;
   auto *oldScene = app->getCurrentScene()->getScene();
+  QStringList modifiedResources;
+  {
+    SceneResources resources(oldScene, nullptr);
+    resources.getDirtyResources(modifiedResources);
+    resources.commit(); // Read-only inventory: avoid path-restoration setters.
+  }
+  require(!modifiedResources.empty(),
+          "scene-switch width fixture lost its modified resource precondition");
+  std::cout << "vector-width-context-native: actual scene replacement manager begin" << std::endl;
   reviewWidthManager(saved,50.,true,[&] {
+    // New Scene asks about modified drawing resources independently of the
+    // scene dirty flag. This callback already runs inside the manager's timer;
+    // a separate timer must drive the nested native confirmation.
+    bool discardVisited = false, discardExpired = false;
+    std::exception_ptr discardFailure;
+    QTimer discard, discardDeadline;
+    discard.setInterval(10);
+    discardDeadline.setSingleShot(true);
+    QObject::connect(&discard, &QTimer::timeout, [&] {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      if (!dialog || dialog->objectName() == "widthProfileManager") return;
+      discard.stop();
+      try {
+        QString text;
+        for (auto *label : dialog->findChildren<QLabel *>()) text += label->text();
+        QPushButton *saveChanges = nullptr, *newSceneAnyway = nullptr, *cancel = nullptr;
+        const auto buttons = dialog->findChildren<QPushButton *>();
+        for (auto *button : buttons) {
+          if (button->text() == QObject::tr("Save Changes")) saveChanges = button;
+          if (button->text() == QApplication::tr("New Scene") + QObject::tr(" Anyway"))
+            newSceneAnyway = button;
+          if (button->text() == QObject::tr("Cancel")) cancel = button;
+        }
+        if (buttons.size() != 3 || !saveChanges || !newSceneAnyway || !cancel ||
+            !text.contains(QObject::tr(" The following file(s) have been modified.\n\n")))
+          throw std::runtime_error("unexpected New Scene resource dialog: " + text.left(400).toStdString());
+        require(saveChanges->isEnabled() && newSceneAnyway->isVisible() &&
+                    newSceneAnyway->isEnabled() && cancel->isEnabled(),
+                "New Scene resource choices are not actionable");
+        discardVisited = true;
+        std::cout << "vector-width-context-native: native New Scene Anyway choice" << std::endl;
+        require(QMetaObject::invokeMethod(newSceneAnyway,"click",Qt::QueuedConnection),
+                "New Scene resource choice could not queue its real button");
+      } catch (...) {
+        discardFailure = std::current_exception();
+        dialog->reject();
+      }
+    });
+    QObject::connect(&discardDeadline, &QTimer::timeout, [&] {
+      discardExpired = true;
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+        std::cerr << "vector-width-context-native: New Scene deadline modal="
+                  << dialog->metaObject()->className() << " name="
+                  << dialog->objectName().left(100).toStdString() << std::endl;
+        dialog->reject();
+      }
+    });
+    discard.start(); discardDeadline.start(10000);
+    std::cout << "vector-width-context-native: actual New Scene begin" << std::endl;
     IoCmd::newScene();
+    discard.stop(); discardDeadline.stop();
+    std::cout << "vector-width-context-native: actual New Scene returned" << std::endl;
+    if (discardFailure) std::rethrow_exception(discardFailure);
+    require(discardVisited && !discardExpired,
+            "native New Scene did not complete its modified-resource choice");
     auto *replacementScene = app->getCurrentScene()->getScene();
     require(replacementScene != oldScene,"native New Scene did not switch context");
     auto *replacementLevel = replacementScene->createNewLevel(
