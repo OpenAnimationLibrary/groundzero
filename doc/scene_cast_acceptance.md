@@ -1,6 +1,8 @@
 # Scene Cast workflow acceptance
 
-Initial implementation base: edition `aa01975f38d6226156e5b07df7271b8fc199d003`. The reopened workflows are based on the stack rebased onto edition `b584755dca36e9cc5da1c325a2f11c8b83cd2aa2`.
+Initial implementation base: edition `aa01975f38d6226156e5b07df7271b8fc199d003`.
+Current integration base: edition `5fc674f1edefc0a45d377951b8d064ba8b202f44`,
+including the separately owned reference/neural work and later build corrections.
 Scope: the sixteen Scene Cast improvements numbered 37–52 in the artist workflow research. Existing folders, sorting, paths, multiselection, Collect Assets, Replace Level and library commands remain available. No brush compatibility or neural/color work is included here.
 
 The source includes the reopened Modified/New/Missing/Cached filters, docked inspector, audio waveform, explicit named collections, and recorded Library provenance. [Linux validation](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41053654629) of candidate `6f95648db6736487ce680f5f979183317ffe9060` passed the isolated native Cast workflow, including the Library import/ownership/undo tail. That does not qualify later EXR save-state or refresh-performance corrections. macOS and Windows runs reached the final preview fixture before its correction, confirming the directory/relink/content checks; they were not full Cast passes. No local build or test was run, as required by `CLAUDE.md`. This is not an all-platform completion claim.
