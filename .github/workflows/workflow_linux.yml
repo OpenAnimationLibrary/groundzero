@@ -139,11 +139,18 @@ jobs:
     - name: Test native application integration
       id: ui_integration
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --output toonz/build/ui-integration-output.txt
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --output toonz/build/ui-integration-output.txt --linux-crash-debugger
 
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+    - name: Report native application crash stack
+      if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+      run: |
+        if [ -f toonz/build/ui-integration-output-debugger.txt ]; then
+          python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
+        fi
 
     - name: Report native UI failures
       if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
@@ -175,7 +182,7 @@ jobs:
         path: |
           toonz/build/ui-tests.xml
           toonz/build/ui-tests-output.txt
-          toonz/build/ui-integration-output.txt
+          toonz/build/ui-integration-output*.txt
           toonz/build/function-workflow-debugger.txt
         if-no-files-found: ignore
 
