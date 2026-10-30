@@ -25,9 +25,41 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 
 ## Execution checkpoint — 2026-10-30
 
+The following evidence is tied to its named revisions. Current publication and
+running-check status are maintained on the five PRs; an earlier pass does not
+qualify a subsequent source change.
+
+At the next published cohort, Linux application and installed-package jobs
+passed for #116 `9b50bdd4c`, #117 `427bfeb38`, #119 `6f9baf37d` and #120
+`c267c4bcf`. Combined #118 `3d4309a9a` failed its original native sequence with
+`repeated Fade preview accumulated opacity changes`. Both terminal cases and
+all six fresh isolated diagnostics passed, but the original status remained
+one and later reliability/package checks were skipped. The exact failure was
+audited. A source-reviewed correction removes the morph checkerboard's
+dependence on the previous view transform and adds deterministic prior-view
+repaint coverage plus independent generated-opacity/source invariants. Exact
+pixel, Cancel/Apply and undo assertions remain; fresh CI must establish whether
+the original failure is resolved.
+[Recorded combined failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41139719320).
+
+That cohort's Windows jobs stopped before application compilation because the
+real original-dump prerequisite produced no WER dump. The corrected launcher
+uses `CREATE_DEFAULT_ERROR_MODE` so the application does not inherit its host's
+WER-suppression mode. Supplemental candidate `1f504560c2e8d400b6a4b9efb7ea124f3b564ce6`
+passed all 19 process contracts and seven reporting contracts: the actual host
+mode was `0x8003`, and the child normalized it, performed the genuine fail-fast,
+retired its child process, and produced an original dump decoded by CDB.
+The probe retained the exact status, registry-restoration and cleanup checks.
+This qualifies capture infrastructure, not the earlier application's fast-fail
+cause. These changes require their final owning-head application/platform
+checks. No local builds or tests ran.
+[Original capture qualification](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41143305949).
+
+### Preceding application qualification
+
 All 60 improvements remain in the acceptance ledger. Product implementations
 and acceptance fixtures are present; full platform qualification remains
-incomplete. The following published checkpoints integrate the current `d510cf0`
+incomplete. The following preceding checkpoints integrate the `d510cf0`
 baseline. Source review, executed CI and physical artist qualification remain
 separate; new diagnostic changes require their own exact-head checks.
 
