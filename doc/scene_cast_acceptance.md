@@ -62,6 +62,15 @@ Pending CI checks: compile/link on all platforms; the required `castworkflow` te
   items 39, 40, 42, 43, 46–48 and 50–52, not evidence of an executed crash or of
   successful qualification of this revision. Earlier passing runs precede these
   changes.
+- [Linux candidate 9629a7c5](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41092545441)
+  reached the folder interruption cases and exposed a stale global folder-tree
+  selection: selecting the next tree entered a destroyed selection's virtual
+  method. `CastTreeViewer` now detaches before its selection base is destroyed,
+  blocks teardown signals from registering it again, and the browser detaches
+  it while its model is still alive. The added native regression destroys
+  actually current trees and selects replacements without clearing selection
+  in the fixture. The existing interruption cases remain. This correction is
+  prepared for fresh CI, not qualified by the earlier run.
 - Search, preview navigation, read-only inspection and reports do not alter level data or exposure cells. Explicit cover selection and confirmed consolidation are undoable edits. Native child navigation may add its normal navigation undo records.
 - Relink and local-copy preparation does not alter live paths. All chosen assets validate before one grouped application. Cancellation during snapshotting or streamed copying discards the prepared operation.
 - A published local-copy directory is user data. Undo never deletes it; subsequent redo uses that exact directory. No source or existing destination file is overwritten or deleted.

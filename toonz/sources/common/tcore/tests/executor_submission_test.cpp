@@ -1,12 +1,16 @@
 #include "tthread.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QPointer>
 #include <QSemaphore>
+#include <QThreadStorage>
 
 #include <atomic>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
@@ -193,6 +197,159 @@ void failedSubmissionPreservesLiveTask() {
   checkNotExecuted(pending);
 }
 
+struct RetirementState {
+  QSemaphore entered, release, storageEntered, storageRelease;
+  std::atomic<int> finished{0}, canceled{0}, storageDestroyed{0};
+  std::atomic<QThread *> worker{nullptr};
+};
+
+struct RetirementStorage {
+  RetirementState &state;
+  explicit RetirementStorage(RetirementState &value) : state(value) {}
+  ~RetirementStorage() {
+    state.storageEntered.release();
+    state.storageRelease.acquire();
+    ++state.storageDestroyed;
+  }
+};
+
+class RetirementRunnable final : public TThread::Runnable {
+  RetirementState &m_state;
+  QThreadStorage<RetirementStorage *> &m_storage;
+
+public:
+  RetirementRunnable(RetirementState &state,
+                     QThreadStorage<RetirementStorage *> &storage)
+      : m_state(state), m_storage(storage) {
+    QObject::connect(this, &TThread::Runnable::finished, this,
+                     [this](TThread::RunnableP) { ++m_state.finished; },
+                     Qt::DirectConnection);
+    QObject::connect(this, &TThread::Runnable::canceled, this,
+                     [this](TThread::RunnableP) { ++m_state.canceled; },
+                     Qt::DirectConnection);
+  }
+  void run() override {
+    m_state.worker = QThread::currentThread();
+    m_storage.setLocalData(new RetirementStorage(m_state));
+    m_state.entered.release();
+    m_state.release.acquire();
+  }
+};
+
+void waitForRetirement(TThread::Executor &executor) {
+  QElapsedTimer deadline;
+  deadline.start();
+  while (!executor.isRetired() && deadline.elapsed() < 5000) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  require(executor.isRetired(), "dedicated executor did not retire its workers");
+}
+
+void retirementCancelsQueueAndWaitsForThreadStorage() {
+  TThread::Executor executor, unrelated;
+  executor.setDedicatedThreads(true);
+  unrelated.setDedicatedThreads(true);
+  RetirementState live;
+  QThreadStorage<RetirementStorage *> storage;
+  TThread::RunnableP active = new RetirementRunnable(live, storage);
+  executor.addTask(active);
+  require(live.entered.tryAcquire(1, 5000), "retirement task did not start");
+  QPointer<QThread> worker(live.worker.load());
+  QObject observer;
+  bool destroyedCallback = false, retiredAtDestruction = false;
+  QObject::connect(worker.data(), &QObject::destroyed, &observer, [&]() {
+    destroyedCallback = true;
+    retiredAtDestruction = executor.isRetired();
+  }, Qt::DirectConnection);
+
+  State pending, external;
+  TThread::RunnableP queued = new ProbeRunnable(pending, Behavior::Normal);
+  TThread::RunnableP other = new ProbeRunnable(external, Behavior::Gated);
+  executor.addTask(queued);
+  unrelated.addTask(other);
+  require(external.entered.tryAcquire(1, 5000), "unrelated task did not start");
+  executor.beginRetirement();
+  executor.beginRetirement();
+  require(!executor.isRetired() && live.canceled == 1 && pending.canceled == 1 &&
+              pending.runs == 0 && external.canceled == 0,
+          "retirement missed queue cancellation, repeated it, or touched another executor");
+
+  State rejectedState;
+  TThread::RunnableP rejected = new ProbeRunnable(rejectedState, Behavior::Normal);
+  bool accepted = true, rejectedAdmission = false;
+  try {
+    executor.addTask(rejected, accepted);
+  } catch (const std::runtime_error &) {
+    rejectedAdmission = true;
+  }
+  require(rejectedAdmission && !accepted &&
+              !executor.withdrawQueuedTask(rejected),
+          "retired executor accepted a new task");
+  checkNotExecuted(rejectedState);
+
+  live.release.release();
+  require(live.storageEntered.tryAcquire(1, 5000),
+          "retiring worker did not reach its actual QThreadStorage destructor");
+  // Runnable::finished and QThread::finished have both been emitted, but Qt's
+  // storage cleanup is deliberately still blocked. Neither signal proves drain.
+  QCoreApplication::processEvents();
+  require(live.finished == 1 && live.storageDestroyed == 0 &&
+              !executor.isRetired(),
+          "executor reported retirement before thread-local cleanup completed");
+  live.storageRelease.release();
+  waitForRetirement(executor);
+  require(live.storageDestroyed == 1 && pending.runs == 0 &&
+              external.runs == 1 && external.finished == 0 && external.canceled == 0,
+          "retirement lost TLS cleanup or interfered with unrelated work");
+  require(destroyedCallback && retiredAtDestruction && !worker,
+          "worker QObject destruction observed an incomplete or locked retirement");
+  executor.beginRetirement();
+  require(executor.isRetired(), "repeated retirement revived a worker");
+
+  external.release.release();
+  require(external.completed.tryAcquire(1, 5000),
+          "unrelated executor stopped completing work after retirement");
+  unrelated.beginRetirement();
+  waitForRetirement(unrelated);
+}
+
+void retirementRejectsNonDedicatedHistory() {
+  TThread::Executor executor;
+  bool refused = false;
+  try {
+    executor.beginRetirement();
+  } catch (const std::logic_error &) {
+    refused = true;
+  }
+  require(refused && !executor.isRetired(),
+          "non-dedicated executor promised private worker retirement");
+  // A rejected precondition must leave ordinary submission usable.
+  executor.setDedicatedThreads(true);
+  State state;
+  TThread::RunnableP task = new ProbeRunnable(state, Behavior::Gated);
+  executor.addTask(task);
+  require(state.entered.tryAcquire(1, 5000), "precondition failure closed admission");
+  executor.setDedicatedThreads(false);
+  executor.setDedicatedThreads(true);
+  refused = false;
+  try {
+    executor.beginRetirement();
+  } catch (const std::logic_error &) {
+    refused = true;
+  }
+  require(refused && state.canceled == 0,
+          "retirement accepted a worker that could have served unrelated work");
+  // This executor no longer has a dedicated-history guarantee. Retire its
+  // ordinary worker through the existing nonpersistent path instead.
+  executor.setDedicatedThreads(true, false);
+  task = TThread::RunnableP();
+  state.release.release();
+  require(state.deleted.tryAcquire(1, 5000),
+          "dedication-history fixture retained its completed task");
+  QCoreApplication::processEvents();
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -200,7 +357,9 @@ int main(int argc, char **argv) {
   TThread::init();
   failureBeforeAndAfterPublication();
   failedSubmissionPreservesLiveTask();
+  retirementCancelsQueueAndWaitsForThreadStorage();
+  retirementRejectsNonDedicatedHistory();
   TThread::shutdown();
-  std::cout << "executor submission ownership checks passed\n";
+  std::cout << "executor submission ownership and retirement checks passed\n";
   return 0;
 }

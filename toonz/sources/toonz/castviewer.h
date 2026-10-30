@@ -36,6 +36,7 @@ class CastTreeViewer final : public QTreeWidget, public TSelection {
 
 public:
   CastTreeViewer(QWidget *parent = 0);
+  ~CastTreeViewer() override;
   QSize sizeHint() const override;
 
   TFilePath getCurrentFolder() const;
