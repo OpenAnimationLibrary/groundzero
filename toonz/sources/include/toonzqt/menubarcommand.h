@@ -11,6 +11,7 @@
 #include <QAction>
 #include <QKeySequence>
 #include <QMenu>
+#include <QMetaObject>
 
 #undef DVAPI
 #undef DVVAR
@@ -113,6 +114,7 @@ class DVAPI CommandManager {  // singleton
     std::string m_id;
     CommandType m_type;
     QAction *m_qaction;
+    QMetaObject::Connection m_actionDestroyedConnection;
     CommandHandlerInterface *m_handler;
     bool m_enabled;
     QString m_onText,
@@ -141,6 +143,7 @@ class DVAPI CommandManager {  // singleton
   CommandManager();
 
   Node *getNode(CommandId id, bool createIfNeeded = true);
+  void unregisterAction(QAction *action);
   void setShortcut(CommandId id, QAction *action, std::string shortcutString);
   void createAuxActions();
 

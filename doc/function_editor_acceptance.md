@@ -115,5 +115,28 @@ The process subsequently reported completed application cleanup and exited
 with `SIGSEGV`. That shutdown failure still fails qualification. The Linux
 runner now captures a separate bounded GDB stack for native signals, retaining
 the original failing status and both reports. No shutdown check is bypassed;
-the stack is required before attributing or fixing this remaining lifetime
-failure.
+the subsequent diagnostic identifies the teardown path below.
+
+Static shutdown review found a concrete command-registry lifetime
+violation: MainWindow-owned actions may be destroyed before a room's current
+selection detaches, while `CommandManager` retains raw action, shortcut and
+reverse-lookup pointers. The prepared fix unregisters an action synchronously
+when it is destroyed, retains its command handler/enabled state for subsequent
+action recreation, and disconnects destruction callbacks before registry
+teardown. Selection label changes tolerate actions that no longer exist.
+`ui_functionworkflow` now prepares action-before-editor destruction with a real
+FunctionSelection, menu-action and alternative-name lifetimes, reverse/shortcut
+lookup cleanup, same-ID recreation, and exact-address reuse to detect stale
+pending-shortcut dispatch. These tests use the ordinary ownership path; no
+MainWindow or fixture shutdown bypass is added. CI execution of the prepared fix
+remains pending.
+
+At `1088dc316`, Linux run `41007693470`, job `123906413255`, again passed the
+widget suites and full native Function Editor acceptance before the shutdown
+signal. The bounded debugger captured `QActionPrivate::sendDataChanged` from
+`TSelectionHandle::setSelection`, `FunctionSelection::~FunctionSelection`,
+`FunctionViewer::~FunctionViewer`, and room/stacked-widget destruction. This
+confirms the action/selection teardown path identified above. The registry fix
+and deterministic regressions are source-reviewed but must still pass CI; the
+original application exit status and every existing acceptance check remain
+authoritative.
