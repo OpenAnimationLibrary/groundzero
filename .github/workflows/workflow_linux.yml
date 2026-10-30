@@ -212,7 +212,7 @@ jobs:
         path: |
           toonz/build/ui-tests.xml
           toonz/build/ui-tests-output.txt
-          toonz/build/ui-integration-output.txt
+          toonz/build/ui-integration-output*.txt
           toonz/build/function-workflow-debugger.txt
         if-no-files-found: ignore
 
