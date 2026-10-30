@@ -16,7 +16,7 @@ jobs:
   windows:
     name: Windows original-process capture
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
         with:
@@ -34,6 +34,9 @@ jobs:
       - name: Qualify actionable harness reporting
         timeout-minutes: 5
         run: python ci-scripts/run_harness_tests.py --pattern test_harness_reporting.py --report harness-reporting-output.txt
+      - name: Qualify portable macOS crash identity contracts
+        timeout-minutes: 5
+        run: python ci-scripts/run_harness_tests.py --pattern test_native_macos_crash.py --report native-macos-contracts-output.txt
       - name: Qualify real original-process capture
         timeout-minutes: 5
         run: python ci-scripts/run_harness_tests.py --pattern test_windows_process.py --report native-process-contracts-output.txt
@@ -47,6 +50,7 @@ jobs:
           name: native-process-contracts-${{ github.sha }}
           path: |
             harness-reporting-output.txt
+            native-macos-contracts-output.txt
             native-process-contracts-output.txt
           if-no-files-found: warn
           overwrite: true
@@ -58,6 +62,7 @@ jobs:
           name: native-process-contracts-${{ github.sha }}
           path: |
             harness-reporting-output.txt
+            native-macos-contracts-output.txt
             native-process-contracts-output.txt
           if-no-files-found: warn
           overwrite: true
