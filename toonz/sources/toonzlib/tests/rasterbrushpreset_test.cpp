@@ -274,6 +274,11 @@ void testPackage() {
   QString error;
   auto bytes = encode(r, error);
   require(!bytes.isEmpty(), qPrintable(error));
+  std::atomic_bool cancelled(true);
+  auto stopped = importBrush(bytes, "gzbrush", error, &cancelled);
+  require(stopped.records.empty() && !stopped.complete &&
+              error.contains("cancelled"),
+          "cancelled import produced installable records");
   auto restored = decode(bytes, error);
   require(error.isEmpty() && restored.semanticallySupported, qPrintable(error));
   require(restored.preset.pickupControl.mappings.size() == 1,

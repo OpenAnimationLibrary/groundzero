@@ -81,6 +81,8 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QColorDialog>
+#include <QProgressBar>
+#include <QThread>
 #include <cmath>
 
 //----------------------------------------------------------------------------------
@@ -103,6 +105,57 @@ TEnv::StringVar FullcolorNativeBrush("FullcolorNativeBrush", "<legacy>");
 namespace {
 QString nativeBrushFolder() {
   return ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+}
+class NativeImportProgress final : public QDialog {
+  std::atomic_bool &cancelled;
+  QLabel *message;
+  QPushButton *cancel;
+
+public:
+  explicit NativeImportProgress(std::atomic_bool &flag) : cancelled(flag) {
+    setWindowTitle(tr("Import Raster Brush"));
+    auto layout = new QVBoxLayout(this);
+    message = new QLabel(tr("Reading and validating brush resources…"), this);
+    layout->addWidget(message);
+    auto progress = new QProgressBar(this);
+    progress->setRange(0, 0);
+    layout->addWidget(progress);
+    cancel = new QPushButton(tr("Cancel"), this);
+    layout->addWidget(cancel);
+    connect(cancel, &QPushButton::clicked, this, &NativeImportProgress::reject);
+  }
+  void reject() override {
+    cancelled.store(true, std::memory_order_relaxed);
+    message->setText(tr("Cancelling after the current bounded resource…"));
+    cancel->setEnabled(false);
+    // Keep the dialog modal until the worker finishes. No result can be
+    // installed after cancellation, and another import cannot race this one.
+  }
+};
+
+RasterBrush::ImportResult importNativeBrush(const QString &path,
+                                            QString &error) {
+  std::atomic_bool cancelled(false);
+  NativeImportProgress dialog(cancelled);
+  RasterBrush::ImportResult result;
+  std::unique_ptr<QThread> worker(QThread::create([&]() {
+    try {
+      result = RasterBrush::importBrushFile(path, error, &cancelled);
+    } catch (const std::exception &e) {
+      error = QString::fromUtf8(e.what());
+    } catch (...) {
+      error = QObject::tr("Brush import failed.");
+    }
+  }));
+  QObject::connect(worker.get(), &QThread::finished, &dialog, &QDialog::accept);
+  worker->start();
+  dialog.exec();
+  worker->wait();
+  if (cancelled.load(std::memory_order_relaxed)) {
+    error.clear();
+    return {};
+  }
+  return result;
 }
 class NativeBrushPreview final : public QWidget, public RasterBrush::Surface {
   std::vector<RasterBrush::Pixel> pixels;
@@ -677,7 +730,7 @@ bool FullColorBrushTool::selectNativePreset() {
         tr("Raster brushes (*.gzbrush *.abr *.gbr *.gih *.kpp *.bundle)"));
     m_nativePreset.setValue(previous);
     if (path.isEmpty()) return true;
-    auto imported = RasterBrush::importBrushFile(path, error);
+    auto imported = importNativeBrush(path, error);
     if (!error.isEmpty()) {
       DVGui::warning(error);
       return true;

@@ -476,15 +476,21 @@ void check(Record &r) {
 }
 }  // namespace
 ImportResult importBrush(const QByteArray &bytes, const QString &format,
-                         QString &error) {
+                         QString &error, const std::atomic_bool *cancelled) {
   ImportResult result;
   error.clear();
+  auto checkCancelled = [&]() {
+    if (cancelled && cancelled->load(std::memory_order_relaxed))
+      throw Invalid("Brush import cancelled");
+  };
   try {
+    checkCancelled();
     if (bytes.isEmpty() || bytes.size() > fileLimit)
       throw Invalid("Brush input exceeds 64 MiB");
     const QString kind = format.toLower();
     if (kind == "gzbrush") {
       auto r = decode(bytes, error);
+      checkCancelled();
       if (!error.isEmpty()) return {};
       result.records.push_back(r);
       result.complete = true;
@@ -497,6 +503,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       auto presets   = bundlePresets(members, resources);
       size_t decoded = 0;
       for (const auto &path : presets) {
+        checkCancelled();
         QStringList diagnostics;
         auto r = convertKpp(members[path], diagnostics, &resources);
         check(r);
@@ -557,6 +564,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       }
       r.preset.tip.shape = Shape::Bitmap;
       for (int i = 0; i < count; ++i) {
+        checkCancelled();
         QString name;
         double frameSpacing;
         auto im = reader.gbr(name, frameSpacing);
@@ -601,6 +609,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
                "by these native tip conversions.";
       Reader allocator{bytes};
       for (const auto &tip : parsed.tips) {
+        checkCancelled();
         auto r                              = converted(bytes, kind);
         r.preset.name                       = tip.name;
         r.provenance["containerVersion"]    = parsed.version;
@@ -618,6 +627,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         throw Invalid("No decodable sampled tips in this ABR");
     } else
       throw Invalid("Unsupported brush format");
+    checkCancelled();
     result.diagnostics << "Converted to native painting. Source brush dynamics "
                           "and appearance are not reference-verified. Embedded "
                           "assets retain their original license.";
@@ -628,7 +638,12 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
     return {};
   }
 }
-ImportResult importBrushFile(const QString &path, QString &error) {
+ImportResult importBrushFile(const QString &path, QString &error,
+                             const std::atomic_bool *cancelled) {
+  if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+    error = "Brush import cancelled";
+    return {};
+  }
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly)) {
     error = f.errorString();
@@ -643,6 +658,6 @@ ImportResult importBrushFile(const QString &path, QString &error) {
     error = "Cannot read brush file";
     return {};
   }
-  return importBrush(bytes, QFileInfo(path).suffix(), error);
+  return importBrush(bytes, QFileInfo(path).suffix(), error, cancelled);
 }
 }  // namespace RasterBrush

@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install reference runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y xvfb libopengl0 libegl1 libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0
+        run: sudo apt-get update && sudo apt-get install -y xvfb fontconfig fonts-dejavu-core libopengl0 libegl1 libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0
       - name: Download pinned official reference application
         shell: bash
         run: |
@@ -42,13 +42,24 @@ jobs:
           export XDG_CONFIG_HOME="$BRUSH_REFERENCE_ROOT/config"
           export QT_X11_NO_MITSHM=1
           export LIBGL_ALWAYS_SOFTWARE=1
+          # The AppImage's bundled fontconfig otherwise searches a nonexistent
+          # build-time configuration path on the hosted runner.
+          export FONTCONFIG_FILE=/etc/fonts/fonts.conf
+          export FONTCONFIG_PATH=/etc/fonts
+          xvfb-run -a reference-runtime/squashfs-root/AppRun --version 2>&1 | tee "$BRUSH_REFERENCE_ROOT/version.log"
+          set +e
           timeout 600 xvfb-run -a -s '-screen 0 2560x2160x24' reference-runtime/squashfs-root/AppRun --nosplash 2>&1 | tee "$BRUSH_REFERENCE_ROOT/runtime.log"
+          runtime_status=${PIPESTATUS[0]}
+          set -e
+          if test "$runtime_status" -ne 0; then
+            echo "::error::Reference application exited with status $runtime_status"
+          fi
           python3 - <<'PY'
           import json, os
           from pathlib import Path
           path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
           if not path.exists():
-              raise SystemExit('Reference plugin produced no status; this is not a passing comparison')
+              raise SystemExit('::error::Reference plugin produced no status; inspect runtime exit and startup log')
           result = json.loads(path.read_text())
           if result['status'] != 'complete' or len(result['records']) != 5:
               raise SystemExit('Incomplete source reference workload: ' + str(result))
@@ -96,5 +107,6 @@ jobs:
             brush-reference-run/output/
             brush-reference-run/data/krita/paintoppresets/
             brush-reference-run/runtime.log
+            brush-reference-run/version.log
             brush-reference-run/comparison*.log
             reference-runtime/application-sha256.txt
