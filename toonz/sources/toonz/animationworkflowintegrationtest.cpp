@@ -30,6 +30,7 @@
 #include "toonz/tcamera.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzscene.h"
+#include "toonz/toonzfolders.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjectid.h"
 #include "toonz/tpinnedrangeset.h"
@@ -618,8 +619,19 @@ bool runAnimationWorkflowIntegrationTest(QMainWindow *window, QString *error) {
     };
     auto *scene = TApp::instance()->getCurrentScene()->getScene();
     require(scene && scene->getXsheet()->getFrameCount() == 0, "animation workflow fixture needs a fresh scene");
-    QTemporaryDir temporary;
+    // Use an explicit native browser root: macOS system temporary directories
+    // may sit below hidden folders or symlinks that its file tree omits.
+    // Library is part of the disposable portable data prepared by the harness.
+    const TFilePath libraryPath = ToonzFolder::getLibraryFolder();
+    require(QDir().mkpath(libraryPath.getQString()),
+            "animation workflow fixture Library unavailable");
+    auto *directoryModel = DvDirModel::instance();
+    const auto libraryIndex = directoryModel->getIndexByPath(libraryPath);
+    require(libraryIndex.isValid(), "native browser Library root unavailable");
+    QTemporaryDir temporary(QDir(libraryPath.getQString()).filePath(
+        "animation-workflow-XXXXXX"));
     require(temporary.isValid(), "animation workflow fixture directory unavailable");
+    directoryModel->refresh(libraryIndex);
     checkpoint("directory refresh and persistent indexes");
     exerciseDirectoryRefresh(scene, temporary.path());
     checkpoint("recovery");

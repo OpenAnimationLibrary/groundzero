@@ -66,6 +66,9 @@ macOS workflows. Its runner is invoked before the existing native UI fixture,
 requires an empty startup scene and explicitly creates a fresh scene afterward.
 It uses the existing isolated portable profile and real native dialogs/commands;
 it does not reproduce production algorithms in test-only helpers.
+The directory-refresh fixture creates a temporary child of the isolated Library,
+verifies that explicit browser root and refreshes it before lookup. It does not
+require hidden or symlinked system temporary ancestors to appear in the browser.
 
 Execution remains pending CI. Platform-specific filesystem failures and preview/render pixel fidelity continue to require
 the existing integration/render suites and manual acceptance where no fixture is
