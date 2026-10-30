@@ -1,8 +1,10 @@
 """Original reference workload using only Krita's public scripting API."""
 import faulthandler
+import base64
 import hashlib
 import json
 import os
+import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
 from xml.etree.ElementTree import fromstring
@@ -77,7 +79,8 @@ class Probe(Extension):
                     raise RuntimeError("Original reference preset was not loaded: " + name)
                 # Krita integer RGBA API uses BGRA channel order, top row first.
                 colors = [(255, 0, 0, 255), (0, 255, 0, 128), (0, 0, 255, 255), (0, 0, 0, 0)]
-                row = b"".join(bytes(colors[(x // 128) % 4]) for x in range(w))
+                row = (bytes(w * 4) if case.get("background") == "transparent" else
+                       b"".join(bytes(colors[(x // 128) % 4]) for x in range(w)))
                 initial = row * h
                 checkpoint(name + ": initialize pixels")
                 if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
@@ -126,7 +129,17 @@ class Probe(Extension):
                     offset = (1024 * w + x) * 4
                     blue, green, red, alpha = raw[offset:offset+4]
                     samples.append([x, red, green, blue, alpha])
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
+                geometry = None
+                if case.get("background") == "transparent":
+                    # Exact alpha coverage around all seven short strokes.
+                    # This small window is diagnostic; comparison still uses
+                    # both full-canvas changed sets and their union.
+                    alpha = bytes(raw[(y * w + x) * 4 + 3]
+                                  for y in range(1000, 1048)
+                                  for x in range(232, 312))
+                    geometry = {"rect": [232, 1000, 80, 48], "encoding": "zlib-base64-alpha8-row-major",
+                                "data": base64.b64encode(zlib.compress(alpha)).decode("ascii")}
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

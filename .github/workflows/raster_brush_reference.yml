@@ -184,6 +184,22 @@ jobs:
                       raise RuntimeError('Source probe annotation exceeds the observed 4096-byte limit')
                   print('::notice title=Source parameter probes; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PYPROBES
+      - name: Report exact short-stroke alpha probes
+        if: always()
+        run: |
+          python3 - <<'PYGEOMETRY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
+          if path.is_file():
+              for row in json.loads(path.read_text()).get('records', []):
+                  if row.get('geometryProbe') is None:
+                      continue
+                  text = json.dumps({'preset': row['preset'], **row['geometryProbe']}, separators=(',', ':'))
+                  if len(text.encode()) > 3900:
+                      raise RuntimeError('Geometry probe exceeds annotation limit')
+                  print('::notice title=Exact source alpha probe; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYGEOMETRY
       - name: Report reference failure
         if: failure()
         shell: bash

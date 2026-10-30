@@ -67,3 +67,9 @@ compact `wet` array is ordered: smudge strength, color rate, radius, strength
 option enabled, new model, mode, smear alpha. A stored value readback alone
 never proves that the source engine consumed that option; differing parameter
 cases must also be evaluated for observable output changes.
+
+Short-stroke geometry probes use a transparent canvas and retain an exact
+80-by-48 alpha window at document coordinate (232,1000), encoded as row-major
+alpha8 bytes compressed with zlib/base64. The same manifest background is used
+by the candidate renderer. The diagnostic window never replaces the full-canvas
+union comparison or permits cropping away stray paint.

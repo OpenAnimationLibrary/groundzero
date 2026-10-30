@@ -201,8 +201,12 @@ int main(int argc, char **argv) {
         initial.setPixel(x, y, colors[(x / 128) % 4]);
     require(initial.save(root.filePath("output/initial.png")),
             "Cannot save initial raster");
+    const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
+      initial = stripInitial;
+      if (source["background"].toString() == "transparent")
+        initial.fill(Qt::transparent);
       QString name = source["preset"].toString(), error;
       require(remaining.removeOne(name), "Unexpected or duplicate source case");
       auto imported = importBrushFile(
