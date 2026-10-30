@@ -4,6 +4,7 @@
 #include "toonz/toonzfolders.h"
 #include "toonzqt/menubarcommand.h"
 #include <QAction>
+#include <QAbstractButton>
 #include <QApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -46,7 +47,7 @@ bool runMediaCacheIntegrationTest(QMainWindow *, QString *error) {
           if (auto *confirm = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
             require(stage == 2, "Unexpected cache confirmation");
             // Cancel must leave both cache data and policy untouched.
-            confirm->done(QMessageBox::Cancel);
+            confirm->button(QMessageBox::Cancel)->click();
             stage = 3;
             return;
           }
@@ -80,7 +81,7 @@ bool runMediaCacheIntegrationTest(QMainWindow *, QString *error) {
                 if (auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget())) modal->reject();
                 return;
               }
-              confirm->done(QMessageBox::Cancel);
+              confirm->button(QMessageBox::Cancel)->click();
               stage = 3;
             });
             clear->click();

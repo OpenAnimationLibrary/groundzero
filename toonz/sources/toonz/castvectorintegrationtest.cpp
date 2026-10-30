@@ -37,6 +37,7 @@
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QAbstractButton>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QTableWidget>
@@ -271,7 +272,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes))
-          message->done(QMessageBox::Yes);
+          message->button(QMessageBox::Yes)->click();
         else { failure = message->text(); message->reject(); }
       }
     });
@@ -333,7 +334,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) {
           confirmed = true;
-          message->done(expectRejected ? QMessageBox::No : QMessageBox::Yes);
+          message->button(expectRejected ? QMessageBox::No : QMessageBox::Yes)->click();
         } else {
           rejected = message->text().contains("different drawing, layer, palette, rig, or level metadata");
           message->reject();
