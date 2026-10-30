@@ -57,8 +57,11 @@ try:
         raise RuntimeError("Expected exactly one built neural editor qualification executable")
     if editors[0].parent != effects[0].parent:
         shutil.copytree(package, editors[0].parent / "neural-style", dirs_exist_ok=True)
+    editor_environment = environment.copy()
+    if os.name == "nt":
+        editor_environment["QT_DEBUG_PLUGINS"] = "1"
     result = subprocess.run([str(editors[0].resolve()), str(Path("neural-evaluation/report/artist-review").resolve())],
-                            capture_output=True, text=True, timeout=180, env=environment)
+                            capture_output=True, text=True, timeout=180, env=editor_environment)
     print(result.stdout, flush=True)
     if result.returncode:
         raise RuntimeError("Neural editor qualification failed: " + result.stderr[-3000:])

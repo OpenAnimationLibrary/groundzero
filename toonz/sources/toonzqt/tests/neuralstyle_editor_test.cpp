@@ -52,9 +52,12 @@ public:
 };
 }
 int main(int argc,char **argv) {
+  std::cerr<<"Editor qualification: process entry"<<std::endl;
   qputenv("QT_QPA_PLATFORM","offscreen");
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+  std::cerr<<"Editor qualification: QApplication initialization"<<std::endl;
   QApplication application(argc,argv);
+  std::cerr<<"Editor qualification: QApplication initialized"<<std::endl;
   try {
     require(argc==2,"Expected visual report directory");const QDir report(application.arguments()[1]);QDir().mkpath(report.absolutePath());
     std::cerr<<"Editor qualification: embedded profile undo"<<std::endl;
