@@ -1992,6 +1992,13 @@ QWidget* PreferencesPopup::createInterfacePage() {
 
   insertUI(CurrentLanguageName, lay, languageItemList);
   QComboBox* languageCombo = getUI<QComboBox*>(CurrentLanguageName);
+  // Show the language in use, which differs from the saved one when that
+  // could not be loaded at startup.
+  {
+    const QSignalBlocker blocker(languageCombo);
+    languageCombo->setCurrentIndex(languageCombo->findData(
+        UiLanguageManager::instance()->currentLanguage()));
+  }
   connect(UiLanguageManager::instance(), &UiLanguageManager::languageChanged,
           languageCombo, [languageCombo](const QString& language) {
             const QSignalBlocker blocker(languageCombo);

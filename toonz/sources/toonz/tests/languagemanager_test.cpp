@@ -59,6 +59,44 @@ int main(int argc, char **argv) {
   ok &= !manager.setLanguage("../FixtureB", &error);
   ok &= manager.setLanguage("English", &error);
   ok &= label.text() == "Open" && formatted.text() == "Frame 37";
+
+  auto expect = [&](bool condition, const char *message) {
+    if (!condition) std::cerr << message << '\n';
+    ok &= condition;
+  };
+  int selected = 0;
+  QObject::connect(&manager, &UiLanguageManager::languageSelected,
+                   [&]() { ++selected; });
+  const QString japanese = QString::fromUtf8("開く");
+  const QString fixtureCatalog =
+      QDir(QString::fromLocal8Bit(argv[1])).filePath("FixtureA/toonz.qm");
+  QDir(incomplete.path()).mkdir("Partial");
+  QFile::copy(fixtureCatalog, incomplete.path() + "/Partial/toonz.qm");
+  expect(manager.setLanguage("Partial", &error) && label.text() == japanese &&
+             selected == 1,
+         "A language without optional module catalogs was rejected");
+  QDir(incomplete.path()).mkdir("Damaged");
+  QFile::copy(fixtureCatalog, incomplete.path() + "/Damaged/toonz.qm");
+  QFile damaged(incomplete.path() + "/Damaged/toonzqt.qm");
+  if (damaged.open(QIODevice::WriteOnly)) damaged.write("invalid catalog");
+  damaged.close();
+  expect(!manager.setLanguage("Damaged", &error) &&
+             error.contains("current language was kept") &&
+             manager.currentLanguage() == "Partial" && selected == 1,
+         "A damaged module catalog was accepted or changed the language");
+  // At startup a saved language that cannot be loaded runs the session in
+  // English, says so, and is not reported for saving.
+  expect(!manager.startWithLanguage("Broken", &error) &&
+             manager.currentLanguage() == "English" && label.text() == "Open",
+         "Startup did not fall back to English");
+  expect(!error.isEmpty() && !error.contains("kept") && selected == 1,
+         "Startup fallback replaced the saved language or misreported it");
+  expect(manager.startWithLanguage("Partial", &error) && error.isEmpty() &&
+             label.text() == japanese && selected == 1,
+         "Startup language was not applied, or was reported for saving");
+  expect(manager.setLanguage("English", &error) && selected == 2 &&
+             manager.setLanguage("English", &error) && selected == 3,
+         "A choice of the user was not reported for saving");
   if (argc == 3) {
     manager.setCatalogDirectory(QString::fromLocal8Bit(argv[2]));
     const QStringList installed = manager.availableLanguages();
