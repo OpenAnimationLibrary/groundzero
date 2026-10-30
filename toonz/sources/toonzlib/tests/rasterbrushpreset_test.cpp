@@ -1853,12 +1853,18 @@ void testLongCollectionPaths() {
         QString("//./") + directory,
         QDir::toNativeSeparators(QString("//?/") + directory)}) {
     Detail::RegularResponseDirectory rejected;
-    require(
-        !rejected.open(unsupported, error) && error.contains("local disk path"),
-        "long-path support admitted UNC or device-path input");
+    const bool accepted = rejected.open(unsupported, error);
+    require(!accepted && error.contains("local disk path"),
+            qPrintable(QString("Unsupported raw directory input [%1]: "
+                               "accepted=%2 error=%3")
+                           .arg(unsupported)
+                           .arg(accepted)
+                           .arg(error)));
     readBoundedRegularFile(unsupported + "/probe", 1024, error);
     require(error.contains("local disk path"),
-            "public file reader normalized unsupported path before validation");
+            qPrintable(QString("Unsupported raw file input [%1]: error=%2")
+                           .arg(unsupported)
+                           .arg(error)));
   }
   const QString alias = QDir(directory).filePath("hardlink.gzbrush");
   const QString nativeAlias =

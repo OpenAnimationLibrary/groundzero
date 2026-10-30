@@ -20,7 +20,7 @@ import struct
 import subprocess
 import zipfile
 
-VERSION = 1
+VERSION = 2
 FILE_LIMIT = 64 * 1024 * 1024
 TOTAL_LIMIT = 512 * 1024 * 1024
 COUNT_LIMIT = 4096
@@ -189,8 +189,33 @@ def acquisition(output, fixtures):
         repeated = row["repeatSha256Pixels"]
         repetitions = 3 if fixtures["group"] == "geometry" else (
             2 if case.get("variant") == "baseline" or fixtures["group"] == "wetboundary" else 1)
-        require(HEX.fullmatch(row["sha256Pixels"]) and
-                repeated == [row["sha256Pixels"]] * repetitions, "repeat gate missing")
+        canonical = row["sha256RepeatPixels"]
+        require(HEX.fullmatch(row["sha256Pixels"]) and len(repeated) == repetitions
+                and repeated[0] == row["sha256Pixels"] and all(HEX.fullmatch(h) for h in repeated)
+                and row["repeatSemantics"] == "transparent-rgb-zero-v1"
+                and HEX.fullmatch(canonical)
+                and row["repeatSha256CanonicalPixels"] == [canonical] * repetitions,
+                "repeat gate missing")
+        require(len(row["repeatDifferences"]) == repetitions - 1
+                and all(type(d["visibleOrAlphaChangedPixels"]) is int
+                        and d["visibleOrAlphaChangedPixels"] == 0
+                        and type(d["hiddenRgbOnlyPixels"]) is int
+                        and 0 <= d["hiddenRgbOnlyPixels"] <= fixtures["width"] * fixtures["height"]
+                        for d in row["repeatDifferences"]), "repeat classification missing")
+        require(all((repeated[index] == repeated[0]) == (difference["hiddenRgbOnlyPixels"] == 0)
+                    for index, difference in enumerate(row["repeatDifferences"], 1)),
+                "raw repeat hashes disagree with classification")
+        require(len(row["repeatImages"]) == repetitions - 1, "raw repeat captures missing")
+        for index, repeat_image in enumerate(row["repeatImages"], 1):
+            name = filename(repeat_image["image"], ".png")
+            require(name == row["preset"].replace(" ", "_") + ".repeat-" + str(index) + ".png"
+                    and name not in files, "invalid raw repeat capture name")
+            data = read(output / name)
+            require(digest(data) == repeat_image["sha256File"] and data[:8] == b"\x89PNG\r\n\x1a\n"
+                    and data[12:16] == b"IHDR" and len(data) >= 33
+                    and struct.unpack(">II", data[16:24]) == (fixtures["width"], fixtures["height"]),
+                    "raw repeat capture mismatch")
+            files[name] = data
         view = row["effectiveView"]
         for key, tolerance in (("diameter", 1e-5), ("opacity", 1 / 255 + 1e-9),
                                ("flow", 1 / 255 + 1e-9)):

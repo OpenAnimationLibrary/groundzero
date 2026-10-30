@@ -37,7 +37,12 @@ inline bool validateResponsePathInput(const QString &path, QString &error) {
 #ifdef _WIN32
   // QFileInfo can normalize an extended/device prefix away. Reject these
   // namespaces before any normalization, not only on the resulting path.
-  if (QDir::fromNativeSeparators(path).startsWith("//")) {
+  // Do not use QDir::fromNativeSeparators here: Qt 5 itself strips the
+  // extended prefix in that function before replacing backslashes.
+  const auto separator = [](QChar c) {
+    return c == QLatin1Char('/') || c == QLatin1Char('\\');
+  };
+  if (path.size() >= 2 && separator(path[0]) && separator(path[1])) {
     error = "Regular-file protocol requires a local disk path";
     return false;
   }

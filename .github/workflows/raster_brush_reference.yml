@@ -8,6 +8,19 @@ on:
       - 'toonz/sources/toonzlib/rasterbrush*'
       - '.github/workflows/raster_brush_reference.yml'
   workflow_dispatch:
+    inputs:
+      focus:
+        description: 'Diagnostic subset; only all qualifies the full source matrix'
+        type: choice
+        default: all
+        options:
+          - all
+          - wet-interactions
+          - wet-color
+          - pixel-input
+          - hsv-interactions
+          - masked-timed
+          - resources
 permissions:
   contents: read
 concurrency:
@@ -103,7 +116,9 @@ jobs:
       max-parallel: 4
       fail-fast: false
       matrix:
-        fixture_group: [wethsv, texturepickup, wetkernelcount, pixelprecision, tabletsensors, hsvjoint, hsvheldout, airbrushtimed, timedsensors, maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, spacingdynamics, bitmaptips, gihlabels, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, texturemasks, pixelblend, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        # Pull requests always run every declared source group. Manual subsets
+        # shorten diagnostics without representing full source qualification.
+        fixture_group: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-color' && fromJSON('["wethsv","texturepickup","wetkernelcount","hsvorder","hsvheldout"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-interactions' && fromJSON('["wethsv","texturepickup","wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'pixel-input' && fromJSON('["pixelprecision","tabletsensors","pixelpressure","pixelsmallpressure","pixeltransfer"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-interactions' && fromJSON('["hsvorder","hsvjoint","hsvheldout","hsvdynamics"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'masked-timed' && fromJSON('["maskwash","maskbuildup","airbrushtimed","timedsensors"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'resources' && fromJSON('["bitmaptips","mirrortips","gihlabels","gihstatistics"]') || fromJSON('["wethsv","texturepickup","wetkernelcount","hsvorder","pixelprecision","tabletsensors","hsvjoint","hsvheldout","airbrushtimed","timedsensors","maskwash","maskbuildup","hsvdynamics","distancesensors","mirrortips","spacingdynamics","bitmaptips","gihlabels","gihstatistics","pixelcurveknots","texturestate","pixeltransfer","wetboundary","texturemasks","pixelblend","wetopacitycombo","wettransfer","pixelcurves","wetkernelscale","wetkernel","wettexture3","wetpressure","pixelsoftsize","pixelrectsize","pixelsoft","pixelopacitytablet","pixelopacity","pixelpressure","wetstate","wethold","wettexture","pixelaarange","pixelcontrols","pixelsmallpressure","pixelshape","wetswitches","wetcombined","wetsteps","hardpixel","geometry","tablet","parameters"]') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:

@@ -277,7 +277,7 @@ int main(int argc, char **argv) {
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
     if (fixtures["group"].toString() == "tabletsensors")
-      require(expected.size() == 138,
+      require(expected.size() == 188,
               "Incomplete tablet sensor fixture matrix");
     if (fixtures["group"].toString() == "spacingdynamics")
       require(expected.size() == 112,
@@ -286,6 +286,9 @@ int main(int argc, char **argv) {
       require(expected.size() == 42, "Incomplete mirror fixture matrix");
     if (fixtures["group"].toString() == "wethsv")
       require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
+    if (fixtures["group"].toString() == "hsvorder")
+      require(expected.size() == 24,
+              "Incomplete order-discriminating HSV matrix");
     if (fixtures["group"].toString() == "hsvjoint")
       require(expected.size() == 36, "Incomplete joint HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvheldout")
@@ -300,7 +303,7 @@ int main(int argc, char **argv) {
       require(expected.size() == 108,
               "Incomplete masked-brush acquisition matrix");
     if (fixtures["group"].toString() == "airbrushtimed")
-      require(expected.size() == 32, "Incomplete paced airbrush workload");
+      require(expected.size() == 56, "Incomplete paced airbrush workload");
     if (fixtures["group"].toString() == "timedsensors")
       require(expected.size() == 12, "Incomplete paced sensor workload");
     QStringList remaining;
@@ -317,7 +320,8 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
-      if (fixtures["group"].toString() == "hsvjoint") {
+      if (fixtures["group"].toString() == "hsvjoint" ||
+          fixtures["group"].toString() == "hsvorder") {
         const auto evidence = source["sensorEvidence"].toObject();
         require(evidence["deliveryValuesMatchAuthored"].toBool() &&
                     evidence["deliveryInterface"].toString() ==
@@ -552,6 +556,19 @@ int main(int argc, char **argv) {
                 x >= source["wetBoundary"].toDouble() ? qRgba(0, 0, 0, 0)
                 : x == pointX && y == pointY ? qRgba(255, 255, 255, 255)
                                              : qRgba(0, 0, 0, 255));
+      }
+      if (source["wetPattern"].toString() == "opaque-black-white-points") {
+        const int base = source["wetKernelComplement"].toBool() ? 255 : 0;
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(x, y, x >= source["wetBoundary"].toDouble()
+                                      ? qRgba(0, 0, 0, 0)
+                                      : qRgba(base, base, base, 255));
+        for (const auto &value : source["wetKernelPoints"].toArray()) {
+          const auto point = value.toArray();
+          initial.setPixel(256 + point[0].toInt(), 1024 + point[1].toInt(),
+                           qRgba(255 - base, 255 - base, 255 - base, 255));
+        }
       }
       if (source.contains("wetThirdBoundary")) {
         const auto c = source["wetThirdRGBA8"].toArray();
@@ -804,7 +821,8 @@ int main(int argc, char **argv) {
                   "Incomplete paced source contacts");
           const auto spec = source["timedProbe"].toObject();
           const double duration = spec["durationUs"].toDouble();
-          require(duration == 250000 || duration == 1000000,
+          require(duration == 250000 || duration == 375000 ||
+                      duration == 1000000 || duration == 1125000,
                   "Unexpected paced duration");
           const double origin =
               contacts[0].toObject()["monotonicUs"].toDouble();
@@ -814,14 +832,14 @@ int main(int argc, char **argv) {
             const double elapsed = contact["monotonicUs"].toDouble() - origin;
             const double planned = authored[i].toObject()["timeUs"].toDouble();
             require(std::isfinite(elapsed) && elapsed >= planned - 2000 &&
-                        elapsed <= planned + 250000 &&
+                        elapsed <= planned + maxLateness &&
                         contact["pressure"].toDouble() == 1,
                     "Paced contact failed actual elapsed-time bounds");
           }
           auto release = evidence["release"].toObject();
           const double held = release["monotonicUs"].toDouble() - origin;
           require(std::isfinite(held) && held >= duration - 2000 &&
-                      held <= duration + 250000,
+                      held <= duration + maxLateness,
                   "Paced release failed actual elapsed-time bounds");
           release["pressure"] = 1;
           contacts.append(release);
@@ -1002,11 +1020,18 @@ int main(int argc, char **argv) {
         // no center-pixel-only qualification or dilution by empty canvas.
         const double colorTolerance =
             p.sourceHsvChannel == SourceHsvChannel::Saturation ? 1 / 255.0 : 0;
+        // Both hard masks are binary-alpha and RGB8. Compare integer code
+        // differences, avoiding floating subtraction placing exactly one byte
+        // microscopically above 1/255. Alpha and geometry gates are unchanged.
+        const int byteError =
+            int(std::floor(metrics["maxRGBError"].toDouble() * 255 + .5));
         const bool passed =
             metrics["hardPixelCandidatePassed"].toBool() &&
-            metrics["maxRGBError"].toDouble() <= colorTolerance &&
+            byteError <=
+                (p.sourceHsvChannel == SourceHsvChannel::Saturation ? 1 : 0) &&
             metrics["maxAlphaError"].toDouble() == 0;
         metrics["fixedHsvCandidatePassed"] = passed;
+        metrics["fixedHsvMaxRGBByteError"] = byteError;
         metrics["fixedHsvMaxRGBTolerance"] = colorTolerance;
         if (!passed && !failedHardCases.contains(name))
           failedHardCases.append(name);

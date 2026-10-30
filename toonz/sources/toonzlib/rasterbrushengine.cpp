@@ -108,15 +108,24 @@ Pixel sourceHsvColor(Pixel color, SourceHsvChannel channel, double value) {
     };
     color = {adjust(color.r), adjust(color.g), adjust(color.b), 1};
   } else {
-    const double high       = std::max({color.r, color.g, color.b});
-    const double low        = std::min({color.r, color.g, color.b});
+    // Work in the source's encoded 8-bit foreground domain. Direct affine
+    // interpolation avoids a needless HSV roundtrip changing half-byte ties.
+    const double r    = std::floor(unit(color.r) * 255 + .5),
+                 g    = std::floor(unit(color.g) * 255 + .5),
+                 b    = std::floor(unit(color.b) * 255 + .5);
+    const double high = std::max({r, g, b}), low = std::min({r, g, b});
     const double saturation = high > 0 ? (high - low) / high : 0;
-    const double adjusted   = value <= .5 ? saturation * (2 * value)
-                                          : unit(saturation + 2 * value - 1);
-    if (saturation > 0)
-      color = hsv(color, 0, adjusted / saturation, 1);
-    else
-      color = {high, high * (1 - adjusted), high * (1 - adjusted), 1};
+    if (saturation > 0) {
+      const double factor = value <= .5
+                                ? 2 * value
+                                : unit(saturation + 2 * value - 1) / saturation;
+      auto adjust         = [high, factor](double c) {
+        return std::floor(std::max(0.0, high - (high - c) * factor) + .5) / 255;
+      };
+      color = {adjust(r), adjust(g), adjust(b), 1};
+    }
+    // Achromatic foreground has no hue to saturate. Independent gray
+    // heldouts remain gray even above neutral; never invent a red hue.
   }
   auto byte = [](double c) { return std::floor(unit(c) * 255 + .5) / 255; };
   return {byte(color.r), byte(color.g), byte(color.b), 1};

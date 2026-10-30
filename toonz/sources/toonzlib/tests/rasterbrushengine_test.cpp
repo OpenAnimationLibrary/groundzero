@@ -692,6 +692,27 @@ void testKritaFixedHsvCandidate() {
                     "source HSV differs from independently captured RGB");
           }
         }
+  // Previously unseen source acquisitions, including the achromatic boundary.
+  for (const auto &capture :
+       std::vector<std::array<int, 7>>{{211, 37, 149, 125, 211, 168, 196},
+                                       {101, 101, 101, 875, 101, 101, 101}}) {
+    Preset heldout;
+    heldout.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
+    heldout.size.value = 24;
+    heldout.color = {capture[0] / 255., capture[1] / 255., capture[2] / 255.,
+                     1};
+    heldout.sourceHsvChannel = SourceHsvChannel::Saturation;
+    heldout.sourceHsvValue   = capture[3] / 1000.;
+    Canvas canvas;
+    Stroke stroke(canvas, heldout);
+    require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+    stroke.finish();
+    const Pixel actual = canvas.read(64, 64);
+    require(std::floor(actual.r * 255 + .5) == capture[4] &&
+                std::floor(actual.g * 255 + .5) == capture[5] &&
+                std::floor(actual.b * 255 + .5) == capture[6] && actual.a == 1,
+            "source saturation heldout differs");
+  }
   Preset invalid;
   invalid.sourceHsvChannel = SourceHsvChannel::Hue;
   require(!validate(invalid).empty(), "native profile admitted source HSV");

@@ -351,3 +351,42 @@ full union-region max RGB <=2/255, max alpha <=1/255, changed-pixel IoU >=.98,
 and nonempty candidate output. Current wet HSV eligibility remains disabled;
 native conversion cannot satisfy this gate. Shared foreground plumbing or
 synthetic all-model equivalence tests do not establish source interaction parity.
+
+Repeat protocol `transparent-rgb-zero-v1` retains original BGRA captures and raw
+hashes, including each repeated stroke PNG. It separately hashes a copy with RGB
+zeroed only at exactly zero alpha. Every raw discrepancy is classified: only
+pixels whose two alpha bytes are both zero may differ invisibly. Every alpha
+change and every RGB change at nonzero alpha fails exact repeat equality; mixed
+hidden/visible differences fail too. Source pixels and internal state are never
+rewritten. This corrects the raw-byte gate that rejected observed transparent
+black/white storage differences in wet HSV and texture-pickup acquisitions.
+Cache schema 2 requires versioned canonical hashes, raw hashes, consistent full
+classifications and hashed repeated PNG files; older/partial caches fall back to
+fresh source acquisition. Candidate RGBA thresholds remain unchanged.
+### Airbrush timer-boundary follow-up
+
+Completed source job124365157119 at bf78a7bc recorded32 acquisitions. Disabled
+stationary alpha stayed26. Enabled stationary alpha was49 for5/s over251ms,
+105 for5/s over1001ms and20/s over251ms, and227 for20/s over1001ms.
+IgnoreSpacing did not change stationary results. Moving ignoreSpacing=true
+produced2 separated marks at5/s over.25s and6 at5/s over1s or20/s over.25s.
+This supports the pinned header's rate-as-frequency interpretation, but exact
+boundary counts depend on source timer firing order, which input timestamps
+alone do not expose. No scheduler equation or count-specific patch is justified.
+
+`airbrushtimed` now preserves000–031 and appends24 off-boundary cases032–055:
+5/20 rates,375/1125ms stationary holds, three independent enabled/off pairs for
+each setting. The20Hz half-period offset is25ms; actual event/release lateness
+must remain within20ms (with the existing2ms timestamp-origin tolerance), keeping
+accepted input away from the neighboring intended boundary. Older cases retain
+their250ms diagnostic bound. Complete actual timing and per-repeat pixels remain
+recorded; these repeats are observations, not retry-until-match behavior. Source
+and comparison both enforce the same duration-specific deadline bounds. The
+maximum nominal hold is now1.125s, and additional nominal hold time is18s.
+
+The first joint captures matched the isolated equations but did not identify a
+unique composition order: their saturation/value combinations commute.
+`hsvorder` therefore adds 24 original paired cases with both saturation and value
+above neutral, including an unsaturated foreground and three-channel hue shifts.
+These cases distinguish saturation-before-lightening from the reverse; no order
+is assigned merely because the earlier joint acquisition completed successfully.

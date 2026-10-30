@@ -31,11 +31,15 @@ class OracleCacheTest(unittest.TestCase):
         self.fixtures = {"license": "CC0-1.0", "version": "5.3.4.1", "group": "test",
                          "width": 1, "height": 1, "presets": [self.case["preset"]],
                          "cases": [self.case]}
-        self.expected = {"schema": 1, "applicationSha256": "a" * 64, "group": "test"}
+        self.expected = {"schema": cache.VERSION, "applicationSha256": "a" * 64, "group": "test"}
         self.xml = b'<Preset paintopid="paintbrush"/>'
         self.row = {**self.case, "image": "Original_dry.png", "effectivePresetXml": "Original_dry.effective.xml",
                     "effectivePresetSha256": cache.digest(self.xml), "sha256Pixels": "b" * 64,
-                    "repeatSha256Pixels": ["b" * 64] * 2, "profile": "sRGB-elle-V2-srgbtrc.icc",
+                    "repeatSha256Pixels": ["b" * 64] * 2,
+                    "repeatSemantics": "transparent-rgb-zero-v1", "sha256RepeatPixels": "d" * 64,
+                    "repeatSha256CanonicalPixels": ["d" * 64] * 2,
+                    "repeatDifferences": [{"hiddenRgbOnlyPixels": 0, "visibleOrAlphaChangedPixels": 0}],
+                    "repeatImages": [{"image": "Original_dry.repeat-1.png", "sha256File": cache.digest(png())}], "profile": "sRGB-elle-V2-srgbtrc.icc",
                     "changed": True, "effectiveView": {"diameter": 1, "opacity": 1, "flow": 1,
                     "rotation": 0, "blend": "normal", "eraser": False, "alphaLock": False,
                     "disablePressure": False}}
@@ -44,10 +48,11 @@ class OracleCacheTest(unittest.TestCase):
         (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
         (self.output / "Original_dry.effective.xml").write_bytes(self.xml)
         (self.output / "Original_dry.png").write_bytes(png())
+        (self.output / "Original_dry.repeat-1.png").write_bytes(png())
 
     def sealed(self):
         cache.seal(self.root, self.destination, self.expected)
-        for name in ("oracle-status.json", "Original_dry.effective.xml", "Original_dry.png"):
+        for name in ("oracle-status.json", "Original_dry.effective.xml", "Original_dry.png", "Original_dry.repeat-1.png"):
             (self.output / name).unlink()
 
     def rejected(self, expected=None):
@@ -61,7 +66,7 @@ class OracleCacheTest(unittest.TestCase):
         (self.output / "bundled.kpp").write_text("must not persist")
         self.sealed()
         self.assertEqual({p.name for p in self.destination.iterdir()},
-                         {"manifest.json", "oracle-status.json", "Original_dry.effective.xml", "Original_dry.png"})
+                         {"manifest.json", "oracle-status.json", "Original_dry.effective.xml", "Original_dry.png", "Original_dry.repeat-1.png"})
         cache.restore(self.root, self.destination, self.expected)
         self.assertEqual((self.output / "Original_dry.png").read_bytes(), png())
         self.assertEqual((self.output / "comparison.json").read_text(), "candidate failure")
@@ -159,7 +164,10 @@ class OracleCacheTest(unittest.TestCase):
 
     def test_repeat_and_control_failures_cannot_be_sealed(self):
         for change in ({"repeatSha256Pixels": ["b" * 64]},
-                       {"repeatSha256Pixels": ["b" * 64, "c" * 64]},
+                       {"repeatSha256CanonicalPixels": ["d" * 64, "c" * 64]},
+                       {"repeatSemantics": "unversioned"},
+                       {"repeatImages": []},
+                       {"repeatDifferences": [{"hiddenRgbOnlyPixels": 0, "visibleOrAlphaChangedPixels": 1}]},
                        {"effectiveView": {**self.row["effectiveView"], "eraser": True}},
                        {"effectiveView": {**self.row["effectiveView"], "opacity": .5}},
                        {"changed": False}):
@@ -168,6 +176,30 @@ class OracleCacheTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cache.seal(self.root, self.destination, self.expected)
             self.assertFalse(self.destination.exists())
+
+    def test_hidden_only_raw_repeat_difference_retains_original_capture(self):
+        self.row["repeatSha256Pixels"][1] = "c" * 64
+        self.row["repeatDifferences"][0]["hiddenRgbOnlyPixels"] = 1
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        self.sealed()
+        cache.restore(self.root, self.destination, self.expected)
+        self.assertEqual((self.output / "Original_dry.repeat-1.png").read_bytes(), png())
+
+    def test_repeat_pixel_contract(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("repeat_pixels", Path(__file__).parent / "gzbrush_reference/repeat_pixels.py")
+        pixels = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pixels)
+        transparent = bytes([0, 0, 0, 0])
+        hidden = bytes([255, 17, 3, 0])
+        self.assertEqual(pixels.canonical_hash(transparent), pixels.canonical_hash(hidden))
+        self.assertEqual(pixels.differences(transparent, hidden),
+                         {"hiddenRgbOnlyPixels": 1, "visibleOrAlphaChangedPixels": 0})
+        for first, second in ((transparent, bytes([0, 0, 0, 1])),
+                              (bytes([0, 0, 0, 1]), bytes([1, 0, 0, 1])),
+                              (transparent + bytes([0, 0, 0, 255]), hidden + bytes([0, 1, 0, 255]))):
+            self.assertNotEqual(pixels.canonical_hash(first), pixels.canonical_hash(second))
+            self.assertEqual(pixels.differences(first, second)["visibleOrAlphaChangedPixels"], 1)
 
     def test_explicit_source_pressure_mode_is_retained(self):
         self.case["sourcePressureFlag"] = True

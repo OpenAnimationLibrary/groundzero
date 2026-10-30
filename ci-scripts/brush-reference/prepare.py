@@ -100,9 +100,9 @@ if group == "wethsv":
     prepare_wet_hsv(root, resources, preset)
     finalize_input_contract()
     raise SystemExit(0)
-if group == "hsvjoint":
+if group in ("hsvjoint", "hsvorder"):
     from hsv_joint_fixtures import prepare as prepare_hsv_joint
-    prepare_hsv_joint(root, resources, preset)
+    prepare_hsv_joint(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
 if group == "hsvheldout":
@@ -493,24 +493,35 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     if group == "wetkernelcount":
         planned = json.loads((source / "wetkernelcount.json").read_text())
-        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 185:
+        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 227:
             raise RuntimeError("Unexpected bounded Dulling probe plan")
         variants = []
         kernel_objectives = {}
+        kernel_masks = {}
         for probe in planned["cases"]:
             if probe["model"] != ("new" if modern else "legacy"):
                 continue
             diameter, radius = probe["diameter"], probe["radiusPercent"]
             axis, offset = probe["axis"], probe["offset"]
             if not (0 < diameter <= 128 and 0 <= radius <= 300 and
-                    axis in ("column", "row", "point") and abs(offset) <= 200 and
+                    axis in ("column", "row", "point", "points") and abs(offset) <= 200 and
                     (axis != "point" or (isinstance(probe.get("offsetY"), int) and abs(probe["offsetY"]) <= 200))):
                 raise RuntimeError("Out-of-bounds Dulling probe")
+            if axis == "points":
+                points = probe.get("points", [])
+                if not (1 <= len(points) <= 256 and type(probe.get("complement")) is bool and
+                        all(isinstance(p, list) and len(p) == 2 and
+                            all(type(v) is int and abs(v) <= 200 for v in p) for p in points) and
+                        len({tuple(p) for p in points}) == len(points)):
+                    raise RuntimeError("Invalid bounded kernel point-set mask")
             dabs = probe.get("dabs", 2)
             if dabs not in (2, 3, 4):
                 raise RuntimeError("Out-of-bounds Dulling state probe")
             point_y = f" y {probe['offsetY']}" if axis == "point" else ""
             label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis}{point_y} dabs {dabs}"
+            if axis == "points":
+                label = label.replace(" dabs ", f" complement {int(probe['complement'])} dabs ")
+                kernel_masks[label] = (probe["points"], probe["complement"])
             if label in kernel_objectives:
                 raise RuntimeError("Duplicate Dulling probe")
             kernel_objectives[label] = probe["reason"]
@@ -638,9 +649,13 @@ for mode, modern in profiles:
                               "wetBoundary": 256 + diameter * spacing * .8,
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetkernelcount":
-            if "axis point" in label:
+            if "axis point y" in label:
                 cases[-1]["wetPattern"] = "opaque-black-white-point"
                 cases[-1]["wetKernelOffsetY"] = int(label.split(" y ")[1].split()[0])
+            if label in kernel_masks:
+                points, complement = kernel_masks[label]
+                cases[-1].update({"wetPattern": "opaque-black-white-points",
+                                  "wetKernelPoints": points, "wetKernelComplement": complement})
             dabs = int(label.rsplit(" ", 1)[1])
             cases[-1]["probePositions"] = [round(256 + diameter * spacing * i) for i in range(dabs)]
             cases[-1].update({"kernelProbeObjective": kernel_objectives[label],

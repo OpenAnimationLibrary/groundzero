@@ -2,7 +2,7 @@
 import json
 
 
-def prepare(root, resources, preset_writer):
+def prepare(root, resources, preset_writer, group="hsvjoint"):
     cases, names = [], []
     plans = [
         ("hs", (.2, .8, .5), False),
@@ -15,10 +15,22 @@ def prepare(root, resources, preset_writer):
         ("s", (.5, .5, .5), True),
         ("v", (.5, .5, .5), True),
     ]
-    for color in ([173, 91, 47, 255], [59, 137, 191, 255]):
+    colors = ([173, 91, 47, 255], [59, 137, 191, 255])
+    if group == "hsvorder":
+        # Earlier paired darkening/desaturation cases commute. Simultaneous
+        # saturation increase and lightening distinguish composition order.
+        plans = [
+            ("sv", (.5, .65, .65), False), ("sv", (.5, .85, .85), False),
+            ("sv", (.5, .65, .85), False), ("sv", (.5, .85, .65), False),
+            ("hsv", (.2, .65, .85), False), ("hsv", (.8, .85, .65), False),
+        ]
+        colors = ([101, 137, 157, 255], [173, 91, 47, 255])
+    elif group != "hsvjoint":
+        raise RuntimeError("Unknown joint HSV acquisition group")
+    for color in colors:
         for channels, values, dynamic in plans:
             for enabled in (False, True):
-                name = "GZ Original dry hsvjoint " + str(len(cases)).zfill(3)
+                name = "GZ Original dry " + group + " " + str(len(cases)).zfill(3)
                 overrides = {"Spacing/Isotropic": "false"}
                 for channel, value in zip("hsv", values):
                     curve = "0,0;1,1;" if dynamic and channel in channels else "0," + str(value) + ";1," + str(value) + ";"
@@ -48,7 +60,7 @@ def prepare(root, resources, preset_writer):
                                     "qualification": "Joint source acquisition; operation order and dynamics unqualified"},
                 })
     (root / "output" / "fixtures.json").write_text(json.dumps({
-        "version": "5.3.4.1", "group": "hsvjoint", "presets": names, "cases": cases,
+        "version": "5.3.4.1", "group": group, "presets": names, "cases": cases,
         "license": "CC0-1.0", "width": 2048, "height": 2048,
         "input": "Public Node.paintLine endpoints and pressure; no inferred internal dab pressure or HSV order",
     }, indent=2))

@@ -15,6 +15,16 @@ def prepare(root, resources, preset_writer, group):
                                 'PaintOpSettings/isAirbrushing': str(enabled).lower(),
                                 'PaintOpSettings/rate': str(rate),
                                 'PaintOpSettings/ignoreSpacing': str(ignore).lower()}, 'airbrush'))
+        # Off-boundary independent repeats distinguish timer phase/jitter from
+        # deterministic deposit equations. Existing cases keep their identities.
+        for rate in (5, 20):
+            for duration in (375000, 1125000):
+                for repeat in range(3):
+                    for enabled in (False, True):
+                        plans.append((duration, False, {
+                            'PaintOpSettings/isAirbrushing': str(enabled).lower(),
+                            'PaintOpSettings/rate': str(rate),
+                            'PaintOpSettings/ignoreSpacing': 'false'}, 'airbrush-off-boundary-' + str(repeat)))
     elif group == 'timedsensors':
         for sensor in ('time', 'speed'):
             for duration in (250000, 1000000):
@@ -49,7 +59,8 @@ def prepare(root, resources, preset_writer, group):
                       'overrides': overrides, 'expectUnchanged': False, 'delivery': 'Qt tablet events',
                       'canvasCenter': [1024, 1024], 'events': events,
                       'timedProbe': {'durationUs': duration, 'moving': moving, 'target': target,
-                                     'rect': [864, 992, 320, 64], 'maxLatenessUs': 250000,
+                                     'rect': [864, 992, 320, 64],
+                                     'maxLatenessUs': 20000 if duration in (375000, 1125000) else 250000,
                                      'qualification': 'paced source acquisition; no physical tablet or source parity claim'}})
     (root / 'output' / 'fixtures.json').write_text(json.dumps({
         'version': '5.3.4.1', 'group': group, 'presets': names, 'cases': cases,

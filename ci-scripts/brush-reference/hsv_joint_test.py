@@ -41,6 +41,17 @@ class JointHsvEvidence(unittest.TestCase):
         self.assertEqual(evidence["deliveredContactEvents"], self.delivery["events"])
         self.assertIn("vSensor", evidence["effectiveControls"])
 
+    def test_order_matrix_exercises_noncommuting_controls(self):
+        root=Path(self.temp.name)
+        prepare(root, root, lambda *args: b"original fixture placeholder", "hsvorder")
+        matrix=json.loads((root / "output" / "fixtures.json").read_text())
+        self.assertEqual(len(matrix["cases"]),24)
+        for case in matrix["cases"]:
+            for channel in ("s","v"):
+                value=float(case["overrides"][channel+"commonCurve"].split(";")[0].split(",")[1])
+                self.assertGreater(value,.5)
+            self.assertFalse(case["jointHsvProbe"]["operationOrderAssumed"])
+
     def test_every_channel_payload_is_checked(self):
         for channel in "hsv":
             fields = dict(self.fields)

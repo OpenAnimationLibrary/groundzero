@@ -10,6 +10,7 @@ import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
+from . import repeat_pixels
 from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
@@ -201,7 +202,7 @@ class Probe(Extension):
                 deadline_ns = contact_start_ns + row["timeUs"] * 1000
                 while time.monotonic_ns() < deadline_ns:
                     yield max(1, math.ceil((deadline_ns - time.monotonic_ns()) / 1000000))
-                if time.monotonic_ns() - deadline_ns > 250000000:
+                if time.monotonic_ns() - deadline_ns > case["timedProbe"]["maxLatenessUs"] * 1000:
                     raise RuntimeError("Paced contact exceeded bounded lateness")
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
@@ -211,7 +212,7 @@ class Probe(Extension):
             deadline_ns = contact_start_ns + case["timedProbe"]["durationUs"] * 1000
             while time.monotonic_ns() < deadline_ns:
                 yield max(1, math.ceil((deadline_ns - time.monotonic_ns()) / 1000000))
-            if time.monotonic_ns() - deadline_ns > 250000000:
+            if time.monotonic_ns() - deadline_ns > case["timedProbe"]["maxLatenessUs"] * 1000:
                 raise RuntimeError("Paced release exceeded bounded lateness")
         send(rows[-1], QEvent.TabletRelease, canvas, Qt.LeftButton, Qt.NoButton, 0)
         yield
@@ -350,6 +351,20 @@ class Probe(Extension):
                     offset = (y * w + x) * 4
                     initial_point[offset:offset + 4] = bytes((255, 255, 255, 255))
                     initial = bytes(initial_point)
+                if case.get("wetPattern") == "opaque-black-white-points":
+                    boundary = math.ceil(case["wetBoundary"])
+                    complement = case["wetKernelComplement"]
+                    base = 255 if complement else 0
+                    row = bytes((base, base, base, 255)) * boundary + bytes(4) * (w - boundary)
+                    pixels = bytearray(row * h)
+                    for dx, dy in case["wetKernelPoints"]:
+                        x, y = 256 + dx, 1024 + dy
+                        if not (0 <= x < boundary and 0 <= y < h):
+                            raise RuntimeError("Kernel mask point outside bounded backdrop")
+                        pos = (y * w + x) * 4
+                        value = 255 - base
+                        pixels[pos:pos + 4] = bytes((value, value, value, 255))
+                    initial = bytes(pixels)
                 checkpoint(name + ": initialize pixels")
                 if fixtures.get("group") == "wetboundary":
                     clear_boundary_margin()
@@ -533,6 +548,9 @@ class Probe(Extension):
                 if raw != initial and case.get("expectUnchanged", False):
                     raise RuntimeError("Source no-op boundary case unexpectedly changed pixels")
                 repeat_hashes = [hashlib.sha256(raw).hexdigest()]
+                canonical_hash = repeat_pixels.canonical_hash(raw)
+                canonical_repeats = [canonical_hash]
+                repeat_images, repeat_differences = [], []
                 repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" or fixtures.get("group") == "wetboundary" else 1)
                 for repetition in range(1, repetitions):
                     # These fixtures disable random dynamics. Independent
@@ -549,7 +567,15 @@ class Probe(Extension):
                     document.waitForDone()
                     repeated = bytes(node.pixelData(0, 0, w, h))
                     repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
-                    if repeated != raw:
+                    canonical_repeats.append(repeat_pixels.canonical_hash(repeated))
+                    difference = repeat_pixels.differences(raw, repeated)
+                    repeat_differences.append(difference)
+                    repeat_name = name.replace(" ", "_") + ".repeat-" + str(repetition) + ".png"
+                    if not QImage(repeated, w, h, w * 4, QImage.Format_ARGB32).copy().save(str(output / repeat_name)):
+                        raise RuntimeError("Cannot retain original repeated source capture")
+                    repeat_images.append({"image": repeat_name,
+                                          "sha256File": hashlib.sha256((output / repeat_name).read_bytes()).hexdigest()})
+                    if difference["visibleOrAlphaChangedPixels"] or canonical_repeats[-1] != canonical_hash:
                         first_differences = []
                         changed_pixels = 0
                         for offset in range(0, len(raw), 4):
@@ -563,7 +589,8 @@ class Probe(Extension):
                             return [event for event in value.get("events", [])
                                     if event["type"] in (int(QEvent.TabletPress), int(QEvent.TabletRelease))]
                         detail = {"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes,
-                                  "changedPixels": changed_pixels, "firstDifferencesBGRA8": first_differences,
+                                  "changedPixels": changed_pixels, **difference, "repeatSemantics": repeat_pixels.SEMANTICS,
+                                  "canonicalRepeatHashes": canonical_repeats, "firstDifferencesBGRA8": first_differences,
                                   "firstToolState": delivery.get("stateAfterProximity"),
                                   "repeatedToolState": repeated_delivery.get("stateAfterProximity"),
                                   "firstEndpoints": endpoints(delivery), "repeatedEndpoints": endpoints(repeated_delivery)}
@@ -656,7 +683,7 @@ class Probe(Extension):
                                         "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
                                         "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
                 resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
-                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence})
+                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;
