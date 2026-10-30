@@ -147,13 +147,15 @@ compare FX and exported LUT within interpolation tolerance; test Qt 5/6 and
 Windows/macOS/Linux, including Apple Silicon; obtain artist approval on a cel,
 a textured background, a pan and held drawings. No artist validation has occurred.
 
-## Remaining feature-family work
+## Feature-family validation status
 
-The native baseline is an implementation candidate, not completion of the
-neural-style feature family. Optional neural models, runtime packaging,
-product model installation, motion estimation,
-occlusion handling and temporally coherent texture synthesis remain unimplemented.
-No neural or temporal UI advertises these capabilities as available.
+The native color foundation and neural texture path are implemented, including
+packaged CPU inference, captured reference profiles, motion estimation and
+occlusion-aware temporal blending described below. Implementation is distinct
+from validation: final-revision application and installed-package CI, inspection
+of representative visual artifacts, and artist acceptance remain gates. The
+384-pixel texture canvas and 120-frame temporal shot bound are explicit product
+limits, not unrestricted full-resolution or long-shot synthesis.
 
 
 ## Neural qualification and product integration contract
@@ -286,6 +288,7 @@ They include current-alpha/ink checks and known-motion difference measurements,
 plus an editor screenshot. Those metrics are not an artist approval. The tests
 also save and relocate an actual `.tnz` FX graph after removing its reference
 original, exercise end-to-end masked 8/16-bit and float rendering, and change or
-cancel a reference after real model inference starts. A separate installed-package
+cancel an in-flight preview after model initialization. This does not guarantee
+the cancellation lands inside a running inference kernel. A separate installed-package
 gate verifies the shipped component hashes/notices and executes inference without
 development loader paths or a Python inference library.
