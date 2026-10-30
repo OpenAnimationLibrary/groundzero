@@ -1,0 +1,58 @@
+name: Raster Brush Parser
+on:
+  pull_request:
+    paths:
+      - 'toonz/sources/include/toonz/abrparser.h'
+      - 'toonz/sources/toonzlib/abrparser.cpp'
+      - 'toonz/sources/toonzlib/tests/abrparser_test.cpp'
+      - 'ci-scripts/brush-parser/**'
+      - '.github/workflows/raster_brush_compatibility.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: brush-parser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  parser:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure
+        shell: bash
+        run: cmake -S ci-scripts/brush-parser -B brush-parser-build -DBRUSH_SANITIZERS=${{ matrix.os == 'ubuntu-22.04' && 'ON' || 'OFF' }}
+      - name: Build parser regression
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build brush-parser-build --config Debug --parallel 2 2>&1 | tee brush-parser-build.log
+      - name: Run parser regression
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --test-dir brush-parser-build -C Debug --output-on-failure 2>&1 | tee brush-parser-test.log
+      - name: Report failure evidence
+        if: failure()
+        shell: bash
+        run: |
+          for log in brush-parser-build.log brush-parser-test.log; do
+            if test -f "$log"; then
+              tail -50 "$log" | while IFS= read -r line; do
+                line=${line//'%'/'%25'}
+                line=${line//$'\r'/'%0D'}
+                echo "::error::$line"
+              done
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: brush-parser-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            brush-parser-*.log
+            brush-parser-build/Testing/Temporary/LastTest.log

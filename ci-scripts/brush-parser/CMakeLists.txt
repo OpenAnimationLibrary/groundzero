@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.16)
+project(BrushParserRegression LANGUAGES CXX)
+enable_testing()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+get_filename_component(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+add_executable(abrparser_test
+  "${REPO_ROOT}/toonz/sources/toonzlib/abrparser.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/tests/abrparser_test.cpp")
+target_include_directories(abrparser_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(abrparser_test PRIVATE TOONZLIB_EXPORTS)
+option(BRUSH_SANITIZERS "Run parser regression with address/undefined sanitizers" OFF)
+if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(abrparser_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(abrparser_test PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME abrparser COMMAND abrparser_test)
+set_tests_properties(abrparser PROPERTIES TIMEOUT 60)
