@@ -131,6 +131,10 @@ int main(int argc, char **argv) {
     require(SeExprEditor::renameVariable("$gain + 'gain' + $gain::other", "gain", "amount") ==
                 "$amount + 'gain' + $gain::other",
             "variable migration changed a quoted string or another qualified binding");
+    require(SeExprEditor::renameVariable("2e5 + $e5*1.5E5 + .5e5 + e5 + 3e-5",
+                                         "e5", "rate") ==
+                "2e5 + $rate*1.5E5 + .5e5 + rate + 3e-5",
+            "variable migration changed the exponent of a numeric literal");
 
     // Real animation reference validation can override the generic FX context.
     // Its value preview is supplied by the same native reference evaluator.
