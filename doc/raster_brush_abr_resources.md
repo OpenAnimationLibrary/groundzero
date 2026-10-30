@@ -80,3 +80,44 @@ It may establish serialized resource fields but cannot establish P2711 rendering
 parity or coverage of every compression mode. No pack bytes are included here;
 qualification must record the acquired archive hash and observed format before
 using it as evidence.
+
+## Observed ABR 6.2 sample binding and static native adapter
+
+The `groundzero-abr6.2-static-1` adapter recognizes descriptor-v16 root class
+`null`, its `Brsh` list of `brushPreset` objects, and primary `Brsh` objects of
+class `sampledBrush`. `sampledData` TEXT must match exactly one sample Pascal ID.
+Missing references and duplicate sample IDs fail closed. Each descriptor creates
+its own preset, with an ordinal identity; presets sharing a sample share one
+immutable native image. Unreferenced samples retain explicit native-tip fallback.
+The combined output is bounded to 256 presets/resources.
+
+This structure was independently inspected in three author-distributed ABR6.2
+files pinned to corpus commit `940fc6d4cddbe0a906eb6497a60ec2c7d837ca84`:
+[fixture provenance](https://github.com/SethRobinson/Patchy/blob/940fc6d4cddbe0a906eb6497a60ec2c7d837ca84/test-fixtures/abr/NOTICE.txt).
+The two original Photoshop 2026 exports contain one sample/preset each; the CC0
+collection contains 148 samples/presets. All 150 primary references join uniquely.
+This is verified serialized-format evidence for 6.2 only. Versions 6.1 and 7–10
+remain decodable without automatically receiving this binding adapter. The exact
+Photoshop patch number and source stroke renders were not supplied.
+
+Preset names, diameter (`Dmtr/#Pxl`), angle (`Angl/#Ang`), roundness
+(`Rndn/#Prc`), spacing (`Spcn/#Prc`), and static sample flips are transferred into
+**native** settings. Required types and units are checked; disabled spacing is
+unsupported. Native angle, aspect, interpolation and spacing conventions are
+not claimed to reproduce Photoshop. Typed descriptor metadata is retained in
+`sourceDescriptorTupleV1`, a compact JSON string containing recursive tuples
+`[key,type,name,classId,unit,text,number,integer,bool,children]`; integers use
+lossless decimal strings and opaque bytes use hexadecimal. Allocation and final
+portable metadata budgets apply before returning records.
+
+Active dynamics are diagnosed without guessing control-enum values. In
+particular an observed `dualBrush`/`colorBurn` is retained as source metadata and
+explicitly **not applied**; it is never silently converted to Multiply. Source
+semantic support and reference verification remain false. Public regression
+fixtures use newly generated pixels, names and numbers following the observed
+record structure, not redistributed third-party pack pixels.
+
+All three observed `patt` sections are empty. This acquisition does not establish
+pattern compression, pattern binding, dynamic equations, or Photoshop 27.11
+rendering parity. Those still require appropriately licensed nonempty resources
+and controlled source exports/render traces.

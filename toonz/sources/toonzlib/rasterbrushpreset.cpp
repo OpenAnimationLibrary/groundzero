@@ -1,6 +1,7 @@
 #include "toonz/rasterbrushpreset.h"
 #include "rasterbrushpng.h"
 #include "rasterbrushresponse.h"
+#include "rasterbrushbundlemetadata.h"
 #include <QColorSpace>
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -364,6 +365,11 @@ static QByteArray encodeRecord(
   error.clear();
   try {
     validateRights(r.resourceRights);
+    if (r.provenance.contains("bundleMetadata")) {
+      const auto why =
+          Detail::bundleMetadataError(r.provenance["bundleMetadata"]);
+      if (!why.isEmpty()) throw Invalid(why);
+    }
     std::string why = validate(r.preset);
     if (!why.empty()) throw Invalid(QString::fromStdString(why));
     if (QString::fromStdString(r.preset.name).size() > 4096 ||
@@ -413,6 +419,7 @@ static QByteArray encodeRecord(
         {"pickup", p.pickup},
         {"sourceSmudgeLengthEnabled", p.sourceSmudgeLengthEnabled},
         {"sourceSmearAlpha", p.sourceSmearAlpha},
+        {"sourceColorRateEnabled", p.sourceColorRateEnabled},
         {"pickupControl", dynamicJson(p.pickupControl)},
         {"colorRateControl", dynamicJson(p.colorRateControl)},
         {"radiusControl", dynamicJson(p.radiusControl)},
@@ -563,7 +570,8 @@ static Record decodeRecord(
              "countControl",
              "scatterBothAxes",
              "sourceSmudgeLengthEnabled",
-             "sourceSmearAlpha"});
+             "sourceSmearAlpha",
+             "sourceColorRateEnabled"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
@@ -586,6 +594,8 @@ static Record decodeRecord(
     p.wash  = boolean(o["wash"]);
     if (o.contains("sourceSmudgeLengthEnabled"))
       p.sourceSmudgeLengthEnabled = boolean(o["sourceSmudgeLengthEnabled"]);
+    if (o.contains("sourceColorRateEnabled"))
+      p.sourceColorRateEnabled = boolean(o["sourceColorRateEnabled"]);
     if (o.contains("sourceSmearAlpha"))
       p.sourceSmearAlpha = boolean(o["sourceSmearAlpha"]);
     p.lockAlpha = boolean(o["lockAlpha"]);
@@ -667,6 +677,11 @@ static Record decodeRecord(
       validateRights(r.resourceRights);
     }
     r.provenance = object(root["provenance"]);
+    if (r.provenance.contains("bundleMetadata")) {
+      const auto why =
+          Detail::bundleMetadataError(r.provenance["bundleMetadata"]);
+      if (!why.isEmpty()) throw Invalid(why);
+    }
     if (QJsonDocument(r.provenance).toJson().size() > 16384)
       throw Invalid("Provenance budget exceeded");
     r.decoded       = true;
@@ -931,11 +946,17 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
     for (const QString &key : {"containerVersion", "containerSubversion"})
       if (record.provenance.value(key).isDouble())
         exported.provenance[key] = record.provenance[key];
+    if (record.provenance.contains("bundleMetadata")) {
+      const auto metadata = record.provenance["bundleMetadata"];
+      const auto why      = Detail::bundleMetadataError(metadata);
+      if (!why.isEmpty()) throw Invalid(why);
+      exported.provenance["bundleMetadata"] = metadata;
+    }
     exported.diagnostics.clear();
     // Diagnostics can contain arbitrary importer filenames. Do not attempt to
     // infer which free-form diagnostic text is safe to redistribute.
     static const QRegularExpression privatePath(
-        R"path([A-Za-z]:[\\/]|\\\\|(?i:file:)|(?:^|[\s="'(,;])(?:[/\\]|~[/\\]))path");
+        R"path((?:^|[\s="'(,;:])[A-Za-z]:[\\/]|\\\\|(?i:file:)|(?:^|[\s="'(,;])(?:[/\\]|~[/\\]))path");
     QMap<QString, std::shared_ptr<const Image>> images;
     const auto native = encodeRecord(exported, error, {}, &images);
     if (!error.isEmpty()) return {};

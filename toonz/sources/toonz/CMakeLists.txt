@@ -1221,3 +1221,7 @@ if(APPLE)
             "$<TARGET_FILE_DIR:OpenToonz>/rasterbrushimport-helper"
         VERBATIM)
 endif()
+
+if(WIN32)
+    add_dependencies(OpenToonz rasterbrushimport-helper)
+endif()

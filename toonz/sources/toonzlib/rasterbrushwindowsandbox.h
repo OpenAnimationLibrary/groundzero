@@ -2,6 +2,8 @@
 // Private Windows launch boundary. This is deliberately independent of the
 // worker's Job Object, which limits resources but does not restrict privileges.
 #ifdef _WIN32
+#include "rasterbrushresponse.h"
+#include "rasterbrushtestobserver.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -15,55 +17,19 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include <userenv.h>
-#include <tlhelp32.h>
+#include <QCryptographicHash>
+#include <QRegularExpression>
 #include <set>
 #include <vector>
 
 namespace RasterBrush {
 namespace {
 class WindowsImportSandbox final {
-  HANDLE importMutex   = nullptr;
-  bool ownsImportMutex = false;
-  PSID sid             = nullptr;
-
-  bool acquireImportMutex(QString &error, const std::atomic_bool *cancelled) {
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    // All cooperating app instances, including different logon sessions/users,
-    // serialize mutations of potentially shared executable/DLL DACLs. Grant
-    // only wait/release rights; this handle is never inherited by the decoder.
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:(A;;0x00100001;;;AU)(A;;GA;;;SY)", SDDL_REVISION_1, &descriptor,
-            nullptr)) {
-      error = "Cannot establish brush ACL serialization";
-      return false;
-    }
-    SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor, FALSE};
-    importMutex =
-        CreateMutexExW(&attributes, L"Global\\Groundzero.BrushImportAcl.v1", 0,
-                       SYNCHRONIZE | MUTEX_MODIFY_STATE);
-    LocalFree(descriptor);
-    if (!importMutex) {
-      error = "Cannot open brush ACL serialization mutex";
-      return false;
-    }
-    QElapsedTimer waiting;
-    waiting.start();
-    for (;;) {
-      if (cancelled && cancelled->load(std::memory_order_relaxed)) return false;
-      const DWORD result = WaitForSingleObject(importMutex, 50);
-      if (result == WAIT_OBJECT_0 || result == WAIT_ABANDONED) {
-        ownsImportMutex = true;
-        return true;
-      }
-      if (result != WAIT_TIMEOUT || waiting.elapsed() > 120000) {
-        error = "Cannot acquire brush ACL serialization within 120 seconds";
-        return false;
-      }
-    }
-  }
+  PSID sid = nullptr;
   QString profile;
   QStringList grants;
   QTemporaryDir inputDirectory;
+  QTemporaryDir codeDirectory;
   std::vector<unsigned char> attributeStorage;
   STARTUPINFOEXW startup{};
   SECURITY_CAPABILITIES capabilities{};
@@ -101,35 +67,112 @@ class WindowsImportSandbox final {
     return true;
   }
 
-  // System and installed program files may already grant AppContainers RX.
-  // Do not require WRITE_DAC on those files or broaden their existing ACLs.
-  bool publiclyExecutable(const QString &path) {
-    auto native = QDir::toNativeSeparators(path).toStdWString();
-    PACL acl    = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (GetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT,
-                              DACL_SECURITY_INFORMATION, nullptr, nullptr, &acl,
-                              nullptr, &descriptor) != ERROR_SUCCESS)
+  bool stageRuntime(const QString &executable, QString &error,
+                    const std::atomic_bool *cancelled,
+                    const QElapsedTimer &elapsed) {
+    auto stopped = [&] {
+      if (cancelled && cancelled->load(std::memory_order_relaxed)) return true;
+      if (elapsed.elapsed() <= 120000) return false;
+      error =
+          "Brush import exceeded the 120-second limit during runtime staging";
+      return true;
+    };
+    if (stopped()) return false;
+    const QFileInfo requested(executable);
+    const QString base      = requested.fileName().toLower();
+    const bool test         = base == "rasterbrushworker_test.exe";
+    const bool directHelper = base == "rasterbrushimport-helper.exe";
+    const QDir runtime =
+        (test || directHelper)
+            ? requested.dir()
+            : QDir(requested.dir().filePath("brush-import-runtime"));
+    const QString name =
+        test ? "rasterbrushworker_test.exe" : "rasterbrushimport-helper.exe";
+    if (!requested.isExecutable() || !codeDirectory.isValid()) {
+      error = "Cannot locate trusted brush helper runtime";
       return false;
-    BYTE storage[SECURITY_MAX_SID_SIZE];
-    DWORD size   = sizeof(storage);
-    bool allowed = false;
-    if (acl &&
-        CreateWellKnownSid(WinBuiltinAnyPackageSid, nullptr, storage, &size)) {
-      TRUSTEE_W trustee{};
-      BuildTrusteeWithSidW(&trustee, storage);
-      ACCESS_MASK rights = 0;
-      allowed =
-          GetEffectiveRightsFromAclW(acl, &trustee, &rights) == ERROR_SUCCESS &&
-          (rights & (FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)) ==
-              (FILE_GENERIC_READ | FILE_GENERIC_EXECUTE);
     }
-    LocalFree(descriptor);
-    return allowed;
+    const auto manifest =
+        readBoundedRegularFile(runtime.filePath("runtime.files"), 65536, error);
+    if (!error.isEmpty()) return false;
+    const auto entries = manifest.split('\n');
+    if (entries.size() > 257) {
+      error = "Brush helper runtime has too many files";
+      return false;
+    }
+    static const QRegularExpression entryPattern(
+        "^([a-f0-9]{64}) ([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+){0,3})$");
+    std::set<QString> names;
+    qint64 total = 0;
+    for (const auto &entry : entries) {
+      if (entry.isEmpty()) continue;
+      if (stopped()) return false;
+      const auto match       = entryPattern.match(QString::fromLatin1(entry));
+      const QString relative = match.captured(2);
+      const auto parts       = relative.split('/');
+      if (!match.hasMatch() || parts.contains(".") || parts.contains("..") ||
+          !names.insert(relative.toLower()).second) {
+        error = "Invalid trusted brush helper manifest";
+        return false;
+      }
+      const qint64 remaining = 512LL * 1024 * 1024 - total;
+      const QFileInfo source(runtime.filePath(relative));
+      Detail::RegularResponseDirectory sourceDirectory;
+      Detail::RegularResponseFile sourceFile;
+      if (!sourceDirectory.open(source.absolutePath(), error) ||
+          !sourceFile.open(sourceDirectory, source.fileName(),
+                           std::min(remaining, qint64(128) * 1024 * 1024),
+                           error))
+        return false;
+      const QString destination = codeDirectory.filePath(relative);
+      if (!QDir().mkpath(QFileInfo(destination).absolutePath())) {
+        error = "Cannot create private brush helper runtime";
+        return false;
+      }
+      QFile copy(destination);
+      if (!copy.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        error = "Cannot stage private brush helper runtime";
+        return false;
+      }
+      QCryptographicHash hash(QCryptographicHash::Sha256);
+      qint64 copied = 0;
+      while (copied < sourceFile.size()) {
+        if (stopped()) return false;
+        const auto bytes = sourceFile.read(
+            std::min(qint64(65536), sourceFile.size() - copied), error);
+        if (!error.isEmpty()) return false;
+        if (copy.write(bytes) != bytes.size()) {
+          error = "Cannot stage private brush helper runtime";
+          return false;
+        }
+        hash.addData(bytes);
+        copied += bytes.size();
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+        notifyImportCancellationObserver("staging", {}, 0);
+#endif
+      }
+      if (stopped() || !sourceFile.finish(error)) return false;
+      if (hash.result().toHex() != match.captured(1).toLatin1()) {
+        error = "Brush helper runtime changed or is incomplete";
+        return false;
+      }
+      if (!copy.flush()) {
+        error = "Cannot flush private brush helper runtime";
+        return false;
+      }
+      total += copied;
+    }
+    if (!names.count(name)) {
+      error = "Trusted brush runtime lacks its helper executable";
+      return false;
+    }
+    program = codeDirectory.filePath(name);
+    return true;
   }
 
 public:
   QString input;
+  QString program;
   QString launchError;
   WindowsImportSandbox()                                        = default;
   WindowsImportSandbox(const WindowsImportSandbox &)            = delete;
@@ -141,9 +184,8 @@ public:
     if (startup.lpAttributeList)
       DeleteProcThreadAttributeList(startup.lpAttributeList);
     startup.lpAttributeList = nullptr;
-    // The global mutex remains held through revocation. Remove only this
-    // import's unique SID ACEs from the current DACL. External ACL editors do
-    // not participate in our mutex and must not run concurrently with imports.
+    // Grants refer only to this import's private temporary directories/files.
+    // Installed application files and their ACLs are never modified.
     for (auto it = grants.crbegin(); it != grants.crend(); ++it)
       if (!changeAccess(*it, 0, 0, REVOKE_ACCESS)) {
         qWarning("Cannot revoke expired brush AppContainer file permission");
@@ -159,19 +201,17 @@ public:
       FreeSid(sid);
       sid = nullptr;
     }
-    if (importMutex) {
-      if (ownsImportMutex && !ReleaseMutex(importMutex)) cleaned = false;
-      CloseHandle(importMutex);
-      importMutex     = nullptr;
-      ownsImportMutex = false;
-    }
     return cleaned;
   }
 
   bool prepare(const QString &executable, const QString &source,
                const QString &output, QString &error,
-               const std::atomic_bool *cancelled = nullptr) {
-    if (!acquireImportMutex(error, cancelled)) return false;
+               const std::atomic_bool *cancelled = nullptr,
+               const QElapsedTimer *elapsed      = nullptr) {
+    QElapsedTimer localElapsed;
+    localElapsed.start();
+    if (!elapsed) elapsed = &localElapsed;
+    if (!stageRuntime(executable, error, cancelled, *elapsed)) return false;
     if (!inputDirectory.isValid()) {
       error = "Cannot create private brush input staging";
       return false;
@@ -228,34 +268,11 @@ public:
       error = "Cannot establish brush staging integrity label";
       return false;
     }
-    std::set<QString> code{QFileInfo(executable).absoluteFilePath()};
-    HANDLE snapshot = CreateToolhelp32Snapshot(
-        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
-    if (snapshot == INVALID_HANDLE_VALUE) {
-      error = "Cannot enumerate trusted brush worker libraries";
+    if (!grant(codeDirectory.path(), FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+               SUB_CONTAINERS_AND_OBJECTS_INHERIT)) {
+      error = "Cannot grant read-only access to private brush helper runtime";
       return false;
     }
-    MODULEENTRY32W module{};
-    module.dwSize         = sizeof(module);
-    BOOL found            = Module32FirstW(snapshot, &module);
-    const bool enumerated = found;
-    while (found) {
-      code.insert(QFileInfo(QString::fromWCharArray(module.szExePath))
-                      .absoluteFilePath());
-      found = Module32NextW(snapshot, &module);
-    }
-    CloseHandle(snapshot);
-    if (!enumerated) {
-      error = "Cannot enumerate trusted brush worker libraries";
-      return false;
-    }
-    for (const QString &file : code)
-      if (!publiclyExecutable(file) &&
-          !grant(file, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE)) {
-        error =
-            "Cannot grant read-only access to a trusted brush worker library";
-        return false;
-      }
     SIZE_T size = 0;
     InitializeProcThreadAttributeList(nullptr, 2, 0, &size);
     if (!size) {
@@ -284,10 +301,14 @@ public:
     const auto inheritedEnvironment = QProcessEnvironment::systemEnvironment();
     // Do not pass credentials or application secrets through environment
     // variables. Qt and Windows loader paths are trusted parent configuration.
-    for (const QString &key : {QString("SystemRoot"), QString("WINDIR"),
-                               QString("PATH"), QString("QT_PLUGIN_PATH")})
+    for (const QString &key : {QString("SystemRoot"), QString("WINDIR")})
       if (inheritedEnvironment.contains(key))
         environment.insert(key, inheritedEnvironment.value(key));
+    environment.insert("PATH",
+                       codeDirectory.path() + ";" +
+                           QDir(inheritedEnvironment.value("SystemRoot"))
+                               .filePath("System32"));
+    environment.insert("QT_PLUGIN_PATH", codeDirectory.path());
     process.setProcessEnvironment(environment);
     process.setCreateProcessArgumentsModifier(
         [this](QProcess::CreateProcessArguments *args) {

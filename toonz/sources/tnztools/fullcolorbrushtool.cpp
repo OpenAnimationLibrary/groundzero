@@ -84,6 +84,12 @@
 #include <QProgressBar>
 #include <QThread>
 #include <QTemporaryDir>
+#include <QTabletEvent>
+#include "tools/tooltimer.h"
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QPointingDevice>
+#endif
+#include <QJsonArray>
 #include <QListWidget>
 #include <QSet>
 #include <cmath>
@@ -402,11 +408,25 @@ class NativeBrushPreview final : public QWidget, public RasterBrush::Surface {
   std::vector<RasterBrush::Pixel> pixels;
   std::unique_ptr<RasterBrush::Stroke> stroke;
   RasterBrush::Preset preset;
-  double tick = 0;
+  TTimerTicks startTicks = 0;
+  double lastTime        = -TToolTimer::step;
+  bool tiltObserved      = false;
+  void beginInput() {
+    startTicks   = TToolTimer::ticks();
+    lastTime     = -TToolTimer::step;
+    tiltObserved = false;
+  }
+  double inputTime() {
+    lastTime =
+        std::max(lastTime + TToolTimer::step,
+                 double(TToolTimer::ticks() - startTicks) * TToolTimer::step);
+    return lastTime;
+  }
 
 public:
   explicit NativeBrushPreview(QWidget *parent)
       : QWidget(parent), pixels(320 * 140) {
+    setObjectName("nativeBrushScratchpad");
     setFixedSize(320, 140);
     setMouseTracking(true);
   }
@@ -419,10 +439,14 @@ public:
   void write(int x, int y, const RasterBrush::Pixel &p) override {
     pixels[size_t(y) * 320 + x] = p;
   }
+  void clear() {
+    stroke.reset();
+    pixels.assign(320 * 140, {});
+    update();
+  }
   void configure(const RasterBrush::Preset &p) {
     preset = p;
-    pixels.assign(320 * 140, {});
-    stroke.reset();
+    clear();
     RasterBrush::Stroke demo(*this, preset);
     for (int i = 0; i < 240; ++i) {
       RasterBrush::Sample s;
@@ -452,10 +476,54 @@ protected:
     painter.fillRect(rect(), Qt::white);
     painter.drawImage(0, 0, im);
   }
+  void tabletEvent(QTabletEvent *e) override {
+    if (e->type() == QEvent::TabletPress) {
+      stroke.reset(new RasterBrush::Stroke(*this, preset));
+      beginInput();
+    }
+    if (stroke) {
+      RasterBrush::Sample sample;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+      const QPointF position = e->position();
+#else
+      const QPointF position = e->posF();
+#endif
+      sample.x           = position.x();
+      sample.y           = position.y();
+      sample.time        = inputTime();
+      sample.pressure    = e->pressure();
+      sample.hasPressure = true;
+      sample.tiltX       = e->xTilt() / 60.0;
+      sample.tiltY       = e->yTilt() / 60.0;
+
+      sample.rotation = e->rotation() * 3.141592653589793 / 180.0;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+      sample.hasTilt =
+          e->pointingDevice()->hasCapability(QInputDevice::Capability::XTilt) ||
+          e->pointingDevice()->hasCapability(QInputDevice::Capability::YTilt);
+      sample.hasRotation = e->pointingDevice()->hasCapability(
+          QInputDevice::Capability::Rotation);
+#else
+      // Qt 5 has no per-axis capability query. Once observed in this stroke,
+      // preserve the available channel through upright (zero-tilt) samples.
+      tiltObserved       = tiltObserved || e->xTilt() != 0 || e->yTilt() != 0;
+      sample.hasTilt     = tiltObserved;
+      sample.hasRotation = e->deviceType() == QTabletEvent::RotationStylus;
+#endif
+      if (e->type() != QEvent::TabletRelease)
+        stroke->add(sample);
+      else {
+        stroke->finish();
+        stroke.reset();
+      }
+      update();
+    }
+    e->accept();
+  }
   void mousePressEvent(QMouseEvent *e) override {
     if (e->button() != Qt::LeftButton) return;
     stroke.reset(new RasterBrush::Stroke(*this, preset));
-    tick = 0;
+    beginInput();
     drawAt(e);
   }
   void mouseMoveEvent(QMouseEvent *e) override {
@@ -467,10 +535,14 @@ protected:
   }
   void drawAt(QMouseEvent *e) {
     RasterBrush::Sample s;
-    s.x    = e->pos().x();
-    s.y    = e->pos().y();
-    s.time = tick;
-    tick += 1.0 / 120;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF position = e->position();
+#else
+    const QPointF position = e->localPos();
+#endif
+    s.x    = position.x();
+    s.y    = position.y();
+    s.time = inputTime();
     stroke->add(s);
     update();
   }
@@ -609,6 +681,7 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
 bool editNativeBrush(RasterBrush::Record &record) {
   QDialog dialog;
   dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
+  dialog.setObjectName("nativeBrushEditor");
   auto layout           = new QVBoxLayout(&dialog);
   const bool conversion = record.provenance.contains("sourceSha256");
   const bool candidate  = record.preset.profile != "groundzero-native-1";
@@ -631,6 +704,15 @@ bool editNativeBrush(RasterBrush::Record &record) {
         record.provenance.value("conversionReport").toString();
     if (!previousReport.isEmpty() && !notes.join("\n").contains(previousReport))
       notes << previousReport;
+    const auto tags = record.provenance.value("bundleMetadata")
+                          .toObject()
+                          .value("presetTags")
+                          .toArray();
+    QStringList tagNames;
+    for (const auto &tag : tags)
+      if (tag.isString()) tagNames << tag.toString();
+    if (!tagNames.isEmpty())
+      notes << QObject::tr("Bundle tags: %1").arg(tagNames.join(", "));
     notes << QObject::tr("Behavior profile: %1")
                  .arg(QString::fromStdString(record.preset.profile));
     notes << QObject::tr("Decoded native package: %1")
@@ -647,6 +729,19 @@ bool editNativeBrush(RasterBrush::Record &record) {
   });
   auto preview = new NativeBrushPreview(&dialog);
   layout->addWidget(preview, 0, Qt::AlignHCenter);
+  auto scratchControls = new QHBoxLayout;
+  auto clearScratch = new QPushButton(QObject::tr("Clear scratchpad"), &dialog);
+  clearScratch->setObjectName("nativeBrushClearScratchpad");
+  auto demoScratch =
+      new QPushButton(QObject::tr("Show sample stroke"), &dialog);
+  demoScratch->setObjectName("nativeBrushSampleStroke");
+  scratchControls->addWidget(clearScratch);
+  scratchControls->addWidget(demoScratch);
+  layout->addLayout(scratchControls);
+  QObject::connect(clearScratch, &QPushButton::clicked, &dialog,
+                   [preview]() { preview->clear(); });
+  QObject::connect(demoScratch, &QPushButton::clicked, &dialog,
+                   [preview, &record]() { preview->configure(record.preset); });
   auto scroll = new QScrollArea(&dialog);
   scroll->setWidgetResizable(true);
   auto controls = new QWidget(scroll);
@@ -1131,16 +1226,6 @@ bool FullColorBrushTool::selectNativePreset() {
       DVGui::warning(error);
       return true;
     }
-    if (!imported.diagnostics.isEmpty()) {
-      QMessageBox report(
-          QMessageBox::Information, tr("Raster Brush Import"),
-          tr("Review each brush’s conversion or experimental profile "
-             "details before installing it."),
-          QMessageBox::Ok | QMessageBox::Cancel);
-      report.setDetailedText(imported.diagnostics.join("\n"));
-      report.setDefaultButton(QMessageBox::Cancel);
-      if (report.exec() != QMessageBox::Ok) return true;
-    }
     if (imported.records.empty()) return true;
     std::vector<RasterBrush::Record> selected = imported.records;
     if (imported.records.size() > 1) {
@@ -1171,6 +1256,40 @@ bool FullColorBrushTool::selectNativePreset() {
         if (list->item(i)->checkState() == Qt::Checked)
           selected.push_back(imported.records[size_t(i)]);
       if (selected.empty()) return true;
+    }
+    QStringList compatibility;
+    for (const auto &record : selected) {
+      if (!record.provenance.contains("sourceSha256") &&
+          record.preset.profile == "groundzero-native-1")
+        continue;
+      compatibility << QString::fromStdString(record.preset.name)
+                    << (record.preset.profile == "groundzero-native-1"
+                            ? tr("Native approximation; original brush "
+                                 "behavior is not verified.")
+                            : tr("Experimental source profile; complete "
+                                 "original brush behavior is not verified."))
+                    << tr("Profile: %1")
+                           .arg(QString::fromStdString(record.preset.profile));
+      compatibility.append(record.diagnostics);
+      compatibility << QString();
+    }
+    if (!compatibility.isEmpty()) {
+      QMessageBox acceptance(
+          QMessageBox::Information, tr("Accept Brush Approximation"),
+          tr("These imported brushes have unverified source behavior. Review "
+             "the "
+             "per-brush details before accepting their native approximations "
+             "or experimental profiles."),
+          QMessageBox::Cancel);
+      acceptance.setObjectName("nativeBrushApproximationAcceptance");
+      acceptance.setTextFormat(Qt::PlainText);
+      acceptance.setDetailedText(compatibility.join("\n"));
+      auto accept = acceptance.addButton(tr("Accept unverified brushes"),
+                                         QMessageBox::AcceptRole);
+      accept->setObjectName("nativeBrushAcceptApproximation");
+      acceptance.setDefaultButton(QMessageBox::Cancel);
+      acceptance.exec();
+      if (acceptance.clickedButton() != accept) return true;
     }
     auto installed = installNativeCollection(selected, error);
     if (!error.isEmpty()) {
@@ -1877,8 +1996,11 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     sample.hasPressure = m_enabledPressure && track.hasPressure;
     sample.tiltX       = point.tilt.x;
     sample.tiltY       = -point.tilt.y;
-    sample.hasTilt  = track.hasTilt || point.tilt.x != 0 || point.tilt.y != 0;
-    sample.rotation = -point.rotation;
+    handler->nativeTiltObserved = handler->nativeTiltObserved ||
+                                  track.hasTilt || point.tilt.x != 0 ||
+                                  point.tilt.y != 0;
+    sample.hasTilt     = handler->nativeTiltObserved;
+    sample.rotation    = -point.rotation;
     sample.hasRotation = point.hasRotation;
     sample.time        = point.time;
     if (!handler->nativeStroke->add(sample)) {

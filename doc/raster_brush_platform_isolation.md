@@ -12,34 +12,58 @@ process creation. The decoder requires an AppContainer token before reading
 foreign input. A Job Object separately limits committed memory, CPU and children.
 
 The selected input is copied with the bounded regular-file reader into private
-staging. The original file's ACL is untouched. The unique SID receives read-only
-input access, read/write disposable output access, and read/execute access to the
-exact trusted executable and already-loaded DLL/codec files. Files already readable
-by ordinary AppContainers need no additional grant. No user directory is broadly
-granted. Output alone receives a low integrity label. Only the three standard
-handles are inherited; environment secrets are not forwarded.
+staging. The original file's ACL is untouched. Production uses a dedicated minimal
+`brush-import-runtime/rasterbrushimport-helper.exe` with its Qt/codec/zlib
+runtime, rather than the drawing executable and its broad dependency set.
 
-A named global Windows mutex serializes cooperating imports across app processes,
-users and logon sessions. It is held from before the first ACL edit until the
-worker exits and cleanup finishes; waiters support cancellation and a 120-second
-wait limit. The overlapping-process test starts a second importer while the first
-worker is deliberately held alive and verifies serialized entry plus cleanup.
+At build/package time, `windeployqt` deploys Qt and plugins; CMake resolves remaining
+non-system dependencies and writes a SHA-256 manifest. At import time, the parent
+copies only manifest-listed regular files into a fresh private directory, validates
+their hashes, and grants the unique AppContainer SID read/execute access to those
+**private copies**. Installed application files are only read. Their ACLs are never
+inspected or modified, so ordinary Program Files installations need neither
+administrator privileges nor a permission prompt. The existing application's
+Microsoft Visual C++ Redistributable requirement remains; system DLLs are not
+copied. Debug CI builds explicitly deploy the matching Visual Studio DebugCRT
+using `windeployqt --debug --compiler-runtime` and the selected Windows SDK's
+`ucrtbased.dll`, then verify their dependency closure. These development-only
+files stay on the licensed build/test machine; release bundles reject Debug CRT
+DLLs and continue to require the official installed release redistributable.
+See [Microsoft runtime deployment guidance](https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute)
+and [Qt's DebugCRT deployment implementation](https://github.com/qt/qtbase/blob/6.8/src/tools/windeployqt/main.cpp).
+Package signing must precede regeneration of `runtime.files` because a signature
+changes executable bytes.
 
-RAII cleanup runs after the process terminates on success, failure, cancellation,
-or timeout. It revokes only the unique SID's ACEs from the current ACL, then
-removes the temporary profile. This does not make Windows DACL read/modify/write
-atomic against an unrelated ACL editor: external permission-editing tools must not
-run concurrently with import. The mutex coordinates our application instances,
-not arbitrary third-party security editors. Unexpected host termination
-can leave an orphaned profile/ACE; this is not access granted to other containers,
-and import cleanup failures are logged. Installed code whose ACL cannot be read or
-narrowly granted fails closed. Ordinary AppContainer OS-public resources and its
-private profile remain available: this is not an absolute deny-all-files claim.
+The copied runtime is capped at 256 files, 128 MiB per file and 512 MiB total; the
+build reports its measured file count and byte size and fails if it exceeds these
+bounds. Copying adds disk I/O per import and temporarily consumes the measured
+runtime size. Files are hashed and copied in 64 KiB chunks with cancellation and the import's
+shared 120-second deadline checked between chunks; staging is included in that
+deadline. No full DLL-sized scratch allocation is required. There is deliberately no persistent executable cache or cache
+invalidation trust boundary. Runtime/compiler upgrades require rebuilding and
+qualifying the self-contained bundle. No download or deployment tool runs on the
+user's machine during import.
+
+The SID receives read-only input, read/write disposable output, and read/execute
+private code access. Output alone receives a low integrity label. Only standard
+handles are inherited, and the environment names only the private runtime and
+Windows system library paths. No broad user directory is granted.
+
+All ACL edits now target per-import private files, eliminating shared application
+DACL races and the global serialization requirement. The overlapping-process test
+requires both independent imports to complete and clean up. RAII cleanup runs
+after process termination on success, failure, cancellation or timeout and removes
+the ephemeral grants/profile. Unexpected host termination can leave an orphaned
+private directory/profile; cleanup failures are logged. Ordinary AppContainer
+OS-public resources and its private profile remain available: this is not an
+absolute deny-all-files claim.
 
 The Windows denial probe requires private-file reads/writes and staged-input writes
 to fail, and loopback connection to fail specifically with `WSAEACCES` (a missing
 server is not evidence). Regular PNG/GBR import and cancellation run through the
-same boundary. CI must qualify Windows loader/Qt deployment and profile cleanup.
+same boundary. The packaged-runtime smoke imports an original fixture, compares
+installed runtime ACLs before/after, and rejects a changed manifest-listed file.
+CI must qualify Windows loader/Qt deployment and profile cleanup.
 
 Primary mechanism: [Microsoft AppContainer launch guidance](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer).
 

@@ -53,6 +53,7 @@ public:
     MyPaintToonzBrush brush;
     std::shared_ptr<RasterBrush::Surface> nativeSurface;
     std::unique_ptr<RasterBrush::Stroke> nativeStroke;
+    bool nativeTiltObserved = false;
 
     TrackHandler(const TRaster32P &ras, RasterController &controller,
                  const mypaint::Brush &brush)
@@ -67,8 +68,7 @@ private:
 public:
   FullColorBrushTool(std::string name);
 
-  ToolType getToolType() const override
-    { return TTool::LevelWriteTool; }
+  ToolType getToolType() const override { return TTool::LevelWriteTool; }
   unsigned int getToolHints() const override;
 
   ToolOptionsBox *createOptionsBox() override;
@@ -191,7 +191,7 @@ protected:
   bool m_firstTime;
 
   bool m_started;
-  bool m_nativeStrokeFailed = false;
+  bool m_nativeStrokeFailed  = false;
   bool m_nativePixelsChanged = false;
   bool m_nativeCreatedFrame = false, m_nativeCreatedLevel = false;
   TFrameId m_strokeFrameId;

@@ -2,8 +2,11 @@
 #include "toonz/abrparser.h"
 #include "rasterbrushpng.h"
 #include "rasterbrusharchive.h"
+#include "rasterbrushbundlemetadata.h"
 #include <QXmlStreamReader>
 #include <QSet>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <cmath>
 #include <QCryptographicHash>
 #include <QFile>
@@ -11,6 +14,7 @@
 #include <QMap>
 #include <QRegularExpression>
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 
 namespace RasterBrush {
@@ -121,6 +125,100 @@ Record converted(const QByteArray &bytes, const QString &format) {
   r.diagnostics << "Converted native settings; source engine semantics and "
                    "appearance are not verified.";
   return r;
+}
+// Observed in independently inspected author-exported ABR 6.2 records.
+// Resource association and static native conversion are not source parity.
+const AbrParser::DescriptorValue *abrField(
+    const AbrParser::DescriptorValue &object, const char *key) {
+  for (const auto &value : object.children)
+    if (value.key == key) return &value;
+  return nullptr;
+}
+const AbrParser::DescriptorValue &abrRequired(
+    const AbrParser::DescriptorValue &object, const char *key,
+    const char *type) {
+  auto value = abrField(object, key);
+  if (!value || value->type != type)
+    throw Invalid("Invalid ABR 6.2 preset field or type");
+  return *value;
+}
+double abrUnit(const AbrParser::DescriptorValue &object, const char *key,
+               const char *unit) {
+  const auto &value = abrRequired(object, key, "UntF");
+  if (value.unit != unit) throw Invalid("Invalid ABR static setting unit");
+  return value.number;
+}
+// Preserve typed source settings, including opaque values; never resolve paths.
+// Each node is [key,type,name,classId,unit,text,number,integer,bool,children].
+QJsonArray abrMetadata(const AbrParser::DescriptorValue &value,
+                       size_t &budget) {
+  const size_t bytes = value.key.size() + value.type.size() +
+                       value.name.size() + value.classId.size() +
+                       value.unit.size() + value.text.size();
+  if (budget < 128 || bytes > budget - 128)
+    throw Invalid("ABR preset metadata exceeds portable budget");
+  budget -= bytes + 128;
+  QJsonArray children;
+  for (const auto &child : value.children)
+    children.append(abrMetadata(child, budget));
+  auto text = [](const std::string &v) { return QString::fromStdString(v); };
+  // Opaque bytes use hex; int64 uses decimal text to avoid JSON double loss.
+  const QString content =
+      value.type == "tdta" || value.type == "alis"
+          ? QString::fromLatin1(
+                QByteArray(value.text.data(), int(value.text.size())).toHex())
+          : text(value.text);
+  return {text(value.key),  text(value.type),
+          text(value.name), text(value.classId),
+          text(value.unit), content,
+          value.number,     QString::number(qlonglong(value.integer)),
+          value.boolean,    children};
+}
+void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
+                     int ordinal) {
+  const auto &brush          = abrRequired(preset, "Brsh", "Objc");
+  record.preset.name         = abrRequired(preset, "Nm  ", "TEXT").text;
+  record.preset.size.value   = abrUnit(brush, "Dmtr", "#Pxl");
+  record.preset.angle.value  = abrUnit(brush, "Angl", "#Ang");
+  record.preset.aspect.value = abrUnit(brush, "Rndn", "#Prc") / 100.0;
+  record.preset.spacing      = abrUnit(brush, "Spcn", "#Prc") / 100.0;
+  if (!abrRequired(brush, "Intr", "bool").boolean)
+    throw Invalid("ABR continuous/non-spaced tip conversion is unsupported");
+  record.preset.flipX          = abrRequired(brush, "flipX", "bool").boolean;
+  record.preset.flipY          = abrRequired(brush, "flipY", "bool").boolean;
+  record.provenance["adapter"] = "groundzero-abr6.2-static-1";
+  record.provenance["sourcePresetOrdinal"]  = ordinal;
+  record.provenance["sourceSampleBinding"]  = "abr6.2-brushPreset-sampledData";
+  record.provenance["sourceFormatEvidence"] = "author-exported-6.2-corpus-1";
+  size_t budget                             = 24000;
+  record.provenance["sourceDescriptorTupleV1"] =
+      QString::fromUtf8(QJsonDocument(abrMetadata(preset, budget))
+                            .toJson(QJsonDocument::Compact));
+  if (QJsonDocument(record.provenance).toJson().size() > 16384)
+    throw Invalid("ABR preset metadata exceeds portable budget");
+  for (const char *key :
+       {"useTipDynamics", "useScatter", "useTexture", "usePaintDynamics",
+        "useColorDynamics", "Wtdg", "Nose", "Rpt ", "useBrushPose"}) {
+    const auto *value = abrField(preset, key);
+    if (value && (value->type != "bool" || value->boolean))
+      record.diagnostics
+          << QString(
+                 "ABR active/unknown %1 is preserved as metadata; "
+                 "its source behavior is not applied.")
+                 .arg(key);
+  }
+  if (const auto *dual = abrField(preset, "dualBrush")) {
+    const auto *enabled = abrField(*dual, "useDualBrush");
+    if (dual->type != "Objc" || !enabled || enabled->type != "bool" ||
+        enabled->boolean)
+      record.diagnostics
+          << "ABR dual brush is not applied; its original mode and "
+             "settings are preserved without substituting a mask mode.";
+  }
+  record.diagnostics
+      << "ABR 6.2 preset/sample binding decoded. Static geometry "
+         "uses native angle, aspect, flips and spacing semantics; "
+         "source dynamics and rendering remain unverified.";
 }
 QMap<QString, QString> kppParameters(const QByteArray &xml, QString &name,
                                      QString &engine) {
@@ -326,9 +424,16 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"KisPrecisionOption/precisionLevel", "5"}};
   // With FlowUseCurve=false the source's static FlowValue is inactive in
   // build-up Pixel and all four measured Color Smudge models. Preserve it.
-  if (!fields.contains("FlowValue")) return false;
-  required["FlowValue"] = fields["FlowValue"];
+  if (!fields.contains("FlowValue") || !fields.contains("OpacityValue"))
+    return false;
+  required["FlowValue"]    = fields["FlowValue"];
+  required["OpacityValue"] = fields["OpacityValue"];
   if (engine == "paintbrush") {
+    const QString blend = fields.value("CompositeOp");
+    if (blend != "normal" && blend != "multiply" && blend != "screen" &&
+        blend != "overlay")
+      return false;
+    required["CompositeOp"] = blend;
     for (const QString &key : {"OpacityValue", "FlowValue"}) {
       if (!fields.contains(key)) return false;
       required[key] = fields[key];  // Finite 0..1 values checked by validate().
@@ -368,7 +473,8 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     for (const QString &key : {"PressureColorRate", "PressureSmudgeRate",
                                "PressureSmudgeRadius", "SmudgeRateSmearAlpha"})
       required[key] = "true";
-    for (const QString &key : {"PressureSmudgeRate", "SmudgeRateSmearAlpha"}) {
+    for (const QString &key :
+         {"PressureSmudgeRate", "SmudgeRateSmearAlpha", "PressureColorRate"}) {
       if (fields.value(key) != "true" && fields.value(key) != "false")
         return false;
       required[key] = fields[key];
@@ -376,13 +482,33 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     for (const QString &key :
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
       required[key] = "false";
-    for (const QString &prefix : {"SmudgeRate", "ColorRate"}) {
+    for (const QString &prefix :
+         {"SmudgeRate", "ColorRate", "Opacity", "Flow"}) {
       if (fields.value(prefix + "UseCurve") != "true") continue;
-      const Dynamic &control = prefix == "SmudgeRate" ? preset.pickupControl
-                                                      : preset.colorRateControl;
-      if (fields.value("Pressure" + prefix) != "true" ||
-          control.mappings.size() != 1)
+      const Dynamic &control = prefix == "SmudgeRate"  ? preset.pickupControl
+                               : prefix == "ColorRate" ? preset.colorRateControl
+                               : prefix == "Opacity"   ? preset.opacity
+                                                       : preset.flow;
+      const QString enabled  = fields.value("Pressure" + prefix);
+      if (enabled != "true" && !(prefix == "Flow" && enabled == "false"))
         return false;
+      if (enabled == "false") {
+        // Flow is inactive for this source engine, including a disabled
+        // pressure checkbox with its curve retained. Parse that retained
+        // identity curve instead of accepting arbitrary unknown sensor XML.
+        auto activeFields            = fields;
+        activeFields["PressureFlow"] = "true";
+        Dynamic retained{1, 0, {}};
+        QSet<QString> mapped;
+        QStringList diagnostics;
+        if (!convertCurve(activeFields, prefix, retained, mapped,
+                          diagnostics) ||
+            retained.mappings.size() != 1 ||
+            retained.mappings.front().sensor != Sensor::Pressure)
+          return false;
+      } else if (control.mappings.size() != 1)
+        return false;
+      required["Pressure" + prefix]     = enabled;
       required[prefix + "UseCurve"]     = "true";
       required[prefix + "UseSameCurve"] = "true";
       required[prefix + "commonCurve"]  = "0,0;1,1;";
@@ -692,10 +818,17 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
     candidate.sourceSmudgeLengthEnabled =
         fields.value("PressureSmudgeRate") == "true";
     candidate.sourceSmearAlpha = fields.value("SmudgeRateSmearAlpha") == "true";
+    candidate.sourceColorRateEnabled =
+        fields.value("PressureColorRate") == "true";
   } else
     candidate.wash = fields.value("PaintOpAction") != "1";
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
+    if (engine == "colorsmudge" && fields.value("FlowUseCurve") == "true") {
+      r.provenance["sourceInactiveFlowCurve"] = "identity-pressure";
+      r.provenance["sourceInactiveFlowPressureEnabled"] =
+          fields.value("PressureFlow") == "true";
+    }
     if (r.preset.wet == Wet::Smear)
       r.provenance["inactiveSourceSmudgeRadiusPercent"] =
           fields.value("SmudgeRadiusValue").toDouble();
@@ -714,7 +847,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   return r;
 }
 QStringList bundlePresets(const QMap<QString, QByteArray> &members,
-                          QMap<QString, QByteArray> &resources) {
+                          QMap<QString, QByteArray> &resources,
+                          QMap<QString, QJsonArray> &tags,
+                          QJsonArray &resourceTags) {
   if (members.value("mimetype").trimmed() !=
       "application/x-krita-resourcebundle")
     throw Invalid("Invalid Krita bundle MIME type");
@@ -724,12 +859,28 @@ QStringList bundlePresets(const QMap<QString, QByteArray> &members,
   QXmlStreamReader reader(xml);
   QStringList presets;
   QSet<QString> paths;
-  bool root        = false;
+  bool root = false, tagsSeen = false;
+  QStringList stack;
+  QString currentPath, currentType;
   const QString ns = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
   while (!reader.atEnd()) {
     reader.readNext();
     if (reader.isDTD() || reader.isEntityReference())
       throw Invalid("Bundle manifest entities are unsupported");
+    if (reader.isEndElement()) {
+      if (reader.name() == QStringLiteral("file-entry") &&
+          !currentPath.isEmpty()) {
+        if (!tags.value(currentPath).isEmpty())
+          resourceTags.append(QJsonObject{{"member", currentPath},
+                                          {"mediaType", currentType},
+                                          {"tags", tags.value(currentPath)}});
+        currentPath.clear();
+      }
+      if (!stack.isEmpty()) stack.removeLast();
+      continue;
+    }
+    if (reader.isCharacters() && !reader.isWhitespace())
+      throw Invalid("Unsupported text outside bundle tag");
     if (!reader.isStartElement()) continue;
     if (!root) {
       if (reader.name() != QStringLiteral("manifest") ||
@@ -737,17 +888,27 @@ QStringList bundlePresets(const QMap<QString, QByteArray> &members,
           reader.attributes().value(ns, "version") != QStringLiteral("1.2"))
         throw Invalid("Unsupported bundle manifest version");
       root = true;
+      stack << "manifest";
       continue;
     }
+    if (reader.namespaceUri() != ns)
+      throw Invalid("Unsupported bundle tag namespace");
     if (reader.name() == QStringLiteral("file-entry")) {
+      if (stack != QStringList{"manifest"})
+        throw Invalid("Unsupported nested bundle resource");
+      stack << "file-entry";
+      tagsSeen     = false;
       auto a       = reader.attributes();
       QString path = a.value(ns, "full-path").toString(),
               type = a.value(ns, "media-type").toString();
       if (paths.contains(path)) throw Invalid("Duplicate bundle manifest path");
       paths.insert(path);
+      currentPath = path;
+      currentType = type;
       if (path == "/") {
         if (type != "application/x-krita-resourcebundle")
           throw Invalid("Invalid bundle root declaration");
+        currentPath.clear();
         continue;
       }
       if (!members.contains(path))
@@ -765,8 +926,25 @@ QStringList bundlePresets(const QMap<QString, QByteArray> &members,
           throw Invalid("Bundle preset type mismatch");
         presets << path;
       }
-    } else if (reader.name() != QStringLiteral("tags") &&
-               reader.name() != QStringLiteral("tag"))
+    } else if (reader.name() == QStringLiteral("tags")) {
+      if (stack != QStringList{"manifest", "file-entry"} || tagsSeen ||
+          currentPath.isEmpty() || !reader.attributes().isEmpty())
+        throw Invalid("Unsupported bundle tags structure");
+      tagsSeen = true;
+      stack << "tags";
+    } else if (reader.name() == QStringLiteral("tag")) {
+      if (stack != QStringList{"manifest", "file-entry", "tags"} ||
+          !reader.attributes().isEmpty())
+        throw Invalid("Unsupported bundle tag structure");
+      // Krita's manifest writer emits text-only manifest:tags/manifest:tag.
+      // Preserve order, duplicates, whitespace and Unicode; labels are opaque.
+      const QString label =
+          reader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+      if (reader.hasError() || label.size() > 256 ||
+          tags[currentPath].size() >= 64)
+        throw Invalid("Unsupported or oversized bundle tag");
+      tags[currentPath].append(label);
+    } else
       throw Invalid("Unknown bundle manifest element");
   }
   if (reader.hasError() || !root || presets.isEmpty() || presets.size() > 256)
@@ -823,7 +1001,9 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       auto members = brushArchive(bytes, error);
       if (!error.isEmpty()) return {};
       QMap<QString, QByteArray> resources;
-      auto presets   = bundlePresets(members, resources);
+      QMap<QString, QJsonArray> tags;
+      QJsonArray resourceTags;
+      auto presets   = bundlePresets(members, resources, tags, resourceTags);
       size_t decoded = 0;
       for (const auto &path : presets) {
         checkCancelled();
@@ -841,6 +1021,17 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
                 .toHex());
         r.provenance["bundleMember"] = path;
+        QJsonObject metadata{{"version", 1},
+                             {"manifestVersion", "1.2"},
+                             {"presetTags", tags.value(path)},
+                             {"resourceTags", resourceTags}};
+        const QString metadataError = Detail::bundleMetadataError(metadata);
+        if (!metadataError.isEmpty())
+          throw std::runtime_error(metadataError.toStdString());
+        r.provenance["bundleMetadata"] = metadata;
+        if (QJsonDocument(r.provenance).toJson().size() > 16384)
+          throw Invalid(
+              "Bundle tags and provenance exceed the preset metadata budget");
         result.records.push_back(r);
         result.diagnostics << path + ": " + diagnostics.join("\n");
       }
@@ -965,6 +1156,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         check(r);
         result.records.push_back(r);
       }
+      std::vector<Record> sampledRecords;
       for (const auto &tip : parsed.tips) {
         checkCancelled();
         auto r        = converted(bytes, kind);
@@ -986,8 +1178,55 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         r.preset.tip.images.push_back(im);
         geometry(r.preset, *im, tip.spacing < 0 ? .1 : tip.spacing / 100.0);
         check(r);
-        result.records.push_back(r);
+        sampledRecords.push_back(r);
       }
+      if (parsed.version == 6 && parsed.subVersion == 2 &&
+          !parsed.descriptors.empty()) {
+        std::map<std::string, size_t> samples;
+        for (size_t i = 0; i < parsed.tips.size(); ++i)
+          if (parsed.tips[i].sampleId.empty() ||
+              !samples.emplace(parsed.tips[i].sampleId, i).second)
+            throw Invalid("Ambiguous ABR sample identifiers");
+        std::vector<bool> used(parsed.tips.size(), false);
+        int ordinal = 0;
+        for (const auto &root : parsed.descriptors) {
+          const auto *list = abrField(root, "Brsh");
+          if (root.classId != "null" || !list || list->type != "VlLs") {
+            result.diagnostics << "Unrecognized ABR descriptor root; tips "
+                                  "remain native conversions.";
+            continue;
+          }
+          for (const auto &preset : list->children) {
+            checkCancelled();
+            if (++ordinal > 256)
+              throw Invalid("ABR preset count budget exceeded");
+            const auto *brush = abrField(preset, "Brsh");
+            if (preset.type != "Objc" || preset.classId != "brushPreset" ||
+                !brush || brush->type != "Objc" ||
+                brush->classId != "sampledBrush") {
+              result.diagnostics
+                  << "Unsupported ABR descriptor preset/tip class.";
+              continue;
+            }
+            const auto &id = abrRequired(*brush, "sampledData", "TEXT").text;
+            auto found     = samples.find(id);
+            if (found == samples.end())
+              throw Invalid("ABR preset references a missing sample");
+            auto record = sampledRecords[found->second];
+            abrStaticPreset(record, preset, ordinal);
+            check(record);
+            result.records.push_back(std::move(record));
+            used[found->second] = true;
+          }
+        }
+        for (size_t i = 0; i < sampledRecords.size(); ++i)
+          if (!used[i]) result.records.push_back(std::move(sampledRecords[i]));
+      } else {
+        for (auto &record : sampledRecords)
+          result.records.push_back(std::move(record));
+      }
+      if (result.records.size() > 256)
+        throw Invalid("ABR record count budget exceeded");
       if (result.records.empty())
         throw Invalid("No decodable sampled or computed tips in this ABR");
     } else

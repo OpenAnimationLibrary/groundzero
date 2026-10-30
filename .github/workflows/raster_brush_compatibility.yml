@@ -64,7 +64,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2022, macos-14]
+        # macOS 14 retirement/brownouts: actions/runner-images#13518.
+        os: [ubuntu-22.04, windows-2022, macos-15]
         qt: ['5.15.2', '6.8.3']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -86,9 +87,9 @@ jobs:
         shell: bash
         run: |
           args=()
-          # Qt 5.15.2's official macOS package is Intel-only. macos-14 runs on
+          # Qt 5.15.2's official macOS package is Intel-only. macos-15 runs on
           # Apple silicon; target Intel explicitly and execute through Rosetta.
-          if [[ '${{ matrix.os }}' == 'macos-14' && '${{ matrix.qt }}' == '5.15.2' ]]; then
+          if [[ '${{ matrix.os }}' == 'macos-15' && '${{ matrix.qt }}' == '5.15.2' ]]; then
             file "$QT_ROOT_DIR/lib/QtCore.framework/QtCore"
             args+=('-DCMAKE_OSX_ARCHITECTURES=x86_64')
           fi

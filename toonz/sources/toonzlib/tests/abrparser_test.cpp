@@ -175,10 +175,11 @@ void testV6PackBits() {
   require(r.tips.size() == 1, "v6: tip count");
   require(r.skippedSamples == 0 && r.warnings.size() == 3,
           "v6: skipped behavioral metadata must be reported");
-  require(r.warnings[0].find("descriptors") != std::string::npos &&
-              r.warnings[1].find("not interpreted") != std::string::npos &&
-              r.warnings[2].find("Pattern") != std::string::npos,
-          "v6: incorrect compatibility diagnostics");
+  require(
+      r.warnings[0].find("descriptors") != std::string::npos &&
+          r.warnings[1].find("version-specific adapter") != std::string::npos &&
+          r.warnings[2].find("Pattern") != std::string::npos,
+      "v6: incorrect compatibility diagnostics");
   require(r.tips[0].name == "tip_001", "v6: name");
   require(r.tips[0].depth == 8, "v6: depth");
   requireImage4x3(r.tips[0]);

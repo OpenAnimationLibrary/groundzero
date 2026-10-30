@@ -59,7 +59,12 @@ class Probe(Extension):
                 raise RuntimeError("Node.paintLine fixture requires integral coordinates")
             start, end = [QPoint(*(int(value) for value in point)) for point in points]
             node.paintLine(start, end, *case["pressure"], "ForegroundColor")
-            return {"mode": "Node.paintLine"}
+            return {"mode": "Node.paintLine", "events": [
+                {"type": "line-start", "position": [start.x(), start.y()],
+                 "pressure": case["pressure"][0]},
+                {"type": "line-end", "position": [end.x(), end.y()],
+                 "pressure": case["pressure"][1]}],
+                "timing": "Public API line endpoints delivered synchronously; internal source dab times are not exposed"}
         # Public action identifier and View transforms; no engine-private API.
         action = app.action("KritaShape/KisToolBrush")
         if action is None:
@@ -175,7 +180,29 @@ class Probe(Extension):
                 raise RuntimeError("Reference application version mismatch")
             fixtures = json.loads((output / "fixtures.json").read_text())
             resources = app.resources("preset")
-            by_name = {resource.name(): resource for resource in resources.values()}
+            expected_names = set(fixtures["presets"])
+            by_name, duplicate_originals = {}, []
+            for resource in resources.values():
+                resource_name = resource.name()
+                if resource_name in expected_names and resource_name in by_name:
+                    duplicate_originals.append(resource_name)
+                by_name[resource_name] = resource
+            missing = sorted(expected_names - set(by_name))
+            loaded_originals = sorted(name for name in by_name if name.startswith("GZ Original"))
+            if missing or duplicate_originals:
+                # Bounded original-only metadata makes filename/version and
+                # resource discovery failures diagnosable without substituting
+                # a nearby preset or relaxing exact-name identity.
+                inventory = {"expectedCount": len(expected_names),
+                    "loadedOriginalCount": len(loaded_originals),
+                    "missing": missing[:512], "duplicates": duplicate_originals[:512],
+                    "loadedOriginals": loaded_originals[:512]}
+                (output / "resource-index-failure.json").write_text(json.dumps(inventory, indent=2))
+                report["resourceIndexFailure"] = inventory
+                raise RuntimeError("Original reference preset identity mismatch; missing=" +
+                                   repr(missing[:4]) + "; duplicates=" +
+                                   repr(duplicate_originals[:4]) + "; loadedOriginalCount=" +
+                                   str(len(loaded_originals)))
             if fixtures.get("group") == "pixelcontrols":
                 # Inspect only public serialized setting metadata from bundled
                 # presets. No brush images or engine implementation are copied.
@@ -211,6 +238,15 @@ class Probe(Extension):
                 colors = [(255, 0, 0, 255), (0, 255, 0, 128), (0, 0, 255, 255), (0, 0, 0, 0)]
                 row = (bytes(w * 4) if case.get("background") == "transparent" else
                        b"".join(bytes(colors[(x // 128) % 4]) for x in range(w)))
+                if case.get("background") == "blend-stripes":
+                    # Original encoded-sRGB swatches: non-primary colors,
+                    # both sides of Overlay's midpoint, opaque/partial/zero alpha.
+                    rgba = [(32, 160, 224, 255), (192, 64, 96, 128),
+                            (128, 128, 128, 255), (224, 192, 32, 64),
+                            (64, 224, 160, 255), (160, 32, 224, 192),
+                            (0, 0, 0, 0), (255, 255, 255, 255)]
+                    row = b"".join(bytes((c[2], c[1], c[0], c[3]))
+                                   for x in range(w) for c in [rgba[(x // 8) % 8]])
                 if case.get("background") == "wet-halves":
                     boundary = math.ceil(case.get("wetBoundary", 336))
                     row = bytes((255, 0, 0, 255)) * boundary + bytes((0, 0, 255, 128)) * (w - boundary)
@@ -240,6 +276,8 @@ class Probe(Extension):
                 document.waitForDone()
                 checkpoint(name + ": select preset")
                 view.setCurrentBrushPreset(by_name[name])
+                if view.currentBrushPreset().name() != name:
+                    raise RuntimeError("Source view did not select the exact original preset: " + name)
                 view.setBrushSize(case["diameter"])
                 view.setPaintingOpacity(case["opacity"])
                 view.setPaintingFlow(case["flow"])
@@ -261,7 +299,7 @@ class Probe(Extension):
                         abs(effective_view[key] - case[key]) > 1 / 255 + 1e-9
                         for key in ("opacity", "flow")):
                     raise RuntimeError("Source view did not apply requested brush controls")
-                if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > 1e-5 or effective_view["blend"] != "normal" or
+                if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > 1e-5 or effective_view["blend"] != case.get("overrides", {}).get("CompositeOp", "normal") or
                         any(effective_view[key] for key in ("eraser", "alphaLock", "disablePressure"))):
                     raise RuntimeError("Source view retained an unexpected painting modifier")
                 # Read back the selected source settings through the public API;
@@ -279,7 +317,51 @@ class Probe(Extension):
                 if (effective_fields.get("KisPrecisionOption/precisionLevel") != "5" or
                         effective_fields.get("KisPrecisionOption/AutoPrecisionEnabled") != "false"):
                     raise RuntimeError("Selected source preset lost fixed precision 5")
-                controls = {key: effective_fields.get(key) for key in ("PaintOpAction", "PressureFlow", "FlowUseCurve", "PressureOpacity", "OpacityUseCurve", "PressureColorRate", "ColorRateUseCurve", "SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
+                if effective_fields.get("CompositeOp") != case.get("overrides", {}).get("CompositeOp", "normal"):
+                    raise RuntimeError("Selected source preset lost requested blend mode")
+                controls = {key: effective_fields.get(key) for key in ("CompositeOp", "PaintOpAction", "PressureFlow", "FlowUseCurve", "PressureOpacity", "OpacityUseCurve", "PressureColorRate", "ColorRateUseCurve", "SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
+                kernel_geometry = None
+                if fixtures.get("group") == "wetkernelcount":
+                    definition = effective_fields.get("brush_definition", "")
+                    brush = fromstring(definition)
+                    mask = brush.find("MaskGenerator")
+                    if mask is None or "diameter" not in mask.attrib:
+                        raise RuntimeError("Effective source kernel geometry is missing")
+                    kernel_geometry = {
+                        "serializedDiameter": mask.attrib["diameter"],
+                        "serializedRadius": effective_fields.get("SmudgeRadiusValue"),
+                        "serializedRatio": mask.attrib.get("ratio"),
+                        "serializedAngle": brush.attrib.get("angle"),
+                        "serializedSpacing": brush.attrib.get("spacing"),
+                        "effectiveViewDiameter": effective_view["diameter"],
+                        "brushDefinition": definition}
+                    if (abs(float(kernel_geometry["serializedDiameter"]) - case["diameter"]) > 1e-5 or
+                            abs(float(kernel_geometry["serializedRadius"]) - float(case["overrides"]["SmudgeRadiusValue"])) > 1e-9):
+                        raise RuntimeError("Source serialized kernel controls differ from requested values")
+                texture_controls = None
+                if fixtures.get("group") == "texturemasks":
+                    texture_controls = {key: value for key, value in effective_fields.items()
+                                        if (key.startswith("Texture/") or key.startswith("PressureTexture/"))
+                                        and key != "Texture/Pattern/Pattern"}
+                    for key, wanted in case["overrides"].items():
+                        if not (key.startswith("Texture/") or key.startswith("PressureTexture/")) or key == "Texture/Pattern/Pattern":
+                            continue
+                        actual = effective_fields.get(key)
+                        try:
+                            matches = abs(float(actual) - float(wanted)) <= 1e-9
+                        except (TypeError, ValueError):
+                            matches = actual == wanted
+                        if not matches:
+                            raise RuntimeError("Source texture setting differs from fixture: " + key)
+                    patterns = [resource for resource in app.resources("pattern").values()
+                                if Path(resource.filename()).name == "gz-original-steps.png"]
+                    if len(patterns) != 1:
+                        raise RuntimeError("Original source texture pattern did not resolve uniquely")
+                    pattern = patterns[0].image()
+                    if pattern.width() != 16 or pattern.height() != 16 or any(
+                            pattern.pixelColor(x, 0).getRgb() != ((x // 4) * 85,) * 3 + (255,)
+                            for x in range(16)):
+                        raise RuntimeError("Source texture resource differs from original grayscale steps")
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
@@ -392,7 +474,14 @@ class Probe(Extension):
                     geometry = {"rect": [left, top, width, height],
                                 "encoding": "zlib-base64-visible-change1-msb-row-major",
                                 "data": base64.b64encode(zlib.compress(packed)).decode("ascii")}
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
+                if fixtures.get("group") == "texturemasks":
+                    left, top, width, height = (240 if expected_engine == "paintbrush" else 560), 1020, 32, 8
+                    pixels = b"".join(raw[(y * w + left) * 4:(y * w + left + width) * 4]
+                                      for y in range(top, top + height))
+                    geometry = {"rect": [left, top, width, height],
+                                "encoding": "zlib-base64-bgra8-row-major",
+                                "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectiveKernelGeometry": kernel_geometry})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

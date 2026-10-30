@@ -807,8 +807,10 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
                                error.what() + ".");
       }
       out.warnings.push_back(
-          "Preset descriptors are not interpreted: names, spacing and dynamics "
-          "are not applied to these sampled tips.");
+          "Descriptor decoding alone does not apply preset settings; a "
+          "qualified "
+          "version-specific adapter is required. Source behavior is "
+          "unverified.");
     } else if (std::memcmp(tag, "patt", 4) == 0) {
       try {
         if (out.patternDataComplete) parsePatterns(section, out, budget);

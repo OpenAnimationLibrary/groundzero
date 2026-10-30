@@ -1,0 +1,1310 @@
+{
+  "schema": 1,
+  "description": "Original distinguishing source probes for Dulling sample count and rectangle rounding; predictions are hypotheses, not pass thresholds.",
+  "cases": [
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -14,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -30,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -22,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -6,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -1,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 2,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 10,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 18,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 31,
+      "reason": "Distinguish N=93..102"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 23,
+      "reason": "N146 gives3; N147 gives5"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 150,
+      "axis": "column",
+      "offset": -29,
+      "reason": "Distinguish N=202,203,204"
+    },
+    {
+      "model": "legacy",
+      "diameter": 64,
+      "radiusPercent": 150,
+      "axis": "column",
+      "offset": 31,
+      "reason": "Distinguish N=202,203,204"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -5,
+      "reason": "With independently observed expanded horizontal window: N205 gives2; N206 gives4"
+    },
+    {
+      "model": "legacy",
+      "diameter": 54,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -27,
+      "reason": "Count-floor breakpoint: hypothesis predicts0,3,3 respectively"
+    },
+    {
+      "model": "legacy",
+      "diameter": 56,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -28,
+      "reason": "Count-floor breakpoint: hypothesis predicts0,3,3 respectively"
+    },
+    {
+      "model": "legacy",
+      "diameter": 58,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -29,
+      "reason": "Count-floor breakpoint: hypothesis predicts0,3,3 respectively"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -15,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -14,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 14,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 15,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -15,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -14,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 14,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 15,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": -17,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": -16,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 16,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 17,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": -17,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": -16,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": 16,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": 17,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": -19,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": -18,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": 18,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": 19,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": -19,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": -18,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": 18,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": 19,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": -21,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": -20,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 20,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 21,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": -21,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": -20,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": 20,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": 21,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": -23,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": -22,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": 22,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": 23,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": -23,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": -22,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": 22,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": 23,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -25,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -24,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 24,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 25,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -25,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -24,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 24,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 25,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -29,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -28,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 28,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 29,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -29,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -28,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 28,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 29,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": -33,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": -32,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 32,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 33,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": -33,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": -32,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": 32,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "row",
+      "offset": 33,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": -37,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": -36,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": 36,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "column",
+      "offset": 37,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": -37,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": -36,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": 36,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 225,
+      "axis": "row",
+      "offset": 37,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": -41,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": -40,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 40,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 41,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": -41,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": -40,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": 40,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "row",
+      "offset": 41,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": -45,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": -44,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": 44,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "column",
+      "offset": 45,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": -45,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": -44,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": 44,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 275,
+      "axis": "row",
+      "offset": 45,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -49,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -48,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 48,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 49,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -49,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -48,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 48,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 49,
+      "reason": "Identify rectangle rounding per axis without radius-specific branch"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -17,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -16,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 15,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 16,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -17,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -16,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": 15,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": 16,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -29,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -28,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 27,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 28,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -29,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -28,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 27,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 28,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -49,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -48,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 47,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 48,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -49,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -48,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 47,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 31.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 48,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -18,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -17,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 16,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": 17,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -18,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": -17,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": 16,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 100,
+      "axis": "row",
+      "offset": 17,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -30,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": -29,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 28,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "column",
+      "offset": 29,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -30,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": -29,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 28,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 175,
+      "axis": "row",
+      "offset": 29,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -50,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": -49,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 48,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 49,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -50,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": -49,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 48,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32.5,
+      "radiusPercent": 300,
+      "axis": "row",
+      "offset": 49,
+      "reason": "Fractional source diameter; record effective brush size, do not round request"
+    },
+    {
+      "model": "new",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -14,
+      "reason": "Verify retained-sample circle clipping after common candidate sample count"
+    },
+    {
+      "model": "new",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -22,
+      "reason": "Verify retained-sample circle clipping after common candidate sample count"
+    },
+    {
+      "model": "new",
+      "diameter": 64,
+      "radiusPercent": 100,
+      "axis": "column",
+      "offset": -6,
+      "reason": "Verify retained-sample circle clipping after common candidate sample count"
+    }
+  ]
+}

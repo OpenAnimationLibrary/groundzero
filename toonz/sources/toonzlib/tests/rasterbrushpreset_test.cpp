@@ -1,8 +1,10 @@
 #include "toonz/rasterbrushpreset.h"
 #include "rasterbrushfixture.h"
 #include "../rasterbrushresponse.h"
+#include "../rasterbrushtestobserver.h"
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
+#include <cstring>
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QThread>
@@ -18,6 +20,8 @@
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <unistd.h>
+#include <signal.h>
+#include <cerrno>
 #endif
 #ifdef __linux__
 #include <sys/resource.h>
@@ -79,6 +83,110 @@ QByteArray gbr(unsigned version = 2, unsigned channels = 1) {
     b.append("\xff\0\0\xff\0\xff\0\0", 8);
   return b;
 }
+void testGihSelectionLifecycle() {
+  // Original full-color frames make the selected index visible in the raster;
+  // identical frames cannot qualify ordering or portable selector preservation.
+  QByteArray frames;
+  for (int channel = 0; channel < 3; ++channel) {
+    QByteArray frame = gbr(2, 4);
+    for (int pixel = 0; pixel < 2; ++pixel)
+      for (int component = 0; component < 4; ++component)
+        frame[frame.size() - 8 + pixel * 4 + component] =
+            char(component == channel || component == 3 ? 255 : 0);
+    frames += frame;
+  }
+  const QByteArray header =
+      "Colors\n3 ncells:3 step:500 dim:1 cols:3 rows:1 rank0:3 ";
+  struct Canvas : Surface {
+    std::vector<Pixel> pixels = std::vector<Pixel>(512 * 32);
+    int width() const override { return 512; }
+    int height() const override { return 32; }
+    bool prepare(int x0, int y0, int x1, int y1) override {
+      return x0 >= 0 && y0 >= 0 && x1 <= width() && y1 <= height();
+    }
+    Pixel read(int x, int y) const override { return pixels.at(y * 512 + x); }
+    void write(int x, int y, const Pixel &p) override {
+      pixels.at(y * 512 + x) = p;
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  QString error;
+  for (bool random : {false, true}) {
+    const QByteArray selector = random ? "random" : "incremental";
+    auto imported             = importBrush(
+        header + "selection:" + selector + "\n" + frames, "gih", error);
+    require(imported.complete && imported.records.size() == 1,
+            qPrintable(error));
+    const auto &record = imported.records.front();
+    require(record.preset.profile == "groundzero-native-1" && record.decoded &&
+                !record.referenceVerified &&
+                !record.provenance["sourceSemanticallySupported"].toBool() &&
+                !record.provenance["sourceReferenceVerified"].toBool(),
+            "GIH conversion invented source qualification");
+    const auto restored = decode(encode(record, error), error);
+    require(error.isEmpty() && restored.preset.tip.images.size() == 3 &&
+                restored.preset.tip.randomSequence == random,
+            "GIH portable frame selection changed");
+    auto render = [&](const Preset &preset, bool split) {
+      Canvas canvas;
+      Stroke stroke(canvas, preset);
+      Sample point;
+      point.x = 10.5;
+      point.y = 10.5;
+      require(stroke.add(point), stroke.error().c_str());
+      if (split) {
+        point.x    = 160.5;
+        point.time = .5;
+        require(stroke.add(point), stroke.error().c_str());
+      }
+      point.x    = 321.5;
+      point.time = 1;
+      require(stroke.add(point), stroke.error().c_str());
+      require(stroke.dabCount() == 32, "GIH fixture dab count changed");
+      stroke.finish();
+      std::vector<int> selected;
+      for (int dab = 0; dab < 32; ++dab) {
+        const Pixel p = canvas.read(10 + dab * 10, 10);
+        require(p.a > .999, "GIH frame lost color/alpha during sampling");
+        const int index = p.r > .999 ? 0 : p.g > .999 ? 1 : p.b > .999 ? 2 : -1;
+        require(index >= 0, "GIH selected an invalid or blended frame");
+        selected.push_back(index);
+      }
+      return selected;
+    };
+    const auto selected = render(record.preset, false);
+    require(selected == render(restored.preset, true) &&
+                selected == render(record.preset, false),
+            "GIH selection changed after reopen, restart or event partition");
+    if (random) {
+      Preset otherSeed = restored.preset;
+      ++otherSeed.seed;
+      require(selected != render(otherSeed, false), "GIH random seed ignored");
+      for (int frame = 0; frame < 3; ++frame)
+        require(std::find(selected.begin(), selected.end(), frame) !=
+                    selected.end(),
+                "GIH random sequence never selected an original frame");
+    } else
+      for (size_t dab = 0; dab < selected.size(); ++dab)
+        require(selected[dab] == int(dab % 3),
+                "GIH incremental sequence did not wrap");
+  }
+  for (const QByteArray &parameters :
+       {QByteArray("3 ncells:3 step:25 dim:2 rank0:3 sel0:incremental"),
+        QByteArray("3 ncells:2 step:25 dim:1 rank0:3 sel0:incremental"),
+        QByteArray("3 ncells:3 step:25 dim:1 rank0:2 sel0:incremental"),
+        QByteArray(
+            "3 ncells:3 step:25 dim:1 rank0:999999999999 sel0:incremental"),
+        QByteArray("3 ncells:3 step:25 dim:1 rank0:3 rank0:3 sel0:incremental"),
+        QByteArray("3 ncells:3 step:nan dim:1 rank0:3 sel0:incremental"),
+        QByteArray("3 ncells:3 step:25 dim:1 rank0:3 sel0:random "
+                   "selection:incremental"),
+        QByteArray("3 ncells:3 step:25 dim:1 rank0:3 sel0:pressure")})
+    require(
+        !importBrush("Malformed\n" + parameters + "\n" + frames, "gih", error)
+             .complete,
+        "GIH malformed or unsupported selection metadata accepted");
+}
 QByteArray sampledAbr() {
   QByteArray abr, sample;
   auto be = [](QByteArray &out, unsigned n, int length) {
@@ -99,6 +207,76 @@ QByteArray sampledAbr() {
   be(abr, sample.size(), 4);
   abr += sample;
   return abr;
+}
+// Original pixels/names and values; observed ABR6.2 typed record layout.
+QByteArray boundAbr(bool missing = false, bool duplicate = false,
+                    int version = 6, bool badUnit = false, bool dual = false) {
+  auto be = [](quint64 value, int n = 4) {
+    QByteArray out;
+    for (int i = n - 1; i >= 0; --i) out.append(char(value >> (i * 8)));
+    return out;
+  };
+  auto id   = [&](QByteArray value) { return be(value.size()) + value; };
+  auto text = [&](QString value) {
+    QByteArray out = be(value.size());
+    for (auto c : value) out += be(c.unicode(), 2);
+    return out;
+  };
+  auto field = [&](const char *key, const char *type, QByteArray value) {
+    return id(key) + type + value;
+  };
+  auto unit = [&](double value, const char *suffix) {
+    quint64 bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return QByteArray(suffix) + be(bits, 8);
+  };
+  auto object = [&](const char *klass, int count, QByteArray fields) {
+    return text("") + id(klass) + be(count) + fields;
+  };
+  auto section = [&](const char *tag, QByteArray data) {
+    QByteArray out = QByteArray("8BIM") + tag + be(data.size()) + data;
+    while (out.size() % 4) out += char(0);
+    return out;
+  };
+  QByteArray sample(301, char(0));
+  const QByteArray sampleId("00000000-0000-0000-0000-000000000001");
+  sample[0] = char(sampleId.size());
+  sample.replace(1, sampleId.size(), sampleId);
+  for (int v : {0, 0, 1, 2}) sample += be(v);
+  sample += be(8, 2) + char(0) + char(255) + char(64);
+  QByteArray samples = be(sample.size()) + sample;
+  while (samples.size() % 4) samples += char(0);
+  if (duplicate) samples += samples;
+  QByteArray presets;
+  for (int index = 0; index < 2; ++index) {
+    const auto shape = object(
+        "sampledBrush", 9,
+        field("Dmtr", "UntF", unit(24 + index, badUnit ? "#Prc" : "#Pxl")) +
+            field("Angl", "UntF", unit(-20, "#Ang")) +
+            field("Rndn", "UntF", unit(75, "#Prc")) +
+            field("Spcn", "UntF", unit(30, "#Prc")) +
+            field("Intr", "bool", QByteArray(1, char(1))) +
+            field("flipX", "bool", QByteArray(1, char(1))) +
+            field("flipY", "bool", QByteArray(1, char(0))) +
+            field("Nm  ", "TEXT", text("Original sample")) +
+            field("sampledData", "TEXT",
+                  text(missing ? "missing" : QString::fromLatin1(sampleId))));
+    auto fields = field("Nm  ", "TEXT",
+                        text(index ? "Original second" : "Original first")) +
+                  field("Brsh", "Objc", shape) +
+                  field("useTipDynamics", "bool", QByteArray(1, char(1)));
+    if (dual)
+      fields += field(
+          "dualBrush", "Objc",
+          object("dualBrush", 2,
+                 field("useDualBrush", "bool", QByteArray(1, char(1))) +
+                     field("BlnM", "enum", id("BlnM") + id("colorBurn"))));
+    presets += QByteArray("Objc") + object("brushPreset", dual ? 4 : 3, fields);
+  }
+  const auto descriptor =
+      be(16) + object("null", 1, field("Brsh", "VlLs", be(2) + presets));
+  return be(version, 2) + be(2, 2) + section("samp", samples) +
+         section("patt", {}) + section("desc", descriptor);
 }
 QByteArray computedAbr(int version, int spacing = 25) {
   QByteArray bytes;
@@ -238,6 +416,101 @@ void testBundles() {
                 "paintoppresets/original.kpp",
             "bundle identity lost");
   }
+  // Original fixture follows Krita's manifest writer: namespaced tags contain
+  // text labels on each resource, independently of the brush preset name.
+  auto tagged = entries;
+  tagged[1].second.replace(
+      "manifest:media-type=\"paintoppresets\"/>",
+      "manifest:media-type=\"paintoppresets\"><manifest:tags>"
+      "<manifest:tag> Ink &amp; wash </manifest:tag>"
+      "<manifest:tag>水彩</manifest:tag><manifest:tag>Ink</manifest:tag>"
+      "<manifest:tag>Ink</manifest:tag></manifest:tags></manifest:file-entry>");
+  const QJsonArray expectedTags{QString(" Ink & wash "),
+                                QString::fromUtf8("水彩"), QString("Ink"),
+                                QString("Ink")};
+  for (bool compression : {false, true}) {
+    auto imported = importBrush(archive(tagged, compression), "bundle", error);
+    require(imported.complete && imported.records.size() == 1,
+            qPrintable(error));
+    const auto original = imported.records.front();
+    const auto metadata = original.provenance["bundleMetadata"].toObject();
+    require(metadata["version"].toInt() == 1 &&
+                metadata["presetTags"].toArray() == expectedTags &&
+                metadata["resourceTags"].toArray().size() == 1,
+            "bundle tag labels or association lost");
+    const auto bytes = encode(original, error);
+    require(error.isEmpty(), qPrintable(error));
+    const auto native = decode(bytes, error);
+    require(error.isEmpty() && native.provenance["bundleMetadata"] == metadata,
+            "native preset tag roundtrip failed");
+    for (auto mode :
+         {ResourcePackaging::ManifestOnly, ResourcePackaging::PermittedOnly,
+          ResourcePackaging::PrivateCopy}) {
+      const auto portable = encodePortable(original, mode, error);
+      require(error.isEmpty() && !portable.isEmpty(), qPrintable(error));
+      // This original preset has no external images, so all packaging modes
+      // reopen.
+      const auto reopened = decode(portable, error);
+      require(
+          error.isEmpty() && reopened.provenance["bundleMetadata"] == metadata,
+          "portable preset tag roundtrip failed");
+    }
+    QTemporaryDir workerDirectory;
+    require(workerDirectory.isValid(), "cannot create tag worker fixture");
+    const auto wire =
+        encodeWorkerRecord(original, workerDirectory.path(), error);
+    require(error.isEmpty(), qPrintable(error));
+    const auto workerRecord =
+        decodeWorkerRecord(wire, workerDirectory.path(), error);
+    require(error.isEmpty() &&
+                workerRecord.provenance["bundleMetadata"] == metadata,
+            "worker protocol lost bundle tags");
+    const auto filename = workerDirectory.filePath("tags.gzbrush");
+    require(save(filename, original, error), qPrintable(error));
+    const auto loaded = load(filename, error);
+    require(error.isEmpty() && loaded.provenance["bundleMetadata"] == metadata,
+            "saved preset lost bundle tags");
+    auto forged                         = original;
+    auto invalid                        = metadata;
+    invalid["version"]                  = 2;
+    forged.provenance["bundleMetadata"] = invalid;
+    require(encode(forged, error).isEmpty() && !error.isEmpty(),
+            "unknown bundle metadata version accepted");
+    auto malformedNative     = QJsonDocument::fromJson(bytes).object();
+    auto malformedProvenance = malformedNative["provenance"].toObject();
+    malformedProvenance["bundleMetadata"] = invalid;
+    malformedNative["provenance"]         = malformedProvenance;
+    const auto rejected =
+        decode(QJsonDocument(malformedNative).toJson(), error);
+    require(!error.isEmpty() && !rejected.decoded,
+            "decoder accepted unknown bundle metadata version");
+    auto resources                      = metadata["resourceTags"].toArray();
+    auto entry                          = resources[0].toObject();
+    entry["member"]                     = "paintoppresets/../../private";
+    resources[0]                        = entry;
+    invalid                             = metadata;
+    invalid["resourceTags"]             = resources;
+    forged.provenance["bundleMetadata"] = invalid;
+    require(encodePortable(forged, ResourcePackaging::PrivateCopy, error)
+                    .isEmpty() &&
+                !error.isEmpty(),
+            "unsafe bundle member metadata exported");
+  }
+  for (const QByteArray &badTag :
+       {QByteArray(
+            "<manifest:tag><manifest:tag>nested</manifest:tag></manifest:tag>"),
+        QByteArray("<tag xmlns=\"wrong\">namespace</tag>"),
+        QByteArray("<manifest:tag>") + QByteArray(257, 'x') +
+            "</manifest:tag>"}) {
+    auto malformed = entries;
+    malformed[1].second.replace(
+        "manifest:media-type=\"paintoppresets\"/>",
+        QByteArray("manifest:media-type=\"paintoppresets\"><manifest:tags>") +
+            badTag + "</manifest:tags></manifest:file-entry>");
+    require(!importBrush(archive(malformed, false), "bundle", error).complete &&
+                !error.isEmpty(),
+            "unsupported bundle tag structure discarded");
+  }
   auto external = entries;
   external[1].second.replace(
       "</manifest:manifest>",
@@ -251,6 +524,24 @@ void testBundles() {
       qPrintable(error));
   require(resolved.records[0].preset.tip.images[0]->pixels[0].a == 1,
           "bundle dependency decoded incorrectly");
+  auto resourceTagged = external;
+  resourceTagged[1].second.replace("manifest:media-type=\"brushes\"/>",
+                                   "manifest:media-type=\"brushes\"><manifest:"
+                                   "tags><manifest:tag>Tips</manifest:tag>"
+                                   "</manifest:tags></manifest:file-entry>");
+  const auto withResourceTags =
+      importBrush(archive(resourceTagged, true), "bundle", error);
+  require(withResourceTags.complete, qPrintable(error));
+  const auto resourceMetadata =
+      withResourceTags.records[0].provenance["bundleMetadata"].toObject();
+  const auto resourceLabels = resourceMetadata["resourceTags"].toArray();
+  require(
+      resourceMetadata["presetTags"].toArray().isEmpty() &&
+          resourceLabels.size() == 1 &&
+          resourceLabels[0].toObject()["member"] == "brushes/original.gbr" &&
+          resourceLabels[0].toObject()["tags"].toArray() ==
+              QJsonArray{QString("Tips")},
+      "dependency tags lost or incorrectly promoted to preset tags");
   require(!importBrush(externalKpp(), "kpp", error).complete,
           "missing external KPP resource accepted");
   auto colored          = external;
@@ -329,6 +620,41 @@ void testImports() {
   require(
       !importBrush(sampledAbr(), "abr", error, nullptr, abrBytes - 1).complete,
       "retained ABR byte masks not charged to allocation budget");
+  auto bound =
+      importBrush(boundAbr(false, false, 6, false, true), "abr", error);
+  require(bound.complete && bound.records.size() == 2,
+          "ABR6.2 presets sharing one sample were collapsed");
+  require(bound.records[0].preset.tip.images[0] ==
+              bound.records[1].preset.tip.images[0],
+          "ABR preset aliases duplicated decoded image memory");
+  for (int i = 0; i < 2; ++i) {
+    const auto &r = bound.records[i];
+    require(r.preset.name == (i ? "Original second" : "Original first") &&
+                r.preset.size.value == 24 + i && r.preset.angle.value == -20 &&
+                r.preset.aspect.value == .75 && r.preset.spacing == .3 &&
+                r.preset.flipX && !r.preset.flipY &&
+                !r.preset.secondary.enabled &&
+                !r.provenance["sourceSemanticallySupported"].toBool() &&
+                !r.provenance["sourceReferenceVerified"].toBool() &&
+                r.provenance["sourcePresetOrdinal"].toInt() == i + 1 &&
+                r.diagnostics.join(" ").contains("dual brush is not applied"),
+            "ABR static conversion or unsupported dual qualification lost");
+    const auto restored = decode(encode(r, error), error);
+    require(error.isEmpty() && restored.preset.name == r.preset.name &&
+                restored.provenance["sourceDescriptorTupleV1"] ==
+                    r.provenance["sourceDescriptorTupleV1"],
+            "ABR typed source settings lost on portable reopen");
+  }
+  require(!importBrush(boundAbr(true), "abr", error).complete,
+          "missing ABR sample binding accepted");
+  require(!importBrush(boundAbr(false, true), "abr", error).complete,
+          "ambiguous ABR sample binding accepted");
+  require(!importBrush(boundAbr(false, false, 6, true), "abr", error).complete,
+          "ABR static units silently reinterpreted");
+  auto newer = importBrush(boundAbr(false, false, 7), "abr", error);
+  require(newer.complete && newer.records.size() == 1 &&
+              !newer.records[0].provenance.contains("sourceSampleBinding"),
+          "ABR6.2 format evidence incorrectly generalized to later versions");
   for (int version : {1, 2}) {
     auto geometry = importBrush(computedAbr(version), "abr", error);
     require(geometry.complete && geometry.records.size() == 1,
@@ -415,6 +741,25 @@ void testImports() {
                                      "groundzero-native-1",
             "unclassified setting incorrectly selected source candidate");
   }
+  for (const QString mode : {"normal", "multiply", "screen", "overlay"}) {
+    auto dry = importBrush(hardPixelKpp("blend-" + mode), "kpp", error);
+    require(
+        dry.complete &&
+            dry.records.front().preset.profile ==
+                "krita-5.3.4.1-hard-pixel-candidate-1" &&
+            !dry.records.front().provenance["sourceReferenceVerified"].toBool(),
+        "explicit Pixel blend did not retain unverified candidate identity");
+    auto reopened = decode(encode(dry.records.front(), error), error);
+    require(error.isEmpty() &&
+                reopened.preset.blend == dry.records.front().preset.blend,
+            "Pixel blend lost on portable round trip");
+    if (mode != "normal") {
+      auto wet = importBrush(hardPixelKpp("blend-" + mode, "legacy-dulling"),
+                             "kpp", error);
+      require(!wet.complete && wet.records.empty() && !error.isEmpty(),
+              "Pixel blend eligibility leaked into wet source profiles");
+    }
+  }
   auto rect = importBrush(hardPixelKpp("rect"), "kpp", error);
   require(rect.complete &&
               rect.records.front().preset.profile ==
@@ -427,6 +772,21 @@ void testImports() {
                   "krita-5.3.4.1-default-circle-candidate-1" &&
               aa.records.front().preset.tip.antialiasEdges,
           "source default-circle AA lost explicit eligibility");
+  auto smallAA = importBrush(hardPixelKpp("smallAA"), "kpp", error);
+  require(smallAA.complete &&
+              smallAA.records.front().preset.profile ==
+                  "krita-5.3.4.1-default-circle-candidate-1" &&
+              smallAA.records.front().preset.size.value == 4 &&
+              !smallAA.records.front()
+                   .provenance["sourceReferenceVerified"]
+                   .toBool(),
+          "small hard-AA eligibility or provenance changed");
+  for (const QString mutation : {"smallAAfractional", "smallAAsoft"}) {
+    auto fallback = importBrush(hardPixelKpp(mutation), "kpp", error);
+    require(fallback.complete && fallback.records.front().preset.profile ==
+                                     "groundzero-native-1",
+            "unmeasured small-AA setting admitted");
+  }
   auto soft = importBrush(hardPixelKpp("soft"), "kpp", error);
   require(
       soft.complete &&
@@ -471,6 +831,17 @@ void testImports() {
                       (flow == "zeroFlow" ? 0 : .5),
               "static source wet flow lost its value or candidate identity");
     }
+    auto translucent =
+        importBrush(hardPixelKpp("halfOpacity", model), "kpp", error);
+    require(translucent.complete &&
+                translucent.records.front().preset.profile == expected &&
+                translucent.records.front().preset.opacity.value == .5,
+            "source wet static opacity lost value or candidate identity");
+    auto opacityRestored =
+        decode(encode(translucent.records.front(), error), error);
+    require(error.isEmpty() && opacityRestored.preset.profile == expected &&
+                opacityRestored.preset.opacity.value == .5,
+            "source wet static opacity lost portable round trip");
     auto pressure =
         importBrush(hardPixelKpp("wetPressure", model), "kpp", error);
     require(pressure.complete &&
@@ -482,7 +853,7 @@ void testImports() {
                 pressureRoundTrip.preset.pickupControl.mappings.size() == 1 &&
                 pressureRoundTrip.preset.colorRateControl.mappings.size() == 1,
             "wet pressure controls lost portable round trip");
-    for (const QString &mutation : {"alphaOff", "lengthOff"}) {
+    for (const QString &mutation : {"alphaOff", "lengthOff", "colorOff"}) {
       auto flags = importBrush(hardPixelKpp(mutation, model), "kpp", error);
       require(flags.complete &&
                   flags.records.front().preset.profile ==
@@ -492,9 +863,33 @@ void testImports() {
       require(
           error.isEmpty() &&
               restored.preset.sourceSmearAlpha == (mutation != "alphaOff") &&
+              restored.preset.sourceColorRateEnabled ==
+                  (mutation != "colorOff") &&
               restored.preset.sourceSmudgeLengthEnabled ==
                   (mutation != "lengthOff"),
           "source wet switches lost portable round trip");
+    }
+    for (const QString &mutation :
+         {"wetOpacityPressure", "wetFlowPressure", "wetFlowDisabled"}) {
+      auto controlled =
+          importBrush(hardPixelKpp(mutation, model), "kpp", error);
+      require(controlled.complete &&
+                  controlled.records.front().preset.profile == expected,
+              "measured wet transfer curve lost strict candidate eligibility");
+      auto portable = decode(encode(controlled.records.front(), error), error);
+      require(error.isEmpty() && portable.preset.profile == expected,
+              "wet transfer curve lost portable candidate identity");
+      if (mutation == "wetOpacityPressure")
+        require(portable.preset.opacity.mappings.size() == 1,
+                "wet opacity pressure curve was discarded");
+      else
+        require(portable.preset.flow.mappings.size() ==
+                        (mutation == "wetFlowPressure" ? 1u : 0u) &&
+                    portable.provenance["sourceInactiveFlowCurve"].toString() ==
+                        "identity-pressure" &&
+                    portable.provenance["sourceInactiveFlowPressureEnabled"]
+                            .toBool() == (mutation == "wetFlowPressure"),
+                "inactive wet flow curve/checkbox provenance was discarded");
     }
     for (const QString &mutation :
          {"radius", "unknown", "missing", "aa", "ellipse"}) {
@@ -637,6 +1032,8 @@ void testPortability() {
         QString::fromLatin1(R"(source=\\?\C:\brushes\brush.png)"),
         QString::fromLatin1(R"(source: \\?\UNC\server\share\brush.png)"),
         QString::fromLatin1(R"(source=C:\brushes\brush.png)"),
+        QString::fromLatin1(R"(source:C:/brushes/brush.png)"),
+        QString::fromLatin1(R"(C:/brushes/brush.png)"),
         QString::fromLatin1(R"(source=/private-brush-fixture/source)"),
         QString::fromLatin1(R"(source=\rooted\brush.png)"),
         QString::fromLatin1("FILE:///private-brush-fixture/source"),
@@ -656,17 +1053,21 @@ void testPortability() {
             "portable export disclosed a local path in free-form metadata");
   }
   Record licenseLink = original;
-  const QString attribution =
-      "CC0-1.0; https://creativecommons.org/publicdomain/zero/1.0/";
-  licenseLink.resourceRights[inventory[0].hash] =
-      QJsonObject{{"redistribution", "permitted"}, {"license", attribution}};
-  const auto linked =
-      decode(encodePortable(licenseLink, ResourcePackaging::PrivateCopy, error),
-             error);
-  require(error.isEmpty() && linked.resourceRights[inventory[0].hash]
-                                     .toObject()["license"]
-                                     .toString() == attribution,
-          "portable export removed ordinary license attribution or web link");
+  for (const QString &attribution :
+       {QString("CC0-1.0; https://creativecommons.org/publicdomain/zero/1.0/"),
+        QString("https://creativecommons.org/publicdomain/zero/1.0/"),
+        QString("License=https://creativecommons.org/publicdomain/zero/1.0/"),
+        QString("CC BY 4.0: http://creativecommons.org/licenses/by/4.0/")}) {
+    licenseLink.resourceRights[inventory[0].hash] =
+        QJsonObject{{"redistribution", "permitted"}, {"license", attribution}};
+    const auto linked = decode(
+        encodePortable(licenseLink, ResourcePackaging::PrivateCopy, error),
+        error);
+    require(error.isEmpty() && linked.resourceRights[inventory[0].hash]
+                                       .toObject()["license"]
+                                       .toString() == attribution,
+            "portable export removed ordinary license attribution or web link");
+  }
   auto native = decode(encode(restored, error), error);
   require(error.isEmpty() && native.resourceRights == restored.resourceRights,
           "native save/reopen lost resource declarations");
@@ -1142,13 +1543,15 @@ int oversizedWorkerFixture(const QString &directory) {
 }
 QString workerExecutable() {
 #ifdef RASTERBRUSH_SEPARATE_WORKER_TEST
-  const QString path = QDir(QCoreApplication::applicationDirPath())
-                           .filePath(
-                               "rasterbrushworker_test"
+  const QString path =
+      QDir(QCoreApplication::applicationDirPath())
+          .filePath(
 #ifdef _WIN32
-                               ".exe"
+              "brush-worker-test-runtime/rasterbrushworker_test.exe"
+#else
+              "rasterbrushworker_test"
 #endif
-                           );
+          );
   require(QFileInfo::exists(path), "uninstrumented sandbox worker missing");
   return path;
 #else
@@ -1365,6 +1768,104 @@ void testResponseFiles() {
   require(!stopped.complete && stopped.records.empty() && error.isEmpty(),
           "cancelled response began parsing files");
 }
+int blockingCancellationFixture(const QString &directory) {
+  QFile marker;
+#ifdef __APPLE__
+  // The App Sandbox helper cannot write the parent's temporary directory.
+  // Its inherited stdout is the parent's already-open wire file instead.
+  if (!marker.open(STDOUT_FILENO, QIODevice::WriteOnly)) return 73;
+#else
+  marker.setFileName(QDir(directory).filePath("cancel-entered"));
+  if (!marker.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return 73;
+#endif
+  const auto entered =
+      QByteArray::number(QCoreApplication::applicationPid()) + "\n";
+  if (marker.write(entered) != entered.size() || !marker.flush()) return 73;
+  // This is a deliberately blocked decoder, not the test's success signal.
+  // Only observing its PID marker and subsequent OS exit can pass the test.
+  QThread::sleep(30);
+  return 74;
+}
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+void testImportCancellationPhases(const QString &input) {
+  struct ResetObserver {
+    ~ResetObserver() { setImportCancellationObserver({}); }
+  } reset;
+  QString error;
+  for (bool activeChild : {false, true}) {
+    std::atomic_bool cancelled(false);
+    bool stagingObserved = false, childEntered = false, launched = false;
+    qint64 enteredPid = 0;
+#ifdef _WIN32
+    HANDLE childHandle = nullptr;
+#endif
+    QElapsedTimer timer;
+    timer.start();
+    qint64 cancellationTime = -1;
+    setImportCancellationObserver(
+        [&](const char *phase, const QString &markerPath, qint64 processId) {
+          const QByteArray event(phase);
+          if (!activeChild && event ==
+#ifdef _WIN32
+                                  "staging"
+#else
+                                  "prepared"
+#endif
+          ) {
+            stagingObserved  = true;
+            cancellationTime = timer.elapsed();
+            cancelled.store(true);
+          }
+          if (event != "running") return;
+          launched = true;
+          // Give preparation its own budget. Do not infer launch from elapsed
+          // time.
+          QFile marker(markerPath);
+          if (!childEntered && marker.open(QIODevice::ReadOnly)) {
+            const auto bytes = marker.read(64);
+            bool ok          = false;
+            const auto pid   = bytes.trimmed().toLongLong(&ok);
+            if (ok && bytes.endsWith('\n') && pid > 0 && pid == processId) {
+#ifdef _WIN32
+              childHandle  = OpenProcess(SYNCHRONIZE, FALSE, DWORD(pid));
+              childEntered = childHandle != nullptr;
+#else
+              childEntered = kill(pid_t(pid), 0) == 0;
+#endif
+              enteredPid = pid;
+            }
+          }
+          if (childEntered || timer.elapsed() > 15000) {
+            cancellationTime = timer.elapsed();
+            cancelled.store(true);
+          }
+        });
+    const auto result =
+        importBrushProcess(workerExecutable(), input, error, &cancelled);
+    setImportCancellationObserver({});
+    bool childExited = false;
+#ifdef _WIN32
+    if (childHandle) {
+      childExited = WaitForSingleObject(childHandle, 0) == WAIT_OBJECT_0;
+      CloseHandle(childHandle);
+    }
+#else
+    if (enteredPid > 0)
+      childExited = kill(pid_t(enteredPid), 0) < 0 && errno == ESRCH;
+#endif
+    require(error.isEmpty() && result.records.empty() && !result.complete &&
+                cancellationTime >= 0 &&
+                timer.elapsed() - cancellationTime < 5000,
+            "cancelled import published data or failed to return promptly");
+    if (activeChild)
+      require(launched && childEntered && childExited,
+              "active cancellation did not observe and reap its entered child");
+    else
+      require(stagingObserved && !launched,
+              "prelaunch cancellation started a child or missed staging");
+  }
+}
+#endif
 void testWorkerProcess() {
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
   {
@@ -1400,11 +1901,9 @@ void testWorkerProcess() {
     QFile firstTime(firstOutput.filePath("entered"));
     QFile secondTime(secondOutput.filePath("entered"));
     require(firstTime.open(QIODevice::ReadOnly) &&
-                secondTime.open(QIODevice::ReadOnly) &&
-                secondTime.readAll().toLongLong() -
-                        firstTime.readAll().toLongLong() >=
-                    900,
-            "Windows imports modified shared ACLs concurrently");
+                secondTime.open(QIODevice::ReadOnly),
+            "Concurrent private-runtime imports did not both enter their "
+            "sandboxes");
   }
 #endif
 #if defined(__APPLE__) && defined(RASTERBRUSH_SANDBOX_TESTING)
@@ -1532,24 +2031,13 @@ void testWorkerProcess() {
   result = importBrushProcess(workerExecutable(), input, error, &cancelled);
   require(result.records.empty() && error.isEmpty(),
           "cancelled worker import published a result");
-  cancelled.store(false);
-  std::unique_ptr<QThread> cancellation(QThread::create([&cancelled]() {
-    QThread::msleep(250);
-    cancelled.store(true);
-  }));
+#ifdef RASTERBRUSH_SANDBOX_TESTING
   QFile placeholder(directory.filePath("blocking-worker.fixture"));
   require(placeholder.open(QIODevice::WriteOnly),
           "cannot stage cancellation fixture");
   placeholder.close();
-  cancellation->start();
-  QElapsedTimer timer;
-  timer.start();
-  result = importBrushProcess(workerExecutable(),
-                              directory.filePath("blocking-worker.fixture"),
-                              error, &cancelled);
-  cancellation->wait();
-  require(result.records.empty() && error.isEmpty() && timer.elapsed() < 10000,
-          "cancellation did not terminate the active import process");
+  testImportCancellationPhases(placeholder.fileName());
+#endif
   result = importBrushProcess(directory.filePath("missing-executable"), input,
                               error);
   require(result.records.empty() && !error.isEmpty(),
@@ -1658,7 +2146,7 @@ int main(int argc, char **argv) {
                                 if (input.endsWith("oversized-worker.fixture"))
                                   return oversizedWorkerFixture(output);
                                 if (input.endsWith("blocking-worker.fixture"))
-                                  QThread::sleep(30);
+                                  return blockingCancellationFixture(output);
                                 return runImportWorker(input, output);
                               });
 #endif
@@ -1686,7 +2174,7 @@ int main(int argc, char **argv) {
       return oversizedWorkerFixture(app.arguments().at(3));
     // Test-only blocked decoder; the parent must kill it after cancellation.
     if (QString::fromLocal8Bit(argv[2]).endsWith("blocking-worker.fixture"))
-      QThread::sleep(30);
+      return blockingCancellationFixture(app.arguments().at(3));
     return runImportWorker(app.arguments().at(2), app.arguments().at(3));
   }
   try {
@@ -1703,6 +2191,7 @@ int main(int argc, char **argv) {
     testPortability();
     testPackage();
     testImports();
+    testGihSelectionLifecycle();
     testBundles();
     testCollection();
     testWorkerWire();

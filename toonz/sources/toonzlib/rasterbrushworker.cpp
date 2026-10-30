@@ -1,5 +1,6 @@
 #include "toonz/rasterbrushimport.h"
 #include "rasterbrushresponse.h"
+#include "rasterbrushtestobserver.h"
 #include <QCoreApplication>
 #include <QBuffer>
 #include <QImage>
@@ -379,8 +380,8 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   process.setWorkingDirectory(output);
   process.setStandardOutputFile(QProcess::nullDevice());
   process.setStandardErrorFile(QProcess::nullDevice());
-  process.start(executable, {"--test-windows-sandbox-worker", sandbox.input,
-                             output, forbidden});
+  process.start(sandbox.program, {"--test-windows-sandbox-worker",
+                                  sandbox.input, output, forbidden});
   if (!process.waitForFinished(15000)) {
     process.kill();
     process.waitForFinished(5000);
@@ -460,12 +461,27 @@ int probeImportSandbox(const QString &input, const QString &directory,
 }
 #endif
 
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+namespace {
+thread_local ImportCancellationObserver cancellationObserver;
+}
+void setImportCancellationObserver(ImportCancellationObserver observer) {
+  cancellationObserver = std::move(observer);
+}
+void notifyImportCancellationObserver(const char *phase, const QString &path,
+                                      qint64 processId) {
+  if (cancellationObserver) cancellationObserver(phase, path, processId);
+}
+#endif
+
 ImportResult importBrushProcess(const QString &executable, const QString &path,
                                 QString &error,
                                 const std::atomic_bool *cancelled,
                                 size_t maximumDecodedBytes) {
   maximumDecodedBytes = std::min(maximumDecodedBytes, size_t(packageBudget));
   error.clear();
+  QElapsedTimer elapsed;
+  elapsed.start();
   auto stopped = [&] {
     return cancelled && cancelled->load(std::memory_order_relaxed);
   };
@@ -482,7 +498,8 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   // before its ephemeral permissions and AppContainer profile are removed.
   WindowsImportSandbox sandbox;
   if (!prepareWorkerCodecs() ||
-      !sandbox.prepare(executable, path, directory.path(), error, cancelled)) {
+      !sandbox.prepare(executable, path, directory.path(), error, cancelled,
+                       &elapsed)) {
     if (stopped()) return {};
     if (error.isEmpty()) error = "Cannot initialize trusted brush codecs";
     return {};
@@ -512,7 +529,11 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
 #ifdef _WIN32
   sandbox.configure(process);
 #endif
+#ifdef _WIN32
+  process.setProgram(sandbox.program);
+#else
   process.setProgram(executable);
+#endif
   process.setArguments(
       {"--raster-brush-import-worker", workerInput, directory.path()});
   process.setWorkingDirectory(directory.path());
@@ -544,15 +565,31 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   helperEnvironment.insert("MallocNanoZone", "0");
   process.setProcessEnvironment(helperEnvironment);
 #endif
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+  notifyImportCancellationObserver("prepared", {}, 0);
+#endif
+  if (stopped()) return {};
+  if (elapsed.elapsed() >= 120000) {
+    error = "Brush import exceeded the 120-second limit during preparation";
+    return {};
+  }
   process.start();
-  if (!process.waitForStarted(5000)) {
+  if (!process.waitForStarted(int(std::max(
+          qint64(0), std::min(qint64(5000), 120000 - elapsed.elapsed()))))) {
     error = "Cannot start brush import worker: " + process.errorString();
     return {};
   }
-  QElapsedTimer elapsed;
-  elapsed.start();
   while (process.state() != QProcess::NotRunning) {
     process.waitForFinished(50);
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+    notifyImportCancellationObserver("running",
+#ifdef __APPLE__
+                                     wire.fileName(),
+#else
+                                     directory.filePath("cancel-entered"),
+#endif
+                                     process.processId());
+#endif
 #ifdef __APPLE__
     if (process.state() != QProcess::NotRunning) {
       uint64_t footprint  = 0;

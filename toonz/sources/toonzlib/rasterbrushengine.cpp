@@ -200,6 +200,43 @@ Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
                 lockAlpha ? dst.a : src.a + dst.a * (1 - src.a)});
 }
 
+namespace {
+// Candidate Pixel blending is a separate profile boundary. These encoded-sRGB
+// separable equations follow the public blend definitions; source byte rounding
+// and wash/build-up equivalence require the original pixelblend reference
+// gates. Keeping this separate allows measured source arithmetic to evolve
+// without changing native painting or the four Normal-only Color Smudge
+// profiles.
+Pixel sourcePixelComposite(Pixel dst, Pixel src, Blend mode) {
+  if (mode == Blend::Normal) return composite(dst, src, Blend::Normal);
+  dst                  = clean(dst);
+  src                  = clean(src);
+  const double overlap = src.a * dst.a;
+  auto component       = [&](double d, double s) {
+    const double backdrop   = dst.a > 0 ? d / dst.a : 0;
+    const double foreground = src.a > 0 ? s / src.a : 0;
+    double blend            = 0;
+    switch (mode) {
+    case Blend::Multiply:
+      blend = backdrop * foreground;
+      break;
+    case Blend::Screen:
+      blend = backdrop + foreground - backdrop * foreground;
+      break;
+    case Blend::Overlay:
+      blend = backdrop <= .5 ? 2 * backdrop * foreground
+                                   : 1 - 2 * (1 - backdrop) * (1 - foreground);
+      break;
+    default:
+      return 0.0;  // validate rejects non-Pixel modes before rendering.
+    }
+    return (1 - src.a) * d + (1 - dst.a) * s + overlap * blend;
+  };
+  return clean({component(dst.r, src.r), component(dst.g, src.g),
+                component(dst.b, src.b), src.a + dst.a * (1 - src.a)});
+}
+}  // namespace
+
 std::string validate(const Preset &p) {
   const bool sourceHard = sourcePixelProfile(p.profile);
   const bool sourceSoft = sourceDefaultProfile(p.profile);
@@ -236,7 +273,8 @@ std::string validate(const Preset &p) {
         (!sourceSoft && p.tip.hardness != 1) ||
         (sourceSoft &&
          ((!sourceRect && !p.tip.antialiasEdges && p.tip.hardness >= 1) ||
-          (p.tip.antialiasEdges && p.size.value < 16) ||
+          (p.tip.antialiasEdges && p.size.value < 16 &&
+           !(!sourceRect && p.tip.hardness == 1 && p.size.value < 10)) ||
           !p.size.mappings.empty() || !fixed(p.aspect, 1) ||
           !fixed(p.angle, 0))) ||
         (!sourceSoft && p.tip.antialiasEdges) || !p.tip.images.empty() ||
@@ -244,14 +282,17 @@ std::string validate(const Preset &p) {
         p.size.value != std::floor(p.size.value) ||
         !p.aspect.mappings.empty() || !p.angle.mappings.empty() ||
         (sourceWet && (!fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||
-        !p.opacity.mappings.empty() || !p.flow.mappings.empty() ||
-        (sourceWet && !fixed(p.opacity, 1)) || !fixed(p.scatter, 0) ||
-        !fixed(p.countControl, 1) || !fixed(p.backgroundMix, 0) ||
-        !fixed(p.hue, 0) || !fixed(p.saturation, 1) ||
-        !fixed(p.brightness, 1) || p.count != 1 || p.airbrushRate != 0 ||
-        (sourceWet && p.wash) || p.lockAlpha || p.flipX || p.flipY ||
-        p.blend != Blend::Normal || (sourceHard && p.wet != Wet::Off) ||
-        p.texture.image || p.secondary.enabled || p.color.a != 1)
+        (!p.opacity.mappings.empty() &&
+         !(sourceWet && linearPressure(p.opacity))) ||
+        (!p.flow.mappings.empty() && !(sourceWet && linearPressure(p.flow))) ||
+        !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
+        !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
+        !fixed(p.saturation, 1) || !fixed(p.brightness, 1) || p.count != 1 ||
+        p.airbrushRate != 0 || (sourceWet && p.wash) || p.lockAlpha ||
+        p.flipX || p.flipY ||
+        (sourceWet ? p.blend != Blend::Normal : p.blend == Blend::Erase) ||
+        (sourceHard && p.wet != Wet::Off) || p.texture.image ||
+        p.secondary.enabled || p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
   }
   if (sourceWet &&
@@ -840,11 +881,11 @@ struct Stroke::Impl {
     };
     const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
                         p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
-    // Independent column and row impulses identify an 80-point base-2/base-3
-    // sequence over the pixel footprint. Its final y coordinate is one pixel
-    // below the mathematical bottom edge. New Dulling clips sampling to the
-    // tip and caps its extent at one tip radius; legacy sampling is
-    // rectangular.
+    // Independent orthogonal impulses identify a base-2/base-3 sequence
+    // with an area-scaled sample count and an 80-sample minimum. Its final y
+    // coordinate is one pixel below the mathematical bottom edge. New Dulling
+    // clips sampling to the tip and caps its extent at one tip radius; legacy
+    // sampling is rectangular.
     auto pickupAt = [&](auto read, double centerX, double centerY) {
       if (p.smudgeRadius == 0)
         return read(int(std::floor(centerX)), int(std::floor(centerY)));
@@ -860,8 +901,11 @@ struct Stroke::Impl {
       Pixel sum{};
       const double extent =
           radius * (modern ? std::min(1.0, p.smudgeRadius) : p.smudgeRadius);
+      const double width = 2 * extent, height = std::max(0.0, width - 1);
+      const unsigned samples =
+          std::max(80u, unsigned(std::floor(.02 * width * height + 20)));
       unsigned count = 0;
-      for (unsigned i = 1; i <= 80; ++i) {
+      for (unsigned i = 1; i <= samples; ++i) {
         const int x = int(
             std::floor(centerX + (2 * radicalInverse(i, 2) - 1) * extent + .5));
         const int y = int(std::floor(
@@ -915,8 +959,14 @@ struct Stroke::Impl {
     // New Dulling attenuation measured across 7/32/128-pixel tips and
     // independent strengths; radius changes pickup sampling, not this scale.
     const double pickup    = p.pickup * eval(p.pickupControl, s);
-    const double colorRate = p.colorRate * eval(p.colorRateControl, s);
-    const double strength  = (p.sourceSmudgeLengthEnabled ? pickup : 1) *
+    const double colorRate = p.sourceColorRateEnabled
+                                 ? p.colorRate * eval(p.colorRateControl, s)
+                                 : 0;
+    // Independent second/third-dab opacity captures distinguish transport and
+    // injection scaling from a final opacity blend. Both feed retained state.
+    const double opacity  = unit(eval(p.opacity, s));
+    const double strength = (p.sourceSmudgeLengthEnabled ? pickup : 1) *
+                            opacity *
                             (modern && p.wet == Wet::Dulling ? .8 : 1);
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
@@ -930,13 +980,15 @@ struct Stroke::Impl {
           continue;
         }
         if (modern && p.wet == Wet::Dulling && !p.sourceSmearAlpha) {
-          paint = mix(surface.read(x, y),
-                      composite(paint, mul(p.color, colorRate * colorRate),
-                                Blend::Normal),
-                      strength);
+          paint = mix(
+              surface.read(x, y),
+              composite(paint, mul(p.color, colorRate * colorRate * opacity),
+                        Blend::Normal),
+              strength);
         } else if (modern) {
           paint = composite(mix(surface.read(x, y), paint, strength),
-                            mul(p.color, colorRate * colorRate), Blend::Normal);
+                            mul(p.color, colorRate * colorRate * opacity),
+                            Blend::Normal);
         } else {
           // Legacy foreground attenuation uses the serialized length setting,
           // while pressure scales transport strength. Original independent
@@ -944,7 +996,8 @@ struct Stroke::Impl {
           paint = mix(
               surface.read(x, y),
               composite(paint,
-                        mul(p.color, colorRate * std::max(.2, 1 - p.pickup)),
+                        mul(p.color,
+                            colorRate * std::max(.2, 1 - p.pickup) * opacity),
                         Blend::Normal),
               strength);
         }
@@ -1169,6 +1222,33 @@ struct Stroke::Impl {
             const double rounding =
                 !p.tip.antialiasEdges && diameter < 16 ? 0 : .5;
             a = std::floor(coverage * 255 + rounding) / 255;
+            if (p.tip.antialiasEdges && diameter < 10 &&
+                p.profile == "krita-5.3.4.1-default-circle-candidate-1") {
+              // Original D1/2/3/4/7/8/9 complete masks establish this scalar
+              // regime: a forward 3x3 grid, upward byte quantization at each
+              // sample and again after averaging, clipped to the generated
+              // integer-size stamp. Do not extend this to dynamic/fractional
+              // sizes, soft small masks or rectangles without evidence.
+              const int left = int(std::ceil(cx - .5 - radius)),
+                        top  = int(std::floor(cy - radius));
+              unsigned sum   = 0;
+              if (x >= left && x < left + int(diameter) && y >= top &&
+                  y < top + int(diameter)) {
+                for (int sy = 0; sy < 3; ++sy)
+                  for (int sx = 0; sx < 3; ++sx) {
+                    const double px        = x + .5 - cx + sx / 3.0,
+                                 py        = y + .5 - cy + sy / 3.0;
+                    const double distance2 = px * px + py * py;
+                    const double fade =
+                        distance2 / ((std::abs(px) + 1) * (std::abs(px) + 1) +
+                                     (std::abs(py) + 1) * (std::abs(py) + 1));
+                    const double sub =
+                        unit((1 - distance2 / (radius * radius)) / (1 - fade));
+                    sum += unsigned(std::ceil(sub * 255));
+                  }
+              }
+              a = ((sum + 8) / 9) / 255.0;
+            }
           } else {
             tip = filteredTip(p.tip, primaryIndex, u, v, ux, uy, vx, vy);
             a   = tip.a;
@@ -1226,20 +1306,24 @@ struct Stroke::Impl {
           if (p.wet == Wet::Smear)
             ink =
                 mix(fieldSample(nextSmear, side, u, v), foreground, colorRate);
+          const auto deposit = [&](Pixel dst, Pixel src, Blend mode) {
+            return sourcePixelProfile(p.profile)
+                       ? sourcePixelComposite(dst, src, mode)
+                       : composite(dst, src, mode, p.lockAlpha);
+          };
           if (p.wash) {
             Tile *buf = tile(x, y);
             if (!buf) return false;
             size_t k = size_t(y % 32) * 32 + x % 32;
             buf->paint[k] =
                 composite(buf->paint[k], mul(ink, a * flow), Blend::Normal);
-            surface.write(x, y,
-                          composite(buf->base[k], mul(buf->paint[k], opacity),
-                                    p.blend, p.lockAlpha));
-          } else
             surface.write(
                 x, y,
-                composite(surface.read(x, y), mul(ink, a * flow * opacity),
-                          p.blend, p.lockAlpha));
+                deposit(buf->base[k], mul(buf->paint[k], opacity), p.blend));
+          } else
+            surface.write(x, y,
+                          deposit(surface.read(x, y),
+                                  mul(ink, a * flow * opacity), p.blend));
         }
       if (p.wet != Wet::Off) {
         if (p.wet == Wet::Dulling)

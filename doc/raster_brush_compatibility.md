@@ -933,3 +933,171 @@ qualification are not established by these native improvements. Windows/macOS
 isolation, packaging, and the combined application lifecycle require passing
 checks at the integrated commit. Do not promote the draft or any preset to a
 reference-verified status merely because its parser or native regression passes.
+
+### Source static opacity transport
+
+Original K5341 two/three-dab captures at opacity 0, 0.25, 0.5, 0.75 and 1
+distinguish opacity-scaled state transport from fading only the final dab. With
+opacity O, the candidate transport strength is O times the existing model
+strength. Legacy foreground injection is O times color rate times the existing
+serialized-length attenuation; modern injection is O times squared color rate.
+The resulting quantized paint feeds the next dab. Static flow remains inactive
+when its source curve is disabled. These are source-profile equations; native
+opacity multiplication remains separate.
+
+An independent numerical evaluation matches all 40 captured baseline/opacity
+second/third-dab center samples within one encoded channel value (39 exactly).
+The runtime regression records the original opacity samples; importer and
+portable round-trip tests retain fractional opacity and candidate identity.
+The source comparison now enforces the existing image thresholds on all 64
+original static-opacity/static-flow cases. CI must qualify that implementation
+and complete image outputs. Opacity curves and combinations with alpha transport
+disabled, length disabled or pressure controls require separate source evidence;
+these measurements alone do not verify those combinations or full preset parity.
+
+The dedicated `wetopacitycombo` group adds 88 enforced source-image comparisons:
+half opacity with alpha transport off, length off, both off, two alternative
+pickup/color pairs, and pickup/color/both pressure controls at 0.25 and 0.75.
+Every combination runs two and three dabs for each of the four source models.
+These gates test the general candidate recurrence and must fail on a mismatch;
+they are not exploratory exceptions and do not set source-verified provenance.
+The default-circle candidate now includes hard antialiased integer diameters
+1–9 with fixed size, aspect one and angle zero. Independent analysis of the
+complete original D1/2/3/4/7/8/9 masks from the
+[reference acquisition](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41083922429/job/124159970622)
+recovered a generic forward 3×3 grid at offsets 0, 1/3 and 2/3 on both axes.
+Each subsample uses the existing measured squared-default AA equation, rounded
+up to an 8-bit coverage; the nine byte coverages are averaged and rounded up
+again. The generated integer-diameter stamp bounds clip the result. This
+explains the small-mask directional offset without fitted per-size constants or
+lookup tables. Independent numerical analysis matches every captured pixel;
+engine/import regression assertions retain the complete original masks.
+
+The same source comparison group now enforces full-image gates for this range,
+including new held-out D5/6 captures. Those gates still require execution on the
+implementation head; imported presets remain source-reference-unverified.
+Dynamic/fractional diameters, soft small masks and small rectangles are not
+admitted by this evidence. Diameters 10–15 retain their previous unsupported AA
+status: D10/12 captures show a distinct non-supersampled regime with one-byte
+asymmetries that the small-mask equation does not explain. No threshold was
+relaxed and no foreign source implementation was copied.
+
+### GIH required selection lifecycle qualification
+
+The normative GIH scope remains one-dimensional incremental/random selection;
+pressure, angular, velocity, tilt and multidimensional selectors remain excluded.
+The [GIMP format description](https://developer.gimp.org/core/standards/gih/)
+defines a textual parameter header followed by concatenated GBR records. The
+existing versioned native adapter retains the selection flag and frame order,
+rejects unsupported selectors or incomplete rank/count declarations, and does
+not mark source semantics or reference appearance as verified.
+
+Original distinct red/green/blue GIH frames now qualify import, portable reopen
+and actual native raster sampling together. Assertions cover incremental wrap,
+stroke restart, event partition, seeded random replay and seed distinction, plus
+malformed rank/count, duplicate fields, nonfinite spacing and conflicting
+selectors. This closes the earlier identical-frame test's inability to detect
+a selection regression; CI qualification remains required. These are native
+sequence checks, not evidence of Krita sequence parity.
+
+### Dulling sample-count scale correction
+
+The larger-scale acquisition exposed two existing candidate failures at diameter
+64 and radius 100 percent: the fixed 80-point kernel missed the top impulse row.
+The candidate now uses an area-scaled count, max(80, floor(0.02 × W × H + 20)),
+where W is twice the measured pickup extent and H is W minus one. This produces
+100 samples at the newly measured diameter instead of 80; accepted new-model
+samples are still clipped to the tip before normalization. Captured regression
+values now include all 56 diameter-16/64, radius-100 orthogonal impulses, in
+addition to the earlier 59 diameter-32 captures.
+
+This is a falsifiable interpolation consistent with the acquired scale data,
+not a claim that sparse captures uniquely identify the source formula. Dedicated
+count-breakpoint and fractional-bound probes must qualify it. Legacy radius
+above 100 percent remains ineligible: its larger horizontal sampling bounds are
+not yet explained, and no radius-specific special case was introduced. Full-image
+thresholds and source-unverified labels are unchanged.
+### Source brush texture acquisition boundary
+
+The older `wettexture` and `wettexture3` fixtures paint onto patterned canvas
+while `Texture/Pattern/Enabled=false`; they qualify pickup kernels, not brush
+texture masks. The separate `texturemasks` acquisition uses an original embedded
+16×16 opaque four-level grayscale PNG. Its 90 cases cover Multiply/Subtract,
+soft texturing on/off, inversion, strength 0.5/1 and half-opacity ordering, across
+Pixel and all four Color Smudge models. It records exact effective fields, checks
+the resolved original pattern and captures compact RGBA regions of the output.
+
+The [source manual](https://docs.krita.org/en/reference_manual/brushes/brush_settings/texture.html)
+distinguishes alpha texturing from color-map modes and documents soft texturing
+as a strength-dependent behavior introduced in 5.3. Serialized field names and
+mode identifiers were checked against public
+[option metadata](https://raw.githubusercontent.com/KDE/krita/master/plugins/paintops/libpaintop/KisTextureOptionData.h),
+[resource metadata](https://raw.githubusercontent.com/KDE/krita/master/plugins/paintops/libpaintop/KisEmbeddedTextureData.cpp)
+and strength option metadata; rendering code was not reused. Effective readback
+in the pinned source application remains mandatory because metadata inspection
+alone is not behavioral evidence. No source texture candidate is admitted by
+this acquisition change. Polarity, depth, ordering and carried-state interaction
+remain implementation dependencies pending those original measurements.
+
+### Pixel blend candidates and reference gate
+
+Strict K5341 Pixel candidates now admit explicit Normal, Multiply, Screen and
+Overlay settings on the existing generated-tip geometry subsets. Color Smudge
+candidates still require Normal. The source-Pixel deposition path has its own
+blend boundary, so subsequent source arithmetic corrections do not change
+native painting or wet behavior. These imports remain candidates with
+`sourceReferenceVerified=false`; implementing an equation does not establish
+foreign-engine parity.
+
+The initial candidate evaluates separable blending in straight encoded-sRGB,
+then combines premultiplied source/backdrop contributions using source-over.
+Multiply uses the channel product, Screen the complement product's complement,
+and Overlay switches at backdrop 0.5. The mathematical baseline comes from
+[W3C Compositing and Blending](https://www.w3.org/TR/compositing-1/#blending),
+with Krita's [Multiply](https://docs.krita.org/en/reference_manual/blending_modes/arithmetic.html#multiply)
+and [Screen](https://docs.krita.org/en/reference_manual/blending_modes/lighten.html#screen)
+descriptions. Krita's [Overlay prose](https://docs.krita.org/en/reference_manual/blending_modes/mix.html#overlay)
+mentions the upper color for its threshold, unlike the standard backdrop rule;
+this is an explicit evidence ambiguity for the source fixtures to resolve, not
+an assumption of agreement. No source paint/composite implementation was copied.
+
+The `pixelblend` acquisition contains 128 original cases: 80 hard-circle cases
+cover four blend modes, wash/build-up, single/overlapping dabs, independent
+opacity/flow settings and zero cases; 48 additional soft-circle, AA-circle and
+rectangle cases cover full and combined reduced opacity/flow. Eight alternating
+non-primary RGB swatches span opaque, partial and zero alpha and both sides of
+the Overlay threshold. Each source run verifies both the view's blend mode and
+the effective preset's CompositeOp. Candidate import must select the strict
+profile; the existing full-image RGBA/coverage/bounds gates are enforced for
+every case, including no-op cases. No threshold is relaxed for blending.
+
+Analytic regression assertions distinguish the blend channels, partial-alpha
+composition, source wash's original-backdrop accumulation, inactive static flow
+in build-up, zero-flow wash, and wet-profile rejection. They are mathematical
+and lifecycle checks, not reference evidence. Source byte rounding, wash alpha
+accumulation and mode semantics remain pending the new source comparison job.
+P2711 compatibility still requires independently available authorized reference
+evidence; these Pixel candidates do not establish Photoshop blend parity.
+
+### Source wet transfer control qualification
+
+The expanded original transfer acquisition establishes three separate behaviors:
+all 32 enabled/disabled identity-flow-curve cases exactly match the corresponding
+static baseline; all 16 identity-pressure-opacity cases exactly match the static
+opacity 0.25/0.75 captures; and all eight pairs of disabled-color cases are
+identical despite serialized color rates 0.25 versus 1. The comparison uses the
+captured second/third-dab RGBA samples, independently of the candidate runtime.
+
+The wet candidate now evaluates identity pressure opacity in the established
+transport/injection recurrence. A separate portable `sourceColorRateEnabled`
+flag suppresses foreground injection without erasing the retained color-rate
+setting. Identity pressure Flow mappings are retained but inactive in this
+source model; provenance also preserves the inactive curve identity and pressure
+checkbox state. Native equations and dry Pixel eligibility are unchanged.
+
+All 128 transfer cases now require candidate selection and existing source-image
+thresholds. Original captured pixel regressions and import/portable tests cover
+these controls, with rejection checks for unmeasured opacity curves or Flow
+sensors. Source-verified provenance remains false and implementation qualification
+awaits CI; constant-pressure measurements do not by themselves establish
+varying-pressure long-stroke source parity.

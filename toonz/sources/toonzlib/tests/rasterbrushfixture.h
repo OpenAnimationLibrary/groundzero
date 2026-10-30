@@ -20,7 +20,8 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
     xml += "<param name=\"" + name + "\">" + value.toHtmlEscaped() + "</param>";
   };
   param("paintop", engine);
-  param("CompositeOp", "normal");
+  param("CompositeOp",
+        mutation.startsWith("blend-") ? mutation.mid(6) : "normal");
   for (const QString &key : {"OpacityValue", "FlowValue"})
     param(key, mutation == "halfOpacity" && key == "OpacityValue" ? "0.5"
                : mutation == "zeroFlow" && key == "FlowValue"     ? "0"
@@ -42,7 +43,25 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
         "PaintOpSettings/isAirbrushing", "PaintOpSettings/ignoreSpacing",
         "PaintOpSettings/updateSpacingBetweenDabs",
         "KisPrecisionOption/AutoPrecisionEnabled"})
-    param(key, pressureSize && key == "PressureSize" ? "true" : "false");
+    param(key, (pressureSize && key == "PressureSize") ||
+                       (mutation == "wetOpacityPressure" &&
+                        key == "OpacityUseCurve") ||
+                       ((mutation == "wetFlowPressure" ||
+                         mutation == "wetFlowDisabled") &&
+                        key == "FlowUseCurve")
+                   ? "true"
+                   : "false");
+  if (mutation == "wetOpacityPressure" || mutation == "wetFlowPressure" ||
+      mutation == "wetFlowDisabled") {
+    const QString prefix =
+        mutation == "wetOpacityPressure" ? "Opacity" : "Flow";
+    param("Pressure" + prefix,
+          mutation == "wetFlowDisabled" ? "false" : "true");
+    param(prefix + "UseSameCurve", "true");
+    param(prefix + "commonCurve", "0,0;1,1;");
+    param(prefix + "Sensor",
+          "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+  }
   if (pressureSize) {
     const QString curve = mutation == "pressure"         ? "0,0;1,1;"
                           : mutation == "pressureSpline" ? "0,0;0.5,0.25;1,1;"
@@ -64,7 +83,8 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
         mutation == "wetPressure" || mutation == "radiusPressure";
     for (const QString &key :
          {"PressureColorRate", "PressureSmudgeRate", "PressureSmudgeRadius"})
-      param(key, mutation == "lengthOff" && key == "PressureSmudgeRate"
+      param(key, (mutation == "lengthOff" && key == "PressureSmudgeRate") ||
+                         (mutation == "colorOff" && key == "PressureColorRate")
                      ? "false"
                      : "true");
     for (const QString &key :
@@ -99,7 +119,16 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
     if (mutation == "soft") brush.replace("vfade=\"1\"", "vfade=\"0.5\"");
   }
   if (mutation == "rect") brush.replace("type=\"circle\"", "type=\"rect\"");
-  if (mutation == "aa")
+  if (mutation.startsWith("smallAA")) {
+    brush.replace("diameter=\"32\"", mutation == "smallAAfractional"
+                                         ? "diameter=\"4.5\""
+                                         : "diameter=\"4\"");
+    if (mutation == "smallAAsoft") {
+      brush.replace("hfade=\"1\"", "hfade=\"0.5\"");
+      brush.replace("vfade=\"1\"", "vfade=\"0.5\"");
+    }
+  }
+  if (mutation == "aa" || mutation.startsWith("smallAA"))
     brush.replace("antialiasEdges=\"0\"", "antialiasEdges=\"1\"");
   if (mutation == "attribute")
     brush.replace("<Brush ", "<Brush unknown=\"1\" ");

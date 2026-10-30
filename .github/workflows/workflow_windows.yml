@@ -318,6 +318,7 @@ jobs:
           REM Create Opentoonz directory and copy files from RelWithDebInfo
           mkdir Opentoonz
           copy /Y RelWithDebInfo\*.* Opentoonz\
+          xcopy /Y /E /I RelWithDebInfo\brush-import-runtime Opentoonz\brush-import-runtime
           xcopy /Y /E /I licenses Opentoonz\licenses
           REM Copy required DLLs for proper functionality
           copy /Y ..\..\thirdparty\glut\3.7.6\lib\glut64.dll Opentoonz
@@ -336,6 +337,10 @@ jobs:
           del /Q Opentoonz\*.pdb  REM Remove .pdb files
           del /Q Opentoonz\vc_redist.x64.exe REM Remove vc_redist.x64.exe file
           
+          REM Qualify installed brush runtime without changing its permissions
+          python ..\..\ci-scripts\brush-parser\qualify_windows_helper.py Opentoonz\brush-import-runtime
+          if errorlevel 1 exit /b 1
+
           REM Create portablestuff directory and copy stuff folder
           mkdir Opentoonz\portablestuff
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff

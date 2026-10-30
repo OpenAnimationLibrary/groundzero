@@ -71,7 +71,7 @@ if(APPLE)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_compile_definitions(rasterbrushpreset_test PRIVATE LINUX)
 endif()
-if(APPLE OR (BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
+if(APPLE OR WIN32 OR (BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
   # Sanitizer runtimes inspect process memory and spawn diagnostic helpers;
   # the production privilege boundary deliberately denies those operations.
   # Keep parser/decoder tests instrumented, and exercise the exact worker
@@ -137,4 +137,9 @@ if(APPLE)
   foreach(target rasterbrushpreset_test rasterbrushworker_test rasterbrushreference)
     target_link_libraries(${target} PRIVATE "-framework Security" "-framework CoreFoundation")
   endforeach()
+endif()
+
+if(WIN32)
+  include("${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushhelper.cmake")
+  deploy_rasterbrush_windows(rasterbrushworker_test ${BRUSH_QT_MAJOR} "brush-worker-test-runtime")
 endif()

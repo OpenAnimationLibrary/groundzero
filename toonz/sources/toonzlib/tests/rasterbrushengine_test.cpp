@@ -830,6 +830,136 @@ void testNativeWetAnalyticalDrift() {
               "cancelled native wet stroke retained field memory");
     }
 }
+void testSourceWetOpacityTransport() {
+  // Original K5341 straight RGBA8 captures, two/three separated dabs over
+  // opaque blue then half-alpha red. The third dab distinguishes carried
+  // opacity-scaled feedback from merely fading the displayed second dab.
+  const int captured[3][4][2][4] = {
+      {{{255, 0, 0, 128}, {255, 0, 0, 128}},
+       {{199, 2, 55, 144}, {246, 2, 7, 130}},
+       {{153, 6, 95, 160}, {220, 9, 26, 137}},
+       {{116, 13, 126, 176}, {184, 21, 51, 149}}},
+      {{{255, 0, 0, 128}, {255, 0, 0, 128}},
+       {{193, 7, 55, 146}, {239, 9, 7, 132}},
+       {{146, 12, 97, 163}, {210, 18, 27, 140}},
+       {{108, 17, 130, 179}, {173, 27, 55, 152}}},
+      {{{255, 0, 0, 128}, {255, 0, 0, 128}},
+       {{203, 7, 45, 142}, {242, 8, 5, 131}},
+       {{162, 13, 80, 157}, {220, 18, 18, 138}},
+       {{128, 18, 109, 170}, {192, 27, 36, 146}}}};
+  for (const auto &model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
+    const std::string name = model;
+    const int group = name == "new-smear" ? 1 : name == "new-dulling" ? 2 : 0;
+    for (int level = 0; level < 4; ++level) {
+      for (bool pressure : {false, true}) {
+        if (pressure && level != 1 && level != 3) continue;
+        Canvas canvas;
+        for (int y = 0; y < canvas.h; ++y)
+          for (int x = 0; x < canvas.w; ++x)
+            canvas.write(x, y,
+                         x < 40 ? Pixel{0, 0, 1, 1}
+                                : Pixel{128 / 255.0, 0, 0, 128 / 255.0});
+        const Canvas original = canvas;
+        Preset p;
+        p.profile = "krita-5.3.4.1-" + name + "-candidate-1";
+        p.wet     = name.find("dulling") != std::string::npos ? Wet::Dulling
+                                                              : Wet::Smear;
+        p.tip.antialiasEdges = false;
+        p.size.value         = 8;
+        p.spacing            = 5;
+        p.smudgeRadius       = 0;
+        p.color              = {0, 1, 0, 1};
+        p.opacity.value      = pressure ? 1 : level / 4.0;
+        if (pressure)
+          p.opacity.mappings = {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}};
+        Stroke stroke(canvas, p);
+        require(stroke.add(sample(10, 64, 0, pressure ? level / 4.0 : 1)),
+                stroke.error().c_str());
+        require(same(canvas, original),
+                "translucent source wet first dab painted");
+        require(stroke.add(sample(91, 64, 1, pressure ? level / 4.0 : 1)),
+                stroke.error().c_str());
+        require(stroke.dabCount() == 3,
+                "source opacity fixture dab count changed");
+        for (int dab = 0; dab < 2; ++dab) {
+          const Pixel actual  = canvas.read(50 + dab * 40, 64);
+          const int *expected = captured[group][level][dab];
+          require(
+              actual.a > 0 &&
+                  std::abs(actual.a * 255 - expected[3]) <= 1.000001 &&
+                  std::abs(actual.r / actual.a * 255 - expected[0]) <=
+                      1.000001 &&
+                  std::abs(actual.g / actual.a * 255 - expected[1]) <=
+                      1.000001 &&
+                  std::abs(actual.b / actual.a * 255 - expected[2]) <= 1.000001,
+              "source opacity transport differs from captured second/third "
+              "dab");
+        }
+        if (level == 0)
+          require(same(canvas, original), "zero source opacity painted");
+        stroke.finish();
+      }
+    }
+  }
+}
+void testSourceWetDisabledControls() {
+  const int captured[3][2][2][4] = {
+      {{{85, 0, 170, 192}, {153, 0, 102, 160}},
+       {{85, 21, 149, 192}, {143, 36, 76, 164}}},
+      {{{85, 0, 170, 192}, {153, 0, 102, 160}},
+       {{78, 21, 156, 195}, {134, 36, 85, 168}}},
+      {{{110, 0, 145, 179}, {185, 0, 70, 148}},
+       {{100, 22, 133, 184}, {161, 36, 58, 157}}}};
+  for (const std::string model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
+    const int group = model == "new-smear" ? 1 : model == "new-dulling" ? 2 : 0;
+    for (bool colorEnabled : {false, true})
+      for (double value : {.25, .75}) {
+        Canvas canvas;
+        for (int y = 0; y < canvas.h; ++y)
+          for (int x = 0; x < canvas.w; ++x)
+            canvas.write(x, y,
+                         x < 40 ? Pixel{0, 0, 1, 1}
+                                : Pixel{128 / 255.0, 0, 0, 128 / 255.0});
+        Preset p;
+        p.profile = "krita-5.3.4.1-" + model + "-candidate-1";
+        p.wet     = model.find("dulling") != std::string::npos ? Wet::Dulling
+                                                               : Wet::Smear;
+        p.tip.antialiasEdges     = false;
+        p.size.value             = 8;
+        p.spacing                = 5;
+        p.smudgeRadius           = 0;
+        p.color                  = {0, 1, 0, 1};
+        p.sourceColorRateEnabled = colorEnabled;
+        p.colorRate              = colorEnabled || value == .25 ? .25 : 1;
+        if (colorEnabled)
+          p.flow.mappings = {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}};
+        Stroke stroke(canvas, p);
+        require(stroke.add(sample(10, 64, 0, value)) &&
+                    stroke.add(sample(91, 64, 1, value)),
+                stroke.error().c_str());
+        for (int dab = 0; dab < 2; ++dab) {
+          const auto pixel    = canvas.read(50 + dab * 40, 64);
+          const int *expected = captured[group][colorEnabled ? 1 : 0][dab];
+          require(
+              pixel.a > 0 &&
+                  std::abs(pixel.a * 255 - expected[3]) <= 1.000001 &&
+                  std::abs(pixel.r / pixel.a * 255 - expected[0]) <= 1.000001 &&
+                  std::abs(pixel.g / pixel.a * 255 - expected[1]) <= 1.000001 &&
+                  std::abs(pixel.b / pixel.a * 255 - expected[2]) <= 1.000001,
+              "disabled color or inactive flow changed captured source wet "
+              "state");
+        }
+        stroke.finish();
+        p.opacity.mappings = {{Sensor::Pressure, {{0, .25}, {1, .75}}, 1}};
+        require(!validate(p).empty(), "unmeasured wet opacity curve admitted");
+        p.opacity.mappings.clear();
+        p.flow.mappings = {{Sensor::TiltX, {{0, 0}, {1, 1}}, 1}};
+        require(!validate(p).empty(), "unmeasured wet flow sensor admitted");
+      }
+  }
+}
 void testSourceWetInitialization() {
   for (const auto &model :
        {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
@@ -1027,62 +1157,153 @@ void testSourceDullingRadiusImpulses() {
   struct Case {
     bool modern, row;
     int radius, offset, value, alpha;
+    int diameter = 32;
   };
-  const Case captured[] = {
-      {false, false, 50, -8, 6, 255},   {false, false, 50, -4, 16, 255},
-      {false, false, 50, 0, 16, 255},   {false, false, 50, 4, 16, 255},
-      {false, false, 50, 8, 6, 255},    {false, false, 100, -16, 3, 255},
-      {false, false, 100, -8, 10, 255}, {false, false, 100, -4, 10, 255},
-      {false, false, 100, 0, 10, 255},  {false, false, 100, 4, 10, 255},
-      {false, false, 100, 8, 10, 255},  {false, false, 100, 16, 3, 255},
-      {false, true, 50, -16, 0, 255},   {false, true, 50, -8, 6, 255},
-      {false, true, 50, -4, 19, 255},   {false, true, 50, 0, 16, 255},
-      {false, true, 50, 4, 16, 255},    {false, true, 50, 8, 0, 255},
-      {false, true, 50, 16, 0, 255},    {false, true, 100, -16, 3, 255},
-      {false, true, 100, -8, 10, 255},  {false, true, 100, -4, 6, 255},
-      {false, true, 100, 0, 10, 255},   {false, true, 100, 4, 10, 255},
-      {false, true, 100, 8, 10, 255},   {false, true, 100, 16, 0, 255},
-      {true, false, 50, -8, 6, 204},    {true, false, 50, -4, 16, 204},
-      {true, false, 50, 0, 16, 204},    {true, false, 50, 4, 16, 204},
-      {true, false, 50, 8, 6, 204},     {true, false, 100, -16, 0, 204},
-      {true, false, 100, -8, 12, 204},  {true, false, 100, -4, 12, 204},
-      {true, false, 100, 0, 12, 204},   {true, false, 100, 4, 12, 204},
-      {true, false, 100, 8, 12, 204},   {true, false, 100, 16, 0, 204},
-      {true, false, 300, -16, 0, 204},  {true, false, 300, -8, 12, 204},
-      {true, false, 300, -4, 12, 204},  {true, false, 300, 0, 12, 204},
-      {true, false, 300, 4, 12, 204},   {true, false, 300, 8, 12, 204},
-      {true, false, 300, 16, 0, 204},   {true, true, 50, -16, 0, 204},
-      {true, true, 50, -8, 6, 204},     {true, true, 50, -4, 19, 204},
-      {true, true, 50, 0, 16, 204},     {true, true, 50, 4, 16, 204},
-      {true, true, 50, 8, 0, 204},      {true, true, 50, 16, 0, 204},
-      {true, true, 100, -16, 0, 204},   {true, true, 100, -8, 12, 204},
-      {true, true, 100, -4, 4, 204},    {true, true, 100, 0, 12, 204},
-      {true, true, 100, 4, 12, 204},    {true, true, 100, 8, 8, 204},
-      {true, true, 100, 16, 0, 204}};
+  const Case captured[] = {{false, false, 50, -8, 6, 255},
+                           {false, false, 50, -4, 16, 255},
+                           {false, false, 50, 0, 16, 255},
+                           {false, false, 50, 4, 16, 255},
+                           {false, false, 50, 8, 6, 255},
+                           {false, false, 100, -16, 3, 255},
+                           {false, false, 100, -8, 10, 255},
+                           {false, false, 100, -4, 10, 255},
+                           {false, false, 100, 0, 10, 255},
+                           {false, false, 100, 4, 10, 255},
+                           {false, false, 100, 8, 10, 255},
+                           {false, false, 100, 16, 3, 255},
+                           {false, true, 50, -16, 0, 255},
+                           {false, true, 50, -8, 6, 255},
+                           {false, true, 50, -4, 19, 255},
+                           {false, true, 50, 0, 16, 255},
+                           {false, true, 50, 4, 16, 255},
+                           {false, true, 50, 8, 0, 255},
+                           {false, true, 50, 16, 0, 255},
+                           {false, true, 100, -16, 3, 255},
+                           {false, true, 100, -8, 10, 255},
+                           {false, true, 100, -4, 6, 255},
+                           {false, true, 100, 0, 10, 255},
+                           {false, true, 100, 4, 10, 255},
+                           {false, true, 100, 8, 10, 255},
+                           {false, true, 100, 16, 0, 255},
+                           {true, false, 50, -8, 6, 204},
+                           {true, false, 50, -4, 16, 204},
+                           {true, false, 50, 0, 16, 204},
+                           {true, false, 50, 4, 16, 204},
+                           {true, false, 50, 8, 6, 204},
+                           {true, false, 100, -16, 0, 204},
+                           {true, false, 100, -8, 12, 204},
+                           {true, false, 100, -4, 12, 204},
+                           {true, false, 100, 0, 12, 204},
+                           {true, false, 100, 4, 12, 204},
+                           {true, false, 100, 8, 12, 204},
+                           {true, false, 100, 16, 0, 204},
+                           {true, false, 300, -16, 0, 204},
+                           {true, false, 300, -8, 12, 204},
+                           {true, false, 300, -4, 12, 204},
+                           {true, false, 300, 0, 12, 204},
+                           {true, false, 300, 4, 12, 204},
+                           {true, false, 300, 8, 12, 204},
+                           {true, false, 300, 16, 0, 204},
+                           {true, true, 50, -16, 0, 204},
+                           {true, true, 50, -8, 6, 204},
+                           {true, true, 50, -4, 19, 204},
+                           {true, true, 50, 0, 16, 204},
+                           {true, true, 50, 4, 16, 204},
+                           {true, true, 50, 8, 0, 204},
+                           {true, true, 50, 16, 0, 204},
+                           {true, true, 100, -16, 0, 204},
+                           {true, true, 100, -8, 12, 204},
+                           {true, true, 100, -4, 4, 204},
+                           {true, true, 100, 0, 12, 204},
+                           {true, true, 100, 4, 12, 204},
+                           {true, true, 100, 8, 8, 204},
+                           {true, true, 100, 16, 0, 204},
+                           {false, false, 100, -9, 0, 255, 16},
+                           {false, false, 100, -8, 6, 255, 16},
+                           {false, false, 100, -4, 16, 255, 16},
+                           {false, false, 100, 0, 16, 255, 16},
+                           {false, false, 100, 4, 16, 255, 16},
+                           {false, false, 100, 8, 6, 255, 16},
+                           {false, false, 100, 9, 0, 255, 16},
+                           {false, true, 100, -9, 0, 255, 16},
+                           {false, true, 100, -8, 6, 255, 16},
+                           {false, true, 100, -4, 19, 255, 16},
+                           {false, true, 100, 0, 16, 255, 16},
+                           {false, true, 100, 4, 16, 255, 16},
+                           {false, true, 100, 8, 0, 255, 16},
+                           {false, true, 100, 9, 0, 255, 16},
+                           {false, false, 100, -33, 0, 255, 64},
+                           {false, false, 100, -32, 0, 255, 64},
+                           {false, false, 100, -16, 3, 255, 64},
+                           {false, false, 100, 0, 3, 255, 64},
+                           {false, false, 100, 16, 3, 255, 64},
+                           {false, false, 100, 32, 0, 255, 64},
+                           {false, false, 100, 33, 0, 255, 64},
+                           {false, true, 100, -33, 0, 255, 64},
+                           {false, true, 100, -32, 3, 255, 64},
+                           {false, true, 100, -16, 5, 255, 64},
+                           {false, true, 100, 0, 3, 255, 64},
+                           {false, true, 100, 16, 3, 255, 64},
+                           {false, true, 100, 32, 0, 255, 64},
+                           {false, true, 100, 33, 0, 255, 64},
+                           {true, false, 100, -9, 0, 204, 16},
+                           {true, false, 100, -8, 0, 204, 16},
+                           {true, false, 100, -4, 20, 204, 16},
+                           {true, false, 100, 0, 20, 204, 16},
+                           {true, false, 100, 4, 20, 204, 16},
+                           {true, false, 100, 8, 0, 204, 16},
+                           {true, false, 100, 9, 0, 204, 16},
+                           {true, true, 100, -9, 0, 204, 16},
+                           {true, true, 100, -8, 4, 204, 16},
+                           {true, true, 100, -4, 24, 204, 16},
+                           {true, true, 100, 0, 20, 204, 16},
+                           {true, true, 100, 4, 16, 204, 16},
+                           {true, true, 100, 8, 0, 204, 16},
+                           {true, true, 100, 9, 0, 204, 16},
+                           {true, false, 100, -33, 0, 204, 64},
+                           {true, false, 100, -32, 0, 204, 64},
+                           {true, false, 100, -16, 3, 204, 64},
+                           {true, false, 100, 0, 3, 204, 64},
+                           {true, false, 100, 16, 3, 204, 64},
+                           {true, false, 100, 32, 0, 204, 64},
+                           {true, false, 100, 33, 0, 204, 64},
+                           {true, true, 100, -33, 0, 204, 64},
+                           {true, true, 100, -32, 3, 204, 64},
+                           {true, true, 100, -16, 3, 204, 64},
+                           {true, true, 100, 0, 3, 204, 64},
+                           {true, true, 100, 16, 3, 204, 64},
+                           {true, true, 100, 32, 0, 204, 64},
+                           {true, true, 100, 33, 0, 204, 64}};
   for (const auto &fixture : captured) {
     Preset p;
     p.profile    = fixture.modern ? "krita-5.3.4.1-new-dulling-candidate-1"
                                   : "krita-5.3.4.1-legacy-dulling-candidate-1";
     p.wet        = Wet::Dulling;
-    p.size.value = 32;
+    p.size.value = fixture.diameter;
     p.spacing    = 2;
     p.tip.antialiasEdges = false;
     p.pickup             = 1;
     p.colorRate          = 0;
     p.smudgeRadius       = fixture.radius / 100.0;
     require(validate(p).empty(), "source Dulling fixture rejected");
-    Canvas canvas;
+    struct FullCoverageCanvas : Canvas {
+      double coverage(int, int) const override { return 1; }
+    } canvas;
+    canvas.w = 512;
+    canvas.h = 256;
+    canvas.pixels.assign(size_t(canvas.w) * canvas.h, Pixel{});
     for (int y = 0; y < canvas.h; ++y)
-      for (int x = 0; x < 64; ++x) {
+      for (int x = 0; x < 128 + fixture.diameter; ++x) {
         const double white =
-            fixture.row ? y == 64 + fixture.offset : x == 32 + fixture.offset;
+            fixture.row ? y == 128 + fixture.offset : x == 128 + fixture.offset;
         canvas.write(x, y, {white, white, white, 1});
       }
     Stroke stroke(canvas, p);
-    require(stroke.add(sample(32, 64, 0)), stroke.error().c_str());
-    require(stroke.add(sample(97, 64, 1)), stroke.error().c_str());
+    require(stroke.add(sample(128, 128, 0)), stroke.error().c_str());
+    require(stroke.add(sample(129 + 2 * fixture.diameter, 128, 1)),
+            stroke.error().c_str());
     stroke.finish();
-    const Pixel pixel = canvas.read(96, 64);
+    const Pixel pixel = canvas.read(128 + 2 * fixture.diameter, 128);
     require(std::abs(pixel.a * 255 - fixture.alpha) < 1e-9 &&
                 std::abs(pixel.r / pixel.a * 255 - fixture.value) < 1e-9 &&
                 pixel.r == pixel.g && pixel.g == pixel.b,
@@ -1175,6 +1396,136 @@ void testSourceSmallCircle() {
   for (const auto &pixel : captured)
     require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) < 1e-9,
             "small-circle fade or scalar quantization differs from source");
+}
+void testSourceSmallHardCircleAA() {
+  // Complete original source masks from integer-position single-dab captures.
+  // D5/6 are held out for the source application's full-image CI comparison.
+  struct Capture {
+    int diameter;
+    std::vector<int> alpha;
+  };
+  const Capture captures[] = {
+      {1, {78}},
+      {2, {115, 194, 37, 70}},
+      {3, {69, 98, 10, 210, 240, 74, 133, 174, 29}},
+      {4,
+       {30, 171, 196, 75, 97, 246, 254, 174, 59, 213, 232, 121, 0, 46, 64, 8}},
+      {7, {0,   22,  76,  87,  41,  2,   0,   38,  170, 236, 244, 200, 82,
+           0,   140, 247, 255, 255, 254, 193, 28,  195, 255, 255, 255, 255,
+           235, 62,  165, 253, 255, 255, 255, 213, 42,  71,  208, 252, 255,
+           231, 125, 5,   3,   62,  145, 161, 94,  13,  0}},
+      {8, {0,   15,  101, 177, 192, 132, 37,  0,   7,   128, 232, 255, 255,
+           246, 174, 32,  54,  218, 255, 255, 255, 255, 243, 113, 88,  246,
+           255, 255, 255, 255, 255, 164, 70,  233, 255, 255, 255, 255, 251,
+           136, 19,  166, 248, 255, 255, 254, 206, 58,  0,   43,  158, 223,
+           233, 187, 82,  3,   0,   0,   12,  49,  59,  24,  0,   0}},
+      {9, {0,   1,   32,  76,  85,  48,  6,   0,   0,   4,   86,  192, 239, 246,
+           214, 126, 18,  0,   64,  208, 254, 255, 255, 255, 234, 119, 4,   150,
+           252, 255, 255, 255, 255, 255, 203, 32,  195, 255, 255, 255, 255, 255,
+           255, 236, 60,  170, 255, 255, 255, 255, 255, 255, 219, 44,  95,  231,
+           255, 255, 255, 255, 248, 153, 10,  15,  134, 227, 254, 255, 242, 174,
+           45,  0,   0,   12,  80,  147, 161, 105, 30,  0,   0}}};
+  Preset p;
+  p.profile            = "krita-5.3.4.1-default-circle-candidate-1";
+  p.tip.antialiasEdges = true;
+  for (const auto &capture : captures) {
+    p.size.value = capture.diameter;
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+    stroke.finish();
+    const int left = 64 - capture.diameter / 2;
+    const int top  = int(std::floor(64 - capture.diameter / 2.0));
+    for (int y = 0; y < canvas.h; ++y)
+      for (int x = 0; x < canvas.w; ++x) {
+        const int expected =
+            x >= left && x < left + capture.diameter && y >= top &&
+                    y < top + capture.diameter
+                ? capture.alpha[(y - top) * capture.diameter + x - left]
+                : 0;
+        require(std::abs(canvas.read(x, y).a * 255 - expected) < 1e-9,
+                "small hard-AA complete source mask differs");
+      }
+  }
+  for (double size : {4.5, 10.0, 12.0}) {
+    p.size.value = size;
+    require(!validate(p).empty(), "unmeasured small-AA size accepted");
+  }
+  p.size.value   = 4;
+  p.tip.hardness = .5;
+  require(!validate(p).empty(), "unmeasured small-AA fade accepted");
+  p.tip.hardness  = 1;
+  p.size.mappings = {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}};
+  require(!validate(p).empty(), "dynamic small-AA size accepted");
+}
+void testSourcePixelBlendCandidates() {
+  // Analytic encoded-sRGB Porter-Duff/separable blend examples, not source
+  // oracle pixels. Source rounding and accumulation are gated separately by
+  // the original pixelblend application captures.
+  struct Case {
+    Blend mode;
+    Pixel half, opaque;
+  };
+  const Case cases[] = {
+      {Blend::Normal, {.4625, .2875, .325, .75}, {.525, .475, .45, 1}},
+      {Blend::Multiply, {.3125, .275, .275, .75}, {.225, .45, .35, 1}},
+      {Blend::Screen, {.475, .4375, .4, .75}, {.55, .775, .6, 1}},
+      {Blend::Overlay, {.3625, .3875, .325, .75}, {.325, .675, .45, 1}}};
+  auto equal = [](Pixel a, Pixel b) {
+    return std::abs(a.r - b.r) < 1e-12 && std::abs(a.g - b.g) < 1e-12 &&
+           std::abs(a.b - b.b) < 1e-12 && std::abs(a.a - b.a) < 1e-12;
+  };
+  for (const auto &entry : cases) {
+    for (double alpha : {0.0, .5, 1.0}) {
+      const Pixel base{.25 * alpha, .75 * alpha, .5 * alpha, alpha};
+      const Pixel expected = alpha == 0    ? Pixel{.4, .1, .2, .5}
+                             : alpha == .5 ? entry.half
+                                           : entry.opaque;
+      Preset p;
+      p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.color         = {.8, .2, .4, 1};
+      p.size.value    = 16;
+      p.spacing       = .125;
+      p.opacity.value = .5;
+      p.flow.value = 0;  // Fixed source build-up ignores inactive static flow.
+      p.blend      = entry.mode;
+      Canvas build;
+      for (auto &pixel : build.pixels) pixel = base;
+      Stroke first(build, p);
+      require(first.add(sample(32, 32, 0)), first.error().c_str());
+      require(equal(build.read(32, 32), expected),
+              "source blend analytic alpha case");
+      p.wash       = true;
+      p.flow.value = .25;
+      Canvas wash;
+      for (auto &pixel : wash.pixels) pixel = base;
+      Stroke accumulated(wash, p);
+      require(accumulated.add(sample(32, 32, 0)), accumulated.error().c_str());
+      require(accumulated.add(sample(34.5, 32, 1)),
+              accumulated.error().c_str());
+      // Two .25-flow stamps: stroke-buffer alpha .4375, then .5 opacity.
+      // The blend is applied once against the stroke's original backdrop.
+      const Pixel twice{base.r + .4375 * (expected.r - base.r),
+                        base.g + .4375 * (expected.g - base.g),
+                        base.b + .4375 * (expected.b - base.b),
+                        base.a + .4375 * (expected.a - base.a)};
+      require(equal(wash.read(32, 32), twice),
+              "source wash blended against changing backdrop");
+      p.flow.value = 0;
+      Canvas empty;
+      for (auto &pixel : empty.pixels) pixel = base;
+      Stroke zero(empty, p);
+      require(zero.add(sample(32, 32, 0)), zero.error().c_str());
+      require(equal(empty.read(32, 32), base),
+              "zero-flow source wash changed backdrop");
+    }
+    Preset wet;
+    wet.profile = "krita-5.3.4.1-legacy-dulling-candidate-1";
+    wet.wet     = Wet::Dulling;
+    wet.blend   = entry.mode;
+    require(validate(wet).empty() == (entry.mode == Blend::Normal),
+            "Pixel blend contract changed source wet eligibility");
+  }
 }
 void testSourceHardCircleAA() {
   Preset p;
@@ -1426,8 +1777,12 @@ int main() {
     testSourceWashLattice();
     testSourceSmallCircle();
     testSourceHardCircleAA();
+    testSourcePixelBlendCandidates();
+    testSourceSmallHardCircleAA();
     testSourceRectangle();
     testSourceWetInitialization();
+    testSourceWetOpacityTransport();
+    testSourceWetDisabledControls();
     testLongWetTrace();
     testNativeWetAnalyticalDrift();
   } catch (const std::exception &e) {

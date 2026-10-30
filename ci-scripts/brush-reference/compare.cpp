@@ -279,6 +279,16 @@ int main(int argc, char **argv) {
       initial = stripInitial;
       if (source["background"].toString() == "transparent")
         initial.fill(Qt::transparent);
+      if (source["background"].toString() == "blend-stripes") {
+        const QRgb swatches[] = {
+            qRgba(32, 160, 224, 255),  qRgba(192, 64, 96, 128),
+            qRgba(128, 128, 128, 255), qRgba(224, 192, 32, 64),
+            qRgba(64, 224, 160, 255),  qRgba(160, 32, 224, 192),
+            qRgba(0, 0, 0, 0),         qRgba(255, 255, 255, 255)};
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(x, y, swatches[(x / 8) % 8]);
+      }
       if (source["background"].toString() == "wet-halves")
         for (int y = 0; y < initial.height(); ++y)
           for (int x = 0; x < initial.width(); ++x)
@@ -337,6 +347,9 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "pixelshape" ||
           fixtures["group"].toString() == "pixelprecision" ||
           fixtures["group"].toString() == "pixelcurves" ||
+          (fixtures["group"].toString() == "pixelblend" &&
+           p.tip.shape == Shape::Round && p.tip.hardness == 1 &&
+           !p.tip.antialiasEdges) ||
           (fixtures["group"].toString() == "geometry" &&
            name.endsWith("antialias 0"));
       if (sourceHard)
@@ -344,6 +357,9 @@ int main(int argc, char **argv) {
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
       const bool sourceSoft =
+          (fixtures["group"].toString() == "pixelblend" &&
+           (p.tip.shape == Shape::Square || p.tip.hardness < 1 ||
+            p.tip.antialiasEdges)) ||
           ((fixtures["group"].toString() == "pixelsoft" ||
             fixtures["group"].toString() == "pixelsoftsize" ||
             fixtures["group"].toString() == "pixelrectsize") &&
@@ -352,7 +368,9 @@ int main(int argc, char **argv) {
              (p.tip.hardness < 1 || p.tip.antialiasEdges)))) ||
           ((fixtures["group"].toString() == "geometry" ||
             fixtures["group"].toString() == "pixelaarange") &&
-           p.tip.antialiasEdges && source["diameter"].toDouble() >= 16);
+           p.tip.antialiasEdges &&
+           (source["diameter"].toDouble() >= 16 ||
+            source["diameter"].toDouble() < 10));
       if (sourceSoft)
         require(p.profile == (p.tip.shape == Shape::Square
                                   ? "krita-5.3.4.1-default-rect-candidate-1"
@@ -360,6 +378,20 @@ int main(int argc, char **argv) {
                 "Strict source default-mask eligibility did not select "
                 "candidate: " +
                     name);
+      const bool kernelCount = fixtures["group"].toString() == "wetkernelcount";
+      const double kernelDiameter = source["diameter"].toDouble();
+      const double kernelRadius = source["overrides"]
+                                      .toObject()["SmudgeRadiusValue"]
+                                      .toString()
+                                      .toDouble();
+      const bool kernelCountGate =
+          kernelCount && kernelDiameter == std::floor(kernelDiameter) &&
+          (name.contains("dulling new") || kernelRadius <= 100);
+      if (kernelCount)
+        require(
+            source["sourceCandidateGate"].isBool() &&
+                source["sourceCandidateGate"].toBool() == kernelCountGate,
+            "Kernel probe qualification metadata disagrees with eligibility");
       const bool sourceWet =
           (fixtures["group"].toString() == "wetsteps" ||
            fixtures["group"].toString() == "wethold" ||
@@ -367,10 +399,8 @@ int main(int argc, char **argv) {
            fixtures["group"].toString() == "wetswitches" ||
            fixtures["group"].toString() == "wetcombined" ||
            fixtures["group"].toString() == "wetpressure" ||
-           (fixtures["group"].toString() == "wettransfer" &&
-            source["wetTransferProbe"].toString("static-flow") ==
-                "static-flow" &&
-            source["opacity"].toDouble() == 1) ||
+           fixtures["group"].toString() == "wetopacitycombo" ||
+           kernelCountGate || fixtures["group"].toString() == "wettransfer" ||
            ((fixtures["group"].toString() == "wetkernel" ||
              fixtures["group"].toString() == "wetkernelscale" ||
              fixtures["group"].toString() == "wettexture" ||

@@ -35,6 +35,14 @@
 #include <QDir>
 #include <QFile>
 #include <QKeyEvent>
+#include <QMouseEvent>
+#include <QTabletEvent>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QPointingDevice>
+#endif
+#include <QPushButton>
+#include <QMessageBox>
+#include <QFileDialog>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -104,7 +112,7 @@ void tap(TTool *tool) {
   settle();
 }
 void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
-          double rotation = .4) {
+          double rotation = .4, bool uprightReturn = false) {
   require(tool->preLeftButtonDown(), "brush refused prepared raster");
   TMouseEvent event;
   event.m_button   = Qt::LeftButton;
@@ -114,9 +122,18 @@ void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
   event.m_tilt     = TPointD(tiltX, -.3);
   event.m_hasTilt = event.m_hasRotation = true;
   event.m_rotation                      = rotation;
+  if (uprightReturn) {
+    event.m_tilt    = TPointD();
+    event.m_hasTilt = false;
+  }
   tool->leftButtonDown(TPointD(-30, 0), event);
-  for (int i = 1; i <= 20; ++i)
+  for (int i = 1; i <= 20; ++i) {
+    if (uprightReturn) {
+      event.m_tilt    = i < 10 ? TPointD(.8, 0) : TPointD();
+      event.m_hasTilt = i < 10;
+    }
     tool->leftButtonDrag(TPointD(-30 + 3 * i, 0), event);
+  }
   if (cancel) {
     QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     require(tool->keyDown(&escape), "native stroke did not handle Escape");
@@ -184,6 +201,202 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             "native brush selection failed");
     auto undo = TUndoManager::manager();
     undo->reset();
+    checkpoint("qualifying native editor scratchpad isolation and cancel");
+    {
+      const auto baseline = raster(level, 1)->clone();
+      bool editorSeen = false, scratchQualified = false;
+      QTimer::singleShot(0, [&]() {
+        auto dialog =
+            qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        editorSeen   = dialog->objectName() == "nativeBrushEditor";
+        auto preview = dialog->findChild<QWidget *>("nativeBrushScratchpad");
+        auto clear =
+            dialog->findChild<QPushButton *>("nativeBrushClearScratchpad");
+        auto demo = dialog->findChild<QPushButton *>("nativeBrushSampleStroke");
+        if (preview && clear && demo) {
+          clear->click();
+          const auto blank = preview->grab().toImage();
+          QMouseEvent press(QEvent::MouseButtonPress, QPointF(40, 70),
+                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+          QApplication::sendEvent(preview, &press);
+          QMouseEvent move(QEvent::MouseMove, QPointF(240, 70), Qt::NoButton,
+                           Qt::LeftButton, Qt::NoModifier);
+          QApplication::sendEvent(preview, &move);
+          QMouseEvent release(QEvent::MouseButtonRelease, QPointF(240, 70),
+                              Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+          QApplication::sendEvent(preview, &release);
+          const auto painted = preview->grab().toImage();
+          clear->click();
+          const bool erased = preview->grab().toImage() == blank;
+          demo->click();
+          scratchQualified =
+              painted != blank && erased && preview->grab().toImage() != blank;
+        }
+        dialog->reject();
+      });
+      property->setValue(L"<edit>");
+      require(tool->onPropertyChanged("Native Brush:") && editorSeen &&
+                  scratchQualified,
+              "native editor scratchpad did not paint, clear and regenerate");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled native editor scratchpad changed document or undo");
+    }
+    checkpoint(
+        "qualifying scratchpad tablet pressure and elapsed-time dynamics");
+    {
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original scratchpad time and pressure fixture";
+      fixture.preset.opacity.mappings.push_back(
+          {RasterBrush::Sensor::Time, {{0, 0}, {.05, 0}, {.06, 1}, {1, 1}}, 1});
+      fixture.preset.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString path = RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !path.isEmpty(),
+              "cannot install tablet scratchpad fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select scratchpad time fixture");
+      const auto baseline = raster(level, 1)->clone();
+      bool qualified      = false;
+      QTimer::singleShot(0, [&]() {
+        auto dialog =
+            qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto preview = dialog->findChild<QWidget *>("nativeBrushScratchpad");
+        auto clear =
+            dialog->findChild<QPushButton *>("nativeBrushClearScratchpad");
+        if (preview && clear) {
+          clear->click();
+          const auto blank = preview->grab().toImage();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+          QPointingDevice device("Original tablet fixture", 1,
+                                 QInputDevice::DeviceType::Stylus,
+                                 QPointingDevice::PointerType::Pen,
+                                 QInputDevice::Capability::Position |
+                                     QInputDevice::Capability::Pressure |
+                                     QInputDevice::Capability::XTilt |
+                                     QInputDevice::Capability::YTilt |
+                                     QInputDevice::Capability::Rotation,
+                                 1, 1);
+#endif
+          auto sendTablet = [&](QEvent::Type type, double x, double pressure,
+                                int tilt) {
+            const auto button =
+                type == QEvent::TabletMove ? Qt::NoButton : Qt::LeftButton;
+            const Qt::MouseButtons buttons =
+                type == QEvent::TabletRelease ? Qt::NoButton : Qt::LeftButton;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            QTabletEvent event(type, &device, QPointF(x, 70), QPointF(x, 70),
+                               pressure, tilt, 0, 0, 0, 0, Qt::NoModifier,
+                               button, buttons);
+#else
+            QTabletEvent event(type, QPointF(x, 70), QPointF(x, 70), QTabletEvent::RotationStylus,
+                               QTabletEvent::Pen, pressure, tilt, 0, 0, 0, 0,
+                               Qt::NoModifier, 1, button, buttons);
+#endif
+            QApplication::sendEvent(preview, &event);
+          };
+          sendTablet(QEvent::TabletPress, 40, 0, 0);
+          QEventLoop elapsed;
+          QTimer::singleShot(100, &elapsed, &QEventLoop::quit);
+          elapsed.exec();
+          sendTablet(QEvent::TabletMove, 140, 1, 20);
+          sendTablet(QEvent::TabletMove, 240, 1, 0);
+          sendTablet(QEvent::TabletRelease, 240, 0, 0);
+          qualified = preview->grab().toImage() != blank;
+        }
+        dialog->reject();
+      });
+      property->setValue(L"<edit>");
+      require(
+          tool->onPropertyChanged("Native Brush:") && qualified,
+          "tablet scratchpad replaced elapsed time with an event-count clock");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "tablet scratchpad changed document or undo");
+    }
+    checkpoint("qualifying explicit approximation acceptance and rejection");
+    {
+      const QString sourcePath =
+          QDir::current().filePath("original-ui-acceptance.gzbrush");
+      QFile source(sourcePath);
+      RasterBrush::Record importedFixture;
+      importedFixture.preset.name =
+          "Original diagnostic-free conversion fixture";
+      importedFixture.provenance["sourceSha256"] = QString(64, 'a');
+      const auto bytes                           = RasterBrush::encodePortable(
+          importedFixture, RasterBrush::ResourcePackaging::ManifestOnly,
+          importError);
+      require(importError.isEmpty() && importedFixture.diagnostics.empty(),
+              "cannot encode diagnostic-free conversion fixture");
+      require(source.open(QIODevice::WriteOnly) &&
+                  source.write(bytes) == bytes.size(),
+              "cannot stage approximation acceptance fixture");
+      source.close();
+      const auto baseline = raster(level, 1)->clone();
+      const QDir library(ToonzFolder::getLibraryFolder().getQString() +
+                         "/rasterbrushes");
+      for (bool acceptImport : {false, true}) {
+        const auto beforeFiles =
+            library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+        const bool nativeDialogsDisabled =
+            QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        bool acceptanceSeen = false, defaultCancel = false,
+             pickerSubmitted = false;
+        int attempts         = 0;
+        QTimer modalDriver;
+        QObject::connect(&modalDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+            if (!pickerSubmitted) {
+              pickerSubmitted = true;
+              picker->selectFile(sourcePath);
+              QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+            }
+          } else if (modal && modal->objectName() ==
+                                  "nativeBrushApproximationAcceptance") {
+            auto report   = qobject_cast<QMessageBox *>(modal);
+            defaultCancel = report && report->defaultButton() ==
+                                          report->button(QMessageBox::Cancel);
+            acceptanceSeen = true;
+            if (report) {
+              if (acceptImport) {
+                auto accept = report->findChild<QPushButton *>(
+                    "nativeBrushAcceptApproximation");
+                if (accept)
+                  accept->click();
+                else
+                  report->reject();
+              } else
+                report->reject();
+            }
+          } else if (++attempts > 2400) {
+            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+          }
+        });
+        modalDriver.start(25);
+        property->setValue(L"<import>");
+        const bool handled = tool->onPropertyChanged("Native Brush:");
+        modalDriver.stop();
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
+                                   nativeDialogsDisabled);
+        require(handled && acceptanceSeen && defaultCancel,
+                "foreign import lacked explicit approximation acceptance with "
+                "Cancel default");
+        const auto afterFiles =
+            library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+        require((acceptImport ? afterFiles != beforeFiles
+                              : afterFiles == beforeFiles) &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "approximation acceptance did not control installation "
+                "independently of document state");
+      }
+    }
     checkpoint("qualifying source initialization without paint or undo");
     {
       RasterBrush::Record fixture;
@@ -240,7 +453,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
     for (const QString &model :
          {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
       for (const QString &variant :
-           {QString(), QString("wetPressure"), QString("radiusPressure")}) {
+           {QString(), QString("wetPressure"), QString("radiusPressure"),
+            QString("halfOpacity")}) {
         const QString label =
             model + "-" + (variant.isEmpty() ? QString("fixed") : variant);
         const QString sourcePath =
@@ -263,6 +477,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                     "krita-5.3.4.1-" + model.toStdString() + "-candidate-1" &&
                 !fixture.provenance["sourceReferenceVerified"].toBool(),
             "KPP worker lost strict candidate identity or qualification");
+        if (variant == "halfOpacity")
+          require(fixture.preset.opacity.value == .5,
+                  "source static half opacity lost during worker import");
         if (variant == "radiusPressure")
           require(fixture.preset.smudgeRadius ==
                           (model.endsWith("dulling") ? 1 : 0) &&
@@ -538,6 +755,19 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(!same(low, high), "tablet sensor did not affect actual pixels");
       require(undo->undo() && same(baseline, raster(level, 1)),
               "second sensor stroke undo did not restore baseline");
+      if (sensor == RasterBrush::Sensor::TiltX) {
+        draw(tool, false, .8, 0, 0, true);
+        const auto upright = raster(level, 1)->clone();
+        require(!same(baseline, upright) && undo->undo() &&
+                    same(baseline, raster(level, 1)),
+                "zero/nonzero/zero tablet tilt stroke or undo failed");
+        draw(tool, true, .8, 0, 0, true);
+        require(same(baseline, raster(level, 1)),
+                "cancelled upright-return stroke left pixels");
+        draw(tool, false, .8, 0, 0, true);
+        require(same(upright, raster(level, 1)) && undo->undo(),
+                "tablet tilt capability state leaked across stroke boundaries");
+      }
       undo->reset();
     }
     property->setValue(L"<round>");
