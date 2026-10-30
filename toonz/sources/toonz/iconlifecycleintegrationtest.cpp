@@ -24,6 +24,7 @@
 #include "tstroke.h"
 #include "tpalette.h"
 #include "tvectorimage.h"
+#include "texception.h"
 
 #include <QAction>
 #include <QApplication>
@@ -290,7 +291,24 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
   const int loopResult = QApplication::exec();
   poll.stop();
   deadline.stop();
-  if (closeFailure) std::rethrow_exception(closeFailure);
+  if (closeFailure) {
+    try {
+      std::rethrow_exception(closeFailure);
+    } catch (const TException &error) {
+      const QString detail = QString::fromStdWString(error.getMessage()).left(1024)
+                                 .replace('\n', ' ').replace('\r', ' ');
+      throw std::runtime_error((QString("Native Quit %1 threw a Toonz exception: %2")
+          .arg(QString::fromLatin1(phase), detail)).toStdString());
+    } catch (const std::exception &error) {
+      const QString detail = QString::fromUtf8(error.what()).left(1024)
+                                 .replace('\n', ' ').replace('\r', ' ');
+      throw std::runtime_error((QString("Native Quit %1 threw a standard exception: %2")
+          .arg(QString::fromLatin1(phase), detail)).toStdString());
+    } catch (...) {
+      throw std::runtime_error((QString("Native Quit %1 threw an unknown exception")
+          .arg(QString::fromLatin1(phase))).toStdString());
+    }
+  }
   require(loopResult == 0 && dispatched && returned,
           "Native Quit application loop did not dispatch and complete its actual close");
   require(failure.isEmpty(), qPrintable(failure));
@@ -677,7 +695,8 @@ void sceneTransitionChecks() {
 }
 }  // namespace
 
-void runIconLifecycleNativeChecks() {
+void runIconLifecycleNativeChecks(NativeIconQuitScenario scenario) {
+  const bool preserveReplacement = scenario == NativeIconQuitScenario::PreserveReplacement;
   auto *icons = IconGenerator::instance();
   require(!icons->isShutdownComplete(),
           "Native icon lifecycle checks began after terminal shutdown");
@@ -812,6 +831,9 @@ void runIconLifecycleNativeChecks() {
       icons->setTaskTestHook({});
     }
     std::cout << "icon-lifecycle-native: already-retired Xsheet reader PASS" << std::endl;
+    // Rendering/settings probes need the live application. No scene or worker
+    // is restarted after the terminal MainWindow close below.
+    runIconWorkerSettingsNativeChecks();
 
     QTemporaryDir loadDirectory;
     require(loadDirectory.isValid(), "Cannot prepare native shutdown load source");
@@ -825,6 +847,18 @@ void runIconLifecycleNativeChecks() {
     const TFilePath originalPath = source->getScenePath();
     const int originalHistory = TUndoManager::manager()->getHistoryCount();
     const int originalHistoryIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+
+    std::unique_ptr<ToonzScene> preparedReplacement;
+    QPointer<TXshLevel> replacementLevel;
+    if (preserveReplacement) {
+      preparedReplacement.reset(new ToonzScene);
+      TProjectManager::instance()->initializeScene(preparedReplacement.get());
+      replacementLevel = preparedReplacement->createNewLevel(
+          PLI_XSHLEVEL, L"Unreviewed shutdown replacement");
+      require(replacementLevel && !preparedReplacement->getScenePath().isEmpty() &&
+                  preparedReplacement->getProject()->isCurrent(),
+              "Native Quit replacement lacks a valid initialized scene/project");
+    }
 
     const auto gate = std::make_shared<TaskGate>();
     const auto threadLifetime = std::make_shared<ThreadLifetime>();
@@ -854,7 +888,6 @@ void runIconLifecycleNativeChecks() {
     bool commandsRefused = false, replacementRetained = false;
     QString queuedFailure;
     ToonzScene *replacementDuringDrain = nullptr;
-    QPointer<TXshLevel> replacementLevel;
     QTimer watchdog;
     watchdog.setSingleShot(true);
     QObject::connect(&watchdog, &QTimer::timeout, &connectionContext, [&]() {
@@ -885,17 +918,17 @@ void runIconLifecycleNativeChecks() {
       // A low-level replacement can bypass command entrypoints. Its old scene
       // timer must not invalidate the blocked source reader or clear this new,
       // unreviewed scene when the accepted Quit resumes.
-      replacementDuringDrain = new ToonzScene;
-      replacementLevel = replacementDuringDrain->createNewLevel(
-          PLI_XSHLEVEL, L"Unreviewed shutdown replacement");
-      app->getCurrentScene()->setScene(replacementDuringDrain);
-      app->getCurrentScene()->setDirtyFlag(true);
-      expireSceneRetirements(app->getCurrentScene());
+      if (preserveReplacement) {
+        replacementDuringDrain = preparedReplacement.release();
+        app->getCurrentScene()->setScene(replacementDuringDrain);
+        app->getCurrentScene()->setDirtyFlag(true);
+        expireSceneRetirements(app->getCurrentScene());
+        replacementRetained = app->getCurrentScene()->getScene() == replacementDuringDrain &&
+            replacementDuringDrain->getLevelSet()->getLevelCount() == 1;
+      }
       sourceAliveDuringDrain = source->getLevelSet()->getLevelCount() == levelCount &&
           source->getLevelSet()->getLevel(level->getName()) == level.getPointer() &&
           level->getFrameCount() == 5;
-      replacementRetained = app->getCurrentScene()->getScene() == replacementDuringDrain &&
-          replacementDuringDrain->getLevelSet()->getLevelCount() == 1;
       refusedDuringDrain = !icons->isShutdownComplete() &&
           icons->requestIcon(level.getPointer(), TFrameId(5)) == 0;
       gate->release();
@@ -904,6 +937,11 @@ void runIconLifecycleNativeChecks() {
       icons->shutdown();
       nestedDrainComplete = icons->isShutdownComplete() &&
           threadLifetime->created.load() == 1 && threadLifetime->destroyed.load() == 1;
+      } catch (const TException &error) {
+        queuedFailure = "Queued native Quit Toonz exception: " +
+            QString::fromStdWString(error.getMessage()).left(1024)
+                .replace('\n', ' ').replace('\r', ' ');
+        gate->release();
       } catch (const std::exception &error) {
         queuedFailure = QString::fromUtf8(error.what());
         gate->release();
@@ -913,17 +951,25 @@ void runIconLifecycleNativeChecks() {
       }
     });
     releaseWhenStopping.start(1);
-    const bool closed = closeThroughNativePrompt(window, "Discard Changes", "Discard with replacement");
+    const bool closed = closeThroughNativePrompt(window, "Discard Changes",
+        preserveReplacement ? "Discard with replacement" : "Discard reviewed scene");
     releaseWhenStopping.stop();
     watchdog.stop();
     icons->setTaskTestHook({});
     require(queuedFailure.isEmpty(), qPrintable(queuedFailure));
-    require(closed && window && !window->isVisible() && sourceAliveDuringDrain &&
-                commandsRefused && replacementRetained && replacementLevel &&
-                app->getCurrentScene()->getScene() == replacementDuringDrain &&
-                replacementDuringDrain->getLevelSet()->getLevelCount() == 1 &&
-                app->getCurrentScene()->getDirtyFlag(),
-            "Accepted Quit lost retained readers or cleared an unreviewed replacement");
+    require(closed && window && !window->isVisible() && sourceAliveDuringDrain && commandsRefused,
+            "Accepted Quit lost its real close, retained source or reentry protection");
+    if (preserveReplacement)
+      require(replacementRetained && replacementLevel &&
+                  app->getCurrentScene()->getScene() == replacementDuringDrain &&
+                  replacementDuringDrain->getLevelSet()->getLevelCount() == 1 &&
+                  app->getCurrentScene()->getDirtyFlag(),
+              "Accepted Quit cleared an unreviewed replacement");
+    else
+      require(app->getCurrentScene()->getScene() == source &&
+                  source->getLevelSet()->getLevelCount() == 0 &&
+                  !app->getCurrentScene()->getDirtyFlag(),
+              "Explicitly reviewed scene did not clear after native worker retirement");
     require(releaseDelivered && refusedDuringDrain && nestedDrainComplete && !watchdogExpired,
             "Native icon drain did not close admission and service its GUI release");
     require(icons->isShutdownComplete() && icons->lifecycleTestTasks().empty(),
@@ -949,18 +995,9 @@ void runIconLifecycleNativeChecks() {
     require(icons->isShutdownComplete() && icons->lifecycleTestTasks().empty() &&
                 publications == 0,
             "Repeated native shutdown or late termination revived icon work");
-    // A second actual accepted close exercises the ordinary same-scene clear
-    // after idempotent retirement; the prior replacement remains untouched
-    // until its own explicit native Discard decision.
-    replacementLevel->getSimpleLevel()->getProperties()->setDirtyFlag(false);
-    replacementLevel->getSimpleLevel()->getPalette()->setDirtyFlag(false);
-    window->show();
-    require(closeThroughNativePrompt(window, "Discard Changes", "Discard reviewed replacement") &&
-                app->getCurrentScene()->getScene() == replacementDuringDrain &&
-                replacementDuringDrain->getLevelSet()->getLevelCount() == 0 &&
-                !app->getCurrentScene()->getDirtyFlag(),
-            "Explicitly reviewed replacement did not clear after worker retirement");
-    runIconWorkerSettingsNativeChecks();
+    std::cout << (preserveReplacement
+        ? "icon-lifecycle-native: terminal replacement PASS"
+        : "icon-lifecycle-native: terminal reviewed-clear PASS") << std::endl;
     std::cout << "icon-lifecycle-native: PASS (real success/error, active and superseded tasks, queued cancellation, no late publication, worker retirement)"
               << std::endl;
   } catch (...) {
