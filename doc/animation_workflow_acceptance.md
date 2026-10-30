@@ -15,6 +15,15 @@ required before these changes are described as verified.
 | 57 — Export fidelity choices | Implemented. Lottie uses the real exporter's loss list before writing output. Animated SVG offers Cancel, supported asset mode, or the existing full-scene renderer. `exportfidelity.cpp` supplies named accessible native controls; closing cancels. | Actual File > Export commands through their native filename pickers: Lottie cancel leaves no files, consent writes parsed JSON layers, overwrite-then-cancel preserves bytes; SVG cancel leaves no files, rendered fallback embeds PNG frames in valid XML, and supported asset export writes SVG. |
 | 58 — Recovery status/retry | Implemented. File > Recovery Status shows disabled/pending/writing/complete/partial/failed state, attempt/copy times, missing resources, errors, last copy location and retry. Recovery detects unnamed resources, missing external audio/palettes, project-link failures and unsupported full-color palette changes. Partial copies keep automatic retry pending. Disabled mode writes nothing. | Actual status dialog disabled controls, enabled Retry clicks, partial/failed/complete text and error/resource details, real version manifests, missing-resource retries and repair, portable filesystem failure and recovery, last complete-copy retention, open-scene/path/dirty/history preservation. |
 
+The full native Linux run at `b00db72a35be48bf7852cbbc49a113622985761d`
+stopped in the pose fixture with a modal-choice mismatch. Source review found
+that the fixture clicked a newly created row before Qt delivered its queued
+layout show operation; the stale-row guard correctly ignores a hidden row.
+Pose tests now wait for the actual visible, enabled control, including after
+row recreation, and report the exact expected choice and observed native
+controls on a mismatch. They retain the strict choice count and all state,
+history and reload assertions. This correction requires fresh CI execution.
+
 ## Storyboard boundary contract
 
 The move is a permutation of scene rows. All ordinary exposure columns,
