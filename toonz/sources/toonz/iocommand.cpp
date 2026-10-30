@@ -59,6 +59,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/sceneproperties.h"
+#include "librarycommand.h"
 #include "toonz/levelproperties.h"
 #include "toonz/stage2.h"
 #include "toonz/imagemanager.h"
@@ -720,6 +721,21 @@ class ChildLevelResourceImporter final : public ResourceProcessor {
 
   ResourceImportStrategy &m_importStrategy;
   TFilePath m_levelSetFolder;
+  TXshLevel::LibraryProvenance m_libraryOrigin;
+
+  void recordSource(TXshLevel *level, const TFilePath &original, const TFilePath &destination) {
+    level->renewCastId();  // Loading a scene as a sub-xsheet creates distinct Cast entries.
+    auto provenance = m_libraryOrigin;
+    if (provenance.relationship != TXshLevel::LibraryProvenance::NotRecorded) {
+      provenance.sourceAssetPath = original.getQString();
+      provenance.relationship = original == m_parentScene->decodeFilePath(destination)
+                                    ? TXshLevel::LibraryProvenance::Linked
+                                    : TXshLevel::LibraryProvenance::LocalCopy;
+      level->setLibraryProvenance(provenance);
+    } else if (original != m_parentScene->decodeFilePath(destination)) {
+      level->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+    }
+  }
 
 public:
   ChildLevelResourceImporter(ToonzScene *parentScene, ToonzScene *childScene,
@@ -728,6 +744,7 @@ public:
   void setLevelSetFolder(const TFilePath &levelSetFolder) {
     m_levelSetFolder = levelSetFolder;
   }
+  void setLibraryOrigin(const TXshLevel::LibraryProvenance &origin) { m_libraryOrigin = origin; }
 
   void process(TXshSimpleLevel *sl) override;
   void process(TXshPaletteLevel *sl) override;
@@ -749,7 +766,7 @@ ChildLevelResourceImporter::ChildLevelResourceImporter(
 
 void ChildLevelResourceImporter::process(TXshSimpleLevel *sl) {
   TLevelSet *parentLevelSet = m_parentScene->getLevelSet();
-  if (parentLevelSet->hasLevel(sl->getName())) {
+  if (!m_importStrategy.importsFxResources() && parentLevelSet->hasLevel(sl->getName())) {
     TXshSimpleLevel *other =
         parentLevelSet->getLevel(sl->getName())->getSimpleLevel();
     if (other)  // in case that the retrieved level from scene cast is
@@ -773,12 +790,16 @@ void ChildLevelResourceImporter::process(TXshSimpleLevel *sl) {
     }
   }
 
+  const TFilePath original = m_childScene->decodeFilePath(sl->getPath());
   TFilePath slPath   = sl->getPath();
   std::string suffix = ResourceImporter::extractPsdSuffix(slPath);
 
   TFilePath path = m_importStrategy.process(m_parentScene, m_childScene,
                                             slPath);  // actualPath);
+  if (m_importStrategy.aborted()) return;
   if (suffix != "") path = ResourceImporter::buildPsd(path, suffix);
+
+  recordSource(sl, original, path);
 
   sl->setPath(path, false);  // m_parentScene->codeFilePath(actualPath), false);
   NameModifier nm(sl->getName());
@@ -822,7 +843,9 @@ void ChildLevelResourceImporter::process(TXshPaletteLevel *pl) {
 
   TFilePath path =
       m_importStrategy.process(m_parentScene, m_childScene, plPath);
+  if (m_importStrategy.aborted()) return;
 
+  recordSource(pl, m_childScene->decodeFilePath(plPath), path);
   pl->setPath(path);
   NameModifier nm(pl->getName());
   std::wstring levelName;
@@ -850,6 +873,8 @@ void ChildLevelResourceImporter::process(TXshSoundLevel *sl) {
   TLevelSet *parentLevelSet = m_parentScene->getLevelSet();
   TFilePath path =
       m_importStrategy.process(m_parentScene, m_childScene, sl->getPath());
+  if (m_importStrategy.aborted()) return;
+  recordSource(sl, m_childScene->decodeFilePath(sl->getPath()), path);
   sl->setPath(path);
   NameModifier nm(sl->getName());
   std::wstring levelName;
@@ -926,6 +951,8 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
 
   ChildLevelResourceImporter childLevelResourceImporter(parentScene, &scene,
                                                         importStrategy);
+  const auto libraryOrigin = LibraryCmd::templateProvenance(actualPath);
+  childLevelResourceImporter.setLibraryOrigin(libraryOrigin);
   TFilePath dstFolder = importStrategy.getDstFolder();
   if (dstFolder != TFilePath()) {
     TLevelSet *levelSet      = parentScene->getLevelSet();
@@ -937,6 +964,7 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
 
   SceneResources resources(&scene, childXsh);
   resources.accept(&childLevelResourceImporter);
+  if (importStrategy.aborted()) return nullptr;
 
   scene.setProject(parentScene->getProject());
   std::vector<TXshChildLevel *> childLevels;
@@ -945,13 +973,22 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
       childLevels.push_back(cl);
   for (int i = 0; i < (int)childLevels.size(); i++) {
     TXshChildLevel *cl = childLevels[i];
+    cl->renewCastId();
+    NameModifier name(cl->getName());
+    std::wstring uniqueName;
+    do { uniqueName = name.getNext(); }
+    while (parentScene->getLevelSet()->hasLevel(uniqueName));
+    cl->addRef();
+    scene.getLevelSet()->removeLevel(cl);
+    cl->setName(uniqueName);
     parentScene->getLevelSet()->insertLevel(cl);
-    // scene.getLevelSet()->removeLevel(cl);
+    cl->release();
   }
 
   TXshChildLevel *childLevel =
       parentScene->createNewLevel(CHILD_XSHLEVEL, subSceneName)
           ->getChildLevel();
+  childLevel->setLibraryProvenance(libraryOrigin);
 
   int frameCount = scene.getXsheet()->getFrameCount();
   childXsh->setScene(parentScene);
@@ -1225,7 +1262,7 @@ public:
   }
 
   //! Registers the undo of what the load added.
-  void addUndo(TXshLevel *childLevel) {
+  void addUndo(TXshLevel *childLevel, bool rollback = false) {
     if (m_scene->getXsheet() != m_xsh.getPointer()) return;
     TXsheet *xsh = m_xsh.getPointer();
     std::unique_ptr<LoadSubSceneUndo> undo(new LoadSubSceneUndo(
@@ -1288,13 +1325,18 @@ public:
       entry.m_newName = getColumnName(xsh, c);
       undo->m_cells.push_back(entry);
     }
-    if (undo->isEmpty()) return;
+    if (undo->isEmpty()) {
+      if (rollback && !m_castFolderExisted && hasCastFolder())
+        m_scene->getLevelSet()->removeFolder(m_castFolderParent + m_castFolderName);
+      return;
+    }
 
     if (!m_castFolderExisted && hasCastFolder()) {
       undo->m_castFolderParent = m_castFolderParent;
       undo->m_castFolderName   = m_castFolderName;
     }
-    TUndoManager::manager()->add(undo.release());
+    if (rollback) undo->undo();
+    else TUndoManager::manager()->add(undo.release());
   }
 };
 
@@ -3125,19 +3167,29 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
           castFolderName = dstFolder.getWideName();
         }
         SubSceneLoadRecorder recorder(scene, castFolderParent, castFolderName);
-        auto xl = loadChildLevel(scene, path, row0, col0, importDialog);
-        if (xl) recorder.addUndo(xl);
-        if (dstFolder != TFilePath())
-          app->getCurrentScene()->notifyCastFolderAdded(
-              scene->getLevelSet()->getDefaultFolder() + dstFolder);
-        // increment the number of resources actually loaded
-        ++loadedCount;
-        // move the column to the right
-        ++col0;
-        // register the loaded level to args
-        args.loadedLevels.push_back(xl);
-        app->getCurrentXsheet()->notifyXsheetSoundChanged();
+        TXshLevel *xl = nullptr;
+        try {
+          xl = loadChildLevel(scene, path, row0, col0, importDialog);
+        } catch (...) {
+          // Explicit rollback may allocate while reconstructing the actual
+          // added resources. Keep it out of a noexcept destructor/unwind.
+          recorder.addUndo(nullptr, true);
+          throw;
+        }
+        if (xl) {
+          recorder.addUndo(xl);
+          if (dstFolder != TFilePath())
+            app->getCurrentScene()->notifyCastFolderAdded(
+                scene->getLevelSet()->getDefaultFolder() + dstFolder);
+          ++loadedCount;
+          ++col0;
+          args.loadedLevels.push_back(xl);
+          app->getCurrentXsheet()->notifyXsheetSoundChanged();
+        } else recorder.addUndo(nullptr, true);
+      } catch (const TException &failure) {
+        error(QObject::tr("Unable to load the sub-xsheet: %1").arg(QString::fromStdWString(failure.getMessage())));
       } catch (...) {
+        error(QObject::tr("Unable to finish loading the sub-xsheet. Review the Scene Cast before continuing."));
       }
 
       importDialog.setIsLastResource(isLastResource);

@@ -1346,6 +1346,8 @@ void TXshSimpleLevel::load() {
     }
   }
   updateReadOnly();
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1419,6 +1421,7 @@ void TXshSimpleLevel::load(const std::vector<TFrameId>& fIds) {
     }
     setRenumberTable();
   }
+  if (TSystem::doesExistFileOrLevel(path)) setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1483,8 +1486,10 @@ void TXshSimpleLevel::save() {
 
   if (getProperties()->getDirtyFlag() == false &&
       getPalette()->getDirtyFlag() == false &&
-      TSystem::doesExistFileOrLevel(path))
+      TSystem::doesExistFileOrLevel(path)) {
+    setSourceExpectedOnDisk(true);
     return;
+  }
 
   if (!TFileStatus(path.getParentDir()).doesExist()) {
     try {
@@ -1631,6 +1636,8 @@ void TXshSimpleLevel::save(const TFilePath& fp, const TFilePath& oldFp,
   }
 
   saveSimpleLevel(dDstPath, overwritePalette);
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------

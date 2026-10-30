@@ -91,6 +91,7 @@ void TXshPaletteLevel::load() {
         is.matchEndTag();
         palette->setPaletteName(path.getWideName());
         setPalette(palette);
+        setSourceExpectedOnDisk(true);
       }
     }
     assert(m_palette);
@@ -109,6 +110,7 @@ void TXshPaletteLevel::save() {
     }
     TOStream os(path);
     os << m_palette;
+    if (os.checkStatus()) setSourceExpectedOnDisk(true);
   }
 }
 

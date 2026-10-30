@@ -1,4 +1,5 @@
 #include "castbrowseractions.h"
+#include "toonz/sceneproperties.h"
 #include "tapp.h"
 #include "toonz/levelset.h"
 #include "toonz/levelproperties.h"
@@ -118,6 +119,8 @@ struct PathChange {
   bool preserveStatus = false;
   bool sixteenBefore = false, sixteenAfter = false;
   bool floatBefore = false, floatAfter = false;
+  TXshLevel::LibraryProvenance provenanceBefore, provenanceAfter;
+  bool expectedBefore = false, expectedAfter = true;
 };
 class PreparationGuard {
   ToonzScene *m_scene;
@@ -138,6 +141,8 @@ public:
       auto *level = change.level.getPointer();
       if (m_scene->getLevelSet()->getLevel(level->getName()) != level ||
           level->getPath() != change.before || dirty(level)) return false;
+      if (level->getLibraryProvenance() != change.provenanceBefore ||
+          level->sourceExpectedOnDisk() != change.expectedBefore) return false;
       if (auto *simple = level->getSimpleLevel()) {
         std::vector<TFrameId> ids; simple->getFids(ids);
         if (ids.size() != change.statusBefore.size() || simple->getScannedPath() != change.scanBefore ||
@@ -187,6 +192,8 @@ class PathsUndo final : public TUndo {
         palette->setPath(path);
         palette->setPalette((after ? change.paletteAfter : change.paletteBefore).getPointer());
       }
+      change.level->setLibraryProvenance(after ? change.provenanceAfter : change.provenanceBefore);
+      change.level->setSourceExpectedOnDisk(after ? change.expectedAfter : change.expectedBefore);
     }
     notify();
   }
@@ -224,6 +231,15 @@ PathChange prepare(TXshLevel *level, const TFilePath &path,
   PathChange change;
   change.level = TXshLevelP(level); change.before = level->getPath();
   change.after = scene()->codeFilePath(actual);
+  change.provenanceBefore = change.provenanceAfter = level->getLibraryProvenance();
+  change.expectedBefore = level->sourceExpectedOnDisk();
+  if (level->getLibraryRelationship() == TXshLevel::LibraryProvenance::Replaced)
+    change.provenanceAfter.relationship = TXshLevel::LibraryProvenance::Replaced;
+  if (change.provenanceAfter.relationship != TXshLevel::LibraryProvenance::NotRecorded &&
+      change.provenanceAfter.relationship != TXshLevel::LibraryProvenance::Replaced &&
+      scene()->decodeFilePath(change.before) != actual)
+    change.provenanceAfter.relationship = identicalCopy ? TXshLevel::LibraryProvenance::LocalCopy
+                                                       : TXshLevel::LibraryProvenance::Replaced;
   if (auto *sound = level->getSoundLevel()) {
     change.soundBefore = sound->getSoundTrack();
     TSoundTrackReaderP reader(actual);
@@ -432,6 +448,10 @@ QByteArray nativeMetadata(TXshLevel *level) {
   if (!clone) throw std::runtime_error("Cannot read asset metadata for consolidation.");
   clone->setName(L"Cast comparison");
   clone->setCastTags({}); clone->clearCastCover();
+  // These describe asset identity/ownership, not rendering compatibility. The
+  // confirmed survivor keeps its own origin; Undo retains each removed level.
+  clone->setLibraryProvenance(TXshLevel::LibraryProvenance());
+  clone->setSourceExpectedOnDisk(true);
   const TFilePath neutral("asset." + level->getPath().getType());
   if (auto *simple = clone->getSimpleLevel()) simple->setPath(neutral, true);
   else if (auto *sound = clone->getSoundLevel()) sound->setPath(neutral);
@@ -446,7 +466,14 @@ QByteArray nativeMetadata(TXshLevel *level) {
   }
   QFile file(path.getQString());
   if (!file.open(QIODevice::ReadOnly)) throw std::runtime_error("Cannot read asset metadata comparison.");
-  return file.readAll();
+  QByteArray serialized = file.readAll();
+  // Only remove this clone's exact, validated UUID attribute. Never mutate a
+  // live asset's identity or broadly strip authoring fields from the payload.
+  const QByteArray identity = " castId=\"" + clone->getCastId().toUtf8() + "\"";
+  if (serialized.count(identity) != 1)
+    throw std::runtime_error("Cannot normalize asset identity for metadata comparison.");
+  serialized.replace(identity, QByteArray());
+  return serialized;
 }
 
 bool compatible(TXshLevel *a, TXshLevel *b) {
@@ -510,6 +537,7 @@ class ConsolidationUndo final : public TUndo {
   std::vector<ConsolidationLevel> m_levels;
   std::map<TXshLevelP, std::pair<QStringList, QStringList>> m_tags;
   TXshLevelP m_currentBefore, m_currentAfter;
+  QList<TSceneProperties::CastCollection> m_collectionsBefore, m_collectionsAfter;
   void apply(bool after) const {
     auto *set = scene()->getLevelSet();
     if (!after) for (const auto &item : m_levels) {
@@ -519,6 +547,7 @@ class ConsolidationUndo final : public TUndo {
     for (const auto &cell : m_cells) cell.sheet->setCell(cell.row, cell.column, after ? cell.after : cell.before);
     for (const auto &entry : m_tags) entry.first->setCastTags(after ? entry.second.second : entry.second.first);
     if (after) for (const auto &item : m_levels) set->removeLevel(item.level.getPointer());
+    scene()->getProperties()->setCastCollections(after ? m_collectionsAfter : m_collectionsBefore);
     TApp::instance()->getCurrentLevel()->setLevel((after ? m_currentAfter : m_currentBefore).getPointer());
     notify();
   }
@@ -526,11 +555,17 @@ public:
   ConsolidationUndo(std::vector<ConsolidationCell> cells, std::vector<ConsolidationLevel> levels)
       : m_cells(std::move(cells)), m_levels(std::move(levels)),
         m_currentBefore(TApp::instance()->getCurrentLevel()->getLevel()), m_currentAfter(m_currentBefore) {
+    m_collectionsBefore = m_collectionsAfter = scene()->getProperties()->getCastCollections();
     for (const auto &item : m_levels) {
       if (!m_tags.count(item.canonical)) m_tags[item.canonical] = {item.canonical->getCastTags(), item.canonical->getCastTags()};
       auto &tags = m_tags[item.canonical].second;
       for (const auto &tag : item.level->getCastTags()) if (!tags.contains(tag, Qt::CaseInsensitive)) tags.append(tag);
       if (m_currentBefore == item.level) m_currentAfter = item.canonical;
+      for (auto &collection : m_collectionsAfter) {
+        for (auto &member : collection.members)
+          if (member == item.level->getCastId()) member = item.canonical->getCastId();
+        collection.members.removeDuplicates();
+      }
     }
   }
   void undo() const override { apply(false); }
@@ -545,7 +580,7 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
   QDialog dialog(parent); dialog.setWindowTitle(tr("Review Duplicate Consolidation"));
   dialog.setObjectName("CastConsolidationReview");
   auto *layout = new QVBoxLayout(&dialog);
-  auto *label = new QLabel(tr("Check groups explicitly and choose the asset to keep. Every exposure in all scene and nested sheets will keep its frame identifier. Compatible metadata is required. Tags are combined; the chosen asset's name, folder and cover remain. Files stay on disk. Undo restores removed assets and exposures."), &dialog);
+  auto *label = new QLabel(tr("Check groups explicitly and choose the asset to keep. Every exposure in all scene and nested sheets will keep its frame identifier. Compatible drawing and rig metadata is required. Tags are combined; the chosen asset's name, folder, cover and Library ownership remain. Collection memberships move to the chosen asset. Files stay on disk. Undo restores original assets, memberships and exposures."), &dialog);
   label->setWordWrap(true); layout->addWidget(label);
   auto *table = makeTable(dialog, {tr("Consolidate"), tr("Keep asset"), tr("Matching assets")});
   std::vector<std::pair<QByteArray, std::vector<TXshLevel *>>> choices;
@@ -574,6 +609,10 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
   std::map<TXshLevel *, TXshLevel *> replace;
   std::map<TXshLevel *, QByteArray> validated;
   try {
+    std::vector<TXshLevel *> identityLevels;
+    source->getLevelSet()->listLevels(identityLevels);
+    std::map<QString, int> identityCounts;
+    for (auto *level : identityLevels) ++identityCounts[level->getCastId()];
     for (int row = 0; row < int(choices.size()); ++row) {
       if (table->item(row, 0)->checkState() != Qt::Checked) continue;
       const auto &group = choices[row];
@@ -581,6 +620,8 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
       auto *canonical = group.second[combo->currentIndex()];
       QStringList combinedTags = canonical->getCastTags();
       for (auto *level : group.second) {
+        if (level->getCastId().isEmpty() || identityCounts[level->getCastId()] != 1)
+          throw std::runtime_error("A chosen asset has an ambiguous Cast identity. No assets or collection memberships were changed.");
         if (source->getLevelSet()->getLevel(level->getName()) != level ||
             savedDigest(source, level, cancel) != group.first || !compatible(canonical, level))
           throw std::runtime_error("A chosen asset changed or has different drawing, layer, palette, rig, or level metadata. No consolidation was applied.");

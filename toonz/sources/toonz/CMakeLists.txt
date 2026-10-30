@@ -313,6 +313,7 @@ set(SOURCES
     batchserversviewer.cpp
     castassetops.cpp
     castbrowseractions.cpp
+    castinspector.cpp
     castviewer.cpp
     exportlevelpopup.cpp
     exportalllevelspopup.cpp
@@ -1091,7 +1092,8 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h
         functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h
-        castworkflowintegrationtest.cpp)
+        castworkflowintegrationtest.cpp
+        libraryprovenanceintegrationtest.cpp)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)

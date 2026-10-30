@@ -8,6 +8,7 @@
 #include "tsmartpointer.h"
 #include <QObject>
 #include <QStringList>
+#include <map>
 
 #undef DVAPI
 #undef DVVAR
@@ -68,6 +69,25 @@ Identify level types defined in \b txshleveltypes.h
   void updateShortName();
 
 public:
+  struct LibraryProvenance {
+    enum Relationship { NotRecorded, Linked, LocalCopy, Snapshot, Replaced };
+    QString itemId, itemPath, kind, sourceAssetPath;
+    int revision = 0;
+    Relationship relationship = NotRecorded;
+    bool operator==(const LibraryProvenance &other) const {
+      return itemId == other.itemId && itemPath == other.itemPath &&
+             kind == other.kind && sourceAssetPath == other.sourceAssetPath &&
+             revision == other.revision && relationship == other.relationship;
+    }
+    bool operator!=(const LibraryProvenance &other) const { return !(*this == other); }
+  };
+
+private:
+  QString m_castId;
+  LibraryProvenance m_libraryProvenance;
+  bool m_sourceExpectedOnDisk = false;
+
+public:
   /*!
 Constructs a TXshLevel with \b TXshLevel name \b name
 */
@@ -85,12 +105,27 @@ Destroys the TXshLevel object.
   TFrameId getCastCover() const { return m_castCover; }
   void setCastCover(const TFrameId &frame) { m_castCover = frame; m_castCoverSet = true; }
   void clearCastCover() { m_castCoverSet = false; }
+  const QString &getCastId() const { return m_castId; }
+  //! Distinct imports get a new identity; undo/redo and relocation retain it.
+  void renewCastId();
+  bool sourceExpectedOnDisk() const { return m_sourceExpectedOnDisk; }
+  void setSourceExpectedOnDisk(bool expected) { m_sourceExpectedOnDisk = expected; }
+  const LibraryProvenance &getLibraryProvenance() const { return m_libraryProvenance; }
+  void setLibraryProvenance(const LibraryProvenance &provenance) { m_libraryProvenance = provenance; }
+  //! A recorded link is current only while the asset still addresses its recorded source.
+  LibraryProvenance::Relationship getLibraryRelationship() const;
+  void detachLibrarySource(LibraryProvenance::Relationship relationship);
   void copyCastMetadataFrom(const TXshLevel *source) {
     m_castTags = source->m_castTags;
     m_castCover = source->m_castCover;
     m_castCoverSet = source->m_castCoverSet;
+    m_libraryProvenance = source->m_libraryProvenance;
+    if (source->getLibraryRelationship() == LibraryProvenance::Replaced)
+      m_libraryProvenance.relationship = LibraryProvenance::Replaced;
+    // Identity and save state belong to the destination, not its source.
   }
   void loadCastTags(TIStream &is);
+  std::map<std::string, std::string> getCastAttributes() const;
   void saveCastPath(TOStream &os, const TFilePath &path) const;
 
   //! return the level type (types are defined in \b txshleveltypes.h); \sa
