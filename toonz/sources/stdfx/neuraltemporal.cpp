@@ -28,6 +28,33 @@ cv::Vec2f flow(const cv::Mat &image, double x, double y) {
   return image.at<cv::Vec2f>(y0,x0)*float((1-dx)*(1-dy)) + image.at<cv::Vec2f>(y0,x1)*float(dx*(1-dy)) +
          image.at<cv::Vec2f>(y1,x0)*float((1-dx)*dy) + image.at<cv::Vec2f>(y1,x1)*float(dx*dy);
 }
+// Phase correlation proposes a displacement; it never authorizes history by
+// itself. Exact source/coverage comparison proves a translated drawing before
+// replacing approximate flow with an integer sample (which cannot blur texture).
+bool exactTranslation(const QImage &previous,const QImage &current,
+                      const QImage &previousAlpha,const QImage &currentAlpha,
+                      const cv::Mat &a,const cv::Mat &b,cv::Point &offset,
+                      const int *cancel) {
+  cv::Mat af,bf;a.convertTo(af,CV_32F);b.convertTo(bf,CV_32F);
+  double response=0;const auto proposed=cv::phaseCorrelate(af,bf,cv::noArray(),&response);
+  if(!std::isfinite(proposed.x) || !std::isfinite(proposed.y) || response<.5 ||
+     std::abs(proposed.x)>64.5 || std::abs(proposed.y)>64.5)return false;
+  const int dx=int(std::round(proposed.x)),dy=int(std::round(proposed.y));
+  if(std::abs(dx)>64 || std::abs(dy)>64 || (dx==0 && dy==0) ||
+     (384-std::abs(dx))*(384-std::abs(dy))<384*384*3/4)return false;
+  int covered=0,visible=0,lowest=255,highest=0;
+  for(int y=0;y<384;++y) {
+    if(cancel && *cancel)return false;
+    for(int x=0;x<384;++x) {
+      const int alpha=qGray(currentAlpha.pixel(x,y));visible+=alpha>0;
+      const int px=x-dx,py=y-dy;if(px<0 || py<0 || px>=384 || py>=384)continue;
+      if(previous.pixel(px,py)!=current.pixel(x,y) || previousAlpha.pixel(px,py)!=currentAlpha.pixel(x,y))return false;
+      if(alpha>0) {++covered;const int v=qGray(current.pixel(x,y));lowest=std::min(lowest,v);highest=std::max(highest,v);}
+    }
+  }
+  if(covered<1024 || covered*4<visible*3 || highest-lowest<16)return false;
+  offset=cv::Point(dx,dy);return true;
+}
 }
 bool stabilize(const QImage &previous, const QImage &current,
                const QImage &previousAlpha, const QImage &currentAlpha,
@@ -43,6 +70,25 @@ bool stabilize(const QImage &previous, const QImage &current,
   // the recurrence repeatedly to the same drawing, which would cause drift.
   if(previous==current && previousAlpha==currentAlpha) {result=previousStyled;return true;}
   const cv::Mat a=gray(previous),b=gray(current);
+  cv::Point translation;
+  if(exactTranslation(previous,current,previousAlpha,currentAlpha,a,b,translation,cancel)) {
+    QImage complete=fresh.convertToFormat(QImage::Format_RGB32);
+    for(int y=0;y<384;++y) {
+      if(cancel && *cancel)return false;
+      auto row=reinterpret_cast<QRgb *>(complete.scanLine(y));
+      for(int x=0;x<384;++x) {
+        const int px=x-translation.x,py=y-translation.y;
+        if(px<0 || py<0 || px>=384 || py>=384)continue;
+        const double weight=amount*qGray(currentAlpha.pixel(x,y))/255.0;
+        if(weight==0)continue;
+        const auto old=previousStyled.pixel(px,py),now=fresh.pixel(x,y);
+        const auto blend=[weight](int oldValue,int value){return int(oldValue*weight+value*(1-weight)+.5);};
+        row[x]=qRgb(blend(qRed(old),qRed(now)),blend(qGreen(old),qGreen(now)),blend(qBlue(old),qBlue(now)));
+      }
+    }
+    result=complete;return true;
+  }
+  if(cancel && *cancel)return false;
   // A pan can produce a large pixelwise difference without being a cut. Use
   // displacement-invariant tonal distributions for the early guard; motion
   // consistency/residual/coverage checks below reject unrelated spatial content.

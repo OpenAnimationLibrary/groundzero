@@ -261,6 +261,19 @@ One process is leased per bounded inference batch, with at most 120 frames. It
 retains compiled models and one embedding within that batch, then exits; idle
 sessions hold no worker. Cancellation discards partial responses and unpublished
 results. Individual optical-flow calls finish before cancellation is observed.
+Exact integer pans use integer history samples only after every overlapping
+source and coverage pixel matches, sufficient visible coverage is present, and
+phase correlation supplies a bounded candidate. The history percentage still
+controls blending. This avoids interpolation-induced texture drift on proven
+translated drawings; deformation and occlusion use the existing checked flow.
+Newly revealed regions always start with fresh model output. This cannot make
+every arbitrary reference temporally coherent or recover model-lost detail.
+
+New texture FX start at 35% strength to retain most source detail. Full strength
+is available, and the reference editor explicitly previews raw full-strength
+model output. A striped reference may intentionally yield saturated streaks;
+use a gentler reference and partial strength for a subtler treatment.
+
 Active protocol requests have 30-second deadlines. Queue waiting is cancellable
 and uses FIFO admission with at most eight admitted waiters; it does not time out
 merely because a valid long batch is active. Additional callers receive

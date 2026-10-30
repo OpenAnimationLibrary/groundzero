@@ -149,7 +149,7 @@ class NeuralStyleFx final : public GlobalControllableFx {
     return result;
   }
 public:
-  NeuralStyleFx():m_profile(L""),m_strength(100),m_history(70),m_start(1),m_end(120) {
+  NeuralStyleFx():m_profile(L""),m_strength(35),m_history(70),m_start(1),m_end(120) {
     addInputPort("Source",m_source);addInputPort("Mask",m_mask);addInputPort("ProtectInk",m_ink);
     bindParam(this,"profile",m_profile);bindParam(this,"strength",m_strength);
     bindParam(this,"temporal",m_history);bindParam(this,"shotStart",m_start);bindParam(this,"shotEnd",m_end);

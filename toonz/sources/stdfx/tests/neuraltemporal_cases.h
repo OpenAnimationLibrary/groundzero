@@ -1,5 +1,6 @@
 #pragma once
 #include "../neuraltemporal.h"
+#include <QPoint>
 #include <stdexcept>
 namespace NeuralTemporalCases {
 inline void run() {
@@ -33,5 +34,24 @@ inline void run() {
   changed=source;changed.setPixel(383,383,qRgb(0,0,0));
   require(NeuralTemporal::stabilize(source,changed,previousAlpha,alpha,history,fresh,.7,output),"Opaque reveal failed");
   require(output.pixel(10,192)==fresh.pixel(10,192),"Newly opaque artwork inherited occluded texture");
+  // A proven integer pan must not interpolate a texture that is already stable.
+  // Exercise both signs, both axes, diagonals, reveal strips and the motion bound.
+  quint32 seed=9127;
+  for(int y=0;y<384;++y)for(int x=0;x<384;++x) {
+    seed=seed*1664525u+1013904223u;
+    source.setPixel(x,y,qRgb((seed>>16)&255,(seed>>8)&255,seed&255));
+    history.setPixel(x,y,qRgb((x*7+y*3)%256,(x*3+y*11)%256,(x*13+y)%256));
+  }
+  for(const QPoint delta:{QPoint(8,0),QPoint(-8,0),QPoint(0,8),QPoint(0,-8),QPoint(8,-8),QPoint(64,0)}) {
+    changed.fill(Qt::white);fresh.fill(Qt::blue);
+    for(int y=0;y<384;++y)for(int x=0;x<384;++x) {
+      const int px=x-delta.x(),py=y-delta.y();if(px<0 || py<0 || px>=384 || py>=384)continue;
+      changed.setPixel(x,y,source.pixel(px,py));fresh.setPixel(x,y,history.pixel(px,py));
+    }
+    for(double amount:{0.,.01,.7,.85}) {
+      require(NeuralTemporal::stabilize(source,changed,alpha,alpha,history,fresh,amount,output),"Exact pan processing failed");
+      require(output==fresh,"Temporal processing moved an already stable translated texture");
+    }
+  }
 }
 }

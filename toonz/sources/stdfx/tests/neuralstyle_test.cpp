@@ -16,6 +16,7 @@
 #include <QTemporaryDir>
 #include <QPainter>
 #include <QPainterPath>
+#include <QLinearGradient>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -103,6 +104,7 @@ void configure(NeuralStyleFx &fx,const QImage &reference,Source *source,int temp
   NeuralStyle::Profile profile;profile.reference=reference;
   TStringParamP p=TParamP(fx.getParams()->getParam("profile"));p->setValue(NeuralStyle::serialize(profile).toStdWString());
   TIntParamP history=TParamP(fx.getParams()->getParam("temporal"));history->setValue(temporal);
+  TDoubleParamP strength=TParamP(fx.getParams()->getParam("strength"));strength->setValue(0,100);
   fx.getInputPort(0)->setFx(source);
 }
 QImage render(NeuralStyleFx &fx,int frame,const TRenderSettings &info,int x=0,int y=0,int width=384,int height=384) {
@@ -181,6 +183,61 @@ void scenePersistence(const QImage &reference,const QDir &root) {
   require(restored->getFxId()==L"NeuralPortable1","Saved scene changed FX identity");
   require(render(*restored,37,info,0,0,64,64)==expected,"Moved scene with missing original reference changed output");
 }
+QJsonObject longSequence(const QDir &directory,const QString &name,const QImage &base,
+                        const QImage &baseInk,const QImage &reference) {
+  const QDir folder(directory.filePath(name+"-sequence"));require(QDir().mkpath(folder.absolutePath()),"Cannot create sequence directory");
+  std::vector<QImage> frames,inks;
+  for(int f=0;f<24;++f) {
+    const int shift=f<8?f*2:(f<=10?14:(f<=20?14+(f-10)*2:34));
+    QImage frame(384,384,QImage::Format_ARGB32);frame.fill(base.pixel(0,0));
+    QImage ink(384,384,QImage::Format_RGB32);ink.fill(Qt::black);
+    {QPainter p(&frame);p.drawImage(shift,0,base);
+      if(f>=8 && f<=15)p.fillRect(QRect(170,55,45,300),QColor(43,63,73));}
+    {QPainter p(&ink);p.drawImage(shift,0,baseInk);
+      if(f>=8 && f<=15)p.fillRect(QRect(170,55,45,300),Qt::black);}
+    frames.push_back(frame);inks.push_back(ink);
+  }
+  TSmartPointerT<NeuralStyleFx> plainOwner(new NeuralStyleFx),stableOwner(new NeuralStyleFx);
+  auto &plainFx=*plainOwner;auto &stableFx=*stableOwner;
+  configure(plainFx,reference,new Source(frames),0);configure(stableFx,reference,new Source(frames),70);
+  for(auto fx:{&plainFx,&stableFx}) {
+    TDoubleParamP strength=TParamP(fx->getParams()->getParam("strength"));strength->setValue(0,35);
+    fx->getInputPort(2)->setFx(new Source(inks));
+  }
+  TRenderSettings info;info.m_cameraBox=TRectD(0,0,384,384);
+  std::vector<QImage> plain,stable;double plainError=0,stableError=0;int samples=0;
+  QImage contact(1152,384*6,QImage::Format_RGB32);contact.fill(Qt::white);QPainter contactPainter(&contact);int row=0;
+  for(int f=0;f<24;++f) {
+    plain.push_back(render(plainFx,f,info));stable.push_back(render(stableFx,f,info));
+    for(int y=0;y<384;++y)for(int x=0;x<384;++x)
+      require(qAlpha(stable.back().pixel(x,y))==qAlpha(frames[f].pixel(x,y)),"Sequence alpha changed");
+    if(f==9 || f==10 || f>=21)require(stable[f]==stable[f-1],"Long sequence held frame drifted");
+    QImage strip(1152,384,QImage::Format_RGB32);strip.fill(Qt::white);
+    {QPainter p(&strip);p.drawImage(0,0,frames[f]);p.drawImage(384,0,plain[f]);p.drawImage(768,0,stable[f]);}
+    require(strip.save(folder.filePath(QString("comparison-%1.png").arg(f,2,10,QChar('0')))),"Cannot save sequence frame");
+    if(f==0 || f==7 || f==8 || f==15 || f==16 || f==23)contactPainter.drawImage(0,row++*384,strip);
+    if(f>0 && f<8)for(int y=0;y<384;++y)for(int x=0;x<382;++x) {
+      if(frames[f-1].pixel(x,y)!=frames[f].pixel(x+2,y) || qAlpha(frames[f].pixel(x+2,y))!=255)continue;
+      const auto delta=[](QRgb a,QRgb b){return (std::abs(qRed(a)-qRed(b))+std::abs(qGreen(a)-qGreen(b))+std::abs(qBlue(a)-qBlue(b)))/3.0;};
+      plainError+=delta(plain[f-1].pixel(x,y),plain[f].pixel(x+2,y));
+      stableError+=delta(stable[f-1].pixel(x,y),stable[f].pixel(x+2,y));++samples;
+    }
+  }
+  contactPainter.end();require(contact.save(folder.filePath("contact.png")),"Cannot save sequence contact sheet");
+  // Seeking after eviction must reconstruct the same occlusion/reveal history.
+  {std::lock_guard<std::mutex> lock(cacheMutex);cache.clear();}
+  require(render(stableFx,16,info)==stable[16] && render(stableFx,7,info)==stable[7],"Long sequence random seek changed output");
+  QFile html(folder.filePath("index.html"));require(html.open(QIODevice::WriteOnly),"Cannot save playback viewer");
+  html.write(R"HTML(<!doctype html><meta charset="utf-8"><title>Neural animation comparison</title>
+<style>body{font:16px system-ui;background:#eee;margin:24px}img{display:block;max-width:100%;background:white}header{display:flex;justify-content:space-around;max-width:1152px}input{width:400px}</style>
+<h1>Natural reference, 35% strength</h1><p>24 original synthetic frames at 8 fps. Pan: 0–7. Hold: 8–10. Occluder: 8–15. Reveal: 16. Final hold: 20–23.</p>
+<button id="play">Pause</button> <input id="frame" type="range" min="0" max="23" value="0"> <output id="number">0</output>
+<header><span>Source</span><span>Independent</span><span>Temporal 70%</span></header><img id="image" src="comparison-00.png">
+<script>let n=0,running=true;const slider=document.getElementById('frame'),pic=document.getElementById('image'),out=document.getElementById('number'),button=document.getElementById('play');function show(){pic.src='comparison-'+String(n).padStart(2,'0')+'.png';slider.value=n;out.textContent=n;}button.onclick=()=>{running=!running;button.textContent=running?'Pause':'Play';};slider.oninput=()=>{n=+slider.value;running=false;button.textContent='Play';show();};setInterval(()=>{if(running){n=(n+1)%24;show();}},125);</script>)HTML");
+  require(samples>1000,"Long sequence motion samples missing");
+  return QJsonObject{{"example",name+"-24-frame-natural-35"},{"frames",24},{"held_frame_exact",true},
+      {"independent_pan_difference",plainError/samples},{"temporal_pan_difference",stableError/samples},{"matched_pixels",samples}};
+}
 void visualExamples(const QDir &directory) {
   require(QDir().mkpath(directory.absolutePath()),"Cannot create visual review directory");
   QImage reference(256,256,QImage::Format_RGB32);reference.fill(QColor(238,213,171));
@@ -193,9 +250,25 @@ void visualExamples(const QDir &directory) {
     }
   }
   require(reference.save(directory.filePath("reference.png")),"Cannot save synthetic style reference");
+  QImage natural(256,256,QImage::Format_RGB32);natural.fill(QColor(222,214,194));
+  {
+    QPainter p(&natural);p.setRenderHint(QPainter::Antialiasing);p.setPen(Qt::NoPen);
+    QLinearGradient sky(0,0,0,256);sky.setColorAt(0,QColor(185,202,200));sky.setColorAt(1,QColor(225,209,175));
+    p.fillRect(natural.rect(),sky);p.setBrush(QColor(225,205,158));p.drawEllipse(QRectF(168,30,48,48));
+    p.setBrush(QColor(139,162,149));p.drawEllipse(QRectF(-60,130,260,180));
+    p.setBrush(QColor(99,132,126));p.drawEllipse(QRectF(90,170,230,150));
+    quint32 seed=73;
+    for(int i=0;i<1800;++i){seed=seed*1664525u+1013904223u;
+      p.setPen(QPen(QColor(240,230,203,18),1));const int x=(seed>>16)&255,y=(seed>>8)&255;p.drawLine(x,y,x+4,y+1);}
+  }
+  require(natural.save(directory.filePath("natural-reference.png")),"Cannot save gentle synthetic reference");
   QJsonArray metrics;
+  for(int variant=0;variant<4;++variant) {
+  const bool naturalReference=variant>=2;const double strength=variant%2?35:100;
+  const QImage chosen=naturalReference?natural:reference;
   for(bool background:{false,true}) {
-    const QString name=background?"painted-background":"cel-character";
+    const QString baseName=background?"painted-background":"cel-character";
+    const QString name=(variant==0?QString():QString(naturalReference?"natural-":"striped-")+QString::number(int(strength))+"-")+baseName;
     std::vector<QImage> frames,inks;
     for(int f=0;f<4;++f) {
       const int shift=f==0?0:(f==3?16:8);
@@ -233,7 +306,9 @@ void visualExamples(const QDir &directory) {
     }
     TSmartPointerT<NeuralStyleFx> independentOwner(new NeuralStyleFx),temporalOwner(new NeuralStyleFx);
     auto &independent=*independentOwner;auto &temporalFx=*temporalOwner;
-    configure(independent,reference,new Source(frames),0);configure(temporalFx,reference,new Source(frames),70);
+    configure(independent,chosen,new Source(frames),0);configure(temporalFx,chosen,new Source(frames),70);
+    TDoubleParamP independentStrength=TParamP(independent.getParams()->getParam("strength"));independentStrength->setValue(0,strength);
+    TDoubleParamP temporalStrength=TParamP(temporalFx.getParams()->getParam("strength"));temporalStrength->setValue(0,strength);
     independent.getInputPort(2)->setFx(new Source(inks));temporalFx.getInputPort(2)->setFx(new Source(inks));
     QImage sheet(3*384,4*384,QImage::Format_RGB32);sheet.fill(Qt::white);
     QPainter painter(&sheet);
@@ -264,13 +339,16 @@ void visualExamples(const QDir &directory) {
       temporalDifference+=delta(stable[0].pixel(x,y),stable[1].pixel(x+8,y));++count;
     }
     require(count>1000,"Visual motion metric has insufficient matched coverage");
+    if(!background)require(temporalDifference<=independentDifference+.001,"Temporal history regressed stable cel pan");
     metrics.append(QJsonObject{{"example",name},{"independent_motion_difference",independentDifference/count},
         {"temporal_motion_difference",temporalDifference/count},{"matched_pixels",count},{"held_frame_exact",true}});
+    if(variant==3)metrics.append(longSequence(directory,baseName,frames[0],inks[0],chosen));
+  }
   }
   QFile file(directory.filePath("metrics.json"));require(file.open(QIODevice::WriteOnly),"Cannot save visual metrics");
   file.write(QJsonDocument(metrics).toJson());
   QFile guide(directory.filePath("README.txt"));require(guide.open(QIODevice::WriteOnly),"Cannot save review guide");
-  guide.write("Original synthetic artwork. Comparison columns: source, independent neural, temporal (70%). Rows: base, eight-pixel pan, held exposure, deformation (cel) or foreground occlusion (background). Black cel ink is explicitly protected. Model texture canvas is 384 pixels; these examples do not establish full-resolution detail or unrestricted shot length. Inspect ghosting, edge integrity, style influence and motion stability. Metrics cover known opaque translated pixels only; they do not establish artist approval.\n");
+  guide.write("Original synthetic artwork. Comparison columns: source, independent neural, temporal (70%). Four-frame sheets retain the original strong striped reference at 100%, plus striped 35%, natural 100%, and natural 35% comparisons. Rows: base, eight-pixel pan, held exposure, deformation (cel) or foreground occlusion (background). The natural-reference 35% folders contain 24-frame playback: pan, holds, foreground occlusion and disocclusion. Open index.html to play/pause/scrub. Black cel ink is explicitly protected. Model texture canvas is 384 pixels; upsampling cannot restore lost fine detail. Strong striping can be an intentional response to a striped reference. Inspect pumping, ghosting, disocclusion seams, edge integrity and style influence; metrics alone are not artist approval.\n");
   std::cout<<"Visual motion metrics: "<<QJsonDocument(metrics).toJson(QJsonDocument::Compact).constData()<<'\n';
 }
 }
@@ -287,6 +365,8 @@ int main(int argc,char **argv) {
   struct Shutdown {~Shutdown(){TThread::shutdown();}} shutdown;
   try {
     RenderContext context;
+    {NeuralStyleFx defaults;TDoubleParamP strength=TParamP(defaults.getParams()->getParam("strength"));
+      require(strength->getValue(0)==35,"Texture default should preserve most source detail");}
     std::cerr<<"Neural qualification: profile, motion and compositing"<<std::endl;
     profiles();temporal();preservation<TPixel32>();preservation<TPixel64>();preservation<TPixelF>();
     require(argc==2,"Expected model fixture directory");const QDir fixtures(app.arguments()[1]);

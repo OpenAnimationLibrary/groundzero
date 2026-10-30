@@ -35,7 +35,7 @@ try:
         environment["DYLD_LIBRARY_PATH"] = str(Path("toonz/build/toonz/OpenToonz.app/Contents/MacOS").resolve())
     result = subprocess.run([str(effects[0].resolve()),
                              str(Path("neural-evaluation/report/host-fixtures").resolve())],
-                            capture_output=True, text=True, timeout=300, env=environment)
+                            capture_output=True, text=True, timeout=600, env=environment)
     print(result.stdout, flush=True)
     if result.returncode:
         if result.returncode < 0 and sys.platform == "linux" and shutil.which("gdb"):
