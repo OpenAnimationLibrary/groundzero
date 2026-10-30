@@ -40,13 +40,17 @@ add_test(NAME rasterbrushengine COMMAND rasterbrushengine_test)
 set_tests_properties(rasterbrushengine PROPERTIES TIMEOUT 60)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui)
+find_package(ZLIB REQUIRED)
 add_executable(rasterbrushpreset_test
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpreset.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushimport.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpng.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/abrparser.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushpreset_test.cpp")
 target_include_directories(rasterbrushpreset_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
 target_compile_definitions(rasterbrushpreset_test PRIVATE TOONZLIB_EXPORTS)
-target_link_libraries(rasterbrushpreset_test PRIVATE Qt6::Core Qt6::Gui)
+target_link_libraries(rasterbrushpreset_test PRIVATE Qt6::Core Qt6::Gui ZLIB::ZLIB)
 if(APPLE)
   target_compile_definitions(rasterbrushpreset_test PRIVATE MACOSX)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")

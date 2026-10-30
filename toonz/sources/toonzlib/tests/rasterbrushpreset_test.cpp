@@ -1,48 +1,196 @@
 #include "toonz/rasterbrushpreset.h"
+#include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFile>
+#include <QImage>
+#include <QBuffer>
 #include <iostream>
 #include <stdexcept>
 using namespace RasterBrush;
 namespace {
-void require(bool value,const char *message){if(!value)throw std::runtime_error(message);}
-QByteArray altered(const QByteArray &bytes,const QString &key,const QJsonValue &value){
-  auto root=QJsonDocument::fromJson(bytes).object();root[key]=value;return QJsonDocument(root).toJson();
+void require(bool value, const char *message) {
+  if (!value) throw std::runtime_error(message);
 }
-void testPackage(){
-  Record r;r.preset.name="Original brush";r.provenance={{"license","CC0-1.0"},{"origin","original test fixture"}};
-  auto image=std::make_shared<Image>();image->width=2;image->height=2;image->color=true;
-  image->pixels={{1,0,0,1},{0,1,0,1},{0,0,1,1},{0,0,0,0}};
-  r.preset.tip.shape=Shape::Bitmap;r.preset.tip.images.push_back(image);
-  r.preset.texture.image=image;r.preset.texture.depth=.5;
-  r.preset.size.mappings.push_back({Sensor::Rotation,{{0,.2},{1,1}},1});
-  r.preset.seed=UINT64_C(18446744073709551615);
-  QString error;auto bytes=encode(r,error);require(!bytes.isEmpty(),qPrintable(error));
-  auto restored=decode(bytes,error);require(error.isEmpty()&&restored.semanticallySupported,qPrintable(error));
-  require(!restored.referenceVerified,"unearned reference verification");
-  require(restored.preset.seed==r.preset.seed,"seed precision lost");
-  require(restored.preset.tip.images[0]->pixels[0].r==1,"image lost");
-  require(restored.preset.tip.images[0]==restored.preset.texture.image,"resource not deduplicated");
-  require(encode(restored,error)==bytes,"package roundtrip changed");
-  decode(altered(bytes,"version",2),error);require(!error.isEmpty(),"future version accepted");
-  auto root=QJsonDocument::fromJson(bytes).object();auto settings=root["settings"].toObject();
-  settings["unrecognizedDynamics"]=true;root["settings"]=settings;
-  decode(QJsonDocument(root).toJson(),error);require(!error.isEmpty(),"unknown behavior ignored");
-  root=QJsonDocument::fromJson(bytes).object();root["assets"]=QJsonObject();
-  decode(QJsonDocument(root).toJson(),error);require(!error.isEmpty(),"missing resource accepted");
-  root=QJsonDocument::fromJson(bytes).object();auto assets=root["assets"].toObject();auto a=assets.begin().value().toObject();a["color"]=false;assets[assets.begin().key()]=a;root["assets"]=assets;
-  decode(QJsonDocument(root).toJson(),error);require(!error.isEmpty(),"hash mismatch accepted");
-  QTemporaryDir dir;require(dir.isValid(),"temporary directory unavailable");
-  auto path=install(dir.path(),r,error);require(!path.isEmpty(),qPrintable(error));
-  require(install(dir.path(),r,error)==path,"duplicate install changed identity");
-  auto saved=load(path,error);require(saved.semanticallySupported,qPrintable(error));
-  QFile f(path);require(f.open(QIODevice::WriteOnly),"cannot damage fixture");f.write("damaged");f.close();
-  require(install(dir.path(),r,error).isEmpty(),"conflicting install overwritten");
-  r.preset.tip.shape=Shape(99);require(encode(r,error).isEmpty(),"invalid enum serialized");
-  r.preset.tip.shape=Shape::Bitmap;r.preset.color={1,0,0,.5};require(encode(r,error).isEmpty(),"invalid premultiplication accepted");
+QByteArray altered(const QByteArray &bytes, const QString &key,
+                   const QJsonValue &value) {
+  auto root = QJsonDocument::fromJson(bytes).object();
+  root[key] = value;
+  return QJsonDocument(root).toJson();
 }
+QByteArray gbr(unsigned version = 2, unsigned channels = 1) {
+  QByteArray b;
+  auto word = [&](unsigned n) {
+    for (int i = 3; i >= 0; --i) b.append(char(n >> (8 * i)));
+  };
+  word(version == 1 ? 22 : 30);
+  word(version);
+  word(2);
+  word(1);
+  word(channels);
+  if (version == 2) {
+    word(0x47494d50);
+    word(25);
+  }
+  b.append("x\0", 2);
+  if (channels == 1) {
+    b.append(char(255));
+    b.append(char(0));
+  } else
+    b.append("\xff\0\0\xff\0\xff\0\0", 8);
+  return b;
 }
-int main(int argc,char **argv){QCoreApplication app(argc,argv);try{testPackage();std::cout<<"Native brush package tests passed\n";return 0;}catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}}
+QByteArray kpp(const QString &engine = "paintbrush") {
+  QImage image(2, 2, QImage::Format_ARGB32);
+  image.fill(Qt::transparent);
+  image.setText("version", "2.2");
+  image.setText(
+      "preset",
+      "<Preset name=\"Original fixture\" paintopid=\"" + engine +
+          "\">"
+          "<param name=\"brush_definition\"><![CDATA[<Brush "
+          "type=\"auto_brush\" spacing=\"0.1\" angle=\"0\" density=\"1\">"
+          "<MaskGenerator id=\"default\" type=\"circle\" diameter=\"20\" "
+          "ratio=\"1\" hfade=\"1\" vfade=\"1\" spikes=\"2\"/>"
+          "</Brush>]]></param><param name=\"SmudgeRateMode\">1</param>"
+          "<param name=\"SmudgeRateUseNewEngine\">true</param></Preset>");
+  QByteArray bytes;
+  QBuffer buffer(&bytes);
+  buffer.open(QIODevice::WriteOnly);
+  require(image.save(&buffer, "PNG"), "cannot create original KPP fixture");
+  return bytes;
+}
+void testImports() {
+  QString error;
+  auto dry = importBrush(kpp(), "kpp", error);
+  require(dry.complete, qPrintable(error));
+  require(!dry.records[0].provenance["sourceSemanticallySupported"].toBool(),
+          "KPP approximation claimed exact");
+  auto wet = importBrush(kpp("colorsmudge"), "kpp", error);
+  require(wet.complete, qPrintable(error));
+  require(wet.records[0].preset.wet == Wet::Dulling,
+          "native wet conversion missing");
+  auto corrupt                = kpp();
+  corrupt[corrupt.size() - 1] = char(corrupt.back() ^ 1);
+  require(!importBrush(corrupt, "kpp", error).complete, "PNG CRC ignored");
+  require(!importBrush(kpp("hairybrush"), "kpp", error).complete,
+          "unsupported KPP engine accepted");
+  for (unsigned version : {1u, 2u})
+    for (unsigned channels : {1u, 4u}) {
+      auto result = importBrush(gbr(version, channels), "gbr", error);
+      require(result.complete && result.records.size() == 1, qPrintable(error));
+      const auto &r = result.records[0];
+      require(!r.referenceVerified, "foreign verification invented");
+      require(r.preset.tip.images[0]->pixels[0].a == 1, "GBR mask polarity");
+      require(r.preset.tip.images[0]->pixels[1].a == 0,
+              "GBR transparent pixel");
+      require(r.preset.size.value == 2 && r.preset.aspect.value == 1,
+              "GBR aspect");
+    }
+  QByteArray pipe =
+      "Sequence\n2 ncells:2 step:25 dim:1 cols:2 rows:1 rank0:2 "
+      "sel0:incremental\n";
+  pipe += gbr();
+  pipe += gbr();
+  auto result = importBrush(pipe, "gih", error);
+  require(result.complete && result.records[0].preset.tip.images.size() == 2,
+          qPrintable(error));
+  pipe.replace("sel0:incremental", "sel0:random");
+  result = importBrush(pipe, "gih", error);
+  require(result.complete && result.records[0].preset.tip.randomSequence,
+          qPrintable(error));
+  pipe.replace("sel0:random", "sel0:angular");
+  require(!importBrush(pipe, "gih", error).complete,
+          "unsupported selector accepted");
+  auto data = gbr();
+  data.chop(1);
+  require(!importBrush(data, "gbr", error).complete, "truncated GBR accepted");
+  data    = gbr();
+  data[7] = 3;
+  require(!importBrush(data, "gbr", error).complete,
+          "unsupported GBR version accepted");
+  data    = gbr();
+  data[8] = 127;
+  require(!importBrush(data, "gbr", error).complete, "oversized GBR accepted");
+}
+void testPackage() {
+  Record r;
+  r.preset.name = "Original brush";
+  r.provenance  = {{"license", "CC0-1.0"}, {"origin", "original test fixture"}};
+  auto image    = std::make_shared<Image>();
+  image->width  = 2;
+  image->height = 2;
+  image->color  = true;
+  image->pixels = {{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}, {0, 0, 0, 0}};
+  r.preset.tip.shape = Shape::Bitmap;
+  r.preset.tip.images.push_back(image);
+  r.preset.texture.image = image;
+  r.preset.texture.depth = .5;
+  r.preset.size.mappings.push_back({Sensor::Rotation, {{0, .2}, {1, 1}}, 1});
+  r.preset.seed = UINT64_C(18446744073709551615);
+  QString error;
+  auto bytes = encode(r, error);
+  require(!bytes.isEmpty(), qPrintable(error));
+  auto restored = decode(bytes, error);
+  require(error.isEmpty() && restored.semanticallySupported, qPrintable(error));
+  require(!restored.referenceVerified, "unearned reference verification");
+  require(restored.preset.seed == r.preset.seed, "seed precision lost");
+  require(restored.preset.tip.images[0]->pixels[0].r == 1, "image lost");
+  require(restored.preset.tip.images[0] == restored.preset.texture.image,
+          "resource not deduplicated");
+  require(encode(restored, error) == bytes, "package roundtrip changed");
+  decode(altered(bytes, "version", 2), error);
+  require(!error.isEmpty(), "future version accepted");
+  auto root                        = QJsonDocument::fromJson(bytes).object();
+  auto settings                    = root["settings"].toObject();
+  settings["unrecognizedDynamics"] = true;
+  root["settings"]                 = settings;
+  decode(QJsonDocument(root).toJson(), error);
+  require(!error.isEmpty(), "unknown behavior ignored");
+  root           = QJsonDocument::fromJson(bytes).object();
+  root["assets"] = QJsonObject();
+  decode(QJsonDocument(root).toJson(), error);
+  require(!error.isEmpty(), "missing resource accepted");
+  root                         = QJsonDocument::fromJson(bytes).object();
+  auto assets                  = root["assets"].toObject();
+  auto a                       = assets.begin().value().toObject();
+  a["color"]                   = false;
+  assets[assets.begin().key()] = a;
+  root["assets"]               = assets;
+  decode(QJsonDocument(root).toJson(), error);
+  require(!error.isEmpty(), "hash mismatch accepted");
+  QTemporaryDir dir;
+  require(dir.isValid(), "temporary directory unavailable");
+  auto path = install(dir.path(), r, error);
+  require(!path.isEmpty(), qPrintable(error));
+  require(install(dir.path(), r, error) == path,
+          "duplicate install changed identity");
+  auto saved = load(path, error);
+  require(saved.semanticallySupported, qPrintable(error));
+  QFile f(path);
+  require(f.open(QIODevice::WriteOnly), "cannot damage fixture");
+  f.write("damaged");
+  f.close();
+  require(install(dir.path(), r, error).isEmpty(),
+          "conflicting install overwritten");
+  r.preset.tip.shape = Shape(99);
+  require(encode(r, error).isEmpty(), "invalid enum serialized");
+  r.preset.tip.shape = Shape::Bitmap;
+  r.preset.color     = {1, 0, 0, .5};
+  require(encode(r, error).isEmpty(), "invalid premultiplication accepted");
+}
+}  // namespace
+int main(int argc, char **argv) {
+  QCoreApplication app(argc, argv);
+  try {
+    testPackage();
+    testImports();
+    std::cout << "Native brush package tests passed\n";
+    return 0;
+  } catch (const std::exception &e) {
+    std::cerr << e.what() << '\n';
+    return 1;
+  }
+}

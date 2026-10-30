@@ -24,10 +24,23 @@ enum class Blend { Normal, Multiply, Screen, Overlay, Erase };
 enum class Shape { Round, Square, Gaussian, Bitmap };
 enum class MaskMode { Multiply, Subtract };
 enum class Wet { Off, Dulling, Smear };
-enum class Sensor { Pressure, TiltX, TiltY, TiltElevation, TiltDirection,
-                    Rotation, Direction, Distance, Time, Speed, RandomDab,
-                    RandomStroke };
-struct Knot { double x = 0, y = 0; };
+enum class Sensor {
+  Pressure,
+  TiltX,
+  TiltY,
+  TiltElevation,
+  TiltDirection,
+  Rotation,
+  Direction,
+  Distance,
+  Time,
+  Speed,
+  RandomDab,
+  RandomStroke
+};
+struct Knot {
+  double x = 0, y = 0;
+};
 struct Mapping {
   Sensor sensor = Sensor::Pressure;
   std::vector<Knot> curve{{0, 0}, {1, 1}};
@@ -43,7 +56,7 @@ struct Image {
   bool color = false;  // false: alpha is coverage, RGB is ignored
 };
 struct Tip {
-  Shape shape = Shape::Round;
+  Shape shape     = Shape::Round;
   double hardness = 1;
   std::vector<std::shared_ptr<const Image>> images;
   bool randomSequence = false;
@@ -74,7 +87,7 @@ struct Preset {
   Pixel color{0, 0, 0, 1};
   Texture texture;
   Secondary secondary;
-  Wet wet = Wet::Off;
+  Wet wet       = Wet::Off;
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
   std::uint64_t seed = 1;
 };
@@ -85,18 +98,18 @@ struct Sample {
 };
 class Surface {
 public:
-  virtual ~Surface() = default;
-  virtual int width() const = 0;
+  virtual ~Surface()         = default;
+  virtual int width() const  = 0;
   virtual int height() const = 0;
   // prepare must make the whole read/write region available and record undo
   // BEFORE any read. Inclusive-exclusive bounds; clipped to the canvas.
   virtual bool prepare(int x0, int y0, int x1, int y1) = 0;
-  virtual Pixel read(int x, int y) const = 0;
+  virtual Pixel read(int x, int y) const               = 0;
   virtual void write(int x, int y, const Pixel &pixel) = 0;
   virtual double coverage(int, int) const { return 1; }
 };
 RASTERBRUSH_API Pixel composite(Pixel dst, Pixel src, Blend mode,
-                                 bool lockAlpha = false);
+                                bool lockAlpha = false);
 RASTERBRUSH_API std::string validate(const Preset &preset);
 
 // One instance per stroke/replicated track. Samples/settings never reference
@@ -104,11 +117,12 @@ RASTERBRUSH_API std::string validate(const Preset &preset);
 class RASTERBRUSH_API Stroke {
   struct Impl;
   std::unique_ptr<Impl> m;
+
 public:
   Stroke(Surface &surface, const Preset &preset,
          size_t memoryLimit = 256u * 1024u * 1024u);
   ~Stroke();
-  Stroke(const Stroke &) = delete;
+  Stroke(const Stroke &)            = delete;
   Stroke &operator=(const Stroke &) = delete;
   bool add(const Sample &sample);
   void finish();

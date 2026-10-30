@@ -1,6 +1,7 @@
 
 
 #include "fullcolorbrushtool.h"
+#include "toonz/rasterbrushimport.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -60,6 +61,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QKeyEvent>
+#include <QMessageBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -189,10 +191,27 @@ bool FullColorBrushTool::selectNativePreset() {
   QString id=QString::fromStdWString(m_nativePreset.getValue()),error;
   auto previous=QString::fromStdString(FullcolorNativeBrush.getValue()).toStdWString();
   if(id=="<import>") {
-    QString path=QFileDialog::getOpenFileName(nullptr,tr("Import Native Raster Brush"),QString(),tr("Native raster brushes (*.gzbrush)"));
+    QString path=QFileDialog::getOpenFileName(nullptr,tr("Import Native Raster Brush"),QString(),tr("Raster brushes (*.gzbrush *.abr *.gbr *.gih *.kpp)"));
     m_nativePreset.setValue(previous);if(path.isEmpty())return true;
-    auto record=RasterBrush::load(path,error);
-    if(error.isEmpty())path=RasterBrush::install(nativeBrushFolder(),record,error);
+    auto imported=RasterBrush::importBrushFile(path,error);
+    if(!error.isEmpty()){DVGui::warning(error);return true;}
+    if(!imported.diagnostics.isEmpty()) {
+      QMessageBox report(QMessageBox::Information,tr("Native Brush Conversion"),
+        tr("This import creates a native conversion. Review the details before installing it."),
+        QMessageBox::Ok|QMessageBox::Cancel);
+      report.setDetailedText(imported.diagnostics.join("\n"));
+      report.setDefaultButton(QMessageBox::Cancel);
+      if(report.exec()!=QMessageBox::Ok)return true;
+    }
+    if(imported.records.empty())return true;
+    int index=0;
+    if(imported.records.size()>1){
+      QStringList names;for(size_t i=0;i<imported.records.size();++i)
+        names<<QString::number(i+1)+": "+QString::fromStdString(imported.records[i].preset.name);
+      bool ok=false;auto chosen=QInputDialog::getItem(nullptr,tr("Choose a Brush"),tr("Native conversion"),names,0,false,&ok);
+      if(!ok)return true;index=names.indexOf(chosen);
+    }
+    path=RasterBrush::install(nativeBrushFolder(),imported.records[index],error);
     if(!error.isEmpty()){DVGui::warning(error);return true;}
     FullcolorNativeBrush=QFileInfo(path).fileName().toStdString();initNativePresets();return true;
   }

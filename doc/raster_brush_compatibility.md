@@ -16,14 +16,14 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 |---|---|---|
 | Existing ABR input and allocation budgets, exact subversion guards | Implemented | CI parser fixtures at the PR head |
 | Existing ABR collection installation without overwriting or partial writes | Implemented | Packaged application fault-injection review pending |
-| Versioned IR and decoded/supported/verified status separation | Planned | Format/resource round-trip corpus |
+| Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
 | ABR descriptor/computed-tip/pattern behavioral import | Planned | Every declared version and active setting |
-| KPP/bundle/GBR/GIH import | Planned | Safe parsing and resource association corpus |
-| Independent dry renderer and defined dynamics/combinations | Planned | Numeric and source-reference comparison gates |
-| Four Krita smudge profiles and native wet | Planned | Long-stroke drift, transparency and pickup fixtures |
-| Real tilt/rotation capture and normalization | Planned | Driver/device and canonical trace evidence |
-| Actual-engine preview, editor, portable preset export/relink | Planned | Artist workflow and resource portability |
-| Undo/cancel/frame lifecycle/save/reopen | Planned | Exact restored pixels and regression scenes |
+| KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; generated-tip KPP conversion; bundles still planned | Original generated fixtures; conversions explicitly do not claim source semantics |
+| Independent dry renderer and defined dynamics/combinations | Native CPU renderer implemented; foreign profiles planned | Numeric native tests; source-reference gates pending |
+| Four Krita smudge profiles and native wet | Native wet/smear implemented; four source models still planned | Native deterministic pickup tests; foreign models must not alias native wet |
+| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Full app CI and device qualification pending |
+| Actual-engine preview, editor, portable preset export/relink | Native preview/basic editor and embedded-asset export implemented | Cross-platform package CI passes; application workflows pending |
+| Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Application scene/lifecycle tests still required |
 | Parser isolation/fuzzing/cancel and complete resource budgets | Planned | Sanitizers, malformed corpus and limits |
 | Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
 | Must-have pack parity including any wet/Mixer/bristle/TPL expansion | Unresolved target | Pack revision/preset identity and authorized reference access |
@@ -45,7 +45,7 @@ Store these per preset, per importer version and per profile version; display th
 * **Semantically supported:** every active setting, dependency, numeric range and combination belongs to the selected profile and has an implemented mapping. Parsing an unknown field into an opaque blob does not qualify. Inactive settings may be preserved only when their disabled state is provable. An unrecognized enable flag is conservatively active/unknown. A preset needing conversion is labeled **converted approximation**, with source and replacement semantics shown.
 * **Reference-verified:** a specific preset or explicitly bounded equivalence class passed the comparison suite against the stated source application build, document settings and asset hashes. Record date, evidence and confidence scope. A supported preset can remain unverified; a verified tip decoder does not verify dynamics. Verification does not automatically cover another pack revision or app patch.
 
-At present, the repository supplies existing decoder code and tests, not these new semantic/verification statuses. All new profiles below are planned, and reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
+The repository now supplies native rendering and package statuses. Foreign behavior profiles below remain planned, and reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
 
 ### Source-version × engine × active-setting matrix
 
@@ -135,3 +135,42 @@ The only missing product information that cannot be inferred is: **Which specifi
 
 M0 now freezes the matrices above and gathers required evidence rather than choosing undefined subversions/modes. M2/M3/M4 exit gates must cover every row and declared combination; missing comparisons remain unverified. The 15–27-week estimate applies only to RCP1 and should be re-estimated once fixture availability and independent source-model measurements are known. W, additional source versions, linear-light profiles and unrelated touch/UI work are excluded from that estimate, with no implication that the broader user goal has been accepted as narrower.
 
+
+## Native implementation and conversion boundary
+
+The opt-in **Native Brush** control applies only to regular RGBA8 raster drawing.
+Legacy MyPaint is the default. Built-in native round, wet mix and smear presets,
+a scratchpad using the real renderer, basic settings editing, `.gzbrush` import/
+export and a local embedded-resource library are implemented. Pixels are baked
+into the existing raster level and use its normal image saving and undo machinery.
+Application-level save/reopen, cancellation, frame creation and tablet tests remain
+release gates; passing the standalone engine tests does not prove these workflows.
+
+Native v1 performs encoded-sRGB premultiplied blending, deterministic seeded
+sampling, distance/time dab scheduling, multiplicative linear sensor curves,
+bounded sampled/generated tips, image sequences, textures, secondary masks,
+wash/build-up, alpha lock, erasing, and original wet reservoirs. The host RGBA8
+adapter currently quantizes each write; this differs from the proposed all-float
+stroke/commit boundary and remains an explicit fidelity/performance design issue.
+
+Foreign resource adapter v1 is an explicit **converted approximation** path:
+GBR 1/2 mask/RGBA resources, GIH single-dimension incremental/random sequences,
+ABR sampled tips, and KPP 2.2/5.0 generated-tip Pixel/Color Smudge containers.
+KPP source model identifiers are retained, but native wet never stands in for
+implemented Krita smudge semantics. Unmapped KPP fields are listed in the import
+report; foreign installation requires accepting that conversion. External-tip KPP,
+bundles, ABR descriptor behavior and unsupported selectors remain unimplemented.
+These conversions do not satisfy the foreign-profile acceptance rows above.
+
+PNG chunk CRC/framing and metadata decompression are bounded before Qt decoding.
+Native assets are embedded by content hash; no asset path is extracted from a
+package. Package input is limited to 64 MiB, individual decoded images to 2 million
+pixels and aggregate image memory to 256 MiB. No bundled proprietary brush packs
+are included. Original synthetic fixtures exercise resources and errors.
+
+Format references: [GIMP GBR specification](https://developer.gimp.org/core/standards/gbr/),
+[GIMP GIH specification](https://developer.gimp.org/core/standards/gih/), and
+[Krita resource documentation](https://docs.krita.org/en/reference_manual/resource_management/resource_brushtips.html).
+KPP field layout was inspected in the public KDE preset data, including
+`libs/ui/tests/data/testing_200px_colorsmudge_default_dulling_new_sa.kpp`;
+no third-party implementation source or brush asset is included in these changes.

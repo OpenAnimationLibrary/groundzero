@@ -78,6 +78,7 @@ set(HEADERS
     ../include/toonz/abrparser.h
     ../include/toonz/rasterbrushengine.h
     ../include/toonz/rasterbrushpreset.h
+    ../include/toonz/rasterbrushimport.h
     ../include/toonz/autoclose.h
     ../include/toonz/boardsettings.h
     ../include/toonz/captureparameters.h
@@ -200,6 +201,8 @@ set(SOURCES
     abrparser.cpp
     rasterbrushengine.cpp
     rasterbrushpreset.cpp
+    rasterbrushimport.cpp
+    rasterbrushpng.cpp
     autoadjust.cpp
     autoclose.cpp
     autopos.cpp
