@@ -27,6 +27,7 @@
 #include "tvectorimage.h"
 #include "tundo.h"
 #include <QApplication>
+#include <QAbstractButton>
 #include <QComboBox>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -78,7 +79,12 @@ public:
     });
     QObject::connect(&deadline, &QTimer::timeout, [this]() {
       expired = true;
-      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+        std::cerr << "cast-workflow: modal deadline: " << dialog->metaObject()->className()
+                  << " / " << dialog->objectName().toStdString() << " / "
+                  << dialog->windowTitle().toStdString() << std::endl;
+        dialog->reject();
+      } else std::cerr << "cast-workflow: modal deadline without active dialog" << std::endl;
     });
     timer.start(30); deadline.setSingleShot(true); deadline.start(15000);
   }
@@ -462,24 +468,39 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     const int count = TUndoManager::manager()->getHistoryCount();
     const auto folders = QDir(localDir).entryList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
     bool mutated = false, rejected = false;
+    QStringList messages;
+    std::cerr << "cast-workflow: stale local-copy preparation" << std::endl;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
+        messages << message->text();
+        std::cerr << "cast-workflow: local-copy dialog: "
+                  << message->text().toStdString() << std::endl;
         if (message->standardButtons().testFlag(QMessageBox::Yes)) {
           mutated = true;
           raster->getProperties()->setDirtyFlag(true);
           TApp::instance()->getCurrentLevel()->notifyLevelChange();
-          message->done(QMessageBox::Yes);
+          // Static QMessageBox::question reads clickedButton(), not result().
+          message->button(QMessageBox::Yes)->click();
         } else { rejected = message->text().contains("changed during preparation"); message->reject(); }
       }
     });
     CastBrowserActions::makeLocal(&browser, {raster});
-    require(mutated && rejected && !driver.expired && raster->getPath() == linked &&
-            TUndoManager::manager()->getHistoryCount() == count &&
-            QDir(localDir).entryList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot) == folders,
-            "stale local-copy preparation overwrote an edit or left staging/publication files");
+    require(!driver.expired, "stale local-copy preparation did not finish its native dialogs");
+    if (!mutated)
+      throw std::runtime_error(("stale local-copy preparation never reached confirmation: " +
+                                messages.join("; ")).toStdString());
+    if (!rejected)
+      throw std::runtime_error(("stale local-copy preparation did not reject the intervening edit: " +
+                                messages.join("; ")).toStdString());
+    require(raster->getPath() == linked, "stale local-copy preparation changed the original link");
+    require(TUndoManager::manager()->getHistoryCount() == count,
+            "stale local-copy preparation changed undo history");
+    const auto remaining = QDir(localDir).entryList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
+    if (remaining != folders)
+      throw std::runtime_error(("stale local-copy preparation left folders: " + remaining.join(", ")).toStdString());
     raster->getProperties()->setDirtyFlag(false);
   }
   {
@@ -488,7 +509,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
         files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
-        if (message->standardButtons().testFlag(QMessageBox::Yes)) message->done(QMessageBox::Yes);
+        if (message->standardButtons().testFlag(QMessageBox::Yes)) message->button(QMessageBox::Yes)->click();
         else message->reject();
       }
     });
@@ -569,7 +590,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
         dialog->accept();
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) {
-          confirmed = true; message->done(QMessageBox::Yes);
+          confirmed = true; message->button(QMessageBox::Yes)->click();
         } else { failure = message->text(); message->reject(); }
       }
     });
