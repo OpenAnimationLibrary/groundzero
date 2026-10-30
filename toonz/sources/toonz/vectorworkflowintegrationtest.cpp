@@ -856,16 +856,48 @@ void runVectorWorkflowNativeChecks() {
           std::abs(afterSecond->getStroke(1)->getControlPoint(0).thick - (.5 + .5 * endpoint)) < 1e-9 &&
           undo->getHistoryCount() == 1, "native width-pressure blend differs from preview contract");
   const std::array<TVectorImageP,2> appliedWidths{{freezeWidth(afterFirst),freezeWidth(afterSecond)}};
+  std::cout << "vector-width-context-native: Undo/Redo before native PLI write" << std::endl;
+  undo->undo(); settle();
+  require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),widthOriginals[0]) &&
+          VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),widthOriginals[1]),
+          "width undo before serialization lost original drawing state");
+  undo->redo(); settle();
+  require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),appliedWidths[0]) &&
+          VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),appliedWidths[1]),
+          "width redo before serialization lost reviewed drawing state");
+  afterFirst = level->getFrame(TFrameId(1), false);
+  afterSecond = level->getFrame(TFrameId(2), false);
   QTemporaryDir widthDirectory;
   require(widthDirectory.isValid(), "width profile reload directory unavailable");
   const TFilePath widthPath(widthDirectory.filePath("width-profiles.pli"));
+  const int beforeWriteFrame = palette->getFrame();
+  const bool beforeWriteDirty = palette->getDirtyFlag();
+  const QByteArray beforeWritePalette = paletteBytes();
+  std::cout << "vector-width-context-native: native PLI write preserves live palette frame="
+            << beforeWriteFrame << std::endl;
   {
     TLevelWriterP writer(widthPath);
     writer->getFrameWriter(TFrameId(1))->save(afterFirst);
     writer->getFrameWriter(TFrameId(2))->save(afterSecond);
   }
+  if (palette->getFrame() != beforeWriteFrame)
+    std::cerr << "vector-width-context-native: PLI writer changed palette frame "
+              << beforeWriteFrame << " -> " << palette->getFrame() << std::endl;
+  require(palette->getFrame() == beforeWriteFrame &&
+          palette->getDirtyFlag() == beforeWriteDirty && paletteBytes() == beforeWritePalette &&
+          level->getPalette() == palette.getPointer() &&
+          afterFirst->getPalette() == palette.getPointer() &&
+          afterSecond->getPalette() == palette.getPointer() &&
+          TVectorImageP(level->getFrame(TFrameId(1),false)) == afterFirst &&
+          TVectorImageP(level->getFrame(TFrameId(2),false)) == afterSecond &&
+          VectorImageSnapshot::sameContent(afterFirst,appliedWidths[0]) &&
+          VectorImageSnapshot::sameContent(afterSecond,appliedWidths[1]) &&
+          undo->getHistoryCount() == 1,
+          "native PLI write changed live drawing/palette/frame/animation/history state");
+  checkCopy(palette.getPointer(),animatedCopy,true);
   TLevelReaderP widthReader(widthPath); TLevelP savedWidthLevel = widthReader->loadInfo();
   require(savedWidthLevel && savedWidthLevel->getPalette(), "saved width level has no palette");
+  checkCopy(savedWidthLevel->getPalette(),animatedCopy,true);
   for (int i = 0; i < 2; ++i) {
     TVectorImageP reopened = widthReader->getFrameReader(TFrameId(i+1))->load();
     require(reopened && reopened->getStrokeCount() == appliedWidths[i]->getStrokeCount(),
@@ -898,6 +930,7 @@ void runVectorWorkflowNativeChecks() {
             "saved width blend lost its filled region");
   }
   for (int repeat = 0; repeat < 2; ++repeat) {
+    std::cout << "vector-width-context-native: Undo/Redo after native PLI write " << repeat << std::endl;
     undo->undo(); settle();
     require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),widthOriginals[0]) &&
             VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),widthOriginals[1]),

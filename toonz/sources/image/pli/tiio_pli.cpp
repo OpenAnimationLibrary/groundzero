@@ -204,6 +204,14 @@ void buildPalette(ParsedPli *pli, const TImageP img) {
   if (!pli->m_palette_tags.empty()) return;
   TVectorImageP tempVecImg = img;
   TPalette *vPalette       = tempVecImg->getPalette();
+  // Writing animation visits every keyframe. Evaluate a detached palette so
+  // saving cannot change the live drawing's current styles or palette frame,
+  // including when serialization exits with an exception.
+  TPaletteP serializedPalette;
+  if (vPalette->isAnimated()) {
+    serializedPalette = vPalette->clone();
+    vPalette = serializedPalette.getPointer();
+  }
   unsigned int i;
   // if (pli->m_idWrittenColorsArray.empty())
   //  {
