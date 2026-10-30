@@ -44,7 +44,7 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(native, "os", native_os), \
                     patch.object(native, "signal", SimpleNamespace(SIGKILL=9)), \
-                    patch.object(native.subprocess, "Popen", side_effect=launch) as popen, \
+                    patch.object(native, "launch_captured_process", side_effect=launch) as popen, \
                     patch.object(native.subprocess, "run", taskkill or Mock(
                         return_value=SimpleNamespace(returncode=0, stdout=b"tree stopped\n"))) as cleanup, \
                     patch.object(native.time, "monotonic", clock), \
@@ -259,7 +259,7 @@ class IsolatedFixtureLifetimeTest(unittest.TestCase):
             fixture = result = None
             try:
                 with patch.object(native, "os", native_os), \
-                        patch.object(native.subprocess, "Popen", side_effect=launch), \
+                        patch.object(native, "launch_captured_process", side_effect=launch), \
                         patch.object(native.subprocess, "run", return_value=SimpleNamespace(
                             returncode=128, stdout=b"descendants unknown\n")):
                     with self.assertRaisesRegex(RuntimeError, "retained"):
@@ -668,11 +668,11 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
             if combined is not None:
                 combined.assert_not_called()
 
-    def invoke(self, result, *, offline=True, function=False):
+    def invoke(self, result, *, offline=True, function=False, vector=False):
         if not isinstance(result, Exception):
             # These cases isolate feature/deadline gates. Supply the separate
             # terminal-worker contract explicitly; missing/echoed lifecycle
-            # lines are exercised by test_native_ui_lifecycle.py.
+            # lines are exercised by the native diagnostic and lifecycle suites.
             result = SimpleNamespace(returncode=result.returncode, stdout=result.stdout +
                 b"\nicon-lifecycle-native: terminal replacement PASS\n"
                 b"icon-lifecycle-native: PASS (actual workers and Qt TLS retired)\n"
@@ -695,6 +695,8 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
                 arguments.append("--require-offline-gl-workflow")
             if function:
                 arguments.append("--require-function-workflow")
+            if vector:
+                arguments.append("--require-vector-workflows")
             with patch.object(native, "isolated_fixture", fixture), \
                     patch.object(native, "run_captured_process", return_value=result,
                                  side_effect=result if isinstance(result, Exception) else None) as run, \
@@ -729,6 +731,21 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertIn("timed out after 240 seconds", output)
         self.assertIn("converter started", output)
+
+    def test_vector_checkpoint_keeps_full_deadline_and_required_markers(self):
+        markers = [b"native-ui-integration: PASS", b"vector-workflows: PASS",
+                   b"offline-gl-workflow: PASS"]
+        for missing in markers:
+            with self.subTest(missing=missing):
+                status, output, invocation = self.invoke(SimpleNamespace(returncode=0,
+                    stdout=b"\n".join(marker for marker in markers if marker != missing)), vector=True)
+                self.assertNotEqual(status, 0)
+                self.assertIn("Missing required native acceptance checkpoints", output)
+                self.assertEqual(invocation.kwargs["timeout"], 600)
+        status, _, invocation = self.invoke(SimpleNamespace(returncode=0,
+            stdout=b"\n".join(markers)), vector=True)
+        self.assertEqual(status, 0)
+        self.assertEqual(invocation.kwargs["timeout"], 600)
 
     def test_function_checkpoint_and_original_deadline_remain_required(self):
         status, output, invocation = self.invoke(SimpleNamespace(

@@ -197,6 +197,18 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Ensure original Windows crash debugger is available
+        timeout-minutes: 12
+        shell: pwsh
+        run: ./ci-scripts/install_windows_debugger.ps1
+
+      - name: Verify original Windows process containment and crash capture
+        timeout-minutes: 5
+        run: python -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+
+      - name: Verify native diagnostic isolation
+        run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
       - name: Verify bounded desktop GL launcher
         run: python -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
 
@@ -448,7 +460,7 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --output toonz/build/ui-integration-output.txt --windows-crash-debugger --windows-original-dump-directory "%RUNNER_TEMP%\groundzero-original-dumps" --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
