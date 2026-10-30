@@ -7,6 +7,7 @@
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/tpalettehandle.h"
+#include "toonz/levelproperties.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txsheet.h"
@@ -128,6 +129,10 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
     const TFilePath rasterPath(QDir(output.path()).filePath("raster..png"));
     vector->setPath(vectorPath);
     raster->setPath(rasterPath);
+    raster->getProperties()->setImageRes(TDimension(rasterSize, rasterSize));
+    raster->getProperties()->setImageDpi(TPointD(120, 120));
+    raster->getProperties()->setDpi(120);
+    raster->getProperties()->setBpp(32);
     for (int frame = 0; frame < frameCount; ++frame) {
       TVectorImageP drawing = new TVectorImage;
       drawing->setPalette(vector->getPalette());
@@ -208,7 +213,8 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
     require(drawn && drawn->getStrokeCount() == strokesPerDrawing + penStrokes,
             "Synthetic pressure traces did not create the expected native brush strokes");
     QCryptographicHash rendered(QCryptographicHash::Sha256);
-    std::vector<double> scrub, sequential;
+    std::vector<double> scrub, sequential, translucent;
+    QByteArray opaqueFirstFrame;
     for (int pass = 0; pass < 2; ++pass) {
       QSet<QByteArray> visibleFrames;
       app->getCurrentFrame()->setPlaying(pass == 1);
@@ -220,6 +226,11 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
         const QImage image = viewer->grabFramebuffer();
         (pass ? sequential : scrub).push_back(timer.nsecsElapsed() / 1000000.0);
         hashImage(rendered, image);
+        if (pass == 0 && frame == 0) {
+          QCryptographicHash firstFrame(QCryptographicHash::Sha256);
+          hashImage(firstFrame, image);
+          opaqueFirstFrame = firstFrame.result();
+        }
         require(image.width() >= 64 && image.height() >= 64, "Viewer is too small for the workload");
         QCryptographicHash content(QCryptographicHash::Sha256);
         // The changing raster is centered under the vector artwork. Check a
@@ -231,6 +242,28 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
       app->getCurrentFrame()->setPlaying(false);
       require(visibleFrames.size() == frameCount,
               "Native rendered artwork did not update for every exposed drawing");
+    }
+    // Scalar transparency is a common artist workload and can take a different
+    // renderer path. Record it separately so a compositing regression is visible.
+    app->getCurrentFrame()->setPlaying(false);
+    for (int frame = 0; frame < frameCount; ++frame) {
+      const TVectorImageP image = vector->getFrame(TFrameId(frame + 1), true);
+      for (unsigned int stroke = 0; stroke < image->getStrokeCount(); ++stroke)
+        image->getStroke(stroke)->setOpacity(.5);
+    }
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    for (int frame = 0; frame < frameCount; ++frame) {
+      timer.restart();
+      app->getCurrentFrame()->setFrame(frame);
+      settle();
+      const QImage image = viewer->grabFramebuffer();
+      translucent.push_back(timer.nsecsElapsed() / 1000000.0);
+      QCryptographicHash transparentFrame(QCryptographicHash::Sha256);
+      hashImage(transparentFrame, image);
+      if (frame == 0)
+        require(transparentFrame.result() != opaqueFirstFrame,
+                "Scalar opacity did not change the native rendered drawing");
+      hashImage(rendered, image);
     }
     std::vector<double> saves;
     const TFilePath scenePath(QDir(output.path()).filePath("workload.tnz"));
@@ -258,6 +291,9 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
       const TVectorImageP actual = vectorReader->getFrameReader(frame + 1)->load();
       require(actual && actual->getStrokeCount() == strokesPerDrawing + (frame == 0 ? penStrokes : 0),
               "Saved vector drawing did not round-trip");
+      for (unsigned int stroke = 0; stroke < actual->getStrokeCount(); ++stroke)
+        require(actual->getStroke(stroke)->getOpacity() == .5,
+                "Saved scalar opacity did not round-trip");
       const TRasterImageP image = rasterReader->getFrameReader(frame + 1)->load();
       require(!!image, "Saved raster drawing is unreadable");
       const TRaster32P pixels = image->getRaster();
@@ -291,6 +327,7 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
         {"pen_commit_and_framebuffer", distribution(commitRendering)},
         {"random_frame_navigation_and_render", distribution(scrub)},
         {"sequential_playback_mode_frame_render", distribution(sequential)},
+        {"translucent_vector_frame_render", distribution(translucent)},
         {"drawing_resources_and_scene_save", distribution(saves)},
         {"peak_resident_bytes", QString::number(peakMemoryBytes())},
         {"framebuffer_checksum", QString::fromLatin1(rendered.result().toHex())},

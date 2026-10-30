@@ -18,6 +18,8 @@ pixels), then measures:
 * Pen commit to completion of native viewer framebuffer rendering.
 * A deterministic nonsequential frame-navigation pass and sequential frame
   stepping with the application's playback state enabled.
+* A separate 50% scalar-opacity vector pass, with a render-change assertion and
+  saved-opacity checks, to expose the cost of translucent compositing.
 * Three complete drawing-resource and scene saves. All drawings are marked
   modified before each sample; this cannot collapse into metadata-only saves.
 * Process peak resident memory, with platform-specific counters.

@@ -10,7 +10,7 @@ All 60 requested improvements remain tracked. Source implementation, executed CI
 |---|---|---|---|
 | Function Editor | 1–18 | `improve/function-editor-workflow` | [Draft #116](https://github.com/OpenAnimationLibrary/groundzero/pull/116) |
 | Vector editing | 19–36 | `improve/vector-editing-workflow` | Pending |
-| Scene Cast | 37–52 | `improve/scene-cast-workflow` | Pending |
+| Scene Cast | 37–52 | `improve/scene-cast-workflow` | [Draft #119](https://github.com/OpenAnimationLibrary/groundzero/pull/119) |
 | Animation workflow and reliability | 53–58 | `improve/animation-workflow-reliability` | [Draft #117](https://github.com/OpenAnimationLibrary/groundzero/pull/117) |
 | Performance and cache management | 59–60 | `improve/artist-workflow-performance` | [Draft #118](https://github.com/OpenAnimationLibrary/groundzero/pull/118) |
 
@@ -27,9 +27,9 @@ remaining checks separately:
   See `doc/function_editor_acceptance.md` in #116.
 * Vector editing: implementation is still being integrated, including versioned
   opacity envelopes and their native render/export behavior. No draft yet.
-* Scene Cast: initial workflows and fixtures exist; confirmed consolidation,
-  saved preview covers and additional inspector/collection acceptance remain
-  in progress. No draft yet.
+* Scene Cast: source and fixtures published, including confirmed consolidation,
+  saved covers, cache restoration and actual relocated-project acceptance.
+  See `doc/scene_cast_acceptance.md` in #119; exact-head CI is pending.
 * Animation reliability: source and a review correction preserving untouched storyboard key fields
   are published, together with full export write/cancel checks. Item 36's compatibility/export findings await vector integration.
   See `doc/animation_workflow_acceptance.md` in #117.
@@ -85,22 +85,22 @@ work remains the base; raster brush and neural changes retain separate owners.
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Pending |
 | 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending |
-| 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Pending |
-| 38 | Cast filters | Types and resource status predicates, combined with search. | Pending |
-| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Pending |
-| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Pending |
-| 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Pending |
-| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Pending |
-| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Pending |
-| 44 | Asset inspector | Resolution/DPI/frame gaps/palette/storage selection updates. | Pending |
-| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Pending |
-| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Pending |
-| 47 | Tags and collections | Stable asset IDs, multi-tag queries and save/reload. | Pending |
-| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Pending |
-| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Pending |
-| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Pending |
-| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Pending |
-| 52 | Linked ownership and local copy | Import vs linked state and explicit local copy with undo/collection preservation. | Pending |
+| 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
+| 38 | Cast filters | Types and resource status predicates, combined with search. | Source-ready; CI pending |
+| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; CI pending |
+| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Source-ready; CI pending |
+| 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Source-ready; CI pending |
+| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; CI pending |
+| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; CI pending |
+| 44 | Asset inspector | Resolution/DPI/frame gaps/palette/storage selection updates. | Source-ready; CI pending |
+| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; CI pending |
+| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; CI pending |
+| 47 | Tags and collections | Stable asset IDs, multi-tag queries and save/reload. | Source-ready; CI pending |
+| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; CI pending |
+| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; CI pending |
+| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Source-ready; CI pending |
+| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Source-ready; CI pending |
+| 52 | Linked ownership and local copy | Import vs linked state and explicit local copy with undo/collection preservation. | Source-ready; CI pending |
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; CI pending |
 | 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; CI pending |
 | 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; CI pending |
