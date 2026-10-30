@@ -209,6 +209,29 @@ void exerciseDirectoryRefresh(ToonzScene *scene, const QString &folder) {
   directoryChanged();
   require(keep.isValid() && keepChild.isValid() && first.currentIndex() == keepChild,
           "scene location update reset unrelated browser selection");
+
+  // Closing the active browser must release its selection and command target;
+  // closing another browser must leave that active selection alone. Repeat to
+  // exercise a fresh browser after the previous selection has been destroyed.
+  for (int reopen = 0; reopen != 2; ++reopen) {
+    {
+      DvDirTreeView active;
+      active.setRootIndex(root);
+      active.setCurrentIndex(keep);
+      active.setCurrentIndex(keepChild);
+      require(TSelection::getCurrent() == &active,
+              "native browser navigation did not activate global selection");
+      {
+        DvDirTreeView inactive;
+        require(TSelection::getCurrent() == &active,
+                "constructing inactive browser replaced global selection");
+      }
+      require(TSelection::getCurrent() == &active,
+              "closing inactive browser cleared another browser selection");
+    }
+    require(TSelection::getCurrent() == nullptr,
+            "closing active browser retained a destroyed global selection");
+  }
 }
 void exercisePoses(ToonzScene *scene, const QString &folder) {
   PoseLibrary first;
