@@ -366,7 +366,7 @@ void runBrushWorkflowNativeChecks() {
     undo->redo(); checkNested(true, "nested Paint Inside redo " + std::to_string(repeat));
   }
   undo->undo(); undo->reset();
-  level->setFrame(fids[0], simpleRing);
+  level->setFrame(fids[0], TImageP(simpleRing.getPointer()));
   app->getCurrentXsheet()->notifyXsheetChanged(); row(0);
 
   // Capture through the real Selection -> Brush transition, not a test-only
