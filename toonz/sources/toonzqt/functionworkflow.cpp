@@ -73,6 +73,16 @@ std::vector<TDoubleParamP> curves(const std::vector<Ops::Selection> &selection) 
   for (const auto &entry : selection) result.push_back(entry.curve);
   return result;
 }
+bool containsTargets(FunctionViewer *viewer,
+                     const std::vector<TDoubleParamP> &targets) {
+  auto *tree = viewer->findChild<FunctionTreeView *>();
+  if (!tree) return false;
+  QSet<TDoubleParam *> present;
+  for (auto *channel : tree->channels()) present.insert(channel->getParam());
+  return std::all_of(targets.begin(), targets.end(), [&](const TDoubleParamP &curve) {
+    return curve && present.contains(curve.getPointer());
+  });
+}
 void preview(FunctionPanel *graph, const Ops::Plan &plan, bool before = false) {
   std::vector<std::pair<TDoubleParamP, TDoubleParamP>> overlay;
   if (plan.valid()) for (const auto &change : plan.changes)
@@ -108,6 +118,20 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(viewer, &FunctionViewer::workflowContextChanged, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(graph->getModel(), &QAbstractItemModel::modelAboutToBeReset, &dialog, [&]() { contextValid = false; dialog.reject(); });
+  const auto targets = curves(selection);
+  auto validateTargets = [&]() {
+    if (!contextValid) return false;
+    if (containsTargets(viewer, targets)) return true;
+    contextValid = false;
+    graph->setComparison({});
+    dialog.reject();
+    return false;
+  };
+  // Ordinary owner removal refreshes the tree with layout signals, not a
+  // model reset. Strong curve references prevent dangling pointers but must
+  // never authorize edits to parameters detached from the current scene.
+  QObject::connect(graph->getModel(), &QAbstractItemModel::layoutChanged,
+                   &dialog, [&]() { validateTargets(); });
   dialog.setObjectName("FunctionKeyEditor");
   QVBoxLayout layout(&dialog);
   double first = 1.e100, last = -first, low = first, high = last;
@@ -181,10 +205,10 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     status->setText(QString()); graph->setComparison({});
   };
   auto build = [&]() {
+    if (!validateTargets()) { plan = Ops::Plan(); plan.cancelled = true; return; }
     QProgressDialog progress(tr("Sampling selected curves…"), tr("Cancel"), 0, 0, &dialog);
     progress.setWindowModality(Qt::WindowModal); progress.setMinimumDuration(250);
-    auto cancel = [&]() { QApplication::processEvents(); return !contextValid || progress.wasCanceled(); };
-    if (!contextValid) { plan = Ops::Plan(); plan.cancelled = true; return; }
+    auto cancel = [&]() { QApplication::processEvents(); return !validateTargets() || progress.wasCanceled(); };
     Ops::Range range{start->value() - 1, end->value() - 1, step->value()};
     switch (mode->currentIndex()) {
     case 0: plan = Ops::planValues(selection, Ops::ValueMode::Set, amount->value()); break;
@@ -197,6 +221,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     case 7: plan = Ops::planQuantize(selection, pivot->value() - 1, step->value()); break;
     case 8: plan = Ops::planRetimeToRange(selection, range.first, range.last); break;
     }
+    if (!validateTargets()) { plan = Ops::Plan(); plan.cancelled = true; return; }
     preview(graph, plan);
     status->setText(plan.cancelled ? tr("Canceled; no keys changed.") : !plan.valid() ? plan.error
         : tr("Preview: %1 channels; %2 samples; %3 keys removed; maximum sampled error %4.")
@@ -212,7 +237,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   QObject::connect(favour, &QSlider::sliderReleased, &dialog, [&]() { if (mode->currentIndex() == 6) build(); });
   QObject::connect(previewButton, &QPushButton::clicked, &dialog, build);
   QObject::connect(buttons.button(QDialogButtonBox::Apply), &QPushButton::clicked, &dialog, [&]() {
-    build(); if (!plan.valid() || !contextValid) return;
+    build(); if (!plan.valid() || !validateTargets()) return;
     std::map<TDoubleParam *, std::vector<double>> selectedFrames;
     for (const auto &entry : selection) for (int k : entry.indices)
       selectedFrames[entry.curve.getPointer()].push_back(entry.curve->keyframeIndexToFrame(k));
@@ -479,6 +504,17 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(viewer, &FunctionViewer::workflowContextChanged, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(graph->getModel(), &QAbstractItemModel::modelAboutToBeReset, &dialog, [&]() { contextValid = false; dialog.reject(); });
+  const std::vector<TDoubleParamP> targets{keepTarget};
+  auto validateTargets = [&]() {
+    if (!contextValid) return false;
+    if (containsTargets(viewer, targets)) return true;
+    contextValid = false;
+    graph->setComparison({});
+    dialog.reject();
+    return false;
+  };
+  QObject::connect(graph->getModel(), &QAbstractItemModel::layoutChanged,
+                   &dialog, [&]() { validateTargets(); });
   QString folder = (ToonzFolder::getMyModuleDir() + TFilePath("function-presets")).getQString();
   QDir directory(folder);
   QSettings settings(settingsPath(), QSettings::IniFormat);
@@ -553,7 +589,8 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     }
   };
   QObject::connect(&list, &QListWidget::currentItemChanged, &dialog, [&](QListWidgetItem *item) {
-    preset = TDoubleParamP(); thumbnail.setCurve(preset); graph->setComparison({}); if (!item) return;
+    preset = TDoubleParamP(); thumbnail.setCurve(preset); graph->setComparison({});
+    if (!item || !validateTargets()) return;
     QString file = item->data(Qt::UserRole).toString(); QSignalBlocker block(&favorite); favorite.setChecked(favorites.contains(file));
     try {
       TDoubleParamP loaded = readPreset(directory.filePath(file));
@@ -579,25 +616,27 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     settings.setValue("presetFavorites", favorites); settings.sync();
   });
   QObject::connect(save, &QPushButton::clicked, &dialog, [&]() {
+    if (!validateTargets()) return;
     QInputDialog prompt(&dialog); prompt.setObjectName("FunctionPresetSaveName");
     prompt.setWindowTitle(tr("Save Motion Preset")); prompt.setLabelText(tr("Name"));
     prompt.setInputMode(QInputDialog::TextInput);
     QObject::connect(&dialog, &QDialog::finished, &prompt, &QDialog::reject);
-    if (prompt.exec() != QDialog::Accepted || !contextValid) return;
+    if (prompt.exec() != QDialog::Accepted || !validateTargets()) return;
     const QString name = prompt.textValue().trimmed();
     if (name.isEmpty()) return;
     auto validation = Ops::planPreset(target, target, 0, 24, 1, 0);
     if (!validation.valid()) { status.setText(validation.error); return; }
-    if (publishPreset(name, keepTarget)) { refresh(); status.setText(tr("Preset saved.")); }
+    if (validateTargets() && publishPreset(name, keepTarget)) { refresh(); status.setText(tr("Preset saved.")); }
   });
   QObject::connect(importButton, &QPushButton::clicked, &dialog, [&]() {
+    if (!validateTargets()) return;
     QFileDialog file(&dialog, tr("Import Existing Motion Curve"));
     file.setObjectName("FunctionPresetImportFile");
     file.setOption(QFileDialog::DontUseNativeDialog);
     file.setFileMode(QFileDialog::ExistingFile);
     file.setNameFilter(tr("Motion curves (*.curve *.fcurve)"));
     QObject::connect(&dialog, &QDialog::finished, &file, &QDialog::reject);
-    if (file.exec() != QDialog::Accepted || !contextValid || file.selectedFiles().isEmpty()) return;
+    if (file.exec() != QDialog::Accepted || !validateTargets() || file.selectedFiles().isEmpty()) return;
     const QString path = file.selectedFiles().front();
     try {
       const TDoubleParamP loaded = readPreset(path);
@@ -610,9 +649,9 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
       prompt.setWindowTitle(tr("Import Motion Preset")); prompt.setLabelText(interpretation);
       prompt.setInputMode(QInputDialog::TextInput); prompt.setTextValue(QFileInfo(path).completeBaseName());
       QObject::connect(&dialog, &QDialog::finished, &prompt, &QDialog::reject);
-      if (prompt.exec() != QDialog::Accepted || !contextValid) return;
+      if (prompt.exec() != QDialog::Accepted || !validateTargets()) return;
       const QString name = prompt.textValue().trimmed();
-      if (publishPreset(name, loaded)) {
+      if (validateTargets() && publishPreset(name, loaded)) {
         // An imported preset becomes current explicitly, so reveal it even
         // when the previous search would hide its name.
         search.clear(); refresh();
@@ -623,7 +662,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     } catch (...) { status.setText(tr("The curve could not be imported. The library and current channel were not changed.")); }
   });
   auto makePlan = [&]() {
-    if (!contextValid) { Ops::Plan plan; plan.cancelled = true; return plan; }
+    if (!validateTargets()) { Ops::Plan plan; plan.cancelled = true; return plan; }
     return Ops::planPreset(target, preset.getPointer(), start->value() - 1, duration->value(), amplitude->value(), offset->value());
   };
   QObject::connect(previewButton, &QPushButton::clicked, &dialog, [&]() {
@@ -631,6 +670,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
   });
   QObject::connect(buttons.button(QDialogButtonBox::Apply), &QPushButton::clicked, &dialog, [&]() {
     auto plan = makePlan(); QString error;
+    if (!validateTargets()) return;
     if (!Ops::apply(plan, tr("Apply Motion Preset"), error)) { status.setText(error); return; }
     if (plan.changes.empty()) { status.setText(tr("No keys changed.")); graph->setComparison({}); return; }
     viewer->getSelection()->selectNone(); viewer->emitCurveChanged(); graph->setComparison({}); graph->refreshNormalization(); graph->update();
@@ -715,6 +755,8 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
   QObject::connect(tree->model(), &QAbstractItemModel::modelAboutToBeReset, widget, clearContext);
   QObject::connect(tree->model(), &QAbstractItemModel::layoutChanged, widget, [=]() {
     QSet<TDoubleParam *> present; for (auto *channel : tree->channels()) present.insert(channel->getParam());
+    // This also clears detached spreadsheet ranges containing no keys.
+    viewer->getSelection()->retainCurves(present);
     auto missing = [&](const std::pair<TDoubleParamP, TDoubleParamP> &entry) { return !present.contains(entry.first.getPointer()); };
     const auto previousCount = snapshots->size();
     snapshots->erase(std::remove_if(snapshots->begin(), snapshots->end(), missing), snapshots->end());
