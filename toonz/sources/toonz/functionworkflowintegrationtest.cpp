@@ -580,6 +580,15 @@ void panelLifetimeDialogs(TDoubleParam *target, TDoubleParam *dependent,
       require(!Ops::matchesSnapshot(target, capturedTarget.getPointer()), "Lifetime Restore fixture must contain a real edit after capture");
     }
     const TDoubleParamP currentBefore = viewer->getCurrentChannelCurve();
+    QWidget *segment = nullptr;
+    for (auto *widget : viewer->findChildren<QWidget *>())
+      if (QString::fromLatin1(widget->metaObject()->className()) == "FunctionSegmentViewer") segment = widget;
+    auto *segmentObserver = dynamic_cast<TParamObserver *>(segment);
+    require(segmentObserver, "Native panel segment observer is missing");
+    std::vector<TDoubleParamP> observedCurves;
+    for (auto *channel : tree->channels())
+      if (channel->getParam()->observers().count(segmentObserver)) observedCurves.emplace_back(channel->getParam());
+    require(!observedCurves.empty(), "Native segment editor has no observed target");
     QSet<TDoubleParam *> activeBefore;
     for (auto *channel : tree->channels()) if (channel->isActive()) activeBefore.insert(channel->getParam());
     TDoubleParamP before = new TDoubleParam(*target), dependentBefore = new TDoubleParam(*dependent);
@@ -692,7 +701,34 @@ void panelLifetimeDialogs(TDoubleParam *target, TDoubleParam *dependent,
                 "Closing panel reevaluated the captured comparison");
       delete panel.data();
     }
+    for (const auto &curve : observedCurves)
+      require(!curve->observers().count(segmentObserver), "Closed native panel left a dangling segment observer");
     if (route == Restore) target->copy(capturedTarget.getPointer());
+    // Exercise both native notification paths after every panel's destruction,
+    // preserving the existing route order. The dependent owns a real native
+    // expression, so a source edit propagates through ParamCalculatorNode.
+    struct Notifications final : TParamObserver {
+      TDoubleParamP curve; int direct = 0, propagated = 0;
+      explicit Notifications(TDoubleParam *param) : curve(param) { curve->addObserver(this); }
+      ~Notifications() { curve->removeObserver(this); }
+      void onChange(const TParamChange &change) override {
+        if (change.m_keyframeChanged) ++direct; else ++propagated;
+      }
+    } notifications(dependent);
+    TDoubleParamP sourceBefore = new TDoubleParam(*target), drivenBefore = new TDoubleParam(*dependent);
+    const auto sourceKey = target->getKeyframe(0), drivenKey = dependent->getKeyframe(0);
+    const double evaluationFrame = sourceKey.m_frame;
+    const double drivenValue = dependent->getValue(evaluationFrame); // Register its real reference before editing.
+    auto editedSource = sourceKey; editedSource.m_value += 1; target->setKeyframe(editedSource);
+    require(notifications.propagated > 0, "Source edit did not notify the live expression after panel closure");
+    requireNear(dependent->getValue(evaluationFrame), drivenValue + 3);
+    target->setKeyframe(sourceKey);
+    auto editedDriven = drivenKey; editedDriven.m_value += 1; dependent->setKeyframe(editedDriven);
+    require(notifications.direct > 0, "Direct dependent edit did not notify after panel closure");
+    dependent->setKeyframe(drivenKey);
+    requireNear(dependent->getValue(evaluationFrame), drivenValue);
+    require(Ops::matchesSnapshot(target, sourceBefore.getPointer()) && Ops::matchesSnapshot(dependent, drivenBefore.getPointer()) && undo->getHistoryCount() == 0,
+            "Post-close native notification probe changed authored data or history");
     settle();
   }
   require(QFile::remove(presetPath), "Lifetime fixture preset cleanup failed");
