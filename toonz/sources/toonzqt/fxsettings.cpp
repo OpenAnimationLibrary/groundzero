@@ -58,7 +58,9 @@
 
 namespace {
 // Dynamic layout identity excludes values/source text so ordinary keyframe or
-// expression edits reuse the page. Stable IDs, labels and types rebuild it.
+// expression edits reuse the page. Stable IDs, labels and types rebuild it, as
+// does the set of visible native control parameters: adding or removing an
+// animation key changes the fields without changing the control declaration.
 QByteArray seExprLayout(const TFxP &fx) {
   if (!fx) return {};
   if (const auto *macro = dynamic_cast<TMacroFx *>(fx.getPointer())) {
@@ -83,7 +85,16 @@ QByteArray seExprLayout(const TFxP &fx) {
                              {"presentation", control.value("presentation")},
                              {"stops", int(control.value("points").toArray().size())}});
   }
-  return QByteArray(fx->getFxType().c_str()) + QJsonDocument(shape).toJson(QJsonDocument::Compact);
+  QJsonArray fields;
+  const TParamContainer *params = fx->getParams();
+  for (int index = 0; index < params->getParamCount(); ++index) {
+    const std::string name = params->getParamName(index);
+    if (name.rfind("seexprControl_", 0) == 0 && !params->isParamHidden(index))
+      fields.append(QString::fromStdString(name));
+  }
+  return QByteArray(fx->getFxType().c_str()) +
+         QJsonDocument(shape).toJson(QJsonDocument::Compact) +
+         QJsonDocument(fields).toJson(QJsonDocument::Compact);
 }
 }  // namespace
 #include <QGuiApplication>

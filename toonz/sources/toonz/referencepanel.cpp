@@ -425,10 +425,15 @@ ReferencePanel::ReferencePanel(QWidget *parent)
 
   m_layerCombo = new QComboBox(this);
   UiTranslations::onLanguageChanged(m_layerCombo, [this] {
-    const int flattened = m_layerCombo->findData(0);
-    if (flattened < 0) return;
+    const int first = m_layerCombo->findData(0);
+    if (first < 0) return;
+    // Item 0 is a PSD's flattened image or a PureRef board's overview.
+    const bool board = m_current >= 0 && m_current < (int)m_entries.size() &&
+                       isPureRef(m_entries[m_current].path);
+    const QString text = board ? tr("Board overview") : tr("Flattened image");
+    if (board && !m_layers.isEmpty()) m_layers.first().second = text;
     const QSignalBlocker block(m_layerCombo), modelBlock(m_layerCombo->model());
-    m_layerCombo->setItemText(flattened, tr("Flattened image"));
+    m_layerCombo->setItemText(first, text);
     m_layerCombo->update();
   });
   m_layerCombo->setSizeAdjustPolicy(c_comboSizePolicy);
