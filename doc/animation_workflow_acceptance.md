@@ -1,7 +1,8 @@
 # Animation workflow reliability acceptance
 
 Items 53–58 were reconciled against edition `aa01975f38d6226156e5b07df7271b8fc199d003`.
-The current integration baseline is edition `b584755dca36e9cc5da1c325a2f11c8b83cd2aa2`.
+The current integration baseline is edition `5fc674f1edefc0a45d377951b8d064ba8b202f44`,
+including the reference/neural work in #114 and the build corrections in #121–122.
 This ledger describes implemented source and prepared acceptance coverage. Builds
 and tests run in CI; no local build or test was executed. A passing CI result is
 required before these changes are described as verified.
