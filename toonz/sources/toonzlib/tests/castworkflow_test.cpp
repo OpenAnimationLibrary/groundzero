@@ -32,6 +32,11 @@ void queryAndTags() {
   require(CastWorkflow::matches("HERO café", "run", "/drawings/run.pli", tags), "tag/name search did not match");
   require(CastWorkflow::matches("drawings RUN", "run", "/drawings/run.pli", {}), "path/name tokens did not match");
   require(!CastWorkflow::matches("run missing", "run", "/drawings/run.pli", {}), "search used OR instead of AND");
+  const auto words = CastWorkflow::queryWords(QString::fromUtf8("  HERO\t café \n"));
+  require(words.size() == 2 && CastWorkflow::matchesWords(words, "run", "/drawings/run.pli", tags),
+          "prepared search lost whitespace normalization or Unicode AND matching");
+  require(CastWorkflow::matchesWords(CastWorkflow::queryWords(" \t\n"), {}, {}, {}),
+          "empty prepared search excluded assets");
 }
 void occurrencePaths() {
   ToonzScene scene;

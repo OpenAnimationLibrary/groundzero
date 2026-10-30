@@ -56,14 +56,16 @@ void changed() {
   TApp::instance()->getCurrentScene()->notifyCastChange();
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
 }
-QString cleanPath(const TFilePath &path) {
+QString cleanPath(const TFilePath &path, quint64 *queries = nullptr) {
   QFileInfo info(path.getQString());
+  if (queries) ++*queries;
   QString canonical = info.canonicalFilePath();
   if (!canonical.isEmpty()) return QDir::cleanPath(canonical);
   // Resolve symlinked ancestors even when the asset itself is missing.
   const QString absolute = info.absoluteFilePath();
   QDir ancestor(info.absolutePath());
   for (;;) {
+    if (queries) ++*queries;
     canonical = QFileInfo(ancestor.absolutePath()).canonicalFilePath();
     if (!canonical.isEmpty())
       return QDir::cleanPath(QDir(canonical).filePath(ancestor.relativeFilePath(absolute)));
@@ -156,6 +158,82 @@ public:
 }
 
 namespace CastBrowserActions {
+const QStringList &StatusContext::roots() {
+  if (m_rootsReady) return m_roots;
+  m_rootsReady = true;
+  ++queries.rootSets;
+  const auto project = m_scene->getProject();
+  if (project) {
+    m_roots.append(cleanPath(project->getProjectFolder(), &queries.canonicalQueries));
+    for (int i = 0; i < project->getFolderCount(); ++i) {
+      ++queries.decodedPaths;
+      m_roots.append(cleanPath(m_scene->decodeFilePath(
+          TFilePath("+" + project->getFolderName(i))), &queries.canonicalQueries));
+    }
+  }
+  if (!m_scene->isUntitled())
+    m_roots.append(cleanPath(m_scene->getScenePath().getParentDir(), &queries.canonicalQueries));
+  m_roots.removeDuplicates();
+  return m_roots;
+}
+
+const TFilePath &AssetStatus::path() {
+  if (!m_pathReady) {
+    ++m_context.queries.decodedPaths;
+    m_path = m_context.m_scene->decodeFilePath(m_level->getPath());
+    m_pathReady = true;
+  }
+  return m_path;
+}
+bool AssetStatus::missing() {
+  if (m_missing < 0) {
+    if (m_level->getPath().isEmpty()) m_missing = true;
+    else {
+      TFilePath actual = path();
+      ResourceImporter::extractPsdSuffix(actual);
+      ++m_context.queries.diskQueries;
+      m_missing = !TSystem::doesExistFileOrLevel(actual);
+    }
+  }
+  return m_missing != 0;
+}
+bool AssetStatus::external() {
+  if (m_external < 0) {
+    m_external = false;
+    if (!m_level->getPath().isEmpty()) {
+      const QString actual = cleanPath(path(), &m_context.queries.canonicalQueries);
+      m_external = true;
+      for (const auto &root : m_context.roots())
+        if (within(actual, root)) { m_external = false; break; }
+    }
+  }
+  return m_external != 0;
+}
+bool AssetStatus::modified() {
+  if (m_modified < 0) m_modified = CastBrowserActions::modified(m_level);
+  return m_modified != 0;
+}
+bool AssetStatus::cached() {
+  if (m_cached < 0) {
+    m_cached = false;
+    if (auto *simple = m_level->getSimpleLevel()) {
+      std::vector<TFrameId> frames;
+      simple->getFids(frames);
+      for (const auto &frame : frames) {
+        ++m_context.queries.cacheQueries;
+        if (TImageCache::instance()->isCached(simple->getImageId(frame))) {
+          m_cached = true;
+          break;
+        }
+      }
+    }
+  }
+  return m_cached != 0;
+}
+bool AssetStatus::unsaved() {
+  return !m_level->sourceExpectedOnDisk() && missing();
+}
+
 bool modified(TXshLevel *level) {
   auto *simple = level->getSimpleLevel();
   auto *palette = level->getPaletteLevel();
@@ -181,28 +259,24 @@ bool missing(ToonzScene *source, TXshLevel *level) {
   return level->getPath().isEmpty() || !TSystem::doesExistFileOrLevel(actual);
 }
 bool external(ToonzScene *source, TXshLevel *level) {
-  if (level->getPath().isEmpty()) return false;
-  QString path = cleanPath(source->decodeFilePath(level->getPath()));
-  const auto project = source->getProject();
-  if (project) {
-    if (within(path, cleanPath(project->getProjectFolder()))) return false;
-    for (int i = 0; i < project->getFolderCount(); ++i)
-      if (within(path, cleanPath(source->decodeFilePath(TFilePath("+" + project->getFolderName(i)))))) return false;
-  }
-  if (!source->isUntitled() &&
-      within(path, cleanPath(source->getScenePath().getParentDir()))) return false;
-  return true;
+  StatusContext context(source);
+  return AssetStatus(context, level).external();
 }
 QString status(ToonzScene *source, TXshLevel *level) {
+  StatusContext context(source);
+  return AssetStatus(context, level).text();
+}
+QString AssetStatus::text() {
   QStringList labels;
-  if (missing(source, level)) labels << (unsaved(source, level)
+  if (missing()) labels << (unsaved()
       ? tr("New / not saved") : tr("Missing on disk"));
   else labels << tr("Saved source exists");
-  auto *simple = level->getSimpleLevel();
-  if (modified(level)) labels << tr("Modified");
-  if (simple) labels << (cached(level) ? tr("Decoded drawing cached (memory or swap)") : tr("No decoded drawing cached"));
-  if (external(source, level)) labels << tr("External link");
-  switch (level->getLibraryRelationship()) {
+  auto *simple = m_level->getSimpleLevel();
+  if (modified()) labels << tr("Modified");
+  if (simple) labels << (cached() ? tr("Decoded drawing cached (memory or swap)") : tr("No decoded drawing cached"));
+  if (external()) labels << tr("External link");
+  ++m_context.queries.libraryQueries;
+  switch (m_level->getLibraryRelationship()) {
   case TXshLevel::LibraryProvenance::Linked: labels << tr("Library-linked file"); break;
   case TXshLevel::LibraryProvenance::LocalCopy: labels << tr("Local copy from Library"); break;
   case TXshLevel::LibraryProvenance::Snapshot: labels << tr("Library snapshot"); break;
@@ -212,6 +286,14 @@ QString status(ToonzScene *source, TXshLevel *level) {
   if (simple && simple->isReadOnly()) labels << tr("Read-only");
   if (labels.isEmpty()) labels << tr("Saved in project / scene folders");
   return labels.join(QStringLiteral(" · "));
+}
+QChar AssetStatus::badge() {
+  if (unsaved()) return QLatin1Char('N');
+  if (missing()) return QLatin1Char('!');
+  if (modified()) return QLatin1Char('*');
+  if (external()) return QLatin1Char('L');
+  if (cached()) return QLatin1Char('C');
+  return QChar();
 }
 
 void whereUsed(QWidget *parent, const std::vector<TXshLevel *> &levels) {
