@@ -23,7 +23,27 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 
 ## Current progress
 
-The latest executed combined candidate, `5d02222bf`, failed qualification.
+The latest executed combined candidate, `dad81dfc3`, still failed qualification,
+but completed both exact post-save width Undo/Redo cycles, subsequent alignment
+and manager workflows, and all 19 standalone UI tests. Its first mandatory
+failure is now the actual Filmstrip PLI-reopen comparison of authored geometry,
+scalar/profile opacity and palette. Actual Apply and three Undo/Redo cycles
+precede that assertion and passed. The mismatched serialized field is not yet
+identified; `277780b09` adds exact field diagnostics and live-save invariance
+without weakening the round-trip assertion. Morph persistence remains pending.
+
+All six isolated component fixtures reached their own PASS markers, but all six
+processes failed the common native Quit fixture. Scene retention, reinstatement,
+canceled/accepted New, checked/unchecked Load and already-retired Xsheet-reader
+checks passed before that failure. Source diagnosis found that a second real
+Quit dialog runs after the first accepted close set Qt's quit flag. Reviewed
+fixture correction `1d360243e` gives each real close a fresh public application
+event loop and requires dispatch, return and decision-button witnesses. It does
+not alter product shutdown or private Qt state. The old failed processes remain
+failed; new exact-head execution and clean exit are required. The independent
+artist workload passed; reliability/EXR and installed checks were skipped.
+
+The preceding combined candidate, `5d02222bf`, failed qualification.
 Its first mandatory failure was `gradient fixture original owner unavailable`;
 the later lifecycle setup also could not read its native scene-transition
 fixture. Every isolated process exited unsuccessfully at that lifecycle setup,
@@ -254,6 +274,7 @@ and the component ledgers.
 | Linux validation `3dd99b2f69262dbe7612efc90dc452b6fbc48deb` | All 19 native UI tests passed. The full sequence passed pose context changes and width interruption guards. Five isolated groups and the independent artist workload passed. Native saved-set Save/Rename/Delete/reopen, target-range reload and removed-owner guards passed before the separate Function failure. | Mandatory integration failed repeated width Undo after a native PLI save changed the live evaluated palette. The isolated Function process crashed during the actual panel-lifetime matrix in `ParamCalculatorNode::onChange`; observer lifetime is under investigation. Reliability/EXR and installed checks were skipped. This revision predates the Cast modal-lifetime correction. |
 | Linux validation `9629a7c5c216fd72ce4cb5418207ea00dcb5de3a` | Standalone native UI and isolated Function passed, including the 24 panel routes and actual post-close source/dependent notifications. Palette-save invariance and the first post-save width Undo/Redo pair passed. Timing, export, renderer and artist diagnostics passed. | Mandatory integration timed out after 600 seconds; the last checkpoint preceded the second post-save pair. Isolated Cast crashed through stale current selection, and Cast/vector failed the consolidation confirmation oracle. Reliability/EXR and installed checks were skipped. New Cast detach, vector driver, reporting and shutdown corrections are unexecuted. |
 | Linux validation `5d02222bf8f8fbc4735229d32604ba31a25b2dc1` | Standalone UI passed 18 of 19 tests. All 33 Cast interruption checkpoints completed. The independent artist workload and 26 native-runner contract tests passed. | Mandatory integration first failed gradient owner setup, then lifecycle file setup. All six isolated processes failed lifecycle setup; Cast also failed its fresh-tag undo assertion. Component PASS markers do not count as process passes. The standalone width owner case failed its loaded-sample comparison. Installed checks were skipped. Reviewed fixture, Cast root-label and reporting corrections need new-head execution. |
+| Combined Linux `dad81dfc345b957dac56b876c4ded496f691f01a` | All 19 standalone UI tests passed. Mandatory execution completed both exact post-save width Undo/Redo cycles, alignment and the width-manager workflow. Scene retention, New/Load and retired-source checks passed. Six isolated component fixtures and the independent artist workload reached their own PASS markers. | Mandatory execution failed the Filmstrip PLI-reopen geometry/opacity/palette assertion after live Apply and three Undo/Redo cycles passed. All six isolated processes failed the common repeated-Quit decision fixture, so none qualifies as a process pass. Exact persistence diagnostics and the public-event-loop fixture correction need new execution. Reliability/EXR and installed checks were skipped. |
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux application and installed-package jobs passed, including the mandatory native sequence, SeExpr, reliability/EXR and GLB checks. Windows passed its full native sequence, artist workload and reliability/EXR gates. | Windows overall failed standalone width-export and old scene-thumbnail checks, followed by retained-renderer preflight refusals; installed checks were skipped. macOS was superseded during compilation. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
@@ -367,13 +388,13 @@ the CI-only harness verifies isolation and failure retention.
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; focused Linux ROI equivalence passed, final-head/platform CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; reviewed original-owner/nested cancellation and strict repeated Undo/save qualification await CI |
-| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; shared manager owner-lifetime correction and strict repeated Undo/save qualification await CI |
-| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; shared manager owner-lifetime correction and full undo/save invariance await CI |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; standalone manager and exact repeated Undo/save passed on Linux dad81dfc3; final platform/package qualification pending |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; both exact post-save Undo/Redo cycles passed on Linux dad81dfc3; final platform/package qualification pending |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; strict shared manager and undo/save checks passed on Linux dad81dfc3; final platform/package qualification pending |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; original-owner cancellation and actual queued Apply coverage await CI |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
-| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; original Filmstrip hide/close cancellation and actual owner-interruption coverage await CI |
-| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Source-ready; shared morph original-owner hide/close guard awaits CI; reviewed-range assertions retained |
+| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Pending: actual Apply/three UndoRedo cycles passed; native PLI-reopen mismatch remains under diagnosis |
+| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Pending: implementation and reviewed-range assertions retained; shared morph persistence mismatch requires resolution |
 | 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Source-ready; original-owner cancellation before accepted palette changes awaits CI |
 | 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; original-owner cancellation awaits CI; cancellation/reload passed on Linux baseline |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
@@ -381,7 +402,7 @@ the CI-only harness verifies isolation and failure retention.
 | 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; original window lifetime correction and actual owner hide/delete coverage await CI |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
-| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; original window lifetime correction and actual owner hide/delete coverage await CI; full converter/render baseline passed on Linux |
+| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending: native morph reload comparison includes profile/scalar opacity and geometry; exact mismatched field not yet identified; full converter/render baseline passed on Linux |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
 | 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; Cast panel lifetime and queued navigation guards await CI |
