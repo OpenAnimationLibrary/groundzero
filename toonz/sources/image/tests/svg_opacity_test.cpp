@@ -8,10 +8,12 @@
 #include "tenv.h"
 #include <QApplication>
 #include <QDir>
+#include <QFile>
 #include <QImage>
 #include <QPainter>
 #include <QSvgRenderer>
 #include <QTemporaryDir>
+#include <QXmlStreamReader>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -39,7 +41,8 @@ int main(int argc, char **argv) {
         TPaletteP palette = new TPalette;
         const int style = palette->addStyle(TPixel32(200, 50, 30, 128));
         TVectorImageP image = new TVectorImage; image->setPalette(palette.getPointer());
-        auto *stroke = new TStroke(std::vector<TThickPoint>{{0,0,8},{50,0,8},{100,0,8}});
+        auto *stroke = new TStroke(std::vector<TThickPoint>{
+            {-13.125,7.625,8},{36.875,7.625,8},{86.875,7.625,8}});
         stroke->setStyle(style); stroke->setOpacity(opacity); image->addStroke(stroke);
         const TFilePath path(dir.filePath("drawing..svg"));
         TFilePath written;
@@ -48,6 +51,25 @@ int main(int argc, char **argv) {
           TImageWriterP frame = writer->getFrameWriter(TFrameId(1));
           written = frame->getFilePath(); frame->save(TImageP(image));
         }
+        QFile document(written.getQString());
+        require(document.open(QIODevice::ReadOnly), "SVG placement metadata unavailable");
+        QXmlStreamReader xml(&document);
+        require(xml.readNextStartElement() && xml.name() == QLatin1String("svg"),
+                "SVG root missing");
+        bool xValid = false, yValid = false;
+        const double levelX = xml.attributes().value("data-groundzero-level-x").toDouble(&xValid);
+        const double levelY = xml.attributes().value("data-groundzero-level-y").toDouble(&yValid);
+        const TRectD bounds = image->getBBox();
+        require(xValid && yValid && std::abs(levelX - bounds.x0) < 1e-12 &&
+                    std::abs(levelY - bounds.y1) < 1e-12,
+                "SVG crop lost its precise source drawing origin");
+        require(xml.readNextStartElement() && xml.name() == QLatin1String("g"),
+                "SVG drawing transform missing");
+        require(xml.attributes().value("transform") ==
+                    QString("translate(%1,%2)").arg(QString::number(-bounds.x0, 'g', 17),
+                                                   QString::number(-bounds.y0, 'g', 17)),
+                "SVG crop rounded its placement transform");
+        document.close();
         QSvgRenderer renderer(written.getQString());
         require(renderer.isValid(), "independent SVG reader rejected export");
         QImage pixels(320, 100, QImage::Format_ARGB32_Premultiplied); pixels.fill(Qt::transparent);

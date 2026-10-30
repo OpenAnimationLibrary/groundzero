@@ -2247,12 +2247,18 @@ void TImageWriterSvg::save(const TImageP &img) {
       << " width=\"" << QString::number(r.getLx(), 'g', 17)
       << "\" height=\"" << QString::number(r.getLy(), 'g', 17)
       << "\" viewBox=\"0 0 " << QString::number(r.getLx(), 'g', 17)
-      << " " << QString::number(r.getLy(), 'g', 17) << "\"";
+      << " " << QString::number(r.getLy(), 'g', 17) << "\""
+      // SVG's downward Y axis starts at the drawing's upper-left corner.
+      // Scene exporters use this origin to place a cropped asset without
+      // stretching its drawing bounds across the camera canvas.
+      << " data-groundzero-level-x=\"" << QString::number(r.x0, 'g', 17)
+      << "\" data-groundzero-level-y=\"" << QString::number(r.y1, 'g', 17) << "\"";
   if (profiledStrokes)
     out << " data-groundzero-opacity-raster=\"1\" data-groundzero-opacity-strokes=\"" << profiledStrokes << "\"";
   out << ">\n";
 
-  out << "<g transform=\"translate(" << -r.getP00().x << "," << -r.getP00().y
+  out << "<g transform=\"translate(" << QString::number(-r.x0, 'g', 17)
+      << "," << QString::number(-r.y0, 'g', 17)
       << ")\" stroke-width=\"0\" fill=\"none\" >\n";
 
   bool isCenterline =
