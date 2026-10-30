@@ -303,6 +303,9 @@ jobs:
       - name: Verify benchmark harness contracts
         run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
+      - name: Verify native lifecycle harness contracts
+        run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
+
       # Show the compile and link errors on the run (annotations), since the
       # full log is not always reachable
       - name: Report build errors

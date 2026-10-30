@@ -670,7 +670,7 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
         if not isinstance(result, Exception):
             # These cases isolate feature/deadline gates. Supply the separate
             # terminal-worker contract explicitly; missing/echoed lifecycle
-            # lines are exercised by test_native_ui_diagnostics.py.
+            # lines are exercised by the native diagnostic and lifecycle suites.
             result = SimpleNamespace(returncode=result.returncode, stdout=result.stdout +
                 b"\nicon-lifecycle-native: PASS (actual workers and Qt TLS retired)\n"
                 b"native-ui-integration: checkpoint: native icon workers drained\n")

@@ -43,6 +43,15 @@ jobs:
     - name: Verify native diagnostic isolation
       run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
 
+    - name: Verify native lifecycle harness contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
+
+    - name: Verify bounded desktop GL launcher
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
+
+    - name: Verify Unicode regression reporting
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+
     - name: Install libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,

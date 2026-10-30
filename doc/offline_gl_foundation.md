@@ -1,7 +1,9 @@
 # Shared offscreen rendering prerequisite
 
-The workflow export changes require the same Qt offscreen context implementation
-used by later vector editing changes. This prerequisite replaces the Windows
+The native icon lifecycle checks require the same Qt offscreen context implementation
+used by later export and vector editing changes. This shared prerequisite moves
+into the Function Editor foundation so every owning branch preserves ordinary
+thumbnail rendering while exercising scene-reader retirement. It replaces the Windows
 bitmap/GDI OpenGL context for application rendering. The existing production
 implementation is shared; later vector work adds stroke features to this backend.
 
