@@ -36,7 +36,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
         (self.source / "pristine.txt").write_text("source", encoding="utf-8")
         self.report = self.root / "reports" / "ui-integration-output.txt"
 
-    def invoke(self, response, benchmark=False):
+    def invoke(self, response, benchmark=False, extra_arguments=()):
         calls = []
 
         def launch(command, **options):
@@ -55,6 +55,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
         arguments += (["--artist-benchmark"] if benchmark else
                       ["--require-function-workflow", "--require-vector-workflows",
                        "--require-combined-workflows"])
+        arguments += list(extra_arguments)
         inherited = {"GROUNDZERO_NATIVE_UI_SUITE": "untrusted-inherited-selector",
                      "GROUNDZERO_ARTIST_BENCHMARK": "1"}
         with mock.patch.object(sys, "argv", arguments), \
@@ -151,6 +152,69 @@ class NativeDiagnosticContracts(unittest.TestCase):
             with runner.isolated_fixture(self.source, self.executable) as (_, environment):
                 self.assertNotIn("GROUNDZERO_NATIVE_UI_SUITE", environment)
                 self.assertNotIn("GROUNDZERO_ARTIST_BENCHMARK", environment)
+
+    def test_isolated_crash_debugging_preserves_failure_and_continues(self):
+        for debugger_fails in (False, True):
+            with self.subTest(debugger_fails=debugger_fails):
+                def response(suite, command, options):
+                    if suite is None:
+                        return subprocess.CompletedProcess(command, 17, "original failure\n")
+                    if suite == "combined-cast-vector":
+                        return subprocess.CompletedProcess(command, -11, "crashed before completion\n")
+                    return self.passed(suite, command)
+
+                # sys.platform controls only debugger selection here; leave
+                # os.name/pathlib untouched on Windows and macOS test hosts.
+                with mock.patch.object(runner.sys, "platform", "linux"), \
+                     mock.patch.object(runner, "linux_crash_diagnostics") as debugger:
+                    if debugger_fails:
+                        debugger.side_effect = OSError("debugger unavailable")
+                    else:
+                        debugger.return_value = ("native-ui-diagnostic: PASS combined-cast-vector\n"
+                                                 "diagnostic stack only\n")
+                    status, calls, output = self.invoke(
+                        response, extra_arguments=("--linux-crash-debugger",))
+                    debugger.assert_called_once_with(self.executable.resolve(), self.source.resolve(),
+                                                     "combined-cast-vector")
+                self.assertEqual(status, 1)
+                self.assertEqual([call[0] for call in calls], [None, *SUITES])
+                self.assertIn("combined-cast-vector=FAIL (status -11)", output)
+                self.assertIn("combined-fidelity=PASS", output)
+                report = self.report.with_name(self.report.stem + "-combined-cast-vector-debugger.txt")
+                self.assertIn("debugger unavailable" if debugger_fails else "diagnostic stack only",
+                              report.read_text(encoding="utf-8"))
+
+    def test_both_debuggers_launch_the_exact_selected_suite(self):
+        kits = self.root / "sdk"
+        cdb = kits / "Windows Kits" / "10" / "Debuggers" / "x64" / "cdb.exe"
+        cdb.parent.mkdir(parents=True)
+        cdb.write_bytes(b"mocked debugger; never executed\n")
+        process = mock.Mock(returncode=0)
+        process.communicate.return_value = (b"bounded diagnostic stack\n", None)
+        inherited = {"ProgramFiles(x86)": str(kits),
+                     "GROUNDZERO_NATIVE_UI_SUITE": "untrusted-inherited-selector",
+                     "GROUNDZERO_ARTIST_BENCHMARK": "1"}
+        for selected in (None, "combined-cast-vector"):
+            for debugger_kind in ("linux", "windows"):
+                with self.subTest(selected=selected, debugger=debugger_kind), \
+                     mock.patch.dict(os.environ, inherited), \
+                     mock.patch.object(runner.shutil, "which", return_value="mock-gdb"), \
+                     mock.patch.object(runner.subprocess, "Popen", return_value=process) as launch:
+                    if debugger_kind == "linux":
+                        runner.linux_crash_diagnostics(self.executable, self.source, selected)
+                    else:
+                        runner.windows_crash_diagnostics(self.executable, self.source, 0xc0000005,
+                                                         (), native_suite=selected)
+                    options = launch.call_args.kwargs
+                    self.assertEqual(options["env"].get("GROUNDZERO_NATIVE_UI_SUITE"), selected)
+                    self.assertNotIn("GROUNDZERO_ARTIST_BENCHMARK", options["env"])
+                    self.assertFalse(options["cwd"].exists())
+
+    def test_unknown_diagnostic_selector_is_rejected(self):
+        environment = {}
+        with self.assertRaises(ValueError):
+            runner.select_diagnostic_suite(environment, "unknown-fixture")
+        self.assertNotIn("GROUNDZERO_NATIVE_UI_SUITE", environment)
 
 
 if __name__ == "__main__":

@@ -90,7 +90,17 @@ def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
-def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=None):
+def select_diagnostic_suite(environment, suite):
+    if suite is None:
+        return
+    if suite not in ("combined-timing", "combined-cast-vector", "combined-fidelity"):
+        raise ValueError("Unknown native UI diagnostic suite")
+    environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
+
+
+def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=None,
+                                 linux_debugger=False, windows_debugger=False,
+                                 symbol_directories=()):
     """Collect isolated evidence without changing the original failed result."""
     suites = (("combined-timing", "function-timing-native: PASS"),
               ("combined-cast-vector", "cast-vector-native: PASS"),
@@ -100,18 +110,19 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
     for suite, marker in suites:
         label = f"Independent native diagnostic: {suite}"
         print(f"\n{label} (not an all-workflows qualification).", flush=True)
-        output, status = "", 1
+        output, status, native_status = "", 1, None
         try:
             # These launches must remain sequential: the Windows renderer
             # installs and removes temporary DLLs beside the shared executable.
             with isolated_fixture(source, executable, mesa_runtime) as (directory, environment):
-                environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
+                select_diagnostic_suite(environment, suite)
                 try:
                     result = subprocess.run([str(executable), "--test-native-ui"],
                                             cwd=directory, env=environment,
                                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                             timeout=timeout_seconds, encoding="utf-8", errors="replace")
                     output, status = result.stdout, result.returncode
+                    native_status = status
                     required = (marker, f"native-ui-diagnostic: PASS {suite}")
                     missing = [value for value in required if value not in output]
                     if status == 0 and missing:
@@ -125,6 +136,28 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
             output += ("\nIsolated diagnostic setup, launch or cleanup failed: "
                        f"{type(error).__name__}: {error}\n")
             status = 1
+        # A crash in an isolated fixture must be diagnosed in that same
+        # fixture, rather than silently rerunning the earlier all-suite path.
+        # Each helper creates another fresh profile and preserves the failure.
+        debugger_output = None
+        try:
+            if (linux_debugger and sys.platform.startswith("linux") and
+                    native_status is not None and native_status < 0):
+                debugger_output = linux_crash_diagnostics(executable, source, suite)
+            elif (windows_debugger and os.name == "nt" and native_status is not None and
+                  (native_status & 0xc0000000) == 0xc0000000):
+                debugger_output = windows_crash_diagnostics(
+                    executable, source, native_status, symbol_directories, mesa_runtime, suite)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            debugger_output = f"Isolated crash diagnostics failed: {type(error).__name__}: {error}\n"
+        if debugger_output is not None:
+            debugger_report = output_path.with_name(output_path.stem + f"-{suite}-debugger.txt")
+            try:
+                debugger_report.parent.mkdir(parents=True, exist_ok=True)
+                debugger_report.write_text(debugger_output, encoding="utf-8")
+            except (OSError, ValueError) as error:
+                debugger_output += f"Could not save isolated debugger report: {error}\n"
+            output += f"\nCrash diagnostics for {suite}:\n" + debugger_output
         output = (f"\n--- {label} ---\n" + output +
                   f"\n{label} exited with status {status} (0x{status & 0xffffffff:08X}).\n"
                   "The original all-workflows failure remains authoritative.\n")
@@ -145,7 +178,7 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
 
 
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
-                              mesa_runtime=None):
+                              mesa_runtime=None, native_suite=None):
     kits = os.environ.get("ProgramFiles(x86)")
     if not kits:
         return "Windows SDK debugger location is unavailable.\n"
@@ -163,6 +196,7 @@ def windows_crash_diagnostics(executable, source, native_status, symbol_director
     command = [str(debugger), "-G", "-lines", "-y", ";".join(symbols),
                "-c", commands, str(executable), "--test-native-ui"]
     with isolated_fixture(source, executable, mesa_runtime) as (directory, environment):
+        select_diagnostic_suite(environment, native_suite)
         process = subprocess.Popen(command, cwd=directory, env=environment,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:
@@ -191,13 +225,14 @@ def windows_crash_diagnostics(executable, source, native_status, symbol_director
             return decode_output(output) + notes
 
 
-def linux_crash_diagnostics(executable, source):
+def linux_crash_diagnostics(executable, source, native_suite=None):
     debugger = shutil.which("gdb")
     if not debugger:
         return "Linux debugger is unavailable; use the flushed native checkpoints.\n"
     command = [debugger, "--batch", "-ex", "set pagination off", "-ex", "run",
                "-ex", "thread apply all bt 20", "--args", str(executable), "--test-native-ui"]
     with isolated_fixture(source, executable) as (directory, environment):
+        select_diagnostic_suite(environment, native_suite)
         process = subprocess.Popen(command, cwd=directory, env=environment,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    start_new_session=True)
@@ -304,7 +339,10 @@ def main():
         # and neither their success nor failure changes its nonzero status.
         if executable is not None and source is not None:
             output += combined_failure_diagnostics(executable, source, args.output,
-                                                  args.windows_mesa)
+                                                  args.windows_mesa,
+                                                  args.linux_crash_debugger,
+                                                  args.windows_crash_debugger,
+                                                  args.debugger_symbols)
         else:
             output += "\nIndependent diagnostics unavailable: executable or fixture source could not be resolved.\n"
     try:
