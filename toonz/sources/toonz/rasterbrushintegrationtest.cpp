@@ -21,6 +21,7 @@
 #include "toonz/rasterbrushimport.h"
 #include "toonz/toonzfolders.h"
 #include "tpalette.h"
+#include "tcolorstyles.h"
 #include "tproperty.h"
 #include "trasterimage.h"
 #include "tundo.h"
@@ -428,6 +429,191 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           "document");
       require(QFile::remove(brokenPath),
               "cannot remove invalid installed fixture");
+    }
+    checkpoint("qualifying explicit source-to-native copy conversion");
+    for (bool wetConversion : {false, true}) {
+      RasterBrush::Record fixture;
+      fixture.preset.name    = wetConversion ? "Original wet conversion fixture"
+                                             : "Original pixel conversion fixture";
+      fixture.preset.profile = wetConversion
+                                   ? "krita-5.3.4.1-legacy-dulling-candidate-1"
+                                   : "krita-5.3.4.1-hard-pixel-candidate-1";
+      fixture.preset.wet =
+          wetConversion ? RasterBrush::Wet::Dulling : RasterBrush::Wet::Off;
+      fixture.preset.smudgeRadius = 0;
+      // A forged classification must not hide the actual source runtime in
+      // the editor; the explicit conversion action is still required.
+      fixture.provenance["conversionKind"] = "native-reinterpretation";
+      fixture.provenance["sourceProfileBeforeNativeConversion"] =
+          QString::fromStdString(fixture.preset.profile);
+      fixture.provenance["sourceSha256"] =
+          QString(64, wetConversion ? 'b' : 'c');
+      auto texture   = std::make_shared<RasterBrush::Image>();
+      texture->width = texture->height = 1;
+      texture->pixels                  = {{0, 0, 0, 1}};
+      fixture.preset.texture.image     = texture;
+      const auto assets = RasterBrush::resources(fixture, importError);
+      require(importError.isEmpty() && assets.size() == 1,
+              "source conversion resource fixture invalid");
+      fixture.resourceRights[assets.front().hash] = QJsonObject{
+          {"redistribution", "restricted"}, {"license", "Original fixture"}};
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString originalPath =
+          RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !originalPath.isEmpty(),
+              "cannot install source conversion fixture");
+      const auto originalBytes = RasterBrush::readBoundedRegularFile(
+          originalPath, 64 * 1024 * 1024, importError);
+      require(importError.isEmpty(),
+              "cannot capture original conversion preset");
+      tool->onActivate();
+      property->setValue(
+          QDir(folder).relativeFilePath(originalPath).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select source conversion fixture");
+      const auto originalSelection = property->getValue();
+      const auto baseline          = raster(level, 1)->clone();
+      for (int outcome = 0; outcome < 3; ++outcome) {
+        bool requested = false, confirmed = false, statusCorrect = false,
+             originalStatus = false;
+        QTimer conversionDriver;
+        QObject::connect(&conversionDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (modal && modal->objectName() == "nativeBrushEditor") {
+            auto editor = qobject_cast<QDialog *>(modal);
+            auto status =
+                editor->findChild<QLabel *>("nativeBrushCompatibilityStatus");
+            auto convert =
+                editor->findChild<QPushButton *>("nativeBrushConvertCopy");
+            if (!requested && convert) {
+              requested      = true;
+              originalStatus = status && status->text().contains(
+                                             "Experimental source profile");
+              QTimer::singleShot(0, [&]() {
+                auto confirmation = qobject_cast<QMessageBox *>(
+                    QApplication::activeModalWidget());
+                if (!confirmation || confirmation->objectName() !=
+                                         "nativeBrushConfirmNativeConversion")
+                  return;
+                confirmed = confirmation->defaultButton() ==
+                                confirmation->button(QMessageBox::Cancel) &&
+                            confirmation->text().contains(
+                                "original remains unchanged") &&
+                            (!wetConversion || confirmation->text().contains(
+                                                   "native wet mixing"));
+                if (outcome == 0)
+                  confirmation->reject();
+                else {
+                  auto accept = confirmation->findChild<QPushButton *>(
+                      "nativeBrushAcceptNativeConversion");
+                  if (accept)
+                    accept->click();
+                  else
+                    confirmation->reject();
+                }
+              });
+              convert->click();
+            } else if (requested) {
+              statusCorrect =
+                  status && status->text().contains(
+                                outcome == 0 ? "Experimental source profile"
+                                             : "Native reinterpretation");
+              if (wetConversion && outcome != 0) {
+                auto pickup =
+                    editor->findChild<QDoubleSpinBox *>("nativeBrushPickup");
+                auto colorRate =
+                    editor->findChild<QDoubleSpinBox *>("nativeBrushColorRate");
+                auto radius = editor->findChild<QDoubleSpinBox *>(
+                    "nativeBrushSmudgeRadius");
+                statusCorrect = statusCorrect && pickup && colorRate &&
+                                radius && pickup->value() == .5 &&
+                                colorRate->value() == .25 &&
+                                radius->value() == 1;
+              }
+              if (outcome < 2)
+                editor->reject();
+              else {
+                auto size = editor->findChild<QDoubleSpinBox *>(
+                    "nativeBrushPresetSize");
+                auto buttons = editor->findChild<QDialogButtonBox *>();
+                if (size && buttons && buttons->button(QDialogButtonBox::Ok)) {
+                  size->setValue(32.5);  // Deliberately outside strict integer
+                                         // source-size eligibility.
+                  buttons->button(QDialogButtonBox::Ok)->click();
+                } else
+                  editor->reject();
+              }
+            }
+          } else if (auto name = qobject_cast<QInputDialog *>(modal))
+            name->accept();
+        });
+        conversionDriver.start(25);
+        property->setValue(L"<edit>");
+        const bool handled = tool->onPropertyChanged("Native Brush:");
+        conversionDriver.stop();
+        require(handled && requested && confirmed && originalStatus &&
+                    statusCorrect,
+                "explicit conversion acknowledgment/status workflow failed");
+        const auto unchanged = RasterBrush::readBoundedRegularFile(
+            originalPath, 64 * 1024 * 1024, importError);
+        require(importError.isEmpty() && unchanged == originalBytes &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "source conversion modified original preset or document");
+        if (outcome < 2)
+          require(property->getValue() == originalSelection,
+                  "cancelled native conversion selected a copy");
+        else {
+          require(property->getValue() != originalSelection,
+                  "accepted native conversion replaced original selection "
+                  "identity");
+          const QString copyPath = QDir(folder).filePath(
+              QString::fromStdWString(property->getValue()));
+          const auto copy = RasterBrush::importBrushProcess(
+              QCoreApplication::applicationFilePath(), copyPath, importError);
+          require(importError.isEmpty() && copy.complete &&
+                      copy.records.size() == 1,
+                  "native conversion copy failed reopening");
+          const auto &converted = copy.records.front();
+          require(
+              converted.preset.profile == "groundzero-native-1" &&
+                  converted.preset.size.value == 32.5 &&
+                  converted.preset.texture.image &&
+                  converted.resourceRights == fixture.resourceRights &&
+                  converted.provenance["sourceProfileBeforeNativeConversion"]
+                          .toString() ==
+                      QString::fromStdString(fixture.preset.profile) &&
+                  !converted.provenance["sourceReferenceVerified"].toBool() &&
+                  (!wetConversion || (converted.preset.smudgeRadius == 1 &&
+                                      converted.preset.pickup == .5 &&
+                                      converted.preset.colorRate == .25)),
+              "native conversion lost assets, declarations, edited values or "
+              "reset semantics");
+          const QString portable = QDir::current().filePath(
+              wetConversion ? "converted-wet.gzbrush"
+                            : "converted-pixel.gzbrush");
+          require(RasterBrush::savePortable(
+                      portable, converted,
+                      RasterBrush::ResourcePackaging::PrivateCopy, importError),
+                  "cannot export native conversion copy");
+          const auto reopened = RasterBrush::importBrushProcess(
+              QCoreApplication::applicationFilePath(), portable, importError);
+          require(
+              importError.isEmpty() && reopened.complete &&
+                  reopened.records.size() == 1 &&
+                  reopened.records.front().provenance["conversionKind"] ==
+                      "native-reinterpretation" &&
+                  reopened.records.front()
+                          .provenance["sourceProfileBeforeNativeConversion"] ==
+                      converted
+                          .provenance["sourceProfileBeforeNativeConversion"] &&
+                  reopened.records.front().resourceRights ==
+                      fixture.resourceRights,
+              "portable conversion reimport lost original-profile identity or "
+              "resource rights");
+        }
+      }
     }
     checkpoint("qualifying explicit approximation acceptance and rejection");
     for (const QString &kind :
@@ -1003,6 +1189,116 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       property->setValue(originalSelection);
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot restore original preset after copy workflow");
+    }
+    checkpoint(
+        "qualifying preset and toolbar alpha preservation through actual tool");
+    {
+      auto alphaModifier = dynamic_cast<TBoolProperty *>(
+          tool->getProperties(0)->getProperty("Lock Alpha"));
+      auto eraserModifier = dynamic_cast<TBoolProperty *>(
+          tool->getProperties(0)->getProperty("ModifierEraser"));
+      require(alphaModifier && eraserModifier,
+              "native tool alpha/eraser modifiers missing");
+      const bool previousEraser = eraserModifier->getValue();
+      const auto previousColor  = palette->getStyle(1)->getMainColor();
+      TRaster32P opaqueEraserResult;
+      const bool previousModifier  = alphaModifier->getValue();
+      const auto previousSelection = property->getValue();
+      const auto originalPixels    = raster(level, 1)->clone();
+      TRaster32P alphaRamp(originalPixels->getSize());
+      for (int y = 0; y < alphaRamp->getLy(); ++y)
+        for (int x = 0; x < alphaRamp->getLx(); ++x) {
+          const int alpha         = x < 64 ? 0 : std::min(255, (x - 63) * 4);
+          alphaRamp->pixels(y)[x] = TPixel32(alpha, alpha, alpha, alpha);
+        }
+      for (int mode = 0; mode < 5; ++mode) {
+        const bool erase        = mode >= 3;
+        const bool presetLock   = mode == 1 || erase,
+                   modifierLock = mode == 2 || erase;
+        palette->getStyle(1)->setMainColor(mode == 4 ? TPixel32(0, 0, 0, 0)
+                                                     : previousColor);
+        RasterBrush::Record fixture;
+        fixture.preset.name =
+            "Original alpha-preservation fixture " + std::to_string(mode);
+        fixture.preset.lockAlpha  = presetLock;
+        fixture.preset.size.value = 24;
+        if (erase) fixture.preset.wet = RasterBrush::Wet::Dulling;
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install alpha-preservation fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select alpha-preservation fixture");
+        eraserModifier->setValue(erase);
+        require(tool->onPropertyChanged("ModifierEraser"),
+                "cannot set toolbar eraser modifier");
+        alphaModifier->setValue(modifierLock);
+        require(tool->onPropertyChanged("Lock Alpha"),
+                "cannot set toolbar alpha-lock modifier");
+        raster(level, 1)->copy(alphaRamp);
+        tool->onImageChanged();
+        undo->reset();
+        draw(tool, false);
+        const auto painted = raster(level, 1)->clone();
+        bool alphaChanged = false, transparentPainted = false,
+             alphaReduced = false, alphaIncreased = false;
+        for (int y = 0; y < alphaRamp->getLy(); ++y)
+          for (int x = 0; x < alphaRamp->getLx(); ++x) {
+            const auto before = alphaRamp->pixels(y)[x];
+            const auto after  = painted->pixels(y)[x];
+            alphaChanged      = alphaChanged || before.m != after.m;
+            alphaReduced      = alphaReduced || after.m < before.m;
+            alphaIncreased    = alphaIncreased || after.m > before.m;
+            transparentPainted =
+                transparentPainted || (before.m == 0 && after.m != 0);
+          }
+        require(!same(alphaRamp, painted) && undo->getHistoryCount() == 1,
+                "alpha-lock fixture did not paint existing color in one "
+                "transaction");
+        if (erase) {
+          require(alphaReduced && !alphaIncreased && !transparentPainted,
+                  "global eraser failed to override native wet mode and both "
+                  "alpha locks");
+          if (mode == 3)
+            opaqueEraserResult = painted;
+          else
+            require(same(opaqueEraserResult, painted),
+                    "native eraser coverage depended on foreground alpha");
+        } else if (presetLock || modifierLock)
+          require(!alphaChanged && !transparentPainted,
+                  "saved or toolbar alpha lock failed to preserve the alpha "
+                  "ramp and transparent region");
+        else
+          require(alphaChanged && transparentPainted,
+                  "unlocked control did not paint the transparent region");
+        require(undo->undo() && same(alphaRamp, raster(level, 1)) &&
+                    undo->redo() && same(painted, raster(level, 1)),
+                "alpha-preserving stroke undo/redo changed channels");
+        verifyScenePersistence(painted, "alpha-lock-" + QString::number(mode));
+        require(undo->undo() && same(alphaRamp, raster(level, 1)),
+                "alpha-preserving stroke restore failed");
+        undo->reset();
+        draw(tool, true);
+        require(
+            same(alphaRamp, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled alpha-preserving stroke changed the frame");
+      }
+      raster(level, 1)->copy(originalPixels);
+      tool->onImageChanged();
+      palette->getStyle(1)->setMainColor(previousColor);
+      eraserModifier->setValue(previousEraser);
+      require(tool->onPropertyChanged("ModifierEraser"),
+              "cannot restore toolbar eraser modifier");
+      alphaModifier->setValue(previousModifier);
+      require(tool->onPropertyChanged("Lock Alpha"),
+              "cannot restore toolbar alpha modifier");
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore original brush after alpha qualification");
+      undo->reset();
     }
     checkpoint("rolling back actual-tool work-limit failure");
     {

@@ -5,6 +5,26 @@ ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
 Strict experimental K5341 component profiles are implemented; none of the full
 foreign behavior profiles below is complete or reference-verified. Keep this work separate from vector/touch usability and neural styling.
 
+Current platform qualification is incomplete. The signed macOS helper now starts,
+but its prior memory admission used adjusted task accounting instead of Darwin's
+raw mapping size. The replacement enumerates bounded top-level mappings and keeps
+the fixed growth budget and allocation-refusal probes; CI qualification is pending.
+Neither this growth limit nor the separate sampled footprint watchdog establishes
+an absolute OS-enforced resident-memory ceiling. Windows overlap qualification
+also remains pending after correcting an already-exited-child wait race. See
+[platform boundaries](raster_brush_platform_isolation.md) for current mechanisms;
+historical checkpoints below do not qualify the latest boundary.
+
+Native preset alpha preservation is combined with the toolbar lock instead of
+being overwritten by an unchecked modifier. The global eraser explicitly clears
+the effective lock without changing the saved preset; erase coverage is
+independent of foreground pigment alpha. Actual-tool fixtures cover these choices
+through undo, redo, cancellation and scene/level reopening. Experimental source
+presets also offer an explicit, cancellable conversion into an editable native
+copy. The original and resource rights remain intact, and changed wet equations
+and reset controls are disclosed. This artistic conversion does not close any
+missing foreign-profile acceptance requirement.
+
 The implementation preserves legacy MyPaint and TLV/vector behavior. A native
 compatibility renderer, bounded format adapters, portable resource graph and
 raster transactions are required for completion; tip extraction alone does not

@@ -82,28 +82,39 @@ private-sentinel access and loopback networking to be denied. It uses Darwin's o
 sandbox temporary directory, CPU/core/file-size/child limits, and private worker
 records. App Sandbox's system resources and helper container remain available.
 
-Before reading untrusted bytes, the helper snapshots its trusted Mach virtual map
-size and sets both soft and hard `RLIMIT_AS` to that baseline plus 1 GiB. Unexpected
-baselines above 64 GiB fail closed. The launcher and packaged qualification disable
-the Nano allocator's large speculative reservation with `MallocNanoZone=0`.
-Mandatory adversarial reservations through both `mmap` and `mach_vm_allocate` must
-fail under this cap; an ordinary small allocation must still succeed. Current
-Darwin enforces this in its Mach VM mapping path, rather than the historical
-advisory RSS semantics described by older man pages.
+Before reading untrusted bytes, the helper enumerates the actual top-level Mach
+virtual-map entries with the public `mach_vm_region` / `VM_REGION_BASIC_INFO_64`
+API. It includes submap reservations once without recursively double-counting
+mapped children. Enumeration is stack-only, capped at 65,536 regions and two
+seconds, checks forward progress and all address/size sums for overflow, and
+fails closed on unexpected kernel results. Both soft and hard `RLIMIT_AS` are set
+to the observed raw baseline plus the unchanged 1 GiB growth budget. Mapping
+changes during enumeration that prevent establishing the cap fail closed.
 
-This is a hard **virtual-map ceiling**, not a 1 GiB hard resident limit. Darwin's
-trusted shared region is approximately 32 GiB on x86_64 and 6 GiB on arm64, and
-preexisting mappings can be reused. Separately, the unsandboxed parent samples
+`MACH_TASK_BASIC_INFO` and `TASK_VM_INFO` report an adjusted size, whereas Darwin
+checks `RLIMIT_AS` against raw `map->size`. Rosetta reservations can make the former
+smaller than the latter, causing `EINVAL` for an apparently sufficient limit.
+Native Qt/runtime reservations can also exceed the previous assumed 64 GiB
+baseline even with `MallocNanoZone=0`. There is no replacement arbitrary total-size
+guard: the admission bound measures map enumeration work, checked representable
+size, and fixed additional mapping budget. Mandatory adversarial reservations via
+both `mmap` and `mach_vm_allocate` must be denied, and an ordinary small allocation
+must still succeed. A process able to raise the hard ceiling is rejected.
+
+This is a hard **virtual-map growth ceiling relative to a trusted startup
+baseline**, not an absolute resident/commit bound. Existing large reservations can
+be committed without growing that map. Separately, the unsandboxed parent samples
 `proc_pid_rusage` physical footprint every 50 ms and kills a live helper over
 1 GiB or one whose memory cannot be observed. Sampling can overshoot and does not
 replace a hard kernel resident cap. The independent 256 MiB decoded-resource and
 64 MiB input limits remain in force. A strict cross-platform whole-process 2 GiB
-resident/commit guarantee is not established for macOS by these public mechanisms.
+resident/commit guarantee remains unresolved for this native macOS architecture;
+these mechanisms do not close that requirement.
 
-Primary implementation evidence: Apple's [Darwin resource limit handling](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_resource.c),
-[Mach VM map-limit enforcement](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/vm/vm_map.c),
-[architecture shared-region sizes](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/mach/shared_region.h),
-and [public process usage API](https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h).
+Release-specific primary evidence: Apple's [Darwin resource limit handling](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/bsd/kern/kern_resource.c),
+[raw map-limit enforcement and public region-query implementation](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/osfmk/vm/vm_map.c),
+[adjusted task metrics](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/osfmk/kern/task.c),
+and [public process usage API](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/libsyscall/wrappers/libproc/libproc.h).
 
 The bounded `GZBW0001` envelope contains only strict private metadata/raw-RGBA names.
 The parent holds the response descriptor open throughout execution and streams
@@ -123,7 +134,7 @@ pipeline, not a new runtime user permission prompt.
 
 Primary contracts: [Apple App Sandbox](https://developer.apple.com/documentation/security/app-sandbox),
 [Apple entitlement inspection API](https://developer.apple.com/documentation/security/sectask),
-and [Apple DTS explanation of independent versus inherited helper sandboxes](https://developer.apple.com/forums/thread/679940).
+and [Apple DTS explanation of independent versus inherited helper sandboxes](https://developer.apple.com/forums/thread/706390).
 
 ## Qualification status
 

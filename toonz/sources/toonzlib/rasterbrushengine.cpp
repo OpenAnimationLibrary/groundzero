@@ -1468,6 +1468,10 @@ struct Stroke::Impl {
           if (p.wet == Wet::Smear)
             ink =
                 mix(fieldSample(nextSmear, side, u, v), foreground, colorRate);
+          // Erasing deposits coverage, not pigment. Tip alpha already lives
+          // in a; foreground/background and wet pickup alpha must not attenuate
+          // it again. The compositor still enforces the stored alpha lock.
+          if (p.blend == Blend::Erase) ink = {0, 0, 0, 1};
           const auto deposit = [&](Pixel dst, Pixel src, Blend mode) {
             return sourcePixelProfile(p.profile)
                        ? sourcePixelComposite(dst, src, mode)

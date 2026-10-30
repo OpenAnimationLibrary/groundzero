@@ -12,7 +12,10 @@ permissions:
   contents: read
 concurrency:
   group: brush-reference-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve running source acquisitions when an unrelated platform fix lands.
+  # New heads still require their own full matrix; captured older evidence is
+  # never substituted for exact-head qualification.
+  cancel-in-progress: false
 jobs:
   native-metrics:
     runs-on: ubuntu-22.04
@@ -251,7 +254,7 @@ jobs:
           from pathlib import Path
           root = Path(os.environ['BRUSH_REFERENCE_ROOT'])
           import re
-          for name in ('version.log', 'output/oracle-status.json', 'output/repeat-failure.json', 'output/plugin-startup.log', 'output/progress.log', 'output/python-stacks.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
+          for name in ('version.log', 'output/oracle-status.json', 'output/repeat-failure.json', 'output/controls-failure.json', 'output/plugin-startup.log', 'output/progress.log', 'output/python-stacks.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
               path = root / name
               if not path.is_file():
                   print('::notice::Reference diagnostic absent: ' + name)

@@ -37,10 +37,23 @@ def capture(case, effective_fields, delivery, raw, width):
         delta = event["timeMs"] - delivered[0]["timeMs"]
         if delta != round(authored["timeUs"] / 1000) - round(case["events"][0]["timeUs"] / 1000):
             raise RuntimeError("Delivered sensor timestamps differ from authored relative clock")
+    known_noop = (target == "Ratio" and spec["sensor"] == "declination" and spec["enabled"] and
+                  case["diameter"] == 24 and case["spacing"] == 1 and
+                  all(e["tilt"] == [60, 0] and e["pressure"] == 1 for e in delivered))
+    if bool(case.get("expectUnchanged")) != known_noop:
+        raise RuntimeError("Sensor no-op declaration does not match captured endpoint controls")
+    if known_noop:
+        brush = fromstring(effective_fields["brush_definition"])
+        mask = brush.find("MaskGenerator")
+        if (mask is None or mask.get("type") != "rect" or
+                float(mask.get("diameter", "nan")) != 24 or float(mask.get("ratio", "nan")) != .3 or
+                mask.get("antialiasEdges") != "0" or mask.get("hfade") != "1" or mask.get("vfade") != "1"):
+            raise RuntimeError("Known sensor no-op geometry changed")
     left, top, w, h = spec["rect"]
     pixels = b"".join(raw[(y * width + left) * 4:(y * width + left + w) * 4]
                       for y in range(top, top + h))
-    return {"effectiveControls": actual, "effectiveSensorAttributes": dict(sensor.attrib),
+    return {"effectiveControls": actual, "knownZeroRatioEndpoint": known_noop,
+            "effectiveBrushDefinition": effective_fields["brush_definition"], "effectiveSensorAttributes": dict(sensor.attrib),
             "authoredContactEvents": case["events"], "deliveredContactEvents": delivered,
             "deliveryValuesMatchAuthored": True, "rect": spec["rect"],
             "encoding": "zlib-base64-bgra8-row-major",
@@ -48,3 +61,25 @@ def capture(case, effective_fields, delivery, raw, width):
             "sha256Pixels": hashlib.sha256(pixels).hexdigest(),
             "nonzeroAlphaPixels": sum(alpha != 0 for alpha in pixels[3::4]),
             "interpretation": "Source acquisition; no assumed normalization, angular sign, initial direction, or event-to-dab association"}
+
+
+def emit_notices(name, evidence):
+    """Bounded diagnostics survive failed cases and unavailable artifact access."""
+    import json
+    def emit(kind, payload):
+        message = json.dumps({"preset": name, "capture": kind, **payload}, separators=(",", ":"))
+        if len(message) > 3900:
+            raise RuntimeError("Sensor diagnostic notice exceeds bounded transport")
+        print("::notice title=Sensor source capture::" + message.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
+    emit("controls", {key: evidence[key] for key in (
+        "effectiveControls", "effectiveSensorAttributes", "effectiveBrushDefinition",
+        "deliveryValuesMatchAuthored", "nonzeroAlphaPixels", "sha256Pixels", "knownZeroRatioEndpoint")})
+    events = evidence["deliveredContactEvents"]
+    for offset in range(0, len(events), 4):
+        emit("delivered-events", {"offset": offset, "total": len(events), "events": events[offset:offset + 4]})
+    # Retain exact diagnostic alpha in bounded chunks, even if output is empty.
+    pixels = zlib.decompress(base64.b64decode(evidence["data"]))
+    alpha = base64.b64encode(zlib.compress(pixels[3::4])).decode("ascii")
+    for offset in range(0, len(alpha), 3000):
+        emit("alpha-chunk", {"rect": evidence["rect"], "encoding": "zlib-base64-alpha8-row-major",
+                             "offset": offset, "total": len(alpha), "data": alpha[offset:offset + 3000]})

@@ -1659,6 +1659,37 @@ void testImportedStatusClaims() {
   check(reopened);
   require(reopened.provenance["conversionKind"] == "partial-native",
           "portable roundtrip discarded partial native classification");
+  for (const QString &forged : {"native-reinterpretation", "tip-only",
+                                "static-native", "partial-native"}) {
+    Record source;
+    source.preset.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+    source.provenance["conversionKind"] = forged;
+    source.provenance["sourceProfileBeforeNativeConversion"] =
+        "krita-5.3.4.1-legacy-dulling-candidate-1";
+    const auto loaded = decode(encode(source, error), error);
+    require(
+        error.isEmpty() && loaded.preset.profile == source.preset.profile,
+        "forged native metadata changed the decoded source runtime profile");
+    const auto exported =
+        encodePortable(loaded, ResourcePackaging::ManifestOnly, error);
+    const auto imported = importBrush(exported, "gzbrush", error);
+    require(
+        error.isEmpty() && imported.complete && imported.records.size() == 1 &&
+            imported.records.front().preset.profile == source.preset.profile &&
+            imported.records.front().provenance["conversionKind"] ==
+                "source-candidate" &&
+            !imported.records.front().provenance.contains(
+                "sourceProfileBeforeNativeConversion"),
+        "source runtime profile retained forged native-conversion export "
+        "classification");
+  }
+  claimed.provenance["conversionKind"] = "source-candidate";
+  const auto native                    = decode(
+      encodePortable(claimed, ResourcePackaging::ManifestOnly, error), error);
+  require(
+      error.isEmpty() && native.preset.profile == "groundzero-native-1" &&
+          !native.provenance.contains("conversionKind"),
+      "native runtime retained an incompatible source-profile classification");
 }
 void runLibraryFileCase(const QString &kind, const QString &operation) {
   QTemporaryDir directory;
@@ -2253,12 +2284,31 @@ void testWorkerProcess() {
     second.start(workerExecutable(),
                  {"--test-windows-sandbox-parent", input.fileName(),
                   secondOutput.path(), forbidden.fileName()});
-    require(first.waitForFinished(15000) && second.waitForFinished(15000) &&
+    // waitForFinished returns false for an already exited QProcess. Either
+    // child can finish while the other is starting; reap both independently.
+    const bool firstFinished =
+        first.state() == QProcess::NotRunning || first.waitForFinished(15000);
+    const bool secondFinished =
+        second.state() == QProcess::NotRunning || second.waitForFinished(15000);
+    const QString completionDetail =
+        QString(
+            "Overlapping imports failed: first finished=%1 exit=%2 "
+            "status=%3 stderr=%4; second finished=%5 exit=%6 "
+            "status=%7 stderr=%8")
+            .arg(firstFinished)
+            .arg(first.exitCode())
+            .arg(int(first.exitStatus()))
+            .arg(QString::fromUtf8(first.readAllStandardError()).left(4096))
+            .arg(secondFinished)
+            .arg(second.exitCode())
+            .arg(int(second.exitStatus()))
+            .arg(QString::fromUtf8(second.readAllStandardError()).left(4096));
+    require(firstFinished && secondFinished &&
                 first.exitStatus() == QProcess::NormalExit &&
                 first.exitCode() == 0 &&
                 second.exitStatus() == QProcess::NormalExit &&
                 second.exitCode() == 0,
-            "overlapping imports failed or did not clean up their ACLs");
+            completionDetail.toUtf8().constData());
     QFile firstTime(firstOutput.filePath("entered"));
     QFile secondTime(secondOutput.filePath("entered"));
     require(firstTime.open(QIODevice::ReadOnly) &&

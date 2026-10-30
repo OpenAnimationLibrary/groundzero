@@ -20,36 +20,63 @@
 #include <sys/mman.h>
 #include <libproc.h>
 #include <cstdio>
+#include <limits>
 
 namespace RasterBrush {
 namespace {
 constexpr qint64 macWireLimit = 256LL * 1024 * 1024;
-// Darwin includes trusted shared-cache mappings in virtual_size. Bound new
-// mapping headroom rather than pretending Linux's absolute 2 GiB fits this ABI.
-constexpr uint64_t macMappingHeadroom = uint64_t(1024) * 1024 * 1024;
-constexpr uint64_t macMaximumTrustedMappings =
-    uint64_t(64) * 1024 * 1024 * 1024;
+// Bound growth of the actual top-level VM map, not adjusted task-info totals.
+// Existing reserved mappings can still be committed: this is not an RSS cap.
+constexpr uint64_t macMappingHeadroom   = uint64_t(1024) * 1024 * 1024;
 constexpr uint64_t macFootprintWatchdog = uint64_t(1024) * 1024 * 1024;
+// The public nonrecursive BASIC_INFO_64 query returns whole top-level entries,
+// including submap reservations. Sum each once, matching raw vm_map->size
+// rather than task_info's adjusted metric, which excludes some Rosetta
+// reservations. Stack-only enumeration runs before input is read; no region
+// content is read.
+bool macRawMappingBaseline(uint64_t &bytes, QString &error) {
+  bytes                    = 0;
+  mach_vm_address_t cursor = 0;
+  QElapsedTimer deadline;
+  deadline.start();
+  for (unsigned int regions = 0; regions < 65536; ++regions) {
+    if (deadline.elapsed() > 2000) {
+      error = "Trusted VM map enumeration exceeded two seconds";
+      return false;
+    }
+    mach_vm_address_t address = cursor;
+    mach_vm_size_t size       = 0;
+    vm_region_basic_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object           = MACH_PORT_NULL;
+    const kern_return_t status   = mach_vm_region(
+        mach_task_self(), &address, &size, VM_REGION_BASIC_INFO_64,
+        reinterpret_cast<vm_region_info_t>(&info), &count, &object);
+    if (object != MACH_PORT_NULL)
+      mach_port_deallocate(mach_task_self(), object);
+    if (status == KERN_INVALID_ADDRESS && bytes != 0) return true;
+    if (status != KERN_SUCCESS || count != VM_REGION_BASIC_INFO_COUNT_64 ||
+        size == 0 || address < cursor ||
+        size > std::numeric_limits<uint64_t>::max() - address ||
+        size > uint64_t(RLIM_INFINITY) - macMappingHeadroom - 65536 - bytes) {
+      error = QString("Cannot enumerate trusted VM map safely: Mach status %1")
+                  .arg(status);
+      return false;
+    }
+    bytes += size;
+    cursor = address + size;
+  }
+  error = "Trusted VM map exceeds the 65536-region enumeration bound";
+  return false;
+}
 bool limitMacImportMemory(QString &error) {
   auto failed = [&](const QString &reason) {
     error = reason;
     return false;
   };
-  mach_task_basic_info_data_t info{};
-  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-  const auto infoStatus =
-      task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
-                reinterpret_cast<task_info_t>(&info), &count);
-  if (infoStatus != KERN_SUCCESS)
-    return failed(
-        QString("Cannot inspect trusted virtual mappings: Mach status %1")
-            .arg(infoStatus));
-  if (info.virtual_size > macMaximumTrustedMappings)
-    return failed(
-        QString("Trusted virtual mappings %1 exceed baseline limit %2 bytes")
-            .arg(qulonglong(info.virtual_size))
-            .arg(qulonglong(macMaximumTrustedMappings)));
-  const rlim_t cap = rlim_t(info.virtual_size + macMappingHeadroom);
+  uint64_t baseline = 0;
+  if (!macRawMappingBaseline(baseline, error)) return false;
+  const rlim_t cap = rlim_t(baseline + macMappingHeadroom);
   rlimit addressSpace{cap, cap};
   if (setrlimit(RLIMIT_AS, &addressSpace))
     return failed(QString("Cannot set RLIMIT_AS: errno %1").arg(errno));
@@ -60,7 +87,7 @@ bool limitMacImportMemory(QString &error) {
   if (errno != EPERM && errno != EACCES)
     return failed(QString("Unexpected hard-limit probe errno %1").arg(errno));
   std::fprintf(stderr, "Brush macOS virtual baseline=%llu cap=%llu bytes\n",
-               static_cast<unsigned long long>(info.virtual_size),
+               static_cast<unsigned long long>(baseline),
                static_cast<unsigned long long>(cap));
   // Both POSIX and Mach allocation entry points must enforce the kernel map
   // limit. These reservations do not touch physical pages. Probe before bytes.

@@ -402,7 +402,12 @@ if(BUILD_SEEXPR_TESTS)
     target_link_libraries(seexpr_surface_fx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} Threads::Threads)
     add_test(NAME seexpr_surface_fx COMMAND seexpr_surface_fx_test)
     set_tests_properties(seexpr_surface_fx PROPERTIES TIMEOUT 120)
-    add_custom_target(seexpr_fx_tests DEPENDS seexpr_fx_test seexpr_surface_fx_test)
+    add_executable(seexpr_fx_ui_test tests/seexprfx_ui_test.cpp)
+    target_link_libraries(seexpr_fx_ui_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME seexpr_fx_ui COMMAND seexpr_fx_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_seexprGeneratorFx.xml)
+    set_tests_properties(seexpr_fx_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+    add_custom_target(seexpr_fx_tests DEPENDS seexpr_fx_test seexpr_surface_fx_test seexpr_fx_ui_test)
 endif()
 
 if(OpenCV_FOUND)

@@ -953,10 +953,28 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
     // (including aliases and private paths) remain excluded above.
     const QString conversionKind =
         record.provenance.value("conversionKind").toString();
-    if (conversionKind == "tip-only" || conversionKind == "static-native" ||
-        conversionKind == "source-candidate" ||
-        conversionKind == "partial-native")
+    const bool nativeProfile = record.preset.profile == "groundzero-native-1";
+    if (!nativeProfile)
+      exported.provenance["conversionKind"] = "source-candidate";
+    else if (conversionKind == "tip-only" ||
+             conversionKind == "static-native" ||
+             conversionKind == "partial-native" ||
+             conversionKind == "native-reinterpretation")
       exported.provenance["conversionKind"] = conversionKind;
+    const QString originalProfile =
+        record.provenance.value("sourceProfileBeforeNativeConversion")
+            .toString();
+    const QStringList sourceProfiles{"krita-5.3.4.1-hard-pixel-candidate-1",
+                                     "krita-5.3.4.1-default-circle-candidate-1",
+                                     "krita-5.3.4.1-default-rect-candidate-1",
+                                     "krita-5.3.4.1-legacy-smear-candidate-1",
+                                     "krita-5.3.4.1-legacy-dulling-candidate-1",
+                                     "krita-5.3.4.1-new-smear-candidate-1",
+                                     "krita-5.3.4.1-new-dulling-candidate-1"};
+    if (nativeProfile && conversionKind == "native-reinterpretation" &&
+        sourceProfiles.contains(originalProfile))
+      exported.provenance["sourceProfileBeforeNativeConversion"] =
+          originalProfile;
     static const QRegularExpression hash("^[0-9a-f]{64}$");
     for (const QString &key : {"sourceSha256", "bundleSha256"})
       if (hash.match(record.provenance.value(key).toString()).hasMatch())

@@ -684,7 +684,23 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
 }
 
 QString nativeBrushCompatibility(const RasterBrush::Record &record) {
+  // Runtime dispatch is authoritative; imported provenance cannot change the
+  // active engine profile or grant a different compatibility classification.
+  if (record.preset.profile != "groundzero-native-1")
+    return QObject::tr(
+        "Experimental source profile. Complete source brush behavior is not "
+        "verified.");
   const QString kind = record.provenance.value("conversionKind").toString();
+  if (kind == "native-reinterpretation")
+    return record.preset.wet == RasterBrush::Wet::Off
+               ? QObject::tr(
+                     "Native reinterpretation. Source equations are no longer "
+                     "used. Source parity is not verified.")
+               : QObject::tr(
+                     "Native reinterpretation. Source equations are no longer "
+                     "used; native wet mixing differs "
+                     "from the original profile. Source parity is not "
+                     "verified.");
   if (kind == "tip-only")
     return QObject::tr(
         "Tip extraction only. The image tip is available for a native "
@@ -698,11 +714,6 @@ QString nativeBrushCompatibility(const RasterBrush::Record &record) {
     return QObject::tr(
         "Static native conversion. Supported fixed settings were "
         "converted; complete source dynamics and appearance are not verified.");
-  if (record.preset.profile != "groundzero-native-1" ||
-      kind == "source-candidate")
-    return QObject::tr(
-        "Experimental source profile. Complete source brush behavior is not "
-        "verified.");
   if (record.provenance.contains("sourceSha256"))
     return QObject::tr(
         "Native approximation. Source brush behavior is not verified.");
@@ -724,6 +735,88 @@ bool editNativeBrush(RasterBrush::Record &record) {
       &dialog);
   saveHint->setWordWrap(true);
   layout->addWidget(saveHint);
+  constexpr int convertedCopyResult = 1001;
+  if (record.preset.profile != "groundzero-native-1") {
+    auto convert =
+        new QPushButton(QObject::tr("Convert copy to native…"), &dialog);
+    convert->setObjectName("nativeBrushConvertCopy");
+    layout->addWidget(convert);
+    QObject::connect(convert, &QPushButton::clicked, &dialog, [&]() {
+      const bool wet = record.preset.wet != RasterBrush::Wet::Off;
+      const QString changes =
+          wet ? QObject::tr(
+                    "Source wet equations will be replaced by native wet "
+                    "mixing, which produces different results. "
+                    "The wet mode is retained, but pickup, foreground mix, "
+                    "reload and sampling radius reset to "
+                    "native defaults (0.5, 0.25, 0, 1), with wet sensor "
+                    "mappings cleared. Native wet mixing uses "
+                    "normal blending without wash or dual tips. Source-only "
+                    "smudge/texture switches reset. "
+                    "Other settings, image resources and resource-rights "
+                    "declarations are retained.")
+              : QObject::tr(
+                    "Source dab, mask, blending and texture equations will be "
+                    "replaced by native equations. "
+                    "Source-only smudge/texture switches reset. Other "
+                    "settings, image resources and "
+                    "resource-rights declarations are retained. Results can "
+                    "differ from the source profile.");
+      QMessageBox confirmation(
+          QMessageBox::Warning, QObject::tr("Convert a Copy to Native"),
+          changes + "\n\n" +
+              QObject::tr("The saved original remains unchanged. This does not "
+                          "establish source compatibility."),
+          QMessageBox::Cancel, &dialog);
+      confirmation.setObjectName("nativeBrushConfirmNativeConversion");
+      confirmation.setTextFormat(Qt::PlainText);
+      auto accept = confirmation.addButton(
+          QObject::tr("Convert copy to native"), QMessageBox::AcceptRole);
+      accept->setObjectName("nativeBrushAcceptNativeConversion");
+      confirmation.setDefaultButton(QMessageBox::Cancel);
+      confirmation.exec();
+      if (confirmation.clickedButton() != accept) return;
+      RasterBrush::Record converted     = record;
+      const auto sourceProfile          = converted.preset.profile;
+      auto &native                      = converted.preset;
+      native.profile                    = "groundzero-native-1";
+      native.sourceSmudgeLengthEnabled  = native.sourceSmearAlpha =
+          native.sourceColorRateEnabled = true;
+      native.sourceTextureSoftTexturing = false;
+      if (wet) {
+        native.pickup        = .5;
+        native.colorRate     = .25;
+        native.reload        = 0;
+        native.smudgeRadius  = 1;
+        native.pickupControl = native.colorRateControl = native.radiusControl =
+            RasterBrush::Dynamic{1, 0, {}};
+        native.wash              = false;
+        native.blend             = RasterBrush::Blend::Normal;
+        native.secondary.enabled = false;
+      }
+      const auto invalid = RasterBrush::validate(native);
+      if (!invalid.empty()) {
+        QMessageBox::warning(&dialog,
+                             QObject::tr("Cannot convert these settings"),
+                             QString::fromStdString(invalid));
+        return;
+      }
+      converted.provenance["conversionKind"] = "native-reinterpretation";
+      converted.provenance["sourceProfileBeforeNativeConversion"] =
+          QString::fromStdString(sourceProfile);
+      converted.provenance["sourceSemanticallySupported"] = false;
+      converted.provenance["sourceReferenceVerified"]     = false;
+      converted.referenceVerified                         = false;
+      converted.diagnostics
+          << QObject::tr("Explicit native reinterpretation of %1.")
+                 .arg(QString::fromStdString(sourceProfile))
+          << changes;
+      record = std::move(converted);
+      // Recreate controls from the converted copy so visible values, preview
+      // and saved values all reflect resets. Cancel still discards this copy.
+      dialog.done(convertedCopyResult);
+    });
+  }
   auto details = new QPushButton(QObject::tr("Brush details…"), &dialog);
   layout->addWidget(details);
   QObject::connect(details, &QPushButton::clicked, &dialog, [&]() {
@@ -741,6 +834,11 @@ bool editNativeBrush(RasterBrush::Record &record) {
       if (tag.isString()) tagNames << tag.toString();
     if (!tagNames.isEmpty())
       notes << QObject::tr("Bundle tags: %1").arg(tagNames.join(", "));
+    const QString convertedFrom =
+        record.provenance.value("sourceProfileBeforeNativeConversion")
+            .toString();
+    if (!convertedFrom.isEmpty())
+      notes << QObject::tr("Converted from profile: %1").arg(convertedFrom);
     notes << QObject::tr("Behavior profile: %1")
                  .arg(QString::fromStdString(record.preset.profile));
     notes << QObject::tr("Decoded native package: %1")
@@ -796,7 +894,8 @@ bool editNativeBrush(RasterBrush::Record &record) {
                      });
     return box;
   };
-  spin(QObject::tr("Size"), p.size.value, .25, 4096);
+  spin(QObject::tr("Size"), p.size.value, .25, 4096)
+      ->setObjectName("nativeBrushPresetSize");
   spin(QObject::tr("Aspect ratio"), p.aspect.value, .01, 1);
   spin(QObject::tr("Angle"), p.angle.value, -360, 360);
   spin(QObject::tr("Spacing"), p.spacing, .01, 5);
@@ -807,10 +906,13 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Scatter"), p.scatter.value, 0, 5);
   spin(QObject::tr("Stamp count factor"), p.countControl.value, 0, 1);
   spin(QObject::tr("Airbrush dabs/second"), p.airbrushRate, 0, 120);
-  spin(QObject::tr("Paint pickup"), p.pickup, 0, 1);
-  spin(QObject::tr("Foreground paint mix"), p.colorRate, 0, 1);
+  spin(QObject::tr("Paint pickup"), p.pickup, 0, 1)
+      ->setObjectName("nativeBrushPickup");
+  spin(QObject::tr("Foreground paint mix"), p.colorRate, 0, 1)
+      ->setObjectName("nativeBrushColorRate");
   spin(QObject::tr("Paint reload"), p.reload, 0, 1);
-  spin(QObject::tr("Smudge sampling radius"), p.smudgeRadius, 0, 3);
+  spin(QObject::tr("Smudge sampling radius"), p.smudgeRadius, 0, 3)
+      ->setObjectName("nativeBrushSmudgeRadius");
   spin(QObject::tr("Background color mix"), p.backgroundMix.value, 0, 1);
   spin(QObject::tr("Hue rotation"), p.hue.value, -360, 360);
   spin(QObject::tr("Saturation multiplier"), p.saturation.value, 0, 2);
@@ -1139,7 +1241,9 @@ bool editNativeBrush(RasterBrush::Record &record) {
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
                    &QDialog::reject);
   refresh();
-  return dialog.exec() == QDialog::Accepted;
+  const int result = dialog.exec();
+  if (result == convertedCopyResult) return editNativeBrush(record);
+  return result == QDialog::Accepted;
 }
 }  // namespace
 
@@ -1298,11 +1402,14 @@ bool FullColorBrushTool::selectNativePreset() {
     QStringList compatibility;
     bool allTips = true, allStatic = true, allPartial = true, hasTips = false;
     for (const auto &record : selected) {
-      const QString kind = record.provenance.value("conversionKind").toString();
-      allTips            = allTips && kind == "tip-only";
-      allStatic          = allStatic && kind == "static-native";
-      allPartial         = allPartial && kind == "partial-native";
-      hasTips            = hasTips || kind == "tip-only";
+      const QString kind =
+          record.preset.profile == "groundzero-native-1"
+              ? record.provenance.value("conversionKind").toString()
+              : QString();
+      allTips    = allTips && kind == "tip-only";
+      allStatic  = allStatic && kind == "static-native";
+      allPartial = allPartial && kind == "partial-native";
+      hasTips    = hasTips || kind == "tip-only";
       if (!record.provenance.contains("sourceSha256") && kind.isEmpty() &&
           record.preset.profile == "groundzero-native-1")
         continue;
@@ -2044,10 +2151,15 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
                                     m_currentColor.b / 255.0 * alpha, alpha};
       preset.size.value *= std::pow(2.0, m_modifierSize.getValue());
       preset.opacity.value *= m_modifierOpacity.getValue() / 100.0;
-      preset.lockAlpha = m_modifierLockAlpha.getValue();
+      // The toolbar modifier adds alpha locking; it must not disable a
+      // preset's saved Preserve alpha setting when the modifier is off.
+      preset.lockAlpha = preset.lockAlpha || m_modifierLockAlpha.getValue();
       if (m_modifierEraser.getValue()) {
         preset.blend = RasterBrush::Blend::Erase;
         preset.wet   = RasterBrush::Wet::Off;
+        // Match legacy modifier precedence: the eraser explicitly permits
+        // alpha removal even when the saved brush or toolbar locks alpha.
+        preset.lockAlpha = false;
       }
       handler->nativeSurface = m_nativeSurface;
       handler->nativeStroke.reset(

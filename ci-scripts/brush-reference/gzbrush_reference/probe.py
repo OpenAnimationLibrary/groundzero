@@ -318,6 +318,24 @@ class Probe(Extension):
                                   "flow": view.paintingFlow(), "rotation": view.brushRotation(),
                                   "blend": view.currentBlendingMode(), "eraser": view.eraserMode(),
                                   "alphaLock": view.globalAlphaLock(), "disablePressure": view.disablePressure()}
+                def control_failure(reason):
+                    expected = {key: case[key] for key in ("diameter", "opacity", "flow")}
+                    expected.update({"rotation": case.get("brushRotationDegrees", 0),
+                                     "blend": case.get("overrides", {}).get("CompositeOp", "normal"),
+                                     "eraser": False, "alphaLock": False, "disablePressure": False})
+                    evidence = {"preset": name, "error": reason, "expected": expected,
+                                "actual": effective_view,
+                                "selectedPreset": view.currentBrushPreset().name(),
+                                "resourceProbe": case.get("resourceProbe")}
+                    # Preserve the settings actually present at failure before
+                    # another fixture can change the selected resource.
+                    failed_xml = Preset(view.currentBrushPreset()).toXML()
+                    if len(failed_xml) <= 1024 * 1024:
+                        (output / "controls-failure.effective.xml").write_text(failed_xml)
+                    (output / "controls-failure.json").write_text(json.dumps(evidence, indent=2))
+                    raise RuntimeError(reason + ": " + json.dumps(
+                        {key: evidence[key] for key in ("preset", "expected", "actual")},
+                        separators=(",", ":")))
                 # The UI may quantize opacity/flow to one byte. Record that
                 # value rather than pretending requested and effective values
                 # are necessarily identical. Do not tune candidate inputs to
@@ -325,10 +343,10 @@ class Probe(Extension):
                 if abs(effective_view["diameter"] - case["diameter"]) > 1e-5 or any(
                         abs(effective_view[key] - case[key]) > 1 / 255 + 1e-9
                         for key in ("opacity", "flow")):
-                    raise RuntimeError("Source view did not apply requested brush controls")
+                    control_failure("Source view did not apply requested brush controls")
                 if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > 1e-5 or effective_view["blend"] != case.get("overrides", {}).get("CompositeOp", "normal") or
                         any(effective_view[key] for key in ("eraser", "alphaLock", "disablePressure"))):
-                    raise RuntimeError("Source view retained an unexpected painting modifier")
+                    control_failure("Source view retained an unexpected painting modifier")
                 # Read back the selected source settings through the public API;
                 # handwritten input XML alone does not establish effective state.
                 effective_xml = Preset(view.currentBrushPreset()).toXML()
@@ -420,6 +438,7 @@ class Probe(Extension):
                 sensor_evidence = (sensor_probe.capture(case, effective_fields, delivery, raw, w)
                                    if "sensorProbe" in case else None)
                 if sensor_evidence is not None:
+                    sensor_probe.emit_notices(name, sensor_evidence)
                     # Persist bounded diagnostics before a no-op or repeat gate
                     # can fail. Empty output is not silently excused as acquisition.
                     (output / (name.replace(" ", "_") + ".sensor.json")).write_text(

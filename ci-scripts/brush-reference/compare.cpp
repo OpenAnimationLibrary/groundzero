@@ -274,9 +274,10 @@ int main(int argc, char **argv) {
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
     if (fixtures["group"].toString() == "tabletsensors")
-      require(expected.size() == 76, "Incomplete tablet sensor fixture matrix");
+      require(expected.size() == 138,
+              "Incomplete tablet sensor fixture matrix");
     if (fixtures["group"].toString() == "spacingdynamics")
-      require(expected.size() == 16,
+      require(expected.size() == 112,
               "Incomplete spacing sensor fixture matrix");
     QStringList remaining;
     for (const auto &name : expected)
@@ -300,10 +301,8 @@ int main(int argc, char **argv) {
         require(evidence["deliveryValuesMatchAuthored"].isBool() &&
                     evidence["deliveryValuesMatchAuthored"].toBool() &&
                     evidence["effectiveControls"].isObject() &&
-                    !evidence["effectiveControls"].toObject().empty() &&
-                    evidence["nonzeroAlphaPixels"].toInt() > 0,
-                "Missing effective sensor controls, delivered values or "
-                "nonempty raster");
+                    !evidence["effectiveControls"].toObject().empty(),
+                "Missing effective sensor controls or delivered values");
         const auto authored = source["events"].toArray();
         deliveredSensorEvents = evidence["deliveredContactEvents"].toArray();
         require(authored.size() == 33 &&
@@ -335,6 +334,27 @@ int main(int argc, char **argv) {
                        wanted["timeUs"].toDouble() / 1000) <= .500001,
               "Delivered sensor clock differs beyond millisecond quantization");
         }
+        const auto spec = source["sensorProbe"].toObject();
+        bool zeroEndpoint = spec["target"].toString() == "Ratio" &&
+                            spec["sensor"].toString() == "declination" &&
+                            spec["enabled"].toBool() &&
+                            source["diameter"].toDouble() == 24 &&
+                            source["spacing"].toDouble() == 1;
+        for (const auto &value : deliveredSensorEvents) {
+          const auto event = value.toObject();
+          const auto tilt = event["tilt"].toArray();
+          zeroEndpoint = zeroEndpoint && tilt[0].toDouble() == 60 &&
+                         tilt[1].toDouble() == 0 &&
+                         event["pressure"].toDouble() == 1;
+        }
+        require(evidence["knownZeroRatioEndpoint"].isBool() &&
+                    evidence["knownZeroRatioEndpoint"].toBool() ==
+                        zeroEndpoint &&
+                    source["expectUnchanged"].toBool() == zeroEndpoint &&
+                    (zeroEndpoint ? evidence["nonzeroAlphaPixels"].toInt() == 0
+                                  : evidence["nonzeroAlphaPixels"].toInt() > 0),
+                "Sensor raster disagrees with qualified zero endpoint or "
+                "nonempty requirement");
       }
       initial = stripInitial;
       if (source["background"].toString() == "transparent")
@@ -392,8 +412,10 @@ int main(int argc, char **argv) {
       }
       QString name = source["preset"].toString(), error;
       require(remaining.removeOne(name), "Unexpected or duplicate source case");
-      const bool resourceCase = fixtures["group"].toString() == "bitmaptips" ||
-                                fixtures["group"].toString() == "gihstatistics";
+      const bool resourceCase =
+          fixtures["group"].toString() == "bitmaptips" ||
+          fixtures["group"].toString() == "gihstatistics" ||
+          (sensorCase && source["resourceProbe"].isObject());
       QString package = "data/krita/paintoppresets/" + name + ".kpp";
       if (resourceCase) {
         package = source["candidatePackage"].toString();
