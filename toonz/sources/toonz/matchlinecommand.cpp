@@ -18,6 +18,7 @@
 #include "toonz/txsheethandle.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txshleveltypes.h"
+#include "toonz/tstageobject.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -239,58 +240,91 @@ bool checkColumnValidity(int column) {
 
 //---------------------------------------------------------------------------------------------------------
 
-void doCloneLevelNoSave(const TCellSelection::Range &range,
-                        const QString &newLevelName, bool withUndo);
-
-//-----------------------------------------------------------------------------
 namespace {
 //-----------------------------------------------------------------------------
 
 class CloneLevelNoSaveUndo final : public TUndo {
+  TXsheetP m_xsh;
   std::map<TXshSimpleLevel *, TXshLevelP> m_createdLevels;
-  std::set<int> m_insertedColumnIndices;
+  std::map<int, TXshColumnP> m_insertedColumns;
+  std::map<std::pair<int, int>, TXshCell> m_cells;
+  std::map<int, std::string> m_oldColumnNames, m_newColumnNames;
 
-  TCellSelection::Range m_range;
-  QString m_levelname;
+  void restoreCell(int row, int col, const TXshCell &cell) const {
+    // Column locks are UI state and may change outside the undo history.
+    // Restore history through the normal xsheet path while retaining the lock.
+    TXshColumnP column = m_xsh->getColumn(col);
+    const bool locked = column && column->isLocked();
+    struct RestoreLock {
+      TXshColumnP column;
+      bool locked;
+      ~RestoreLock() { if (column) column->lock(locked); }
+    } restore{column, locked};
+    if (locked) column->lock(false);
+    m_xsh->setCell(row, col, cell);
+  }
+
+  void notify() const {
+    TApp *app = TApp::instance();
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    app->getCurrentScene()->setDirtyFlag(true);
+    app->getCurrentScene()->notifyCastChange();
+  }
 
 public:
   CloneLevelNoSaveUndo(
+      TXsheet *xsh,
       const TCellSelection::Range &range,
       const std::map<TXshSimpleLevel *, TXshLevelP> &createdLevels,
-      const std::set<int> &insertedColumnIndices, const QString &levelname)
-      : m_createdLevels(createdLevels)
-      , m_range(range)
-      , m_insertedColumnIndices(insertedColumnIndices)
-      , m_levelname(levelname) {}
+      const std::set<int> &insertedColumnIndices,
+      const std::map<int, std::string> &oldColumnNames)
+      : m_xsh(xsh), m_createdLevels(createdLevels), m_oldColumnNames(oldColumnNames) {
+    for (int col : insertedColumnIndices)
+      m_insertedColumns.emplace(col, xsh->getColumn(col));
+    for (int col = range.m_c1 + 1; col <= range.m_c1 + range.getColCount(); ++col) {
+      if (xsh->getColumn(col))
+        m_newColumnNames[col] = xsh->getStageObject(TStageObjectId::ColumnId(col))->getName();
+      for (int row = range.m_r0; row <= range.m_r1; ++row) {
+        const TXshCell &cell = xsh->getCell(row, col);
+        if (!cell.isEmpty()) m_cells.emplace(std::make_pair(row, col), cell);
+      }
+    }
+  }
 
   void undo() const override {
-    TApp *app         = TApp::instance();
-    ToonzScene *scene = app->getCurrentScene()->getScene();
-    TXsheet *xsh      = scene->getXsheet();
-    int i;
-    for (i = m_range.getColCount(); i > 0; i--) {
-      int index                        = m_range.m_c1 + i;
-      std::set<int>::const_iterator it = m_insertedColumnIndices.find(index);
-      xsh->removeColumn(index);
-      if (it == m_insertedColumnIndices.end()) xsh->insertColumn(index);
-    }
-
-    std::map<TXshSimpleLevel *, TXshLevelP>::const_iterator it =
-        m_createdLevels.begin();
-
-    for (; it != m_createdLevels.end(); ++it) {
-      it->second->addRef();
-      scene->getLevelSet()->removeLevel(it->second.getPointer());
-    }
-    app->getCurrentXsheet()->notifyXsheetChanged();
+    // Reused empty columns may already contain stage keys or column settings.
+    // Clear only our exposures; remove only columns inserted by this command.
+    for (const auto &entry : m_cells)
+      if (!m_insertedColumns.count(entry.first.second))
+        restoreCell(entry.first.first, entry.first.second, TXshCell());
+    for (auto it = m_insertedColumns.rbegin(); it != m_insertedColumns.rend(); ++it)
+      m_xsh->removeColumn(it->first);
+    for (const auto &entry : m_oldColumnNames)
+      m_xsh->getStageObject(TStageObjectId::ColumnId(entry.first))->setName(entry.second);
+    for (const auto &entry : m_createdLevels)
+      m_xsh->getScene()->getLevelSet()->removeLevel(entry.second.getPointer());
+    notify();
   }
   void redo() const override {
-    doCloneLevelNoSave(m_range, m_levelname, false);
+    // Replay the original objects and exposures, not a fresh clone of whatever
+    // happens to be in the source columns now. Subsequent undos refer to these
+    // same levels and keep their authoring metadata and native drawing data.
+    for (const auto &entry : m_createdLevels)
+      m_xsh->getScene()->getLevelSet()->insertLevel(entry.second.getPointer());
+    for (const auto &entry : m_insertedColumns)
+      m_xsh->insertColumn(entry.first, entry.second.getPointer());
+    for (const auto &entry : m_cells)
+      restoreCell(entry.first.first, entry.first.second, entry.second);
+    for (const auto &entry : m_newColumnNames)
+      m_xsh->getStageObject(TStageObjectId::ColumnId(entry.first))->setName(entry.second);
+    notify();
   }
 
   int getSize() const override {
     return sizeof *this + (sizeof(TXshLevelP) + sizeof(TXshSimpleLevel *)) *
-                              m_createdLevels.size();
+                              m_createdLevels.size() +
+           sizeof(decltype(m_cells)::value_type) * m_cells.size() +
+           sizeof(decltype(m_insertedColumns)::value_type) * m_insertedColumns.size();
   }
 };
 
@@ -298,135 +332,123 @@ public:
 }  // namespace
 //-----------------------------------------------------------------------------
 
-void doCloneLevelNoSave(const TCellSelection::Range &range,
-                        const QString &newLevelName = QString(),
-                        bool withUndo               = true) {
-  std::map<TXshSimpleLevel *, TXshLevelP> createdLevels;
-
+bool doCloneLevelNoSave(const TCellSelection::Range &range,
+                        const QString &newLevelName) {
+  if (range.isEmpty() || range.m_r0 < 0 || range.m_c0 < 0) return false;
   TApp *app         = TApp::instance();
   TXsheet *xsh      = app->getCurrentXsheet()->getXsheet();
   ToonzScene *scene = app->getCurrentScene()->getScene();
 
-  // Build indices of inserted columns
+  // Model insertion offsets before touching columns or the Cast. Missing
+  // destinations are distinct from existing empty columns with authoring state.
+  int inserted = 0;
+  std::map<int, int> reusedColumns;
+  for (int col = range.m_c1 + 1; col <= range.m_c1 + range.getColCount(); ++col) {
+    const int originalCol = col - inserted;
+    if (!xsh->isColumnEmpty(originalCol)) { ++inserted; continue; }
+    TXshColumn *column = xsh->getColumn(originalCol);
+    if (column && column->isLocked()) return false;
+    if (column) reusedColumns[col] = originalCol;
+  }
+
+  struct PreparedLevel {
+    std::map<TFrameId, TImageP> frames;
+    TPaletteP palette;
+  };
+  std::map<TXshSimpleLevel *, PreparedLevel> prepared;
+  std::map<std::pair<int, int>, TXshCell> exposures;
+  std::map<int, TXshColumn::ColumnType> destinationTypes;
+  // Load and clone every requested drawing first. A missing/corrupt later
+  // drawing must not leave earlier clones in the Cast or columns half shifted.
+  try {
+    for (int col = range.m_c0; col <= range.m_c1; ++col) {
+      for (int row = range.m_r0; row <= range.m_r1; ++row) {
+        const TXshCell &cell = xsh->getCell(row, col);
+        TXshSimpleLevel *source = cell.getSimpleLevel();
+        if (!source || source->getPath().isUneditable()) continue;
+        const int destination = col + range.getColCount();
+        const auto type = TXshColumn::toColumnType(source->getType());
+        const auto typed = destinationTypes.emplace(destination, type);
+        if (!typed.second && typed.first->second != type) return false;
+        const auto reused = reusedColumns.find(destination);
+        if (reused != reusedColumns.end() &&
+            xsh->getColumn(reused->second)->getColumnType() != type) return false;
+        auto &plan = prepared[source];
+        if (!plan.frames.count(cell.getFrameId())) {
+          TImageP image = cell.getImage(false);
+          if (!image) return false;
+          TImageP copy = image->cloneImage();
+          if (!copy) return false;
+          plan.frames.emplace(cell.getFrameId(), copy);
+        }
+        exposures.emplace(std::make_pair(row, destination), cell);
+      }
+    }
+    for (auto &entry : prepared) {
+      const int type = entry.first->getType();
+      if (type == TZP_XSHLEVEL || type == PLI_XSHLEVEL) {
+        if (!entry.first->getPalette()) return false;
+        entry.second.palette = entry.first->getPalette()->clone();
+      }
+    }
+  } catch (...) {
+    return false;
+  }
+  if (exposures.empty()) return false;
+
+  std::map<int, std::string> oldColumnNames;
+  for (const auto &entry : reusedColumns)
+    oldColumnNames[entry.first] =
+        xsh->getStageObject(TStageObjectId::ColumnId(entry.second))->getName();
+
+  std::map<TXshSimpleLevel *, TXshLevelP> createdLevels;
+  try {
+    for (const auto &entry : prepared) {
+      TXshSimpleLevel *source = entry.first;
+      TXshLevelP level = scene->createNewLevel(source->getType(), newLevelName.toStdWString());
+      createdLevels.emplace(source, level);
+      TXshSimpleLevel *clone = level->getSimpleLevel();
+      clone->clonePropertiesFrom(source);
+      *clone->getHookSet() = *source->getHookSet();
+      if (entry.second.palette) clone->setPalette(entry.second.palette.getPointer());
+      for (const auto &frame : entry.second.frames) clone->setFrame(frame.first, frame.second);
+      clone->copyAuthoringMetadataFrom(source);
+      clone->getProperties()->setDirtyFlag(true);
+    }
+  } catch (...) {
+    for (const auto &entry : createdLevels)
+      scene->getLevelSet()->removeLevel(entry.second.getPointer());
+    return false;
+  }
+
   std::set<int> insertedColumnIndices;
-  int c;
-  for (c = 1; c <= range.getColCount(); ++c) {
-    int colIndex = range.m_c1 + c;
-    if (xsh->isColumnEmpty(colIndex)) continue;
-
-    xsh->insertColumn(colIndex);
-    insertedColumnIndices.insert(colIndex);
+  for (int col = range.m_c1 + 1; col <= range.m_c1 + range.getColCount(); ++col) {
+    if (xsh->isColumnEmpty(col)) continue;
+    const auto type = destinationTypes.find(col);
+    xsh->insertColumn(col, type != destinationTypes.end() ? type->second : TXshColumn::eLevelType);
+    insertedColumnIndices.insert(col);
   }
-
-  bool isOneCellCloned = false;
-  for (c = range.m_c0; c <= range.m_c1; ++c) {
-    TXshLevelP xl;
-    TXshSimpleLevel *sl = 0;
-    TFrameId fid(1);
-
-    bool keepOldLevel = false;
-
-    // OverwriteDialog* dialog = new OverwriteDialog();
-    for (int r = range.m_r0; r <= range.m_r1; ++r) {
-      TXshCell cell = xsh->getCell(r, c);
-
-      TImageP img = cell.getImage(true);
-      if (!img) continue;
-
-      fid = cell.getFrameId();
-
-      if (cell.getSimpleLevel() == 0 ||
-          cell.getSimpleLevel()->getPath().isUneditable())
-        continue;
-
-      std::map<TXshSimpleLevel *, TXshLevelP>::iterator it =
-          createdLevels.find(cell.getSimpleLevel());
-      if (it == createdLevels.end()) {
-        // Create a new level if not already done
-
-        TXshSimpleLevel *oldSl = cell.getSimpleLevel();
-        {
-          int levelType = oldSl->getType();
-          assert(levelType > 0);
-
-          xl = scene->createNewLevel(levelType, newLevelName.toStdWString());
-          sl = xl->getSimpleLevel();
-          // if(levelType == OVL_XSHLEVEL)
-          //  dstPath = dstPath.withType(oldSl->getPath().getType());
-          assert(sl);
-          // sl->setPath(scene->codeFilePath(dstPath));
-          // sl->setName(newName);
-          sl->clonePropertiesFrom(oldSl);
-          *sl->getHookSet() = *oldSl->getHookSet();
-
-          if (levelType == TZP_XSHLEVEL || levelType == PLI_XSHLEVEL) {
-            TPalette *palette = oldSl->getPalette();
-            assert(palette);
-
-            sl->setPalette(palette->clone());
-          }
-        }
-        createdLevels[cell.getSimpleLevel()] = xl;
-      } else {
-        xl = it->second;
-        sl = xl->getSimpleLevel();
-      }
-
-      TXshCell oldCell(cell);
-      cell.m_level = xl;
-      int k;
-      for (k = range.m_r0; k < r; k++) {
-        if (xsh->getCell(k, c).getImage(true).getPointer() ==
-            img.getPointer()) {
-          TFrameId oldFid = xsh->getCell(k, c).getFrameId();
-          assert(fid == oldFid);
-          sl->setFrame(fid,
-                       xsh->getCell(k, c + range.getColCount()).getImage(true));
-          break;
-        }
-      }
-
-      if (!keepOldLevel && k >= r) {
-        TImageP newImg(img->cloneImage());
-        assert(newImg);
-
-        sl->setFrame(fid, newImg);
-      }
-
-      cell.m_frameId = fid;
-      xsh->setCell(r, c + range.getColCount(), cell);
-      isOneCellCloned = true;
+  for (const auto &entry : exposures) {
+    const int row = entry.first.first, col = entry.first.second;
+    if (!xsh->getColumn(col)) {
+      const int previousCount = xsh->getColumnCount();
+      xsh->insertColumn(col, destinationTypes.at(col));
+      // insertColumn fills any missing intermediate columns as well.
+      for (int added = previousCount; added < xsh->getColumnCount(); ++added)
+        insertedColumnIndices.insert(added);
     }
-    if (sl) sl->getProperties()->setDirtyFlag(true);
+    xsh->setCell(row, col, TXshCell(createdLevels.at(entry.second.getSimpleLevel()),
+                                   entry.second.getFrameId()));
   }
-
-  for (const auto& entry : createdLevels)
-    if (auto* cloned = entry.second->getSimpleLevel())
-      cloned->copyAuthoringMetadataFrom(entry.first);
-
-  // Se non e' stata inserita nessuna cella rimuovo le colonne aggiunte e
-  // ritorno.
-  if (!isOneCellCloned) {
-    if (!insertedColumnIndices.empty()) {
-      int i;
-      for (i = range.getColCount(); i > 0; i--) {
-        int index                        = range.m_c1 + i;
-        std::set<int>::const_iterator it = insertedColumnIndices.find(index);
-        xsh->removeColumn(index);
-      }
-    }
-    return;
-  }
-  if (withUndo)
-    TUndoManager::manager()->add(new CloneLevelNoSaveUndo(
-        range, createdLevels, insertedColumnIndices, newLevelName));
-
+  TUndoManager::manager()->add(new CloneLevelNoSaveUndo(
+      xsh, range, createdLevels, insertedColumnIndices, oldColumnNames));
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentScene()->setDirtyFlag(true);
   app->getCurrentScene()->notifyCastChange();
+  return true;
 }
 
-void cloneColumn(const TCellSelection::Range &cells,
+bool cloneColumn(const TCellSelection::Range &cells,
                  const TFilePath &newLevelPath) {
   std::set<std::pair<int, int>> positions;
   for (int i = cells.m_r0; i <= cells.m_r1; i++)
@@ -434,13 +456,19 @@ void cloneColumn(const TCellSelection::Range &cells,
 
   TKeyframeSelection ks(positions);
   ks.copyKeyframes();
-  doCloneLevelNoSave(cells,
-                     QString::fromStdString(newLevelPath.getName() + "_"));
+  if (!MatchlineCommands::cloneLevels(
+          cells, QString::fromStdString(newLevelPath.getName() + "_"))) return false;
   ColumnCmd::deleteColumn(cells.m_c0);
   ks.pasteKeyframes();
+  return true;
 }
 
 }  // namespace
+
+bool MatchlineCommands::cloneLevels(const TCellSelection::Range &range,
+                                    const QString &newLevelName) {
+  return doCloneLevelNoSave(range, newLevelName);
+}
 
 class MergeCmappedCommand final : public MenuItemHandler {
 public:
@@ -500,7 +528,11 @@ public:
 
     TUndoManager::manager()->beginBlock();
 
-    cloneColumn(cells, newLevelPath);
+    if (!cloneColumn(cells, newLevelPath)) {
+      TUndoManager::manager()->endBlock();
+      DVGui::warning(QObject::tr("No levels were cloned. Check for missing drawings or locked or incompatible destination columns."));
+      return;
+    }
 
     TFilePath tmpPath = newLevelPath.withName(
         QString::fromStdString(newLevelPath.getName() + "_tmp").toStdWString());

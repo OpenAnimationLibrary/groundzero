@@ -3,15 +3,21 @@
 #include "cellselection.h"
 #include "filmstripcommand.h"
 #include "iocommand.h"
+#include "matchline.h"
+#include "nativeuiintegrationtest.h"
 #include "tapp.h"
 #include "tools/strokeselection.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
 #include "toonz/morphhints.h"
+#include "toonz/preferences.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/tscenehandle.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/txshcell.h"
+#include "toonz/txshchildlevel.h"
 #include "toonz/txsheet.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txshlevelhandle.h"
@@ -166,9 +172,9 @@ void clean(TXshSimpleLevel *level) {
 // files. Every edit below uses the artist-facing native command/undo path.
 void runCastVectorIntegrationTest(QMainWindow *window) {
   auto *app = TApp::instance();
-  app->getCurrentScene()->setDirtyFlag(false);
-  TUndoManager::manager()->reset();
-  IoCmd::newScene();
+  QString resetError;
+  if (!resetNativeUiIntegrationScene(&resetError))
+    throw std::runtime_error(resetError.toStdString());
   QApplication::processEvents();
   auto *scene = app->getCurrentScene()->getScene();
   QTemporaryDir temporary;
@@ -310,7 +316,9 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
         if (reviewed) { dialog->reject(); return; }
         if (auto *button = dialog->findChild<QPushButton *>("CastReviewConsolidation")) {
           reviewed = true;
-          button->click();
+          // The click opens another modal event loop. A timer cannot reenter
+          // its own timeout callback to drive that nested dialog.
+          QMetaObject::invokeMethod(button, "click", Qt::QueuedConnection);
         }
       } else if (dialog->objectName() == "CastConsolidationReview") {
         if (auto *table = dialog->findChild<QTableWidget *>())
@@ -428,6 +436,175 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   TUndoManager::manager()->undo();
   level->setMorphHints(storedHints);
 
+  // Merge TLV's no-save cloning shares this production operation. Work in a
+  // nested xsheet, reuse an empty column with existing settings/keys, insert
+  // beside an occupied column, and then undo while the parent sheet is active.
+  {
+    TXshChildLevelP child = new TXshChildLevel(L"Cast vector nested clone");
+    child->setScene(scene);
+    scene->getLevelSet()->insertLevel(child.getPointer());
+    sheet->setCell(8, 5, TXshCell(child.getPointer(), TFrameId(1)));
+    auto *nested = child->getXsheet();
+    for (int row = 0; row < 3; ++row) {
+      nested->setCell(row, 0, TXshCell(level, TFrameId(row < 2 ? 1 : 3)));
+      nested->setCell(row, 1, TXshCell(level, TFrameId(1 + row * 2)));
+    }
+    nested->insertColumn(2);
+    auto *emptyColumn = nested->getColumn(2);
+    emptyColumn->setOpacity(73);
+    auto *emptyStage = nested->getStageObject(TStageObjectId::ColumnId(2));
+    emptyStage->setParam(TStageObject::T_X, 6., 42.);
+    emptyStage->setName("Existing destination keys");
+    nested->setCell(0, 3, TXshCell(duplicate, TFrameId(3)));
+    auto *guardColumn = nested->getColumn(3);
+    const TXshCell parentCell = sheet->getCell(0, 0);
+    const int levelCount = scene->getLevelSet()->getLevelCount();
+    const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+    clean(level);
+    TCellSelection::Range range;
+    range.m_r0 = 0; range.m_r1 = 2;
+    range.m_c0 = 0; range.m_c1 = 1;
+    struct RestoreSheet {
+      TXsheetHandle *handle;
+      TXsheet *sheet;
+      bool linkNames;
+      ~RestoreSheet() {
+        handle->setXsheet(sheet);
+        Preferences::instance()->setValue(linkColumnNameWithLevel, linkNames);
+      }
+    } restore{app->getCurrentXsheet(), sheet,
+              Preferences::instance()->isLinkColumnNameWithLevelEnabled()};
+    Preferences::instance()->setValue(linkColumnNameWithLevel, true);
+    app->getCurrentXsheet()->setXsheet(nested);
+    emptyColumn->lock(true);
+    require(!MatchlineCommands::cloneLevels(range, "Cast_vector_locked_no_save") &&
+                scene->getLevelSet()->getLevelCount() == levelCount &&
+                TUndoManager::manager()->getCurrentHistoryIndex() == history &&
+                nested->getColumn(2) == emptyColumn && nested->getColumn(3) == guardColumn &&
+                nested->getCell(0, 2).isEmpty() && emptyColumn->isLocked() &&
+                emptyStage->getName() == "Existing destination keys",
+            "Cast/vector locked no-save destination was not rejected before mutation");
+    emptyColumn->lock(false);
+    require(MatchlineCommands::cloneLevels(range, "Cast_vector_no_save"),
+            "Cast/vector unlocked no-save clone was rejected");
+    TXshSimpleLevelP noSave = nested->getCell(0, 2).getSimpleLevel();
+    require(noSave && noSave.getPointer() != level &&
+                TUndoManager::manager()->getCurrentHistoryIndex() == history + 1,
+            "Cast/vector no-save clone did not create one undoable level");
+    const auto cloneName = noSave->getName();
+    const auto clonedColumnName = emptyStage->getName();
+    app->getCurrentXsheet()->setXsheet(sheet);
+    auto expectNoSave = [&]() {
+      require(scene->getLevelSet()->getLevelCount() == levelCount + 1 &&
+                  scene->getLevelSet()->getLevel(cloneName) == noSave.getPointer() &&
+                  nested->getCell(0, 2) == TXshCell(noSave.getPointer(), TFrameId(1)) &&
+                  nested->getCell(1, 2) == TXshCell(noSave.getPointer(), TFrameId(1)) &&
+                  nested->getCell(2, 2) == TXshCell(noSave.getPointer(), TFrameId(3)) &&
+                  nested->getCell(2, 3) == TXshCell(noSave.getPointer(), TFrameId(5)) &&
+                  nested->getColumn(4) == guardColumn &&
+                  nested->getCell(0, 4) == TXshCell(duplicate, TFrameId(3)) &&
+                  emptyStage->getName() == clonedColumnName,
+              "Cast/vector no-save redo changed clone identity, holds or neighboring column");
+      expectMetadata(noSave.getPointer(), tags, storedHints);
+      expectHints(noSave.getPointer(), 1, 3, true);
+      expectDrawing(noSave.getPointer(), 5, 40., sourceProfile, .327);
+    };
+    auto expectSourceAndEmptyColumn = [&]() {
+      require(sheet->getCell(0, 0) == parentCell &&
+                  nested->getCell(0, 0) == TXshCell(level, TFrameId(1)) &&
+                  nested->getColumn(2) == emptyColumn && emptyColumn->getOpacity() == 73 &&
+                  nested->getStageObject(TStageObjectId::ColumnId(2)) == emptyStage &&
+                  emptyStage->getParam(TStageObject::T_X, 6.) == 42. &&
+                  !level->getProperties()->getDirtyFlag(),
+              "Cast/vector no-save clone changed source or reused-column authoring state");
+      expectMetadata(level, tags, storedHints);
+      expectDrawing(level, 1, 0., sourceProfile, .327);
+    };
+    expectNoSave();
+    emptyColumn->lock(true);
+    for (int cycle = 0; cycle != 3; ++cycle) {
+      require(TUndoManager::manager()->undo(), "Cast/vector no-save undo missing");
+      require(scene->getLevelSet()->getLevelCount() == levelCount &&
+                  !scene->getLevelSet()->getLevel(cloneName) &&
+                  nested->getCell(0, 2).isEmpty() && nested->getCell(2, 2).isEmpty() &&
+                  nested->getColumn(3) == guardColumn && emptyColumn->isLocked() &&
+                  emptyStage->getName() == "Existing destination keys",
+              "Cast/vector repeated no-save undo retained a generated clone or shifted neighbor");
+      expectSourceAndEmptyColumn();
+      require(TUndoManager::manager()->redo(), "Cast/vector no-save redo missing");
+      expectNoSave();
+      expectSourceAndEmptyColumn();
+      require(emptyColumn->isLocked(), "Cast/vector no-save redo lost the current column lock");
+    }
+    require(TUndoManager::manager()->undo(), "Cast/vector final no-save undo missing");
+    expectSourceAndEmptyColumn();
+    app->getCurrentXsheet()->setXsheet(nested);
+    range.m_c0 = range.m_c1 = 2;
+    require(!MatchlineCommands::cloneLevels(range, "Cast_vector_empty_no_save"),
+            "Cast/vector empty no-save clone reported an edit");
+    require(TUndoManager::manager()->getCurrentHistoryIndex() == history &&
+                scene->getLevelSet()->getLevelCount() == levelCount &&
+                nested->getColumn(2) == emptyColumn && nested->getColumn(3) == guardColumn,
+            "Cast/vector empty no-save clone changed history or columns");
+  }
+
+  {
+    TXshChildLevelP child = new TXshChildLevel(L"Cast vector missing destinations");
+    child->setScene(scene);
+    scene->getLevelSet()->insertLevel(child.getPointer());
+    sheet->setCell(9, 5, TXshCell(child.getPointer(), TFrameId(1)));
+    auto *nested = child->getXsheet();
+    struct RestoreSheet {
+      TXsheetHandle *handle; TXsheet *sheet;
+      ~RestoreSheet() { handle->setXsheet(sheet); }
+    } restore{app->getCurrentXsheet(), sheet};
+    app->getCurrentXsheet()->setXsheet(nested);
+    TCellSelection::Range range;
+    range.m_r0 = 0; range.m_r1 = 2; range.m_c0 = 0; range.m_c1 = 2;
+    const int emptyColumns = nested->getColumnCount();
+    const int emptyStageObjects = nested->getStageObjectTree()->getStageObjectCount();
+    const int levelCount = scene->getLevelSet()->getLevelCount();
+    const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+    require(!MatchlineCommands::cloneLevels(range, "Cast_vector_absent_no_op") &&
+                nested->getColumnCount() == emptyColumns &&
+                nested->getStageObjectTree()->getStageObjectCount() == emptyStageObjects &&
+                scene->getLevelSet()->getLevelCount() == levelCount &&
+                TUndoManager::manager()->getCurrentHistoryIndex() == history,
+            "Cast/vector empty clone created absent columns or stage objects");
+    nested->setCell(0, 0, TXshCell(level, TFrameId(1)));
+    nested->setCell(1, 0, TXshCell(level, TFrameId(999)));
+    const int originalColumns = nested->getColumnCount();
+    const int originalStageObjects = nested->getStageObjectTree()->getStageObjectCount();
+    require(!MatchlineCommands::cloneLevels(range, "Cast_vector_missing_drawing") &&
+                nested->getColumnCount() == originalColumns &&
+                nested->getStageObjectTree()->getStageObjectCount() == originalStageObjects &&
+                scene->getLevelSet()->getLevelCount() == levelCount &&
+                TUndoManager::manager()->getCurrentHistoryIndex() == history &&
+                nested->getCell(1, 0) == TXshCell(level, TFrameId(999)),
+            "Cast/vector later missing drawing left a partial clone");
+    nested->setCell(1, 0, TXshCell());
+    require(MatchlineCommands::cloneLevels(range, "Cast_vector_new_columns"),
+            "Cast/vector clone into missing destination failed");
+    TXshSimpleLevelP generated = nested->getCell(0, 3).getSimpleLevel();
+    auto *generatedColumn = nested->getColumn(3);
+    require(generated && nested->getColumnCount() == 4,
+            "Cast/vector clone did not create required intermediate columns");
+    for (int cycle = 0; cycle != 2; ++cycle) {
+      require(TUndoManager::manager()->undo() &&
+                  nested->getColumnCount() == originalColumns &&
+                  nested->getStageObjectTree()->getStageObjectCount() == originalStageObjects &&
+                  scene->getLevelSet()->getLevelCount() == levelCount,
+              "Cast/vector clone undo retained newly created columns or stage objects");
+      require(TUndoManager::manager()->redo() &&
+                  nested->getColumnCount() == 4 && nested->getColumn(3) == generatedColumn &&
+                  nested->getCell(0, 3) == TXshCell(generated.getPointer(), TFrameId(1)) &&
+                  scene->getLevelSet()->getLevelCount() == levelCount + 1,
+              "Cast/vector missing-destination redo changed original clone identities");
+      expectDrawing(generated.getPointer(), 1, 0., sourceProfile, .327);
+    }
+    require(TUndoManager::manager()->undo(), "Cast/vector missing-destination final undo missing");
+  }
+
   // Filmstrip renumber and native undo remap Cast covers, both morph endpoint
   // pairs and zones, and exposures without touching per-stroke envelopes.
   FilmstripCmd::renumber(level, {{TFrameId(1), TFrameId(11)},
@@ -452,10 +629,9 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   TUndoManager::manager()->undo();
 
   // Leave no fixture referring to temporary files for the following workflows.
-  app->getCurrentScene()->setDirtyFlag(false);
-  TUndoManager::manager()->reset();
-  IoCmd::newScene();
+  if (!resetNativeUiIntegrationScene(&resetError))
+    throw std::runtime_error(resetError.toStdString());
   QApplication::processEvents();
   std::cout << "cast-vector-native: PASS scene/PLI persistence, relink/local copy/consolidation, "
-               "exact/subset validated clones, envelopes and renumber undo\n";
+               "exact/subset validated clones, nested no-save redo identity, envelopes and renumber undo\n";
 }
