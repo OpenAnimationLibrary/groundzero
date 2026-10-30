@@ -391,10 +391,15 @@ void convert(const TFilePath &source, const TFilePath &dest,
   msg = "Conversion in progress: wait please...";
   std::cout << msg << std::endl;
 
+  const std::string ext = source.getType();
   TAffine aff;
-  if (width.isSelected()) {
-    // Calculate affine for resampling
-    int imgLx = lr->getImageInfo()->m_lx;
+  if (width.isSelected() && ext != "pli") {
+    // Raster readers expose pixel dimensions. PLI has no raster image info;
+    // convertFromVI computes its width from the palette-aware drawing bounds.
+    const TImageInfo *imageInfo = lr->getImageInfo();
+    if (!imageInfo || imageInfo->m_lx <= 0)
+      throw TImageException(source, "Cannot determine source width for resampling");
+    const int imgLx = imageInfo->m_lx;
     aff       = TScale(static_cast<double>(width.getValue()) /
                        static_cast<double>(imgLx));
   }
@@ -439,7 +444,6 @@ void convert(const TFilePath &source, const TFilePath &dest,
     resType = TRop::Bilinear;
   }
 
-  std::string ext = source.getType();
   TLevelWriterP lw(dest, prop);
 
   if (ext != "tlv" && ext != "pli") {
