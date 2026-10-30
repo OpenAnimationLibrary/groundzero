@@ -224,8 +224,16 @@ void frozenComparison(FunctionViewer *viewer, FunctionTreeView *tree,
     QTimer::singleShot(0, &delivery, [&]() {
       auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
       try {
-        require(box && box->windowTitle() == "Restore Curves" && box->button(answer),
-                "Expected comparison restore confirmation was not shown");
+        // QMessageBox deliberately ignores window titles on macOS. Identify
+        // this native confirmation by its owner, prompt and real answer buttons.
+        require(box, "Expected comparison restore message box was not shown");
+        require(box->parentWidget() == viewer, "Comparison confirmation has the wrong owner");
+        require(box->icon() == QMessageBox::Question && box->text() ==
+                    "Restore all captured channels? Edits since capture will be replaced as one undo step.",
+                "Comparison confirmation has the wrong question");
+        require(box->standardButtons() == (QMessageBox::Yes | QMessageBox::No) &&
+                    box->button(answer) && box->button(answer)->isEnabled(),
+                "Comparison confirmation has missing or disabled answer buttons");
         visited = true; box->button(answer)->click();
       } catch (const std::exception &problem) { failure = QString::fromUtf8(problem.what()); if (box) box->reject(); }
     });
