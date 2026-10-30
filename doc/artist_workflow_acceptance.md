@@ -80,8 +80,11 @@ Windows combined revision `b00db72a` passed 19 of 20 native UI tests, including
 the corrected Shell scene/profile thumbnails, and all 16 reliability checks,
 including EXR. Its width-export diagnostics identify the extra dialog as the
 same file chooser observed while its overwrite confirmation returns. Declining
-overwrite and then cancelling already passes. The driver correction must retain
-both paths and every export assertion. The full application stopped at the old
+overwrite and then cancelling already passes. Reviewed correction `b49b14421`
+tracks only currently executing dialog actions, preserving both paths and every
+export assertion. Its alignment fixture also checks exact intervening opacity,
+frame identity and full drawing content before cleanup. These fixture changes
+need fresh execution. The full application stopped at the old
 pose fixture; uncertain descendant cleanup retained its renderer, so the artist
 workload correctly refused to overwrite those files and did not execute.
 
