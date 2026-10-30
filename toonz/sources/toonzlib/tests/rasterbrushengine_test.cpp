@@ -257,6 +257,64 @@ void testWetPickupGeometry() {
             "wet pickup did not mirror with its asymmetric tip");
   }
 }
+void testCountFadeAndDirection() {
+  Preset p;
+  p.size.value            = 4;
+  p.color                 = {1, 0, 0, 1};
+  p.count                 = 4;
+  p.flow.value            = .25;
+  p.countControl.mappings = {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}};
+  Canvas zero, half;
+  Stroke suppressed(zero, p), twoStamps(half, p);
+  require(suppressed.add(sample(32, 32, 0, 0)) &&
+              twoStamps.add(sample(32, 32, 0, .5)),
+          "count dynamics failed");
+  require(zero.read(32, 32).a == 0 && half.read(32, 32).a == .4375,
+          "count multiplier did not select zero and two deposits");
+
+  p.count            = 1;
+  p.countControl     = Dynamic{1, 0, {}};
+  p.flow.value       = 1;
+  p.spacing          = 2;
+  p.opacity.mappings = {{Sensor::DabIndex, {{0, 1}, {1, 0}}, 2}};
+  Canvas fading;
+  Stroke fade(fading, p);
+  require(fade.add(sample(32, 32, 0)) && fade.add(sample(48, 32, 1)),
+          "dab-index fade failed");
+  require(fading.read(32, 32).a == 1 && fading.read(40, 32).a == .5 &&
+              fading.read(48, 32).a == 0,
+          "dab fade did not advance once per scheduled step");
+
+  p.spacing          = 1;
+  p.opacity.mappings = {
+      {Sensor::InitialDirection, {{0, 1}, {.25, 0}, {1, 0}}, 1}};
+  Canvas initial, current;
+  Stroke held(initial, p);
+  p.opacity.mappings.front().sensor = Sensor::Direction;
+  Stroke following(current, p);
+  for (auto point : {sample(32, 32, 0), sample(64, 32, 1), sample(64, 80, 2)})
+    require(held.add(point) && following.add(point),
+            "direction dynamics failed");
+  require(initial.read(64, 80).a == 1 && current.read(64, 80).a == 0,
+          "initial direction changed after a turn");
+
+  p.opacity.mappings.clear();
+  p.count           = 64;
+  p.scatter.value   = 5;
+  p.scatterBothAxes = false;
+  Canvas scattered;
+  Stroke perpendicular(scattered, p);
+  require(perpendicular.add(sample(32, 64, 0)), "one-axis scatter failed");
+  bool outsideCenter = false;
+  for (int y = 0; y < scattered.h; ++y)
+    for (int x = 0; x < scattered.w; ++x) {
+      if (scattered.read(x, y).a == 0) continue;
+      require(x >= 30 && x < 34,
+              "perpendicular scatter moved along the stroke");
+      outsideCenter = outsideCenter || y < 54 || y > 74;
+    }
+  require(outsideCenter, "one-axis scatter did not disperse stamps");
+}
 void testResourcesAndWet() {
   Preset p;
   p.wet   = Wet::Dulling;
@@ -429,6 +487,7 @@ int main() {
     testResourcesAndWet();
     testWetPressure();
     testWetPickupGeometry();
+    testCountFadeAndDirection();
     testStationaryAndBatching();
     testColorDynamics();
     testCubicCurves();

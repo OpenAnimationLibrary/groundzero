@@ -83,3 +83,11 @@ window is sized from the declared diameter. Both jobs retain independent
 artifacts and validate requested diameter, opacity, flow and painting modifiers
 through the public View API; effective UI values are recorded separately from
 requested values, including possible one-byte opacity/flow quantization.
+
+At integrated head `31a0bee6`, the one-pixel, antialias-off, integer-coordinate
+one-dab fixture returned an unchanged transparent raster. Its old nonempty guard
+was invalid for this aliasing boundary. The fixture now requires that exact
+no-op, records it and compares the candidate normally; it is not omitted or
+reported as general tiny-brush parity. The two measured legacy zero-strength
+cases also require their observed unchanged result. Cleanup diagnostics preserve
+the primary failure instead of replacing it with a shutdown error.

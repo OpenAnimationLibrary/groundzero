@@ -273,7 +273,9 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
       QObject::tr(
           "Sensor curves multiply together. Curve points use input:output "
             "pairs between 0 and 1, in increasing input order. Scale normalizes "
-            "distance, time and speed before the curve."),
+            "distance, time, speed and dab index before the curve. Dab index "
+            "starts at zero. Initial direction uses the first moving segment; "
+            "before movement its value is zero."),
       &dialog);
   help->setWordWrap(true);
   layout->addWidget(help);
@@ -301,7 +303,9 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
                                QObject::tr("Time"),
                                QObject::tr("Speed"),
                                QObject::tr("Random per dab"),
-                               QObject::tr("Random per stroke")};
+                               QObject::tr("Random per stroke"),
+                               QObject::tr("Initial stroke direction"),
+                               QObject::tr("Dab index")};
   auto add                  = [&](const RasterBrush::Mapping &mapping) {
     int row = table->rowCount();
     table->insertRow(row);
@@ -462,6 +466,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Opacity"), p.opacity.value, 0, 1);
   spin(QObject::tr("Flow"), p.flow.value, 0, 1);
   spin(QObject::tr("Scatter"), p.scatter.value, 0, 5);
+  spin(QObject::tr("Stamp count factor"), p.countControl.value, 0, 1);
   spin(QObject::tr("Airbrush dabs/second"), p.airbrushRate, 0, 120);
   spin(QObject::tr("Paint pickup"), p.pickup, 0, 1);
   spin(QObject::tr("Foreground paint mix"), p.colorRate, 0, 1);
@@ -501,6 +506,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
   dynamics(QObject::tr("Opacity dynamics"), p.opacity);
   dynamics(QObject::tr("Flow dynamics"), p.flow);
   dynamics(QObject::tr("Scatter dynamics"), p.scatter);
+  dynamics(QObject::tr("Stamp count dynamics"), p.countControl);
   dynamics(QObject::tr("Pickup dynamics"), p.pickupControl);
   dynamics(QObject::tr("Paint mix dynamics"), p.colorRateControl);
   dynamics(QObject::tr("Smudge radius dynamics"), p.radiusControl);
@@ -522,6 +528,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
   check(QObject::tr("Flip tip horizontally"), p.flipX);
   check(QObject::tr("Flip tip vertically"), p.flipY);
   check(QObject::tr("Preserve alpha"), p.lockAlpha);
+  check(QObject::tr("Scatter in both axes"), p.scatterBothAxes);
   auto count = new QSpinBox(&dialog);
   count->setRange(1, 64);
   count->setValue(p.count);

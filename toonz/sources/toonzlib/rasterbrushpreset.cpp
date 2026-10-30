@@ -56,11 +56,21 @@ int choice(const QJsonValue &v, const QStringList &names) {
   if (i < 0) throw Invalid("Unknown mode: " + v.toString());
   return i;
 }
-const QStringList sensors = {
-    "pressure",       "tilt_x",   "tilt_y",     "tilt_elevation",
-    "tilt_direction", "rotation", "direction",  "distance",
-    "time",           "speed",    "random_dab", "random_stroke"};
-const QStringList shapes = {"round", "square", "gaussian", "bitmap"};
+const QStringList sensors = {"pressure",
+                             "tilt_x",
+                             "tilt_y",
+                             "tilt_elevation",
+                             "tilt_direction",
+                             "rotation",
+                             "direction",
+                             "distance",
+                             "time",
+                             "speed",
+                             "random_dab",
+                             "random_stroke",
+                             "initial_direction",
+                             "dab_index"};
+const QStringList shapes  = {"round", "square", "gaussian", "bitmap"};
 const QStringList blends = {"normal", "multiply", "screen", "overlay", "erase"};
 const QStringList masks  = {"multiply", "subtract"};
 const QStringList wets   = {"off", "dulling", "smear"};
@@ -263,6 +273,8 @@ QByteArray encode(const Record &r, QString &error) {
         {"opacity", dynamicJson(p.opacity)},
         {"flow", dynamicJson(p.flow)},
         {"scatter", dynamicJson(p.scatter)},
+        {"countControl", dynamicJson(p.countControl)},
+        {"scatterBothAxes", p.scatterBothAxes},
         {"spacing", p.spacing},
         {"airbrushRate", p.airbrushRate},
         {"count", p.count},
@@ -370,25 +382,29 @@ Record decode(const QByteArray &bytes, QString &error,
       rd.assets[i.key()] = im;
     }
     auto o = object(root["settings"]);
-    keys(o, {"name",          "profile",    "tip",           "size",
-             "aspect",        "angle",      "opacity",       "flow",
-             "scatter",       "spacing",    "airbrushRate",  "count",
-             "wash",          "lockAlpha",  "flipX",         "flipY",
-             "blend",         "color",      "wet",           "pickup",
-             "colorRate",     "reload",     "smudgeRadius",  "seed",
-             "texture",       "secondary",  "pickupControl", "colorRateControl",
-             "radiusControl", "background", "backgroundMix", "hue",
-             "saturation",    "brightness"});
-    auto &p        = r.preset;
-    p.name         = text(o["name"]).toStdString();
-    p.profile      = text(o["profile"]).toStdString();
-    p.tip          = rd.tip(o["tip"]);
-    p.size         = dynamic(o["size"]);
-    p.aspect       = dynamic(o["aspect"]);
-    p.angle        = dynamic(o["angle"]);
-    p.opacity      = dynamic(o["opacity"]);
-    p.flow         = dynamic(o["flow"]);
-    p.scatter      = dynamic(o["scatter"]);
+    keys(o,
+         {"name",          "profile",    "tip",           "size",
+          "aspect",        "angle",      "opacity",       "flow",
+          "scatter",       "spacing",    "airbrushRate",  "count",
+          "wash",          "lockAlpha",  "flipX",         "flipY",
+          "blend",         "color",      "wet",           "pickup",
+          "colorRate",     "reload",     "smudgeRadius",  "seed",
+          "texture",       "secondary",  "pickupControl", "colorRateControl",
+          "radiusControl", "background", "backgroundMix", "hue",
+          "saturation",    "brightness", "countControl",  "scatterBothAxes"});
+    auto &p   = r.preset;
+    p.name    = text(o["name"]).toStdString();
+    p.profile = text(o["profile"]).toStdString();
+    p.tip     = rd.tip(o["tip"]);
+    p.size    = dynamic(o["size"]);
+    p.aspect  = dynamic(o["aspect"]);
+    p.angle   = dynamic(o["angle"]);
+    p.opacity = dynamic(o["opacity"]);
+    p.flow    = dynamic(o["flow"]);
+    p.scatter = dynamic(o["scatter"]);
+    if (o.contains("countControl")) p.countControl = dynamic(o["countControl"]);
+    if (o.contains("scatterBothAxes"))
+      p.scatterBothAxes = boolean(o["scatterBothAxes"]);
     p.spacing      = number(o["spacing"]);
     p.airbrushRate = number(o["airbrushRate"]);
     double count   = number(o["count"]);

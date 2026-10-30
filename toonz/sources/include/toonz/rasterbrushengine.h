@@ -36,7 +36,9 @@ enum class Sensor {
   Time,
   Speed,
   RandomDab,
-  RandomStroke
+  RandomStroke,
+  InitialDirection,
+  DabIndex
 };
 struct Knot {
   double x = 0, y = 0;
@@ -83,8 +85,10 @@ struct Preset {
   Tip tip;
   Dynamic size{20, 0.01, {}}, aspect{1, 0.01, {}}, angle{0, 0, {}};
   Dynamic opacity{1, 0, {}}, flow{1, 0, {}}, scatter{0, 0, {}};
+  Dynamic countControl{1, 0, {}};
   double spacing = 0.1, airbrushRate = 0;
-  int count = 1;
+  int count            = 1;
+  bool scatterBothAxes = true;
   bool wash = false, lockAlpha = false, flipX = false, flipY = false;
   Blend blend = Blend::Normal;
   Pixel color{0, 0, 0, 1};

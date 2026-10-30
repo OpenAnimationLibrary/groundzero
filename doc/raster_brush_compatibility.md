@@ -379,3 +379,20 @@ implement Krita's four smudge equations. Seven short dry reference strokes add
 measurements around the 3.2-pixel spacing boundary, bringing the original source
 workload to 79 cases, including stored radius probes at 0, 3, 100 and 300. Those new geometry and short-stroke checks are pending CI
 until a head containing them is published and passes.
+
+## Native count, fade and directional primitives
+
+The native editor and portable settings expose a count multiplier with ordinary
+sensor curves. Each scheduled dab emits `floor(count * multiplier + 0.5)` stamps,
+bounded to 0–64; zero suppresses deposition while scheduled dab index continues.
+The `dab_index` sensor starts at zero, increments once per scheduled dab (not
+once per replicated stamp), and divides by mapping scale before its curve.
+A descending curve therefore supplies an explicit fade over that many intervals.
+`initial_direction` retains the first nonzero motion segment for the stroke;
+before any motion it is zero, including the initial mark. It is distinct from
+the continuously updated direction sensor. Perpendicular-only scatter uses the
+normal of the current motion segment; two-axis scatter remains the old default.
+Native packages without the new fields retain full stamp count and two-axis
+scatter. Original tests cover zero/two stamps, a three-step fade, a direction
+change, perpendicular confinement and portable reopening. These are native
+primitives for the planned adapters, not verification of Photoshop dynamics.

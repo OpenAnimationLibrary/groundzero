@@ -343,9 +343,14 @@ void testPackage() {
   r.preset.hue.mappings.push_back(
       {Sensor::RandomStroke, {{0, .2}, {1, .8}}, 1});
   r.preset.hue.mappings.front().interpolation = Interpolation::NaturalCubic;
-  r.preset.saturation.value                   = .7;
-  r.preset.brightness.value                   = 1.2;
-  r.preset.seed                               = UINT64_C(18446744073709551615);
+  r.preset.countControl.mappings.push_back(
+      {Sensor::DabIndex, {{0, 1}, {1, 0}}, 20, Interpolation::NaturalCubic});
+  r.preset.angle.mappings.push_back(
+      {Sensor::InitialDirection, {{0, 0}, {1, 1}}, 1});
+  r.preset.scatterBothAxes  = false;
+  r.preset.saturation.value = .7;
+  r.preset.brightness.value = 1.2;
+  r.preset.seed             = UINT64_C(18446744073709551615);
   QString error;
   auto bytes = encode(r, error);
   require(!bytes.isEmpty(), qPrintable(error));
@@ -358,6 +363,13 @@ void testPackage() {
   require(error.isEmpty() && restored.semanticallySupported, qPrintable(error));
   require(restored.preset.tip.antialiasEdges,
           "antialias setting lost on reopen");
+  require(!restored.preset.scatterBothAxes &&
+              restored.preset.countControl.mappings.front().sensor ==
+                  Sensor::DabIndex &&
+              restored.preset.countControl.mappings.front().scale == 20 &&
+              restored.preset.angle.mappings.front().sensor ==
+                  Sensor::InitialDirection,
+          "native count, initial-direction or scatter settings lost on reopen");
   decode(bytes, error, 4 * sizeof(Pixel) - 1);
   require(error.contains("before allocation"),
           "remaining package budget checked after allocation");
@@ -370,13 +382,18 @@ void testPackage() {
   auto older = QJsonDocument::fromJson(bytes).object();
   older.remove("diagnostics");
   auto olderSettings = older["settings"].toObject();
-  auto olderTip      = olderSettings["tip"].toObject();
+  olderSettings.remove("countControl");
+  olderSettings.remove("scatterBothAxes");
+  auto olderTip = olderSettings["tip"].toObject();
   olderTip.remove("antialiasEdges");
   olderSettings["tip"] = olderTip;
   older["settings"]    = olderSettings;
   auto oldRecord       = decode(QJsonDocument(older).toJson(), error);
   require(error.isEmpty() && oldRecord.semanticallySupported &&
               oldRecord.diagnostics.empty() &&
+              oldRecord.preset.scatterBothAxes &&
+              oldRecord.preset.countControl.value == 1 &&
+              oldRecord.preset.countControl.mappings.empty() &&
               !oldRecord.preset.tip.antialiasEdges,
           "older native package without notes stopped loading");
   require(restored.preset.pickupControl.mappings.size() == 1,

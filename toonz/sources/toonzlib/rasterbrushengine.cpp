@@ -191,7 +191,7 @@ std::string validate(const Preset &p) {
         d.mappings.size() > 16)
       return false;
     for (const auto &m : d.mappings) {
-      if (int(m.sensor) < 0 || int(m.sensor) > int(Sensor::RandomStroke) ||
+      if (int(m.sensor) < 0 || int(m.sensor) > int(Sensor::DabIndex) ||
           !range(m.scale, 1e-9, 1e9) || m.curve.empty() ||
           m.curve.size() > 1024 || int(m.interpolation) < 0 ||
           int(m.interpolation) > int(Interpolation::NaturalCubic))
@@ -236,9 +236,9 @@ std::string validate(const Preset &p) {
   if (!tip(p.tip) || !dynamic(p.size, .25, 4096) ||
       !dynamic(p.aspect, .01, 1) || !dynamic(p.angle, -36000, 36000) ||
       !dynamic(p.opacity, 0, 1) || !dynamic(p.flow, 0, 1) ||
-      !dynamic(p.scatter, 0, 5) || !range(p.spacing, .01, 5) ||
-      !range(p.airbrushRate, 0, 120) || p.count < 1 || p.count > 64 ||
-      !finitePixel(p.color))
+      !dynamic(p.scatter, 0, 5) || !dynamic(p.countControl, 0, 1) ||
+      !range(p.spacing, .01, 5) || !range(p.airbrushRate, 0, 120) ||
+      p.count < 1 || p.count > 64 || !finitePixel(p.color))
     return "Invalid brush geometry, dynamics, image, or resource budget";
   const auto &t = p.texture;
   if (t.image && (!image(t.image) || !range(t.scale, .01, 4096) ||
@@ -336,8 +336,9 @@ struct Stroke::Impl {
   std::string failure;
   Sample previous, first;
   bool started = false, finished = false;
+  bool hasInitialDirection = false;
   double travel = 0, sinceDab = 0, sinceTime = 0, spacing = 1, direction = 0,
-         speed = 0;
+         speed = 0, initialDirection = 0;
   std::uint64_t rng;
   double randomStroke = 0, randomDab = 0;
   Pixel reservoir;
@@ -363,9 +364,10 @@ struct Stroke::Impl {
     try {
       for (const Dynamic *dynamic :
            {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
-            &p.pickupControl, &p.colorRateControl, &p.radiusControl,
-            &p.backgroundMix, &p.hue, &p.saturation, &p.brightness,
-            &p.secondary.size, &p.secondary.angle, &p.secondary.opacity}) {
+            &p.countControl, &p.pickupControl, &p.colorRateControl,
+            &p.radiusControl, &p.backgroundMix, &p.hue, &p.saturation,
+            &p.brightness, &p.secondary.size, &p.secondary.angle,
+            &p.secondary.opacity}) {
         for (const auto &mapping : dynamic->mappings) {
           if (mapping.interpolation != Interpolation::NaturalCubic) continue;
           size_t n      = mapping.curve.size(),
@@ -446,6 +448,12 @@ struct Stroke::Impl {
       break;
     case Sensor::RandomStroke:
       v = randomStroke;
+      break;
+    case Sensor::InitialDirection:
+      v = wrap(initialDirection / (2 * pi));
+      break;
+    case Sensor::DabIndex:
+      v = double(dabs);
       break;
     }
     return unit(v / m.scale);
@@ -532,14 +540,22 @@ struct Stroke::Impl {
     const size_t primaryIndex = index(p.tip),
                  secondIndex  = index(p.secondary.tip);
     const double scatter      = eval(p.scatter, s) * diameter;
-    for (int stamp = 0; stamp < p.count; ++stamp) {
-      const double cx = s.x + (random() * 2 - 1) * scatter,
-                   cy = s.y + (random() * 2 - 1) * scatter;
-      const int reach = int(std::ceil(radius * 1.415 + 1));
-      int x0          = std::max(0, int(std::floor(cx)) - reach),
-          y0          = std::max(0, int(std::floor(cy)) - reach);
-      int x1          = std::min(surface.width(), int(std::ceil(cx)) + reach),
-          y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
+    const int stampCount =
+        int(std::floor(p.count * unit(eval(p.countControl, s)) + .5));
+    for (int stamp = 0; stamp < stampCount; ++stamp) {
+      const double scatterX = (random() * 2 - 1) * scatter,
+                   scatterY = (random() * 2 - 1) * scatter;
+      const double cx       = s.x + (p.scatterBothAxes
+                                         ? scatterX
+                                         : -std::sin(direction) * scatterX),
+                   cy       = s.y + (p.scatterBothAxes
+                                         ? scatterY
+                                         : std::cos(direction) * scatterX);
+      const int reach       = int(std::ceil(radius * 1.415 + 1));
+      int x0                = std::max(0, int(std::floor(cx)) - reach),
+          y0                = std::max(0, int(std::floor(cy)) - reach);
+      int x1 = std::min(surface.width(), int(std::ceil(cx)) + reach),
+          y1 = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
       int halo = p.wet == Wet::Off ? 0 : int(std::ceil(radius * smudgeRadius));
       if (!surface.prepare(std::max(0, x0 - halo), std::max(0, y0 - halo),
@@ -714,7 +730,13 @@ bool Stroke::add(const Sample &s) {
     const Sample from = m->previous;
     double distance   = std::hypot(s.x - from.x, s.y - from.y),
            dt         = s.time - from.time;
-    if (distance > 0) m->direction = std::atan2(s.y - from.y, s.x - from.x);
+    if (distance > 0) {
+      m->direction = std::atan2(s.y - from.y, s.x - from.x);
+      if (!m->hasInitialDirection) {
+        m->initialDirection    = m->direction;
+        m->hasInitialDirection = true;
+      }
+    }
     m->speed = dt > 0 ? distance / dt : 0;
     double f = 0;
     while (f < 1) {

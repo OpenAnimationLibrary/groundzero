@@ -136,8 +136,10 @@ class Probe(Extension):
                 raw = bytes(node.pixelData(0, 0, w, h))
                 if len(raw) != w * h * 4:
                     raise RuntimeError("Reference API returned an incomplete raster")
-                if raw == initial and not case.get("allowUnchanged", False):
+                if raw == initial and not case.get("expectUnchanged", False):
                     raise RuntimeError("Reference API stroke produced no changed pixels")
+                if raw != initial and case.get("expectUnchanged", False):
+                    raise RuntimeError("Source no-op boundary case unexpectedly changed pixels")
                 image = QImage(raw, w, h, w * 4, QImage.Format_ARGB32).copy()
                 filename = name.replace(" ", "_") + ".png"
                 if not image.save(str(output / filename), "PNG"):
@@ -199,8 +201,9 @@ class Probe(Extension):
                     # A dialog or document still owns native state. Keep it
                     # observable and let CI fail instead of forcing teardown.
                     report["status"] = "failed"
-                    report["error"] = "Reference window close left live UI or documents"
-                    checkpoint(report["error"])
+                    report["shutdown"]["error"] = "Reference window close left live UI or documents"
+                    report.setdefault("error", report["shutdown"]["error"])
+                    checkpoint(report["shutdown"]["error"])
                     return
                 # Krita can keep its application event loop alive with no
                 # windows. Quit only after normal view/document destruction.
