@@ -215,7 +215,7 @@ jobs:
           from pathlib import Path
           root = Path(os.environ['BRUSH_REFERENCE_ROOT'])
           import re
-          for name in ('version.log', 'output/oracle-status.json', 'output/plugin-startup.log', 'output/progress.log', 'output/python-stacks.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
+          for name in ('version.log', 'output/oracle-status.json', 'output/repeat-failure.json', 'output/plugin-startup.log', 'output/progress.log', 'output/python-stacks.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
               path = root / name
               if not path.is_file():
                   print('::notice::Reference diagnostic absent: ' + name)

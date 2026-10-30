@@ -82,6 +82,7 @@ class Probe(Extension):
                                  QTabletEvent.Pen, pressure, row["tiltX"], row["tiltY"],
                                  0.0, row["rotation"], 0, Qt.NoModifier, 1, button, buttons)
             event.setTimestamp(round(row["timeUs"] / 1000))
+            event.setAccepted(False)
             QApplication.sendEvent(target, event)
             delivered.append({"type": int(kind), "local": [local.x(), local.y()],
                               "timeMs": event.timestamp(), "accepted": event.isAccepted(),
@@ -128,7 +129,7 @@ class Probe(Extension):
             node = document.createNode("Original strips", "paintlayer")
             document.rootNode().addChildNode(node, None)
             document.setActiveNode(node)
-            report["documentIsolation"] = "full-raster reset before each separate Node.paintLine stroke"
+            report["documentIsolation"] = "full-raster reset before each independent stroke; input mode recorded per case"
             for case in fixtures["cases"]:
                 name = case["preset"]
                 if name not in by_name:
@@ -209,13 +210,31 @@ class Probe(Extension):
                         raise RuntimeError("Cannot reset repeated reference raster")
                     document.refreshProjection()
                     document.waitForDone()
-                    yield from self.paint_case(app, view, node, case)
+                    repeated_delivery = yield from self.paint_case(app, view, node, case)
                     document.waitForDone()
                     repeated = bytes(node.pixelData(0, 0, w, h))
                     repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
                     if repeated != raw:
-                        (output / "repeat-failure.json").write_text(json.dumps({"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes}, indent=2))
-                        raise RuntimeError("Deterministic source fixture changed across independent strokes: " + name)
+                        first_differences = []
+                        changed_pixels = 0
+                        for offset in range(0, len(raw), 4):
+                            if raw[offset:offset+4] == repeated[offset:offset+4]:
+                                continue
+                            changed_pixels += 1
+                            if len(first_differences) < 8:
+                                first_differences.append([offset // 4 % w, offset // 4 // w,
+                                                          list(raw[offset:offset+4]), list(repeated[offset:offset+4])])
+                        def endpoints(value):
+                            events = value.get("events", [])
+                            return [events[1], events[-2]] if events else []
+                        detail = {"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes,
+                                  "changedPixels": changed_pixels, "firstDifferencesBGRA8": first_differences,
+                                  "firstEndpoints": endpoints(delivery), "repeatedEndpoints": endpoints(repeated_delivery)}
+                        (output / "repeat-failure.json").write_text(json.dumps(detail, indent=2))
+                        for suffix, pixels in (("first", raw), ("repeated", repeated)):
+                            if not QImage(pixels, w, h, w * 4, QImage.Format_ARGB32).copy().save(str(output / ("repeat-failure-" + suffix + ".png"))):
+                                raise RuntimeError("Cannot retain repeated source failure image")
+                        raise RuntimeError("Deterministic source fixture changed across independent strokes: " + json.dumps(detail, separators=(",", ":")))
                     del repeated
                 image = QImage(raw, w, h, w * 4, QImage.Format_ARGB32).copy()
                 filename = name.replace(" ", "_") + ".png"
