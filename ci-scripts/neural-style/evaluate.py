@@ -246,6 +246,12 @@ def main():
     shutil.copy2(REPORT / "provenance.json", native / "provenance.json")
     shutil.copy2(REPORT / "Apache-2.0.txt", native / "Apache-2.0.txt")
     shutil.copytree(REPORT / "licenses", native / "licenses")
+    package = {"version": 1, "protocol": 1, "runtimeVersion": "2.3.0"}
+    for role, filename in (("worker", executable_name), ("runtime", library_name),
+                           ("prediction", "prediction.tflite"), ("transfer", "transfer.tflite")):
+        path = native / filename
+        package[role] = {"file": filename, "bytes": path.stat().st_size, "sha256": digest(path)}
+    (native / "package.json").write_text(json.dumps(package, indent=2), encoding="utf-8")
     if native_only:
         command([python, Path(__file__).with_name("native_macos.py"), REPORT, native.resolve(), golden])
     else:

@@ -164,9 +164,12 @@ and its working directory to 500 MiB, installs in an isolated environment,
 retains notices, validates the TFLite identifier, and exercises the two official
 models on synthetic arrays. Numerical checks require finite outputs, repeatable
 inference and separate content/reference influence. This is operator evaluation,
-not artist-quality, peak-memory or temporal qualification. Reported environment
-size excludes the CI-provided Python runtime. Intel macOS has no matching wheel
-in this runtime release and is not qualified by this workflow.
+not artist-quality or temporal qualification. Reported environment size excludes
+the CI-provided Python runtime. Native worker checks also cover reference changes,
+cancellation/restart, malformed requests and a measured 512 MiB peak memory bound.
+macOS native qualification uses the publisher's universal C API framework and
+checks its ARM/Intel slices and deployment targets. Intel uses saved same-revision
+Linux numerical fixtures, avoiding a dependency on an unavailable Python wheel.
 
 Product integration should use a separate native helper, following existing
 helper packaging in `toonz/sources/toonz/CMakeLists.txt` and QProcess lifecycle

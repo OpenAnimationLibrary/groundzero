@@ -81,11 +81,27 @@ def main():
              (2, 3, content, output), (1, 4, other_style, other_embedding),
              (2, 5, content, other), (1, 6, style, embedding),
              (2, 7, other_content, changed_content)]
+    native_result = native_check(native, cases)
+    # Quantized fixtures exercise the application's QImage conversion against
+    # an independent Python oracle using exactly the same input values.
+    fixtures = report / "host-fixtures"
+    fixtures.mkdir()
+    inputs = {}
+    for name, value in (("reference", style), ("alternate", other_style), ("content", content)):
+        quantized = (np.clip(value, 0, 1) * 255 + .5).astype(np.uint8)
+        (fixtures / (name + ".rgb")).write_bytes(quantized.tobytes())
+        inputs[name] = quantized.astype(np.float32) / np.float32(255)
+    host_arrays = {name: (inputs[name] * 255 + .5).astype(np.uint8) for name in inputs}
+    for name, key in (("expected", "reference"), ("alternate-expected", "alternate")):
+        predicted = invoke(prediction, [inputs[key]])
+        styled = invoke(transfer, [inputs["content"], predicted])
+        host_arrays[name] = (np.clip(styled, 0, 1) * 255 + .5).astype(np.uint8)
+        (fixtures / (name + ".rgb")).write_bytes(host_arrays[name].tobytes())
     np.savez_compressed(report / "golden.npz", style=style, content=content,
                         other_style=other_style, other_content=other_content,
                         embedding=embedding, other_embedding=other_embedding,
-                        output=output, other=other, changed_content=changed_content)
-    native_result = native_check(native, cases)
+                        output=output, other=other, changed_content=changed_content,
+                        **{"host_" + key: value for key, value in host_arrays.items()})
     result = {"runtime": importlib.metadata.version("ai-edge-litert"),
               "platform": platform.system(), "machine": platform.machine(),
               "content_shape": [int(value) for value in content_shape],

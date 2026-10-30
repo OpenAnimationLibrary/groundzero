@@ -271,6 +271,12 @@ jobs:
           name: cadmium-runtime-windows-x64
           path: toonz/build/Opentoonz
 
+      - name: Qualify native neural host
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          python ci-scripts/neural-style/host.py
+
       - name: Test particle cache integration
         id: particle_tests
         shell: cmd
