@@ -52,6 +52,10 @@ void require(bool ok, const char *message) {
   if (!ok) throw std::runtime_error(message);
 }
 
+void checkpoint(const char *phase) {
+  std::cerr << "cast-vector-native: checkpoint: " << phase << std::endl;
+}
+
 class DialogDriver {
   QTimer m_timer, m_deadline;
 public:
@@ -63,8 +67,13 @@ public:
     });
     QObject::connect(&m_deadline, &QTimer::timeout, [this]() {
       expired = true;
-      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+        std::cerr << "cast-vector-native: modal deadline: "
+                  << dialog->metaObject()->className() << " / "
+                  << dialog->objectName().toStdString() << " / "
+                  << dialog->windowTitle().toStdString() << std::endl;
         dialog->reject();
+      }
     });
     m_timer.start(30);
     m_deadline.setSingleShot(true);
@@ -176,7 +185,9 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   QString resetError;
   if (!resetNativeUiIntegrationScene(&resetError))
     throw std::runtime_error(resetError.toStdString());
+  checkpoint("settling clean scene");
   QApplication::processEvents();
+  checkpoint("creating native PLI fixtures");
   auto *scene = app->getCurrentScene()->getScene();
   QTemporaryDir temporary;
   require(temporary.isValid(), "Cast/vector temporary directory unavailable");
@@ -186,13 +197,16 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   for (const auto &dir : {originalDir, replacementDir, localDir})
     require(QDir().mkpath(dir), "Cast/vector cannot create fixture folders");
   writeLevel(originalDir + "/figure.pli", 0., sourceProfile, .327);
+  checkpoint("original PLI written");
   writeLevel(replacementDir + "/figure.pli", 100., replacementProfile, .7);
+  checkpoint("replacement PLI written; loading scene level");
   scene->setScenePath(TFilePath(localDir + "/scene.tnz"));
   auto *level = scene->createNewLevel(PLI_XSHLEVEL, L"Cast vector fixture")->getSimpleLevel();
   level->setPath(TFilePath(originalDir + "/figure.pli"));
   level->load();
   clean(level);
   app->getCurrentLevel()->setLevel(level);
+  checkpoint("building authoring metadata and exposures");
   const QStringList tags{QString::fromUtf8("hero λ"), "review \"ink\" & line"};
   const std::string storedHints = hints(level);
   level->setCastTags(tags);
@@ -205,9 +219,11 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   expectHints(level, 1, 3, true);
 
   // Native scene attributes and native PLI envelope data must survive together.
+  checkpoint("saving native scene metadata");
   const TFilePath saved(localDir + "/saved.tnz");
   scene->saveCopy(saved);
   {
+    checkpoint("reloading native scene resources");
     ToonzScene loaded;
     TProjectManager::instance()->initializeScene(&loaded);
     loaded.loadTnzFile(saved);
@@ -221,6 +237,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     expectDrawing(reopened, 5, 40., sourceProfile, .327);
   }
 
+  checkpoint("relinking PLI drawings");
   NativeDialogsGuard dialogs;
   const TFilePath original = level->getPath();
   {
@@ -243,6 +260,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
                 scene->decodeFilePath(level->getPath()) == TFilePath(replacementDir + "/figure.pli"),
             "Cast/vector native relink did not apply");
   }
+  checkpoint("checking relink undo, redo and cache eviction");
   expectMetadata(level, tags, storedHints);
   expectDrawing(level, 1, 100., replacementProfile, .7);
   expectHints(level, 1, 3, false);
@@ -261,6 +279,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
 
   // Copying external native files retains envelopes and valid authoring hints;
   // undo restores links while leaving the explicitly published files intact.
+  checkpoint("making a local PLI copy");
   require(CastBrowserActions::external(scene, level), "Cast/vector source is not external");
   {
     QString failure;
@@ -280,6 +299,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     require(!driver.expired && failure.isEmpty() && !CastBrowserActions::external(scene, level),
             "Cast/vector native local copy did not apply");
   }
+  checkpoint("checking local-copy undo, redo and cache eviction");
   const TFilePath copied = scene->decodeFilePath(level->getPath());
   require(QFileInfo::exists(copied.getQString()), "Cast/vector copied PLI does not exist");
   expectMetadata(level, tags, storedHints);
@@ -300,6 +320,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   // Matching PLI bytes alone are insufficient: a different scene-owned morph
   // plan must block consolidation. Once plans match, the explicit reviewed
   // command preserves the chosen cover, envelopes and undoable exposures.
+  checkpoint("preparing duplicate metadata");
   auto *duplicate = scene->createNewLevel(PLI_XSHLEVEL, L"Cast vector duplicate")->getSimpleLevel();
   duplicate->setPath(copied);
   duplicate->load();
@@ -349,11 +370,13 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
                     TUndoManager::manager()->getCurrentHistoryIndex() == before + 1)),
             "Cast/vector consolidation did not enforce morph compatibility and explicit confirmation");
   };
+  checkpoint("rejecting incompatible consolidation");
   consolidate(true);
   require(sheet->getCell(4, 2).getSimpleLevel() == duplicate &&
               scene->getLevelSet()->getLevel(duplicate->getName()) == duplicate,
           "Cast/vector incompatible consolidation changed asset identity or exposure");
   duplicate->setMorphHints(storedHints);
+  checkpoint("consolidating compatible duplicates");
   consolidate(false);
   require(sheet->getCell(4, 2) == TXshCell(level, TFrameId(3)) &&
               !scene->getLevelSet()->getLevel(L"Cast vector duplicate"),
@@ -372,6 +395,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
 
   // The real Clone Level command must preserve exact-copy metadata and prune
   // subset references only after all selected drawings have been cloned.
+  checkpoint("cloning exact and subset levels");
   auto clone = [&](int lastRow, const QString &name) {
     const int before = TUndoManager::manager()->getCurrentHistoryIndex();
     bool accepted = false;
@@ -420,6 +444,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
 
   // Syntactically valid but obsolete geometry anchors must not be copied into
   // an exact clone, including stale zone members beyond the main anchor.
+  checkpoint("pruning stale clone anchors");
   QJsonArray valid;
   require(MorphHints::decode(storedHints, valid), "Cast/vector hint fixture invalid");
   auto stalePair = valid[0].toObject();
@@ -440,6 +465,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   // Merge TLV's no-save cloning shares this production operation. Work in a
   // nested xsheet, reuse an empty column with existing settings/keys, insert
   // beside an occupied column, and then undo while the parent sheet is active.
+  checkpoint("cloning nested levels without saving");
   {
     TXshChildLevelP child = new TXshChildLevel(L"Cast vector nested clone");
     child->setScene(scene);
@@ -549,6 +575,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
             "Cast/vector empty no-save clone changed history or columns");
   }
 
+  checkpoint("checking missing clone destinations and preparation rollback");
   {
     TXshChildLevelP child = new TXshChildLevel(L"Cast vector missing destinations");
     child->setScene(scene);
@@ -608,6 +635,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
 
   // Filmstrip renumber and native undo remap Cast covers, both morph endpoint
   // pairs and zones, and exposures without touching per-stroke envelopes.
+  checkpoint("renumbering covers, morph hints and exposures");
   FilmstripCmd::renumber(level, {{TFrameId(1), TFrameId(11)},
                                 {TFrameId(3), TFrameId(13)},
                                 {TFrameId(5), TFrameId(15)}}, true);
@@ -630,6 +658,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   TUndoManager::manager()->undo();
 
   // Leave no fixture referring to temporary files for the following workflows.
+  checkpoint("releasing fixture resources");
   if (!resetNativeUiIntegrationScene(&resetError))
     throw std::runtime_error(resetError.toStdString());
   QApplication::processEvents();
