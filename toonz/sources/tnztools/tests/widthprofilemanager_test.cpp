@@ -74,6 +74,13 @@ class DialogScript {
   std::vector<DialogStep> m_steps;
   size_t m_next = 0;
   QPointer<QDialog> m_last;
+  std::vector<QPointer<QDialog>> m_executingActions;
+  struct ExecutingAction {
+    std::vector<QPointer<QDialog>> &stack;
+    ExecutingAction(std::vector<QPointer<QDialog>> &actions, QDialog *dialog)
+        : stack(actions) { stack.push_back(dialog); }
+    ~ExecutingAction() { stack.pop_back(); }
+  };
   QTimer m_timer;
   QElapsedTimer m_elapsed;
   const char *m_operation;
@@ -97,6 +104,12 @@ public:
       }
       auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
       if (!dialog || dialog == m_last || dialog->objectName() == "widthProfileManager") return;
+      // Windows can expose the ancestor chooser while its nested overwrite
+      // question unwinds. Its Save action is still executing, so this is not
+      // another user decision. After No returns, the chooser becomes eligible
+      // again and the script must consume its explicit Cancel step.
+      if (std::any_of(m_executingActions.begin(), m_executingActions.end(),
+                      [dialog](const QPointer<QDialog> &active) { return active == dialog; })) return;
       if (m_operation || m_next >= m_steps.size())
         std::cerr << "width-profile-manager: operation="
                   << (m_operation ? m_operation : "unspecified")
@@ -115,12 +128,16 @@ public:
       ++m_next;
       m_last = dialog;
       m_elapsed.restart();
-      QTimer::singleShot(0, dialog, [step, dialog] { step.action(dialog); });
+      QTimer::singleShot(0, dialog, [this, step, dialog] {
+        ExecutingAction executing(m_executingActions, dialog);
+        step.action(dialog);
+      });
     });
     m_timer.start(1);
   }
   void finish() {
     m_timer.stop();
+    require(m_executingActions.empty(), "native operation returned during a pending dialog action");
     require(m_next == m_steps.size(), "native operation skipped an expected dialog");
   }
 };
@@ -175,7 +192,10 @@ static DialogStep fileStep(const QString &path, bool accept = true,
       auto *commit = buttons ? buttons->button(role) : nullptr;
       require(commit && commit->isEnabled(),
               "profile file chooser Open or Save action is unavailable");
-      QTimer::singleShot(0, file, [commit] { commit->click(); });
+      // DialogScript already queues this action on the chooser, outside its
+      // polling callback. Keep Save's nested modal loop inside that action so
+      // the driver can distinguish unwind from a returned No decision.
+      commit->click();
     } else file->reject();
   }};
 }
