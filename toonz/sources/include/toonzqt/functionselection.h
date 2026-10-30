@@ -37,7 +37,7 @@ public:
 
 //-----------------------------------------------------------------------------
 
-class FunctionSelection final : public QObject, public TSelection {
+class DVAPI FunctionSelection final : public QObject, public TSelection {
   Q_OBJECT
   QRect m_selectedCells;  // yrange = rowrange of the selected keyframes;
                           // xrange = columnrange (functionsheet only)
