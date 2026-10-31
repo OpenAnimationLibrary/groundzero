@@ -65,7 +65,7 @@ class NativeWindowsBundle(unittest.TestCase):
         for path in (self.package, self.build, self.mesa):
             path.mkdir()
         (self.package / "portablestuff").mkdir()
-        (self.package / "portablestuff" / "default.ini").write_text("default=1\n")
+        (self.package / "portablestuff" / "default.ini").write_bytes(b"default=1\n")
         for name in ("OpenToonz.exe", "tnzcore.dll"):
             pdb = Path(name).with_suffix(".pdb").name
             data = image_bytes(pdb)
