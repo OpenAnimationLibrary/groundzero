@@ -225,23 +225,23 @@ jobs:
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
             QT_QPA_PLATFORM=offscreen ctest --test-dir toonz/build --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee toonz/build/seexpr-tests-output.txt
 
-      - name: Test native Function Editor workflow
-        id: function_integration
+      - name: Test native application integration
+        id: ui_integration
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
             QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --macos-crash-debugger --output toonz/build/ui-integration-output.txt
 
-      - name: Report native Function Editor failure
-        if: ${{ failure() && steps.function_integration.outcome == 'failure' }}
+      - name: Report native application integration failure
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
 
-      - name: Upload native Function Editor evidence
+      - name: Upload native application integration evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: function-editor-native-macos
+          name: native-application-macos
           path: toonz/build/ui-integration-output.txt
           if-no-files-found: ignore
 

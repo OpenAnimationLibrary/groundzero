@@ -251,6 +251,7 @@ set(SOURCES
     preferences.cpp
     rasterbrush.cpp
     rasterstrokegenerator.cpp
+    scenecompatibility.cpp
     scenechecker.cpp
     scenefx.cpp
     sceneproperties.cpp

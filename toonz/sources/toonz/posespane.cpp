@@ -1,3 +1,4 @@
+#include "poselibrarycommand.h"
 #include "posespane.h"
 
 // Tnz6 includes
@@ -36,6 +37,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QInputDialog>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
@@ -46,6 +48,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <memory>
 #include <utility>
 
 namespace {
@@ -251,6 +254,9 @@ void PosesPane::refresh() {
     QLabel *valueLabel        = new QLabel(row);
     QPushButton *applyButton  = new QPushButton(tr("Apply"), row);
     QPushButton *deleteButton = new QPushButton(tr("Delete"), row);
+    applyButton->setObjectName(QString("applyPose%1").arg(i));
+    slider->setObjectName(QString("poseWeight%1").arg(i));
+    deleteButton->setObjectName(QString("deletePose%1").arg(i));
 
     nameLabel->setToolTip(tr("%1 channels").arg((int)pose.m_entries.size()));
     const int channelCount = (int)pose.m_entries.size();
@@ -284,7 +290,8 @@ void PosesPane::refresh() {
             [valueLabel](int value) {
               valueLabel->setText(QString("%1%").arg(value));
             });
-    connect(applyButton, &QPushButton::clicked, this, [this, i, slider]() {
+    connect(applyButton, &QPushButton::clicked, row, [this, i, slider, row]() {
+      if (!row->isVisible()) return;  // A queued click on a replaced row.
       std::wstring layerName;
       if (m_asLayerCheck->isChecked()) {
         layerName = m_layerNameEdit->text().trimmed().toStdWString();
@@ -295,8 +302,8 @@ void PosesPane::refresh() {
       }
       applyPose(i, slider->value() / 100.0, layerName);
     });
-    connect(deleteButton, &QPushButton::clicked, this,
-            [this, i]() { deletePose(i); });
+    connect(deleteButton, &QPushButton::clicked, row,
+            [this, i, row]() { if (row->isVisible()) deletePose(i); });
   }
 }
 
@@ -367,8 +374,9 @@ void PosesPane::onSetBase() {
     return;
   }
 
-  scene->getPoseLibrary()->setBase(values);
-  app->getCurrentScene()->setDirtyFlag(true);
+  PoseLibrary next = *scene->getPoseLibrary();
+  next.setBase(values);
+  replacePoseLibrary(scene, next, tr("Set Base Pose"));
   refresh();
 }
 
@@ -378,9 +386,12 @@ void PosesPane::onAddPose() {
   if (!checkTopXsheet()) return;
   TApp *app                = TApp::instance();
   ToonzScene *scene        = app->getCurrentScene()->getScene();
-  PoseLibrary *poseLibrary = scene->getPoseLibrary();
+  PoseLibraryEditContext context;
+  if (!context.isCurrent()) return;
+  QPointer<PosesPane> pane(this);
+  const PoseLibrary &library = context.before();
 
-  const std::vector<PoseLibrary::Entry> &base = poseLibrary->getBase();
+  const std::vector<PoseLibrary::Entry> &base = library.getBase();
   if (base.empty()) {
     DVGui::warning(tr("Set a base pose first."));
     return;
@@ -415,18 +426,20 @@ void PosesPane::onAddPose() {
     return;
   }
 
-  QString defaultName = tr("Pose %1").arg(poseLibrary->getPoseCount() + 1);
-  bool ok             = false;
-  QString name =
-      DVGui::getText(tr("Add Pose"), tr("Pose name:"), defaultName, &ok);
-  if (!ok) return;
-  name = name.trimmed();
+  QString defaultName = tr("Pose %1").arg(library.getPoseCount() + 1);
+  QInputDialog dialog;
+  dialog.setObjectName("poseNameDialog");
+  dialog.setWindowTitle(tr("Add Pose"));
+  dialog.setLabelText(tr("Pose name:"));
+  dialog.setTextValue(defaultName);
+  if (context.exec(dialog) != QDialog::Accepted || !pane) return;
+  QString name = dialog.textValue().trimmed();
   if (name.isEmpty()) name = defaultName;
 
   pose.m_name = name;
-  poseLibrary->addPose(pose);
-  app->getCurrentScene()->setDirtyFlag(true);
-  PoseLibraryNotifier::instance()->notifyChanged();
+  PoseLibrary next = library;
+  next.addPose(pose);
+  replacePoseLibrary(scene, next, tr("Add Pose"));
   refresh();
 }
 
@@ -437,11 +450,15 @@ void PosesPane::onSavePoseSet() { LibraryCmd::savePoseSet(); }
 //-----------------------------------------------------------------------------
 
 void PosesPane::onLoadPoseSet() {
+  PoseLibraryEditContext context;
   QString folder = LibraryCmd::getPosesFolder().getQString();
-  QString path   = QFileDialog::getOpenFileName(
-      this, tr("Load Pose Set"), folder,
+  QFileDialog dialog(nullptr, tr("Load Pose Set"), folder,
       tr("Pose Sets") + QString(" (*.") + LibraryCmd::PoseSetExtension + ")");
-  if (path.isEmpty()) return;
+  dialog.setObjectName("poseSetFileDialog");
+  dialog.setFileMode(QFileDialog::ExistingFile);
+  if (context.exec(dialog) != QDialog::Accepted ||
+      dialog.selectedFiles().isEmpty()) return;
+  const QString path = dialog.selectedFiles().front();
   LibraryCmd::loadPoseSet(TFilePath(path));
 }
 
@@ -560,16 +577,21 @@ void PosesPane::applyPose(int index, double weight,
 
 void PosesPane::deletePose(int index) {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
-  if (!scene) return;
-  PoseLibrary *poseLibrary = scene->getPoseLibrary();
-  if (index < 0 || index >= poseLibrary->getPoseCount()) return;
+  PoseLibraryEditContext context;
+  if (!context.isCurrent()) return;
+  QPointer<PosesPane> pane(this);
+  const PoseLibrary &library = context.before();
+  if (index < 0 || index >= library.getPoseCount()) return;
 
   QString question =
-      tr("Delete the pose \"%1\"?").arg(poseLibrary->getPose(index).m_name);
-  if (DVGui::MsgBox(question, tr("Delete"), tr("Cancel")) != 1) return;
+      tr("Delete the pose \"%1\"?").arg(library.getPose(index).m_name);
+  std::unique_ptr<DVGui::Dialog> dialog(DVGui::createMsgBox(
+      DVGui::QUESTION, question, {tr("Delete"), tr("Cancel")}, 0));
+  dialog->setObjectName("deletePoseDialog");
+  if (context.exec(*dialog) != 1 || !pane) return;
 
-  poseLibrary->removePose(index);
-  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-  PoseLibraryNotifier::instance()->notifyChanged();
+  PoseLibrary next = library;
+  next.removePose(index);
+  replacePoseLibrary(scene, next, tr("Delete Pose"));
   refresh();
 }

@@ -1,4 +1,5 @@
 #include "nativeuiintegrationtest.h"
+#include "animationworkflowintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
 #include "offlineglworkflowintegrationtest.h"
 
@@ -874,6 +875,12 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
+    QString animationError;
+    if (!runAnimationWorkflowIntegrationTest(window, &animationError)) {
+      std::cerr << "native-ui-integration: FAIL: animation workflow: "
+                << animationError.toStdString() << std::endl;
+      return 1;
+    }
     exerciseNativeUi(window);
     checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");
     QString functionError;
