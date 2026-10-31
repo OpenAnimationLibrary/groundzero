@@ -56,6 +56,47 @@ void line(Canvas &c, Preset p) {
     require(s.add(sample(i, 64, i / 240.0)), s.error().c_str());
   finishStroke(s);
 }
+void testSourceMaskedEventBudget() {
+  struct GuardCanvas : Canvas {
+    size_t prepares = 0, writes = 0;
+    bool prepare(int x0, int y0, int x1, int y1) override {
+      ++prepares;
+      return Canvas::prepare(x0, y0, x1, y1);
+    }
+    void write(int x, int y, const Pixel &pixel) override {
+      ++writes;
+      Canvas::write(x, y, pixel);
+    }
+  } canvas;
+  const Canvas before = canvas;
+  Preset p;
+  p.profile                    = "krita-5.3.4.1-hard-pixel-candidate-1";
+  p.size.value                 = 1;
+  p.spacing                    = .02;
+  p.wash                       = true;
+  p.sourceMasked.enabled       = true;
+  p.sourceMasked.useMasterSize = false;
+  p.sourceMasked.diameter      = 1;
+  p.sourceMasked.spacing       = .01;
+  require(validate(p).empty(), "mask event-budget fixture invalid");
+  auto budget = std::make_shared<MemoryBudget>(256u * 1024u * 1024u);
+  Stroke stroke(canvas, p, 256u * 1024u * 1024u, budget);
+  // Keep raster work outside the canvas: combined primary/secondary scheduler
+  // work must be bounded even when no destination pixels need allocation.
+  require(stroke.add(sample(-2000, -1000, 0)),
+          "mask budget initial input failed");
+  require(!stroke.add(sample(-1000, -1000, 1)) &&
+              stroke.error() == "Stroke input event work limit exceeded",
+          "source mask bypassed combined per-input event budget");
+  require(canvas.prepares == 0 && canvas.writes == 0 && same(canvas, before),
+          "off-canvas mask work failure changed the destination");
+  stroke.cancel();
+  require(budget->used() == 0, "mask work cancellation retained allocation");
+  require(!stroke.add(sample(32, 32, 2)) && !stroke.finish() &&
+              canvas.prepares == 0 && canvas.writes == 0 &&
+              same(canvas, before),
+          "failed masked stroke resumed or committed after cancellation");
+}
 void testSourceMaskedWash() {
   struct MaskCanvas : Canvas {
     MaskCanvas() {
@@ -736,7 +777,7 @@ void testKritaPressureHsvCandidate() {
   // Independent Node source captures at eleven dab centers. Full-region
   // reference jobs additionally gate every RGB/alpha pixel and geometry.
   const int colors[2][3]          = {{173, 91, 47}, {59, 137, 191}};
-  const int captured[2][2][11][3] = {{{{117, 47, 173},
+  const int captured[3][2][11][3] = {{{{117, 47, 173},
                                        {160, 47, 173},
                                        {173, 47, 144},
                                        {173, 47, 101},
@@ -758,6 +799,28 @@ void testKritaPressureHsvCandidate() {
                                        {101, 59, 191},
                                        {145, 59, 191},
                                        {190, 59, 191}}},
+                                     {{{173, 140, 122},
+                                       {173, 131, 108},
+                                       {173, 122, 94},
+                                       {173, 112, 80},
+                                       {173, 103, 66},
+                                       {173, 94, 51},
+                                       {173, 84, 36},
+                                       {173, 70, 14},
+                                       {173, 60, 0},
+                                       {173, 60, 0},
+                                       {173, 60, 0}},
+                                      {{138, 169, 191},
+                                       {123, 163, 191},
+                                       {108, 157, 191},
+                                       {93, 151, 191},
+                                       {78, 145, 191},
+                                       {64, 139, 191},
+                                       {47, 132, 191},
+                                       {24, 123, 191},
+                                       {0, 113, 191},
+                                       {0, 113, 191},
+                                       {0, 113, 191}}},
                                      {{{70, 37, 19},
                                        {89, 47, 24},
                                        {109, 57, 29},
@@ -780,7 +843,7 @@ void testKritaPressureHsvCandidate() {
                                        {118, 173, 210},
                                        {140, 186, 218},
                                        {162, 199, 225}}}};
-  for (int variant = 0; variant < 2; ++variant)
+  for (int variant = 0; variant < 3; ++variant)
     for (int color = 0; color < 2; ++color) {
       Preset p;
       p.profile         = "krita-5.3.4.1-hard-pixel-candidate-1";
@@ -788,7 +851,7 @@ void testKritaPressureHsvCandidate() {
       p.spacing         = 1;
       p.color           = {colors[color][0] / 255., colors[color][1] / 255.,
                            colors[color][2] / 255., 1};
-      const int channel = variant == 0 ? 0 : 2;
+      const int channel = variant;
       p.sourceHsvV2[channel].enabled = true;
       p.sourceHsvV2[channel].control = {
           1, 0, {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}}};
@@ -801,18 +864,63 @@ void testKritaPressureHsvCandidate() {
       require(stroke.error().empty(), "source HSV pressure finish failed");
       for (int dab = 0; dab < 11; ++dab) {
         const auto pixel = canvas.read(33 + 24 * dab, 32);
-        require(pixel.a == 1 &&
-                    int(std::floor(pixel.r * 255 + .5)) ==
-                        captured[variant][color][dab][0] &&
-                    int(std::floor(pixel.g * 255 + .5)) ==
-                        captured[variant][color][dab][1] &&
-                    int(std::floor(pixel.b * 255 + .5)) ==
-                        captured[variant][color][dab][2],
-                "source H/V pressure differs from independently captured dab");
+        require(
+            pixel.a == 1 &&
+                int(std::floor(pixel.r * 255 + .5)) ==
+                    captured[variant][color][dab][0] &&
+                int(std::floor(pixel.g * 255 + .5)) ==
+                    captured[variant][color][dab][1] &&
+                int(std::floor(pixel.b * 255 + .5)) ==
+                    captured[variant][color][dab][2],
+            "source H/S/V pressure differs from independently captured dab");
       }
-      p.sourceHsvV2[1] = p.sourceHsvV2[channel];
+      p.sourceHsvV2[(channel + 1) % 3] = p.sourceHsvV2[channel];
       require(!validate(p).empty(),
-              "unqualified dynamic saturation/joint HSV admitted");
+              "unqualified simultaneous dynamic HSV admitted");
+    }
+}
+
+void testKritaJointHsvCandidate() {
+  const int colors[2][3]    = {{101, 137, 157}, {173, 91, 47}};
+  const double values[6][3] = {{.5, .65, .65}, {.5, .85, .85}, {.5, .65, .85},
+                               {.5, .85, .65}, {.2, .65, .85}, {.8, .85, .65}};
+  // Source outputs from independent noncommuting-channel acquisitions.
+  const int expected[2][6][3] = {{{128, 166, 186},
+                                  {181, 210, 226},
+                                  {201, 217, 226},
+                                  {81, 149, 186},
+                                  {212, 226, 201},
+                                  {186, 81, 170}},
+                                 {{198, 113, 67},
+                                  {230, 181, 154},
+                                  {230, 194, 174},
+                                  {198, 81, 19},
+                                  {205, 174, 230},
+                                  {19, 198, 46}}};
+  for (int color = 0; color < 2; ++color)
+    for (int variant = 0; variant < 6; ++variant) {
+      Preset p;
+      p.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.size.value = 24;
+      p.color      = {colors[color][0] / 255., colors[color][1] / 255.,
+                      colors[color][2] / 255., 1};
+      for (int channel = 0; channel < 3; ++channel) {
+        p.sourceHsvV2[channel].enabled       = channel > 0 || variant >= 4;
+        p.sourceHsvV2[channel].control.value = values[variant][channel];
+      }
+      Canvas canvas;
+      Stroke stroke(canvas, p);
+      require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+      stroke.finish();
+      const auto pixel = canvas.read(64, 64);
+      require(pixel.a == 1 &&
+                  int(std::floor(pixel.r * 255 + .5)) ==
+                      expected[color][variant][0] &&
+                  int(std::floor(pixel.g * 255 + .5)) ==
+                      expected[color][variant][1] &&
+                  int(std::floor(pixel.b * 255 + .5)) ==
+                      expected[color][variant][2],
+              "source joint chroma model differs from captured output");
     }
 }
 
@@ -1582,104 +1690,40 @@ void testSourceWetHsvReferenceInteraction() {
   // enabled/disabled, four wet models. At the third dab the blue backdrop
   // meets retained foreground from a preceding transparent dab.
   const int captured[96][4] = {
-      {26, 14, 223, 150},
-      {18, 7, 243, 150},
-      {26, 14, 223, 150},
-      {7, 26, 226, 150},
-      {9, 21, 245, 150},
-      {17, 29, 225, 150},
-      {9, 21, 245, 150},
-      {29, 9, 241, 150},
-      {26, 14, 223, 150},
-      {26, 21, 235, 150},
-      {26, 14, 223, 150},
-      {26, 9, 216, 150},
-      {9, 21, 245, 150},
-      {21, 26, 245, 150},
-      {9, 21, 245, 150},
-      {0, 17, 245, 150},
-      {26, 14, 223, 150},
-      {11, 6, 219, 150},
-      {26, 14, 223, 150},
-      {34, 29, 242, 150},
-      {9, 21, 245, 150},
-      {4, 8, 228, 150},
-      {9, 21, 245, 150},
-      {27, 32, 251, 150},
-      {26, 14, 223, 150},
-      {18, 7, 243, 150},
-      {26, 14, 223, 150},
-      {7, 26, 226, 150},
-      {9, 21, 245, 150},
-      {17, 29, 225, 150},
-      {9, 21, 245, 150},
-      {29, 9, 241, 150},
-      {26, 14, 223, 150},
-      {26, 21, 235, 150},
-      {26, 14, 223, 150},
-      {26, 9, 216, 150},
-      {9, 21, 245, 150},
-      {21, 26, 245, 150},
-      {9, 21, 245, 150},
-      {0, 17, 245, 150},
-      {26, 14, 223, 150},
-      {11, 6, 219, 150},
-      {26, 14, 223, 150},
-      {34, 29, 242, 150},
-      {9, 21, 245, 150},
-      {4, 8, 228, 150},
-      {9, 21, 245, 150},
-      {27, 32, 251, 150},
-      {28, 15, 221, 143},
-      {19, 8, 242, 143},
-      {28, 15, 221, 143},
-      {8, 28, 224, 143},
-      {10, 22, 245, 143},
-      {18, 31, 223, 143},
-      {10, 22, 245, 143},
-      {31, 10, 240, 143},
-      {28, 15, 221, 143},
-      {28, 23, 233, 143},
-      {28, 15, 221, 143},
-      {28, 10, 213, 143},
-      {10, 22, 245, 143},
-      {23, 28, 245, 143},
-      {10, 22, 245, 143},
-      {0, 18, 245, 143},
-      {28, 15, 221, 143},
-      {11, 6, 216, 143},
-      {28, 15, 221, 143},
-      {36, 31, 241, 143},
-      {10, 22, 245, 143},
-      {4, 9, 226, 143},
-      {10, 22, 245, 143},
-      {29, 34, 251, 143},
-      {23, 12, 227, 165},
-      {15, 6, 244, 165},
-      {23, 12, 227, 165},
-      {6, 23, 230, 165},
-      {8, 18, 247, 165},
-      {15, 25, 229, 165},
-      {8, 18, 247, 165},
-      {25, 8, 243, 165},
-      {23, 12, 227, 165},
-      {23, 19, 237, 165},
-      {23, 12, 227, 165},
-      {23, 8, 221, 165},
-      {8, 18, 247, 165},
-      {18, 22, 247, 165},
-      {8, 18, 247, 165},
-      {0, 15, 247, 165},
-      {23, 12, 227, 165},
-      {9, 5, 224, 165},
-      {23, 12, 227, 165},
-      {29, 25, 244, 165},
-      {8, 18, 247, 165},
-      {3, 7, 231, 165},
-      {8, 18, 247, 165},
-      {23, 28, 252, 165}};
+      {26, 14, 223, 150}, {18, 7, 243, 150},  {26, 14, 223, 150},
+      {7, 26, 226, 150},  {9, 21, 245, 150},  {17, 29, 225, 150},
+      {9, 21, 245, 150},  {29, 9, 241, 150},  {26, 14, 223, 150},
+      {26, 21, 235, 150}, {26, 14, 223, 150}, {26, 9, 216, 150},
+      {9, 21, 245, 150},  {21, 26, 245, 150}, {9, 21, 245, 150},
+      {0, 17, 245, 150},  {26, 14, 223, 150}, {11, 6, 219, 150},
+      {26, 14, 223, 150}, {34, 29, 242, 150}, {9, 21, 245, 150},
+      {4, 8, 228, 150},   {9, 21, 245, 150},  {27, 32, 251, 150},
+      {26, 14, 223, 150}, {18, 7, 243, 150},  {26, 14, 223, 150},
+      {7, 26, 226, 150},  {9, 21, 245, 150},  {17, 29, 225, 150},
+      {9, 21, 245, 150},  {29, 9, 241, 150},  {26, 14, 223, 150},
+      {26, 21, 235, 150}, {26, 14, 223, 150}, {26, 9, 216, 150},
+      {9, 21, 245, 150},  {21, 26, 245, 150}, {9, 21, 245, 150},
+      {0, 17, 245, 150},  {26, 14, 223, 150}, {11, 6, 219, 150},
+      {26, 14, 223, 150}, {34, 29, 242, 150}, {9, 21, 245, 150},
+      {4, 8, 228, 150},   {9, 21, 245, 150},  {27, 32, 251, 150},
+      {28, 15, 221, 143}, {19, 8, 242, 143},  {28, 15, 221, 143},
+      {8, 28, 224, 143},  {10, 22, 245, 143}, {18, 31, 223, 143},
+      {10, 22, 245, 143}, {31, 10, 240, 143}, {28, 15, 221, 143},
+      {28, 23, 233, 143}, {28, 15, 221, 143}, {28, 10, 213, 143},
+      {10, 22, 245, 143}, {23, 28, 245, 143}, {10, 22, 245, 143},
+      {0, 18, 245, 143},  {28, 15, 221, 143}, {11, 6, 216, 143},
+      {28, 15, 221, 143}, {36, 31, 241, 143}, {10, 22, 245, 143},
+      {4, 9, 226, 143},   {10, 22, 245, 143}, {29, 34, 251, 143},
+      {23, 12, 227, 165}, {15, 6, 244, 165},  {23, 12, 227, 165},
+      {6, 23, 230, 165},  {8, 18, 247, 165},  {15, 25, 229, 165},
+      {8, 18, 247, 165},  {25, 8, 243, 165},  {23, 12, 227, 165},
+      {23, 19, 237, 165}, {23, 12, 227, 165}, {23, 8, 221, 165},
+      {8, 18, 247, 165},  {18, 22, 247, 165}, {8, 18, 247, 165},
+      {0, 15, 247, 165},  {23, 12, 227, 165}, {9, 5, 224, 165},
+      {23, 12, 227, 165}, {29, 25, 244, 165}, {8, 18, 247, 165},
+      {3, 7, 231, 165},   {8, 18, 247, 165},  {23, 28, 252, 165}};
   const int colors[2][3] = {{173, 91, 47}, {59, 137, 191}};
-  size_t fixture = 0;
+  size_t fixture         = 0;
   for (const char *model :
        {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
     for (int channel = 0; channel < 3; ++channel)
@@ -1692,38 +1736,40 @@ void testSourceWetHsvReferenceInteraction() {
                 canvas.write(x, y, {0, 0, 1, 1});
             Preset p;
             p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
-            p.wet = std::string(model).find("dulling") != std::string::npos
-                        ? Wet::Dulling : Wet::Smear;
-            p.size.value = 24;
-            p.spacing = 1;
-            p.smudgeRadius = 0;
-            p.pickup = .5;
-            p.colorRate = .25;
+            p.wet     = std::string(model).find("dulling") != std::string::npos
+                            ? Wet::Dulling
+                            : Wet::Smear;
+            p.size.value         = 24;
+            p.spacing            = 1;
+            p.smudgeRadius       = 0;
+            p.pickup             = .5;
+            p.colorRate          = .25;
             p.tip.antialiasEdges = false;
-            p.sourceSmearAlpha = true;
+            p.sourceSmearAlpha   = true;
             p.color = {rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 1};
-            p.sourceHsvChannel = enabled ? SourceHsvChannel(channel + 1)
-                                         : SourceHsvChannel::Off;
+            p.sourceHsvChannel =
+                enabled ? SourceHsvChannel(channel + 1) : SourceHsvChannel::Off;
             p.sourceHsvValue = value;
             Stroke stroke(canvas, p);
-            require(stroke.add(sample(16, 64, 0)) &&
-                        stroke.add(sample(112, 64, 1)), stroke.error().c_str());
+            require(
+                stroke.add(sample(16, 64, 0)) && stroke.add(sample(112, 64, 1)),
+                stroke.error().c_str());
             finishStroke(stroke);
-            const Pixel actual = canvas.read(64, 64);
+            const Pixel actual   = canvas.read(64, 64);
             const auto &expected = captured[fixture++];
             require(std::abs(actual.a * 255 - expected[3]) < 1e-9,
                     "wet HSV reference alpha changed");
-            const double straight[] = {actual.r / actual.a,
-                                       actual.g / actual.a, actual.b / actual.a};
+            const double straight[] = {actual.r / actual.a, actual.g / actual.a,
+                                       actual.b / actual.a};
             for (int c = 0; c < 3; ++c)
               require(std::abs(straight[c] * 255 - expected[c]) <= 2 + 1e-9,
                       "wet HSV foreground/transport reference differs");
             if (enabled) {
-              Preset unsupported = p;
+              Preset unsupported       = p;
               unsupported.smudgeRadius = .5;
               require(!validate(unsupported).empty(),
                       "unqualified HSV pickup kernel admitted");
-              unsupported = p;
+              unsupported                  = p;
               unsupported.sourceSmearAlpha = false;
               require(!validate(unsupported).empty(),
                       "unqualified HSV alpha-off admitted");
@@ -2566,6 +2612,92 @@ void testSourceHalfPixelLookahead() {
         "source half-pixel pressure spacing differs from original sparse row");
   }
 }
+void testSourceAbsoluteSpacingFloor() {
+  // Original 1536px source traces: rising/falling/constant pressure and
+  // three spacings. Extents are captured observations, not runtime output.
+  // Sparse full-row hashes remain independently checked above; dense alpha
+  // and low-opacity full-region qualification remain source-CI obligations.
+  struct Capture {
+    double first, last, spacing;
+    int left, right;
+  };
+  const Capture captures[] = {
+      {0.0, 1.0, 0.1, 304, 1804},       {0.0, 1.0, 0.25, 304, 1801},
+      {0.0, 1.0, 1.0, 305, 1785},       {1.0, 0.0, 0.1, 241, 1743},
+      {1.0, 0.0, 0.25, 241, 1743},      {1.0, 0.0, 1.0, 241, 1735},
+      {0.1, 1.0, 0.1, 255, 1804},       {0.1, 1.0, 0.25, 255, 1801},
+      {0.1, 1.0, 1.0, 255, 1782},       {1.0, 0.1, 0.1, 241, 1792},
+      {1.0, 0.1, 0.25, 241, 1793},      {1.0, 0.1, 1.0, 241, 1790},
+      {0.25, 0.75, 0.1, 253, 1802},     {0.25, 0.75, 0.25, 253, 1802},
+      {0.25, 0.75, 1.0, 253, 1780},     {0.5, 0.5, 0.1, 249, 1798},
+      {0.5, 0.5, 0.25, 249, 1795},      {0.5, 0.5, 1.0, 249, 1783},
+      {0.04, 0.04, 0.1, 256, 1791},     {0.04, 0.04, 0.25, 256, 1791},
+      {0.04, 0.04, 1.0, 256, 1791},     {0.05, 0.05, 0.1, 256, 1792},
+      {0.05, 0.05, 0.25, 256, 1792},    {0.05, 0.05, 1.0, 256, 1791},
+      {0.0625, 0.0625, 0.1, 256, 1792}, {0.0625, 0.0625, 0.25, 256, 1792},
+      {0.0625, 0.0625, 1.0, 256, 1790}, {0.0, 0.05, 0.1, 1216, 1792},
+      {0.0, 0.05, 0.25, 1216, 1792},    {0.0, 0.05, 1.0, 1235, 1791},
+      {0.05, 0.0, 0.1, 256, 831},       {0.05, 0.0, 0.25, 256, 831},
+      {0.05, 0.0, 1.0, 256, 794},
+  };
+  struct WideCanvas : Canvas {
+    WideCanvas() {
+      w = 2048;
+      pixels.assign(size_t(w) * h, {});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value    = 32;
+    p.size.minimum  = 0;
+    p.size.mappings = {Mapping{}};
+    p.spacing       = capture.spacing;
+    WideCanvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(256, 64, 0, capture.first)) &&
+                stroke.add(sample(1792, 64, 1, capture.last)),
+            stroke.error().c_str());
+    finishStroke(stroke);
+    int left = canvas.w, right = -1;
+    for (int x = 0; x < canvas.w; ++x)
+      if (canvas.read(x, 63).a > 0) {
+        left  = std::min(left, x);
+        right = std::max(right, x);
+      }
+    require(left == capture.left && right == capture.right,
+            "source absolute spacing/available endpoint differs from original "
+            "extent");
+  }
+  // Exact half-pixel availability is a real input sample, not a tolerance.
+  // This also exercises retaining the previous endpoint when a subsequent
+  // delivery starts exactly at the consumed future sample.
+  Preset p;
+  p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+  p.size.value    = 32;
+  p.size.minimum  = 0;
+  p.size.mappings = {Mapping{}};
+  p.spacing       = .1;
+  p.opacity.value = .5;
+  Canvas whole, split;
+  Stroke a(whole, p), b(split, p);
+  require(a.add(sample(32, 32, 0, .05)) && a.add(sample(33, 32, 1, .05)),
+          a.error().c_str());
+  require(b.add(sample(32, 32, 0, .05)) && b.add(sample(32.499, 32, .499, .05)),
+          b.error().c_str());
+  require(b.dabCount() == 0,
+          "source emitted before future input was available");
+  require(b.add(sample(32.5, 32, .5, .05)), b.error().c_str());
+  require(b.dabCount() == 1, "source excluded exact future input boundary");
+  require(b.add(sample(33, 32, 1, .05)), b.error().c_str());
+  require(a.dabCount() == 2 && b.dabCount() == 2,
+          "source absolute spacing changed exact-boundary stamp count");
+  finishStroke(a);
+  finishStroke(b);
+  require(same(whole, split),
+          "source exact-boundary event split changed pixels");
+}
 void testSourceSubpixelSpacingFloor() {
   // Original D32, half-opacity, four-pixel Qt traces at all three requested
   // spacings have this same row and six dabs. Preserve source byte tolerance.
@@ -3225,6 +3357,7 @@ int main() {
   const Case cases[] = {
       {"testNativeEraseCoverage", testNativeEraseCoverage},
       {"testSourceMaskedWash", testSourceMaskedWash},
+      {"testSourceMaskedEventBudget", testSourceMaskedEventBudget},
       {"testFloatTransaction", testFloatTransaction},
       {"testSnapshotAndPrepareBudgets", testSnapshotAndPrepareBudgets},
       {"testComposition", testComposition},
@@ -3245,6 +3378,7 @@ int main() {
       {"testKritaHardPixelCandidate", testKritaHardPixelCandidate},
       {"testKritaFixedHsvCandidate", testKritaFixedHsvCandidate},
       {"testKritaPressureHsvCandidate", testKritaPressureHsvCandidate},
+      {"testKritaJointHsvCandidate", testKritaJointHsvCandidate},
       {"testStationaryAndBatching", testStationaryAndBatching},
       {"testNativePressureDeliveryBatches", testNativePressureDeliveryBatches},
       {"testColorDynamics", testColorDynamics},
@@ -3262,6 +3396,7 @@ int main() {
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
       {"testSourceHalfPixelLookahead", testSourceHalfPixelLookahead},
       {"testSourceLookaheadLifecycle", testSourceLookaheadLifecycle},
+      {"testSourceAbsoluteSpacingFloor", testSourceAbsoluteSpacingFloor},
       {"testSourceSubpixelSpacingFloor", testSourceSubpixelSpacingFloor},
       {"testSourceBarrelGeometry", testSourceBarrelGeometry},
       {"testSourceSymmetricTiltRotation", testSourceSymmetricTiltRotation},
@@ -3271,7 +3406,8 @@ int main() {
       {"testSourceWetInitialization", testSourceWetInitialization},
       {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},
       {"testSourceTextureMasks", testSourceTextureMasks},
-      {"testSourceWetHsvReferenceInteraction", testSourceWetHsvReferenceInteraction},
+      {"testSourceWetHsvReferenceInteraction",
+       testSourceWetHsvReferenceInteraction},
       {"testSourceWetForegroundTransformPlumbing",
        testSourceWetForegroundTransformPlumbing},
       {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},

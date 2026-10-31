@@ -28,6 +28,8 @@
 #include "timage_io.h"
 #include "tmsgcore.h"
 #include <QApplication>
+#include <QBuffer>
+#include <QImage>
 #include <QDialog>
 #include <QTimer>
 #include <QMainWindow>
@@ -956,6 +958,165 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         requireSame(originalValues, values,
                     "PNG premultiplied channel round trip");
       }
+    }
+    checkpoint("qualifying imported source mask and HSV painting lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const auto previousColor     = palette->getStyle(1)->getMainColor();
+      palette->getStyle(1)->setMainColor(TPixel32(160, 80, 40, 255));
+      for (const QString &kind :
+           {QString("mask"), QString("h"), QString("v")}) {
+        checkpoint(qPrintable("source painting lifecycle: " + kind));
+        QByteArray sourceBytes;
+        if (kind == "mask")
+          sourceBytes = RasterBrushTest::maskedPixelKpp();
+        else {
+          QImage image =
+              QImage::fromData(RasterBrushTest::hardPixelKpp("buildUp"), "PNG");
+          QString xml = image.text("preset"), extra;
+          auto param  = [&](const QString &key, const QString &value) {
+            extra += "<param name=\"" + key + "\">" + value.toHtmlEscaped() +
+                     "</param>";
+          };
+          for (const QString &channel :
+               {QString("h"), QString("s"), QString("v")})
+            param("Pressure" + channel, channel == kind ? "true" : "false");
+          param(kind + "UseCurve", "true");
+          param(kind + "UseSameCurve", "true");
+          param(kind + "Value", "1");
+          param(kind + "curveMode", "0");
+          param(kind + "commonCurve", "0,0;1,1;");
+          param(kind + "Sensor",
+                "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+          xml.replace("</Preset>", extra + "</Preset>");
+          image.setText("preset", xml);
+          QBuffer buffer(&sourceBytes);
+          require(
+              buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+              "cannot encode original source HSV lifecycle fixture");
+        }
+        const QString sourcePath =
+            QDir::current().filePath("paint-source-" + kind + ".kpp");
+        QFile sourceFile(sourcePath);
+        require(sourceFile.open(QIODevice::WriteOnly) &&
+                    sourceFile.write(sourceBytes) == sourceBytes.size(),
+                "cannot stage source painting lifecycle fixture");
+        sourceFile.close();
+        const auto imported = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && imported.complete &&
+                    imported.records.size() == 1,
+                "source painting worker import failed");
+        const auto &record = imported.records.front();
+        auto checkIdentity = [&](const RasterBrush::Record &candidate) {
+          require(
+              candidate.preset.profile ==
+                      "krita-5.3.4.1-hard-pixel-candidate-1" &&
+                  !candidate.referenceVerified &&
+                  !candidate.provenance["sourceReferenceVerified"].toBool(),
+              "source painting workflow lost candidate or unverified status");
+          if (kind == "mask")
+            require(
+                candidate.preset.sourceMasked.enabled &&
+                    candidate.preset.sourceMasked.opacity == .5 &&
+                    candidate.preset.sourceMasked.flow == .5 &&
+                    candidate.preset.wash,
+                "source mask painting workflow lost separate mask controls");
+          else {
+            const auto &channel =
+                candidate.preset.sourceHsvV2[kind == "h" ? 0 : 2];
+            require(channel.enabled && channel.control.value == 1 &&
+                        channel.control.minimum == 0 &&
+                        channel.control.mappings.size() == 1 &&
+                        channel.control.mappings.front().sensor ==
+                            RasterBrush::Sensor::Pressure,
+                    "source HSV painting workflow lost pressure control");
+          }
+        };
+        checkIdentity(record);
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        auto select = [&](const RasterBrush::Record &candidate) {
+          const QString installed =
+              RasterBrush::install(folder, candidate, importError);
+          require(importError.isEmpty() && !installed.isEmpty(),
+                  "source painting install failed");
+          tool->onActivate();
+          property->setValue(
+              QDir(folder).relativeFilePath(installed).toStdWString());
+          require(tool->onPropertyChanged("Native Brush:"),
+                  "source painting selection failed");
+        };
+        select(record);
+        const TRaster32P baseline = raster(level, 1)->clone();
+        undo->reset();
+        draw(tool, false, .2);
+        const TRaster32P low = raster(level, 1)->clone();
+        require(!same(baseline, low) && undo->getHistoryCount() == 1 &&
+                    undo->undo() && same(baseline, raster(level, 1)),
+                "source painting low-pressure transaction failed");
+        undo->reset();
+        draw(tool, false, .8);
+        const TRaster32P painted = raster(level, 1)->clone();
+        require(!same(baseline, painted) && undo->getHistoryCount() == 1 &&
+                    (kind == "mask" || !same(low, painted)),
+                "source HSV pressure failed to affect actual pixels");
+        verifyScenePersistence(painted, "source-paint-" + kind);
+        require(undo->undo() && same(baseline, raster(level, 1)) &&
+                    undo->redo() && same(painted, raster(level, 1)) &&
+                    undo->undo() && same(baseline, raster(level, 1)),
+                "source painting exact undo/redo failed");
+        undo->reset();
+        draw(tool, true, .8);
+        require(
+            same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled source painting left pixels or history");
+        const QString portable =
+            QDir::current().filePath("paint-source-" + kind + ".gzbrush");
+        require(RasterBrush::savePortable(
+                    portable, record,
+                    RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                "source painting portable export failed");
+        const auto reopened = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), portable, importError);
+        require(importError.isEmpty() && reopened.complete &&
+                    reopened.records.size() == 1,
+                "source painting portable worker reimport failed");
+        checkIdentity(reopened.records.front());
+        select(reopened.records.front());
+        draw(tool, false, .8);
+        requireSame(painted, raster(level, 1),
+                    "portable source repaint: " + kind);
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "portable source repaint undo failed");
+        undo->reset();
+        verifyMidStrokeFrameSwitch();
+        app->getCurrentFrame()->setFid(TFrameId(6));
+        settle();
+        tool->onImageChanged();
+        draw(tool, true, .8);
+        require(!level->getFrame(TFrameId(6), false) &&
+                    undo->getHistoryCount() == 0,
+                "cancelled source painting retained a new frame");
+        draw(tool, false, .8);
+        require(bool(raster(level, 6)) && undo->getHistoryCount() == 1,
+                "source painting did not create one frame transaction");
+        const TRaster32P created = raster(level, 6)->clone();
+        require(undo->undo() && !level->getFrame(TFrameId(6), false) &&
+                    undo->redo() && same(created, raster(level, 6)) &&
+                    undo->undo() && !level->getFrame(TFrameId(6), false),
+                "source painting new-frame undo/redo changed pixels or state");
+        undo->reset();
+        app->getCurrentFrame()->setFid(TFrameId(1));
+        settle();
+        tool->onImageChanged();
+        requireSame(baseline, raster(level, 1),
+                    "source painting original frame: " + kind);
+      }
+      palette->getStyle(1)->setMainColor(previousColor);
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore brush after source painting qualification");
     }
     checkpoint("qualifying source wet stroke transactions and persistence");
     for (const QString &model :

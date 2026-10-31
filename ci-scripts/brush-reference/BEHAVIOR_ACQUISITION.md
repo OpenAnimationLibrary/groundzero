@@ -268,50 +268,42 @@ import diagnostics and explicitly remain unqualified native-conversion metrics.
 No timer/speed equation or timed source-profile parity is established by these
 acquisition hooks. Future source semantics must use the captured timing rather
 than treating authored/fabricated timestamps as actual elapsed time.
-### Fixed source HSV candidate
+### Versioned source HSV candidates
 
-The hard round Pixel candidate has a separate versioned fixed-channel color
-adapter. It accepts one explicit constant two-knot pressure curve for Hue,
-Saturation, or Value, with the other two controls disabled. Native color dynamics
-are unchanged. Portable `sourceHsvChannelV1` and `sourceHsvValueV1` must occur
-together; older records default to off. Nonconstant curves, simultaneous channels,
-soft/image tips, texture, wash, transfer modulation and wet combinations are not
-admitted by this adapter. Disabled source controls remain inactive.
+Native color dynamics remain unchanged. V1 retains its single fixed channel and
+paired portable fields. V2 stores three explicit enabled/control slots, admitting
+joint fixed controls or one identity-pressure H, S or V control. Mixed fixed and
+dynamic controls, multiple dynamic controls, other sensors and nonidentity curves
+remain excluded. Disabled slots must be neutral and V1 cannot coexist with V2.
+The strict hard-round Pixel context remains required; the separately qualified
+wet subset admits only V1, not joint or dynamic V2 controls.
 
-Original source captures for two opaque foreground colors and six control values
-support hue rotation about neutral .5 and piecewise value scaling/lightening.
-Saturation scales below neutral and adds above neutral. The saturation candidate
-has a measured one-byte RGB residual for one of twelve original active samples;
-this is explicitly not byte-exact reference verification. Engine regressions use
-the independently captured RGB values. Reference comparison always rerenders the
-current candidate and enforces full union-region maximum RGB error: zero for Hue,
-Value and disabled controls, at most one byte for Saturation, with zero alpha
-error and the existing hard-mask geometry gate. Source qualification flags remain
-false until the broader contract is completed.
+Independent original foreground captures identify a chroma-domain transform.
+For saturation control u, d=2u-1 scales original chroma by 1+d below neutral and
+1+d+2*d*d above neutral. Intermediate chroma is capped at 255 encoded units.
+Value scales maximum/chroma together below neutral; above neutral it moves the
+maximum toward 255 while scaling chroma toward zero. Final chroma is capped at
+the final maximum and hue-preserving reconstruction is quantized once. Hue shifts
+by 360*(u-.5) degrees. Achromatic input stays achromatic. No source renderer was
+copied and these equations do not change native HSV behavior.
 
-`hsvheldout` adds 54 independent source acquisitions: three previously unseen
-foreground colors (including gray), three unseen/neutral controls, all three
-isolated channels, and enabled/disabled pairs. This also challenges achromatic
-saturation behavior. These are qualification gates, not evidence of success
-before CI runs. Neither heldout inputs nor expected source output are generated
-by the candidate color equations.
+The 24 order-discriminating captures and 30 static joint captures support this
+composition. All 66 dynamic center samples match when evaluated at the measured
+half-pixel future-pressure sample. These observations do not replace full-image
+qualification: every candidate is rebuilt and compared over the union region,
+including alpha and missing paint. Existing V1 Saturation allows at most one
+RGB byte; all other HSV cases require exact RGB bytes, and all require exact
+alpha and the hard-mask geometry gate. Source verification flags remain false.
 
-`hsvjoint` is a separate 36-case acquisition, not an expanded runtime admission:
-for each of the two original foreground colors it captures three channel pairs,
-two non-neutral three-channel combinations, a three-channel neutral control, and
-three isolated identity-pressure curves, each enabled and disabled. It uses the
-public `Node.paintLine` endpoint-pressure interface, records those exact calls,
-and validates every channel's flag, shared curve and sensor payload. It does not
-infer internal dab pressure from endpoint arguments. Full source raster evidence
-and repeat gates remain mandatory. Until those captures identify composition and
-dynamic behavior, V1 remains the backward-compatible single fixed-channel
-candidate; multiple active channels and nonconstant curves are not admitted.
-
-A subsequent compositional adapter should use a separately versioned ordered
-channel representation and explicit curve semantics, migrating V1 as exactly one
-fixed channel. Neither an order nor a migration to guessed native HSV dynamics
-is implemented by this acquisition change. Joint captures and independent
-heldouts must establish those semantics first.
+`hsvheldout` retains 54 original acquisitions including gray. `hsvjoint` retains
+36 paired fixed/joint/identity-pressure cases and `hsvorder` retains 24 cases
+that distinguish noncommuting composition. `hsvpressure` now has 24 full-region
+heldouts: two unseen colors, H/S/V and opposite .125/.875 Node pressure ramps.
+`hsvchroma` adds 36 paired cases using two low-chroma colors, positive saturation
+.55/.7/.9, isolated S and joint SV/HSV. Neither chroma cap activates for these
+inputs, directly challenging the quadratic expansion away from capped training
+examples. New heldouts are pending CI, not claimed source parity. All acquisition
+controls, input readback, source version and repeats remain mandatory.
 
 ### Prospective GIH label sample-size correction
 
@@ -434,15 +426,64 @@ portable native unit conversion, explicitly excluded from strict source-profile
 eligibility: source time-to-dab scheduling remains unverified. Original import
 fixtures verify exact admission, rejection of guessed periods and save/reopen.
 
-HSV V2 stores three explicitly enabled/control slots while initially admitting
-only one active Hue or Value identity-pressure curve. Disabled slots must be
-neutral; V1 active state cannot coexist with V2. Saturation pressure, simultaneous
-channels, other sensors and nonidentity curves stay excluded. Existing V1 files
-remain readable unchanged. Actual Node captures give byte-exact H/V values for
-two colors at eleven dabs when evaluated with the independently measured source
-half-pixel future-pressure sample; geometry coordinates are not shifted.
+The V2 extension and current admission limits are described in the versioned
+source HSV section above. Portable snapshots preserve every enabled/control
+slot, and explicit conversion to native clears all source HSV state with a
+user-visible disclosure. Full-region pressure gates remain mandatory; sampled
+center regressions alone cannot qualify a source profile.
 
-`hsvpressure` adds 16 full-region heldouts with two previously unseen colors and
-opposite .125/.875 pressure ramps. These and the original isolated H/V dynamic
-joint cases require zero full-union RGB and alpha error, alongside geometry and
-source eligibility. Center-sample regressions do not substitute for these gates.
+### GIH advancement discriminators
+
+The first powered label acquisition had near-uniform color frequencies but 27
+failed transition gates. Self-transition joint frequencies were about .18,
+versus native independent selection near .11. This is evidence of dependence,
+not permission to fit a sticky random selector. The straight-stroke alpha
+workload independently found one extra native endpoint tip. Native scheduling
+and RNG remain unchanged.
+
+Full original sequences were unavailable through the artifact download (403),
+and aggregate transitions cannot identify lag, run-length or row-turn effects.
+Each acquired GIH stroke now emits a bounded compressed exact label sequence,
+its digest, lag-equality counts at 1/2/3/4/8/16/32/63/64, run-length counts and
+separate row-boundary/interior transitions. Null slots remain explicit. The
+existing 24 alpha and 39 powered label gates are unchanged.
+
+`gihcadence` adds 144 original cases: incremental and random resources, spacing
+2/3/4, six delivery modes and four independently acquired replicates. Modes are
+one Node.paintLine, endpoint-only Node.paintPath, path vertices at each dab,
+half-spacing vertices, fixed off-grid 17px vertices, and 32 independent short
+Node.paintLine strokes. Each case observes the same 32 nonoverlapping stamp
+centers, with a final endpoint one pixel beyond the last center. Thus an omitted
+spacing-boundary endpoint cannot masquerade as a frame-selection difference.
+The 8px tips and original three colored frames are unchanged. Serialized spacing,
+resource identity and exact delivered paths/call counts are checked. No more
+than 120 vertices or 32 source API calls occur per case, on the existing bounded
+2048² canvas; complete images and compact actual labels are retained.
+
+Candidate comparisons replay the identical paths and resets. Discrete native
+strokes receive distinct explicit reproducible seeds; no correspondence with
+source seeds is claimed. These cadence comparisons are exploratory, not a
+replacement for the existing statistical gates or a new source compatibility
+claim. They distinguish geometry-distance, input-segment and stroke-reset
+advancement hypotheses. A versioned source selector remains blocked on actual
+sequence/cadence evidence; no transition-rate fitting is implemented.
+
+### Paced acquisition recovery
+
+A dense 65-contact capture failed its existing 20ms scheduling bound before
+comparison. The previous error omitted the failed index and measured lateness;
+no numeric cause can be reconstructed for that run. Timing failures now report
+phase, contact index, authored deadline, actual monotonic elapsed time, lateness
+and unchanged bound. Contact/proximity is cleared before the failure propagates.
+
+Exactly one retry is allowed only for this typed timing-contract failure. It
+first drains source work, restores the entire original raster, refreshes and
+drains projection, then services the event loop before delivering a new stroke.
+Every discarded attempt emits a notice and remains in accepted timing evidence;
+a second failure ends acquisition. All actual accepted contacts/release must
+still satisfy the original 20ms or 250ms authored bound. Comparison validates
+the discard provenance and timing arithmetic. Pixel differences, empty output,
+resource/settings mismatches and any other failures are never retried. The
+elapsed clocks used by candidate comparison remain actual accepted delivery,
+not fabricated timestamps. CI tests exercise exact bounds and reject extra,
+within-bound or pixel-driven discarded attempts.

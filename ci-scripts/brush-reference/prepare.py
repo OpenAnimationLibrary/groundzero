@@ -80,6 +80,11 @@ def finalize_input_contract():
 
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group == "wetdrift":
+    from wet_drift_fixtures import prepare as prepare_wet_drift
+    prepare_wet_drift(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "texturepickup":
     from texture_pickup_fixtures import prepare as prepare_texture_pickup
     prepare_texture_pickup(root, resources, preset)
@@ -105,7 +110,7 @@ if group == "hsvpressure":
     prepare_hsv_pressure(root, resources, preset)
     finalize_input_contract()
     raise SystemExit(0)
-if group in ("hsvjoint", "hsvorder"):
+if group in ("hsvjoint", "hsvorder", "hsvchroma"):
     from hsv_joint_fixtures import prepare as prepare_hsv_joint
     prepare_hsv_joint(root, resources, preset, group)
     finalize_input_contract()
@@ -130,7 +135,7 @@ if group in ("tabletsensors", "spacingdynamics"):
     prepare_sensors(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
-if group in ("bitmaptips", "gihstatistics", "gihlabels"):
+if group in ("bitmaptips", "gihstatistics", "gihlabels", "gihcadence"):
     from resource_fixtures import prepare as prepare_resources
     prepare_resources(root, resources, preset, group)
     finalize_input_contract()
@@ -288,6 +293,28 @@ for mode, modern in profiles:
             variants.append((label, pressure_curve, 32, .1,
                              [pressure_value, pressure_value], 1, 1))
             precision_positions[label] = (0, 0, 0)
+    if group == "pixelprecision":
+        # Low-opacity build-up reveals duplicate/preview dabs hidden by opaque
+        # final masks. Stage reads observe both paintable and projected pixels.
+        for length in (0, .1, .4, .5, .6):
+            for first, last in ((.25, .75), (.75, .25)):
+                label = f"start state length {round(length * 10):02d} pressure {round(first * 100):02d}"
+                variants.append((label, {**pressure_curve, "OpacityValue": ".5"},
+                                 32, .1, [first, last], .5, 1))
+                precision_positions[label] = (0, 0, length)
+        for value in (.25, .75):
+            label = f"start state tap pressure {round(value * 100):02d}"
+            variants.append((label, {**pressure_curve, "OpacityValue": ".5"},
+                             32, .1, [value, value], .5, 1))
+            precision_positions[label] = (0, 0, 0)
+        # Constant pressure separates a possible absolute spacing floor from
+        # pressure lookahead and radius changes. No source equation assumed.
+        for value in (.025, .05):
+            for spacing in (.1, .25, 1):
+                label = f"spacing floor pressure {round(value * 1000):03d} spacing {spacing}"
+                variants.append((label, {**pressure_curve, "OpacityValue": ".5"},
+                                 32, spacing, [value, value], .5, 1))
+                precision_positions[label] = (0, 0, 4)
     if group == "pixelcurveknots":
         variants = []
         # Nonuniform knots, interior extrema and between-knot probes separate
@@ -668,6 +695,13 @@ for mode, modern in profiles:
                 # A physical-style tap has contact/release, not a zero-length
                 # TabletMove that might enter a different source tool path.
                 case["events"] = case["events"][:1]
+        if group == "pixelprecision" and label.startswith(("start state", "spacing floor")):
+            case = cases[-1]
+            case["changeExpectation"] = "measure source start and spacing behavior; full-image comparison remains enforced"
+            if label.startswith("start state tap"):
+                case["events"] = case["events"][:1]
+            case["startStateProbe"] = {"rect": [236, 1004, 48, 40],
+                "objective": "distinguish press-time paint from deferred emission and absolute spacing"}
         if group == "pixelprecision" and label in precision_partitions:
             case = cases[-1]
             case["events"] = [{"x": 256 + distance, "y": 1024,

@@ -81,7 +81,7 @@ Store these per preset, per importer version and per profile version; display th
 * **Semantically supported:** every active setting, dependency, numeric range and combination belongs to the selected profile and has an implemented mapping. Parsing an unknown field into an opaque blob does not qualify. Inactive settings may be preserved only when their disabled state is provable. An unrecognized enable flag is conservatively active/unknown. A preset needing conversion is labeled **converted approximation**, with source and replacement semantics shown.
 * **Reference-verified:** a specific preset or explicitly bounded equivalence class passed the comparison suite against the stated source application build, document settings and asset hashes. Record date, evidence and confidence scope. A supported preset can remain unverified; a verified tip decoder does not verify dynamics. Verification does not automatically cover another pack revision or app patch.
 
-The repository now supplies native rendering and package statuses. Foreign behavior profiles below remain planned, and reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
+The repository supplies native rendering and package statuses plus explicitly bounded experimental foreign profiles. The matrix below remains the complete target contract; implemented candidate subsets do not satisfy its missing combinations. Reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
 
 ### Source-version × engine × active-setting matrix
 
@@ -1400,7 +1400,7 @@ verification distinct. Acquiring source output is not an implemented adapter.
 | Dual tips | Enabled/class/mode metadata preserved; unknown active state explicitly diagnosed | Original Multiply/Subtract author exports, sampled/generated secondary association, spacing/scatter/count/flip controls and P2711 traces; observed colorBurn cannot be substituted with Multiply |
 | Color/airbrush/fade/direction controls | Independent native mechanisms exist; ABR active fields remain unverified | Exact serialized control mapping and source traces; unsupported hidden state must not be guessed from brush names |
 | K5341 bitmap/GIH | Original resource resolution/readback acquisition; native resource conversion | Actual source-profile bitmap geometry and sequence adapters, plus separate24-alpha/39-high-sample-label gates; long-path acquisition is not a parity result |
-| K5341 masked/timed inputs | Original Multiply/Subtract/Wash/Build-up and real-clock airbrush/time/speed acquisitions wired | Measured equations and source-specific representation, including distinct secondary opacity/flow; acquisition does not justify collapsing them |
+| K5341 masked/timed inputs | Generated rectangular mask Wash candidate retains distinct secondary opacity/flow and independently scheduled fields; Build-up inactive mask preserved. Original airbrush/time/speed acquisitions wired | Full-image masked candidate and new color/background heldout qualification; bitmap masks, mask dynamics and joint settings remain unfinished. Timed source equations remain under investigation |
 
 The externally unavailable requirement is controlled Photoshop export/reference
 execution (including exact27.11 build identification), not permission to independently
@@ -1464,8 +1464,15 @@ exactly; it also matches all eleven earlier sparse pressure centerline captures,
 including ascending and descending near-zero pressure. This replaces the former
 integer-ceiling approximation. Pressure-size has a measured half-pixel minimum
 diameter. Original subpixel-spacing captures establish a two-percent diameter
-spacing floor; the preset retains its serialized spacing and applies that source
-rule only while rendering. Native and wet profiles retain their own semantics.
+spacing floor. The independent candidate also applies a half-document-pixel
+absolute spacing floor and includes a dab when its future sample is exactly the
+delivered endpoint. Together these rules match all 33 original rising, falling
+and constant-pressure trace extents across dense and sparse spacing; the prior
+exclusive endpoint omitted small-tip terminal pixels. Captured sparse row hashes
+and partition windows remain separate regressions. Extent agreement alone does
+not establish dense opacity parity: the added low-opacity full-region source
+captures remain required. The preset retains its serialized spacing and applies
+these rules only while rendering. Native and wet profiles retain their own semantics.
 
 The bounded source path history preserves authored position, time, pressure,
 tilt and shortest-arc barrel interpolation. It emits a geometric dab only when
@@ -1483,6 +1490,36 @@ destruction discard buffered input. `finish()` reports errors so host rendering,
 preview, undo/new-frame transactions and comparisons cannot silently accept a
 failed tap allocation. Full-image CI qualification remains required; the captured
 windows do not establish arbitrary source-engine parity.
+
+### Source wet drift checkpoint acquisition
+
+The `wetdrift` source group adds 20 radius-zero, untextured wet prefixes (four
+models at nominal dabs 1, 10, 100, 1,000 and 10,000), plus five dry build-up count
+controls. Every case uses one continuous `Node.paintPath`, not a sequence of
+independent strokes. A fixed 2048-square canvas holds 10,000 distinct cells at
+16-pixel pitch. Hard 8-pixel tips and spacing two avoid overlap; the original
+background alternates red/blue strips under a continuous alpha ramp. All prefixes
+follow the same serpentine and end one pixel beyond their last nominal center,
+shorter than the next dab spacing. Foreground green keeps deposits distinguishable
+from the original background throughout the wet state handoffs.
+
+Source capture requires exactly N-1 changed wet cells with an unchanged first
+initialization cell, no out-of-cell paint, and exactly N dry calibration cells.
+The half-opacity dry controls require a uniform single-deposit alpha at all
+centers, exposing duplicate deposits at path corners or endpoints. These are
+observable count controls: the public API does not expose an internal wet dab
+counter, so private source counts remain inferred rather than directly recorded.
+Failure of these controls blocks acquisition; no checkpoint is silently renamed.
+The candidate additionally must report exactly N actual engine dabs.
+
+Every checkpoint retains the full source image and enforces the original drift
+limits over the source/candidate union region: premultiplied RGB MAE at most
+3/255, alpha MAE at most 2/255, mean DeltaE00 at most 3 and p95 at most 6 on both
+black and white composites. RGB MAE at 10,000 cannot exceed the 1,000 checkpoint
+by more than 1/255. Dry count controls require exact RGBA agreement. Existing
+short-stroke source gates remain unchanged. This group does not expose a foreign
+reservoir or qualify textured/nonzero-radius wet models; transition direction,
+halo character and physical-tablet delivery remain distinct acceptance items.
 
 ### Shared wet foreground transform plumbing
 

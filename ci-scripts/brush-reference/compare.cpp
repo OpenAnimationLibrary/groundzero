@@ -59,7 +59,8 @@ struct Canvas : Surface {
   }
 };
 void applyViewRotation(Preset &preset, const QJsonObject &source) {
-  if (!source.contains("brushRotationDegrees")) return;
+  if (!source.contains("brushRotationDegrees"))
+    return;
   const auto modifier = source["brushRotationDegrees"];
   require(modifier.isDouble() && std::isfinite(modifier.toDouble()) &&
               std::abs(modifier.toDouble()) <= 36000,
@@ -346,7 +347,10 @@ int main(int argc, char **argv) {
     if (fixtures["group"].toString() == "wethsv")
       require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvpressure")
-      require(expected.size() == 16, "Incomplete pressure HSV heldout matrix");
+      require(expected.size() == 24, "Incomplete pressure HSV heldout matrix");
+    if (fixtures["group"].toString() == "hsvchroma")
+      require(expected.size() == 36,
+              "Incomplete low-chroma HSV heldout matrix");
     if (fixtures["group"].toString() == "hsvorder")
       require(expected.size() == 24,
               "Incomplete order-discriminating HSV matrix");
@@ -359,6 +363,9 @@ int main(int argc, char **argv) {
       require(expected.size() == 72, "Incomplete HSV acquisition matrix");
     if (fixtures["group"].toString() == "distancesensors")
       require(expected.size() == 32, "Incomplete distance acquisition matrix");
+    if (fixtures["group"].toString() == "gihcadence")
+      require(expected.size() == 144,
+              "Incomplete GIH cadence acquisition matrix");
     if (fixtures["group"].toString() == "maskwash" ||
         fixtures["group"].toString() == "maskbuildup")
       require(expected.size() == 156,
@@ -382,7 +389,8 @@ int main(int argc, char **argv) {
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
       if (fixtures["group"].toString() == "hsvjoint" ||
-          fixtures["group"].toString() == "hsvorder") {
+          fixtures["group"].toString() == "hsvorder" ||
+          fixtures["group"].toString() == "hsvchroma") {
         const auto evidence = source["sensorEvidence"].toObject();
         require(evidence["deliveryValuesMatchAuthored"].toBool() &&
                     evidence["deliveryInterface"].toString() ==
@@ -418,7 +426,7 @@ int main(int argc, char **argv) {
         const auto controls = evidence["effectiveControls"].toObject();
         const QString target =
             source["sensorProbe"].toObject()["target"].toString();
-        require((target == "h" || target == "v") &&
+        require((target == "h" || target == "s" || target == "v") &&
                     evidence["deliveryValuesMatchAuthored"].toBool() &&
                     evidence["deliveryInterface"].toString() ==
                         "Node.paintLine" &&
@@ -583,6 +591,13 @@ int main(int argc, char **argv) {
                 "nonempty requirement");
       }
       initial = stripInitial;
+      if (source["background"].toString() == "wet-drift")
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x) {
+            const bool red = (x / 64) % 2 == 0;
+            initial.setPixel(x, y, qRgba(red ? 255 : 0, 0, red ? 0 : 255,
+                                        std::min(255, y * 255 / 1280)));
+          }
       if (source["background"].toString() == "transparent")
         initial.fill(Qt::transparent);
       if (source["background"].toString() == "blend-stripes") {
@@ -667,6 +682,7 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "bitmaptips" ||
           fixtures["group"].toString() == "gihstatistics" ||
           fixtures["group"].toString() == "gihlabels" ||
+          fixtures["group"].toString() == "gihcadence" ||
           (sensorCase && source["resourceProbe"].isObject());
       QString package = "data/krita/paintoppresets/" + name + ".kpp";
       if (resourceCase) {
@@ -685,15 +701,12 @@ int main(int argc, char **argv) {
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
       const bool textureGate = fixtures["group"].toString() == "texturemasks";
-      const auto jointHsv = source["jointHsvProbe"].toObject();
-      const bool dynamicHsv = fixtures["group"].toString() == "hsvpressure" ||
-                              (fixtures["group"].toString() == "hsvjoint" &&
-                               jointHsv["dynamicPressure"].toBool() &&
-                               (jointHsv["channels"].toString() == "h" ||
-                                jointHsv["channels"].toString() == "v"));
       const bool sourceHsv = fixtures["group"].toString() == "hsvdynamics" ||
                              fixtures["group"].toString() == "hsvheldout" ||
-                             dynamicHsv;
+                             fixtures["group"].toString() == "hsvpressure" ||
+                             fixtures["group"].toString() == "hsvjoint" ||
+                             fixtures["group"].toString() == "hsvorder" ||
+                             fixtures["group"].toString() == "hsvchroma";
       const bool sourceHard =
           maskCase || source["sourceBarrelCandidate"].toBool(false) ||
           sourceHsv || (textureGate && name.contains("dry legacy")) ||
@@ -737,32 +750,34 @@ int main(int argc, char **argv) {
                 "eligibility");
       }
       if (sourceHsv) {
-        const auto probe = source["sensorProbe"].toObject();
-        const QString target = dynamicHsv && !jointHsv.isEmpty()
-                                   ? jointHsv["channels"].toString()
-                                   : probe["target"].toString();
-        require(target == "h" || target == "s" || target == "v",
-                "Invalid source HSV fixture channel");
-        const auto expectedChannel =
-            !probe["enabled"].toBool() ? SourceHsvChannel::Off
-            : target == "h"            ? SourceHsvChannel::Hue
-            : target == "s"            ? SourceHsvChannel::Saturation
-                                       : SourceHsvChannel::Value;
-        const QString curve =
-            source["overrides"].toObject()[target + "commonCurve"].toString();
-        bool ok = false;
-        const double expectedValue =
-            curve.section(';', 0, 0).section(',', 1, 1).toDouble(&ok);
-        if (dynamicHsv) {
-          const int index = target == "h" ? 0 : 2;
-          require(p.sourceHsvChannel == SourceHsvChannel::Off &&
-                      p.sourceHsvV2[index].enabled == probe["enabled"].toBool(),
-                  "Source HSV V2 import lost pressure control");
-        } else
-          require(ok && p.sourceHsvChannel == expectedChannel &&
-                      (expectedChannel == SourceHsvChannel::Off ||
-                       p.sourceHsvValue == expectedValue),
-                  "Source HSV import did not preserve fixed channel control");
+        const auto fields = source["overrides"].toObject();
+        for (int channel = 0; channel < 3; ++channel) {
+          const QString prefix = QString("hsv").mid(channel, 1);
+          const bool enabled = fields["Pressure" + prefix].toString() == "true";
+          const bool legacy =
+              p.sourceHsvChannel == SourceHsvChannel(channel + 1);
+          require(enabled == (legacy || p.sourceHsvV2[channel].enabled),
+                  "Source HSV import lost enabled channel");
+          if (!enabled)
+            continue;
+          const auto points = fields[prefix + "commonCurve"].toString().split(
+              ';', Qt::SkipEmptyParts);
+          require(points.size() == 2, "Unsupported source HSV fixture curve");
+          bool ok0 = false, ok1 = false;
+          const double first = points[0].section(',', 1, 1).toDouble(&ok0),
+                       last = points[1].section(',', 1, 1).toDouble(&ok1);
+          require(ok0 && ok1, "Invalid source HSV fixture curve");
+          const auto &control = p.sourceHsvV2[channel].control;
+          if (first == last)
+            require(legacy ? p.sourceHsvValue == first
+                           : control.mappings.empty() && control.value == first,
+                    "Source HSV import lost fixed control");
+          else
+            require(!legacy && first == 0 && last == 1 && control.value == 1 &&
+                        control.mappings.size() == 1 &&
+                        control.mappings[0].sensor == Sensor::Pressure,
+                    "Source HSV import lost measured pressure control");
+        }
       }
       const bool sourceSoft =
           (fixtures["group"].toString() == "pixelblend" &&
@@ -868,6 +883,18 @@ int main(int argc, char **argv) {
         p.seed =
             UINT64_C(0x9e3779b97f4a7c15) * std::uint64_t(int(replicate) + 1);
       }
+      if (fixtures["group"].toString() == "gihcadence") {
+        const auto spec = source["cadenceProbe"].toObject();
+        const int spacing = spec["spacing"].toInt(-1);
+        require((spacing == 2 || spacing == 3 || spacing == 4) &&
+                    spec["slots"].toInt() == 32 &&
+                    source["diameter"].toDouble() == 8 &&
+                    p.spacing == spacing && spec["replicate"].toInt(-1) >= 0 &&
+                    spec["replicate"].toInt(-1) < 4 && p.tip.images.size() == 3,
+                "Invalid bounded GIH cadence candidate settings");
+        p.seed = UINT64_C(0x9e3779b97f4a7c15) *
+                 std::uint64_t(spec["replicate"].toInt() + 1);
+      }
       Canvas canvas(initial);
       Stroke stroke(canvas, p);
       Sample first, last;
@@ -882,7 +909,105 @@ int main(int argc, char **argv) {
       last.time = 1;
       QElapsedTimer timer;
       timer.start();
-      if (fixtures["group"].toString() == "gihlabels") {
+      if (fixtures["group"].toString() == "gihcadence") {
+        const auto spec = source["cadenceProbe"].toObject();
+        const QString mode = spec["mode"].toString();
+        const int step = 8 * spec["spacing"].toInt();
+        const int end = 16 + 31 * step + 1;
+        QJsonArray expectedPaths;
+        if (mode == "discrete") {
+          for (int i = 0; i < 32; ++i)
+            expectedPaths.append(QJsonArray{QJsonArray{16 + i * step, 1024},
+                                            QJsonArray{17 + i * step, 1024}});
+        } else {
+          require(mode == "line" || mode == "path-endpoints" ||
+                      mode == "path-dabs" || mode == "path-halves" ||
+                      mode == "path-offgrid",
+                  "Unknown GIH cadence mode");
+          const int increment = mode == "path-dabs"      ? step
+                                : mode == "path-halves"  ? step / 2
+                                : mode == "path-offgrid" ? 17
+                                                         : end;
+          QJsonArray path;
+          for (int x = 16; x < end; x += increment)
+            path.append(QJsonArray{x, 1024});
+          path.append(QJsonArray{end, 1024});
+          expectedPaths.append(path);
+        }
+        const auto delivered = source["deliveryReport"].toObject();
+        require(source["cadencePaths"].toArray() == expectedPaths &&
+                    delivered["cadencePaths"].toArray() == expectedPaths &&
+                    delivered["strokeCount"].toInt() == expectedPaths.size() &&
+                    delivered["mode"].toString() ==
+                        (mode == "line" || mode == "discrete"
+                             ? "Node.paintLine"
+                             : "Node.paintPath"),
+                "GIH source cadence delivery differs from authored paths");
+        const auto labels =
+            source["resourceReadback"].toObject()["frameSelections"].toArray();
+        require(labels.size() == 32,
+                "Missing bounded source cadence frame labels");
+        for (const auto &label : labels)
+          require(label.isNull() ||
+                      (label.isDouble() && label.toDouble() >= 0 &&
+                       label.toDouble() <= 2 &&
+                       label.toDouble() == std::floor(label.toDouble())),
+                  "Invalid source cadence label");
+        for (int i = 0; i < expectedPaths.size(); ++i) {
+          const auto path = expectedPaths[i].toArray();
+          Preset separate = p;
+          separate.seed ^= UINT64_C(0xd1b54a32d192ed03) * std::uint64_t(i + 1);
+          Stroke dab(canvas, separate);
+          Stroke &target = mode == "discrete" ? dab : stroke;
+          for (int j = 0; j < path.size(); ++j) {
+            const auto point = path[j].toArray();
+            Sample sample = first;
+            sample.x = point[0].toDouble();
+            sample.y = point[1].toDouble();
+            sample.time = j / 240.;
+            require(target.add(sample), QString::fromStdString(target.error()));
+          }
+          if (mode == "discrete")
+            require(dab.finish(), QString::fromStdString(dab.error()));
+        }
+      } else if (fixtures["group"].toString() == "wetdrift") {
+        const auto spec = source["driftProbe"].toObject();
+        const int count = spec["nominalDabs"].toInt();
+        require(count == 1 || count == 10 || count == 100 || count == 1000 || count == 10000,
+                "Invalid drift checkpoint");
+        auto center = [](int index) {
+          const int row = index / 128, column = index % 128;
+          return QPoint(8 + 16 * (row % 2 ? 127 - column : column), 8 + 16 * row);
+        };
+        std::vector<QPoint> points{center(0)};
+        for (int i = 1; i < count; ++i) {
+          if (i > 1 && center(i) - center(i - 1) == center(i - 1) - center(i - 2))
+            points.back() = center(i);
+          else points.push_back(center(i));
+        }
+        points.push_back(center(count - 1) + (center(count) - center(count - 1)) / 16);
+        QJsonArray expectedPath;
+        for (const auto &point : points) expectedPath.append(QJsonArray{point.x(), point.y()});
+        const auto delivery = source["deliveryReport"].toObject();
+        const auto evidence = source["driftEvidence"].toObject();
+        require(source["sourcePath"].toArray() == expectedPath &&
+                    delivery["vertices"].toArray() == expectedPath &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["singleContinuousStroke"].toBool() &&
+                    evidence["observedDepositCells"].toInt() == count - (spec["calibration"].toBool() ? 0 : 1) &&
+                    evidence["maximumCellOffset"].toInt() <= 5,
+                "Missing continuous drift geometry/count evidence");
+        const QString model = spec["model"].toString();
+        require(p.profile == ("krita-5.3.4.1-" +
+                    (spec["calibration"].toBool() ? QString("hard-pixel") : model) + "-candidate-1").toStdString(),
+                "Drift imported a native conversion instead of source candidate");
+        for (size_t i = 0; i < points.size(); ++i) {
+          Sample event = first;
+          event.x = points[i].x(); event.y = points[i].y();
+          event.time = double(i) / 240;
+          require(stroke.add(event), QString::fromStdString(stroke.error()));
+        }
+      } else if (fixtures["group"].toString() == "gihlabels") {
         const auto path = source["sourcePath"].toArray();
         const auto delivery = source["deliveryReport"].toObject();
         require(path.size() == 96 && delivery["vertices"].toArray() == path &&
@@ -948,6 +1073,37 @@ int main(int argc, char **argv) {
                       duration == 1000000 || duration == 1125000 ||
                       duration == 1250000 || duration == 2250000,
                   "Unexpected paced duration");
+          const auto discarded = evidence["discardedTimingAttempts"].toArray();
+          require(evidence["discardedTimingAttempts"].isArray() &&
+                      discarded.size() <= 1,
+                  "Too many discarded timing acquisitions");
+          for (const auto &item : discarded) {
+            const auto attempt = item.toObject();
+            const auto detail = attempt["detail"].toObject();
+            const QString phase = detail["phase"].toString();
+            const int index = detail["index"].toInt(-1);
+            const auto authoredEvents = source["events"].toArray();
+            require(attempt["attempt"].toInt() == 1 &&
+                        attempt["reason"].toString() == "timing-only" &&
+                        attempt["cleanup"].toString() == "release-and-leave" &&
+                        (phase == "contact" || phase == "release") &&
+                        index >= 0 && index <= authoredEvents.size() &&
+                        (phase != "contact" || index < authoredEvents.size()) &&
+                        (phase != "release" || index == authoredEvents.size()),
+                    "Invalid timing-only discarded acquisition");
+            const double planned =
+                phase == "release"
+                    ? duration
+                    : authoredEvents[index].toObject()["timeUs"].toDouble();
+            const double elapsed = detail["elapsedUs"].toDouble();
+            const double late = detail["latenessUs"].toDouble();
+            require(std::isfinite(elapsed) && elapsed == std::floor(elapsed) &&
+                        detail["authoredUs"].toDouble() == planned &&
+                        detail["boundUs"].toDouble() == maxLateness &&
+                        late == elapsed - planned &&
+                        (late > maxLateness || late < -2000),
+                    "Discarded acquisition was inside the timing contract");
+          }
           const double origin =
               contacts[0].toObject()["monotonicUs"].toDouble();
           const auto authored = source["events"].toArray();
@@ -1105,6 +1261,34 @@ int main(int argc, char **argv) {
           }
         metrics["stochasticFrameSelections"] = labels;
       }
+      if (fixtures["group"].toString() == "gihcadence") {
+        QJsonArray labels;
+        for (int slot = 0; slot < 32; ++slot) {
+          const int cx =
+              16 +
+              slot * 8 * source["cadenceProbe"].toObject()["spacing"].toInt();
+          quint64 sums[3] = {0, 0, 0};
+          for (int y = 1018; y <= 1030; ++y)
+            for (int x = cx - 6; x <= cx + 6; ++x) {
+              const auto color = candidate.pixel(x, y);
+              sums[0] += qRed(color) * qAlpha(color);
+              sums[1] += qGreen(color) * qAlpha(color);
+              sums[2] += qBlue(color) * qAlpha(color);
+            }
+          const int winner = int(std::max_element(sums, sums + 3) - sums);
+          if (!sums[winner])
+            labels.append(QJsonValue(QJsonValue::Null));
+          else {
+            for (int channel = 0; channel < 3; ++channel)
+              require(channel == winner || sums[channel] == 0,
+                      "Candidate cadence cell mixes frame colors");
+            labels.append(winner);
+          }
+        }
+        metrics["candidateFrameSelections"] = labels;
+        metrics["cadenceQualification"] =
+            "Exploratory frame-advancement acquisition; no fitted source RNG";
+      }
       metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
@@ -1211,6 +1395,27 @@ int main(int argc, char **argv) {
             "convention)";
         metrics["sensorSourceParityQualified"] = false;
       }
+      if (fixtures["group"].toString() == "wetdrift") {
+        const auto spec = source["driftProbe"].toObject();
+        const int count = spec["nominalDabs"].toInt();
+        bool passed = stroke.dabCount() == size_t(count);
+        if (spec["calibration"].toBool())
+          passed = passed && metrics["maxAlphaError"].toDouble() == 0 &&
+                   metrics["maxRGBError"].toDouble() == 0;
+        else
+          passed = passed && metrics["premultipliedRGBMAE"].toDouble() <= 3 / 255.0 &&
+                   metrics["alphaMAE"].toDouble() <= 2 / 255.0 &&
+                   metrics["deltaE00BlackMean"].toDouble() <= 3 &&
+                   metrics["deltaE00WhiteMean"].toDouble() <= 3 &&
+                   metrics["deltaE00BlackP95"].toDouble() <= 6 &&
+                   metrics["deltaE00WhiteP95"].toDouble() <= 6;
+        metrics["driftCheckpoint"] = count;
+        metrics["driftModel"] = spec["model"];
+        metrics["driftCheckpointPassed"] = passed;
+        metrics["sourceCountQualification"] =
+            "Observable deposits and dry path controls; internal source dab counter unavailable";
+        if (!passed && !failedHardCases.contains(name)) failedHardCases.append(name);
+      }
       metrics["renderMilliseconds"] = elapsed;
       metrics["dabs"] = double(stroke.dabCount());
       metrics["diagnostics"] =
@@ -1223,6 +1428,20 @@ int main(int argc, char **argv) {
              fixtures["group"].toString() != "gihlabels") ||
                 stochasticReplicates.size() == 100,
             "Incomplete independent stochastic candidate workload");
+    if (fixtures["group"].toString() == "wetdrift") {
+      for (const QString &model : {QString("legacy-smear"), QString("legacy-dulling"),
+                                   QString("new-smear"), QString("new-dulling")}) {
+        double thousand = -1, tenThousand = -1;
+        for (const auto &value : results) {
+          const auto row = value.toObject();
+          if (row["driftModel"].toString() != model) continue;
+          if (row["driftCheckpoint"].toInt() == 1000) thousand = row["premultipliedRGBMAE"].toDouble();
+          if (row["driftCheckpoint"].toInt() == 10000) tenThousand = row["premultipliedRGBMAE"].toDouble();
+        }
+        if (thousand < 0 || tenThousand < 0 || tenThousand > thousand + 1 / 255.0)
+          failedHardCases.append("Source drift growth: " + model);
+      }
+    }
     QFile report(root.filePath("output/comparison.json"));
     require(report.open(QIODevice::WriteOnly),
             "Cannot write comparison report");

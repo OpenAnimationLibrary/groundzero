@@ -11,7 +11,7 @@ import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
 from . import repeat_pixels
-from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe
+from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe, cadence_probe, sequence_evidence, paced_policy
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
 from PyQt5.QtGui import QColor, QImage, QTabletEvent, QPainterPath
@@ -53,7 +53,61 @@ class Probe(Extension):
             return
         QTimer.singleShot(0 if delay is None else min(20, max(0, int(delay))), self.advance)
 
+    def paint_qualified(self, app, view, node, case, document, initial, width, height):
+        discarded = []
+        for attempt in range(2):
+            try:
+                delivery = yield from self.paint_case(app, view, node, case)
+                if "timedProbe" in case:
+                    delivery["discardedTimingAttempts"] = discarded
+                return delivery
+            except paced_policy.TimingFailure as error:
+                # paint_case releases contact/proximity before raising. Retry
+                # only a measured timing-contract violation, never output pixels.
+                record = {"attempt": attempt + 1, "reason": "timing-only",
+                          "cleanup": "release-and-leave", "detail": error.detail}
+                print("::notice title=Discarded paced acquisition::" + json.dumps(
+                    {"preset": case["preset"], **record,
+                     "disposition": "one-reset-retry" if attempt == 0 else "failed-no-further-retry"},
+                    separators=(",", ":")).replace("%", "%25"), flush=True)
+                if attempt:
+                    raise
+                discarded.append(record)
+                document.waitForDone()
+                if not node.setPixelData(QByteArray(initial), 0, 0, width, height):
+                    raise RuntimeError("Paced retry could not restore initial pixels")
+                document.refreshProjection()
+                document.waitForDone()
+                if bytes(node.pixelData(0, 0, width, height)) != initial:
+                    raise RuntimeError("Paced retry initial pixel restoration differs")
+                yield 20
+        raise RuntimeError("Unreachable paced acquisition retry state")
+
     def paint_case(self, app, view, node, case):
+        if "cadenceProbe" in case:
+            paths = cadence_probe.validate(case)
+            mode = case["cadenceProbe"]["mode"]
+            for points in paths:
+                if mode in ("line", "discrete"):
+                    node.paintLine(QPoint(*points[0]), QPoint(*points[-1]), 1, 1, "ForegroundColor")
+                else:
+                    path = QPainterPath()
+                    path.moveTo(*points[0])
+                    for point in points[1:]:
+                        path.lineTo(*point)
+                    node.paintPath(path, "ForegroundColor", "None")
+            return {"mode": "Node.paintLine" if mode in ("line", "discrete") else "Node.paintPath",
+                    "cadencePaths": paths, "strokeCount": len(paths), "physicalTabletClaimed": False}
+        if "driftProbe" in case:
+            from . import wet_drift_contract
+            wet_drift_contract.validate(case)
+            path = QPainterPath()
+            path.moveTo(*case["sourcePath"][0])
+            for point in case["sourcePath"][1:]:
+                path.lineTo(*point)
+            node.paintPath(path, "ForegroundColor", "None")
+            return {"mode": "Node.paintPath", "vertices": case["sourcePath"],
+                    "singleContinuousStroke": True, "physicalTabletClaimed": False}
         if "labelProbe" in case:
             label_probe.validate(case)
             path = QPainterPath()
@@ -196,36 +250,79 @@ class Probe(Extension):
         print("::notice title=Tablet source state::" + json.dumps(
             {"phase": "beforeContact", "state": before_contact}, separators=(",", ":")).replace(
                 "%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
+        stage_pixels = []
+        def capture_stage(phase):
+            if "startStateProbe" not in case:
+                return
+            rect = case["startStateProbe"]["rect"]
+            if (len(rect) != 4 or any(type(value) is not int for value in rect)
+                    or not 0 < rect[2] * rect[3] <= 4096):
+                raise RuntimeError("Invalid bounded start-state capture rectangle")
+            # Public Node APIs: paintable data may omit an indirect painting
+            # target, so retain its projection separately. No GUI screenshot
+            # or private paint-operation state is used.
+            app.activeDocument().waitForDone()
+            entry = {"phase": phase, "rect": rect, "channels": "BGRA8",
+                     "eventCount": len(delivered), "surfaces": {}}
+            for name, reader in (("paintable", node.pixelData),
+                                 ("projection", node.projectionPixelData)):
+                raw = bytes(reader(*rect))
+                if len(raw) != rect[2] * rect[3] * 4:
+                    raise RuntimeError("Incomplete start-state " + name + " raster")
+                entry["surfaces"][name] = {"zlibBase64": base64.b64encode(zlib.compress(raw)).decode(),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "nonzeroAlpha": sum(value != 0 for value in raw[3::4]),
+                    "maxAlpha": max(raw[3::4])}
+            stage_pixels.append(entry)
+        capture_stage("beforePress")
         contact_start_ns = time.monotonic_ns()
         for index, row in enumerate(rows):
             if paced:
                 deadline_ns = contact_start_ns + row["timeUs"] * 1000
                 while time.monotonic_ns() < deadline_ns:
                     yield max(1, math.ceil((deadline_ns - time.monotonic_ns()) / 1000000))
-                if time.monotonic_ns() - deadline_ns > case["timedProbe"]["maxLatenessUs"] * 1000:
-                    raise RuntimeError("Paced contact exceeded bounded lateness")
+                try:
+                    paced_policy.check("contact", index, row["timeUs"],
+                                       (time.monotonic_ns() - contact_start_ns) // 1000,
+                                       case["timedProbe"]["maxLatenessUs"])
+                except paced_policy.TimingFailure:
+                    if index:
+                        send(rows[index - 1], QEvent.TabletRelease, canvas, Qt.LeftButton, Qt.NoButton, 0)
+                    send(rows[max(0, index - 1)], QEvent.TabletLeaveProximity,
+                         QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
+                    raise
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
                  Qt.LeftButton, row["pressure"])
             yield
+            capture_stage("afterPress" if index == 0 else "afterMove" + str(index))
+        capture_stage("beforeRelease")
         if paced:
             deadline_ns = contact_start_ns + case["timedProbe"]["durationUs"] * 1000
             while time.monotonic_ns() < deadline_ns:
                 yield max(1, math.ceil((deadline_ns - time.monotonic_ns()) / 1000000))
-            if time.monotonic_ns() - deadline_ns > case["timedProbe"]["maxLatenessUs"] * 1000:
-                raise RuntimeError("Paced release exceeded bounded lateness")
+            try:
+                paced_policy.check("release", len(rows), case["timedProbe"]["durationUs"],
+                                   (time.monotonic_ns() - contact_start_ns) // 1000,
+                                   case["timedProbe"]["maxLatenessUs"])
+            except paced_policy.TimingFailure:
+                send(rows[-1], QEvent.TabletRelease, canvas, Qt.LeftButton, Qt.NoButton, 0)
+                send(rows[-1], QEvent.TabletLeaveProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
+                raise
         send(rows[-1], QEvent.TabletRelease, canvas, Qt.LeftButton, Qt.NoButton, 0)
         yield
+        capture_stage("afterRelease")
         send(rows[-1], QEvent.TabletLeaveProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
         yield
         return {"mode": "Qt tablet events", "canvasClass": canvas.metaObject().className(),
-                "smoothing": combo.currentText(),
+                "smoothing": combo.currentText(), "startStatePixels": stage_pixels,
                 "stateBeforeProximity": before_proximity,
                 "stateAfterProximity": after_proximity, "stateBeforeContact": before_contact,
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
                 "zoom": view.canvas().zoomLevel(),
                 "preferredCenter": [view.canvas().preferredCenter().x(), view.canvas().preferredCenter().y()],
-                "timing": "240 Hz event timestamps; Qt event-loop delivery, not physical device timing"}
+                "timing": ("Actual monotonic pacing with authored deadlines and measured delivery" if paced else
+                           "240 Hz event timestamps; Qt event-loop delivery, not physical device timing")}
 
     def render(self, app, output):
         build = app.version()
@@ -300,7 +397,7 @@ class Probe(Extension):
                         raise RuntimeError("Cannot clear source off-document fixture margin")
             report["documentIsolation"] = "full-raster reset before each independent stroke; input mode recorded per case"
             execution_cases = list(fixtures["cases"])
-            if fixtures.get("group") in ("gihstatistics", "gihlabels"):
+            if fixtures.get("group") in ("gihstatistics", "gihlabels", "gihcadence"):
                 random.Random(0x47494831).shuffle(execution_cases)
             for execution_ordinal, case in enumerate(execution_cases):
                 name = case["preset"]
@@ -335,6 +432,9 @@ class Probe(Extension):
                     boundary = case["wetThirdBoundary"]
                     row = row[:boundary * 4] + bytes((third[2], third[1], third[0], third[3])) * (w - boundary)
                 initial = row * h
+                if case.get("background") == "wet-drift":
+                    from . import wet_drift_contract
+                    initial = wet_drift_contract.initial()
                 if case.get("wetPattern") == "opaque-black-white-row":
                     boundary = math.ceil(case["wetBoundary"])
                     dark = bytes((0, 0, 0, 255)) * boundary + bytes((0, 0, 0, 0)) * (w - boundary)
@@ -512,13 +612,20 @@ class Probe(Extension):
                         raise RuntimeError("Source texture resource differs from original per-case pixels")
                 resource_resolution = (resource_probe.resolve(app, output.parent, case, effective_fields)
                                        if "resourceProbe" in case else None)
+                readback = lambda: node.pixelData(0, 0, w, h)
+                _, reset_checkpoint = yield from repeat_pixels.capture_checkpoint(
+                    readback, document.waitForDone, w * h * 4, name + ": initial reset", initial)
+                source_preset_hash = hashlib.sha256(Preset(view.currentBrushPreset()).toXML().encode()).hexdigest()
+                if source_preset_hash != hashlib.sha256(effective_xml.encode()).hexdigest():
+                    raise RuntimeError("Source preset changed across initial reset checkpoint: " + name)
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
-                delivery = yield from self.paint_case(app, view, node, case)
-                document.waitForDone()
+                delivery = yield from self.paint_qualified(app, view, node, case, document, initial, w, h)
                 checkpoint(name + ": read painted pixels")
-                raw = bytes(node.pixelData(0, 0, w, h))
+                raw, capture_checkpoint = yield from repeat_pixels.capture_checkpoint(
+                    readback, document.waitForDone, w * h * 4, name + ": first capture")
+                readback_checkpoints = [reset_checkpoint, capture_checkpoint]
                 if len(raw) != w * h * 4:
                     raise RuntimeError("Reference API returned an incomplete raster")
                 timed_evidence = (timed_probe.capture(case, effective_fields, delivery, raw, w)
@@ -564,10 +671,17 @@ class Probe(Extension):
                     if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
                         raise RuntimeError("Cannot reset repeated reference raster")
                     document.refreshProjection()
-                    document.waitForDone()
+                    _, reset_checkpoint = yield from repeat_pixels.capture_checkpoint(
+                        readback, document.waitForDone, w * h * 4,
+                        name + ": repeat reset " + str(repetition), initial)
+                    repeated_preset_hash = hashlib.sha256(Preset(view.currentBrushPreset()).toXML().encode()).hexdigest()
+                    if repeated_preset_hash != source_preset_hash:
+                        raise RuntimeError("Source preset changed before independent repeat: " + name)
                     repeated_delivery = yield from self.paint_case(app, view, node, case)
-                    document.waitForDone()
-                    repeated = bytes(node.pixelData(0, 0, w, h))
+                    repeated, capture_checkpoint = yield from repeat_pixels.capture_checkpoint(
+                        readback, document.waitForDone, w * h * 4,
+                        name + ": repeat capture " + str(repetition))
+                    readback_checkpoints.extend((reset_checkpoint, capture_checkpoint))
                     repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
                     canonical_repeats.append(repeat_pixels.canonical_hash(repeated))
                     difference = repeat_pixels.differences(raw, repeated)
@@ -589,10 +703,12 @@ class Probe(Extension):
                                                           list(raw[offset:offset+4]), list(repeated[offset:offset+4])])
                         def endpoints(value):
                             return [event for event in value.get("events", [])
-                                    if event["type"] in (int(QEvent.TabletPress), int(QEvent.TabletRelease))]
+                                    if event["type"] in (int(QEvent.TabletPress), int(QEvent.TabletRelease), "line-start", "line-end")]
                         detail = {"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes,
                                   "changedPixels": changed_pixels, **difference, "repeatSemantics": repeat_pixels.SEMANTICS,
                                   "canonicalRepeatHashes": canonical_repeats, "firstDifferencesBGRA8": first_differences,
+                                  "sourcePresetSha256": source_preset_hash, "repeatedPresetSha256": repeated_preset_hash,
+                                  "readbackCheckpoints": readback_checkpoints,
                                   "firstToolState": delivery.get("stateAfterProximity"),
                                   "repeatedToolState": repeated_delivery.get("stateAfterProximity"),
                                   "firstEndpoints": endpoints(delivery), "repeatedEndpoints": endpoints(repeated_delivery)}
@@ -685,8 +801,14 @@ class Probe(Extension):
                     boundary_outside = {"rect": outside_rect, "encoding": "zlib-base64-bgra8-row-major",
                                         "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
                                         "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
+                drift_evidence = None
+                if "driftProbe" in case:
+                    from . import wet_drift_contract
+                    drift_evidence = wet_drift_contract.capture(initial, raw, case)
                 resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
-                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence})
+                if resource_readback is not None:
+                    sequence_evidence.emit(case, resource_readback, delivery)
+                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

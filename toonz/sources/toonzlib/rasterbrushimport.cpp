@@ -501,9 +501,9 @@ bool eligiblePressureSensor(const QString &sensorXml,
   }
   return !xml.hasError() && depth == 0 && roots == 1 && curves == 1;
 }
-// Versioned source HSV admission: independently measured, one constant
-// pressure curve at a time. Unknown sensors, active combinations and varying
-// curves remain explicit native conversions rather than source candidates.
+// Versioned source HSV admission: fixed channel composition or one measured
+// identity-pressure channel. Validation rejects unsupported dynamic combinations
+// and contexts; unknown sensors remain explicit native conversions.
 bool sourceHsvSettings(const QMap<QString, QString> &fields,
                        SourceHsvChannel &channel, double &value,
                        std::array<SourceHsvControl, 3> &controls,
@@ -534,8 +534,7 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
       if (fields[flag] == "true") return false;
       continue;
     }
-    if ((fields[flag] == "true" && ++activeChannels > 1) ||
-        fields.value(prefix + "UseCurve") != "true" ||
+    if (fields.value(prefix + "UseCurve") != "true" ||
         fields.value(prefix + "UseSameCurve") != "true" ||
         fields.value(prefix + "Value") != "1" ||
         fields.value(prefix + "curveMode") != "0" ||
@@ -552,23 +551,30 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
     const auto &knots = curve.mappings.front().curve;
     if (knots.size() != 2 || knots[0].x != 0 || knots[1].x != 1) return false;
     const bool fixed    = knots[0].y == knots[1].y;
-    const bool identity = knots[0].y == 0 && knots[1].y == 1 &&
-                          (index != 1 || fields[flag] == "false");
+    const bool identity = knots[0].y == 0 && knots[1].y == 1;
     if (!fixed && !identity) return false;
     for (const auto &suffix : suffixes) {
       if (!fields.contains(prefix + suffix)) return false;
       accepted[prefix + suffix] = fields[prefix + suffix];
     }
     if (fields[flag] == "true") {
-      if (fixed) {
-        channel = SourceHsvChannel(index + 1);
-        value   = knots[0].y;
-      } else {
-        controls[index].enabled = true;
-        controls[index].control = std::move(curve);
-      }
+      ++activeChannels;
+      controls[index].enabled = true;
+      controls[index].control =
+          fixed ? Dynamic{knots[0].y, 0, {}} : std::move(curve);
     }
   }
+  // Preserve V1 representation for a single fixed channel. V2 stores joint
+  // fixed controls or one measured pressure control without ambiguous mixing.
+  if (activeChannels == 1)
+    for (size_t index = 0; index < 3; ++index)
+      if (controls[index].enabled && controls[index].control.mappings.empty()) {
+        channel  = SourceHsvChannel(index + 1);
+        value    = controls[index].control.value;
+        controls = {};
+        break;
+      }
+
   return true;
 }
 // Resolve only the measured static generated mask contract. Unknown enabled

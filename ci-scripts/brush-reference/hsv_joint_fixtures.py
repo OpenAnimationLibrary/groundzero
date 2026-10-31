@@ -25,6 +25,15 @@ def prepare(root, resources, preset_writer, group="hsvjoint"):
             ("hsv", (.2, .65, .85), False), ("hsv", (.8, .85, .65), False),
         ]
         colors = ([101, 137, 157, 255], [173, 91, 47, 255])
+    elif group == "hsvchroma":
+        # Low original chroma and positive saturation values away from the
+        # training controls; neither intermediate nor final chroma cap fires.
+        plans=[]
+        for saturation in (.55,.7,.9):
+            plans.extend([("s",(.5,saturation,.5),False),
+                          ("sv",(.5,saturation,.6),False),
+                          ("hsv",(.35,saturation,.8),False)])
+        colors=([120,128,136,255],[171,177,183,255])
     elif group != "hsvjoint":
         raise RuntimeError("Unknown joint HSV acquisition group")
     for color in colors:

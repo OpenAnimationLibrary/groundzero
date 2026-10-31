@@ -95,40 +95,54 @@ Pixel hsv(Pixel p, double degrees, double saturation, double brightness) {
   }
   return {(out.r + m) * p.a, (out.g + m) * p.a, (out.b + m) * p.a, p.a};
 }
-Pixel sourceHsvColor(Pixel color, SourceHsvChannel channel, double value) {
-  if (channel == SourceHsvChannel::Off) return color;
-  // Independently derived from original opaque RGB source captures. A neutral
-  // control is .5. Value lightens toward white rather than multiplying V;
-  // saturation increases additively above neutral, multiplicatively below it.
-  if (channel == SourceHsvChannel::Hue)
-    color = hsv(color, 360 * (value - .5), 1, 1);
-  else if (channel == SourceHsvChannel::Value) {
-    auto adjust = [value](double c) {
-      return value <= .5 ? c * (2 * value) : c + (1 - c) * (2 * value - 1);
-    };
-    color = {adjust(color.r), adjust(color.g), adjust(color.b), 1};
-  } else {
-    // Work in the source's encoded 8-bit foreground domain. Direct affine
-    // interpolation avoids a needless HSV roundtrip changing half-byte ties.
-    const double r    = std::floor(unit(color.r) * 255 + .5),
-                 g    = std::floor(unit(color.g) * 255 + .5),
-                 b    = std::floor(unit(color.b) * 255 + .5);
-    const double high = std::max({r, g, b}), low = std::min({r, g, b});
-    const double saturation = high > 0 ? (high - low) / high : 0;
-    if (saturation > 0) {
-      const double factor = value <= .5
-                                ? 2 * value
-                                : unit(saturation + 2 * value - 1) / saturation;
-      auto adjust         = [high, factor](double c) {
-        return std::floor(std::max(0.0, high - (high - c) * factor) + .5) / 255;
-      };
-      color = {adjust(r), adjust(g), adjust(b), 1};
-    }
-    // Achromatic foreground has no hue to saturate. Independent gray
-    // heldouts remain gray even above neutral; never invent a red hue.
-  }
+Pixel sourceHsvTransform(Pixel color, const std::array<bool, 3> &enabled,
+                         const std::array<double, 3> &values) {
+  if (!enabled[0] && !enabled[1] && !enabled[2]) return color;
+  if (enabled[0]) color = hsv(color, 360 * (values[0] - .5), 1, 1);
   auto byte = [](double c) { return std::floor(unit(c) * 255 + .5) / 255; };
-  return {byte(color.r), byte(color.g), byte(color.b), 1};
+  if (!enabled[1]) {
+    // Preserve direct affine RGB math for H/V-only byte ties.
+    if (enabled[2]) {
+      const double d = 2 * values[2] - 1;
+      auto adjust    = [d](double c) {
+        return d <= 0 ? c * (1 + d) : c + d * (1 - c);
+      };
+      color = {adjust(color.r), adjust(color.g), adjust(color.b), 1};
+    }
+    return {byte(color.r), byte(color.g), byte(color.b), 1};
+  }
+  // Independently measured chroma-domain adjustment, not native HSV scaling.
+  // Expand original chroma, cap its intermediate range at one encoded unit,
+  // apply Value to maximum/chroma, then cap final chroma to final maximum.
+  // This preserves hue without clamping individual negative intermediates.
+  const double r = color.r * 255, g = color.g * 255, b = color.b * 255;
+  const double originalHigh = std::max({r, g, b}), low = std::min({r, g, b});
+  const double originalChroma = originalHigh - low;
+  const double d              = 2 * values[1] - 1;
+  double chroma =
+      std::min(255.0, originalChroma * (d <= 0 ? 1 + d : 1 + d + 2 * d * d));
+  double high = originalHigh;
+  if (enabled[2]) {
+    const double v = 2 * values[2] - 1;
+    high           = v <= 0 ? high * (1 + v) : high + v * (255 - high);
+    chroma *= v <= 0 ? 1 + v : 1 - v;
+  }
+  chroma              = std::min(high, chroma);
+  const double factor = originalChroma > 0 ? chroma / originalChroma : 0;
+  auto adjust         = [high, originalHigh, factor](double c) {
+    return std::floor(std::max(0.0, high - (originalHigh - c) * factor) + .5) /
+           255;
+  };
+  return {adjust(r), adjust(g), adjust(b), 1};
+}
+Pixel sourceHsvColor(Pixel color, SourceHsvChannel channel, double value) {
+  std::array<bool, 3> enabled{};
+  std::array<double, 3> values{.5, .5, .5};
+  if (channel != SourceHsvChannel::Off) {
+    enabled[int(channel) - 1] = true;
+    values[int(channel) - 1]  = value;
+  }
+  return sourceHsvTransform(color, enabled, values);
 }
 
 double arc(double x) { return std::remainder(x, 2 * pi); }
@@ -405,19 +419,26 @@ std::string validate(const Preset &p) {
       !std::isfinite(p.sourceHsvValue) || p.sourceHsvValue < 0 ||
       p.sourceHsvValue > 1)
     return "Invalid source HSV setting";
-  int hsvV2Active = 0;
+  int hsvV2Active = 0, hsvV2Dynamic = 0;
   for (size_t channel = 0; channel < p.sourceHsvV2.size(); ++channel) {
     const auto &setting = p.sourceHsvV2[channel];
     if (setting.enabled) {
       ++hsvV2Active;
-      if (channel == 1 || setting.control.value != 1 ||
-          !linearPressure(setting.control))
-        return "Unimplemented source HSV V2 control";
+      if (setting.control.mappings.empty()) {
+        if (!std::isfinite(setting.control.value) ||
+            setting.control.value < 0 || setting.control.value > 1 ||
+            setting.control.minimum != 0)
+          return "Invalid fixed source HSV V2 control";
+      } else {
+        ++hsvV2Dynamic;
+        if (setting.control.value != 1 || !linearPressure(setting.control))
+          return "Unimplemented source HSV V2 dynamic control";
+      }
     } else if (setting.control.value != .5 || setting.control.minimum != 0 ||
                !setting.control.mappings.empty())
       return "Inactive source HSV V2 control must be neutral";
   }
-  if (hsvV2Active > 1 ||
+  if ((hsvV2Dynamic && hsvV2Active > 1) ||
       (hsvV2Active &&
        (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5)))
     return "Conflicting source HSV versions or unimplemented composition";
@@ -426,12 +447,12 @@ std::string validate(const Preset &p) {
       p.pickupControl.mappings.empty() && p.colorRateControl.mappings.empty();
   if ((p.sourceHsvChannel != SourceHsvChannel::Off || hsvV2Active) &&
       ((p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" && !staticWetHsv) ||
-       p.texture.image ||
-       p.wash || p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
-       p.tip.antialiasEdges || p.blend != Blend::Normal ||
-       p.opacity.value != 1 || !p.opacity.mappings.empty() ||
-       p.flow.value != 1 || !p.flow.mappings.empty() ||
-       !p.size.mappings.empty() || p.aspect.value != 1 || p.angle.value != 0))
+       p.texture.image || p.wash || p.tip.shape != Shape::Round ||
+       p.tip.hardness != 1 || p.tip.antialiasEdges ||
+       p.blend != Blend::Normal || p.opacity.value != 1 ||
+       !p.opacity.mappings.empty() || p.flow.value != 1 ||
+       !p.flow.mappings.empty() || !p.size.mappings.empty() ||
+       p.aspect.value != 1 || p.angle.value != 0))
     return "Unimplemented source HSV setting combination";
   if ((sourceHard || sourceWet) && p.texture.image &&
       (p.tip.antialiasEdges || p.tip.hardness != 1 ||
@@ -873,8 +894,12 @@ struct Stroke::Impl {
            (p.secondary.enabled && p.secondary.independentSpacing);
   }
   bool needsSourcePressureLookahead() const {
-    return !p.size.mappings.empty() || p.sourceHsvV2[0].enabled ||
-           p.sourceHsvV2[2].enabled;
+    return !p.size.mappings.empty() ||
+           std::any_of(p.sourceHsvV2.begin(), p.sourceHsvV2.end(),
+                       [](const SourceHsvControl &control) {
+                         return control.enabled &&
+                                !control.control.mappings.empty();
+                       });
   }
   Sample sourcePressureSample(const Sample &geometric) const {
     Sample value = geometric;
@@ -951,7 +976,9 @@ struct Stroke::Impl {
     sourceInputDistance += distance;
     if (!appendSourcePoint(s, sourceInputDistance)) return false;
     size_t events = 0;
-    while (sourceNextDab + .5 < sourceInputDistance - 1e-12) {
+    // The future sample is available at equality too. Excluding that exact
+    // half-pixel boundary drops the final stamp in small-tip source traces.
+    while (sourceNextDab + .5 <= sourceInputDistance) {
       if (++events > 65536) {
         failure = "Stroke input event work limit exceeded";
         return false;
@@ -1628,20 +1655,24 @@ struct Stroke::Impl {
         hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
             eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s)),
         p.sourceHsvChannel, p.sourceHsvValue);
-    for (size_t channel = 0; channel < p.sourceHsvV2.size(); ++channel)
-      if (p.sourceHsvV2[channel].enabled)
-        foreground = sourceHsvColor(
-            foreground, SourceHsvChannel(channel + 1),
-            eval(p.sourceHsvV2[channel].control, sourcePressureSample(s)));
+    std::array<bool, 3> hsvEnabled{};
+    std::array<double, 3> hsvValues{.5, .5, .5};
+    for (size_t channel = 0; channel < 3; ++channel) {
+      hsvEnabled[channel] = p.sourceHsvV2[channel].enabled;
+      if (hsvEnabled[channel])
+        hsvValues[channel] =
+            eval(p.sourceHsvV2[channel].control, sourcePressureSample(s));
+    }
+    foreground = sourceHsvTransform(foreground, hsvEnabled, hsvValues);
     if (!dabs) reservoir = foreground;
     const Sample sizeSample = sourcePressureSample(s);
     const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
     const double diameter =
                      std::max(sourceHard ? .5 : .25, eval(p.size, sizeSample)),
-                 radius       = diameter * .5;
-    spacing                   = sourceHard ? diameter * std::max(.02, p.spacing)
-                                : sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
-                                                           : diameter * p.spacing;
+                 radius = diameter * .5;
+    spacing = sourceHard ? std::max(.5, diameter * std::max(.02, p.spacing))
+              : sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
+                                         : diameter * p.spacing;
     const double aspect       = std::max(.01, eval(p.aspect, s));
     const double angleDegrees = eval(p.angle, s);
     // The measured barrel mapping is periodic; evaluate equivalent angles in

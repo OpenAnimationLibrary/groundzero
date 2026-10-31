@@ -57,12 +57,23 @@ class JointHsvEvidence(unittest.TestCase):
         root=Path(self.temp.name)
         prepare_pressure(root,root,lambda *args:b"original fixture placeholder")
         matrix=json.loads((root/"output/fixtures.json").read_text())
-        self.assertEqual(len(matrix["cases"]),16)
+        self.assertEqual(len(matrix["cases"]),24)
         self.assertEqual({tuple(c["pressure"]) for c in matrix["cases"]},
                          {(.125,.875),(.875,.125)})
-        self.assertEqual({c["sensorProbe"]["target"] for c in matrix["cases"]},{"h","v"})
+        self.assertEqual({c["sensorProbe"]["target"] for c in matrix["cases"]},{"h","s","v"})
         self.assertTrue(all(c["delivery"]=="Node.paintLine" and "events" not in c
                             for c in matrix["cases"]))
+
+    def test_low_chroma_heldouts_avoid_both_saturation_caps(self):
+        root=Path(self.temp.name)
+        prepare(root,root,lambda *args:b"original fixture placeholder","hsvchroma")
+        matrix=json.loads((root/"output/fixtures.json").read_text())
+        self.assertEqual(len(matrix["cases"]),36)
+        for case in matrix["cases"]:
+            foreground=case["foregroundRGBA8"][:3]
+            # Even the largest possible qualified positive-S multiplier (4)
+            # leaves these original chromas below their original maximum.
+            self.assertLess((max(foreground)-min(foreground))*4,min(foreground))
 
     def test_every_channel_payload_is_checked(self):
         for channel in "hsv":

@@ -22,7 +22,7 @@ def resolve(app, root, case, effective_fields):
     checksum = brush.get("md5sum", "")
     if checksum and checksum.lower() != expected["md5"]:
         raise RuntimeError("Effective source brush checksum disagrees with original resource")
-    if (abs(float(brush.get("spacing", "nan")) - 4) > 1e-9 or
+    if (abs(float(brush.get("spacing", "nan")) - case["spacing"]) > 1e-9 or
             not math.isfinite(float(brush.get("spacing", "nan")))):
         raise RuntimeError("Effective source resource spacing differs from authored fixture")
     matches = [r for r in app.resources("brush").values() if Path(r.filename()).name == filename]
@@ -46,6 +46,9 @@ def readback(raw, width, case):
     if "labelProbe" in case:
         from . import label_probe
         return label_probe.capture(raw, width, case)
+    if "cadenceProbe" in case:
+        from . import cadence_probe
+        cadence_probe.validate(case)
     spec = case["resourceProbe"]
     left, top, w, h = spec["rect"]
     pixels = b"".join(raw[(y * width + left) * 4:(y * width + left + w) * 4]
@@ -59,7 +62,7 @@ def readback(raw, width, case):
         selections = []
         radius = math.ceil(case["diameter"] / 2) + 2
         for slot in range(spec["expectedSlots"]):
-            cx = 256 + slot * case["diameter"] * 4
+            cx = (16 if "cadenceProbe" in case else 256) + slot * case["diameter"] * case["spacing"]
             sums = [0, 0, 0]
             for y in range(1024 - radius, 1024 + radius + 1):
                 for x in range(cx - radius, cx + radius + 1):
@@ -80,7 +83,7 @@ def readback(raw, width, case):
 
 
 def summarize(records):
-    random = [r for r in records if r.get("resourceProbe", {}).get("kind") == "random"]
+    random = [r for r in records if "cadenceProbe" not in r and r.get("resourceProbe", {}).get("kind") == "random"]
     if not random:
         return None
     if len(random) != 100 or {r["resourceProbe"]["replicate"] for r in random} != set(range(100)):

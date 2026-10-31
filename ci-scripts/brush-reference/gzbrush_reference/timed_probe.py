@@ -5,6 +5,7 @@ import json
 import zlib
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QEvent
+from . import paced_policy
 
 
 def validate(case):
@@ -21,6 +22,8 @@ def validate(case):
 
 def capture(case, fields, delivery, raw, width):
     validate(case)
+    discarded = delivery.get("discardedTimingAttempts", [])
+    paced_policy.validate_discarded(discarded, case)
     controls = {}
     for key, wanted in case['overrides'].items():
         actual = fields.get(key)
@@ -51,7 +54,7 @@ def capture(case, fields, delivery, raw, width):
     pixels = b''.join(raw[(y * width + left) * 4:(y * width + left + w) * 4] for y in range(top, top + h))
     if sum(v != 0 for v in pixels[3::4]) != sum(v != 0 for v in raw[3::4]):
         raise RuntimeError('Timed stroke escaped captured region')
-    return {'effectiveControls': controls, 'actualElapsedUs': elapsed, 'deliveredContacts': contacts,
+    return {'effectiveControls': controls, 'actualElapsedUs': elapsed, 'discardedTimingAttempts': discarded, 'deliveredContacts': contacts,
             'release': releases[0], 'actualTimingVerified': True, 'sourceParityQualified': False,
             'rect': case['timedProbe']['rect'], 'encoding': 'zlib-base64-bgra8-row-major',
             'data': base64.b64encode(zlib.compress(pixels)).decode(),
@@ -64,7 +67,8 @@ def emit_notices(name, evidence):
         if len(text) > 3900:
             raise RuntimeError('Timed diagnostic exceeds bound')
         print('::notice title=Timed source capture::' + text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'), flush=True)
-    emit('controls', {'effectiveControls': evidence['effectiveControls'], 'actualElapsedUs': evidence['actualElapsedUs']})
+    emit('controls', {'effectiveControls': evidence['effectiveControls'], 'actualElapsedUs': evidence['actualElapsedUs'],
+                      'discardedTimingAttempts': evidence['discardedTimingAttempts']})
     events = evidence['deliveredContacts'] + [evidence['release']]
     for offset in range(0, len(events), 3):
         emit('events', {'offset': offset, 'total': len(events), 'events': events[offset:offset + 3]})

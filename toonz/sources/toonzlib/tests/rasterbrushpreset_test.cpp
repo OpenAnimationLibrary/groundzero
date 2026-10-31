@@ -714,6 +714,50 @@ void testBundles() {
   require(!importBrush(archive(entries, false), "bundle", error).complete,
           "missing manifest resource accepted");
 }
+void testSourceMaskMalformedCodec() {
+  QString error;
+  const auto imported =
+      importBrush(RasterBrushTest::maskedPixelKpp(QString()), "kpp", error);
+  require(imported.records.size() == 1 && error.isEmpty(),
+          "masked codec fixture import failed");
+  const auto bytes = encode(imported.records.front(), error);
+  require(!bytes.isEmpty() && error.isEmpty(), "masked codec fixture failed");
+  const auto root     = QJsonDocument::fromJson(bytes).object();
+  const auto settings = root["settings"].toObject();
+  const auto original = settings["sourceMaskedV1"].toObject();
+  require(original.size() == 9, "masked codec fixture has unexpected fields");
+  auto reject = [&](const QJsonValue &value) {
+    auto changed               = root;
+    auto controls              = settings;
+    controls["sourceMaskedV1"] = value;
+    changed["settings"]        = controls;
+    const auto rejected        = decode(QJsonDocument(changed).toJson(), error);
+    require(!error.isEmpty() && !rejected.decoded,
+            "malformed source mask codec fields accepted");
+  };
+  for (auto field = original.begin(); field != original.end(); ++field) {
+    auto missing = original;
+    missing.remove(field.key());
+    reject(missing);
+    auto wrongType         = original;
+    wrongType[field.key()] = QJsonArray{field.value()};
+    reject(wrongType);
+    auto nullField         = original;
+    nullField[field.key()] = QJsonValue(QJsonValue::Null);
+    reject(nullField);
+  }
+  auto extra                = original;
+  extra["futureActiveMask"] = true;
+  reject(extra);
+  auto unknownMode    = original;
+  unknownMode["mode"] = "unimplemented-mask-mode";
+  reject(unknownMode);
+  reject(QJsonArray{});
+  reject(QJsonValue(QJsonValue::Null));
+  const auto valid = decode(bytes, error);
+  require(error.isEmpty() && valid.decoded && valid.preset.sourceMasked.enabled,
+          "malformed decode poisoned subsequent valid mask decode");
+}
 void testSourceMaskImport() {
   struct Canvas : Surface {
     std::vector<Pixel> pixels = std::vector<Pixel>(128 * 64);
@@ -773,6 +817,7 @@ void testSourceMaskImport() {
   }
 }
 void testImports() {
+  testSourceMaskMalformedCodec();
   testSourceMaskImport();
   QString error;
   const size_t abrBytes = 2 * (sizeof(Pixel) + 1);
@@ -889,80 +934,98 @@ void testImports() {
   for (const QString &hsvModel :
        {QString(), QString("legacy-smear"), QString("new-smear"),
         QString("legacy-dulling"), QString("new-dulling")})
-  for (const QString &target : {QString("h"), QString("s"), QString("v")})
-    for (int variant = 0; variant < 5; ++variant) {
-      QImage image = QImage::fromData(hardPixelKpp("buildUp", hsvModel), "PNG");
-      QString xml  = image.text("preset"), extra;
-      auto param   = [&](const QString &key, const QString &value) {
-        extra +=
-            "<param name=\"" + key + "\">" + value.toHtmlEscaped() + "</param>";
-      };
-      for (const QString &key : {QString("h"), QString("s"), QString("v")})
-        param("Pressure" + key,
-              key == target && variant != 1 ? "true" : "false");
-      const QString curve = variant == 2   ? "0,0.2;1,0.8;"
-                            : variant == 4 ? "0,0;1,1;"
-                                           : "0,0.6;1,0.6;";
-      param(target + "UseCurve", "true");
-      param(target + "UseSameCurve", "true");
-      param(target + "Value", "1");
-      param(target + "curveMode", "0");
-      param(target + "commonCurve", curve);
-      param(target + "Sensor",
-            "<params id=\"" + QString(variant == 3 ? "rotation" : "pressure") +
-                "\"><curve>" + curve + "</curve></params>");
-      xml.replace("</Preset>", extra + "</Preset>");
-      image.setText("preset", xml);
-      QByteArray bytes;
-      QBuffer buffer(&bytes);
-      buffer.open(QIODevice::WriteOnly);
-      require(image.save(&buffer, "PNG"), "source HSV fixture encoding failed");
-      const auto imported = importBrush(bytes, "kpp", error);
-      require(imported.records.size() == 1, "source HSV import lost preset");
-      const auto &record = imported.records.front();
-      const bool candidate =
-          record.preset.profile ==
-              ("krita-5.3.4.1-" +
-               (hsvModel.isEmpty() ? QString("hard-pixel") : hsvModel) +
-               "-candidate-1").toStdString();
-      require(candidate == (variant < 2 ||
-                            (hsvModel.isEmpty() && variant == 4 && target != "s")),
-              "source HSV eligibility admitted unsupported controls");
-      if (candidate) {
-        const auto expected = (variant == 1 || variant == 4)
-                                  ? SourceHsvChannel::Off
-                              : target == "h" ? SourceHsvChannel::Hue
-                              : target == "s" ? SourceHsvChannel::Saturation
-                                              : SourceHsvChannel::Value;
-        require(record.preset.sourceHsvChannel == expected,
-                "source HSV enabled state lost");
-        const auto restored = decode(encode(record, error), error);
+    for (const QString &target : {QString("h"), QString("s"), QString("v")})
+      for (int variant = 0; variant < 5; ++variant) {
+        QImage image =
+            QImage::fromData(hardPixelKpp("buildUp", hsvModel), "PNG");
+        QString xml = image.text("preset"), extra;
+        auto param  = [&](const QString &key, const QString &value) {
+          extra += "<param name=\"" + key + "\">" + value.toHtmlEscaped() +
+                   "</param>";
+        };
+        for (const QString &key : {QString("h"), QString("s"), QString("v")})
+          param("Pressure" + key,
+                key == target && variant != 1 ? "true" : "false");
+        const QString curve = variant == 2   ? "0,0.2;1,0.8;"
+                              : variant == 4 ? "0,0;1,1;"
+                                             : "0,0.6;1,0.6;";
+        param(target + "UseCurve", "true");
+        param(target + "UseSameCurve", "true");
+        param(target + "Value", "1");
+        param(target + "curveMode", "0");
+        param(target + "commonCurve", curve);
+        param(target + "Sensor",
+              "<params id=\"" +
+                  QString(variant == 3 ? "rotation" : "pressure") +
+                  "\"><curve>" + curve + "</curve></params>");
+        xml.replace("</Preset>", extra + "</Preset>");
+        image.setText("preset", xml);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        require(image.save(&buffer, "PNG"),
+                "source HSV fixture encoding failed");
+        const auto imported = importBrush(bytes, "kpp", error);
+        require(imported.records.size() == 1, "source HSV import lost preset");
+        const auto &record = imported.records.front();
+        const bool candidate =
+            record.preset.profile ==
+            ("krita-5.3.4.1-" +
+             (hsvModel.isEmpty() ? QString("hard-pixel") : hsvModel) +
+             "-candidate-1")
+                .toStdString();
         require(
-            error.isEmpty() && restored.preset.sourceHsvChannel == expected &&
-                restored.preset.sourceHsvValue == record.preset.sourceHsvValue,
-            "source HSV portable lifecycle lost versioned settings");
-        const int index = target == "h" ? 0 : target == "s" ? 1 : 2;
-        require(restored.preset.sourceHsvV2[index].enabled == (variant == 4),
-                "source HSV V2 portable enabled state lost");
-        if (variant == 4) {
-          const auto &control = restored.preset.sourceHsvV2[index].control;
-          require(control.value == 1 && control.mappings.size() == 1 &&
-                      control.mappings[0].sensor == Sensor::Pressure &&
-                      control.mappings[0].curve.size() == 2 &&
-                      control.mappings[0].curve[1].y == 1,
-                  "source HSV V2 portable control lost");
-          auto conflict                    = restored;
-          conflict.preset.sourceHsvChannel = SourceHsvChannel::Hue;
-          require(encode(conflict, error).isEmpty(),
-                  "conflicting HSV versions encoded");
-          conflict                       = restored;
-          conflict.preset.sourceHsvV2[1] = conflict.preset.sourceHsvV2[index];
-          require(encode(conflict, error).isEmpty(),
-                  "unqualified joint HSV encoded");
-          error.clear();
+            candidate == (variant < 2 || (hsvModel.isEmpty() && variant == 4)),
+            "source HSV eligibility admitted unsupported controls");
+        if (candidate) {
+          const auto expected = (variant == 1 || variant == 4)
+                                    ? SourceHsvChannel::Off
+                                : target == "h" ? SourceHsvChannel::Hue
+                                : target == "s" ? SourceHsvChannel::Saturation
+                                                : SourceHsvChannel::Value;
+          require(record.preset.sourceHsvChannel == expected,
+                  "source HSV enabled state lost");
+          const auto restored = decode(encode(record, error), error);
+          require(error.isEmpty() &&
+                      restored.preset.sourceHsvChannel == expected &&
+                      restored.preset.sourceHsvValue ==
+                          record.preset.sourceHsvValue,
+                  "source HSV portable lifecycle lost versioned settings");
+          const int index = target == "h" ? 0 : target == "s" ? 1 : 2;
+          require(restored.preset.sourceHsvV2[index].enabled == (variant == 4),
+                  "source HSV V2 portable enabled state lost");
+          if (variant == 4) {
+            const auto &control = restored.preset.sourceHsvV2[index].control;
+            require(control.value == 1 && control.mappings.size() == 1 &&
+                        control.mappings[0].sensor == Sensor::Pressure &&
+                        control.mappings[0].curve.size() == 2 &&
+                        control.mappings[0].curve[1].y == 1,
+                    "source HSV V2 portable control lost");
+            auto conflict                    = restored;
+            conflict.preset.sourceHsvChannel = SourceHsvChannel::Hue;
+            require(encode(conflict, error).isEmpty(),
+                    "conflicting HSV versions encoded");
+            conflict = restored;
+            conflict.preset.sourceHsvV2[(index + 1) % 3] =
+                conflict.preset.sourceHsvV2[index];
+            require(encode(conflict, error).isEmpty(),
+                    "unqualified joint HSV encoded");
+            error.clear();
+          }
         }
       }
-    }
+  {
+    auto joint =
+        importBrush(hardPixelKpp("buildUp"), "kpp", error).records.front();
+    joint.preset.sourceHsvV2[1] = {true, Dynamic{.65, 0, {}}};
+    joint.preset.sourceHsvV2[2] = {true, Dynamic{.85, 0, {}}};
+    const auto restored         = decode(encode(joint, error), error);
+    require(error.isEmpty() && restored.preset.sourceHsvV2[1].enabled &&
+                restored.preset.sourceHsvV2[1].control.value == .65 &&
+                restored.preset.sourceHsvV2[2].control.value == .85 &&
+                restored.preset.sourceHsvChannel == SourceHsvChannel::Off,
+            "joint HSV portable controls lost");
+  }
   auto numericSpelling =
       importBrush(hardPixelKpp("numericSpelling"), "kpp", error);
   require(numericSpelling.complete &&
