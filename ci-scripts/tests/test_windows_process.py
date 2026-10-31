@@ -312,8 +312,9 @@ class OriginalTimeoutDebuggerContracts(unittest.TestCase):
         process, api, _ = self.hanging_process()
         def launch(command, **options):
             self.assertEqual(command[0], str(self.debugger))
-            for flag in ("-pv", "-pd", "-sins", "-netsyms:no", "-noshell", "-lines"):
+            for flag in ("-pv", "-sins", "-netsyms:no", "-noshell", "-lines"):
                 self.assertIn(flag, command)
+            self.assertNotIn("-pd", command)
             self.assertEqual(command[command.index("-p") + 1], str(process.pid))
             self.assertNotIn("-z", command)
             self.assertNotIn(str(self.executable), command)
@@ -322,7 +323,7 @@ class OriginalTimeoutDebuggerContracts(unittest.TestCase):
             self.assertIn("~* kb 40", commands)
             self.assertIn("lmvm Fixture", commands)
             self.assertIn("!lmi Fixture", commands)
-            self.assertEqual(commands.split(";")[-1].strip(), "qd")
+            self.assertEqual([part.strip() for part in commands.split(";")[-2:]], [".detach", "q"])
             self.assertEqual(options["timeout"], 45)
             self.assertNotIn("on_timeout", options)
             self.assertNotIn("_NT_SYMBOL_PATH", options["environment"])

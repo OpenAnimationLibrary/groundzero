@@ -58,9 +58,12 @@ def capture_original_windows_timeout(process, executable, symbol_directories,
         # reading identities so a late natural exit is explicitly unavailable.
         if process.poll() is not None:
             return "\n".join(identity) + "\nOriginal timeout process exited before stack capture.\n", True
+        # .detach explicitly supports noninvasive targets and leaves them
+        # alive; q then exits the dormant debugger. -pd's invasive detach-on-
+        # exit setup is rejected by this SDK before noninvasive attachment.
         commands = (".echo Original Windows timeout live threads (no replay); |; "
-                    f"lmvm {module}; !lmi {module}; ~* kb 40; qd")
-        command = [str(debugger), "-pv", "-p", str(pid), "-pd", "-sins", "-netsyms:no",
+                    f"lmvm {module}; !lmi {module}; ~* kb 40; .detach; q")
+        command = [str(debugger), "-pv", "-p", str(pid), "-sins", "-netsyms:no",
                    "-noshell", "-ses", "-lines", "-y", ";".join(map(str, symbols)), "-c", commands]
         environment = os.environ.copy()
         for name in ("_NT_SYMBOL_PATH", "_NT_ALT_SYMBOL_PATH", "_NT_EXECUTABLE_IMAGE_PATH"):
