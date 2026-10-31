@@ -1,0 +1,117 @@
+PR #115 RASTER BRUSH HANDOFF
+Status: PAUSED. No merge or readiness claim.
+Recorded 2026-10-31. This update publishes documentation only.
+
+REFERENCES AND PRESERVED WORK
+PR: https://github.com/OpenAnimationLibrary/groundzero/pull/115
+Branch: ci-tests/raster-brush-compatibility
+Published implementation at pause:
+  1c62ec606d9ca93990094d547c63ce88a69fdb5c
+Preserved, unpublished implementation/fix tip:
+  44022b4c81ae60083a157fe8cd051e18ee2456ed
+Separate preserved application-test commit, not integrated into that tip:
+  73073046dae45144d020f9a9f22fee32a77a31f6
+Unpublished references require the preserved checkout; this documentation
+commit does not publish them. Do not assume they are available on GitHub.
+The five other improvements PRs (#116-120) have merged. Recorded edition
+merge: 69b28db03270944ff9d05a96e892e0f753987101. No code reconciliation
+was performed for this documentation update.
+
+IMPLEMENTED PROGRESS, NOT A VERIFICATION CLAIM
+The published implementation provides an opt-in regular RGBA8 raster brush
+workflow while preserving the existing MyPaint/TLV/vector paths. It includes
+native dynamics/wet painting, bounded isolated import, editable portable
+presets, resource-rights-aware export and hash repair, and application
+undo/cancel/frame/save integration. Versioned experimental source profiles
+cover measured Pixel geometry/pressure/HSV, fixed bitmap and PNG-mask sampling,
+incremental GIH, pressure Mirror, wet geometry/HSV interactions, and an explicit
+timer-event airbrush runtime. Native-copy conversion discloses source-only
+changes. Source import admission and reference verification are separate.
+
+Preserved unpublished work includes source Distance state and periodic editor
+support, additional masked-primary composition, fixture completeness checks,
+explicit rejection of outside-contract spacing, and the failure corrections
+below. The separate application-test commit covers wet HSV/texture editing,
+painting, undo/redo, cancellation, persistence, export and resource repair.
+These changes have not been qualified together in CI.
+
+KNOWN FAILURES AND DIAGNOSES AT PAUSE
+Parser run 41156677049 failed on Windows Qt5/Qt6 and macOS Qt6:
+- Periodic Time equivalence: absolute timestamp interpolation introduced
+  epoch-dependent rounding. Local fix 44022b4c8 normalizes timestamps before
+  interpolation and preserves exact equivalence checks.
+- Wet reverse footprint: the new test used zero pickup, preventing the legacy
+  model from exposing its painted footprint. Local fix 698342c4f uses nonzero
+  pickup while retaining exact footprint and partition assertions.
+- Wet joint HSV: the test expected cyan for a 90-degree hue change. Local fix
+  698342c4f corrects the expected encoded foreground; no tolerance is relaxed.
+- Periodic HSV rejection: structurally decoded metadata was incorrectly treated
+  as semantic acceptance. Local fix 7f3ebe25c checks semantic rejection, error,
+  failed re-encoding and zero imported records. Production rejection remains.
+- Optional airbrush field: the test edited the outer portable envelope instead
+  of package.settings. Local fix 44022b4c8 corrects the test nesting.
+
+The local fixes are committed but unpublished and untested together. Worker
+process/response-file checks and native metrics passed within those failed
+parser jobs; that does not make the parser suite or PR green. Stale GIH/wet-HSV
+matrix-count guards were also corrected locally, with an early generated-
+manifest/comparator check to catch this before expensive source acquisition.
+
+USEFUL CI LINKS
+These are evidence pointers, not refreshed status claims. Inspect actual
+results when work is explicitly resumed; no CI was dispatched for this file.
+Parser failures:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677049
+Windows Qt5 job:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677049/job/124405138591
+Windows Qt6 job:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677049/job/124405138824
+macOS Qt6 job:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677049/job/124405138732
+Linux application/package:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677055
+macOS application/package:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677083
+Windows application/package:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677116
+Linux Tests:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156672259
+Source reference matrix:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41156677050
+Earlier focused Lab / mask-repeat / generated-tip diagnostics:
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41155247554
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41155250352
+https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41155889898
+
+INCOMPLETE OR UNVERIFIED
+Do not present native conversion, decoded settings or exploratory captures as
+source parity. Required acceptance still includes broader source dynamics and
+combinations, automatic spacing/scatter, Gaussian/Soft generators, secondary
+mask geometry/dynamics, adaptive smudge sampling and New Dulling texture,
+source timing/resource holdouts, and final platform/package/performance checks.
+Unsupported settings must remain rejected or clearly labeled as conversions.
+There is no universal Krita/Kyle compatibility claim. Controlled Photoshop
+reference/export evidence and physical tablet measurements remain external
+evidence gaps. See doc/raster_brush_compatibility.md and the portability,
+platform-isolation and ABR-resource documents for the detailed contract.
+
+ORDERED RESUME STEPS (ONLY AFTER EXPLICIT RESUMPTION)
+1. Inspect current PR/base state and completed logs before changing or rerunning
+   anything. Preserve useful in-flight evidence; do not cancel checks blindly.
+2. Recover/review the unpublished tip and separate application-test commit.
+   Retain this document. Do not overwrite preserved changes or publish local
+   contributor metadata inadvertently.
+3. Reconcile the implementation against then-current edition and resolve shared
+   files deliberately. Do not assume the recorded edition SHA is still latest.
+4. Verify the diagnosed corrections and existing agreed acceptance ledger.
+   Keep structural decoding, semantic support and reference verification distinct.
+   Complete agreed features without unrelated expansion; identify genuine
+   unavailable prerequisites rather than silently omitting required behavior.
+5. Publish one coherent reviewed correction batch. Use supported CI only;
+   project instructions prohibit local builds/tests. Read each failure, fix its
+   cause, and retain meaningful assertions and fidelity/resource limits.
+6. Qualify the exact final head across required parser, application, package and
+   reference checks. Only then assess review/merge readiness with the merge
+   coordinator. No merge is authorized or performed by this documentation step.
+
+Implementation, research, builds and explicit CI dispatch remain PAUSED.
