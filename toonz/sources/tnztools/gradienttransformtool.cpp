@@ -22,6 +22,7 @@
 #include "tools/toolhandle.h"
 #include "tools/gradienthandles.h"
 #include "tools/uniquestyle.h"
+#include "tools/styleanimationcopy.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -55,6 +56,9 @@
 #include <QObject>
 #include <QPushButton>
 #include <QString>
+#include <QMessageBox>
+#include <QApplication>
+#include "tools/vectormodalguard.h"
 
 // STD includes
 #include <algorithm>
@@ -174,6 +178,26 @@ std::vector<std::wstring> paletteStyleNames(const TPalette *palette) {
 //! palette part is the AddStylesUndo of PaletteCmd::addStyles, in the same
 //! undo block. The current style follows the region, so the handles and the
 //! Style Editor edit the style the region has after the undo or redo.
+class UniqueStyleAnimationUndo final : public TUndo {
+  TPaletteP m_palette;
+  int m_styleId;
+  std::shared_ptr<TColorStyle> m_appearance;
+  StyleAnimationCopy::Keys m_keys;
+public:
+  UniqueStyleAnimationUndo(TPalette *palette, int sourceId, int targetId)
+      : m_palette(palette), m_styleId(targetId)
+      , m_appearance(palette->getStyle(targetId)->clone())
+      , m_keys(StyleAnimationCopy::capture(palette, sourceId, *m_appearance)) {}
+  void undo() const override {
+    StyleAnimationCopy::install(m_palette.getPointer(), m_styleId, {}, *m_appearance);
+  }
+  void redo() const override {
+    StyleAnimationCopy::install(m_palette.getPointer(), m_styleId, m_keys, *m_appearance);
+  }
+  int getSize() const override { return sizeof(*this) + int(m_keys.size()) * 256; }
+  QString getHistoryString() override { return QObject::tr("Copy Gradient Animation"); }
+};
+
 class MakeUniqueRegionUndo final : public ToolUtils::TToolUndo {
   TPaletteP m_palette;
   TPointD m_point;
@@ -485,10 +509,10 @@ public:
 
   // Make Unique Style
 
-  //! A region is picked in the current drawing and other regions of the
-  //! drawing use its style.
+  //! Explicit duplication is useful even with one use in this drawing:
+  //! other drawings can share the same palette style.
   bool offersMakeUnique() const {
-    return m_styleId > 0 && isSameCell() && m_styleUses > 1;
+    return m_styleId > 0 && isSameCell();
   }
   //! What the options bar says about the picked region.
   QString uniqueStateText() const;
@@ -932,7 +956,7 @@ QString GradientTransformTool::uniqueStateText() const {
         .arg(m_styleId)
         .arg(m_styleUses);
   return UiTranslations::text(QCoreApplication::translate("GradientTransformTool",
-                                     "Style #%1 is not shared in this drawing"))
+                                     "Style #%1 has one use here; other drawings may share it"))
       .arg(m_styleId);
 }
 
@@ -945,13 +969,6 @@ QString GradientTransformTool::makeUniqueBlocker() {
         "GradientTransformTool",
         "Click a region filled with a Linear or Radial Gradient with the "
         "Gradient Transform tool first.");
-  if (m_styleUses <= 1)
-    return UiTranslations::text(QCoreApplication::translate(
-               "GradientTransformTool",
-               "No other region of this drawing uses style #%1, so it is "
-               "already unique here. If other drawings use it, duplicate the "
-               "style in the palette and fill this region with the copy."))
-        .arg(m_styleId);
   TPalette *pl = palette();
   if (!pl || !pl->getStylePage(m_styleId))
     return QCoreApplication::translate(
@@ -985,7 +1002,7 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
 
   TPaletteHandle *ph   = paletteHandle();
   TPalette *pl         = ph ? ph->getPalette() : 0;
-  TVectorImageP vi     = TImageP(getImage(true));
+  TVectorImageP vi     = TImageP(getImage(false));
   TRegion *region      = gradientRegionAt(vi, m_anchor);
   TPalette::Page *page = pl ? pl->getStylePage(m_styleId) : 0;
   if (!pl || !page || !region || region->getStyle() != m_styleId) {
@@ -995,9 +1012,45 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
     return false;
   }
 
+  TPaletteP paletteLifetime(pl);
   int oldStyleId  = m_styleId;
-  int indexInPage = page->search(oldStyleId) + 1;  // right after the original
-  int newStyleId  = pl->getStyleCount();           // TPalette::addStyle appends
+
+  bool copyAnimation = false;
+  if (pl->getKeyframeCount(oldStyleId)) {
+    VectorModalGuard owner(QApplication::activeWindow());
+    QMessageBox question(QMessageBox::Question, QObject::tr("Make Unique Gradient"),
+        QObject::tr("This gradient is animated. Copy its animation or only its "
+                    "appearance at the current frame?"), QMessageBox::Cancel);
+    auto *animation = question.addButton(QObject::tr("Copy Animation"), QMessageBox::YesRole);
+    auto *appearance = question.addButton(QObject::tr("Current Appearance"), QMessageBox::NoRole);
+    owner.exec(question);  // QMessageBox custom choices are not QDialog result codes.
+    if (!owner.valid() ||
+        (question.clickedButton() != animation && question.clickedButton() != appearance))
+      return false;
+    copyAnimation = question.clickedButton() == animation;
+  }
+
+  // Modal questions can process scene/frame/palette notifications. Re-resolve
+  // the picked region and reject a changed target before creating any undo.
+  if (!paletteHandle() || paletteHandle()->getPalette() != pl ||
+      TVectorImageP(getImage(false)) != vi || !makeUniqueBlocker().isEmpty()) {
+    reason = QObject::tr("The gradient target changed while the dialog was open. Pick it again.");
+    return false;
+  }
+  region = gradientRegionAt(vi, m_anchor);
+  if (!region || region->getStyle() != oldStyleId) {
+    reason = QObject::tr("The picked region changed while the dialog was open. Pick it again.");
+    return false;
+  }
+  // The modal event loop can also edit the same palette. Never retain its
+  // page pointer, insertion position or append ID across that event loop.
+  page = pl->getStylePage(oldStyleId);
+  if (!page) {
+    reason = QObject::tr("The gradient's palette page changed while the dialog was open. Pick it again.");
+    return false;
+  }
+  const int indexInPage = page->search(oldStyleId) + 1;
+  const int newStyleId = pl->getStyleCount();
 
   // The copy looks the same, has its own name and, like a new style, is not
   // linked to a studio palette (in a studio palette it gets its own global
@@ -1013,6 +1066,13 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
   else
     copy->setGlobalName(L"");
 
+  // Readback and a canceled choice must not mark the image modified or
+  // invalidate its texture. Request writable access only for the accepted edit.
+  if (TVectorImageP(getImage(true)) != vi) {
+    delete copy;
+    reason = QObject::tr("The gradient target changed. Pick it again.");
+    return false;
+  }
   TUndoManager::manager()->beginBlock();
   PaletteCmd::addStyles(ph, page->getIndex(), indexInPage,
                         std::vector<TColorStyle *>(1, copy));
@@ -1023,6 +1083,11 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
     reason = QCoreApplication::translate(
         "GradientTransformTool", "No style can be added to this palette.");
     return false;
+  }
+  if (copyAnimation) {
+    auto *animation = new UniqueStyleAnimationUndo(pl, oldStyleId, newStyleId);
+    animation->redo();
+    TUndoManager::manager()->add(animation);
   }
   {
     QMutexLocker lock(vi->getMutex());
@@ -1104,8 +1169,8 @@ GradientTransformToolOptionsBox::GradientTransformToolOptionsBox(
       "GradientTransformTool",
       "Make Unique Style: give the picked region its own copy of the style "
       "(added to the palette after the original), so that the handles "
-      "change this region only. Available when other regions of the drawing "
-      "use the same style."));
+      "change this region only. Other drawings using the original style "
+      "keep their appearance and animation."));
   m_layout->addWidget(m_makeUniqueButton, 0);
 
   m_stateLabel = new QLabel;

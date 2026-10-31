@@ -6,6 +6,7 @@
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
 #include "tools/toolcommandids.h"
+#include "tools/selectionopacity.h"
 
 #include "edittool.h"
 #include "selectiontool.h"
@@ -67,6 +68,8 @@
 #include <QPropertyAnimation>
 #include <QEasingCurve>
 #include <QStackedWidget>
+#include <QDoubleSpinBox>
+#include <QSignalBlocker>
 
 TEnv::IntVar ArrowGlobalKeyFrame("EditToolGlobalKeyFrame", 0);
 
@@ -209,9 +212,64 @@ QLabel *ToolOptionControlBuilder::addLabel(TProperty *p) {
 
 //-----------------------------------------------------------------------------
 
+// A mixed value is display state, never an opacity written into a stroke.
+class SelectionOpacityField final : public QDoubleSpinBox,
+                                    public ToolOptionControl {
+  VectorSelectionTool *m_selectionTool;
+  TDoubleProperty *m_property;
+  bool m_userEdited = false;
+
+public:
+  SelectionOpacityField(VectorSelectionTool *tool, TDoubleProperty *property,
+                        ToolHandle *handle)
+      : ToolOptionControl(tool, property->getName(), handle)
+      , m_selectionTool(tool), m_property(property) {
+    setObjectName("selectionOpacity");
+    setRange(-1.0, 100.0);
+    setDecimals(3);
+    setSingleStep(1.0);
+    setKeyboardTracking(false);
+    setMinimumWidth(100);
+    connect(this, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this] { m_userEdited = true; });
+    connect(this, &QDoubleSpinBox::editingFinished, this, [this] {
+      if (!m_userEdited || value() < 0.0 || !isEnabled()) return;
+      m_userEdited = false;
+      m_property->setValue(value());
+      notifyTool(true);
+      if (m_toolHandle) m_toolHandle->notifyToolChanged();
+    });
+    updateStatus();
+  }
+
+  void updateStatus() override {
+    const auto &selection = m_selectionTool->strokeSelection();
+    const auto result = SelectionOpacity::summarize(
+        selection.getImage(), selection.getSelection());
+    const QSignalBlocker blocker(this);
+    m_userEdited = false;
+    setEnabled(result.count && m_selectionTool->isSelectionEditable());
+    setSpecialValueText(result.count ? tr("Mixed") : tr("No selection"));
+    setValue(result.count && !result.mixed ? 100.0 * result.value : -1.0);
+    setToolTip(result.mixed
+                   ? tr("Selected strokes have different opacities. Enter a "
+                        "percentage to set them all; inspecting changes nothing.")
+                   : tr("Opacity of the selected strokes (%)"));
+  }
+};
+
 void ToolOptionControlBuilder::visit(TDoubleProperty *p) {
   QLabel *label = addLabel(p);
   m_panel->addLabel(p->getName(), label);
+  if (auto *selection = dynamic_cast<VectorSelectionTool *>(m_tool)) {
+    if (p->getName() == "Opacity:") {
+      auto *control = new SelectionOpacityField(selection, p, m_toolHandle);
+      hLayout()->addWidget(control, 0);
+      m_panel->addControl(control);
+      hLayout()->addSpacing(5);
+      return;
+    }
+  }
   ToolOptionSlider *control = new ToolOptionSlider(m_tool, p, m_toolHandle);
   hLayout()->addWidget(control, 100);
   // storing the control in the map for updating values later
@@ -265,6 +323,10 @@ void ToolOptionControlBuilder::visit(TIntProperty *p) {
 
 void ToolOptionControlBuilder::visit(TBoolProperty *p) {
   ToolOptionCheckbox *control = new ToolOptionCheckbox(m_tool, p, m_toolHandle);
+  if (p->getName() == "Review Fills") {
+    control->setObjectName("vectorReviewFills");
+    control->setToolTip(QObject::tr("Review the original and reshaped fills before applying a drag. Restore Original cancels the entire edit."));
+  }
   hLayout()->addWidget(control, 0);
 
   m_panel->addControl(control);
@@ -323,6 +385,8 @@ void ToolOptionControlBuilder::visit(TEnumProperty *p) {
   }
   }
 
+  if (p->getName() == "Paint:")
+    widget->setToolTip(QObject::tr("Paint Inside starts in an editable filled region. Paint Selection uses the strokes and closed shapes selected before switching to Brush. Guided painting keeps this mode and requires explicitly picked brush centerlines."));
   hLayout()->addWidget(widget, 100);
   m_panel->addControl(control);
   hLayout()->addSpacing(5);
@@ -2060,11 +2124,14 @@ void BrushToolOptionsBox::updateDrawOrderState() {
       props ? dynamic_cast<TEnumProperty *>(props->getProperty("Paint:")) : 0;
   if (!paintMode) return;
 
+  if (QWidget *mask = dynamic_cast<QWidget *>(m_controls.value("Selection Mask:")))
+    mask->setEnabled(paintMode->getIndex() == BrushPaintMode::MODE_PAINT_SELECTION);
+  if (QLabel *label = m_labels.value("Selection Mask:"))
+    label->setEnabled(paintMode->getIndex() == BrushPaintMode::MODE_PAINT_SELECTION);
   const bool used = paintMode->getIndex() == BrushPaintMode::MODE_NORMAL;
   const QString toolTip =
       used ? QString()
-           : tr("Draw Order is not used by the Paint Fills and Paint Behind "
-                "modes.");
+           : tr("Draw Order is not used by the vector Paint modes.");
   if (QWidget *widget =
           dynamic_cast<QWidget *>(m_controls.value("Draw Order"))) {
     widget->setEnabled(used);

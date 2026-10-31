@@ -633,10 +633,10 @@ endif()
 # Optional regression target for the brush stroke to outline shape conversion
 # (contouroutline.h).
 option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})
-if(BUILD_CONTOUR_TESTS)
+if(BUILD_CONTOUR_TESTS OR BUILD_UI_PORT_TESTS)
     add_executable(contour_outline_test tests/contour_outline_test.cpp)
     target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
-    add_test(NAME contour_outline COMMAND contour_outline_test)
+    add_test(NAME ui_vector_contour_outline COMMAND contour_outline_test)
 endif()
 
 # Optional regression target for the Lottie export maths (lottiemath.h,
@@ -749,6 +749,14 @@ if(BUILD_COMPAT_REGRESSION)
     target_link_libraries(compat_regression PRIVATE toonzlib tnzbase tnzcore tnzext image tnzstdfx colorfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 endif()
 # compat_regression: end
+
+# Real vector tween/persistence regressions for the artist morphing workflow.
+option(BUILD_MORPHWORKFLOW_TESTS "Build native vector morph workflow tests" ${BUILD_TESTS})
+if(BUILD_MORPHWORKFLOW_TESTS OR BUILD_UI_PORT_TESTS)
+    add_executable(morphworkflow_test tests/morphworkflow_test.cpp)
+    target_link_libraries(morphworkflow_test PRIVATE toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME ui_vector_morphworkflow COMMAND morphworkflow_test)
+endif()
 
 # Native Cast indexing/persistence tests share the UI qualification gate.
 if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)

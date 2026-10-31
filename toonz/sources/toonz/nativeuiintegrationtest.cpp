@@ -1,7 +1,13 @@
 #include "nativeuiintegrationtest.h"
+#include "vectorworkflowintegrationtest.h"
+#include "fillworkflowintegrationtest.h"
+#include "contourworkflowintegrationtest.h"
+#include "opacityrenderintegrationtest.h"
+#include "offlineglworkflowintegrationtest.h"
+#include "brushworkflowintegrationtest.h"
+#include "strokeopacityeditintegrationtest.h"
 #include "animationworkflowintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
-#include "offlineglworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -755,6 +761,17 @@ void exerciseNativeUi(QMainWindow *window) {
   app->getCurrentScene()->setDirtyFlag(false);
   undo->reset();
   checkpoint("destroying native fixture dialogs");
+  checkpoint("checking native vector editing workflows");
+  runVectorWorkflowNativeChecks();
+  runVectorFillNativeChecks();
+  runContourOutlineNativeChecks();
+  runBrushWorkflowNativeChecks();
+  runVectorMorphNativeChecks();
+  runVectorOpacityProfileNativeChecks();
+  runOpacityRenderNativeChecks();
+  runOfflineGLWorkflowNativeChecks();
+  runStrokeOpacityEditNativeChecks();
+  std::cout << "vector-workflows: PASS (18 vector workflows; production renderer and native edits)" << std::endl;
 }
 }  // namespace
 
@@ -891,7 +908,6 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       return 1;
     }
     runCastWorkflowIntegrationTest(window);
-    runOfflineGLWorkflowNativeChecks();
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {

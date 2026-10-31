@@ -221,7 +221,8 @@ void commandLineConversion() {
     require(saved && saved->getStrokeCount() == 1 &&
                 saved->getStroke(0)->getControlPointCount() == stroke->getControlPointCount() &&
                 saved->getStroke(0)->getStyle() == style &&
-                saved->getStroke(0)->getOpacity() == stroke->getOpacity(),
+                saved->getStroke(0)->getOpacity() == stroke->getOpacity() &&
+                saved->getStroke(0)->getOpacityProfile() == stroke->getOpacityProfile(),
             "saved PLI fixture lost its authored stroke or opacity");
     for (int point = 0; point < stroke->getControlPointCount(); ++point)
       require(saved->getStroke(0)->getControlPoint(point) == stroke->getControlPoint(point),
@@ -249,6 +250,21 @@ void commandLineConversion() {
   require(wide.width() == 232 && wide.height() > ordinary.height() &&
               columnAlpha(wide, wide.width() / 2) == 255,
           "explicit-width PLI conversion lost dimensions or opaque artwork");
+  stroke->setOpacityProfile({{0., 0.}, {1., 1.}});
+  const QString envelopePath = directory.filePath("envelope.pli");
+  {
+    TLevelWriterP writer{TFilePath(envelopePath)};
+    writer->getFrameWriter(TFrameId(1))->save(image);
+  }
+  verifySavedInput(envelopePath);
+  checkpoint("opacity-envelope PLI command-line conversion begins");
+  const QImage envelope = convert(executable, envelopePath, directory.filePath("fade.png"));
+  require(envelope.size() == ordinary.size(), "envelope conversion changed native drawing bounds");
+  const int left = columnAlpha(envelope, envelope.width() / 4);
+  const int right = columnAlpha(envelope, 3 * envelope.width() / 4);
+  require(left > 0 && right > 2 * left && right < 255,
+          "command-line conversion lost along-stroke opacity");
+
   const QString rasterPath = directory.filePath("raster-source.png");
   QImage raster(16, 12, QImage::Format_ARGB32); raster.fill(qRgba(20, 60, 100, 255));
   require(raster.save(rasterPath), "headless raster input could not be written");

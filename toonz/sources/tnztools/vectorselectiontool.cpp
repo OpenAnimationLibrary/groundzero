@@ -1,3 +1,4 @@
+#include "tools/vectorpaintclip.h"
 
 
 #include "toonzqt/uitranslations.h"
@@ -10,6 +11,8 @@
 #include "tools/artlayer.h"
 #include "tools/bilineardeform.h"
 #include "tools/envelopelayout.h"
+#include "tools/selectionopacity.h"
+#include "tools/vectorfillreview.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -29,9 +32,12 @@
 // TnzCore includes
 #include "drawutil.h"
 #include "tcurves.h"
+#include "tthreadmessage.h"
 
 // Qt includes
 #include <QApplication>
+#include <QKeyEvent>
+#include <limits>
 
 using namespace ToolUtils;
 using namespace DragSelectionTool;
@@ -48,6 +54,7 @@ TEnv::IntVar l_strokeSelectConstantThickness("SelectionToolConstantThickness",
 TEnv::IntVar l_strokeSelectIncludeIntersection(
     "SelectionToolIncludeIntersection", 0);
 TEnv::IntVar l_strokeSelectEnvelope("SelectionToolEnvelope", 0);
+TEnv::IntVar l_strokeSelectReviewFills("SelectionToolReviewFills", 0);
 
 const int l_dragThreshold = 10;  //!< Distance, in pixels, the user has to
                                  //!  move from a button press to trigger a
@@ -454,6 +461,8 @@ void DragSelectionTool::UndoChangeStrokes::registerStrokes(bool beforeModify) {
   }
 
   std::vector<TStroke *> &strokes = beforeModify ? m_oldStrokes : m_newStrokes;
+  clearPointerContainer(strokes);
+  if (beforeModify && m_tool->reviewFills()) m_beforeImage = vi->clone();
 
   TRectD bbox;
 
@@ -465,9 +474,13 @@ void DragSelectionTool::UndoChangeStrokes::registerStrokes(bool beforeModify) {
     strokes.push_back(new TStroke(*stroke));
   }
 
-  if (beforeModify && !bbox.isEmpty()) {
-    ImageUtils::getFillingInformationOverlappingArea(vi, m_regionsData, bbox);
-  } else {
+  auto &fills = beforeModify ? m_regionsData : m_newRegionsData;
+  fills.clear();
+  // Capture every region: opening a boundary can affect a containing region
+  // well beyond the selected strokes' bounding box.
+  if (!vi->getBBox().isEmpty())
+    ImageUtils::getFillingInformationOverlappingArea(vi, fills, vi->getBBox());
+  if (!beforeModify) {
     m_newBBox         = m_tool->getBBox();
     m_newCenter       = m_tool->getCenter();
     m_newDeformValues = m_tool->m_deformValues;
@@ -478,77 +491,97 @@ void DragSelectionTool::UndoChangeStrokes::registerStrokes(bool beforeModify) {
 
 void DragSelectionTool::UndoChangeStrokes::transform(
     const std::vector<TStroke *> &strokes, FourPoints bbox, TPointD center,
-    DragSelectionTool::DeformValues deformValues) const {
+    DragSelectionTool::DeformValues deformValues,
+    const std::vector<TFilledRegionInf> &fills, bool notify) const {
   TVectorImageP image = m_level->getFrame(m_frameId, true);
   if (!image) {
     assert(image);
     return;
   }
 
-  int s, sCount = int(m_indexes.size());
-  for (s = 0; s != sCount; ++s) {
-    int index = m_indexes[s];
+  {
+    // Icon renderers read this same cached image under its mutex. Keep the
+    // control-point topology, rebuilt regions and restored fills together;
+    // notifyChangedStrokes/findRegions use the same recursive image mutex.
+    TThread::MutexLocker lock(image->getMutex());
+    int s, sCount = int(m_indexes.size());
+    for (s = 0; s != sCount; ++s) {
+      int index = m_indexes[s];
 
-    TStroke *sourcesStroke = strokes[s], *stroke = image->getStroke(index);
+      TStroke *sourcesStroke = strokes[s], *stroke = image->getStroke(index);
 
-    int cp, cpCount = stroke->getControlPointCount();
-    if (cpCount == sourcesStroke->getControlPointCount()) {
-      for (cp = 0; cp != cpCount; ++cp)
-        stroke->setControlPoint(cp, sourcesStroke->getControlPoint(cp));
-    } else {
-      // The Envelope mode adds control points: restore the whole stroke
-      std::vector<TThickPoint> points;
-      sourcesStroke->getControlPoints(points);
-      stroke->reshape(points.data(), (int)points.size());
+      int cp, cpCount = stroke->getControlPointCount();
+      if (cpCount == sourcesStroke->getControlPointCount()) {
+        for (cp = 0; cp != cpCount; ++cp)
+          stroke->setControlPoint(cp, sourcesStroke->getControlPoint(cp));
+      } else {
+        // The Envelope mode adds control points: restore the whole stroke
+        std::vector<TThickPoint> points;
+        sourcesStroke->getControlPoints(points);
+        stroke->reshape(points.data(), (int)points.size());
+      }
     }
+    image->notifyChangedStrokes(m_indexes, strokes, m_flip);
+    ImageUtils::assignFillingInformation(*image, fills);
   }
 
-  image->notifyChangedStrokes(m_indexes, strokes, m_flip);
-
-  if (!m_tool->isSelectionEmpty() &&
-      m_selectionCount == m_tool->getSelectionCount()) {
-    m_tool->setBBox(bbox);
-    m_tool->setCenter(center);
-  } else
+  // No tool/UI callback or icon submission may run while the image is locked
+  // or before its fill styles have reached the same restored state.
+  const bool currentDrawing =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel() ==
+          m_level.getPointer() && m_tool->getCurrentFid() == m_frameId;
+  if (currentDrawing) {
+    if (!m_tool->isSelectionEmpty() &&
+        m_selectionCount == m_tool->getSelectionCount()) {
+      m_tool->setBBox(bbox);
+      m_tool->setCenter(center);
+    } else
+      m_tool->computeBBox();
+    m_tool->m_deformValues = deformValues;
+  } else {
     m_tool->computeBBox();
-
-  m_tool->notifyImageChanged();
-  m_tool->m_deformValues = deformValues;
-  TTool::getApplication()->getCurrentXsheet()->notifyXsheetChanged();
-  TTool::getApplication()->getCurrentTool()->notifyToolChanged();
-}
-
-//-----------------------------------------------------------------------------
-
-void DragSelectionTool::UndoChangeStrokes::restoreRegions() const {
-  TVectorImageP vi = m_level->getFrame(m_frameId, true);
-  if (!vi) {
-    assert(vi);
-    return;
   }
 
-  ImageUtils::assignFillingInformation(*vi, m_regionsData);
+  if (notify) {
+    m_tool->TTool::notifyImageChanged(m_frameId, m_level.getPointer());
+    TTool::getApplication()->getCurrentXsheet()->notifyXsheetChanged();
+    TTool::getApplication()->getCurrentTool()->notifyToolChanged();
+  }
 }
 
 //-----------------------------------------------------------------------------
 
 void DragSelectionTool::UndoChangeStrokes::undo() const {
-  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues);
-  restoreRegions();
-  m_tool->notifyImageChanged();
+  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues,
+            m_regionsData);
 }
 
 //-----------------------------------------------------------------------------
 
 void DragSelectionTool::UndoChangeStrokes::redo() const {
-  transform(m_newStrokes, m_newBBox, m_newCenter, m_newDeformValues);
-  m_tool->notifyImageChanged();
+  transform(m_newStrokes, m_newBBox, m_newCenter, m_newDeformValues,
+            m_newRegionsData);
+}
+
+TVectorImageP DragSelectionTool::UndoChangeStrokes::currentImage() const {
+  return m_level->getFrame(m_frameId, false);
+}
+
+void DragSelectionTool::UndoChangeStrokes::restoreBefore() const {
+  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues,
+            m_regionsData, false);
 }
 
 //-----------------------------------------------------------------------------
 
 int DragSelectionTool::UndoChangeStrokes::getSize() const {
-  return sizeof(*this) + sizeof(*m_tool);
+  size_t size = sizeof(*this) + m_indexes.size() * sizeof(int) +
+      (m_regionsData.size() + m_newRegionsData.size()) * sizeof(TFilledRegionInf);
+  for (const auto *stroke : m_oldStrokes)
+    size += sizeof(TStroke) + stroke->getControlPointCount() * sizeof(TThickPoint);
+  for (const auto *stroke : m_newStrokes)
+    size += sizeof(TStroke) + stroke->getControlPointCount() * sizeof(TThickPoint);
+  return int(std::min(size, size_t(std::numeric_limits<int>::max())));
 }
 
 //=============================================================================
@@ -694,6 +727,18 @@ DragSelectionTool::VectorDeformTool::VectorDeformTool(VectorSelectionTool *tool)
 
 DragSelectionTool::VectorDeformTool::~VectorDeformTool() {
   // DO NOT REMOVE - DESTRUCTS TYPES INCOMPLETE IN THE HEADER
+  cancel();
+}
+
+void DragSelectionTool::VectorDeformTool::cancel() {
+  if (m_isReviewing) m_cancelled = true;
+  if (m_undo) {
+    m_undo->restoreBefore();
+    m_undo.reset();
+    m_cancelled = true;
+    m_tool->invalidate();
+  }
+  m_isDragging = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -730,8 +775,6 @@ void DragSelectionTool::VectorDeformTool::applyTransform(FourPoints bbox,
 
   tool->invalidate();
 
-  if (!m_isDragging) tool->notifyImageChanged();
-
   if (!stayedTheSame) tool->m_deformValues.m_isSelectionModified = true;
 
   if (!m_isDragging && (tool->isLevelType() || tool->isSelectedFramesType()))
@@ -749,8 +792,39 @@ void DragSelectionTool::VectorDeformTool::addTransformUndo() {
                          ->getSpline()));
   else if (m_undo) {
     m_undo->registerStrokes();
-    TUndoManager::manager()->add(m_undo.release());
+    std::vector<std::unique_ptr<UndoChangeStrokes>> changes;
+    changes.push_back(std::move(m_undo));
+    commitChanges(changes);
   }
+}
+
+bool DragSelectionTool::VectorDeformTool::commitChanges(
+    std::vector<std::unique_ptr<UndoChangeStrokes>> &changes) {
+  std::vector<VectorFillReview::Entry> entries;
+  for (const auto &change : changes)
+    if (change->beforeImage())
+      entries.emplace_back(QString::fromStdString(change->frameId().expand()),
+                           change->beforeImage(), change->currentImage());
+  m_isReviewing = !entries.empty();
+  const bool accepted = VectorFillReview::review(entries);
+  m_isReviewing = false;
+  if (!accepted || m_cancelled) {
+    for (auto it = changes.rbegin(); it != changes.rend(); ++it)
+      (*it)->restoreBefore();
+    changes.clear();
+    m_cancelled = true;
+    m_tool->invalidate();
+    return false;
+  }
+  TUndoManager::manager()->beginBlock();
+  for (auto &change : changes) {
+    const TFrameId fid = change->frameId();
+    change->discardReviewImage();
+    TUndoManager::manager()->add(change.release());
+    m_tool->notifyImageChanged(fid);
+  }
+  TUndoManager::manager()->endBlock();
+  return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -774,62 +848,33 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
                             }),
              fids.end());
 
-  TUndoManager::manager()->beginBlock();
-  {
-    addTransformUndo();  // For current frame
-
-    int f, fCount = int(fids.size());
-    for (f = 0; f != fCount; ++f) {
-      const TFrameId &fid = fids[f];
-      int t               = f + 1;  // Current frame's data is always at index 0
-                                    // The others are thus shifted by 1
-      // Skip nonselected frames
-      if (tool->getCurrentFid() == fid ||
-          (tool->isSelectedFramesType() &&
-           tool->getTargetFrames().count(fid) == 0))
-        continue;
-
-      TVectorImageP vi = level->getFrame(fid, true);
-      if (!vi) continue;
-
-      std::unique_ptr<UndoChangeStrokes> undo(
-          new UndoChangeStrokes(level, fid, tool, tool->levelSelection()));
-
-      std::set<int> strokesIndices;
-
-      for (int s = 0; s < (int)vi->getStrokeCount(); ++s)
-        strokesIndices.insert(s);
-
-      FourPoints bbox = tool->getBBox(t);
-
-      VectorFreeDeformer *freeDeformer =
-          static_cast<VectorFreeDeformer *>(tool->getFreeDeformer(t));
-      setDeformerShape(freeDeformer, t, bbox);
-      freeDeformer->setComputeRegion(true);
-      freeDeformer->setPreserveThickness(tool->isConstantThickness());
-      freeDeformer->setFlip(isFlip());
-      freeDeformer->deformImage();
-
-      undo->registerStrokes();
-
-      TUndoManager::manager()->add(undo.release());
-    }
+  // Stage every drawing before opening the review. No undo entry or dirty
+  // notification is emitted until all drawings are accepted together.
+  std::vector<std::unique_ptr<UndoChangeStrokes>> changes;
+  if (m_undo) {
+    m_undo->registerStrokes();
+    changes.push_back(std::move(m_undo));
   }
-  TUndoManager::manager()->endBlock();
-
-  // Finally, notify changed frames
-  std::for_each(
-      fids.begin(), fids.end(),
-      // NOTE: current frame is not here - it should be,
-      // but it's currently unnecessary, in fact...
-      [this](const TFrameId &fid) { m_tool->notifyImageChanged(fid); });
-
-  // notifyImageChanged(fid) must be invoked OUTSIDE of the loop - since it
-  // seems to imply notifyImageChanged()
-  // on CURRENT image - which seems wrong, but it's too low-level and I'm not
-  // changing it.
-  // This reasonably leads to computeBBox(), but bboxes are taken as INPUT to
-  // this transformation...            >:(
+  for (int f = 0; f < int(fids.size()); ++f) {
+    const TFrameId &fid = fids[f];
+    const int t = f + 1;
+    TVectorImageP vi = level->getFrame(fid, true);
+    if (!vi) continue;
+    std::unique_ptr<UndoChangeStrokes> undo(
+        new UndoChangeStrokes(level, fid, tool, tool->levelSelection()));
+    const FourPoints bbox = tool->getBBox(t);
+    auto *freeDeformer =
+        static_cast<VectorFreeDeformer *>(tool->getFreeDeformer(t));
+    setDeformerShape(freeDeformer, t, bbox);
+    freeDeformer->setComputeRegion(true);
+    freeDeformer->setPreserveThickness(tool->isConstantThickness());
+    freeDeformer->setFlip(isFlip());
+    freeDeformer->deformImage();
+    undo->setFlip(isFlip());
+    undo->registerStrokes();
+    changes.push_back(std::move(undo));
+  }
+  commitChanges(changes);
 }
 
 //-----------------------------------------------------------------------------
@@ -870,7 +915,7 @@ void DragSelectionTool::VectorDeformTool::leftButtonUp(const TPointD &pos,
 
   m_isDragging = false;
 
-  tool->notifyImageChanged();
+  if (!m_cancelled) tool->notifyImageChanged();
 
   VectorSelectionTool *selectionTool =
       dynamic_cast<VectorSelectionTool *>(m_tool);
@@ -1531,6 +1576,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
     , m_includeIntersection("Include Intersection", false)
     , m_constantThickness("Preserve Thickness", false)
     , m_envelope("Envelope", false)
+    , m_reviewFills("Review Fills", false)
     , m_levelSelection(m_strokeSelection)
     , m_capStyle("Cap")
     , m_joinStyle("Join")
@@ -1544,6 +1590,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
   m_prop.bind(m_includeIntersection);
   m_prop.bind(m_constantThickness);
   m_prop.bind(m_envelope);
+  m_prop.bind(m_reviewFills);
   ArtLayer::bindProperties(m_prop);
 
   m_selectionTarget.addValue(NORMAL_TYPE);
@@ -1562,6 +1609,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
   m_includeIntersection.setId("IncludeIntersection");
   m_constantThickness.setId("PreserveThickness");
   m_envelope.setId("Envelope");
+  m_reviewFills.setId("ReviewFills");
   m_selectionTarget.setId("SelectionMode");
 
   m_capStyle.addValue(BUTT_WSTR, QString::fromStdWString(BUTT_WSTR));
@@ -1706,6 +1754,7 @@ void VectorSelectionTool::updateTranslation() {
   m_includeIntersection.setQStringName(tr("Include Intersection"));
   m_constantThickness.setQStringName(tr("Preserve Thickness"));
   m_envelope.setQStringName(tr("Envelope"));
+  m_reviewFills.setQStringName(tr("Review Fills"));
 
   m_capStyle.setQStringName(tr("Cap"));
   m_capStyle.setItemUIName(BUTT_WSTR, tr("Butt cap"));
@@ -1834,6 +1883,11 @@ void VectorSelectionTool::finalizeSelection() {
   }
 
   computeBBox();
+
+  const auto opacity = SelectionOpacity::summarize(
+      m_strokeSelection.getImage(), m_strokeSelection.getSelection());
+  if (opacity.count && !opacity.mixed)
+    m_opacity.setValue(100.0 * opacity.value);
 
   TTool::getApplication()
       ->getCurrentTool()
@@ -2074,6 +2128,7 @@ void VectorSelectionTool::leftButtonUp(const TPointD &pos,
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::addContextMenuItems(QMenu *menu) {
+  menu->addAction(CommandManager::instance()->getAction(MI_EditStrokeOpacityProfile));
   menu->addAction(CommandManager::instance()->getAction(MI_RemoveEndpoints));
   menu->addAction(
       CommandManager::instance()->getAction(MI_ConvertToOutlineShapes));
@@ -2385,6 +2440,7 @@ void VectorSelectionTool::onActivate() {
     m_includeIntersection.setValue(l_strokeSelectIncludeIntersection ? 1 : 0);
     m_constantThickness.setValue(l_strokeSelectConstantThickness ? 1 : 0);
     m_envelope.setValue(l_strokeSelectEnvelope ? 1 : 0);
+    m_reviewFills.setValue(l_strokeSelectReviewFills ? 1 : 0);
     m_strokeSelection.setSceneHandle(
         TTool::getApplication()->getCurrentScene());
   }
@@ -2395,6 +2451,21 @@ void VectorSelectionTool::onActivate() {
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::onDeactivate() {
+  bool reviewing = false;
+  if (auto *deform = dynamic_cast<VectorDeformTool *>(m_dragTool)) {
+    deform->cancel();
+    reviewing = deform->isReviewing();
+    // The modal review owns this drag's call stack. Let leftButtonUp dispose
+    // it once the context-switch rejection has unwound the dialog.
+    if (!deform->isReviewing()) {
+      delete m_dragTool;
+      m_dragTool = nullptr;
+    }
+    m_leftButtonMousePressed = false;
+  }
+  if (!reviewing)
+    VectorPaintClip::captureSelection(m_strokeSelection.getImage(),
+                                      m_strokeSelection.getSelection());
   if (isLevelType()) return;
 
   SelectionTool::onDeactivate();
@@ -2450,6 +2521,30 @@ bool VectorSelectionTool::isDragging() const {
   return m_enabled && m_leftButtonMousePressed;
 }
 
+bool VectorSelectionTool::keyDown(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Escape && m_dragTool) {
+    if (auto *deform = dynamic_cast<VectorDeformTool *>(m_dragTool)) {
+      deform->cancel();
+      // A modal review is on this drag object's stack. Its caller owns the
+      // rollback and destruction once the review has returned.
+      if (!deform->isReviewing()) {
+        delete m_dragTool;
+        m_dragTool = nullptr;
+      }
+      m_leftButtonMousePressed = false;
+      invalidate();
+      return true;
+    }
+  }
+  return SelectionTool::keyDown(event);
+}
+
+bool VectorSelectionTool::isEventAcceptable(QEvent *event) {
+  if (dynamic_cast<VectorDeformTool *>(m_dragTool) &&
+      static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) return true;
+  return SelectionTool::isEventAcceptable(event);
+}
+
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::doOnDeactivate() {
@@ -2480,6 +2575,10 @@ TPropertyGroup *VectorSelectionTool::getProperties(int idx) {
 //-----------------------------------------------------------------------------
 
 bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
+  if (propertyName == m_reviewFills.getName()) {
+    l_strokeSelectReviewFills = m_reviewFills.getValue() ? 1 : 0;
+    return true;
+  }
   if (ArtLayer::onPropertyChanged(propertyName)) {
     finalizeSelection();  // Drops the strokes of a role no longer edited
     invalidate();
@@ -2597,12 +2696,17 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
   } else if (propertyName == m_opacity.getName()) {
     if (m_strokeSelection.isEmpty()) return true;
 
+    const auto current = SelectionOpacity::summarize(
+        m_strokeSelection.getImage(), m_strokeSelection.getSelection());
+    const double opacity = 0.01 * m_opacity.getValue();
+    if (!current.count ||
+        (!current.mixed && std::abs(current.value - opacity) <= 1e-9))
+      return true;
+
     TXshSimpleLevel *level =
         TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
     UndoChangeOutlineStyle *undo =
         new UndoChangeOutlineStyle(level, getCurrentFid(), this);
-
-    const double opacity = 0.01 * m_opacity.getValue();
 
     TVectorImageP vi = m_strokeSelection.getImage();
 

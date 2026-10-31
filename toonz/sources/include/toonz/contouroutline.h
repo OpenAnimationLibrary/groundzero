@@ -18,6 +18,7 @@
 #endif
 
 class TStroke;
+class TVectorImageP;
 
 //================================================================================================
 //
@@ -47,16 +48,35 @@ struct Options {
   Options() : m_sampleError(0.05), m_fitError(0.1), m_maxControlPoints(400) {}
 };
 
-//! Returns true if \b stroke can be converted: it has some thickness, it is
-//! not a centerline-only stroke and it is not a self loop (a closed brush
-//! stroke is a ring and would need two outlines).
+//! Returns true if the stroke has drawable thickness. Closed brush strokes
+//! produce separate outer and inner boundary cycles.
 DVAPI bool canConvert(const TStroke &stroke);
 
-//! Computes the outline of \b stroke as a closed polygon, counter-clockwise,
+//! All boundary cycles: one for an open stroke, two for a nondegenerate closed
+//! stroke. Closed cycles have no caps; holes are represented by the second
+//! cycle, never by a seam connecting the two sides.
+DVAPI bool computeOutlinePolygons(const TStroke &stroke,
+                                  std::vector<std::vector<TPointD>> &polygons,
+                                  double sampleError = 0.05);
+DVAPI bool makeOutlineContours(const TStroke &stroke,
+                               std::vector<std::vector<TThickPoint>> &contours,
+                               const Options &options = Options());
+
+//! Build a detached converted drawing. Affected native groups keep their
+//! ancestor hierarchy and gain fill-background and stroke-order subgroups.
+//! Unselected centerlines retain their geometry. The palette is cloned only
+//! when conversion needs a style with multiplied stroke opacity.
+//! Throws std::runtime_error for unsupported appearance before returning any
+//! candidate; the source image and palette are never changed.
+DVAPI TVectorImageP convertImage(const TVectorImageP &source,
+                                 const std::vector<int> &indices,
+                                 const Options &options = Options());
+
+//! Compatibility helper for open strokes only. Computes their outline as a closed polygon,
 //! without repeating the first point at the end. The two sides are the
 //! centerline offset by the thickness at each side, joined and capped as the
 //! outline options of the stroke say (cap and join styles, miter limit).
-//! Returns false if the stroke cannot be converted.
+//! Returns false for a closed brush loop; use computeOutlinePolygons for rings.
 DVAPI bool computeOutlinePolygon(const TStroke &stroke,
                                  std::vector<TPointD> &polygon,
                                  double sampleError = 0.05);
@@ -64,7 +84,8 @@ DVAPI bool computeOutlinePolygon(const TStroke &stroke,
 //! Computes the control points of the closed zero-thickness stroke that fits
 //! the outline of \b stroke (the first and the last control point are the
 //! same). Use them with TStroke::reshape() followed by setSelfLoop().
-//! Returns false if the stroke cannot be converted.
+//! This single-boundary helper returns false for closed brush loops. Use
+//! makeOutlineContours to retain the hole of a ring.
 DVAPI bool makeOutlineControlPoints(const TStroke &stroke,
                                     std::vector<TThickPoint> &controlPoints,
                                     const Options &options = Options());

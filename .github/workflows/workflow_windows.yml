@@ -453,7 +453,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_shellthumbnail ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
+          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_shellthumbnail ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
           set "UI_TEST_EXIT=%ERRORLEVEL%"
           type ui-tests-output.txt
           exit /b %UI_TEST_EXIT%
@@ -463,9 +463,9 @@ jobs:
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
-        # Full run (240s), required reviewed-clear run (120s), optional debugger
+        # Full run (600s), required reviewed-clear run (120s), optional debugger
         # (120s), and existing bounded cleanup/fixture-copy overhead.
-        timeout-minutes: 10
+        timeout-minutes: 16
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -473,7 +473,7 @@ jobs:
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           python -c "import os,time; open(os.environ['GITHUB_ENV'],'a',encoding='utf-8').write('NATIVE_BUNDLE_STEP_STARTED_AT='+str(time.time())+'\n')"
           if errorlevel 1 exit /b 1
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --output toonz/build/ui-integration-output.txt --windows-crash-debugger --windows-original-dump-directory "%RUNNER_TEMP%\groundzero-original-dumps" --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --windows-original-dump-directory "%RUNNER_TEMP%\groundzero-original-dumps" --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
@@ -500,7 +500,7 @@ jobs:
             --native-step-started-at "$env:NATIVE_BUNDLE_STEP_STARTED_AT" --native-outcome failure `
             --recorder-build-id "${env:GITHUB_SHA}-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}" `
             --flag=--require-function-workflow --flag=--require-offline-gl-workflow `
-            --flag=--windows-crash-debugger
+            --flag=--require-vector-workflows --flag=--windows-crash-debugger
           exit $LASTEXITCODE
 
       - name: Retain failed native Windows binaries

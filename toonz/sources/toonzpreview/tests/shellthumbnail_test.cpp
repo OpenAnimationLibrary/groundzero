@@ -144,14 +144,15 @@ void same(const Pixels &a, const Pixels &b) {
   require(a.width == b.width && a.height == b.height && a.bytes == b.bytes,
           "COM thumbnail differs from actual CLI renderer");
 }
-QString levelFile(const QDir &directory) {
+QString levelFile(const QDir &directory, bool envelope) {
   const QString suffix = QString(QChar(0x52d5)) + QChar(0x753b) + ".pli";
   const QString path = directory.filePath(
-      QString("ordinary ") + suffix);
+      QString(envelope ? "envelope " : "ordinary ") + suffix);
   TPaletteP palette = new TPalette;
   TVectorImageP image = new TVectorImage; image->setPalette(palette.getPointer());
   auto *stroke = new TStroke(std::vector<TThickPoint>{{-50,0,8},{0,30,8},{50,0,8}});
   stroke->setStyle(1);
+  if (envelope) stroke->setOpacityProfile({{0.,.15},{1.,.85}});
   image->addStroke(stroke);
   TLevelWriterP writer{TFilePath(path)};
   writer->setPalette(palette.getPointer());
@@ -229,23 +230,31 @@ int main(int argc, char **argv) {
     require(module, "actual thumbnail provider DLL failed to load");
     const auto getClass = reinterpret_cast<FactoryEntry>(GetProcAddress(module,"DllGetClassObject"));
     require(getClass, "provider has no declared DllGetClassObject export");
-    const QString ordinary = levelFile(root);
+    const QString ordinary = levelFile(root,false), envelope = levelFile(root,true);
     const QString ordinaryScene = sceneFile(root,ordinary,"ordinary scene");
+    const QString envelopeScene = sceneFile(root,envelope,"envelope scene");
     const QString relativeScene = sceneFile(root,ordinary,"relative scene",true);
+    const QString relativeEnvelopeScene = sceneFile(root,envelope,"relative envelope scene",true);
+    std::vector<Pixels> rendered;
     int index = 0;
-    for (const QString &input : {ordinary,ordinaryScene,relativeScene}) {
+    for (const QString &input : {ordinary,envelope,ordinaryScene,envelopeScene,
+                                relativeScene,relativeEnvelopeScene}) {
       std::cout << "shell-thumbnail: rendering " << QFileInfo(input).fileName().toStdString() << std::endl;
       auto expected = cli(args.at(1),input,root.filePath(QString("render-%1.bin").arg(index++)));
       if (QFileInfo(input).suffix() == "tnz")
         require(expected.width == 128 && expected.height == 96,
                 "scene thumbnail did not retain the saved camera aspect ratio");
-      artwork(expected); same(expected, comWorker(getClass,input));
+      artwork(expected); same(expected, comWorker(getClass,input)); rendered.push_back(expected);
       require(!qobject_cast<QGuiApplication *>(QCoreApplication::instance()),
               "COM provider upgraded the host to a GUI application");
       require(QDir(QString::fromStdWString(temp)).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty(),
               "successful COM request leaked temporary output");
     }
-    const auto tiny = comWorker(getClass,ordinary,1);
+    require(rendered[0].bytes != rendered[1].bytes && rendered[2].bytes != rendered[3].bytes,
+            "PLI or TNZ thumbnails lost the stroke opacity envelope");
+    require(rendered[4].bytes != rendered[5].bytes,
+            "scene-relative TNZ thumbnails lost the stroke opacity envelope");
+    const auto tiny = comWorker(getClass,envelope,1);
     require(tiny.width == 1 && tiny.height == 1, "tiny Shell request exceeded dimensions");
     const auto executable = QCoreApplication::applicationFilePath().toStdWString();
     HBITMAP failed = nullptr;
@@ -267,7 +276,7 @@ int main(int argc, char **argv) {
     require(QDir(QString::fromStdWString(temp)).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty(),
             "failed, canceled or timed-out request leaked temporary files");
     FreeLibrary(module); CoUninitialize();
-    std::cout << "shell-thumbnail: PASS (ordinary PLI/TNZ, actual CLI and COM, bounded cleanup)" << std::endl;
+    std::cout << "shell-thumbnail: PASS (ordinary/envelope PLI/TNZ, actual CLI and COM, bounded cleanup)" << std::endl;
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "shell-thumbnail: " << error.what() << std::endl; return 1;

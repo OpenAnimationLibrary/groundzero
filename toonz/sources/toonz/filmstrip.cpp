@@ -5,6 +5,11 @@
 
 
 #include "filmstrip.h"
+#include "toonzqt/planeviewer.h"
+#include "tstroke.h"
+#include "tgl.h"
+#include <QTableWidget>
+#include <QHeaderView>
 #include "cadmiumpopup.h"
 #include "tundo.h"
 
@@ -27,6 +32,8 @@
 
 // TnzTools includes
 #include "tools/strokeselection.h"
+#include "tools/vectorimagesnapshot.h"
+#include "tools/vectormodalguard.h"
 
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
@@ -68,6 +75,7 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QTimer>
+#include <QPointer>
 #include <QStyleOptionButton>
 #include <algorithm>
 
@@ -148,22 +156,31 @@ QString fidToFrameNumberWithLetter(int f) {
 }
 
 class StripViewportResizeFilter final : public QObject {
-  FilmstripFrames *m_frames;
+  QPointer<FilmstripFrames> m_frames;
   bool m_busy = false;
 
 public:
   StripViewportResizeFilter(FilmstripFrames *frames, QObject *viewport)
-      : QObject(viewport), m_frames(frames) {
+      : QObject(frames), m_frames(frames) {
+    setObjectName("filmstripViewportResizeFilter");
     viewport->installEventFilter(this);
   }
 
   bool eventFilter(QObject *watched, QEvent *event) override {
     if (event->type() == QEvent::Resize && m_frames &&
+        m_frames->parentWidget() == watched &&
         m_frames->isResponsiveThumbnails() && !m_frames->isDragInProgress() &&
         !m_busy) {
       m_busy = true;
+      QPointer<StripViewportResizeFilter> self(this);
+      QPointer<QObject> target(watched);
       m_frames->updateIconLayout();
+      // Updating constraints can synchronously close the strip or viewport.
+      // Do not access this filter after its owner destroys it, and do not
+      // forward an event to a watched object that disappeared during layout.
+      if (!self) return target.isNull();
       m_busy = false;
+      if (!target) return true;
     }
     return QObject::eventFilter(watched, event);
   }
@@ -187,6 +204,7 @@ FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
     , m_level(0)
     , m_selection(new TFilmstripSelection())
     , m_frameHeadGadget(0)
+    , m_viewportResizeFilter(nullptr)
     , m_inbetweenDialog(0)
     , m_pos(0, 0)
     , m_prefIconSize(dimension2QSize(IconGenerator::instance()->getIconSize()))
@@ -228,12 +246,20 @@ FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
   connect(m_responsiveRenderTimer, SIGNAL(timeout()), this,
           SLOT(commitResponsiveRenderSize()));
 
-  new StripViewportResizeFilter(this, m_scrollArea->viewport());
+  m_viewportResizeFilter = new StripViewportResizeFilter(this, m_scrollArea->viewport());
 }
 
 //-----------------------------------------------------------------------------
 
 FilmstripFrames::~FilmstripFrames() {
+  // The viewport survives takeWidget()/replacement. Remove its callback
+  // before selection-detachment signals can synchronously reenter layout,
+  // while every field used by updateIconLayout is still alive.
+  delete m_viewportResizeFilter;
+  m_viewportResizeFilter = nullptr;
+  // The selection handle is non-owning. Detach while the concrete selection
+  // and its command handlers are still alive, including closing an active strip.
+  m_selection->makeNotCurrent();
   delete m_selection;
   delete m_frameHeadGadget;
 }
@@ -1312,7 +1338,9 @@ void FilmstripFrames::mousePressEvent(QMouseEvent *event) {
       }
     } else if (sl->getType() == PLI_XSHLEVEL &&
              m_selection->isInInbetweenRange(fid) && inbetweenSelected) {
+      QPointer<FilmstripFrames> self(this);
       inbetween();
+      if (!self) return;
     } else {
       // move current frame when clicked without modifier
       TApp *tapp = TApp::instance();
@@ -2111,22 +2139,117 @@ void FilmstripFrames::inbetween() {
   TFilmstripSelection::InbetweenRange range = m_selection->getInbetweenRange();
   if (range.first >= range.second || !getLevel()) return;
 
+  auto *app = TApp::instance();
+  auto *scene = app->getCurrentScene()->getScene();
+  TXshSimpleLevelP level = getLevel();
+  if (level->isReadOnly()) return;
+  auto *selection = app->getCurrentSelection()->getSelection();
+  const auto selected = m_selection->getSelectedFids();
+  const std::string hints = level->getMorphHints();
+  struct ReviewedFrame {
+    TFrameId fid;
+    TImageP image;
+    TVectorImageP snapshot;
+  };
+  std::vector<ReviewedFrame> reviewed;
+  std::vector<TFrameId> fids;
+  level->getFids(fids);
+  const auto first = std::find(fids.begin(), fids.end(), range.first);
+  const auto last = std::find(fids.begin(), fids.end(), range.second);
+  if (first == fids.end() || last == fids.end() || last - first < 2) return;
+  try {
+    for (auto it = first; it != last + 1; ++it) {
+      if (it != first && it != last && level->isFrameReadOnly(*it)) return;
+      ReviewedFrame frame{*it, level->getFrame(*it, false), TVectorImageP()};
+      TVectorImageP image = frame.image;
+      if (image) {
+        frame.snapshot = image->cloneWithGroupContext();
+        if (image->getPalette()) frame.snapshot->setPalette(image->getPalette()->clone());
+        frame.snapshot->findRegions();
+      } else if (frame.image) return;
+      reviewed.push_back(std::move(frame));
+    }
+  } catch (...) {
+    DVGui::warning(tr("The inbetween preview could not be prepared. The drawings were left unchanged."));
+    return;
+  }
+  QPointer<FilmstripFrames> self(this);
+  VectorModalGuard owner(this);
+  bool invalidated = false;
+  bool reviewing = true;
+  QObject dialogContext;
+  auto sameSource = [&]() {
+    if (invalidated || !self || app->getCurrentScene()->getScene() != scene ||
+        app->getCurrentLevel()->getSimpleLevel() != level.getPointer() ||
+        app->getCurrentSelection()->getSelection() != selection ||
+        self->getLevel() != level.getPointer() || level->isReadOnly() ||
+        self->m_selection->getSelectedFids() != selected ||
+        self->m_selection->getInbetweenRange() != range || level->getMorphHints() != hints)
+      return false;
+    std::vector<TFrameId> current;
+    level->getFids(current);
+    current.erase(std::remove_if(current.begin(), current.end(), [&](const TFrameId &fid) {
+      return fid < range.first || fid > range.second;
+    }), current.end());
+    if (current.size() != reviewed.size()) return false;
+    for (size_t i = 0; i < reviewed.size(); ++i) {
+      const auto &before = reviewed[i];
+      if (current[i] != before.fid ||
+          (i > 0 && i + 1 < reviewed.size() && level->isFrameReadOnly(before.fid))) return false;
+      const TImageP image = level->getFrame(before.fid, false);
+      if (image != before.image || (before.snapshot &&
+          !VectorImageSnapshot::sameContent(TVectorImageP(image), before.snapshot))) return false;
+    }
+    return true;
+  };
+  auto invalidate = [&]() {
+    if (!reviewing) return;
+    invalidated = true;
+    if (self && self->m_inbetweenDialog) self->m_inbetweenDialog->reject();
+  };
+  connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched, &dialogContext, invalidate);
+  connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched, &dialogContext, invalidate);
+  connect(app->getCurrentSelection(), &TSelectionHandle::selectionChanged, &dialogContext, [&]() {
+    if (!self || self->m_selection->getSelectedFids() != selected) invalidate();
+  });
+  connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched, &dialogContext, [&]() {
+    if (app->getCurrentSelection()->getSelection() != selection) invalidate();
+  });
+  connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelChanged, &dialogContext, [&]() {
+    if (!reviewing) return;
+    bool unchanged = false;
+    try { unchanged = sameSource(); } catch (...) { }
+    if (!unchanged) invalidate();
+  });
+
   QSettings settings;
   QString keyName("InbetweenInterpolation");
   QString currentItem = settings.value(keyName, QStringLiteral("Linear")).toString();
   int index;
 
   // stroke pairs set with the Pair Strokes for Inbetween command, if any
-  TVectorImageP img0 = getLevel()->getFrame(range.first, false);
-  TVectorImageP img1 = getLevel()->getFrame(range.second, false);
+  TVectorImageP img0 = reviewed.front().snapshot;
+  TVectorImageP img1 = reviewed.back().snapshot;
   std::vector<std::pair<int, int>> strokePairs =
-      StrokeSelection::getInbetweenStrokePairs(img0, img1);
+      StrokeSelection::getInbetweenStrokePairs(level.getPointer(), range.first, range.second);
   FilmstripCmd::InbetweenOptions options;
   std::vector<std::pair<TRectD, TRectD>> zoneHints =
-      StrokeSelection::getInbetweenZoneHints(img0, img1);
+      StrokeSelection::getInbetweenZoneHints(level.getPointer(), range.first, range.second);
 
   {
-    if (!m_inbetweenDialog) m_inbetweenDialog = new InbetweenDialog(this);
+    if (!m_inbetweenDialog) {
+      m_inbetweenDialog = new InbetweenDialog(this);
+      // The dialog is parented to the main window. Closing this strip must
+      // close its modal loop too, without deleting it inside exec().
+      auto *dialog = m_inbetweenDialog;
+      connect(this, &QObject::destroyed, dialog, [dialog]() {
+        dialog->reject();
+        dialog->deleteLater();
+      });
+      connect(dialog, &QObject::destroyed, this, [this]() {
+        m_inbetweenDialog = nullptr;
+      });
+    }
 
     // Default -> l'ultimo valore usato
 
@@ -2137,12 +2260,24 @@ void FilmstripFrames::inbetween() {
         settings.value("InbetweenAutoMatch", false).toBool());
     m_inbetweenDialog->setStrokePairCount(int(strokePairs.size()));
     m_inbetweenDialog->setZoneHintCount(int(zoneHints.size()));
+    m_inbetweenDialog->setUnmatchedPolicy(settings.value("InbetweenUnmatchedPolicy", 0).toInt());
+    m_inbetweenDialog->setPreviewSource(img0, img1, strokePairs, zoneHints);
 
-    int ret = m_inbetweenDialog->exec();
-    if (!ret) return;
+    QPointer<InbetweenDialog> dialog(m_inbetweenDialog);
+    int ret = owner.exec(*dialog);
+    reviewing = false;
+    if (!self || !dialog || !ret || invalidated || !owner.valid()) return;
+    bool unchanged = false;
+    try { unchanged = sameSource(); } catch (...) { }
+    if (!unchanged) {
+      DVGui::warning(tr("The drawings, range or morph hints changed while the preview was open. Reopen Inbetween to review them. No drawing was overwritten."));
+      return;
+    }
     if (!m_inbetweenDialog->useStrokePairs()) strokePairs.clear();
     if (m_inbetweenDialog->useZoneHints()) options.m_zoneHints = zoneHints;
     options.m_autoMatch = m_inbetweenDialog->autoMatch();
+    options.m_unmatchedPolicy = m_inbetweenDialog->unmatchedPolicy();
+    settings.setValue("InbetweenUnmatchedPolicy", options.m_unmatchedPolicy);
     options.m_slowStart = m_inbetweenDialog->slowStart() / 100.0;
     options.m_slowEnd   = m_inbetweenDialog->slowEnd() / 100.0;
     settings.setValue("InbetweenSlowStart", m_inbetweenDialog->slowStart());
@@ -2167,8 +2302,12 @@ void FilmstripFrames::inbetween() {
   FilmstripCmd::InbetweenInterpolation interpolation = codes[index];
 
   // inbetween
-  FilmstripCmd::inbetween(getLevel(), range.first, range.second, interpolation,
-                          strokePairs, options);
+  try {
+    FilmstripCmd::inbetween(level.getPointer(), range.first, range.second, interpolation,
+                            strokePairs, options);
+  } catch (...) {
+    DVGui::warning(tr("The inbetweens could not be generated. The drawings were left unchanged."));
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2801,8 +2940,56 @@ void Filmstrip::load(QSettings &settings) {
 // inbetweenDialog
 //-----------------------------------------------------------------------------
 
+class MorphPreviewSwatch final : public PlaneViewer {
+  TVectorImageP m_image;
+  TRectD m_bounds;
+  int m_highlight = -1;
+public:
+  explicit MorphPreviewSwatch(QWidget *parent) : PlaneViewer(parent) {
+    setMinimumSize(190, 160);
+    setBgColor(TPixel32(230,230,230), TPixel32(255,255,255));
+  }
+  void setImage(const TVectorImageP &image, const TRectD &bounds) {
+    m_image = image;
+    m_bounds = bounds;
+    update();
+  }
+#ifdef BUILD_UI_PORT_TESTS
+  TVectorImageP imageForTest() const { return m_image; }
+#endif
+  void highlight(int index) { m_highlight = index; update(); }
+  void paintGL() override {
+    // The checkerboard is in widget coordinates. Neither the previous image
+    // fit nor PlaneViewer's first-draw fit may change its next-frame extent.
+    viewAff() = TAffine();
+    drawBackground();
+    if (!m_image) return;
+    const double sx = (width() - 20.0) / std::max(1.0, m_bounds.getLx());
+    const double sy = (height() - 20.0) / std::max(1.0, m_bounds.getLy());
+    const TPointD center((m_bounds.x0 + m_bounds.x1) * .5, (m_bounds.y0 + m_bounds.y1) * .5);
+    viewAff() = TTranslation(width() * .5, height() * .5) *
+                TScale(std::min(sx, sy)) * TTranslation(-center);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    pushGLWorldCoordinates();
+    draw(m_image);
+    if (m_highlight >= 0 && m_highlight < int(m_image->getStrokeCount())) {
+      const auto box = m_image->getStroke(m_highlight)->getBBox();
+      glColor3d(1.0, .25, 0.0);
+      glLineWidth(2.0);
+      glBegin(GL_LINE_LOOP);
+      glVertex2d(box.x0, box.y0); glVertex2d(box.x1, box.y0);
+      glVertex2d(box.x1, box.y1); glVertex2d(box.x0, box.y1);
+      glEnd();
+      glLineWidth(1.0);
+    }
+    popGLCoordinates();
+    glDisable(GL_BLEND);
+  }
+};
+
 InbetweenDialog::InbetweenDialog(QWidget *parent)
-    : Dialog(TApp::instance()->getMainWindow(), true, "InBetween") {
+    : Dialog(TApp::instance()->getMainWindow(), true, "InBetween"), m_previewTimer(nullptr) {
   setWindowTitle(tr("Inbetween"));
 
   QString linear(tr("Linear"));
@@ -2882,12 +3069,184 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
   m_zoneHintsCB->hide();
   addWidget(m_zoneHintsCB);
 
-  QPushButton *okBtn     = new QPushButton(tr("Inbetween"), this);
+  m_unmatchedCombo = new QComboBox(this);
+  m_unmatchedCombo->setObjectName("morphUnmatchedPolicy");
+  m_unmatchedCombo->addItem(tr("Omit unmatched strokes (legacy)"), TInbetween::OmitUnmatched);
+  m_unmatchedCombo->addItem(tr("Hold unmatched strokes"), TInbetween::HoldUnmatched);
+  m_unmatchedCombo->addItem(tr("Shrink disappearing / grow appearing strokes"), TInbetween::CollapseUnmatched);
+  m_unmatchedCombo->addItem(tr("Fade disappearing / appearing stroke opacity"), TInbetween::FadeUnmatched);
+  m_unmatchedCombo->setToolTip(tr("Fade multiplies each unmatched stroke's existing opacity by its visibility. Unmatched strokes bounding painted regions cannot fade; match them or choose another policy."));
+  addWidget(tr("Unmatched strokes:"), m_unmatchedCombo);
+
+  QWidget *previews = new QWidget(this);
+  auto previewLayout = new QGridLayout(previews);
+  previewLayout->addWidget(new QLabel(tr("First drawing"), previews), 0, 0);
+  previewLayout->addWidget(new QLabel(tr("Generated drawing"), previews), 0, 1);
+  previewLayout->addWidget(new QLabel(tr("Last drawing"), previews), 0, 2);
+  m_firstPreview = new MorphPreviewSwatch(previews);
+  m_resultPreview = new MorphPreviewSwatch(previews);
+  m_lastPreview = new MorphPreviewSwatch(previews);
+  m_firstPreview->setObjectName("morphFirstPreview");
+  m_resultPreview->setObjectName("morphResultPreview");
+  m_lastPreview->setObjectName("morphLastPreview");
+  previewLayout->addWidget(m_firstPreview, 1, 0);
+  previewLayout->addWidget(m_resultPreview, 1, 1);
+  previewLayout->addWidget(m_lastPreview, 1, 2);
+  addWidget(previews);
+  m_previewPosition = new QSlider(Qt::Horizontal, this);
+  m_previewPosition->setObjectName("morphPreviewPosition");
+  m_previewPosition->setRange(0, 100);
+  m_previewPosition->setValue(50);
+  m_previewPosition->setToolTip(tr("Preview position between the two key drawings. Preview does not edit the level."));
+  addWidget(tr("Preview position:"), m_previewPosition);
+  m_reviewTable = new QTableWidget(this);
+  m_reviewTable->setObjectName("morphCorrespondence");
+  m_reviewTable->setColumnCount(3);
+  m_reviewTable->setHorizontalHeaderLabels({tr("First stroke"), tr("Last stroke"), tr("Correspondence")});
+  m_reviewTable->horizontalHeader()->setStretchLastSection(true);
+  m_reviewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  m_reviewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_reviewTable->setSelectionMode(QAbstractItemView::SingleSelection);
+  m_reviewTable->setMaximumHeight(160);
+  addWidget(m_reviewTable);
+  m_reviewStatus = new QLabel(this);
+  m_reviewStatus->setObjectName("morphReviewStatus");
+  m_reviewStatus->setWordWrap(true);
+  addWidget(m_reviewStatus);
+  m_previewTimer = new QTimer(this);
+  m_previewTimer->setSingleShot(true);
+  m_previewTimer->setInterval(120);
+  connect(m_previewTimer, &QTimer::timeout, this, &InbetweenDialog::refreshPreview);
+  connect(this, &QDialog::finished, this, [this](int) {
+    m_previewTimer->stop();
+    m_firstImage = m_lastImage = TVectorImageP();
+    m_manualPairs.clear(); m_zones.clear();
+    for (auto *preview : {m_firstPreview, m_resultPreview, m_lastPreview})
+      preview->setImage(TVectorImageP(), TRectD());
+  });
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+          this, &QDialog::reject);
+  connect(TApp::instance()->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched,
+          this, &QDialog::reject);
+  for (auto cb : {m_autoMatchCB, m_strokePairsCB, m_zoneHintsCB})
+    connect(cb, &QCheckBox::toggled, this, [this](bool) { schedulePreview(); });
+  for (auto slider : {m_previewPosition, m_slowStartSlider, m_slowEndSlider})
+    connect(slider, &QSlider::valueChanged, this, [this](int) { schedulePreview(); });
+  for (auto combo : {m_comboBox, m_unmatchedCombo})
+    connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) { schedulePreview(); });
+  connect(m_reviewTable, &QTableWidget::currentCellChanged, this,
+          [this](int row, int, int, int) {
+            auto index = [&](int column) {
+              auto item = m_reviewTable->item(row, column);
+              return item ? item->data(Qt::UserRole).toInt() : -1;
+            };
+            m_firstPreview->highlight(index(0));
+            m_lastPreview->highlight(index(1));
+          });
+
+  m_applyButton = new QPushButton(tr("Inbetween"), this);
+  m_applyButton->setObjectName("morphApply");
+  m_applyButton->setEnabled(false);
   QPushButton *cancelBtn = new QPushButton(tr("Cancel"), this);
-  connect(okBtn, SIGNAL(clicked()), this, SLOT(accept()));
+  cancelBtn->setObjectName("morphCancel");
+  connect(m_applyButton, &QPushButton::clicked, this, &InbetweenDialog::accept);
   connect(cancelBtn, SIGNAL(clicked()), this, SLOT(reject()));
 
-  addButtonBarWidget(okBtn, cancelBtn);
+  addButtonBarWidget(m_applyButton, cancelBtn);
+}
+
+void InbetweenDialog::setPreviewSource(
+    const TVectorImageP &first, const TVectorImageP &last,
+    const TInbetween::StrokeCorrespondence &pairs,
+    const std::vector<std::pair<TRectD, TRectD>> &zones) {
+  m_firstImage = first ? first->clone() : TVectorImageP();
+  m_lastImage = last ? last->clone() : TVectorImageP();
+  m_manualPairs = pairs;
+  m_zones = zones;
+  schedulePreview();
+}
+#ifdef BUILD_UI_PORT_TESTS
+TVectorImageP InbetweenDialog::previewImageForTest() const {
+  return m_resultPreview->imageForTest();
+}
+#endif
+int InbetweenDialog::unmatchedPolicy() const { return m_unmatchedCombo->currentData().toInt(); }
+void InbetweenDialog::setUnmatchedPolicy(int policy) {
+  const int index = m_unmatchedCombo->findData(policy);
+  m_unmatchedCombo->setCurrentIndex(index >= 0 ? index : 0);
+}
+void InbetweenDialog::schedulePreview() {
+  m_previewValid = false;
+  if (m_applyButton) m_applyButton->setEnabled(false);
+  if (m_reviewTable) m_reviewTable->setProperty("previewReady", false);
+  if (m_previewTimer) m_previewTimer->start();
+}
+void InbetweenDialog::refreshPreview() {
+  m_previewValid = false;
+  m_applyButton->setEnabled(false);
+  m_reviewTable->setProperty("previewReady", false);
+  if (!m_firstImage || !m_lastImage) return;
+  TInbetween::MatchOptions options;
+  options.m_autoMatch = autoMatch();
+  options.m_unmatchedPolicy = static_cast<TInbetween::UnmatchedPolicy>(unmatchedPolicy());
+  if (useZoneHints())
+    for (const auto &zone : m_zones) options.m_zoneHints.emplace_back(zone.first, zone.second);
+  const auto pairs = useStrokePairs() ? m_manualPairs : TInbetween::StrokeCorrespondence();
+  try {
+    const auto review = TInbetween::reviewCorrespondence(m_firstImage, m_lastImage, pairs, options);
+    const QString names[] = {tr("Manual"), tr("Zone hint"), tr("Automatic"), tr("Index fallback")};
+    m_reviewTable->setRowCount(0);
+    auto addRow = [&](int first, int last, const QString &description, int source) {
+      const int row = m_reviewTable->rowCount();
+      m_reviewTable->insertRow(row);
+      for (int column = 0; column < 2; ++column) {
+        const int index = column ? last : first;
+        auto item = new QTableWidgetItem(index < 0 ? tr("—") : QString::number(index + 1));
+        item->setData(Qt::UserRole, index);
+        m_reviewTable->setItem(row, column, item);
+      }
+      auto sourceItem = new QTableWidgetItem(description);
+      sourceItem->setData(Qt::UserRole, source);
+      m_reviewTable->setItem(row, 2, sourceItem);
+    };
+    for (const auto &p : review.pairs) addRow(p.first, p.last, names[p.source], p.source);
+    for (int i : review.unmatchedFirst) addRow(i, -1, tr("Disappearing"), -1);
+    for (int i : review.unmatchedLast) addRow(-1, i, tr("Appearing"), -2);
+    const auto bounds = m_firstImage->getBBox() + m_lastImage->getBBox();
+    m_firstPreview->setImage(m_firstImage, bounds);
+    m_lastPreview->setImage(m_lastImage, bounds);
+    if (options.m_unmatchedPolicy == TInbetween::FadeUnmatched &&
+        TInbetween::fadeHasPaintedBoundaries(m_firstImage, m_lastImage, review)) {
+      m_reviewStatus->setText(tr("Fade cannot animate unmatched strokes that bound painted regions, including holes and nested fills. Match those boundaries or choose Hold, Shrink/grow, or Omit. No drawing was changed."));
+      m_resultPreview->setImage(TVectorImageP(), bounds);
+      return;
+    }
+    double t = m_previewPosition->value() / 100.0;
+    const auto algorithm = static_cast<TInbetween::TweenAlgorithm>(m_comboBox->currentIndex());
+    double time = algorithm == TInbetween::CustomEaseInterpolation
+        ? TInbetween::customEaseInterpolation(t, slowStart() / 100.0, slowEnd() / 100.0)
+        : TInbetween::interpolation(t, algorithm);
+    TInbetween tween(m_firstImage, m_lastImage, pairs, options);
+    // Key drawings are never overwritten by the command, including in legacy
+    // mode, so display the untouched endpoints at 0% and 100%.
+    TVectorImageP result = t <= 0 ? m_firstImage : t >= 1 ? m_lastImage : tween.tween(time);
+    m_resultPreview->setImage(result, bounds);
+    m_reviewStatus->setText(tr("%1 pairs; %2 disappearing and %3 appearing strokes. Select a row to highlight its source strokes. Preview: %4%.")
+        .arg(int(review.pairs.size())).arg(int(review.unmatchedFirst.size())).arg(int(review.unmatchedLast.size())).arg(m_previewPosition->value()));
+    m_reviewTable->setProperty("previewReady", true);
+    m_previewValid = true;
+    m_applyButton->setEnabled(true);
+  } catch (...) {
+    m_reviewStatus->setText(tr("The preview could not be generated. No drawing was changed."));
+    m_resultPreview->setImage(TVectorImageP(), m_firstImage->getBBox() + m_lastImage->getBBox());
+  }
+}
+
+void InbetweenDialog::accept() {
+  m_previewTimer->stop();
+  refreshPreview();
+  if (m_previewValid) DVGui::Dialog::accept();
 }
 
 //-----------------------------------------------------------------------------

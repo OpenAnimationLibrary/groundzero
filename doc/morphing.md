@@ -3,8 +3,10 @@
 Opt-in additions to the vector Inbetween command of the Filmstrip (master plan
 B4, parity plan D3), on top of the stroke-pairing hints. Without them the
 Inbetween result is exactly the same as before, and no scene data is added:
-nothing here is saved with the level or the scene (the pairs and the zone hints
-are kept in memory, by stroke id, like the existing pairs).
+manual pairs and zone hints are saved as versioned metadata in the scene.
+They belong to a particular level and pair of drawings, not to session-wide
+stroke IDs. Older builds ignore this authoring metadata and drop it if they
+resave the scene; drawings and rendered animation remain compatible.
 
 Open **Inbetween** from the Filmstrip with two key drawings selected.
 
@@ -46,10 +48,12 @@ record the target zone. Strokes of the first drawing whose centroid is in the
 source zone are matched with strokes of the other whose centroid is in the
 target zone, nearest first (distance measured from the center of each zone).
 **Clear Inbetween Stroke Pairs** clears the zone hints too. A hint stops
-applying when the selected stroke it was recorded on is deleted.
-The two steps are told apart by the drawing (not by its stroke ids), so a key
-drawing duplicated from the other one, which keeps the same stroke ids, works
-too; the hint then also remembers which drawing each zone was recorded on.
+applying when its anchor stroke is deleted, changed beyond file quantization,
+or becomes ambiguous.
+The two steps are scoped to the level and frame ID, including frame suffixes.
+Renumbering frames remaps the hints. Pairing and clearing hints are undoable.
+Save the scene after editing hints; exporting a standalone PLI does not carry
+scene authoring metadata.
 
 ## Velocity curve
 
@@ -65,7 +69,69 @@ matching checkbox in the user settings.
 ## Limits
 
 - Vanishing-point hints are not done.
-- Zone hints use the bounding box of the selection and stroke centroids; they
-  are lost when the application closes.
+- Zone hints use the bounding box of the selection and stroke centroids.
+  Editing an anchor invalidates the corresponding hint rather than guessing
+  which new stroke it was intended to identify.
 - The other tools that use `TInbetween` (the morph based erasers and the fill
   tool preview) keep the index order matching.
+
+## Correspondence review and unmatched strokes
+
+The Inbetween dialog shows the first drawing, the actual generated vector drawing,
+and the last drawing in native vector previews. A position slider evaluates the
+same interpolation and correspondence implementation used by the command. The
+review lists manual, zone, automatic and index-fallback matches; selecting a row
+highlights both source strokes. Appearing/disappearing strokes are listed too.
+Cancel does not edit drawings or create an undo entry.
+
+Choose an explicit policy for unmatched strokes:
+
+- **Omit (legacy)** retains the previous behavior.
+- **Hold** keeps each unmatched stroke unchanged between the key drawings.
+- **Shrink/grow** scales each unmatched stroke around its own bounds center,
+  including its thickness: disappearing strokes scale by `1-t`, appearing
+  strokes by `t`. It does not pretend that stroke alpha fades a region's fill.
+- **Fade** multiplies the unmatched stroke's authored opacity by `1-t` when
+  disappearing or `t` when appearing. Geometry, width, group membership and
+  the stroke's normalized opacity profile are retained. Repeated previews and
+  generation start from the key drawings, so the multiplier does not accumulate.
+  Fade is unavailable when an unmatched stroke bounds a painted region,
+  including a nested fill or a hole in a painted region. The dialog explains
+  the limitation and disables Inbetween; direct generation rejects the same
+  case before changing drawings or history. Match those boundaries or select
+  another policy. Matched fills and unpainted closed strokes remain supported;
+  independent animated region opacity is not implemented.
+
+The key drawings remain unchanged. Generated drawings retain native strokes,
+groups, styles and transferred region colors. The Filmstrip command generates
+every intermediate drawing before applying any of them, then records one undo
+transaction. An invalid or unrepresentable envelope leaves drawings and history
+unchanged. Frame suffixes bound both the operation and redo exactly.
+Disappearing strokes retain their first-drawing
+stack positions. Appearing strokes follow that stack in last-drawing order;
+their group identifiers are remapped to avoid collisions between drawings.
+Use the actual preview to inspect overlaps before committing.
+
+## Persistence and validation
+
+`morphHintsV1` is an optional attribute of the existing level `info` element.
+It contains bounded versioned JSON: frame IDs, pair/zone records and sampled
+stroke anchors. No PLI chunk format changes are needed. Coordinates are compared
+with a quantization tolerance of 1/128 drawing unit; ambiguous identical strokes
+are rejected rather than rebound by index. Unknown versions are retained but
+cannot be edited until explicitly cleared. The record limit is 2048 and the
+encoded payload limit is 2 MiB.
+
+The `ui_vector_morphworkflow` CTest target exercises the actual native tween engine,
+manual/zone/fallback correspondence, birth/death policies, endpoint/source
+preservation, closed-region fill transfer, real PLI reload and level metadata
+serialization, stale/ambiguous anchors and frame renumbering. It is enabled with
+`BUILD_MORPHWORKFLOW_TESTS`, `BUILD_TESTS`, or `BUILD_UI_PORT_TESTS`. The existing
+UI CI target also drives the native correspondence dialog, Filmstrip Apply and
+undo/redo, lettered drawing bounds, and failure without partial mutation.
+Fade coverage includes actual rendered dialog previews at multiple positions,
+Cancel, repeated Apply/undo/redo, endpoint identity, source opacity/profile and
+group preservation, PLI reload, and rejection of painted unmatched boundaries
+in either direction. Native topology fixtures cover nested fills and painted
+hole boundaries while retaining supported matched fills.
+Source fixtures are not execution results: CI qualification remains required.

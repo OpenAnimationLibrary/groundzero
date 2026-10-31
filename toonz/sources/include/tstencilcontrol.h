@@ -37,6 +37,18 @@ private:
 public:
   static TStencilControl *instance();
 
+  //! An independent stencil stack for a temporary framebuffer on this thread.
+  //! Construct only after binding that framebuffer; destroy before restoring
+  //! the caller's GL state. Nested offscreen drawing cannot consume parent bits.
+  class DVAPI FramebufferScope {
+    std::unique_ptr<TStencilControl> m_control;
+  public:
+    FramebufferScope();
+    ~FramebufferScope();
+    FramebufferScope(const FramebufferScope &) = delete;
+    FramebufferScope &operator=(const FramebufferScope &) = delete;
+  };
+
   TStencilControl();
   ~TStencilControl();
 

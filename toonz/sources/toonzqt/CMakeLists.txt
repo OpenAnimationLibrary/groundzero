@@ -139,6 +139,7 @@ set(SOURCES
     fxhistogramrender.cpp
     fxsettings.cpp
     gutil.cpp
+    glwidget_for_highdpi.cpp
     hexcolornames.cpp
     histogram.cpp
     icongenerator.cpp

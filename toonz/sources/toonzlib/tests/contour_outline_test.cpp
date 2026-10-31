@@ -7,6 +7,10 @@
 
 #include "tgeometry.h"
 #include "tstroke.h"
+#include "tvectorimage.h"
+#include "tpalette.h"
+#include "tregion.h"
+#include "tsimplecolorstyles.h"
 
 #include <algorithm>
 #include <cmath>
@@ -312,11 +316,11 @@ void testWavy() {
   // a tight bound relaxes the fit
   ContourOutline::Options tight;
   tight.m_maxControlPoints = 120;
-  std::vector<TThickPoint> small;
-  require(ContourOutline::makeOutlineControlPoints(stroke, small, tight),
+  std::vector<TThickPoint> tightOutline;
+  require(ContourOutline::makeOutlineControlPoints(stroke, tightOutline, tight),
           "wavy: no tight outline");
-  require(small.size() <= (size_t)tight.m_maxControlPoints ||
-              small.size() <= first.size(),
+  require(tightOutline.size() <= (size_t)tight.m_maxControlPoints ||
+              tightOutline.size() <= first.size(),
           "wavy: the bound did not help");
 }
 
@@ -337,13 +341,23 @@ void testNotConvertible() {
   TStroke flatStroke(flat);
   require(!ContourOutline::canConvert(flatStroke), "zero thickness");
 
-  // a ring would need two outlines
+  // A ring has two independent boundary cycles; the single-outline legacy
+  // API deliberately cannot represent it.
   std::vector<TThickPoint> ring = {
       TThickPoint(0, 0, 2), TThickPoint(10, 20, 2), TThickPoint(20, 0, 2),
       TThickPoint(10, -20, 2), TThickPoint(0, 0, 2)};
   TStroke ringStroke(ring);
   ringStroke.setSelfLoop(true);
-  require(!ContourOutline::canConvert(ringStroke), "self loop");
+  require(ContourOutline::canConvert(ringStroke), "closed loop not convertible");
+  std::vector<std::vector<TThickPoint>> contours;
+  require(ContourOutline::makeOutlineContours(ringStroke, contours) && contours.size() == 2,
+          "closed loop needs two independent boundaries");
+  for (const auto &points : contours) {
+    TStroke boundary(points); boundary.setSelfLoop(true);
+    requireClosedZeroThickness(boundary, 400);
+  }
+  require(ContourOutline::makeOutlineStroke(ringStroke) == nullptr,
+          "single-outline API silently flattened the hole");
 
   // a dot is a disc
   std::vector<TThickPoint> dot = {TThickPoint(5, 5, 3), TThickPoint(5, 5, 3),
@@ -360,6 +374,108 @@ void testNotConvertible() {
           "dot: area");
 }
 
+TVectorImageP layeredFixture(bool fillCenter) {
+  TVectorImageP image = new TVectorImage;
+  TPaletteP palette = new TPalette;
+  const int red = palette->addStyle(new TSolidColorStyle(TPixel32(255,0,0)));
+  palette->getPage(0)->addStyle(red);
+  image->setPalette(palette.getPointer());
+  auto *line = new TStroke(std::vector<TThickPoint>{{-25,0,2},{0,0,2},{25,0,2}});
+  line->setStyle(1); image->addStroke(line);
+  auto *ring = new TStroke(std::vector<TThickPoint>{
+      {-12,-12,3},{0,-12,3},{12,-12,3},{12,0,3},{12,12,3},
+      {0,12,3},{-12,12,3},{-12,0,3},{-12,-12,3}});
+  ring->setSelfLoop(true); ring->setStyle(red); ring->setOpacity(.5);
+  image->addStroke(ring);
+  image->findRegions();
+  if (fillCenter) {
+    TRegion *region = image->getRegion(TPointD(0,5));
+    require(region, "closed-loop fixture has no center region");
+    region->setStyle(1);
+  }
+  return image;
+}
+
+void testNativeLayeredConversion() {
+  auto source = layeredFixture(false);
+  std::vector<std::vector<TThickPoint>> boundaries;
+  require(ContourOutline::makeOutlineContours(*source->getStroke(1), boundaries),
+          "closed-loop footprint fixture conversion failed");
+  std::vector<std::vector<TPointD>> cycles;
+  for (const auto &points : boundaries) {
+    TStroke boundary(points);
+    cycles.push_back(sampleClosedStroke(boundary, 2000));
+  }
+  DiscUnion footprint(*source->getStroke(1));
+  int agreement = 0, difference = 0;
+  for (double y = -17.125; y < 17.; y += .5)
+    for (double x = -17.125; x < 17.; x += .5) {
+      const TPointD point(x,y);
+      bool inContour = false;
+      for (const auto &cycle : cycles) inContour ^= insidePolygon(cycle, point);
+      const bool inBrush = footprint.contains(point);
+      if (inContour && inBrush) ++agreement;
+      else if (inContour != inBrush) ++difference;
+    }
+  require(agreement > 100 && double(difference) / agreement < .04,
+          "closed-loop contour footprint differs from the brush band");
+  const int originalCount = source->getPalette()->getStyleCount();
+  auto converted = ContourOutline::convertImage(source, {1});
+  require(converted, "native ring conversion failed");
+  require(source->getStrokeCount() == 2 && source->getPalette()->getStyleCount() == originalCount,
+          "conversion mutated source image or palette");
+  require(converted->getPalette()->getStyleCount() == originalCount + 1,
+          "stroke opacity was not represented in a dedicated fill style");
+  int lineIndex = converted->getStrokeIndexById(source->getStroke(0)->getId());
+  require(lineIndex >= 0, "unselected stroke identity lost");
+  auto *line = converted->getStroke(lineIndex);
+  for (int i = 0; i < line->getControlPointCount(); ++i)
+    require(line->getControlPoint(i) == source->getStroke(0)->getControlPoint(i),
+            "unselected stroke geometry changed");
+  bool paintedBand = false;
+  for (UINT r = 0; r < converted->getRegionCount(); ++r) {
+    auto *region = converted->getRegion(r);
+    if (region->getStyle() <= 0) continue;
+    if (region->contains(TPointD(12,0))) {
+      paintedBand = true;
+      require(converted->getPalette()->getStyle(region->getStyle())->getMainColor().m == 128,
+              "contour alpha does not match source opacity");
+      require(!region->getRegion(TPointD(0,5)) ||
+                  region->getRegion(TPointD(0,5))->getStyle() == 0,
+              "hollow ring center was filled");
+      bool aboveLine = false;
+      for (UINT s = lineIndex + 1; s < converted->getStrokeCount(); ++s)
+        aboveLine |= converted->sameGroupStrokeAndRegion(s, r);
+      require(aboveLine, "converted top stroke moved underneath unselected line");
+    }
+  }
+  require(paintedBand, "ring band did not receive paint");
+
+  auto filled = layeredFixture(true);
+  auto withFill = ContourOutline::convertImage(filled, {1});
+  bool preserved = false;
+  for (UINT r = 0; r < withFill->getRegionCount(); ++r) {
+    auto *root = withFill->getRegion(r);
+    if (!root->contains(TPointD(0,5))) continue;
+    auto *inner = root->getRegion(TPointD(0,5));
+    preserved |= inner && inner->getStyle() == 1;
+  }
+  require(preserved, "existing center fill lost during ring conversion");
+  filled->getPalette()->setKeyframe(filled->getStroke(1)->getStyle(), 0);
+  bool refused = false;
+  try { ContourOutline::convertImage(filled, {1}); }
+  catch (const std::runtime_error &) { refused = true; }
+  require(refused && filled->getStrokeCount() == 2,
+          "animated style changed without an explicit unsupported-appearance refusal");
+  auto locked = layeredFixture(false);
+  locked->getPalette()->setIsLocked(true);
+  refused = false;
+  try { ContourOutline::convertImage(locked, {1}); }
+  catch (const std::runtime_error &) { refused = true; }
+  require(refused && locked->getPalette()->getStyleCount() == originalCount,
+          "locked palette was modified for an opacity style");
+}
+
 }  // namespace
 
 //------------------------------------------------------------------
@@ -373,6 +489,7 @@ int main() {
     testCorner();
     testWavy();
     testNotConvertible();
+    testNativeLayeredConversion();
   } catch (const std::exception &e) {
     std::cerr << "contour_outline_test failed: " << e.what() << std::endl;
     return 1;
