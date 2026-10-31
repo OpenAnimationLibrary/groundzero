@@ -21,7 +21,7 @@ class DriftPathContract(unittest.TestCase):
 
     def test_changed_endpoint_rejected(self):
         case = {"driftProbe": {"nominalDabs": 1000, "calibration": False},
-                "sourcePath": path(1000), "diameter": 8, "spacing": 2}
+                "sourcePath": path(1000), "diameter": 8, "spacing": 2, "sourceEngine": "colorsmudge"}
         validate(case)
         case["sourcePath"][-1][0] += 1
         with self.assertRaises(ValueError):
@@ -29,7 +29,7 @@ class DriftPathContract(unittest.TestCase):
 
     def test_observable_count_rejects_duplicate_and_extra_deposits(self):
         case = {"driftProbe": {"nominalDabs": 1, "calibration": True},
-                "sourcePath": path(1), "diameter": 8, "spacing": 2}
+                "sourcePath": path(1), "diameter": 8, "spacing": 2, "sourceEngine": "paintbrush"}
         before = bytes(WIDTH * HEIGHT * 4)
         after = bytearray(before)
         pixel = (8 * WIDTH + 8) * 4
@@ -43,6 +43,14 @@ class DriftPathContract(unittest.TestCase):
         after[other:other + 4] = bytes((0, 255, 0, 128))
         with self.assertRaises(ValueError):
             capture(before, after, case)
+
+    def test_calibration_engine_is_explicit(self):
+        case = {"driftProbe": {"nominalDabs": 1, "calibration": True},
+                "sourcePath": path(1), "diameter": 8, "spacing": 2, "sourceEngine": "paintbrush"}
+        validate(case)
+        case["sourceEngine"] = "colorsmudge"
+        with self.assertRaises(ValueError):
+            validate(case)
 
     def test_unknown_count_rejected(self):
         with self.assertRaises(ValueError):

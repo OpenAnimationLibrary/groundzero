@@ -47,6 +47,17 @@ def plan(fixtures):
     return result
 
 
+def original_second_sample(record, case):
+    # Oracle status contains the complete scanline, whereas notice summaries
+    # retain only probePositions. The last full scan entry is not the last dab.
+    target = 256 + int(case["diameter"] * case["spacing"])
+    matches = [sample[1:] for sample in record["centerlineRGBA8"]
+               if len(sample) == 5 and sample[0] == target]
+    if len(matches) != 1:
+        raise ValueError("Missing unique original second-dab center sample")
+    return matches[0]
+
+
 def canonical(raw, depth):
     stride = 4 if depth == "U8" else 8
     alpha = 3 if depth == "U8" else 6
@@ -144,9 +155,12 @@ def render(app, output, fixtures, presets, original_records, checkpoint):
                 samples.append([x, 128, bgra[2], bgra[1], bgra[0], bgra[3]])
             equivalent = depth == "U8" and low == 0 and high == 255 and item["dabs"] == 2
             if equivalent:
-                expected = originals[case["preset"]]["centerlineRGBA8"][-1][1:]
+                expected = original_second_sample(originals[case["preset"]], case)
                 if samples[-1][2:] != expected:
-                    raise RuntimeError("Translated U8 kernel diagnostic differs from original coordinates")
+                    raise RuntimeError("Translated U8 kernel diagnostic differs from original coordinates: " +
+                                       json.dumps({"id": ordinal, "preset": case["preset"],
+                                                   "sourceX": samples[-1][0], "actualRGBA": samples[-1][2:],
+                                                   "expectedRGBA": expected}, separators=(",", ":")))
             radius = int(case["diameter"] * max(1, float(case["overrides"]["SmudgeRadiusValue"]) / 100) / 2) + 2
             cx = samples[-1][0]
             rect = [cx - radius, 128 - radius, 2 * radius + 1, 2 * radius + 1]
@@ -214,7 +228,7 @@ def validate(report, fixtures, originals):
         equivalent = depth == "U8" and item["low"] == 0 and item["high"] == 255 and item["dabs"] == 2
         require(row.get("translationControl") is equivalent, "missing translation classification")
         if equivalent:
-            require(samples[-1][2:] == original[case["preset"]]["centerlineRGBA8"][-1][1:],
+            require(samples[-1][2:] == original_second_sample(original[case["preset"]], case),
                     "translated U8 control changed")
         radius = int(case["diameter"] * max(1, float(case["overrides"]["SmudgeRadiusValue"]) / 100) / 2) + 2
         rect = [samples[-1][0] - radius, 128 - radius, 2 * radius + 1, 2 * radius + 1]

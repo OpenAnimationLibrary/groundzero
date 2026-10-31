@@ -21,6 +21,7 @@ def prepare(root, resources, preset_writer):
             cases.append({"preset": name, "variant": "baseline", "diameter": 8, "spacing": 2,
                           "pressure": [1, 1], "opacity": .5 if calibration else 1, "flow": 1,
                           "start": vertices[0], "end": vertices[-1], "sourcePath": vertices,
+                          "sourceEngine": "paintbrush" if calibration else "colorsmudge",
                           "delivery": "Node.paintPath", "background": "transparent" if calibration else "wet-drift",
                           "foregroundRGBA8": [0, 255, 0, 255], "overrides": overrides,
                           "expectUnchanged": count == 1 and not calibration,

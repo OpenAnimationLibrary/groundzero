@@ -487,3 +487,25 @@ resource/settings mismatches and any other failures are never retried. The
 elapsed clocks used by candidate comparison remain actual accepted delivery,
 not fabricated timestamps. CI tests exercise exact bounds and reject extra,
 within-bound or pixel-driven discarded attempts.
+
+The joint HSV matrix now appends 28 original paired captures (64 total), keeping
+its first 36 preset identities unchanged. New cases cover identity-pressure HS,
+HV, SV and HSV, plus each isolated pressure channel with two fixed companions.
+Two foreground colors include an uncapped low-chroma input; opposing .125/.875
+ramps exercise both temporal directions. Every channel's actual curve, enabled
+state, source metadata and delivered input are checked. Complete source capture
+is saved before candidate comparison. Mixed/multiple pressure admission remains
+closed pending these observations: a comparison eligibility failure is expected
+until evidence supports extending the current strict adapter. The full-union
+exact RGB/alpha gates remain unchanged, including for the newly added cases.
+
+The first retry-enabled dense acquisition still exhausted its one retry: the
+65-contact/.25s control was 20,518µs late at contact11 (authored42,969µs,
+actual63,487µs). The deadline-driven sender now omits the additional unconditional
+Qt turn after each paced contact; the next future deadline already yields to the
+event loop. Already-due contacts may catch up in the same bounded input batch,
+with original measured timestamps and unchanged lateness checks. Stationary holds
+still service timers. Non-paced input delivery is unchanged. Both rejected
+attempts remain in the bounded terminal error even when only the runtime log tail
+is available. This is acquisition scheduling, not a brush timer equation or a
+relaxation of the authored timing contract; successful source execution is pending.

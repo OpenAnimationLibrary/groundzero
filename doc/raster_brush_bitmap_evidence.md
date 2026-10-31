@@ -18,7 +18,10 @@ cases without changing the original 32 case identities. The seven inputs are:
 center impulse, corner impulse, grayscale ramp, odd non-square 5×7 impulse and
 solid mask, plus an original RGBA grid used separately as color and mask. Each
 has baseline scale 1, quarter-pixel placement, scale 1.5, scale 2, and 37° view
-rotation controls. Packages retain original resource hashes; source acquisition
+rotation controls. All 35 new controls use a bounded two-vertex public
+`Node.paintPath` call, preserving fractional positions; paired integer controls
+use the same API. The original 32 keep their `Node.paintLine` delivery. Actual
+vertices are recorded and checked by comparison. Packages retain original resource hashes; source acquisition
 checks resource resolution and captures a fixed 48×48 full BGRA region. These
 are acquisition fixtures, not a fitted runtime oracle or passing fidelity gate.
 

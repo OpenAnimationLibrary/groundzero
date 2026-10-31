@@ -45,7 +45,8 @@ class KernelPrecisionContract(unittest.TestCase):
     def complete_report(self):
         fixtures = self.fixtures()
         originals = [{"preset": c["preset"], "effectivePresetSha256": "a" * 64,
-                      "centerlineRGBA8": [[512, 0, 0, 0, 0]]} for c in fixtures["cases"]]
+                      "centerlineRGBA8": [[256 + c["diameter"] * c["spacing"], 0, 0, 0, 0],
+                                           [1808, 17, 23, 31, 255]]} for c in fixtures["cases"]]
         rows = []
         for ordinal, item in enumerate(probe.plan(fixtures)):
             case, depth = item["case"], item["depth"]
@@ -82,6 +83,18 @@ class KernelPrecisionContract(unittest.TestCase):
                 broken["records"][0]["data"] = base64.b64encode(zlib.compress(bytes(200000))).decode()
             with self.assertRaises(ValueError):
                 probe.validate(broken, fixtures, originals)
+
+    def test_second_sample_is_selected_by_coordinate_not_scan_tail(self):
+        case = {"diameter": 56, "spacing": 4}
+        record = {"centerlineRGBA8": [[256, 0, 0, 0, 255], [480, 40, 40, 40, 255],
+                                       [1808, 0, 0, 0, 0]]}
+        self.assertEqual(probe.original_second_sample(record, case), [40, 40, 40, 255])
+        record["centerlineRGBA8"].append([480, 1, 1, 1, 255])
+        with self.assertRaises(ValueError):
+            probe.original_second_sample(record, case)
+        record["centerlineRGBA8"] = [[1808, 0, 0, 0, 0]]
+        with self.assertRaises(ValueError):
+            probe.original_second_sample(record, case)
 
     def test_u16_repeat_uses_full_alpha_channel(self):
         invisible = struct.pack("<4H", 65535, 123, 456, 0)

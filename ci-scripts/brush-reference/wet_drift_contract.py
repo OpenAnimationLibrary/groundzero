@@ -35,7 +35,8 @@ def validate(case):
     count = spec.get("nominalDabs")
     if (count not in CHECKPOINTS or case.get("sourcePath") != path(count) or
             case.get("diameter") != 8 or case.get("spacing") != 2 or
-            spec.get("calibration") not in (True, False)):
+            type(spec.get("calibration")) is not bool or
+            case.get("sourceEngine") != ("paintbrush" if spec["calibration"] else "colorsmudge")):
         raise ValueError("Drift path differs from bounded common-prefix contract")
 
 

@@ -1593,3 +1593,14 @@ for two additional ABR 6.2 collections. All tips are sampled and all dynamics
 are disabled; both pattern sections are empty. This evidence does not resolve
 modern computed-tip, pattern-association, dynamic-control or other-version gaps,
 and does not establish source rendering parity. No pack assets are included.
+
+### Source chroma qualification checkpoint
+
+At implementation head `1974c32c`, the pinned source comparison passed all 24
+full-region H/S/V pressure heldouts and all 36 uncapped low-chroma controls,
+including isolated S and joint SV/HSV adjustments at .55, .7 and .9. The latter
+reported zero premultiplied RGB and alpha error across the union region; the
+joint-order group also passed. These are measured original fixture results,
+not a promotion of arbitrary imported presets or other active combinations.
+The application lifecycle, platform packaging and remaining source-profile
+requirements keep their own acceptance status.

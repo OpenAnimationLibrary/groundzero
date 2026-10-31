@@ -70,6 +70,7 @@ def append(root, resources, preset_writer, names, cases):
                           "end": [257 + phase, 1024 + phase], "brushRotationDegrees": angle,
                           "background": "transparent", "overrides": overrides,
                           "expectUnchanged": False, "candidatePackage": package,
+                          "bitmapPathProbe": True,
                           "resourceProbe": {"filename": filename, "kind": "filter-" + label,
                                             "type": brush_type, "sha256": hashlib.sha256(data).hexdigest(),
                                             "md5": hashlib.md5(data).hexdigest(), "bytes": len(data),

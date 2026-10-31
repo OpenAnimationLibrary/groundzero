@@ -1098,9 +1098,35 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         require(!level->getFrame(TFrameId(6), false) &&
                     undo->getHistoryCount() == 0,
                 "cancelled source painting retained a new frame");
+        const auto retrySelection = property->getValue();
+        const TFrameId retryFid   = app->getCurrentFrame()->getFid();
+        const bool retryLevelMode = app->getCurrentFrame()->isEditingLevel();
+        QStringList retryWarnings;
+        QObject retryCapture;
+        QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage,
+                         &retryCapture, [&](int type, const QString &message) {
+                           if (type == DVGui::WARNING) retryWarnings << message;
+                         });
         draw(tool, false, .8);
-        require(bool(raster(level, 6)) && undo->getHistoryCount() == 1,
-                "source painting did not create one frame transaction");
+        require(
+            bool(raster(level, 6)) && undo->getHistoryCount() == 1,
+            qPrintable(
+                QString(
+                    "source painting did not create one frame transaction: "
+                    "kind=%1 frameExists=%2 history=%3 fidBefore=%4 "
+                    "fidAfter=%5 "
+                    "levelModeBefore=%6 levelModeAfter=%7 levelPreserved=%8 "
+                    "selectionPreserved=%9 warnings=%10")
+                    .arg(kind)
+                    .arg(bool(raster(level, 6)))
+                    .arg(undo->getHistoryCount())
+                    .arg(retryFid.getNumber())
+                    .arg(app->getCurrentFrame()->getFid().getNumber())
+                    .arg(retryLevelMode)
+                    .arg(app->getCurrentFrame()->isEditingLevel())
+                    .arg(app->getCurrentLevel()->getSimpleLevel() == level)
+                    .arg(property->getValue() == retrySelection)
+                    .arg(retryWarnings.join(" | "))));
         const TRaster32P created = raster(level, 6)->clone();
         require(undo->undo() && !level->getFrame(TFrameId(6), false) &&
                     undo->redo() && same(created, raster(level, 6)) &&

@@ -355,7 +355,7 @@ int main(int argc, char **argv) {
       require(expected.size() == 24,
               "Incomplete order-discriminating HSV matrix");
     if (fixtures["group"].toString() == "hsvjoint")
-      require(expected.size() == 36, "Incomplete joint HSV acquisition matrix");
+      require(expected.size() == 64, "Incomplete joint HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvheldout")
       require(expected.size() == 54,
               "Incomplete heldout HSV acquisition matrix");
@@ -894,6 +894,21 @@ int main(int argc, char **argv) {
                 "Invalid bounded GIH cadence candidate settings");
         p.seed = UINT64_C(0x9e3779b97f4a7c15) *
                  std::uint64_t(spec["replicate"].toInt() + 1);
+      }
+      if (source.contains("bitmapPathProbe")) {
+        const auto delivery = source["deliveryReport"].toObject();
+        const auto start = source["start"].toArray();
+        const auto end = source["end"].toArray();
+        require(source["bitmapPathProbe"].isBool() &&
+                    source["bitmapPathProbe"].toBool() && resourceCase &&
+                    source["resourceProbe"].toObject()["kind"].toString().startsWith("filter-") &&
+                    start.size() == 2 && end.size() == 2 &&
+                    end[0].toDouble() == start[0].toDouble() + 1 &&
+                    end[1].toDouble() == start[1].toDouble() &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["vertices"].toArray() == QJsonArray{start, end} &&
+                    delivery["singleContinuousStroke"].toBool(),
+                "Missing exact fractional bitmap path delivery evidence");
       }
       Canvas canvas(initial);
       Stroke stroke(canvas, p);

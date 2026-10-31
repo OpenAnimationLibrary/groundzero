@@ -71,7 +71,10 @@ class Probe(Extension):
                      "disposition": "one-reset-retry" if attempt == 0 else "failed-no-further-retry"},
                     separators=(",", ":")).replace("%", "%25"), flush=True)
                 if attempt:
-                    raise
+                    # The workflow may only expose the runtime log tail. Keep
+                    # BOTH rejected timing records in its bounded final error.
+                    raise RuntimeError("Paced acquisition exhausted one timing-only retry: " +
+                                       json.dumps(discarded + [record], separators=(",", ":"))) from error
                 discarded.append(record)
                 document.waitForDone()
                 if not node.setPixelData(QByteArray(initial), 0, 0, width, height):
@@ -84,6 +87,15 @@ class Probe(Extension):
         raise RuntimeError("Unreachable paced acquisition retry state")
 
     def paint_case(self, app, view, node, case):
+        if "bitmapPathProbe" in case:
+            from . import bitmap_path
+            points = bitmap_path.validate(case)
+            path = QPainterPath()
+            path.moveTo(*points[0])
+            path.lineTo(*points[1])
+            node.paintPath(path, "ForegroundColor", "None")
+            return {"mode": "Node.paintPath", "vertices": points,
+                    "singleContinuousStroke": True, "physicalTabletClaimed": False}
         if "cadenceProbe" in case:
             paths = cadence_probe.validate(case)
             mode = case["cadenceProbe"]["mode"]
@@ -294,7 +306,14 @@ class Probe(Extension):
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
                  Qt.LeftButton, row["pressure"])
-            yield
+            # Paced input already yields at the next real deadline. An extra
+            # unconditional Qt turn here can force paint-loop work between
+            # overdue device samples and prevent a dense trace from catching
+            # up. Deliver due contacts in this bounded batch (at most65), then
+            # service the event loop while waiting for the next future deadline.
+            # Actual timestamps and the existing lateness check remain intact.
+            if not paced:
+                yield
             capture_stage("afterPress" if index == 0 else "afterMove" + str(index))
         capture_stage("beforeRelease")
         if paced:
@@ -536,7 +555,9 @@ class Probe(Extension):
                 if len(effective_xml) > 1024 * 1024:
                     raise RuntimeError("Unexpectedly large effective source preset")
                 effective_root = fromstring(effective_xml)
-                expected_engine = "paintbrush" if " dry " in name else "colorsmudge"
+                expected_engine = case.get("sourceEngine", "paintbrush" if " dry " in name else "colorsmudge")
+                if expected_engine not in ("paintbrush", "colorsmudge"):
+                    raise RuntimeError("Unsupported declared source fixture engine")
                 if effective_root.attrib.get("paintopid") != expected_engine:
                     raise RuntimeError("Selected source engine differs from fixture: " + name +
                                        "; expected=" + expected_engine +
