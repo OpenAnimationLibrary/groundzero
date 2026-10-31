@@ -138,8 +138,9 @@ public:
   void registerStrokes(bool beforeModify = false);
   void setFlip(bool value) { m_flip = value; }
   void transform(const std::vector<TStroke *> &strokes, FourPoints bbox,
-                 TPointD center, DeformValues deformValue, bool notify = true) const;
-  void restoreRegions() const;
+                 TPointD center, DeformValues deformValue,
+                 const std::vector<TFilledRegionInf> &fills,
+                 bool notify = true) const;
   void restoreBefore() const;
   const TVectorImageP &beforeImage() const { return m_beforeImage; }
   void discardReviewImage() { m_beforeImage = TVectorImageP(); }

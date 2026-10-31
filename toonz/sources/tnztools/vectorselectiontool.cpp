@@ -32,6 +32,7 @@
 // TnzCore includes
 #include "drawutil.h"
 #include "tcurves.h"
+#include "tthreadmessage.h"
 
 // Qt includes
 #include <QApplication>
@@ -490,43 +491,59 @@ void DragSelectionTool::UndoChangeStrokes::registerStrokes(bool beforeModify) {
 
 void DragSelectionTool::UndoChangeStrokes::transform(
     const std::vector<TStroke *> &strokes, FourPoints bbox, TPointD center,
-    DragSelectionTool::DeformValues deformValues, bool notify) const {
+    DragSelectionTool::DeformValues deformValues,
+    const std::vector<TFilledRegionInf> &fills, bool notify) const {
   TVectorImageP image = m_level->getFrame(m_frameId, true);
   if (!image) {
     assert(image);
     return;
   }
 
-  int s, sCount = int(m_indexes.size());
-  for (s = 0; s != sCount; ++s) {
-    int index = m_indexes[s];
+  {
+    // Icon renderers read this same cached image under its mutex. Keep the
+    // control-point topology, rebuilt regions and restored fills together;
+    // notifyChangedStrokes/findRegions use the same recursive image mutex.
+    TThread::MutexLocker lock(image->getMutex());
+    int s, sCount = int(m_indexes.size());
+    for (s = 0; s != sCount; ++s) {
+      int index = m_indexes[s];
 
-    TStroke *sourcesStroke = strokes[s], *stroke = image->getStroke(index);
+      TStroke *sourcesStroke = strokes[s], *stroke = image->getStroke(index);
 
-    int cp, cpCount = stroke->getControlPointCount();
-    if (cpCount == sourcesStroke->getControlPointCount()) {
-      for (cp = 0; cp != cpCount; ++cp)
-        stroke->setControlPoint(cp, sourcesStroke->getControlPoint(cp));
-    } else {
-      // The Envelope mode adds control points: restore the whole stroke
-      std::vector<TThickPoint> points;
-      sourcesStroke->getControlPoints(points);
-      stroke->reshape(points.data(), (int)points.size());
+      int cp, cpCount = stroke->getControlPointCount();
+      if (cpCount == sourcesStroke->getControlPointCount()) {
+        for (cp = 0; cp != cpCount; ++cp)
+          stroke->setControlPoint(cp, sourcesStroke->getControlPoint(cp));
+      } else {
+        // The Envelope mode adds control points: restore the whole stroke
+        std::vector<TThickPoint> points;
+        sourcesStroke->getControlPoints(points);
+        stroke->reshape(points.data(), (int)points.size());
+      }
     }
+    image->notifyChangedStrokes(m_indexes, strokes, m_flip);
+    ImageUtils::assignFillingInformation(*image, fills);
   }
 
-  image->notifyChangedStrokes(m_indexes, strokes, m_flip);
-
-  if (!m_tool->isSelectionEmpty() &&
-      m_selectionCount == m_tool->getSelectionCount()) {
-    m_tool->setBBox(bbox);
-    m_tool->setCenter(center);
-  } else
+  // No tool/UI callback or icon submission may run while the image is locked
+  // or before its fill styles have reached the same restored state.
+  const bool currentDrawing =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel() ==
+          m_level.getPointer() && m_tool->getCurrentFid() == m_frameId;
+  if (currentDrawing) {
+    if (!m_tool->isSelectionEmpty() &&
+        m_selectionCount == m_tool->getSelectionCount()) {
+      m_tool->setBBox(bbox);
+      m_tool->setCenter(center);
+    } else
+      m_tool->computeBBox();
+    m_tool->m_deformValues = deformValues;
+  } else {
     m_tool->computeBBox();
+  }
 
-  m_tool->m_deformValues = deformValues;
   if (notify) {
-    m_tool->notifyImageChanged();
+    m_tool->TTool::notifyImageChanged(m_frameId, m_level.getPointer());
     TTool::getApplication()->getCurrentXsheet()->notifyXsheetChanged();
     TTool::getApplication()->getCurrentTool()->notifyToolChanged();
   }
@@ -534,31 +551,16 @@ void DragSelectionTool::UndoChangeStrokes::transform(
 
 //-----------------------------------------------------------------------------
 
-void DragSelectionTool::UndoChangeStrokes::restoreRegions() const {
-  TVectorImageP vi = m_level->getFrame(m_frameId, true);
-  if (!vi) {
-    assert(vi);
-    return;
-  }
-
-  ImageUtils::assignFillingInformation(*vi, m_regionsData);
-}
-
-//-----------------------------------------------------------------------------
-
 void DragSelectionTool::UndoChangeStrokes::undo() const {
-  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues);
-  restoreRegions();
-  m_tool->notifyImageChanged();
+  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues,
+            m_regionsData);
 }
 
 //-----------------------------------------------------------------------------
 
 void DragSelectionTool::UndoChangeStrokes::redo() const {
-  transform(m_newStrokes, m_newBBox, m_newCenter, m_newDeformValues);
-  TVectorImageP image = currentImage();
-  if (image) ImageUtils::assignFillingInformation(*image, m_newRegionsData);
-  m_tool->notifyImageChanged();
+  transform(m_newStrokes, m_newBBox, m_newCenter, m_newDeformValues,
+            m_newRegionsData);
 }
 
 TVectorImageP DragSelectionTool::UndoChangeStrokes::currentImage() const {
@@ -566,8 +568,8 @@ TVectorImageP DragSelectionTool::UndoChangeStrokes::currentImage() const {
 }
 
 void DragSelectionTool::UndoChangeStrokes::restoreBefore() const {
-  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues, false);
-  restoreRegions();
+  transform(m_oldStrokes, m_oldBBox, m_oldCenter, m_oldDeformValues,
+            m_regionsData, false);
 }
 
 //-----------------------------------------------------------------------------

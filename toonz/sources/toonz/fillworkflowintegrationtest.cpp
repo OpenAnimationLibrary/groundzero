@@ -20,6 +20,8 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/levelproperties.h"
+#include "toonz/levelset.h"
+#include "toonz/imagemanager.h"
 #include "toonz/morphhints.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
@@ -35,6 +37,9 @@
 #include "tundo.h"
 #include "tlevel_io.h"
 #include "tlevel.h"
+#include "tofflinegl.h"
+#include "tvectorgl.h"
+#include "tthreadmessage.h"
 #include <QApplication>
 #include <QDialog>
 #include <QImage>
@@ -55,7 +60,14 @@
 #include <QPointer>
 #include <QScrollArea>
 #include <QResizeEvent>
+#include <QThread>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <mutex>
+#include <thread>
 #include <stdexcept>
 #include <exception>
 #include <cmath>
@@ -126,6 +138,158 @@ void requireFilledCenter(const TVectorImageP &image, const char *phase) {
 }
 void fillCheckpoint(const char *phase) {
   std::cout << "vector-fill-native: " << phase << std::endl;
+}
+
+// Unlike a GUI timer, this deadline can report an Undo blocked on a renderer.
+// It is a deadlock fail-safe, not a timing/performance acceptance threshold.
+class DeformationRenderDeadline final {
+  std::mutex m_mutex;
+  std::condition_variable m_changed;
+  bool m_finished = false;
+  std::thread m_thread;
+public:
+  DeformationRenderDeadline() : m_thread([this] {
+    std::unique_lock<std::mutex> lock(m_mutex);
+    if (!m_changed.wait_for(lock, std::chrono::seconds(45),
+                           [this] { return m_finished; }))
+      qFatal("Native deformation Undo/renderer transaction deadlocked");
+  }) {}
+  ~DeformationRenderDeadline() {
+    { std::lock_guard<std::mutex> lock(m_mutex); m_finished = true; }
+    m_changed.notify_all();
+    m_thread.join();
+  }
+};
+
+void undoWithConcurrentRenderer(const TVectorImageP &image,
+                                const TVectorImageP &before,
+                                const TVectorImageP &after, TUndoManager *undo) {
+  DeformationRenderDeadline deadline;
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool acquireImage = false, beginUndo = false, undoReturned = false;
+  std::atomic<bool> prepared{false}, ready{false}, finished{false};
+  auto worker = std::async(std::launch::async, [&] {
+    try {
+      {
+        // Context creation can dispatch to the GUI thread. Complete it before
+        // acquiring the image mutex or announcing readiness for GUI Undo.
+        TOfflineGL context(TDimension(96, 96));
+        auto render = [&](const TVectorImageP &drawing) {
+          context.clear(TPixel32::Transparent);
+          TVectorRenderData data(TVectorRenderData::ProductionSettings(),
+                                 TTranslation(48, 48), TRect(0, 0, 95, 95),
+                                 drawing->getPalette());
+          context.draw(drawing, data);
+          TRaster32P raster(96, 96);
+          context.getRaster(raster);
+          return raster;
+        };
+        auto samePixels = [](const TRaster32P &a, const TRaster32P &b) {
+          for (int y = 0; y < a->getLy(); ++y)
+            for (int x = 0; x < a->getLx(); ++x)
+              if (a->pixels(y)[x] != b->pixels(y)[x]) return false;
+          return true;
+        };
+        const TRaster32P beforePixels = render(before);
+        const TRaster32P afterPixels = render(after);
+        require(!samePixels(beforePixels, afterPixels) &&
+                    afterPixels->pixels(48)[48].m == 255,
+                "deformation renderer probe has no visible before/after fill distinction");
+        prepared.store(true);
+        {
+          std::unique_lock<std::mutex> lock(mutex);
+          require(changed.wait_for(lock, std::chrono::seconds(30),
+                                  [&] { return acquireImage; }),
+                  "GUI did not finish renderer context preparation");
+        }
+        {
+          TThread::MutexLocker imageLock(image->getMutex());
+          require(VectorImageSnapshot::sameContent(image, before),
+                  "deformation renderer did not acquire the expected live drawing");
+          { std::lock_guard<std::mutex> lock(mutex); ready.store(true); }
+          changed.notify_all();
+          {
+            std::unique_lock<std::mutex> lock(mutex);
+            require(changed.wait_for(lock, std::chrono::seconds(30),
+                                    [&] { return beginUndo; }),
+                    "GUI never entered deformation Undo during the renderer probe");
+          }
+          // The real fixed-function renderer uses the same recursive mutex.
+          // While it owns that mutex, Undo must not reshape its live strokes.
+          for (int pass = 0; pass < 3; ++pass) {
+            require(VectorImageSnapshot::sameContent(image, before),
+                    "deformation Undo changed a renderer-owned drawing");
+            require(samePixels(render(image), beforePixels),
+                    "deformation renderer observed partially restored geometry/fills");
+          }
+          require(VectorImageSnapshot::sameContent(image, before),
+                  "deformation Undo changed geometry before renderer unlock");
+        }
+        {
+          std::unique_lock<std::mutex> lock(mutex);
+          require(changed.wait_for(lock, std::chrono::seconds(30),
+                                  [&] { return undoReturned; }),
+                  "deformation Undo did not return after renderer unlock");
+        }
+        {
+          TThread::MutexLocker imageLock(image->getMutex());
+          require(VectorImageSnapshot::sameContent(image, after) &&
+                      samePixels(render(image), afterPixels),
+                  "deformation renderer did not observe the complete restored drawing");
+        }
+        context.doneCurrent();
+      }
+      { std::lock_guard<std::mutex> lock(mutex); finished.store(true); }
+      changed.notify_all();
+    } catch (...) {
+      { std::lock_guard<std::mutex> lock(mutex); finished.store(true); }
+      changed.notify_all();
+      throw;
+    }
+  });
+  std::exception_ptr failure;
+  try {
+    while (!prepared.load() && !finished.load()) {
+      QCoreApplication::processEvents();
+      QThread::msleep(1);
+    }
+    if (finished.load() && !prepared.load()) worker.get();
+    require(prepared.load(), "deformation renderer failed during context preparation");
+    // Stop GUI event pumping before the worker takes the image lock: a queued
+    // viewer paint must not block on that lock while the worker waits for Undo.
+    {
+      std::unique_lock<std::mutex> lock(mutex);
+      acquireImage = true;
+      changed.notify_all();
+      require(changed.wait_for(lock, std::chrono::seconds(30),
+                              [&] { return ready.load() || finished.load(); }),
+              "deformation renderer did not acquire its image mutex");
+    }
+    if (finished.load() && !ready.load()) worker.get();
+    require(ready.load(), "deformation renderer failed before acquiring its image");
+    const bool acquired = image->getMutex()->tryLock();
+    if (acquired) image->getMutex()->unlock();
+    require(!acquired, "deformation renderer did not own the image at Undo entry");
+    { std::lock_guard<std::mutex> lock(mutex); beginUndo = true; }
+    changed.notify_all();
+    require(undo->undo(), "concurrent deformation Undo had no history to restore");
+  } catch (...) { failure = std::current_exception(); }
+  // Also release the worker on any main-thread failure; no future or thread
+  // may outlive the fixture's images, condition variable or local captures.
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    acquireImage = beginUndo = undoReturned = true;
+  }
+  changed.notify_all();
+  while (!finished.load()) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  try { if (worker.valid()) worker.get(); }
+  catch (...) { if (!failure) failure = std::current_exception(); }
+  if (failure) std::rethrow_exception(failure);
+  fillCheckpoint("concurrent renderer observed complete deformation Undo");
 }
 
 // The caller's live Apply/Undo oracle stays exact. A native PLI reopen also
@@ -905,7 +1069,7 @@ void runVectorFillNativeChecks() {
     requireGeometry(second, original, "deformation cancellation drawing 2");
     require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
             "multi-drawing deformation cancel did not restore all drawings");
-    fillCheckpoint("deformation cancellation pixel checks");
+    fillCheckpoint("deformation cancellation region/style checks");
     requireFilledCenter(image, "deformation cancellation drawing 1");
     requireFilledCenter(second, "deformation cancellation drawing 2");
     fillCheckpoint(envelope ? "Envelope Apply and undo/redo" : "Free Deform Apply and undo/redo");
@@ -917,7 +1081,7 @@ void runVectorFillNativeChecks() {
     fillCheckpoint("deformation undo returned; geometry checks");
     requireGeometry(image, original, "deformation undo drawing 1");
     requireGeometry(second, original, "deformation undo drawing 2");
-    fillCheckpoint("deformation undo pixel checks");
+    fillCheckpoint("deformation undo region/style checks");
     requireFilledCenter(image, "deformation undo drawing 1");
     requireFilledCenter(second, "deformation undo drawing 2");
     fillCheckpoint("deformation redo begins");
@@ -925,12 +1089,155 @@ void runVectorFillNativeChecks() {
     fillCheckpoint("deformation redo returned; geometry checks");
     requireGeometry(image, changedFirst, "deformation redo drawing 1");
     requireGeometry(second, changedSecond, "deformation redo drawing 2");
-    fillCheckpoint("deformation redo pixel checks");
+    fillCheckpoint("deformation redo region/style checks");
     requireFilledCenter(image, "deformation redo drawing 1");
     requireFilledCenter(second, "deformation redo drawing 2");
     fillCheckpoint("deformation final undo begins");
-    undo->undo(); undo->reset();
-    fillCheckpoint("deformation final undo completed");
+    if (envelope) {
+      // A different live fill makes the first-notification oracle nonvacuous:
+      // restoring geometry alone must not publish these unrecorded fills.
+      for (const auto &drawing : {image, second}) {
+        TThread::MutexLocker lock(drawing->getMutex());
+        drawing->getRegion(TPointD(0, 0))->setStyle(0);
+      }
+      TVectorImageP rendererBefore = second->cloneWithGroupContext();
+      QObject observer;
+      int notifications = 0;
+      std::exception_ptr publicationFailure;
+      QObject::connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelChanged,
+                       &observer, [&] {
+        ++notifications;
+        try {
+          for (const auto &drawing : {image, second}) {
+            TThread::MutexLocker lock(drawing->getMutex());
+            if (sameGeometry(drawing, original))
+              requireFilledCenter(drawing, "deformation published geometry before its fills");
+          }
+        } catch (...) { publicationFailure = std::current_exception(); }
+      });
+      undoWithConcurrentRenderer(second, rendererBefore, original, undo);
+      if (publicationFailure) std::rethrow_exception(publicationFailure);
+      require(notifications >= 2,
+              "multi-frame deformation Undo did not notify both restored drawings");
+    } else {
+      require(undo->undo(), "deformation final Undo had no transaction");
+    }
+    fillCheckpoint("deformation final undo returned; exact geometry/fill checks");
+    requireGeometry(image, original, "deformation final undo drawing 1");
+    requireGeometry(second, original, "deformation final undo drawing 2");
+    requireFilledCenter(image, "deformation final undo drawing 1");
+    requireFilledCenter(second, "deformation final undo drawing 2");
+    if (envelope) {
+      fillCheckpoint("deformation Undo after current frame and level changes");
+      auto *xsheet = app->getCurrentXsheet()->getXsheet();
+      const TXshCell heldCell = xsheet->getCell(1, 0);
+      xsheet->setCell(1, 0, TXshCell(level, TFrameId(2)));
+      app->getCurrentFrame()->setFrame(1);
+      app->getCurrentLevel()->setLevel(level);
+      QCoreApplication::processEvents();
+      require(undo->redo() && undo->undo(),
+              "deformation history was lost after switching its current frame");
+      require(app->getCurrentFrame()->getFrame() == 1 &&
+                  app->getCurrentLevel()->getSimpleLevel() == level &&
+                  sameGeometry(image, original) && sameGeometry(second, original),
+              "deformation Undo changed navigation or missed its non-current drawing");
+      requireFilledCenter(image, "off-frame deformation undo drawing 1");
+      requireFilledCenter(second, "off-frame deformation undo drawing 2");
+      require(undo->redo(), "deformation redo before foreign-level review failed");
+
+      QTemporaryDir persistence;
+      require(persistence.isValid(), "deformation owner persistence directory unavailable");
+      const TFilePath oldPath = level->getPath();
+      const bool oldSourceExpected = level->sourceExpectedOnDisk();
+      const bool oldLevelDirty = level->getProperties()->getDirtyFlag();
+      const bool oldPaletteDirty = palette->getDirtyFlag();
+      const bool oldSceneDirty = app->getCurrentScene()->getDirtyFlag();
+      level->setPath(TFilePath(persistence.filePath("owned.pli")), true);
+      level->save();
+      auto *scene = app->getCurrentScene()->getScene();
+      TXshSimpleLevelP foreign = scene->createNewLevel(
+          PLI_XSHLEVEL, L"DeformationForeignLevel")->getSimpleLevel();
+      TPaletteP foreignPalette = palette->clone();
+      foreign->setPalette(foreignPalette.getPointer());
+      TVectorImageP foreignImage = original->cloneWithGroupContext();
+      foreignImage->setPalette(foreignPalette.getPointer());
+      foreign->setFrame(TFrameId(7), foreignImage);
+      foreign->setPath(TFilePath(persistence.filePath("foreign.pli")), true);
+      foreign->setDirtyFlag(true); foreignPalette->setDirtyFlag(true);
+      foreign->save();
+      auto *manager = ImageManager::instance();
+      const std::string foreignId = foreign->getImageId(TFrameId(7));
+      require(!level->getProperties()->getDirtyFlag() &&
+                  !foreign->getProperties()->getDirtyFlag() &&
+                  !manager->isModified(foreignId),
+              "deformation ownership probe did not establish saved clean levels");
+      const bool cached = manager->isCached(foreignId);
+      const bool paletteDirty = foreignPalette->getDirtyFlag();
+      TVectorImageP foreignExpected = foreignImage->cloneWithGroupContext();
+      foreignExpected->setPalette(foreignPalette->clone());
+      const int foreignColumn = xsheet->getColumnCount();
+      std::vector<TXshColumn *> originalColumns;
+      for (int i = 0; i < foreignColumn; ++i)
+        originalColumns.push_back(xsheet->getColumn(i));
+      xsheet->setCell(0, foreignColumn, TXshCell(foreign.getPointer(), TFrameId(7)));
+      app->getCurrentColumn()->setColumnIndex(foreignColumn);
+      app->getCurrentFrame()->setFrame(0);
+      app->getCurrentLevel()->setLevel(foreign.getPointer());
+      QCoreApplication::processEvents();
+      const auto foreignUnchanged = [&] {
+        require(app->getCurrentLevel()->getSimpleLevel() == foreign.getPointer() &&
+                    app->getCurrentColumn()->getColumnIndex() == foreignColumn &&
+                    app->getCurrentFrame()->getFrame() == 0 &&
+                    TVectorImageP(foreign->getFrame(TFrameId(7), false)) == foreignImage &&
+                    VectorImageSnapshot::sameContent(foreignImage, foreignExpected) &&
+                    !foreign->getProperties()->getDirtyFlag() &&
+                    !manager->isModified(foreignId) &&
+                    manager->isCached(foreignId) == cached &&
+                    foreignPalette->getDirtyFlag() == paletteDirty,
+                "deformation history changed or dirtied the current foreign level");
+      };
+      foreignUnchanged();
+      require(undo->undo(), "foreign-level deformation Undo had no transaction");
+      require(level->getProperties()->getDirtyFlag(),
+              "deformation Undo did not dirty its owned level");
+      foreignUnchanged();
+      requireGeometry(image, original, "foreign-level deformation undo drawing 1");
+      requireGeometry(second, original, "foreign-level deformation undo drawing 2");
+      requireFilledCenter(image, "foreign-level deformation undo drawing 1");
+      requireFilledCenter(second, "foreign-level deformation undo drawing 2");
+      require(undo->redo(), "foreign-level deformation Redo had no transaction");
+      foreignUnchanged();
+      requireGeometry(image, changedFirst, "foreign-level deformation redo drawing 1");
+      requireGeometry(second, changedSecond, "foreign-level deformation redo drawing 2");
+      require(undo->undo(), "foreign-level final deformation Undo had no transaction");
+      foreignUnchanged();
+      app->getCurrentColumn()->setColumnIndex(0);
+      app->getCurrentFrame()->setFrame(0);
+      app->getCurrentLevel()->setLevel(level);
+      xsheet->setCell(1, 0, heldCell);
+      xsheet->removeColumn(foreignColumn);
+      scene->getLevelSet()->removeLevel(foreign.getPointer());
+      level->setPath(oldPath, true);
+      level->setSourceExpectedOnDisk(oldSourceExpected);
+      level->setDirtyFlag(oldLevelDirty);
+      palette->setDirtyFlag(oldPaletteDirty);
+      app->getCurrentScene()->setDirtyFlag(oldSceneDirty);
+      QCoreApplication::processEvents();
+      require(xsheet->getColumnCount() == foreignColumn &&
+                  level->getPath() == oldPath &&
+                  level->sourceExpectedOnDisk() == oldSourceExpected &&
+                  level->getProperties()->getDirtyFlag() == oldLevelDirty &&
+                  palette->getDirtyFlag() == oldPaletteDirty &&
+                  app->getCurrentScene()->getDirtyFlag() == oldSceneDirty,
+              "deformation ownership probe changed the surrounding scene/level state");
+      for (int i = 0; i < foreignColumn; ++i)
+        require(xsheet->getColumn(i) == originalColumns[i],
+                "deformation ownership probe replaced an existing column");
+      fillCheckpoint("deformation owned frame/level notifications verified");
+    }
+    fillCheckpoint("deformation history reset begins");
+    undo->reset();
+    fillCheckpoint("deformation history reset completed");
   }
   fillCheckpoint("Free Deform tool-switch cancellation");
   deform(false, false, true);
