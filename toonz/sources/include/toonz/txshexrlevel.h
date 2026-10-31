@@ -19,6 +19,7 @@ namespace ExrLevel {
 DVAPI void restoreRetainedLevel(TXshExrLevel *level);
 DVAPI void restoreRetainedLevel(TXshExrLevel *level,
                                 const std::vector<TFrameId> &fIds);
+DVAPI void rebindRetainedFrames(TXshExrLevel *level);
 DVAPI bool saveRetainedCopy(TXshExrLevel *level, const TFilePath &path,
                             const TFilePath &oldPath, bool overwrite);
 }  // namespace ExrLevel
@@ -69,6 +70,7 @@ public:
   void load() override;
   void load(const std::vector<TFrameId> &fIds);
   void updateReadOnly() override;
+  void rebindFrameSources() override;
   bool isFrameReadOnly(TFrameId fid) override;
 
   // EXR bindings are authoritative-source/read-only. save() never rewrites

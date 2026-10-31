@@ -81,6 +81,7 @@ void TXshExrLevel::loadData(TIStream &is) {
   for (;;) {
     if (is.matchTag(tagName)) {
       if (tagName == "path") {
+        loadCastTags(is);
         TFilePath path;
         is >> path;
         is.matchEndTag();
@@ -196,7 +197,7 @@ void TXshExrLevel::saveData(TOStream &os) {
   saveCadmiumInfo(info);
   os.openCloseChild("info", info);
 
-  os.child("path") << getPath();
+  saveCastPath(os, getPath());
   if (!getScannedPath().isEmpty()) os.child("scannedPath") << getScannedPath();
 
   std::map<std::string, std::string> selection;
@@ -229,6 +230,10 @@ void TXshExrLevel::load() {
   restoreCadmiumReferences(references);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
+  const TFilePath path =
+      getScene() ? getScene()->decodeFilePath(getPath()) : getPath();
+  if (!path.isEmpty() && TSystem::doesExistFileOrLevel(path))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -250,11 +255,20 @@ void TXshExrLevel::load(const std::vector<TFrameId> &fIds) {
   restoreCadmiumReferences(references);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
+  const TFilePath path =
+      getScene() ? getScene()->decodeFilePath(getPath()) : getPath();
+  if (!path.isEmpty() && TSystem::doesExistFileOrLevel(path))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
 
 void TXshExrLevel::updateReadOnly() { setIsReadOnly(true); }
+
+void TXshExrLevel::rebindFrameSources() {
+  TXshSimpleLevel::rebindFrameSources();
+  ExrLevel::rebindRetainedFrames(this);
+}
 
 //-----------------------------------------------------------------------------
 

@@ -254,6 +254,25 @@ TFilePath LibraryCmd::getItemInfoPath(const TFilePath &itemPath) {
          TFilePath(getItemName(itemPath) + ".libinfo");
 }
 
+TXshLevel::LibraryProvenance LibraryCmd::templateProvenance(const TFilePath &itemPath) {
+  TXshLevel::LibraryProvenance result;
+  const QFileInfo item(itemPath.getQString());
+  const QString directory = QFileInfo(getTemplatesFolder().getQString()).canonicalFilePath();
+  if (directory.isEmpty() || !item.isFile() || itemPath.getType() != "tnz" ||
+      QFileInfo(item.absolutePath()).canonicalFilePath() != directory) return result;
+  const QFileInfo sidecar(getItemInfoPath(itemPath).getQString());
+  if (!sidecar.isFile() || sidecar.size() > 32768) return result;
+  ItemInfo info;
+  if (!readItemInfo(itemPath, info) || info.m_id.isEmpty() || info.m_id.size() > 256 ||
+      info.m_revision <= 0 || (info.m_kind != RigKind && info.m_kind != SymbolKind)) return result;
+  result.itemId = info.m_id;
+  result.itemPath = item.absoluteFilePath();
+  result.kind = info.m_kind;
+  result.revision = info.m_revision;
+  result.relationship = TXshLevel::LibraryProvenance::Snapshot;
+  return result;
+}
+
 //-----------------------------------------------------------------------------
 
 bool LibraryCmd::readItemInfo(const TFilePath &itemPath, ItemInfo &info) {

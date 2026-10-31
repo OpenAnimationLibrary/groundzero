@@ -54,6 +54,7 @@ void TXshPaletteLevel::loadData(TIStream &is) {
       is >> name;
       setName(name);
     } else if (tagName == "path") {
+      loadCastTags(is);
       is >> m_path;
     } else {
       throw TException("TXshPaletteLevel, unknown tag: " + tagName);
@@ -65,7 +66,7 @@ void TXshPaletteLevel::loadData(TIStream &is) {
 //-----------------------------------------------------------------------------
 
 void TXshPaletteLevel::saveData(TOStream &os) {
-  os.child("path") << m_path;
+  saveCastPath(os, m_path);
   os.child("name") << getName();
 }
 
@@ -90,6 +91,7 @@ void TXshPaletteLevel::load() {
         is.matchEndTag();
         palette->setPaletteName(path.getWideName());
         setPalette(palette);
+        setSourceExpectedOnDisk(true);
       }
     }
     assert(m_palette);
@@ -108,6 +110,7 @@ void TXshPaletteLevel::save() {
     }
     TOStream os(path);
     os << m_palette;
+    if (os.checkStatus()) setSourceExpectedOnDisk(true);
   }
 }
 

@@ -174,6 +174,8 @@ jobs:
 
     - name: Test native application integration
       id: ui_integration
+      env:
+        GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |
         set -euo pipefail
         native_core_directory=$(mktemp -d "$GITHUB_WORKSPACE/toonz/build/native-ui-cores.XXXXXX")
@@ -373,7 +375,7 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
 
     - name: Upload reliability diagnostics
       if: always()
@@ -382,6 +384,7 @@ jobs:
         name: linux-reliability-results
         path: |
           toonz/build/reliability-tests.xml
+          toonz/build/cast-workflow-metrics.json
           toonz/build/stdfx/fxrender-output
           toonz/build/image/ffmpeg-test-output
         if-no-files-found: ignore

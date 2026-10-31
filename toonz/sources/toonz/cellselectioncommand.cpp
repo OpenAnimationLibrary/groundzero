@@ -1512,6 +1512,8 @@ TXshSimpleLevel *CloneLevelUndo::cloneLevel(
   dstSl->setPath(scene->codeFilePath(dstPath));
   dstSl->setName(dstName);
   dstSl->clonePropertiesFrom(srcSl);
+  dstSl->copyCastMetadataFrom(srcSl);
+  dstSl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
   *dstSl->getHookSet() = *srcSl->getHookSet();
 
   if (levelType == TZP_XSHLEVEL || levelType == PLI_XSHLEVEL) {

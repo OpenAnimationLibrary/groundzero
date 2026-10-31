@@ -9,6 +9,7 @@
 #include "tstream.h"
 #include "toutputproperties.h"
 #include "tconvert.h"
+#include "tsystem.h"
 
 //-----------------------------------------------------------------------------
 
@@ -42,6 +43,8 @@ TXshSoundLevel *TXshSoundLevel::clone() const {
   sound->m_samplePerFrame  = m_samplePerFrame;
   sound->m_frameSoundCount = m_frameSoundCount;
   sound->m_fps             = m_fps;
+  sound->copyCastMetadataFrom(this);
+  sound->setSourceExpectedOnDisk(sourceExpectedOnDisk());
   return sound;
 }
 
@@ -84,6 +87,7 @@ void TXshSoundLevel::loadSoundTrack(const TFilePath &fileName) {
       m_duration = st->getDuration();
       setName(fileName.getWideName());
       setSoundTrack(st);
+      setSourceExpectedOnDisk(true);
     }
   } catch (TException &) {
     return;
@@ -101,7 +105,9 @@ void TXshSoundLevel::save() { save(m_path); }
 //-----------------------------------------------------------------------------
 
 void TXshSoundLevel::save(const TFilePath &path) {
-  TSoundTrackWriter::save(path, m_soundTrack);
+  const bool saved = TSoundTrackWriter::save(path, m_soundTrack);
+  if (saved && getScene() && TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -118,6 +124,7 @@ void TXshSoundLevel::loadData(TIStream &is) {
   for (;;) {
     if (is.matchTag(tagName)) {
       if (tagName == "path") {
+        loadCastTags(is);
         is >> m_path;
         is.matchEndTag();
       } else if (tagName == "type") {
@@ -140,7 +147,7 @@ void TXshSoundLevel::saveData(TOStream &os) {
 
   std::map<std::string, std::string> attr;
   os.child("type") << L"sound";
-  os.child("path") << m_path;
+  saveCastPath(os, m_path);
 }
 
 //-----------------------------------------------------------------------------

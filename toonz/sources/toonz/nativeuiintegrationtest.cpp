@@ -71,6 +71,8 @@
 #include <memory>
 #include <vector>
 
+void runCastWorkflowIntegrationTest(QMainWindow *window);
+
 namespace {
 QString testRoot;
 
@@ -888,6 +890,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
       return 1;
     }
+    runCastWorkflowIntegrationTest(window);
     runOfflineGLWorkflowNativeChecks();
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;

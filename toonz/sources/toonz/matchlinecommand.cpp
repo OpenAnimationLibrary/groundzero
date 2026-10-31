@@ -357,6 +357,8 @@ void doCloneLevelNoSave(const TCellSelection::Range &range,
           // sl->setPath(scene->codeFilePath(dstPath));
           // sl->setName(newName);
           sl->clonePropertiesFrom(oldSl);
+          sl->copyCastMetadataFrom(oldSl);
+          sl->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
           *sl->getHookSet() = *oldSl->getHookSet();
 
           if (levelType == TZP_XSHLEVEL || levelType == PLI_XSHLEVEL) {

@@ -460,6 +460,8 @@ jobs:
 
       - name: Test native application integration
         id: ui_integration
+        env:
+          GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         # Full run (240s), required reviewed-clear run (120s), optional debugger
         # (120s), and existing bounded cleanup/fixture-copy overhead.
@@ -603,7 +605,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_psd
+          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_psd
 
       - name: Upload reliability diagnostics
         if: always()
@@ -616,6 +618,7 @@ jobs:
             toonz/build/ui-integration-output*.txt
             toonz/build/ui-integration-output-release.json
             toonz/build/reliability-tests.xml
+            toonz/build/cast-workflow-metrics.json
             toonz/build/stdfx/fxrender-output
           if-no-files-found: ignore
 

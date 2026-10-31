@@ -213,6 +213,9 @@ public:
   void setCadmiumSourceLevelId(const QString &id) { m_cadmiumSourceLevelId = id; }
   void clearFrames();
   void invalidateFrames();
+  // Recreate source builders after a path change without clearing drawing IDs,
+  // animation metadata, hooks, or frame status. Retained-source levels override.
+  virtual void rebindFrameSources();
   void invalidateFrame(const TFrameId &fid);
 
   // Editable range management

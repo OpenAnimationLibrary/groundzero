@@ -977,6 +977,7 @@ void TXshSimpleLevel::loadData(TIStream& is) {
   for (;;) {
     if (is.matchTag(tagName)) {
       if (tagName == "path") {
+        loadCastTags(is);
         is >> m_path;
         is.matchEndTag();
       } else if (tagName == "scannedPath") {
@@ -1345,6 +1346,8 @@ void TXshSimpleLevel::load() {
     }
   }
   updateReadOnly();
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1418,6 +1421,7 @@ void TXshSimpleLevel::load(const std::vector<TFrameId>& fIds) {
     }
     setRenumberTable();
   }
+  if (TSystem::doesExistFileOrLevel(path)) setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1468,7 +1472,7 @@ void TXshSimpleLevel::saveData(TOStream& os) {
 
   os.openCloseChild("info", attr);
 
-  os.child("path") << m_path;
+  saveCastPath(os, m_path);
   if (m_scannedPath != TFilePath()) os.child("scannedPath") << m_scannedPath;
 }
 
@@ -1482,8 +1486,10 @@ void TXshSimpleLevel::save() {
 
   if (getProperties()->getDirtyFlag() == false &&
       getPalette()->getDirtyFlag() == false &&
-      TSystem::doesExistFileOrLevel(path))
+      TSystem::doesExistFileOrLevel(path)) {
+    setSourceExpectedOnDisk(true);
     return;
+  }
 
   if (!TFileStatus(path.getParentDir()).doesExist()) {
     try {
@@ -1630,6 +1636,8 @@ void TXshSimpleLevel::save(const TFilePath& fp, const TFilePath& oldFp,
   }
 
   saveSimpleLevel(dDstPath, overwritePalette);
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1946,6 +1954,26 @@ void TXshSimpleLevel::invalidateFrames() {
   }
 }
 
+void TXshSimpleLevel::rebindFrameSources() {
+  for (const auto& fid : m_frames) {
+    auto *manager = ImageManager::instance();
+    // Inactive status builders must follow the new path too: Undo may restore
+    // a scanned frame before a later cleanup switches it back to Normal.
+    manager->bind(getImageId(fid, Normal),
+        new ImageLoader(getScene()->decodeFilePath(m_path), fid));
+    if (m_scannedPath.isEmpty()) manager->unbind(getImageId(fid, Scanned));
+    else manager->bind(getImageId(fid, Scanned),
+        new ImageLoader(getScene()->decodeFilePath(m_scannedPath), fid));
+    manager->unbind(getImageId(fid, CleanupPreview));
+    for (int status : {Normal, Scanned, CleanupPreview}) {
+      const std::string id = getImageId(fid, status);
+      if (manager->isBound(rasterized(id))) manager->invalidate(rasterized(id));
+      if (manager->isBound(filled(id))) manager->invalidate(filled(id));
+    }
+    texture_utils::invalidateTexture(this, fid);
+  }
+}
+
 //-----------------------------------------------------------------------------
 
 void TXshSimpleLevel::invalidateFrame(const TFrameId& fid) {
@@ -2176,6 +2204,11 @@ void TXshSimpleLevel::renumber(const std::vector<TFrameId>& fids) {
 
   for (const auto& renumber : newRenumberTable) {
     m_renumberTable[renumber.first] = renumber.second;
+  }
+
+  if (hasCastCover()) {
+    const auto cover = table.find(getCastCover());
+    if (cover != table.end()) setCastCover(cover->second);
   }
 
   std::set<TFrameId> references;

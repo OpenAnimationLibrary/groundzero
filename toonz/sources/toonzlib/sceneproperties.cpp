@@ -25,6 +25,7 @@
 #include "tiio.h"
 
 #include <algorithm>
+#include <QSet>
 
 namespace {
 const QList<TSceneProperties::CellMark> getDefaultCellMarks() {
@@ -134,6 +135,7 @@ void TSceneProperties::assign(const TSceneProperties *sprop) {
   m_fieldGuideAspectRatio     = sprop->m_fieldGuideAspectRatio;
   m_columnColorFilterOnRender = sprop->m_columnColorFilterOnRender;
   m_multiplaneDepth           = sprop->m_multiplaneDepth;
+  m_castCollections          = sprop->m_castCollections;
   int i;
   for (i = 0; i < m_notesColor.size(); i++)
     m_notesColor.replace(i, sprop->getNoteColor(i));
@@ -213,7 +215,42 @@ void TSceneProperties::setFieldGuideAspectRatio(double ar) {
 
 //-----------------------------------------------------------------------------
 
+void TSceneProperties::setCastCollections(const QList<CastCollection> &collections) {
+  QList<CastCollection> normalized;
+  QStringList ids, names;
+  for (auto collection : collections) {
+    collection.id = collection.id.trimmed().left(80);
+    collection.name = collection.name.trimmed().left(80);
+    if (collection.id.isEmpty() || collection.name.isEmpty() ||
+        ids.contains(collection.id) || names.contains(collection.name, Qt::CaseInsensitive)) continue;
+    QStringList members;
+    QSet<QString> seen;
+    for (const QString &member : collection.members) {
+      if (member.isEmpty() || member.size() > 80 || seen.contains(member)) continue;
+      seen.insert(member); members.append(member);
+      if (members.size() == 100000) break;
+    }
+    collection.members = members;
+    ids.append(collection.id); names.append(collection.name);
+    normalized.append(collection);
+    if (normalized.size() == 128) break;
+  }
+  m_castCollections = normalized;
+}
+
 void TSceneProperties::saveData(TOStream &os) const {
+  if (!m_castCollections.empty()) {
+    os.openChild("castCollections");
+    for (const auto &collection : m_castCollections) {
+      os.openChild("collection");
+      os.child("id") << collection.id.toStdWString();
+      os.child("name") << collection.name.toStdWString();
+      for (const QString &member : collection.members)
+        os.child("member") << member.toStdWString();
+      os.closeChild();
+    }
+    os.closeChild();
+  }
   if (!m_hGuides.empty()) {
     os.openChild("hGuides");
     for (int i = 0; i < (int)m_hGuides.size(); i++) os << m_hGuides[i];
@@ -880,6 +917,28 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
         is.closeChild();
       }
       setMultiplaneDepth(d);
+    } else if (tagName == "castCollections") {
+      QList<CastCollection> collections;
+      while (is.matchTag(tagName)) {
+        if (tagName != "collection") { is.skipCurrentTag(); continue; }
+        CastCollection collection;
+        while (is.matchTag(tagName)) {
+          if (tagName == "id" || tagName == "name" || tagName == "member") {
+            std::wstring text;
+            is >> text;
+            const QString value = QString::fromStdWString(text);
+            if (tagName == "id") collection.id = value;
+            else if (tagName == "name") collection.name = value;
+            else if (collection.members.size() < 100000) collection.members << value;
+          } else { is.skipCurrentTag(); continue; }
+          is.closeChild();
+        }
+        if (collections.size() < 128) collections.append(collection);
+        is.closeChild();
+      }
+      // Project defaults are shared by unrelated new scenes; scene asset IDs
+      // must never become default memberships in those scenes.
+      if (!isLoadingProject) setCastCollections(collections);
     } else if (tagName == "cellMarks") {
       int i = 0;
       while (!is.eos()) {
