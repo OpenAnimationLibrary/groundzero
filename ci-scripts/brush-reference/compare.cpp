@@ -58,6 +58,64 @@ struct Canvas : Surface {
     return result;
   }
 };
+void applyViewRotation(Preset &preset, const QJsonObject &source) {
+  if (!source.contains("brushRotationDegrees")) return;
+  const auto modifier = source["brushRotationDegrees"];
+  require(modifier.isDouble() && std::isfinite(modifier.toDouble()) &&
+              std::abs(modifier.toDouble()) <= 36000,
+          "Invalid source view brush rotation");
+  // Imported fixed KPP angles already use raster-coordinate sign. Positive
+  // source View rotation is counterclockwise: the original asymmetric8x8
+  // resource's right edge becomes its top edge in the90degree capture.
+  preset.angle.value -= modifier.toDouble();
+}
+void testViewRotation() {
+  auto tip = std::make_shared<Image>();
+  tip->width = tip->height = 3;
+  tip->color = true;
+  tip->pixels.resize(9);
+  tip->pixels[5] = {1, 0, 0,
+                    1}; // An off-center mark exposes rotation direction.
+  auto render = [&](double serializedAngle, double viewAngle) {
+    Preset preset;
+    preset.tip.shape = Shape::Bitmap;
+    preset.tip.images = {tip};
+    preset.size.value = 12;
+    preset.angle.value = serializedAngle;
+    applyViewRotation(preset, QJsonObject{{"brushRotationDegrees", viewAngle}});
+    QImage blank(64, 64, QImage::Format_ARGB32);
+    blank.fill(Qt::transparent);
+    Canvas canvas(blank);
+    Stroke stroke(canvas, preset);
+    Sample sample;
+    sample.x = sample.y = 32;
+    require(stroke.add(sample) && stroke.finish(),
+            QString::fromStdString(stroke.error()));
+    return canvas.image();
+  };
+  auto center = [](const QImage &image) {
+    double mass = 0, x = 0, y = 0;
+    for (int row = 0; row < image.height(); ++row)
+      for (int col = 0; col < image.width(); ++col) {
+        const double a = qAlpha(image.pixel(col, row));
+        mass += a;
+        x += (col + .5) * a;
+        y += (row + .5) * a;
+      }
+    require(mass > 0, "Empty view-rotation regression stamp");
+    return std::make_pair(x / mass, y / mass);
+  };
+  const auto plain = render(0, 0), quarter = render(0, 90);
+  const auto p = center(plain), q = center(quarter),
+             oblique = center(render(0, 40));
+  require(p.first > 34 && std::abs(p.second - 32) < .1 && q.second < 30 &&
+              std::abs(q.first - 32) < .1 && plain != quarter &&
+              oblique.first > 33 && oblique.second < 31,
+          "Source view rotation did not rotate asymmetric candidate "
+          "counterclockwise");
+  require(render(-37, 53) == quarter && render(23, -17) == render(40, 0),
+          "View rotation replaced or mis-signed the serialized brush angle");
+}
 QJsonArray bounds(const QRect &r) {
   return {r.x(), r.y(), r.width(), r.height()};
 }
@@ -189,6 +247,7 @@ int main(int argc, char **argv) {
   try {
     if (app.arguments().size() == 2 &&
         app.arguments().at(1) == "--test-metrics") {
+      testViewRotation();
       QTemporaryDir directory;
       require(directory.isValid(), "Cannot create metric fixture directory");
       QImage base(2, 2, QImage::Format_ARGB32);
@@ -636,8 +695,8 @@ int main(int argc, char **argv) {
                              fixtures["group"].toString() == "hsvheldout" ||
                              dynamicHsv;
       const bool sourceHard =
-          source["sourceBarrelCandidate"].toBool(false) || sourceHsv ||
-          (textureGate && name.contains("dry legacy")) ||
+          maskCase || source["sourceBarrelCandidate"].toBool(false) ||
+          sourceHsv || (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
@@ -660,6 +719,23 @@ int main(int argc, char **argv) {
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
+      if (maskCase) {
+        const auto settings = source["overrides"].toObject();
+        const bool active =
+            fixtures["group"].toString() == "maskwash" &&
+            settings["MaskingBrush/Enabled"].toString() == "true";
+        require(p.sourceMasked.enabled == active &&
+                    p.sourceMasked.flow ==
+                        settings["MaskingBrush/Preset/FlowValue"]
+                            .toString()
+                            .toDouble() &&
+                    p.sourceMasked.opacity ==
+                        settings["MaskingBrush/Preset/OpacityValue"]
+                            .toString()
+                            .toDouble(),
+                "Source mask importer lost separate flow/opacity or Wash "
+                "eligibility");
+      }
       if (sourceHsv) {
         const auto probe = source["sensorProbe"].toObject();
         const QString target = dynamicHsv && !jointHsv.isEmpty()
@@ -767,6 +843,7 @@ int main(int argc, char **argv) {
                 "Strict source wet eligibility did not select the matching "
                 "candidate");
       }
+      applyViewRotation(p, source);
       p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
       if (source.contains("foregroundRGBA8")) {

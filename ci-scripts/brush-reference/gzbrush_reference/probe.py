@@ -438,7 +438,9 @@ class Probe(Extension):
                 effective_root = fromstring(effective_xml)
                 expected_engine = "paintbrush" if " dry " in name else "colorsmudge"
                 if effective_root.attrib.get("paintopid") != expected_engine:
-                    raise RuntimeError("Selected source engine differs from fixture")
+                    raise RuntimeError("Selected source engine differs from fixture: " + name +
+                                       "; expected=" + expected_engine +
+                                       "; actual=" + str(effective_root.attrib.get("paintopid")))
                 effective_name = name.replace(" ", "_") + ".effective.xml"
                 (output / effective_name).write_text(effective_xml)
                 effective_fields = {field.attrib["name"]: field.text or "" for field in effective_root.findall("param") if "name" in field.attrib}
@@ -643,8 +645,9 @@ class Probe(Extension):
                     geometry = {"rect": [left, top, width, height],
                                 "encoding": "zlib-base64-bgra8-row-major",
                                 "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
-                if fixtures.get("group") in ("pixelpressure", "pixelsmallpressure") and case["spacing"] == 1:
-                    # Sparse pressure ramps expose individual footprint spacing.
+                if fixtures.get("group") in ("pixelpressure", "pixelsmallpressure"):
+                    # Sparse ramps expose individual footprints; dense ramps expose
+                    # near-zero pressure phase/extent differences.
                     # Preserve exact visible-change bits, including transparent
                     # strips, rather than infer dab centers from sparse RGB probes.
                     left, top, width, height = 232, 1000, 1584, 48
@@ -689,6 +692,10 @@ class Probe(Extension):
                 # inside paint/document operations reentered native consumers;
                 # one monolithic loop instead starved deferred view updates.
                 yield
+            if fixtures.get("group") == "wetkernelcount":
+                from . import kernel_precision_probe
+                yield from kernel_precision_probe.render(
+                    app, output, fixtures, by_name, report["records"], checkpoint)
             canonical_order = {name: index for index, name in enumerate(fixtures["presets"])}
             report["records"].sort(key=lambda record: canonical_order[record["preset"]])
             report["resourceStatistics"] = resource_probe.summarize(report["records"])

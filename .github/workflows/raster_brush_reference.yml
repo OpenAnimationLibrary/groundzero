@@ -39,6 +39,7 @@ jobs:
         run: |
           python3 ci-scripts/brush-reference/oracle_cache_test.py
           python3 ci-scripts/brush-reference/hsv_joint_test.py
+          python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
   native-metrics:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -260,6 +261,11 @@ jobs:
                       events = report.get('events', [])
                       probe['device'] = [{key: event.get(key) for key in ('device', 'pointerType', 'uniqueId', 'pressure')}
                           for event in events if event.get('type') == 92][:1]
+                  if row.get('boundaryProbe') or row.get('pressureShortProbe'):
+                      probe['boundary'] = row.get('boundaryProbe')
+                      probe['shortPath'] = row.get('pressureShortProbe')
+                      probe['delivery'] = [{key: event.get(key) for key in ('type', 'local', 'image', 'authoredImage', 'pressure')}
+                          for event in row.get('deliveryReport', {}).get('events', []) if event.get('type') in (87, 92, 93)]
                   if os.environ['BRUSH_REFERENCE_GROUP'] == 'pixeltransfer':
                       probe['transfer'] = row.get('effectivePixelTransferControls')
                       probe['input'] = row.get('input')
@@ -275,6 +281,23 @@ jobs:
               report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
               report_records('Source parameter probes; not parity', probes)
           PYPROBES
+      - name: Report kernel precision research diagnostics
+        if: always() && matrix.fixture_group == 'wetkernelcount'
+        run: |
+          python3 - <<'PYPRECISION'
+          import json, os, runpy
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'kernel-precision.json'
+          if path.is_file():
+              report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
+              records = []
+              for row in json.loads(path.read_text()).get('records', []):
+                  records.append({key: value for key, value in row.items() if key != 'data'})
+                  for offset in range(0, len(row['data']), 1800):
+                      records.append({'id': row['id'], 'capture': 'kernel-precision-raw',
+                          'offset': offset, 'total': len(row['data']), 'data': row['data'][offset:offset + 1800]})
+              report_records('Kernel precision research; not parity', records)
+          PYPRECISION
       - name: Report bundled public setting metadata
         if: always()
         run: |

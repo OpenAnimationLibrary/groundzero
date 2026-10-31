@@ -592,15 +592,15 @@ for mode, modern in profiles:
             for control in ("Opacity", "Flow"):
                 for shape, curve in (("turning", "0,0;.5,1;1,0;"),
                                      ("nonuniform", "0,.1;.2,.9;.7,.15;1,.8;")):
-                    for mode in ("shared", "local", "disabled"):
+                    for curve_mode in ("shared", "local", "disabled"):
                         overrides = {"PaintOpAction": str(action), control + "Value": ".5",
-                            "Pressure" + control: str(mode != "disabled").lower(),
+                            "Pressure" + control: str(curve_mode != "disabled").lower(),
                             control + "UseCurve": "true",
-                            control + "UseSameCurve": str(mode != "local").lower(),
-                            control + "commonCurve": curve if mode != "local" else "0,1;1,1;",
+                            control + "UseSameCurve": str(curve_mode != "local").lower(),
+                            control + "commonCurve": curve if curve_mode != "local" else "0,1;1,1;",
                             control + "Sensor": '<params id="pressure"><curve>' +
-                                (curve if mode == "local" else "0,0;1,1;") + '</curve></params>'}
-                        label = f"transfer spline {control} action {action} {shape} {mode} Node control"
+                                (curve if curve_mode == "local" else "0,0;1,1;") + '</curve></params>'}
+                        label = f"transfer spline {control} action {action} {shape} {curve_mode} Node control"
                         variants.append((label, overrides, 32, .25, [.25, .25],
                                          .5 if control == "Opacity" else 1,
                                          .5 if control == "Flow" else 1))
@@ -658,6 +658,16 @@ for mode, modern in profiles:
                                "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)}
                               for i, point in enumerate((case["start"], case["end"]))]
+        if group == "pixelprecision" and (label.startswith("pressure short") or
+                                           label.startswith("pressure constant tap")):
+            case = cases[-1]
+            case["changeExpectation"] = "measure short-path/tap output, including a possible source no-op; comparison gates remain enforced"
+            case["pressureShortProbe"] = {"kind": "press-release-only" if label.startswith("pressure constant tap") else "pressure-move-release",
+                                           "length": precision_positions[label][2]}
+            if label.startswith("pressure constant tap"):
+                # A physical-style tap has contact/release, not a zero-length
+                # TabletMove that might enter a different source tool path.
+                case["events"] = case["events"][:1]
         if group == "pixelprecision" and label in precision_partitions:
             case = cases[-1]
             case["events"] = [{"x": 256 + distance, "y": 1024,

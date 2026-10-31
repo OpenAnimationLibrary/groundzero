@@ -56,6 +56,103 @@ void line(Canvas &c, Preset p) {
     require(s.add(sample(i, 64, i / 240.0)), s.error().c_str());
   finishStroke(s);
 }
+void testSourceMaskedWash() {
+  struct MaskCanvas : Canvas {
+    MaskCanvas() {
+      w = 384;
+      h = 64;
+      pixels.assign(size_t(w) * h, {});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  Preset p;
+  p.profile              = "krita-5.3.4.1-hard-pixel-candidate-1";
+  p.size.value           = 24;
+  p.spacing              = .25;
+  p.wash                 = true;
+  p.sourceMasked.enabled = true;
+  p.color                = {220 / 255., 40 / 255., 30 / 255., 1};
+  require(validate(p).empty(), "source mask contract rejected");
+  // Original captured full-region histograms, not a mirrored renderer oracle.
+  const std::array<std::array<int, 4>, 4> counts = {{{{0, 0, 0, 1590}},
+                                                     {{1590, 0, 0, 0}},
+                                                     {{72, 1272, 246, 0}},
+                                                     {{72, 1272, 246, 0}}}};
+  for (int variant = 0; variant < 4; ++variant) {
+    p.sourceMasked.opacity = variant == 1 || variant == 3 ? .5 : 1;
+    p.sourceMasked.flow    = variant >= 2 ? .5 : 1;
+    MaskCanvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(32, 32, 0)) && stroke.add(sample(288, 32, 1)),
+            "source mask captured stroke failed");
+    finishStroke(stroke);
+    std::array<int, 256> histogram{};
+    for (const Pixel &pixel : canvas.pixels)
+      ++histogram[int(std::floor(pixel.a * 255 + .5))];
+    const std::array<int, 4> levels =
+        variant == 3 ? std::array<int, 4>{{64, 96, 112, 255}}
+                     : std::array<int, 4>{{128, 192, 224, 255}};
+    for (size_t i = 0; i < levels.size(); ++i)
+      require(histogram[levels[i]] == counts[variant][i],
+              "source mask captured histogram differs");
+    require(histogram[0] == canvas.w * canvas.h - 1590,
+            "source mask extent or endpoint differs");
+  }
+  p.sourceMasked.opacity = p.sourceMasked.flow = 1;
+  p.spacing                                    = 2;
+  for (MaskMode mode : {MaskMode::Multiply, MaskMode::Subtract}) {
+    p.sourceMasked.mode = mode;
+    MaskCanvas canvas;
+    const Pixel base{.06, .12, .18, .3};
+    std::fill(canvas.pixels.begin(), canvas.pixels.end(), base);
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(48, 32, 0)), "source mask initial stamp failed");
+    const auto before = canvas.read(58, 32);
+    require(stroke.add(sample(54, 32, .1)),
+            "source mask deferred endpoint failed");
+    require(canvas.read(58, 32).a == before.a,
+            "final mask endpoint was deposited early");
+    require(stroke.add(sample(55, 32, .2)), "source mask dirty update failed");
+    const auto after = canvas.read(58, 32);
+    require(stroke.dabCount() == 1,
+            "secondary-only event unexpectedly deposited primary paint");
+    require(
+        mode == MaskMode::Multiply ? (before.a == base.a && after.a == 1)
+                                   : (before.a == 1 && after.a == base.a),
+        "secondary-only dirty update did not recompose retained primary/base");
+    finishStroke(stroke);
+  }
+  p.spacing           = .25;
+  p.sourceMasked.mode = MaskMode::Multiply;
+  MaskCanvas one, split;
+  Stroke a(one, p), b(split, p);
+  require(a.add(sample(32, 32, 0)) && a.add(sample(288, 32, 1)),
+          "mask whole trace failed");
+  for (int i = 0; i <= 256; ++i)
+    require(b.add(sample(32 + i, 32, i / 256.)), "mask split trace failed");
+  finishStroke(a);
+  finishStroke(b);
+  require(same(one, split), "mask endpoint deferral depends on event batching");
+  auto budget = std::make_shared<MemoryBudget>(24000);
+  MaskCanvas limited;
+  Stroke fail(limited, p, 24000, budget);
+  const bool accepted =
+      fail.add(sample(32, 32, 0)) && fail.add(sample(288, 32, 1));
+  require(!accepted && !fail.error().empty(),
+          "source mask memory budget ignored");
+  fail.cancel();
+  require(budget->used() == 0, "source mask cancellation retained memory");
+  const auto canceled = limited;
+  require(
+      !fail.add(sample(10, 10, 2)) && !fail.finish() && same(limited, canceled),
+      "failed source mask resumed after cancellation");
+  p.sourceMasked.flow = 2;
+  require(!validate(p).empty(), "invalid mask flow admitted");
+  p.sourceMasked.flow = 1;
+  p.profile           = "groundzero-native-1";
+  require(!validate(p).empty(),
+          "source field silently admitted as native mask");
+}
 void testNativeEraseCoverage() {
   const Pixel base{.12, .3, .48, .6};
   for (Wet wet : {Wet::Dulling, Wet::Smear}) {
@@ -1476,10 +1573,164 @@ void testSourceWetForegroundTransformPlumbing() {
                       "injection");
             }
             wet.sourceHsvChannel = SourceHsvChannel(channel + 1);
-            require(!validate(wet).empty(),
-                    "unqualified active wet HSV gained eligibility");
+            require(validate(wet).empty() == smearAlpha,
+                    "wet HSV eligibility lost its measured alpha boundary");
           }
 }
+void testSourceWetHsvReferenceInteraction() {
+  // Original K5341 captures: two foregrounds, each fixed channel at .2/.8,
+  // enabled/disabled, four wet models. At the third dab the blue backdrop
+  // meets retained foreground from a preceding transparent dab.
+  const int captured[96][4] = {
+      {26, 14, 223, 150},
+      {18, 7, 243, 150},
+      {26, 14, 223, 150},
+      {7, 26, 226, 150},
+      {9, 21, 245, 150},
+      {17, 29, 225, 150},
+      {9, 21, 245, 150},
+      {29, 9, 241, 150},
+      {26, 14, 223, 150},
+      {26, 21, 235, 150},
+      {26, 14, 223, 150},
+      {26, 9, 216, 150},
+      {9, 21, 245, 150},
+      {21, 26, 245, 150},
+      {9, 21, 245, 150},
+      {0, 17, 245, 150},
+      {26, 14, 223, 150},
+      {11, 6, 219, 150},
+      {26, 14, 223, 150},
+      {34, 29, 242, 150},
+      {9, 21, 245, 150},
+      {4, 8, 228, 150},
+      {9, 21, 245, 150},
+      {27, 32, 251, 150},
+      {26, 14, 223, 150},
+      {18, 7, 243, 150},
+      {26, 14, 223, 150},
+      {7, 26, 226, 150},
+      {9, 21, 245, 150},
+      {17, 29, 225, 150},
+      {9, 21, 245, 150},
+      {29, 9, 241, 150},
+      {26, 14, 223, 150},
+      {26, 21, 235, 150},
+      {26, 14, 223, 150},
+      {26, 9, 216, 150},
+      {9, 21, 245, 150},
+      {21, 26, 245, 150},
+      {9, 21, 245, 150},
+      {0, 17, 245, 150},
+      {26, 14, 223, 150},
+      {11, 6, 219, 150},
+      {26, 14, 223, 150},
+      {34, 29, 242, 150},
+      {9, 21, 245, 150},
+      {4, 8, 228, 150},
+      {9, 21, 245, 150},
+      {27, 32, 251, 150},
+      {28, 15, 221, 143},
+      {19, 8, 242, 143},
+      {28, 15, 221, 143},
+      {8, 28, 224, 143},
+      {10, 22, 245, 143},
+      {18, 31, 223, 143},
+      {10, 22, 245, 143},
+      {31, 10, 240, 143},
+      {28, 15, 221, 143},
+      {28, 23, 233, 143},
+      {28, 15, 221, 143},
+      {28, 10, 213, 143},
+      {10, 22, 245, 143},
+      {23, 28, 245, 143},
+      {10, 22, 245, 143},
+      {0, 18, 245, 143},
+      {28, 15, 221, 143},
+      {11, 6, 216, 143},
+      {28, 15, 221, 143},
+      {36, 31, 241, 143},
+      {10, 22, 245, 143},
+      {4, 9, 226, 143},
+      {10, 22, 245, 143},
+      {29, 34, 251, 143},
+      {23, 12, 227, 165},
+      {15, 6, 244, 165},
+      {23, 12, 227, 165},
+      {6, 23, 230, 165},
+      {8, 18, 247, 165},
+      {15, 25, 229, 165},
+      {8, 18, 247, 165},
+      {25, 8, 243, 165},
+      {23, 12, 227, 165},
+      {23, 19, 237, 165},
+      {23, 12, 227, 165},
+      {23, 8, 221, 165},
+      {8, 18, 247, 165},
+      {18, 22, 247, 165},
+      {8, 18, 247, 165},
+      {0, 15, 247, 165},
+      {23, 12, 227, 165},
+      {9, 5, 224, 165},
+      {23, 12, 227, 165},
+      {29, 25, 244, 165},
+      {8, 18, 247, 165},
+      {3, 7, 231, 165},
+      {8, 18, 247, 165},
+      {23, 28, 252, 165}};
+  const int colors[2][3] = {{173, 91, 47}, {59, 137, 191}};
+  size_t fixture = 0;
+  for (const char *model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
+    for (int channel = 0; channel < 3; ++channel)
+      for (const auto &rgb : colors)
+        for (double value : {.2, .8})
+          for (bool enabled : {false, true}) {
+            Canvas canvas;
+            for (int y = 0; y < canvas.h; ++y)
+              for (int x = 64; x < canvas.w; ++x)
+                canvas.write(x, y, {0, 0, 1, 1});
+            Preset p;
+            p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+            p.wet = std::string(model).find("dulling") != std::string::npos
+                        ? Wet::Dulling : Wet::Smear;
+            p.size.value = 24;
+            p.spacing = 1;
+            p.smudgeRadius = 0;
+            p.pickup = .5;
+            p.colorRate = .25;
+            p.tip.antialiasEdges = false;
+            p.sourceSmearAlpha = true;
+            p.color = {rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 1};
+            p.sourceHsvChannel = enabled ? SourceHsvChannel(channel + 1)
+                                         : SourceHsvChannel::Off;
+            p.sourceHsvValue = value;
+            Stroke stroke(canvas, p);
+            require(stroke.add(sample(16, 64, 0)) &&
+                        stroke.add(sample(112, 64, 1)), stroke.error().c_str());
+            finishStroke(stroke);
+            const Pixel actual = canvas.read(64, 64);
+            const auto &expected = captured[fixture++];
+            require(std::abs(actual.a * 255 - expected[3]) < 1e-9,
+                    "wet HSV reference alpha changed");
+            const double straight[] = {actual.r / actual.a,
+                                       actual.g / actual.a, actual.b / actual.a};
+            for (int c = 0; c < 3; ++c)
+              require(std::abs(straight[c] * 255 - expected[c]) <= 2 + 1e-9,
+                      "wet HSV foreground/transport reference differs");
+            if (enabled) {
+              Preset unsupported = p;
+              unsupported.smudgeRadius = .5;
+              require(!validate(unsupported).empty(),
+                      "unqualified HSV pickup kernel admitted");
+              unsupported = p;
+              unsupported.sourceSmearAlpha = false;
+              require(!validate(unsupported).empty(),
+                      "unqualified HSV alpha-off admitted");
+            }
+          }
+}
+
 void testSourceWetOpacityTransport() {
   // Original K5341 straight RGBA8 captures, two/three separated dabs over
   // opaque blue then half-alpha red. The third dab distinguishes carried
@@ -2233,6 +2484,7 @@ void testSourceHalfPixelLookahead() {
   Preset p;
   p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
   p.size.value    = 32;
+  p.size.minimum  = 0;  // Source pressure has no native minimum-size offset.
   p.size.mappings = {Mapping{}};
   p.spacing       = .1;
   const std::vector<std::vector<double>> partitions = {
@@ -2325,6 +2577,7 @@ void testSourceSubpixelSpacingFloor() {
     Preset p;
     p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
     p.size.value    = 32;
+    p.size.minimum  = 0;  // Source pressure has no native minimum-size offset.
     p.size.mappings = {Mapping{}};
     p.opacity.value = .5;
     p.spacing       = spacing;
@@ -2345,6 +2598,7 @@ void testSourceLookaheadLifecycle() {
   Preset p;
   p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
   p.size.value    = 32;
+  p.size.minimum  = 0;  // Source pressure has no native minimum-size offset.
   p.size.mappings = {Mapping{}};
   Canvas tap, cancelled;
   auto memory = std::make_shared<MemoryBudget>(8 * 1024 * 1024);
@@ -2600,8 +2854,10 @@ void testSourcePixelBlendCandidates() {
       for (auto &pixel : wash.pixels) pixel = base;
       Stroke accumulated(wash, p);
       require(accumulated.add(sample(32, 32, 0)), accumulated.error().c_str());
-      require(accumulated.add(sample(34.5, 32, 1)),
-              accumulated.error().c_str());
+      require(accumulated.add(sample(35, 32, 1)), accumulated.error().c_str());
+      require(accumulated.dabCount() == 2,
+              "wash blend fixture must contain two interior source dabs");
+      // The second dab at x34 needs its half-pixel future sample available.
       // Two .25-flow stamps: stroke-buffer alpha .4375, then .5 opacity.
       // The blend is applied once against the stroke's original backdrop.
       const Pixel twice{base.r + .4375 * (expected.r - base.r),
@@ -2968,6 +3224,7 @@ int main() {
   };
   const Case cases[] = {
       {"testNativeEraseCoverage", testNativeEraseCoverage},
+      {"testSourceMaskedWash", testSourceMaskedWash},
       {"testFloatTransaction", testFloatTransaction},
       {"testSnapshotAndPrepareBudgets", testSnapshotAndPrepareBudgets},
       {"testComposition", testComposition},
@@ -3014,6 +3271,7 @@ int main() {
       {"testSourceWetInitialization", testSourceWetInitialization},
       {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},
       {"testSourceTextureMasks", testSourceTextureMasks},
+      {"testSourceWetHsvReferenceInteraction", testSourceWetHsvReferenceInteraction},
       {"testSourceWetForegroundTransformPlumbing",
        testSourceWetForegroundTransformPlumbing},
       {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},

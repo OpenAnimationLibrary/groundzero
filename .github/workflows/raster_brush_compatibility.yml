@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - name: Validate deployment signing inventory and metadata policy
+        run: python3 ci-scripts/brush-parser/sign_macos_deployment_test.py
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'

@@ -9,7 +9,7 @@ import sign_macos_deployment as signing
 class SigningInventory(unittest.TestCase):
     def test_inside_out_and_alias_deduplication(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / "Fixture.app"
+            app = Path(directory).resolve() / "Fixture.app"
             framework = app / "Contents/Frameworks/Example.framework"
             binary = framework / "Versions/A/Example"
             binary.parent.mkdir(parents=True)
@@ -23,12 +23,23 @@ class SigningInventory(unittest.TestCase):
             self.assertEqual(set(targets), {framework, binary, plugin})
             self.assertLess(targets.index(binary), targets.index(framework))
 
+    def test_application_root_alias_uses_same_canonical_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            app=root/"Fixture.app"
+            binary=app/"Contents/Frameworks/original.dylib"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(bytes.fromhex("cffaedfe"))
+            alias=root/"app-alias"
+            alias.symlink_to(app,target_is_directory=True)
+            self.assertEqual(signing.signing_targets(alias),[binary])
+
     def test_external_alias_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / "Fixture.app"
+            app = Path(directory).resolve() / "Fixture.app"
             frameworks = app / "Contents/Frameworks"
             frameworks.mkdir(parents=True)
-            outside = Path(directory) / "outside.dylib"
+            outside = Path(directory).resolve() / "outside.dylib"
             outside.write_bytes(bytes.fromhex("cffaedfe"))
             (frameworks / "escape.dylib").symlink_to(outside)
             with self.assertRaises(RuntimeError):

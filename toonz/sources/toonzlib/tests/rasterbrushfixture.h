@@ -208,4 +208,47 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
     throw std::runtime_error("cannot encode original KPP fixture");
   return bytes;
 }
+inline QByteArray maskedPixelKpp(const QString &mutation = {}) {
+  QImage image = QImage::fromData(
+      hardPixelKpp(mutation == "buildUp" ? "buildUp" : "freehandWash"), "PNG");
+  QString xml = image.text("preset"), extra;
+  xml.replace("diameter=&quot;32&quot;", "diameter=&quot;24&quot;");
+  auto param = [&](const QString &key, const QString &value) {
+    extra +=
+        "<param name=\"" + key + "\">" + value.toHtmlEscaped() + "</param>";
+  };
+  param("MaskingBrush/Enabled", "true");
+  param("MaskingBrush/UseMasterSize", "true");
+  param("MaskingBrush/MasterSizeCoeff", ".5");
+  param("MaskingBrush/MaskingCompositeOp",
+        mutation == "subtract" ? "subtract" : "multiply");
+  const QString prefix = "MaskingBrush/Preset/";
+  param(prefix + "paintop", "paintbrush");
+  param(prefix + "OpacityValue", ".5");
+  param(prefix + "FlowValue", ".5");
+  for (const QString &key :
+       {QString("OpacityUseCurve"), QString("FlowUseCurve"),
+        QString("PressureOpacity"), QString("PressureFlow"),
+        QString("PressureSize"), QString("PressureRatio"),
+        QString("PressureRotation"), QString("PressureSpacing"),
+        QString("PressureScatter"), QString("PressureMirror"),
+        QString("Texture/Pattern/Enabled")})
+    param(prefix + key,
+          mutation == "dynamic" && key == "PressureSize" ? "true" : "false");
+  param(prefix + "brush_definition",
+        "<Brush type=\"auto_brush\" BrushVersion=\"2\" spacing=\".5\" "
+        "angle=\"0\" randomness=\"0\" density=\"1\" useAutoSpacing=\"0\">"
+        "<MaskGenerator id=\"default\" type=\"rect\" diameter=\"12\" "
+        "ratio=\".5\" hfade=\"1\" vfade=\"1\" antialiasEdges=\"0\" "
+        "spikes=\"2\"/></Brush>");
+  if (mutation == "unknown") param(prefix + "unknownEnabledBehavior", "true");
+  xml.replace("</Preset>", extra + "</Preset>");
+  image.setText("preset", xml);
+  QByteArray bytes;
+  QBuffer buffer(&bytes);
+  buffer.open(QIODevice::WriteOnly);
+  if (!image.save(&buffer, "PNG"))
+    throw std::runtime_error("cannot encode original masked KPP");
+  return bytes;
+}
 }  // namespace RasterBrushTest

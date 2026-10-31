@@ -468,15 +468,44 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                                   channel.control.mappings.empty();
                          });
     };
-    for (int conversionKind : {0, 1, 2, 3, 4}) {
-      const bool wetConversion       = conversionKind == 1;
-      const bool hsvConversion       = conversionKind >= 2;
-      const bool hsvSensorConversion = conversionKind >= 3;
+    const auto noSourceMask = [](const RasterBrush::Preset &preset) {
+      const auto &mask = preset.sourceMasked;
+      return !mask.enabled && mask.useMasterSize && mask.diameter == 12 &&
+             mask.masterSizeCoeff == .5 && mask.aspect == .5 &&
+             mask.spacing == .5 && mask.opacity == 1 && mask.flow == 1 &&
+             mask.mode == RasterBrush::MaskMode::Multiply;
+    };
+    for (int conversionKind : {0, 1, 2, 3, 4, 5}) {
+      const bool wetConversion = conversionKind == 1;
+      const bool hsvConversion = conversionKind >= 2 && conversionKind <= 4;
+      const bool hsvSensorConversion =
+          conversionKind == 3 || conversionKind == 4;
+      const bool maskedConversion       = conversionKind == 5;
+      const bool resourceFreeConversion = hsvConversion || maskedConversion;
       RasterBrush::Record fixture;
+      if (maskedConversion) {
+        const QString sourcePath =
+            QDir::current().filePath("conversion-masked.kpp");
+        QFile source(sourcePath);
+        const auto bytes = RasterBrushTest::maskedPixelKpp();
+        require(source.open(QIODevice::WriteOnly) &&
+                    source.write(bytes) == bytes.size(),
+                "cannot stage source masked conversion fixture");
+        source.close();
+        auto imported = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && imported.complete &&
+                    imported.records.size() == 1 &&
+                    imported.records.front().preset.sourceMasked.enabled,
+                "cannot import source masked conversion fixture");
+        fixture = imported.records.front();
+      }
       fixture.preset.name = wetConversion ? "Original wet conversion fixture"
                             : hsvConversion
                                 ? "Original HSV conversion fixture"
                                 : "Original pixel conversion fixture";
+      if (maskedConversion)
+        fixture.preset.name = "Original source masked conversion fixture";
       if (hsvSensorConversion)
         fixture.preset.name +=
             conversionKind == 3 ? " pressure hue" : " pressure value";
@@ -507,15 +536,14 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       auto texture   = std::make_shared<RasterBrush::Image>();
       texture->width = texture->height = 1;
       texture->pixels                  = {{0, 0, 0, 1}};
-      // The experimental source HSV profile excludes texture resources
-      // entirely. Pixel/wet cases retain the resource-rights preservation
-      // coverage.
-      if (!hsvConversion) fixture.preset.texture.image = texture;
+      // These source HSV/masked profiles exclude texture resources.
+      // Pixel/wet cases retain the resource-rights preservation coverage.
+      if (!resourceFreeConversion) fixture.preset.texture.image = texture;
       const auto assets = RasterBrush::resources(fixture, importError);
-      require(
-          importError.isEmpty() && assets.size() == (hsvConversion ? 0u : 1u),
-          "source conversion resource fixture invalid");
-      if (!hsvConversion)
+      require(importError.isEmpty() &&
+                  assets.size() == (resourceFreeConversion ? 0u : 1u),
+              "source conversion resource fixture invalid");
+      if (!resourceFreeConversion)
         fixture.resourceRights[assets.front().hash] = QJsonObject{
             {"redistribution", "restricted"}, {"license", "Original fixture"}};
       const QString folder =
@@ -569,7 +597,13 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                           hsvSensorConversion
                               ? "HSV sensor controls will be removed"
                               : "HSV color adjustment will be removed") &&
-                      confirmation->text().contains("different equations")));
+                      confirmation->text().contains("different equations"))) &&
+                    (!maskedConversion ||
+                     (confirmation->text().contains(
+                          "source masked brush will be removed") &&
+                      confirmation->text().contains("separate opacity, flow") &&
+                      confirmation->text().contains(
+                          "not an equivalent replacement")));
                 if (outcome == 0)
                   confirmation->reject();
                 else {
@@ -651,7 +685,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                       RasterBrush::SourceHsvChannel::Off &&
                   converted.preset.sourceHsvValue == .5 &&
                   noSourceHsvSensors(converted.preset) &&
-                  bool(converted.preset.texture.image) == !hsvConversion &&
+                  noSourceMask(converted.preset) &&
+                  bool(converted.preset.texture.image) ==
+                      !resourceFreeConversion &&
                   converted.resourceRights == fixture.resourceRights &&
                   converted.provenance["sourceProfileBeforeNativeConversion"]
                           .toString() ==
@@ -663,9 +699,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "native conversion lost assets, declarations, edited values or "
               "reset semantics");
           const QString portable = QDir::current().filePath(
-              wetConversion   ? "converted-wet.gzbrush"
-              : hsvConversion ? "converted-hsv.gzbrush"
-                              : "converted-pixel.gzbrush");
+              wetConversion      ? "converted-wet.gzbrush"
+              : hsvConversion    ? "converted-hsv.gzbrush"
+              : maskedConversion ? "converted-masked.gzbrush"
+                                 : "converted-pixel.gzbrush");
           require(RasterBrush::savePortable(
                       portable, converted,
                       RasterBrush::ResourcePackaging::PrivateCopy, importError),
@@ -679,6 +716,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                       RasterBrush::SourceHsvChannel::Off &&
                   reopened.records.front().preset.sourceHsvValue == .5 &&
                   noSourceHsvSensors(reopened.records.front().preset) &&
+                  noSourceMask(reopened.records.front().preset) &&
                   reopened.records.front().provenance["conversionKind"] ==
                       "native-reinterpretation" &&
                   reopened.records.front()

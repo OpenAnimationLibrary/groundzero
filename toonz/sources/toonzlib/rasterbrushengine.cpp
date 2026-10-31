@@ -370,6 +370,37 @@ std::string validate(const Preset &p) {
         p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
   }
+  const auto &maskSettings = p.sourceMasked;
+  for (double value : {maskSettings.diameter, maskSettings.masterSizeCoeff,
+                       maskSettings.aspect, maskSettings.spacing,
+                       maskSettings.opacity, maskSettings.flow})
+    if (!std::isfinite(value)) return "Invalid source mask scalar";
+  if (maskSettings.diameter < 1 || maskSettings.diameter > 4096 ||
+      maskSettings.masterSizeCoeff <= 0 || maskSettings.masterSizeCoeff > 16 ||
+      maskSettings.aspect <= 0 || maskSettings.aspect > 1 ||
+      maskSettings.spacing < .01 || maskSettings.spacing > 5 ||
+      maskSettings.opacity < 0 || maskSettings.opacity > 1 ||
+      maskSettings.flow < 0 || maskSettings.flow > 1 ||
+      (maskSettings.mode != MaskMode::Multiply &&
+       maskSettings.mode != MaskMode::Subtract))
+    return "Invalid source mask settings";
+  if (maskSettings.enabled) {
+    const double diameter = maskSettings.useMasterSize
+                                ? p.size.value * maskSettings.masterSizeCoeff
+                                : maskSettings.diameter;
+    if (p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" || !p.wash ||
+        p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
+        p.tip.antialiasEdges || !p.size.mappings.empty() ||
+        p.aspect.value != 1 || p.angle.value != 0 ||
+        !p.angle.mappings.empty() || !p.opacity.mappings.empty() ||
+        p.flow.value != 1 || !p.flow.mappings.empty() || p.texture.image ||
+        p.blend != Blend::Normal || p.secondary.enabled ||
+        p.sourceHsvChannel != SourceHsvChannel::Off ||
+        p.sourceHsvV2[0].enabled || p.sourceHsvV2[1].enabled ||
+        p.sourceHsvV2[2].enabled || diameter < 1 || diameter > 4096 ||
+        diameter != std::floor(diameter))
+      return "Unimplemented source masked brush combination";
+  }
   if (int(p.sourceHsvChannel) < 0 || int(p.sourceHsvChannel) > 3 ||
       !std::isfinite(p.sourceHsvValue) || p.sourceHsvValue < 0 ||
       p.sourceHsvValue > 1)
@@ -390,8 +421,12 @@ std::string validate(const Preset &p) {
       (hsvV2Active &&
        (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5)))
     return "Conflicting source HSV versions or unimplemented composition";
+  const bool staticWetHsv =
+      sourceWet && !hsvV2Active && p.sourceSmearAlpha && p.smudgeRadius == 0 &&
+      p.pickupControl.mappings.empty() && p.colorRateControl.mappings.empty();
   if ((p.sourceHsvChannel != SourceHsvChannel::Off || hsvV2Active) &&
-      (p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" || p.texture.image ||
+      ((p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" && !staticWetHsv) ||
+       p.texture.image ||
        p.wash || p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
        p.tip.antialiasEdges || p.blend != Blend::Normal ||
        p.opacity.value != 1 || !p.opacity.mappings.empty() ||
@@ -630,6 +665,7 @@ struct Stroke::Impl {
   Sample previous, first, previousSourceDab;
   bool started = false, finished = false;
   bool pendingSourceEndpoint = false;
+  bool pendingMaskPrimary = false, pendingMaskSecondary = false;
   struct SourcePoint {
     Sample sample;
     double distance;
@@ -833,7 +869,8 @@ struct Stroke::Impl {
            (1.0 / 9007199254740992.0);
   }
   bool independentSecondary() const {
-    return p.secondary.enabled && p.secondary.independentSpacing;
+    return p.sourceMasked.enabled ||
+           (p.secondary.enabled && p.secondary.independentSpacing);
   }
   bool needsSourcePressureLookahead() const {
     return !p.size.mappings.empty() || p.sourceHsvV2[0].enabled ||
@@ -1061,7 +1098,73 @@ struct Stroke::Impl {
     inputPixelWork += pixels * samples;
     return true;
   }
+  void recomposeSourceMask(int x, int y) {
+    const auto key     = std::make_pair(x / 32, y / 32);
+    const auto primary = tiles.find(key);
+    if (primary == tiles.end()) return;
+    const size_t k       = size_t(y % 32) * 32 + x % 32;
+    const auto secondary = secondaryMask.find(key);
+    const double retained =
+        secondary == secondaryMask.end() ? 0 : (*secondary->second)[k];
+    double coverage =
+        std::floor(retained * p.sourceMasked.opacity * 255 + .5) / 255;
+    if (p.sourceMasked.mode == MaskMode::Subtract) coverage = 1 - coverage;
+    const auto &tile = *primary->second;
+    surface.write(
+        x, y,
+        sourcePixelComposite(tile.base[k],
+                             mul(tile.paint[k], coverage * p.opacity.value),
+                             Blend::Normal));
+  }
+  bool sourceMaskDab(const Sample &s) {
+    if (secondaryDabs >= 1000000) {
+      failure = "Secondary stroke dab limit exceeded";
+      return false;
+    }
+    const auto &settings  = p.sourceMasked;
+    const double diameter = settings.useMasterSize
+                                ? p.size.value * settings.masterSizeCoeff
+                                : settings.diameter;
+    const double radius = diameter * .5, halfHeight = radius * settings.aspect;
+    secondarySpacing = diameter * settings.spacing;
+    const int x0     = std::max(0, int(std::ceil(s.x - radius))),
+              x1 = std::min(surface.width(), int(std::floor(s.x + radius)) + 1),
+              y0 = std::max(0, int(std::ceil(s.y - halfHeight - .5))),
+              y1 = std::min(surface.height(),
+                            int(std::floor(s.y + halfHeight - .5)) + 1);
+    if (x0 < x1 && y0 < y1) {
+      // Both field updates and dirty recomposition are charged before writes.
+      if (!accountPixelWork(x1 - x0, y1 - y0, 2)) return false;
+      if (!surface.prepare(x0, y0, x1, y1)) {
+        failure = "Raster transaction refused the source mask region";
+        return false;
+      }
+      const double flow = std::floor(settings.flow * 255 + .5);
+      for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+          const auto key = std::make_pair(x / 32, y / 32);
+          auto found     = secondaryMask.find(key);
+          if (found == secondaryMask.end()) {
+            constexpr size_t charge = sizeof(MaskTile) + 128;
+            if (charge > budget - reserved || !shared->reserve(charge)) {
+              failure = "Source mask memory limit exceeded";
+              return false;
+            }
+            reserved += charge;
+            found =
+                secondaryMask.emplace(key, std::make_unique<MaskTile>()).first;
+          }
+          double &alpha    = (*found->second)[size_t(y % 32) * 32 + x % 32];
+          const double old = std::floor(alpha * 255 + .5);
+          alpha = (old + std::floor((255 - old) * flow / 255 + .5)) / 255;
+          recomposeSourceMask(x, y);
+        }
+    }
+    ++secondaryDabs;
+    return true;
+  }
   bool secondaryDab(const Sample &s) {
+    if (p.sourceMasked.enabled) return sourceMaskDab(s);
     if (secondaryDabs >= 1000000) {
       failure = "Secondary stroke dab limit exceeded";
       return false;
@@ -1171,6 +1274,13 @@ struct Stroke::Impl {
       sinceSecondary += advance * distance;
       f += advance;
       const Sample at = interpolate(from, s, f);
+      if (p.sourceMasked.enabled && std::abs(f - 1) <= 1e-12) {
+        pendingMaskSecondary = secondaryDistance <= step + 1e-12;
+        pendingMaskPrimary   = primary <= step + 1e-12;
+        if (pendingMaskSecondary) sinceSecondary = 0;
+        if (pendingMaskPrimary) sinceDab = sinceTime = 0;
+        break;
+      }
       // Equal-position secondary stamps are visible to the primary dab.
       if (secondaryDistance <= step + 1e-12) {
         if (++events > 65536) {
@@ -1280,8 +1390,8 @@ struct Stroke::Impl {
     // Model-specific equations are intentionally separate from native wet
     // paint.
     // Shared source foreground adjustment precedes the model-specific color
-    // injection. Admission remains separate: active wet HSV combinations are
-    // rejected until their original reference interaction has been qualified.
+    // injection. Original four-model captures qualify static single-channel
+    // controls; validation keeps other wet HSV combinations unsupported.
     // Off is an exact identity, preserving existing wet rounding and alpha.
     const Pixel foreground =
         sourceHsvColor(p.color, p.sourceHsvChannel, p.sourceHsvValue);
@@ -1578,8 +1688,8 @@ struct Stroke::Impl {
           y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
       const size_t samples =
-          tipWork(p.tip) + (p.texture.image ? 4 : 0) +
-          (p.wet == Wet::Smear ? 4 : 0) +
+          tipWork(p.tip) + (p.sourceMasked.enabled ? 1 : 0) +
+          (p.texture.image ? 4 : 0) + (p.wet == Wet::Smear ? 4 : 0) +
           (p.secondary.enabled && !p.secondary.independentSpacing
                ? size_t(p.secondary.count) * tipWork(p.secondary.tip)
                : 0);
@@ -1777,7 +1887,7 @@ struct Stroke::Impl {
                                                   : t.depth * b,
                      t.mode);
           }
-          if (independentSecondary()) {
+          if (independentSecondary() && !p.sourceMasked.enabled) {
             const auto found = secondaryMask.find({x / 32, y / 32});
             const double b   = found == secondaryMask.end()
                                    ? 0
@@ -1829,9 +1939,12 @@ struct Stroke::Impl {
             size_t k = size_t(y % 32) * 32 + x % 32;
             buf->paint[k] =
                 composite(buf->paint[k], mul(ink, a * flow), Blend::Normal);
-            surface.write(
-                x, y,
-                deposit(buf->base[k], mul(buf->paint[k], opacity), p.blend));
+            if (p.sourceMasked.enabled)
+              recomposeSourceMask(x, y);
+            else
+              surface.write(
+                  x, y,
+                  deposit(buf->base[k], mul(buf->paint[k], opacity), p.blend));
           } else
             surface.write(x, y,
                           deposit(surface.read(x, y),
@@ -1870,7 +1983,8 @@ bool Stroke::add(const Sample &s) {
   }
   try {
     m->inputPixelWork = 0;
-    if (m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1")
+    if (!m->p.sourceMasked.enabled &&
+        m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1")
       return m->addSourcePixel(s);
     if (!m->started) {
       m->first = m->previous = s;
@@ -1885,6 +1999,11 @@ bool Stroke::add(const Sample &s) {
     const Sample from = m->previous;
     double distance   = std::hypot(s.x - from.x, s.y - from.y),
            dt         = s.time - from.time;
+    if (m->p.sourceMasked.enabled && distance > 0) {
+      if (m->pendingMaskSecondary && !m->secondaryDab(from)) return false;
+      if (m->pendingMaskPrimary && !m->dab(from)) return false;
+      m->pendingMaskSecondary = m->pendingMaskPrimary = false;
+    }
     if (m->pendingSourceEndpoint && distance > 0) {
       if (!m->dab(from)) return false;
       m->pendingSourceEndpoint = false;
@@ -1946,6 +2065,7 @@ bool Stroke::add(const Sample &s) {
 }
 bool Stroke::finish() {
   if (!m->finished && m->failure.empty() && m->started && !m->dabs &&
+      !m->p.sourceMasked.enabled &&
       m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
     try {
       m->inputPixelWork          = 0;

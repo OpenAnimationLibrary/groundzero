@@ -252,6 +252,14 @@ def acquisition(output, fixtures):
                 require(digest(data) == row["effectivePresetSha256"], "effective preset hash")
             files[name] = data
         require(sum(map(len, files.values())) <= TOTAL_LIMIT, "capture byte budget")
+    if fixtures.get("group") == "wetkernelcount":
+        from runpy import run_path
+        data = read(output / "kernel-precision.json", 4 * 1024 * 1024)
+        validate_precision = run_path(str(Path(__file__).parent /
+            "gzbrush_reference/kernel_precision_probe.py"))["validate"]
+        validate_precision(parse(data), fixtures, rows)
+        files["kernel-precision.json"] = data
+        require(sum(map(len, files.values())) <= TOTAL_LIMIT, "capture byte budget")
     require(len(files) <= COUNT_LIMIT, "capture count budget")
     return files
 
@@ -279,7 +287,7 @@ def restore(root, cache, expected):
             "unexpected or missing cache files")
     total = 0
     for name, spec in entries.items():
-        filename(name, ".json" if name == "oracle-status.json" else
+        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json") else
                  ".png" if name.endswith(".png") else ".xml")
         require(isinstance(spec, list) and len(spec) == 2 and type(spec[0]) is int
                 and 0 <= spec[0] <= FILE_LIMIT and HEX.fullmatch(spec[1]), "invalid file manifest")

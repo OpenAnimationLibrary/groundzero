@@ -94,6 +94,14 @@ struct SourceHsvControl {
   bool enabled = false;
   Dynamic control{.5, 0, {}};
 };
+// Independently measured K5341 generated secondary field, separate from native
+// Secondary. Flow accumulates at mask dabs; opacity scales the retained field.
+struct SourceMasked {
+  bool enabled = false, useMasterSize = true;
+  double diameter = 12, masterSizeCoeff = .5, aspect = .5, spacing = .5;
+  double opacity = 1, flow = 1;
+  MaskMode mode = MaskMode::Multiply;
+};
 struct Preset {
   std::string name = "Native brush", profile = "groundzero-native-1";
   Tip tip;
@@ -113,6 +121,7 @@ struct Preset {
       brightness{1, 0, {}};
   Texture texture;
   Secondary secondary;
+  SourceMasked sourceMasked;
   Wet wet       = Wet::Off;
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
   // Versioned source-wet state switches; native wet equations do not use them.

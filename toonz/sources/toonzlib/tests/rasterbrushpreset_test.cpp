@@ -714,7 +714,66 @@ void testBundles() {
   require(!importBrush(archive(entries, false), "bundle", error).complete,
           "missing manifest resource accepted");
 }
+void testSourceMaskImport() {
+  struct Canvas : Surface {
+    std::vector<Pixel> pixels = std::vector<Pixel>(128 * 64);
+    int width() const override { return 128; }
+    int height() const override { return 64; }
+    bool prepare(int x0, int y0, int x1, int y1) override {
+      return x0 >= 0 && y0 >= 0 && x1 <= width() && y1 <= height();
+    }
+    Pixel read(int x, int y) const override { return pixels.at(y * 128 + x); }
+    void write(int x, int y, const Pixel &p) override {
+      pixels.at(y * 128 + x) = p;
+    }
+  };
+  QString error;
+  for (const QString &variant :
+       {QString(), QString("subtract"), QString("buildUp"), QString("dynamic"),
+        QString("unknown")}) {
+    const auto imported =
+        importBrush(RasterBrushTest::maskedPixelKpp(variant), "kpp", error);
+    require(imported.records.size() == 1, "masked KPP import failed");
+    const auto &record   = imported.records.front();
+    const bool supported = variant != "dynamic" && variant != "unknown";
+    require((record.preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1") ==
+                supported,
+            "masked source eligibility ignored active unknown settings");
+    if (!supported) continue;
+    const auto restored = decode(encode(record, error), error);
+    require(
+        error.isEmpty() && restored.preset.sourceMasked.opacity == .5 &&
+            restored.preset.sourceMasked.flow == .5 &&
+            restored.preset.sourceMasked.enabled == (variant != "buildUp") &&
+            !record.provenance["sourceReferenceVerified"].toBool(),
+        "source mask portable settings or qualification changed");
+    const auto portable = importBrush(
+        encodePortable(record, ResourcePackaging::PrivateCopy, error),
+        "gzbrush", error);
+    require(portable.records.size() == 1 &&
+                portable.records.front().preset.sourceMasked.enabled ==
+                    restored.preset.sourceMasked.enabled,
+            "source mask portable export lost source fields");
+    Canvas canvas;
+    Stroke stroke(canvas, restored.preset);
+    Sample a;
+    a.x      = 32;
+    a.y      = 32;
+    Sample b = a;
+    b.x      = 33;
+    b.time   = 1;
+    require(stroke.add(a) && stroke.add(b) && stroke.finish(),
+            "imported source mask runtime failed");
+    const double expected = variant == "buildUp"    ? 1
+                            : variant == "subtract" ? 191 / 255.
+                                                    : 64 / 255.;
+    require(
+        std::abs(canvas.read(32, 32).a - expected) < 1e-12,
+        "imported source mask did not execute post-accumulation opacity/flow");
+  }
+}
 void testImports() {
+  testSourceMaskImport();
   QString error;
   const size_t abrBytes = 2 * (sizeof(Pixel) + 1);
   require(importBrush(sampledAbr(), "abr", error, nullptr, abrBytes).complete,
@@ -827,9 +886,12 @@ void testImports() {
   }
   // Original fixed-channel source metadata, with disabled and unsupported
   // variants exercising eligibility rather than merely round-tripping fields.
+  for (const QString &hsvModel :
+       {QString(), QString("legacy-smear"), QString("new-smear"),
+        QString("legacy-dulling"), QString("new-dulling")})
   for (const QString &target : {QString("h"), QString("s"), QString("v")})
     for (int variant = 0; variant < 5; ++variant) {
-      QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
+      QImage image = QImage::fromData(hardPixelKpp("buildUp", hsvModel), "PNG");
       QString xml  = image.text("preset"), extra;
       auto param   = [&](const QString &key, const QString &value) {
         extra +=
@@ -859,8 +921,12 @@ void testImports() {
       require(imported.records.size() == 1, "source HSV import lost preset");
       const auto &record = imported.records.front();
       const bool candidate =
-          record.preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
-      require(candidate == (variant < 2 || (variant == 4 && target != "s")),
+          record.preset.profile ==
+              ("krita-5.3.4.1-" +
+               (hsvModel.isEmpty() ? QString("hard-pixel") : hsvModel) +
+               "-candidate-1").toStdString();
+      require(candidate == (variant < 2 ||
+                            (hsvModel.isEmpty() && variant == 4 && target != "s")),
               "source HSV eligibility admitted unsupported controls");
       if (candidate) {
         const auto expected = (variant == 1 || variant == 4)
@@ -983,9 +1049,13 @@ void testImports() {
   for (const QString attributes :
        {"duration=\"1000\" periodic=\"0\"", "duration=\"1000\" periodic=\"1\"",
         "duration=\"2000\" periodic=\"0\"", "periodic=\"0\""}) {
-    QImage image = QImage::fromData(hardPixelKpp("pressure"), "PNG");
-    QString xml  = image.text("preset");
-    xml.replace("id=\"pressure\"", "id=\"time\" " + attributes);
+    QImage image           = QImage::fromData(hardPixelKpp("pressure"), "PNG");
+    QString xml            = image.text("preset");
+    const QString original = QString("id=\"pressure\"").toHtmlEscaped();
+    require(xml.count(original) == 1,
+            "Time fixture has no unique serialized pressure sensor");
+    xml.replace(original,
+                (QString("id=\"time\" ") + attributes).toHtmlEscaped());
     image.setText("preset", xml);
     QByteArray bytes;
     QBuffer buffer(&bytes);

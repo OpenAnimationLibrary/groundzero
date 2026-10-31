@@ -807,6 +807,11 @@ bool editNativeBrush(RasterBrush::Record &record) {
             " Source HSV sensor controls will be removed, including their "
             "pressure mappings. Native saturation and value controls use "
             "different equations and do not preserve those adjustments.");
+      if (record.preset.sourceMasked.enabled)
+        changes += QObject::tr(
+            " The source masked brush will be removed, including its separate "
+            "opacity, flow and composition behavior. Native dual-tip controls "
+            "use different equations and are not an equivalent replacement.");
       QMessageBox confirmation(
           QMessageBox::Warning, QObject::tr("Convert a Copy to Native"),
           changes + "\n\n" +
@@ -831,6 +836,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
       native.sourceHsvChannel           = RasterBrush::SourceHsvChannel::Off;
       native.sourceHsvValue             = .5;
       native.sourceHsvV2                = {};
+      native.sourceMasked               = {};
       if (wet) {
         native.pickup        = .5;
         native.colorRate     = .25;

@@ -571,6 +571,116 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
   }
   return true;
 }
+// Resolve only the measured static generated mask contract. Unknown enabled
+// groups and absent defaults never disappear into a source-candidate label.
+bool sourceMaskedSettings(const QMap<QString, QString> &fields, Preset &preset,
+                          QMap<QString, QString> &primary) {
+  primary      = fields;
+  bool hasMask = false;
+  for (auto i = fields.begin(); i != fields.end(); ++i)
+    if (i.key().startsWith("MaskingBrush/")) hasMask = true;
+  if (!hasMask) return true;
+  if (preset.wet != Wet::Off) return false;
+  const QString prefix               = "MaskingBrush/Preset/";
+  const QMap<QString, QString> fixed = {
+      {prefix + "paintop", "paintbrush"},
+      {prefix + "OpacityUseCurve", "false"},
+      {prefix + "FlowUseCurve", "false"},
+      {prefix + "PressureOpacity", "false"},
+      {prefix + "PressureFlow", "false"},
+      {prefix + "PressureSize", "false"},
+      {prefix + "PressureRatio", "false"},
+      {prefix + "PressureRotation", "false"},
+      {prefix + "PressureSpacing", "false"},
+      {prefix + "PressureScatter", "false"},
+      {prefix + "PressureMirror", "false"},
+      {prefix + "Texture/Pattern/Enabled", "false"}};
+  for (auto i = fixed.begin(); i != fixed.end(); ++i)
+    if (fields.value(i.key()) != i.value()) return false;
+  QSet<QString> allowed;
+  for (auto i = fixed.begin(); i != fixed.end(); ++i) allowed.insert(i.key());
+  for (const auto &key :
+       {QString("MaskingBrush/Enabled"), QString("MaskingBrush/UseMasterSize"),
+        QString("MaskingBrush/MasterSizeCoeff"),
+        QString("MaskingBrush/MaskingCompositeOp"), prefix + "OpacityValue",
+        prefix + "FlowValue", prefix + "brush_definition"}) {
+    if (!fields.contains(key)) return false;
+    allowed.insert(key);
+  }
+  for (auto i = fields.begin(); i != fields.end(); ++i)
+    if (i.key().startsWith("MaskingBrush/")) {
+      if (!allowed.contains(i.key())) return false;
+      primary.remove(i.key());
+    }
+  const auto boolean = [&](const QString &key) {
+    return fields[key] == "true" || fields[key] == "false";
+  };
+  if (!boolean("MaskingBrush/Enabled") ||
+      !boolean("MaskingBrush/UseMasterSize"))
+    return false;
+  auto &mask         = preset.sourceMasked;
+  mask.enabled       = fields["MaskingBrush/Enabled"] == "true" && preset.wash;
+  mask.useMasterSize = fields["MaskingBrush/UseMasterSize"] == "true";
+  const QString mode = fields["MaskingBrush/MaskingCompositeOp"];
+  if (mode != "multiply" && mode != "subtract") return false;
+  mask.mode   = mode == "multiply" ? MaskMode::Multiply : MaskMode::Subtract;
+  auto scalar = [&](const QString &text, double &value) {
+    bool ok = false;
+    value   = text.toDouble(&ok);
+    return ok && std::isfinite(value);
+  };
+  if (!scalar(fields["MaskingBrush/MasterSizeCoeff"], mask.masterSizeCoeff) ||
+      !scalar(fields[prefix + "OpacityValue"], mask.opacity) ||
+      !scalar(fields[prefix + "FlowValue"], mask.flow))
+    return false;
+  QXmlStreamReader xml(fields[prefix + "brush_definition"]);
+  int depth = 0, brushes = 0, generators = 0;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isDTD() || xml.isEntityReference()) return false;
+    if (xml.isEndElement()) {
+      --depth;
+      continue;
+    }
+    if (!xml.isStartElement()) continue;
+    ++depth;
+    const bool brush = depth == 1 && xml.name() == QStringLiteral("Brush");
+    const bool generator =
+        depth == 2 && xml.name() == QStringLiteral("MaskGenerator");
+    if (!brush && !generator) return false;
+    if (brush)
+      ++brushes;
+    else
+      ++generators;
+    const QMap<QString, QString> exact =
+        brush
+            ? QMap<QString, QString>{{"type", "auto_brush"},
+                                     {"BrushVersion", "2"},
+                                     {"angle", "0"},
+                                     {"randomness", "0"},
+                                     {"density", "1"},
+                                     {"useAutoSpacing", "0"}}
+            : QMap<QString, QString>{{"id", "default"},       {"type", "rect"},
+                                     {"hfade", "1"},          {"vfade", "1"},
+                                     {"antialiasEdges", "0"}, {"spikes", "2"}};
+    const auto attrs = xml.attributes();
+    for (auto i = exact.begin(); i != exact.end(); ++i)
+      if (attrs.value(i.key()) != i.value()) return false;
+    for (const auto &attr : attrs)
+      if (!exact.contains(attr.name().toString()) &&
+          !(brush ? attr.name() == QStringLiteral("spacing")
+                  : (attr.name() == QStringLiteral("diameter") ||
+                     attr.name() == QStringLiteral("ratio"))))
+        return false;
+    if (brush) {
+      if (!scalar(attrs.value("spacing").toString(), mask.spacing))
+        return false;
+    } else if (!scalar(attrs.value("diameter").toString(), mask.diameter) ||
+               !scalar(attrs.value("ratio").toString(), mask.aspect))
+      return false;
+  }
+  return !xml.hasError() && brushes == 1 && generators == 1;
+}
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
   if (engine != "paintbrush" && engine != "colorsmudge") return false;
@@ -608,8 +718,7 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   if (!sourceHsvSettings(fields, hsvChannel, hsvValue, hsvControls,
                          hsvFields) ||
       hsvChannel != preset.sourceHsvChannel ||
-      hsvValue != preset.sourceHsvValue ||
-      (!hsvFields.empty() && engine != "paintbrush"))
+      hsvValue != preset.sourceHsvValue)
     return false;
   for (size_t channel = 0; channel < 3; ++channel)
     if (hsvControls[channel].enabled != preset.sourceHsvV2[channel].enabled)
@@ -1231,8 +1340,14 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                      ignoredDiagnostics))
       candidate.angle = std::move(barrel);
   }
-  if (eligibleFixedSource(fields, engine, candidate)) {
+  QMap<QString, QString> primaryFields;
+  const bool maskSettingsKnown =
+      sourceMaskedSettings(fields, candidate, primaryFields);
+  if (maskSettingsKnown &&
+      eligibleFixedSource(primaryFields, engine, candidate)) {
     r.preset = std::move(candidate);
+    if (fields.value("MaskingBrush/Enabled") == "true" && !r.preset.wash)
+      r.provenance["sourceInactiveMask"] = "build-up-mask-ignored";
     if (engine == "colorsmudge" && fields.value("FlowUseCurve") == "true") {
       r.provenance["sourceInactiveFlowCurve"] = "identity-pressure";
       r.provenance["sourceInactiveFlowPressureEnabled"] =

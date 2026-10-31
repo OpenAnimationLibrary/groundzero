@@ -95,18 +95,22 @@ its exact serialized registry identifier still requires metadata evidence.
 
 ### Original masked-brush acquisition
 
-`maskwash` and `maskbuildup` each contain 156 paired cases: the original 108 controls plus 48 color/background heldouts. Original controls cover: mask off,
+`maskwash` and `maskbuildup` each contain 156 paired cases: the original 108
+controls plus 48 color/background heldouts. Original controls cover mask off,
 Multiply, Subtract; linked master-size coefficients .5/1 and independent-size;
 mask opacity/flow (1,1), (.5,1), (1,.5), (.5,.5); and independent spacing
 controls (primary,mask) (.25,.5), (.25,2), (2,.5). The24px round primary and
 12px rectangular half-aspect secondary are original embedded procedural tips,
 with no external resource lookup or asset licensing dependency. Each source
-stroke uses the public Node.paintLine API at pressure1. The original controls repeat from an identical transparent canvas. The 48 appended
+stroke uses the public Node.paintLine API at pressure1. The original controls
+repeat from an identical transparent canvas. The 48 appended
 heldouts pair two non-primary foreground colors, transparent versus heterogeneous
 opaque/translucent backgrounds, primary opacity 1/.5 and secondary opacity/flow
-(.5,1)/(1,.5) for all three modes. Foreground readback is checked. Full-image output and bounded complete320x64
+(.5,1)/(1,.5) for all three modes. Foreground readback is checked. Full-image
+output and bounded complete320x64
 BGRA captures are retained, including nested effective metadata and delivered
-line endpoints. Any visible pixel change outside the capture fails acquisition, compared with
+line endpoints. Any visible pixel change outside the capture fails acquisition,
+compared with
 the exact initial raster; transparent RGB is ignored only where alpha is zero.
 
 Pinned metadata sources (only serialization/registry facts used):
@@ -124,14 +128,30 @@ Pinned metadata sources (only serialization/registry facts used):
   brush settings. No rendering implementation was used to generate these probes.
 
 All authored nested scalars and procedural geometry attributes must survive
-source effective-setting readback. Off controls must paint. Enabled results,
-including empty output, are explicitly exploratory observations, never accepted
-as parity. Build-up cases diagnose the manual's Wash-only behavior; preserving
-requested metadata does not prove the renderer applies masking in that mode.
-Mask opacity and flow remain independent dimensions; no source representation
-has been collapsed into the native secondary opacity control. These cases cover
-procedural resources only; bitmap secondary resources and broader sensor/dynamic
-interactions still need their own qualified acquisitions.
+source effective-setting readback. Off controls must paint. The original 108 Wash captures identify independent
+primary/secondary spacing with omitted final-boundary dabs, byte-quantized
+secondary flow accumulation and opacity applied after accumulation. An
+independent model reproduces every alpha pixel of every original 320×64 capture.
+Multiply and Subtract outputs sum to the corresponding unmasked alpha. Linked
+half-size and independent 12px controls coincide. All 72 enabled Build-up masks
+have the same alpha as their paired disabled controls.
+
+The source candidate retains primary paint/base and a separate charged
+secondary field. Either scheduler event recomposes dirty pixels, so a later
+secondary dab can reveal or remove already retained primary paint. Native
+Secondary semantics are unchanged. `sourceMaskedV1` preserves flow, opacity,
+master-size linkage and geometry through portable save/reopen. Strict import
+requires explicit known nested settings and generated hard rectangular masks;
+unknown enabled controls stay native conversions with diagnostics. Build-up
+records the mask as inactive. Initial Wash combinations require a fixed hard
+round primary, static opacity, primary flow1, Normal blend and no texture, HSV
+or dynamic masks. Other combinations, bitmap secondary resources and dynamics
+remain unfinished contract work, not silently admitted.
+
+All 156 cases now enforce the existing complete-image source candidate gates,
+including the 48 new retained-color/background heldouts. Those heldouts and
+C++ implementation tests have not yet executed at this revision. No broad
+source parity or reference-verified flag follows from the alpha model alone.
 
 ### GIH statistical qualification gate
 

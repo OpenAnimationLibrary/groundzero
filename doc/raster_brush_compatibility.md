@@ -1491,11 +1491,18 @@ as the measured Pixel HSV candidate, before their model-specific Color Rate
 attenuation. The disabled transform is an exact identity. Synthetic composition
 regressions compare Pixel-transformed foregrounds with independently captured
 RGB values injected directly into each wet model, with smear-alpha on/off.
-These tests qualify wiring and preserve existing transport behavior; they do not
-establish source wet HSV interactions. Strict wet HSV eligibility remains closed
-until original enabled/disabled wet captures qualify those interactions. The
-public Color Smudge manual describes the shared foreground-transform order,
-but documentation alone is not treated as complete numerical parity evidence.
+Original enabled/disabled wet captures now cover 96 combinations: all four models,
+two foreground colors, three individually controlled channels, and two fixed
+values. An independent foreground/transport recurrence matches the captured third
+dab within one RGBA8 level, with exact alpha. Dedicated runtime regressions use
+those captured values rather than a duplicate implementation as their oracle.
+Static single-channel wet HSV can therefore enter the experimental candidate for
+hard round, normal, radius-zero, smear-alpha-on strokes with full opacity/flow,
+no texture, and no pressure-driven pickup/color controls. Other combinations,
+including dynamic or joint wet HSV, remain unsupported. Import and portable
+save/reopen tests exercise all four models and reject unsupported sensor curves.
+The full-image source comparison remains a required qualification gate; these
+measurements do not mark the candidate source-reference-verified.
 
 ### Strict fractional-boundary discriminator
 
@@ -1516,3 +1523,36 @@ quarter- and three-quarter-pressure taps. These distinguish the first-sample
 fallback from source behavior when sub-half-pixel motion changes pressure.
 That fallback is implemented and lifecycle-tested, but reference acceptance for
 these changing-pressure short paths remains open until the captures complete.
+
+### K5341 generated masked Wash candidate
+
+The versioned `sourceMaskedV1` path keeps secondary flow accumulation separate
+from post-field opacity and retains unmasked primary paint plus original canvas
+pixels. Independent primary and secondary spacing events both recompose their
+dirty region, with separate deferred final endpoints. Fields and tile map nodes
+share the stroke/host memory budget; both deposition and recomposition count
+against per-input work limits. Cancellation releases retained fields, and
+transaction ownership remains with the host undo/cancel mechanism.
+
+Original 108-case Wash alpha captures support this candidate; all 72 enabled
+Build-up controls ignore the mask. The importer requires explicit known nested
+settings, generated hard rectangular masks and a fixed hard round primary.
+Static primary opacity, primary flow1, Normal blend and no source HSV/texture
+interaction are the initial admitted Wash combinations. Unknown nested flags,
+mask dynamics, bitmap mask tips and unsupported combinations remain native
+conversions with diagnostics. Build-up preserves the mask as inactive. This is
+a source candidate, not complete K support or a reference-verified source brush.
+The existing full-image thresholds now gate both mask groups, including 48 new
+color/translucent-background heldouts per group; execution of the new code and
+heldouts is still pending CI. Import-to-runtime, portable roundtrip, captured
+histograms, secondary-only dirty changes, endpoints and budget/cancel regressions
+are included for CI. The wider RCP1 masked resource/dynamic contract remains open.
+
+## Additional original static ABR corpus
+
+The [pinned 64-preset author corpus census](raster_brush_abr_corpus.md)
+records asset hashes, license scope and complete serialized-field observations
+for two additional ABR 6.2 collections. All tips are sampled and all dynamics
+are disabled; both pattern sections are empty. This evidence does not resolve
+modern computed-tip, pattern-association, dynamic-control or other-version gaps,
+and does not establish source rendering parity. No pack assets are included.

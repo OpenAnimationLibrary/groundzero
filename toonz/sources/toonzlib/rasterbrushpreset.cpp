@@ -422,6 +422,16 @@ static QByteArray encodeRecord(
         {"sourceSmearAlpha", p.sourceSmearAlpha},
         {"sourceColorRateEnabled", p.sourceColorRateEnabled},
         {"sourceTextureSoftTexturing", p.sourceTextureSoftTexturing},
+        {"sourceMaskedV1",
+         QJsonObject{{"enabled", p.sourceMasked.enabled},
+                     {"useMasterSize", p.sourceMasked.useMasterSize},
+                     {"diameter", p.sourceMasked.diameter},
+                     {"masterSizeCoeff", p.sourceMasked.masterSizeCoeff},
+                     {"aspect", p.sourceMasked.aspect},
+                     {"spacing", p.sourceMasked.spacing},
+                     {"opacity", p.sourceMasked.opacity},
+                     {"flow", p.sourceMasked.flow},
+                     {"mode", masks[int(p.sourceMasked.mode)]}}},
         {"sourceHsvChannelV1", sourceHsvChannels[int(p.sourceHsvChannel)]},
         {"sourceHsvValueV1", p.sourceHsvValue},
         {"sourceHsvControlsV2",
@@ -587,6 +597,7 @@ static Record decodeRecord(
              "sourceSmearAlpha",
              "sourceColorRateEnabled",
              "sourceTextureSoftTexturing",
+             "sourceMaskedV1",
              "sourceHsvChannelV1",
              "sourceHsvValueV1",
              "sourceHsvControlsV2"});
@@ -629,6 +640,20 @@ static Record decodeRecord(
         p.sourceHsvV2[channel].enabled = boolean(setting["enabled"]);
         p.sourceHsvV2[channel].control = dynamic(setting["control"]);
       }
+    }
+    if (o.contains("sourceMaskedV1")) {
+      const auto mask = object(o["sourceMaskedV1"]);
+      keys(mask, {"enabled", "useMasterSize", "diameter", "masterSizeCoeff",
+                  "aspect", "spacing", "opacity", "flow", "mode"});
+      p.sourceMasked.enabled         = boolean(mask["enabled"]);
+      p.sourceMasked.useMasterSize   = boolean(mask["useMasterSize"]);
+      p.sourceMasked.diameter        = number(mask["diameter"]);
+      p.sourceMasked.masterSizeCoeff = number(mask["masterSizeCoeff"]);
+      p.sourceMasked.aspect          = number(mask["aspect"]);
+      p.sourceMasked.spacing         = number(mask["spacing"]);
+      p.sourceMasked.opacity         = number(mask["opacity"]);
+      p.sourceMasked.flow            = number(mask["flow"]);
+      p.sourceMasked.mode            = MaskMode(choice(mask["mode"], masks));
     }
     if (o.contains("sourceTextureSoftTexturing"))
       p.sourceTextureSoftTexturing = boolean(o["sourceTextureSoftTexturing"]);
