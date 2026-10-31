@@ -20,6 +20,76 @@ def _sha256(path):
     return digest.hexdigest()
 
 
+def capture_original_windows_timeout(process, executable, symbol_directories,
+                                     directory, capture):
+    """Observe the still-owned original process before its job is terminated.
+
+    CDB is a separate contained process. It never starts the application, and
+    its exit cannot qualify the original timeout. The caller must retire the
+    original job even when this diagnostic fails or is interrupted.
+    """
+    state = {"safe_to_release": True}
+    identity, raw, status = [], b"", ""
+    try:
+        executable = Path(executable).resolve(strict=True)
+        pid = process.pid
+        if type(pid) is not int or pid <= 0 or Path(process.args[0]).resolve(strict=True) != executable:
+            return "Original timeout process identity is unavailable; no debugger was launched.\n", True
+        if process.poll() is not None:
+            return "Original timeout process already exited; no debugger was launched.\n", True
+        kits = os.environ.get("ProgramFiles(x86)")
+        debugger = Path(kits) / "Windows Kits/10/Debuggers/x64/cdb.exe" if kits else None
+        if debugger is None or not debugger.is_file():
+            return "Original timeout CDB is unavailable; no stack was captured.\n", True
+        module = executable.stem
+        if not all(character.isalnum() or character in "_-" for character in module):
+            return "Original executable name cannot be used safely in debugger commands.\n", True
+        identity = [f"Original Windows timeout process: {executable.name}, PID {pid}",
+                    f"Executable SHA256: {_sha256(executable)}"]
+        symbols = [Path(path).resolve() for path in symbol_directories if Path(path).is_dir()]
+        symbols.append(executable.parent)
+        seen = set()
+        for directory_path in symbols:
+            pdb = directory_path / (executable.stem + ".pdb")
+            if pdb.is_file() and pdb.resolve() not in seen:
+                seen.add(pdb.resolve())
+                identity.append(f"PDB {pdb.name} SHA256: {_sha256(pdb)}")
+        # Retaining the original HANDLE prevents PID reuse. Check again after
+        # reading identities so a late natural exit is explicitly unavailable.
+        if process.poll() is not None:
+            return "\n".join(identity) + "\nOriginal timeout process exited before stack capture.\n", True
+        commands = (".echo Original Windows timeout live threads (no replay); |; "
+                    f"lmvm {module}; !lmi {module}; ~* kb 40; qd")
+        command = [str(debugger), "-pv", "-p", str(pid), "-pd", "-sins", "-netsyms:no",
+                   "-noshell", "-ses", "-lines", "-y", ";".join(map(str, symbols)), "-c", commands]
+        environment = os.environ.copy()
+        for name in ("_NT_SYMBOL_PATH", "_NT_ALT_SYMBOL_PATH", "_NT_EXECUTABLE_IMAGE_PATH"):
+            environment.pop(name, None)
+        # No timeout callback is supplied to this capture: a hung debugger is
+        # retired directly, never recursively debugged. No target is replayed.
+        result = capture(command, cwd=directory, environment=environment, timeout=45,
+                         runtime_state=state)
+        raw = result.stdout or b""
+        status = f"Original timeout CDB exited with status {result.returncode}."
+    except subprocess.TimeoutExpired as error:
+        raw = error.output or state.get("output", b"")
+        status = "Original timeout CDB timed out after 45 seconds."
+    except BaseException as error:
+        raw = state.get("output", b"")
+        status = f"Original timeout CDB could not complete: {type(error).__name__}."
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", errors="backslashreplace")
+    report = ("\n".join(identity) + "\n" + raw.decode("utf-8", errors="replace") + "\n" + status +
+              "\nThe original native timeout remains authoritative.\n")
+    encoded = report.encode("utf-8")
+    if len(encoded) > 128 * 1024:
+        marker = "\nOriginal timeout text truncated; beginning and ending retained.\n"
+        half = (128 * 1024 - len(marker.encode("utf-8"))) // 2
+        report = (encoded[:half].decode("utf-8", errors="ignore") + marker +
+                  encoded[-half:].decode("utf-8", errors="ignore"))
+    return report, state["safe_to_release"] is True
+
+
 def _wer_service_diagnostic():
     """Observe the service only; never start it or change its configuration."""
     manager = service = None

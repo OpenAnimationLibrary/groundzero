@@ -56,6 +56,27 @@ def write_macos_crash_text(path, text):
     return diagnostic
 
 
+def write_windows_release(path, record, *, invalidate=False):
+    """Publish one complete cleanup witness; a failed write stays fail-closed."""
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if invalidate:
+            # Never let a previous invocation's successful cleanup qualify a
+            # new launch. The initial record is false until ALL work retires.
+            path.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+                delete=False) as destination:
+            temporary = Path(destination.name)
+            json.dump(record, destination, indent=2, allow_nan=False)
+            destination.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 @contextmanager
 def windows_mesa_renderer(executable, runtime, cleanup_allowed=None):
     """Temporarily provide desktop GL for both Qt and native GL imports."""
@@ -178,7 +199,8 @@ def launch_captured_process(command, **options):
     return subprocess.Popen(command, **options)
 
 
-def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
+def run_captured_process(command, *, cwd, environment, timeout, runtime_state,
+                         on_timeout=None):
     """Capture flushed bytes even if a Windows descendant prevents pipe EOF.
 
     The capture lives in the disposable fixture. An independent bounded read
@@ -189,6 +211,7 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
     capture = Path(name)
     runtime_state["capture_path"] = capture
     notes = b""
+    timeout_diagnostic = b""
     process = None
 
     def captured():
@@ -196,26 +219,56 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
             output = source.read(16 * 1024 * 1024 + 1)
         if len(output) > 16 * 1024 * 1024:
             output = output[:16 * 1024 * 1024] + b"\nCaptured output truncated at 16 MiB.\n"
-        runtime_state["output"] = notes + output
+        runtime_state["output"] = notes + output + timeout_diagnostic
         return runtime_state["output"]
 
     try:
         with os.fdopen(descriptor, "wb", buffering=0) as destination:
             runtime_state["started_at"] = time.time()
+            # Admission may create a process before returning its wrapper.
+            # An interruption in that interval must never certify cleanup.
+            runtime_state["safe_to_release"] = False
             process = launch_captured_process(command, cwd=cwd, env=environment,
                                        stdout=destination, stderr=subprocess.STDOUT,
                                        start_new_session=os.name != "nt")
             # This is the directly launched OpenToonz PID. xvfb-run wraps this
             # Python runner outside it; no shell or GL wrapper owns this PID.
             runtime_state["pid"] = process.pid
-            runtime_state["safe_to_release"] = False
             try:
                 status = process.wait(timeout=timeout)
                 runtime_state["finished_at"] = time.time()
             except subprocess.TimeoutExpired:
-                safe, notes = stop_process_tree(process)
-                runtime_state["safe_to_release"] = safe
-                runtime_state["finished_at"] = time.time()
+                runtime_state["timed_out"] = True
+                diagnostic_safe = True
+                try:
+                    if on_timeout is not None:
+                        if isinstance(process, WindowsJobProcess):
+                            # The original process HANDLE is still owned here,
+                            # so its PID cannot be recycled under the observer.
+                            diagnostic_safe = False
+                            report, diagnostic_safe = on_timeout(process, runtime_state)
+                            report = decode_output(report)
+                        else:
+                            report = "Original timeout capture unavailable: process is not a tracked Windows job.\n"
+                        runtime_state["original_windows_timeout"] = report
+                        timeout_diagnostic = ("\n--- Original Windows timeout stack (no replay) ---\n" +
+                                              report).encode("utf-8", errors="backslashreplace")
+                except BaseException as error:
+                    # A diagnostic interruption must neither orphan the hung
+                    # original nor replace the already-observed timeout.
+                    report = ("Original timeout capture could not complete: "
+                              f"{type(error).__name__}; debugger retirement is uncertain.\n")
+                    runtime_state["original_windows_timeout"] = report
+                    timeout_diagnostic = ("\n--- Original Windows timeout stack (no replay) ---\n" +
+                                          report).encode("utf-8")
+                finally:
+                    try:
+                        safe, notes = stop_process_tree(process)
+                    except BaseException as error:
+                        safe = False
+                        notes = f"Original timeout cleanup failed: {type(error).__name__}.\n".encode()
+                    runtime_state["safe_to_release"] = safe and diagnostic_safe is True
+                    runtime_state["finished_at"] = time.time()
                 raise subprocess.TimeoutExpired(command, timeout, output=captured())
             except BaseException:
                 safe, notes = stop_process_tree(process)
@@ -239,7 +292,15 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
         if isinstance(process, WindowsJobProcess):
             process.close()
         if runtime_state["safe_to_release"]:
-            capture.unlink()
+            try:
+                capture.unlink()
+            except OSError as error:
+                # A report-file cleanup error is not the native process's
+                # outcome. Keep its bytes for the enclosing fixture cleanup.
+                note = ("Captured output file retained after cleanup error: "
+                        f"{type(error).__name__} (errno={getattr(error, 'errno', None)}).\n")
+                runtime_state["capture_cleanup_error"] = note
+                print(note, end="", flush=True)
 
 
 @contextmanager
@@ -604,7 +665,20 @@ def main():
     original_macos_text = ""
     original_macos_matched = False
     runtime_state = {"safe_to_release": True}
+    release_path = (args.output.with_name(args.output.stem + "-release.json")
+                    if os.name == "nt" and not args.artist_benchmark else None)
+    release_record = {
+        "schema": 1, "source_sha": os.environ.get("GITHUB_SHA", "unspecified"),
+        "run_id": os.environ.get("GITHUB_RUN_ID", "unspecified"),
+        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "unspecified"),
+        "original_pid": None, "timed_out": False, "original_status": None,
+        "started_at": None, "finished_at": None, "safe_to_release": False,
+    }
+    release_initialized = False
     try:
+        if release_path is not None:
+            write_windows_release(release_path, release_record, invalidate=True)
+            release_initialized = True
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
         with isolated_fixture(source, executable, args.windows_mesa,
@@ -622,10 +696,16 @@ def main():
                     from native_ui_windows_dump import OriginalWindowsDump
                     dump_capture = OriginalWindowsDump(executable, args.windows_original_dump_directory,
                                                        runtime_state=runtime_state)
+                timeout_options = {}
+                if os.name == "nt" and (args.windows_crash_debugger or args.windows_original_dump_directory):
+                    from native_ui_windows_dump import capture_original_windows_timeout
+                    timeout_options["on_timeout"] = lambda process, state: capture_original_windows_timeout(
+                        process, executable, args.debugger_symbols, directory, run_captured_process)
                 with core_limit, dump_capture as original_windows:
                     result = run_captured_process([str(executable), "--test-native-ui"],
                                                   cwd=directory, environment=environment,
-                                                  timeout=timeout_seconds, runtime_state=runtime_state)
+                                                  timeout=timeout_seconds, runtime_state=runtime_state,
+                                                  **timeout_options)
                     output, status = decode_output(result.stdout), result.returncode
                     native_status = status
                     if status:
@@ -705,6 +785,7 @@ def main():
                     output += (f"\nNative application exited with status {status} "
                                f"(0x{status & 0xffffffff:08X}).\n")
             except subprocess.TimeoutExpired as error:
+                runtime_state["timed_out"] = True
                 output = decode_output(error.stdout)
                 output += f"\nNative application integration test timed out after {timeout_seconds} seconds.\n"
                 status = 1
@@ -713,6 +794,20 @@ def main():
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
         status = 1
+    # Preserve the original identity before clear/isolated diagnostics can
+    # update shared runtime state. Final safety is recorded only after them.
+    release_record.update(original_pid=runtime_state.get("pid"),
+        timed_out=runtime_state.get("timed_out") is True, original_status=native_status,
+        started_at=runtime_state.get("started_at"), finished_at=runtime_state.get("finished_at"))
+    timeout_report = runtime_state.get("original_windows_timeout")
+    if timeout_report:
+        try:
+            report = args.output.with_name(args.output.stem + "-original-windows-timeout.txt")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(timeout_report, encoding="utf-8")
+        except (OSError, ValueError) as error:
+            output += ("Could not save original Windows timeout report: "
+                       f"{type(error).__name__} (errno={getattr(error, 'errno', None)}).\n")
     if original_windows is not None:
         output += "\n".join(original_windows.notes) + "\n"
     if selected_suite and status == 0:
@@ -824,6 +919,7 @@ def main():
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,
                                                     args.debugger_symbols, args.windows_mesa,
+                                                    runtime_state=runtime_state,
                                                     **({"native_suite": selected_suite} if selected_suite else {}))
         except (OSError, RuntimeError, ValueError) as error:
             diagnostics = ("Native crash diagnostics could not complete: "
@@ -853,6 +949,15 @@ def main():
         # Preserve it verbatim and retain the late evidence in both destinations.
         late_output += write_macos_crash_text(args.output, output)
         print(late_output, end="", flush=True)
+    if release_path is not None and release_initialized:
+        release_record["safe_to_release"] = runtime_state["safe_to_release"] is True
+        try:
+            write_windows_release(release_path, release_record)
+        except (OSError, ValueError) as error:
+            # The initial false record remains if final atomic publication
+            # fails. Reporting must not replace the original native outcome.
+            print("Could not publish Windows cleanup witness: "
+                  f"{type(error).__name__} (errno={getattr(error, 'errno', None)}).", flush=True)
     return 0 if status == 0 else 1
 
 
