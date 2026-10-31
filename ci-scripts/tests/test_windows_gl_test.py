@@ -34,7 +34,7 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
 
         def launch(*args, **kwargs):
             observed.update(kwargs)
-            self.assertTrue(state["safe_to_release"], "launch failure must not retain unused files")
+            self.assertFalse(state["safe_to_release"], "admission cannot certify retirement before returning a process")
             if launch_error is not None:
                 raise launch_error
             kwargs["stdout"].write(output)
@@ -127,12 +127,14 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
                 native_os.killpg.assert_any_call(123, 0)
                 cleanup.assert_not_called()
 
-    def test_launch_error_does_not_mark_unstarted_process_unsafe(self):
+    def test_launch_error_cannot_prove_no_process_was_created(self):
         process = Mock()
         error = OSError("cannot launch native fixture")
-        result, state, _, _, cleanup, _ = self.invoke(process, launch_error=error)
+        result, state, invocation, _, cleanup, _ = self.invoke(process, launch_error=error)
         self.assertIs(result, error)
-        self.assertTrue(state["safe_to_release"])
+        self.assertFalse(state["safe_to_release"])
+        self.assertTrue(invocation["capture_exists_after"])
+        self.assertEqual(invocation["capture_bytes_after"], b"")
         process.wait.assert_not_called()
         cleanup.assert_not_called()
 
