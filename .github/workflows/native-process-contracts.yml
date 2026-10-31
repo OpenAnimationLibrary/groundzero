@@ -23,7 +23,9 @@ jobs:
           lfs: false
           persist-credentials: false
           sparse-checkout-cone-mode: false
-          sparse-checkout: /ci-scripts/
+          sparse-checkout: |
+            /ci-scripts/
+            /toonz/sources/toonzpreview/tests/run_thumbnail_test.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

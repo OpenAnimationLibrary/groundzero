@@ -315,6 +315,7 @@ class OriginalTimeoutDebuggerContracts(unittest.TestCase):
             for flag in ("-pv", "-sins", "-netsyms:no", "-noshell", "-lines"):
                 self.assertIn(flag, command)
             self.assertNotIn("-pd", command)
+            self.assertNotIn("-ses", command)
             self.assertEqual(command[command.index("-p") + 1], str(process.pid))
             self.assertNotIn("-z", command)
             self.assertNotIn(str(self.executable), command)

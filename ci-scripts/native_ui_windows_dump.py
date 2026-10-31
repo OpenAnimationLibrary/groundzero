@@ -63,8 +63,11 @@ def capture_original_windows_timeout(process, executable, symbol_directories,
         # exit setup is rejected by this SDK before noninvasive attachment.
         commands = (".echo Original Windows timeout live threads (no replay); |; "
                     f"lmvm {module}; !lmi {module}; ~* kb 40; .detach; q")
+        # Keep default PDB matching. -ses additionally disables image export
+        # symbols, hiding native wait names when local OS PDBs are unavailable.
+        # Never enable SYMOPT_LOAD_ANYTHING or an external symbol server.
         command = [str(debugger), "-pv", "-p", str(pid), "-sins", "-netsyms:no",
-                   "-noshell", "-ses", "-lines", "-y", ";".join(map(str, symbols)), "-c", commands]
+                   "-noshell", "-lines", "-y", ";".join(map(str, symbols)), "-c", commands]
         environment = os.environ.copy()
         for name in ("_NT_SYMBOL_PATH", "_NT_ALT_SYMBOL_PATH", "_NT_EXECUTABLE_IMAGE_PATH"):
             environment.pop(name, None)
