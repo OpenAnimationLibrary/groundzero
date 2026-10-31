@@ -92,6 +92,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Verify native diagnostic isolation
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
+      - name: Verify original native crash identity and process contracts
+        run: |
+          python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
+          python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+
       - name: Verify early harness failure reporting
         run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
 
@@ -140,6 +148,7 @@ jobs:
             -DBUILD_FXRENDER_TESTS=ON \
             -DBUILD_FFMPEG_TESTS=ON \
             -DBUILD_PSD_TESTS=ON \
+            -DBUILD_EXR_TESTS=ON \
             -DBUILD_SEEXPR_TESTS=ON \
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
@@ -173,7 +182,7 @@ jobs:
         run: |
           set -o pipefail
           export DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
-          QT_QPA_PLATFORM=offscreen python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
+          QT_QPA_PLATFORM=offscreen python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
       - name: Report native UI failures
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
@@ -191,14 +200,6 @@ jobs:
 
       - name: Verify benchmark harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
-
-      - name: Verify native diagnostic isolation
-        run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
-
-      - name: Verify original native crash identity and process contracts
-        run: |
-          python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
-          python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
       - name: Verify native lifecycle harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
@@ -227,27 +228,56 @@ jobs:
 
       - name: Test native application integration
         id: ui_integration
-        # Full run (600s), required reviewed-clear run (120s), optional debugger
-        # (120s), and existing bounded cleanup/fixture-copy overhead.
-        timeout-minutes: 16
+        # Original 10-minute run plus six bounded isolated/LLDB pairs and setup.
+        timeout-minutes: 45
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --macos-crash-debugger --output toonz/build/ui-integration-output.txt
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --require-combined-workflows --macos-crash-debugger --output toonz/build/ui-integration-output.txt
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
 
-      - name: Upload native application integration evidence
+      - name: Test isolated timing process lifecycle
+        id: timing_lifecycle
+        # Timing (120s), required reviewed-clear (120s), and optional LLDB
+        # (120s), plus existing bounded cleanup and fresh fixture copies.
+        timeout-minutes: 9
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --isolated-timing-lifecycle --macos-crash-debugger --output toonz/build/ui-integration-output-timing-lifecycle.txt
+
+      - name: Report isolated timing lifecycle failure
+        if: ${{ failure() && steps.timing_lifecycle.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-timing-lifecycle.txt
+
+      - name: Measure native artist workloads
+        id: artist_benchmark
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --artist-benchmark --output toonz/build/artist-workload-output.txt
+
+      - name: Report artist workload failure
+        if: ${{ failure() && steps.artist_benchmark.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/artist-workload-output.txt
+
+      - name: Upload artist workflow evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: native-application-macos
-          path: toonz/build/ui-integration-output.txt
+          name: artist-workflow-macos
+          path: |
+            toonz/build/artist-workload-output.*
+            toonz/build/ui-integration-output*.txt
+            toonz/build/ui-tests-output.txt
           if-no-files-found: ignore
 
       - name: Report SeExpr test failures
@@ -270,7 +300,7 @@ jobs:
             fi
           done
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
-          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
       - name: Upload reliability diagnostics
         if: always()
@@ -280,7 +310,7 @@ jobs:
           path: |
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
-            toonz/build/ui-integration-output.txt
+            toonz/build/ui-integration-output*.txt
             toonz/build/stdfx/fxrender-output
             toonz/build/image/ffmpeg-test-output
           if-no-files-found: ignore

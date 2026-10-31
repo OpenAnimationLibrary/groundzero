@@ -13,7 +13,12 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshzeraryfxcolumn.h"
 #include "toonz/poselibrary.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/txshsimplelevel.h"
+#include "toonz/txshleveltypes.h"
+#include "tvectorimage.h"
+#include "tstroke.h"
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
 #include "texpression.h"
@@ -26,6 +31,22 @@
 #include <set>
 
 namespace {
+bool hasWorkspaceIdentity(TParam *parameter) {
+  std::vector<TParam *> pending{parameter};
+  std::set<TParam *> visited;
+  while (!pending.empty()) {
+    TParam *item = pending.back(); pending.pop_back();
+    if (!item || !visited.insert(item).second) continue;
+    if (auto *curve = dynamic_cast<TDoubleParam *>(item)) {
+      if (!curve->getWorkspaceId().empty()) return true;
+    } else if (auto *set = dynamic_cast<TParamSet *>(item)) {
+      for (int i = 0; i < set->getParamCount(); ++i)
+        pending.push_back(set->getParam(i).getPointer());
+    }
+  }
+  return false;
+}
+
 bool hasSeExprAnimation(TParam *parameter) {
   std::vector<TParam *> pending{parameter};
   std::set<TParam *> visited;
@@ -55,6 +76,7 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
   if (!scene) return result;
   std::vector<std::pair<TXsheet *, std::wstring>> pending{{scene->getTopXsheet(), L""}};
   std::set<TXsheet *> visited, scheduled{scene->getTopXsheet()};
+  bool hasChannelIdentity = false;
   // Full-scene saving also serializes unused child levels in the Scene Cast.
   // Their extensions can prevent an older reader opening the whole file.
   for (int index = 0; index < scene->getLevelSet()->getLevelCount(); ++index) {
@@ -105,22 +127,31 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
         }
       }
       bool expression = false;
-      for (int channel = 0; channel < TStageObject::T_ChannelCount; ++channel)
-        expression = expression || hasSeExprAnimation(
-            object->getParam(TStageObject::Channel(channel)));
+      for (int channel = 0; channel < TStageObject::T_ChannelCount; ++channel) {
+        TDoubleParam *curve = object->getParam(TStageObject::Channel(channel));
+        if (!curve) continue;
+        hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(curve);
+        expression = expression || hasSeExprAnimation(curve);
+      }
       for (int layer = 0; layer < object->getOffsetLayerCount(); ++layer) {
         const auto &offset = object->getOffsetLayer(layer);
         expression = expression || hasSeExprAnimation(offset.m_weight.getPointer());
-        for (const auto &curve : offset.m_channels)
+        hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(offset.m_weight.getPointer());
+        for (const auto &curve : offset.m_channels) {
           expression = expression || hasSeExprAnimation(curve.getPointer());
+          hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(curve.getPointer());
+        }
       }
       if (auto deformation = object->getPlasticSkeletonDeformation()) {
         expression = expression || hasSeExprAnimation(deformation->skeletonIdsParam().getPointer());
+        hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(deformation->skeletonIdsParam().getPointer());
         SkD::vd_iterator vertex, end;
         deformation->vertexDeformations(vertex, end);
         for (; vertex != end; ++vertex)
-          for (const auto &curve : (*vertex).second->m_params)
+          for (const auto &curve : (*vertex).second->m_params) {
             expression = expression || hasSeExprAnimation(curve.getPointer());
+            hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(curve.getPointer());
+          }
       }
       if (expression)
         add(QObject::tr("%1 uses SeExpr animation. A build without the native SeExpr "
@@ -159,6 +190,8 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
       TFx *fx = pendingEffects[index].first;
       const QString macroPath = pendingEffects[index].second;
       if (!fx || !checkedEffects.insert(fx).second) continue;
+      for (int parameter = 0; parameter < fx->getParams()->getParamCount(); ++parameter)
+        hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(fx->getParams()->getParam(parameter));
       const std::string type = fx->getFxType();
       QString name = QString::fromStdWString(fx->getFxId());
       if (name.isEmpty()) name = QString::fromStdWString(fx->getName());
@@ -190,6 +223,84 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
                 .arg(name)
                 .arg(QString::fromStdString(type)));
     }
+  }
+  // The scene cast also includes spare drawings, which must remain portable
+  // even when they are not exposed in a current xsheet. Loading for inspection
+  // does not mark drawings modified or rewrite their native metadata.
+  for (int index = 0; index < scene->getLevelSet()->getLevelCount(); ++index) {
+    TXshLevel *level = scene->getLevelSet()->getLevel(index);
+    if (!level) continue;
+    auto addLevel = [&](Severity severity, const QString &text) {
+      Issue issue;
+      issue.kind = Compatibility;
+      issue.severity = severity;
+      issue.levelName = level->getName();
+      issue.text = text;
+      result.push_back(issue);
+    };
+    const QString name = QString::fromStdWString(level->getName());
+    if (!level->getCastTags().isEmpty() || level->hasCastCover())
+      addLevel(Info, QObject::tr("%1 has Scene Cast tags or a saved thumbnail cover. "
+          "Older readers may discard this organization metadata when saving; "
+          "the drawing geometry and exposure timing remain unchanged.").arg(name));
+    if (level->getLibraryProvenance().relationship != TXshLevel::LibraryProvenance::NotRecorded)
+      addLevel(Info, QObject::tr("%1 has recorded Library source attribution. Older readers "
+          "may discard its item identity, revision and ownership relationship when saving; "
+          "filesystem location alone cannot reconstruct this information.").arg(name));
+    auto *simple = level->getSimpleLevel();
+    if (!simple || simple->getType() != PLI_XSHLEVEL) continue;
+    if (!simple->getMorphHints().empty())
+      addLevel(Info, QObject::tr("%1 has saved morph correspondence hints. "
+          "Readers without morph-hint support may discard these authoring hints "
+          "when saving; existing drawings remain intact.").arg(name));
+    int profiledDrawings = 0;
+    bool incomplete = false;
+    for (const auto &fid : simple->getFids()) {
+      try {
+        TVectorImageP drawing = simple->getFrame(fid, false);
+        if (!drawing) { incomplete = true; continue; }
+        for (unsigned int stroke = 0; stroke < drawing->getStrokeCount(); ++stroke)
+          if (!drawing->getStroke(stroke)->getOpacityProfile().empty()) {
+            ++profiledDrawings;
+            break;
+          }
+      } catch (...) { incomplete = true; }
+    }
+    if (profiledDrawings)
+      addLevel(Warning, QObject::tr("%1 has opacity envelopes in %2 drawings. "
+          "These drawings require PLI 150.1; older PLI readers cannot open them. "
+          "Keep the native files for editing, or render images for viewers "
+          "without opacity-envelope support.").arg(name).arg(profiledDrawings));
+    if (incomplete)
+      addLevel(Warning, QObject::tr("Some drawings in %1 could not be inspected. "
+          "This compatibility report is incomplete for that level.").arg(name));
+  }
+  if (hasChannelIdentity) {
+    Issue issue;
+    issue.kind = Compatibility;
+    issue.severity = Info;
+    issue.text = QObject::tr("Function Editor channel identities are stored with animation parameters. "
+        "Older readers may discard these optional identities when saving, which "
+        "can disconnect saved channel sets; animation values remain unchanged.");
+    result.push_back(issue);
+  }
+  if (!scene->getProperties()->getCastCollections().isEmpty()) {
+    Issue issue;
+    issue.kind = Compatibility;
+    issue.severity = Warning;
+    issue.text = QObject::tr("The scene contains named Scene Cast collections. Readers without "
+        "the castCollections scene-property extension may refuse to open it. Keep the original "
+        "scene before opening or saving with another build.");
+    result.push_back(issue);
+  }
+  if (scene->getLevelSet()->getLevelCount() > 0) {
+    Issue issue;
+    issue.kind = Compatibility;
+    issue.severity = Info;
+    issue.text = QObject::tr("Scene Cast asset identities and saved-source states are stored as "
+        "level attributes. Older readers may discard them when saving, disconnecting named "
+        "collection membership or losing the distinction between new and missing assets.");
+    result.push_back(issue);
   }
   if (!scene->getPoseLibrary()->isEmpty()) {
     Issue issue;

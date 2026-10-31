@@ -965,11 +965,16 @@ if(BUILD_CADMIUM_TESTS)
     target_include_directories(cadmium_codec_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_codec_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui tnzcore)
     add_test(NAME cadmium_codec COMMAND cadmium_codec_test)
+    # Each test owns its MOC output. Reusing OpenToonz's generated sources
+    # lets independent MSBuild projects race to write the same file.
+    # The application's manual Qt wrapper disables AUTOMOC on these headers.
+    # Re-enable their scan for the tests; OpenToonz still uses manual MOC.
+    set_source_files_properties(cadmiumruntime.h cadmiumsettingswidget.h cadmiuminstaller.h
+        PROPERTIES SKIP_AUTOMOC OFF)
     add_executable(cadmium_settings_test tests/cadmiumsettings_test.cpp
         cadmiumruntime.cpp cadmiumsettingswidget.cpp cadmiuminstaller.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumsettingswidget.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+        cadmiumruntime.h cadmiumsettingswidget.h cadmiuminstaller.h)
+    set_target_properties(cadmium_settings_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_settings_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_settings_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
     add_test(NAME cadmium_settings COMMAND cadmium_settings_test)
@@ -979,7 +984,8 @@ endif()
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_pipeline_test tests/cadmiumpipeline_test.cpp
         cadmiumruntime.cpp cadmiumtoonzraster.cpp cadmiumvector.cpp cadmiumfullcolor.cpp cadmiumconsensus.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp)
+        cadmiumruntime.h)
+    set_target_properties(cadmium_pipeline_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_pipeline_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_pipeline_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
@@ -1002,7 +1008,8 @@ endif()
 
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_installer_test tests/cadmiuminstaller_test.cpp cadmiuminstaller.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+        cadmiuminstaller.h)
+    set_target_properties(cadmium_installer_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_installer_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_installer_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
     add_test(NAME cadmium_installer COMMAND cadmium_installer_test)
@@ -1083,6 +1090,7 @@ if(BUILD_CADMIUM_TESTS)
 endif()
 
 # Shared native UI ports; use the same objects and behavior in CI as in the app.
+target_sources(OpenToonz PRIVATE mediacachepopup.cpp mediacachepopup.h)
 target_link_libraries(OpenToonz spdlog::spdlog_header_only Threads::Threads)
 if(WIN32)
     target_compile_definitions(OpenToonz PRIVATE SPDLOG_WCHAR_FILENAMES)
@@ -1090,19 +1098,24 @@ endif()
 
 if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
-        animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h
-        functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h
-        castworkflowintegrationtest.cpp
-        castinterruptionintegrationtest.cpp castinterruptionintegrationtest.h
-        libraryprovenanceintegrationtest.cpp)
+        animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
+    target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
+    target_sources(OpenToonz PRIVATE functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE functiontimingintegrationtest.cpp functiontimingintegrationtest.h
+        castvectorintegrationtest.cpp castvectorintegrationtest.h
+        combinedfidelityintegrationtest.cpp combinedfidelityintegrationtest.h)
+    target_sources(OpenToonz PRIVATE libraryprovenanceintegrationtest.cpp)
     target_sources(OpenToonz PRIVATE functionrigbenchmarkintegrationtest.cpp functionrigbenchmarkintegrationtest.h)
-    target_sources(OpenToonz PRIVATE iconlifecycleintegrationtest.cpp iconlifecycleintegrationtest.h)
     target_sources(OpenToonz PRIVATE offlineglworkflowintegrationtest.cpp offlineglworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE iconlifecycleintegrationtest.cpp iconlifecycleintegrationtest.h)
     add_dependencies(OpenToonz tconverter)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzqt PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)
+    target_sources(OpenToonz PRIVATE castworkflowintegrationtest.cpp
+        castinterruptionintegrationtest.cpp castinterruptionintegrationtest.h)
     add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test)
     target_sources(OpenToonz PRIVATE vectorworkflowintegrationtest.cpp vectorworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE opacityrenderintegrationtest.cpp opacityrenderintegrationtest.h)
@@ -1137,6 +1150,9 @@ if(BUILD_UI_PORT_TESTS)
     add_ui_port_test(themeapplication tests/themeapplication_test.cpp themeapplication.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/moc_themeapplication.cpp)
     add_ui_port_test(themeproperties tests/themeproperties_test.cpp)
+    add_ui_port_test(mediacache tests/mediacache_test.cpp)
+    target_compile_definitions(ui_mediacache_test PRIVATE MEDIA_CACHE_TEST_HOOKS)
+    target_link_libraries(ui_mediacache_test PRIVATE Threads::Threads)
     target_link_libraries(ui_themeproperties_test PRIVATE toonzqt)
     add_ui_port_test(uitranslations tests/uitranslations_test.cpp)
     target_link_libraries(ui_uitranslations_test PRIVATE toonzqt)

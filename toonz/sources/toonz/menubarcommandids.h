@@ -541,6 +541,7 @@
 #define MI_OpenReportABug "MI_OpenReportABug"
 
 #define MI_ClearCacheFolder "MI_ClearCacheFolder"
+#define MI_ManageMediaCache "MI_ManageMediaCache"
 #define MI_ClearViewerContent "MI_ClearViewerContent"
 
 #define MI_VectorGuidedDrawing "MI_VectorGuidedDrawing"

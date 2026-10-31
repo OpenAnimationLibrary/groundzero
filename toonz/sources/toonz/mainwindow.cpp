@@ -1,6 +1,7 @@
 
 
 #include "mainwindow.h"
+#include "mediacachepopup.h"
 #include "widgetinspector.h"
 #include "themeapplication.h"
 #include "convertlinestoareascommand.h"
@@ -596,14 +597,11 @@ centralWidget->setLayout(centralWidgetLayout);*/
   setCommandHandler("MI_NewRasterLevel", this,
                     &MainWindow::onNewRasterLevelButtonPressed);
   setCommandHandler(MI_ClearCacheFolder, this, &MainWindow::clearCacheFolder);
+  setCommandHandler(MI_ManageMediaCache, this, &MainWindow::manageMediaCache);
   setCommandHandler("MI_NewMetaLevel", this,
                     &MainWindow::onNewMetaLevelButtonPressed);
-  // remove ffmpegCache if still exists from crashed exit
-  QString ffmpegCachePath =
-      ToonzFolder::getCacheRootFolder().getQString() + "//ffmpeg";
-  if (TSystem::doesExistFileOrLevel(TFilePath(ffmpegCachePath))) {
-    TSystem::rmDirTree(TFilePath(ffmpegCachePath));
-  }
+  // Media generations are shared by readers in other application processes.
+  // Their budget/lease manager, not startup, owns retirement.
 
   connect(TApp::instance(), SIGNAL(activeViewerChanged()), this,
           SLOT(onActiveViewerChanged()));
@@ -613,12 +611,6 @@ centralWidget->setLayout(centralWidgetLayout);*/
 
 MainWindow::~MainWindow() {
   TEnv::saveAllEnvVariables();
-  // cleanup ffmpeg cache
-  QString ffmpegCachePath =
-      ToonzFolder::getCacheRootFolder().getQString() + "//ffmpeg";
-  if (TSystem::doesExistFileOrLevel(TFilePath(ffmpegCachePath))) {
-    TSystem::rmDirTree(TFilePath(ffmpegCachePath));
-  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2403,6 +2395,8 @@ void MainWindow::defineActions() {
                        QT_TR_NOOP("&Clear Recent Flipbook Image List"), "");
   createMenuFileAction(MI_ClearCacheFolder, QT_TR_NOOP("&Clear Cache Folder"),
                        "", "clear_cache");
+  createMenuFileAction(MI_ManageMediaCache, QT_TR_NOOP("Manage &Media Cache..."),
+                       "", "clear_cache");
   createMenuFileAction(MI_ExportCurrentScene,
                        QT_TR_NOOP("&Export Current Scene"), "");
   createMenuFileAction(MI_ExportCameraTrack, QT_TR_NOOP("&Export Camera Track"),
@@ -4033,12 +4027,13 @@ void MainWindow::onNewRasterLevelButtonPressed() {
 
 //-----------------------------------------------------------------------------
 // delete unused files / folders in the cache
+void MainWindow::manageMediaCache() { showMediaCacheManager(this); }
+
 void MainWindow::clearCacheFolder() {
   // currently cache folder is used for following purposes
   // 1. $CACHE/[ProcessID] : for disk swap of image cache.
   //    To be deleted on exit. Remains on crash.
-  // 2. $CACHE/ffmpeg : ffmpeg cache.
-  //    To be cleared on the end of rendering, on exist and on launch.
+  // 2. $CACHE/ffmpeg : shared media generations managed separately by leases.
   // 3. $CACHE/temp : untitled scene data.
   //    To be deleted on switching or exiting scenes. Remains on crash.
 
@@ -4046,6 +4041,7 @@ void MainWindow::clearCacheFolder() {
   // except the following items:
   // 1. $CACHE/[Current ProcessID]
   // 2. $CACHE/temp/[Current scene folder] if the current scene is untitled
+  // 3. $CACHE/ffmpeg, whose manager respects active media reader leases
 
   TFilePath cacheRoot = ToonzFolder::getCacheRootFolder();
   if (cacheRoot.isEmpty()) cacheRoot = TEnv::getStuffDir() + "cache";
@@ -4053,6 +4049,8 @@ void MainWindow::clearCacheFolder() {
   TFilePathSet filesToBeRemoved;
 
   TSystem::readDirectory(filesToBeRemoved, cacheRoot, false);
+  // Never bypass the media reader leases, even in this legacy cleanup command.
+  filesToBeRemoved.remove(cacheRoot + "ffmpeg");
 
   // keep the imagecache folder
   filesToBeRemoved.remove(cacheRoot + std::to_string(TSystem::getProcessId()));
@@ -4074,7 +4072,8 @@ void MainWindow::clearCacheFolder() {
   if (filesToBeRemoved.size() == 0) {
     QMessageBox::information(
         this, tr("Clear Cache Folder"),
-        tr("There are no unused items in the cache folder."));
+        tr("There are no unused items in the cache folder. Use Manage Media "
+           "Cache to inspect or clean cached video frames."));
     return;
   }
 

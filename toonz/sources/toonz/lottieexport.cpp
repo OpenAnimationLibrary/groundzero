@@ -44,6 +44,8 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QSaveFile>
+#include <QUuid>
 #include <QGridLayout>
 #include <QImage>
 #include <QJsonDocument>
@@ -114,6 +116,16 @@ void ExportLottieCommand::execute() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   TXsheet *xsh      = TApp::instance()->getCurrentXsheet()->getXsheet();
   TFilePath fp      = scene->getScenePath().withType("json");
+  QObject contextLifetime;
+  bool contextChanged = false;
+  QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+                   &contextLifetime, [&]() { contextChanged = true; }, Qt::DirectConnection);
+  QObject::connect(TApp::instance()->getCurrentXsheet(), &TXsheetHandle::xsheetSwitched,
+                   &contextLifetime, [&]() { contextChanged = true; }, Qt::DirectConnection);
+  auto currentContext = [&]() {
+    return !contextChanged && TApp::instance()->getCurrentScene()->getScene() == scene &&
+           TApp::instance()->getCurrentXsheet()->getXsheet() == xsh;
+  };
 
   int frameCount = xsh->getFrameCount();
   if (frameCount <= 0) {
@@ -198,7 +210,7 @@ void ExportLottieCommand::execute() {
         TProjectManager::instance()->getCurrentProject()->getScenesPath());
   savePopup->setFilename(fp.withoutParentDir());
   fp = savePopup->getPath();
-  if (fp.isEmpty()) return;
+  if (fp.isEmpty() || !currentContext()) return;
   fp = fp.withType("json");
 
   LottieExport::Options options;
@@ -207,12 +219,14 @@ void ExportLottieCommand::execute() {
   options.m_frameRate    = fpsField->value();
   options.m_name         = QString::fromStdString(fp.getName());
   options.m_embedImages  = embedImages->isChecked();
-  options.m_imagesFolder = QString::fromStdString(fp.getName()) + "_images/";
+  options.m_imagesFolder = QString::fromStdString(fp.getName()) +
+      "_images_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + "/";
   options.m_renderRaster = renderRaster;
 
   QApplication::setOverrideCursor(Qt::WaitCursor);
   LottieExport::Result result = LottieExport::exportXsheet(xsh, options);
   QApplication::restoreOverrideCursor();
+  if (!currentContext()) return;
 
   if (result.m_contentLayers == 0) {
     DVGui::error(QObject::tr("No columns can be exported."));
@@ -221,37 +235,44 @@ void ExportLottieCommand::execute() {
 
   // The renderer has only prepared memory buffers so far. Confirm fidelity
   // losses before creating any output directory or replacing destination files.
-  if (!ExportFidelity::confirmLottie(result.m_skipped)) return;
+  if (!ExportFidelity::confirmLottie(result.m_skipped) || !currentContext()) return;
 
-  // Image files
+  // Publish external assets under a fresh generation. Until the atomic JSON
+  // commit succeeds, an existing animation and its linked images stay intact.
+  struct RemoveUnpublished {
+    QString folder;
+    bool committed = false;
+    ~RemoveUnpublished() {
+      if (!committed && !folder.isEmpty()) QDir(folder).removeRecursively();
+    }
+  } publication;
   if (!result.m_imageFiles.empty()) {
-    TFilePath imagesDir =
-        fp.getParentDir() +
-        TFilePath(QString::fromStdString(fp.getName()) + "_images");
-    if (!QDir(imagesDir.getQString()).mkpath(".")) {
+    const QString folderName = options.m_imagesFolder.chopped(1);
+    const TFilePath imagesDir = fp.getParentDir() + TFilePath(folderName);
+    if (!QDir().mkdir(imagesDir.getQString())) {
       DVGui::error(QObject::tr("Unable to create folder for saving images."));
       return;
     }
+    publication.folder = imagesDir.getQString();
     for (const LottieExport::ImageFile &image : result.m_imageFiles) {
-      QFile file(QDir(imagesDir.getQString()).filePath(image.m_fileName));
+      QSaveFile file(QDir(imagesDir.getQString()).filePath(image.m_fileName));
+      file.setDirectWriteFallback(false);
       if (!file.open(QIODevice::WriteOnly) ||
-          file.write(image.m_data) != image.m_data.size()) {
+          file.write(image.m_data) != image.m_data.size() || !file.commit()) {
         DVGui::error(QObject::tr("Unable to save %1.").arg(image.m_fileName));
         return;
       }
     }
   }
-
-  // The animation
-  QFile jsonFile(fp.getQString());
+  QSaveFile jsonFile(fp.getQString());
+  jsonFile.setDirectWriteFallback(false);
+  const QByteArray json = QJsonDocument(result.m_animation).toJson(QJsonDocument::Compact);
   if (!jsonFile.open(QIODevice::WriteOnly) ||
-      jsonFile.write(
-          QJsonDocument(result.m_animation).toJson(QJsonDocument::Compact)) <
-          0) {
+      jsonFile.write(json) != json.size() || !jsonFile.commit()) {
     DVGui::error(QObject::tr("Unable to save %1.").arg(fp.getQString()));
     return;
   }
-  jsonFile.close();
+  publication.committed = true;
 
   QString str = QObject::tr("%1 has been exported successfully.")
                     .arg(QString::fromStdString(fp.getLevelName()));

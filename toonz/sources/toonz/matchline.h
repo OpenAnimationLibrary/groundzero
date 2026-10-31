@@ -3,6 +3,7 @@
 // TnzCore includes
 #include "tfilepath.h"
 #include "tgeometry.h"
+#include "cellselection.h"
 
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
@@ -104,3 +105,10 @@ void doMatchlines(int column, int mColumn, int index, int inkPrevalence,
 void mergeCmapped(int dstColumn, int srcColumn, const QString &fullpath,
                   bool isRedo);
 std::vector<int> string2Indexes(const QString &values);
+
+namespace MatchlineCommands {
+// Clone the selected drawings into adjacent columns without writing level
+// files. The operation creates one undo entry and retains clone identities.
+bool cloneLevels(const TCellSelection::Range &range,
+                 const QString &newLevelName = QString());
+}

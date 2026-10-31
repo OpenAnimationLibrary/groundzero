@@ -49,14 +49,14 @@ jobs:
         python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
         python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
-    - name: Verify original native core capture contracts
-      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_core.py -v
-
     - name: Verify early harness failure reporting
       run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
 
     - name: Verify native lifecycle harness contracts
       run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
+
+    - name: Verify original native core capture
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_core.py -v
 
     - name: Verify bounded desktop GL launcher
       run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
@@ -99,6 +99,7 @@ jobs:
         make -j $(nproc)
 
     - name: Build cel regression targets
+      id: native_targets
       run: |
         export CCACHE_DIR=/home/runner/.ccache
         export CC="ccache ${{ matrix.cc }}"
@@ -107,7 +108,7 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_EXR_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
@@ -170,10 +171,14 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      # Full run, required reviewed-clear run, six isolated/debugger pairs and
+      # original crash diagnostics; subprocess/cleanup deadlines stay unchanged.
+      timeout-minutes: 45
       env:
         GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |
@@ -214,7 +219,28 @@ jobs:
         # The runner enables a per-core soft cap for its original OpenToonz
         # launch tree, then restores zero before clear/diagnostic processes.
         ulimit -S -c 0
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --linux-crash-debugger --linux-original-core-directory "$native_core_directory" --output toonz/build/ui-integration-output.txt
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --require-combined-workflows --linux-crash-debugger --linux-original-core-directory "$native_core_directory" --output toonz/build/ui-integration-output.txt
+
+    - name: Measure native artist workloads
+      id: artist_benchmark
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      run: |
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --artist-benchmark --output toonz/build/artist-workload-output.txt
+
+    - name: Report artist workload failure
+      if: ${{ failure() && steps.artist_benchmark.outcome == 'failure' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/artist-workload-output.txt
+
+    - name: Upload artist workflow evidence
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: artist-workflow-linux-${{ matrix.cxx }}
+        path: |
+          toonz/build/artist-workload-output.*
+          toonz/build/ui-integration-output*.txt
+          toonz/build/ui-tests-output.txt
+        if-no-files-found: ignore
 
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
@@ -223,6 +249,9 @@ jobs:
     - name: Report native application crash stack
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
       run: |
+        if [ -f toonz/build/ui-integration-output-original-core.txt ]; then
+          python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-original-core.txt "Original native application crash stack"
+        fi
         if [ -f toonz/build/ui-integration-output-debugger.txt ]; then
           python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
         fi
@@ -375,7 +404,7 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
     - name: Upload reliability diagnostics
       if: always()

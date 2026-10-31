@@ -1,4 +1,11 @@
 #include "nativeuiintegrationtest.h"
+#include "artistworkflowbenchmark.h"
+#include "mediacacheintegrationtest.h"
+#include "functionworkflowintegrationtest.h"
+#include "animationworkflowintegrationtest.h"
+#include "functiontimingintegrationtest.h"
+#include "castvectorintegrationtest.h"
+#include "combinedfidelityintegrationtest.h"
 #include "vectorworkflowintegrationtest.h"
 #include "fillworkflowintegrationtest.h"
 #include "contourworkflowintegrationtest.h"
@@ -6,8 +13,6 @@
 #include "offlineglworkflowintegrationtest.h"
 #include "brushworkflowintegrationtest.h"
 #include "strokeopacityeditintegrationtest.h"
-#include "animationworkflowintegrationtest.h"
-#include "functionworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -51,6 +56,7 @@
 #include "toonzqt/uitranslations.h"
 
 #include <QApplication>
+#include <QByteArray>
 #include <QComboBox>
 #include <QDir>
 #include <QDirIterator>
@@ -894,6 +900,51 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
+    // Diagnostic selectors are interpreted only after the normal test-only
+    // startup has validated a disposable profile. They never qualify the
+    // mandatory all-workflows pass or emit its completion marker.
+    const QByteArray diagnosticSuite = qgetenv("GROUNDZERO_NATIVE_UI_SUITE");
+    if (!diagnosticSuite.isEmpty()) {
+      require(!qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"),
+              "Native diagnostic suites cannot select the artist benchmark");
+      if (diagnosticSuite == "function-workflow") {
+        QString error;
+        if (!runFunctionWorkflowIntegrationTest(window, &error)) {
+          std::cerr << "native-ui-integration: FAIL: function-workflow: "
+                    << error.toStdString() << std::endl;
+          return 1;
+        }
+      } else if (diagnosticSuite == "cast-workflow") {
+        runCastWorkflowIntegrationTest(window);
+      } else if (diagnosticSuite == "combined-timing") {
+        QString error;
+        if (!runFunctionTimingIntegrationTest(window, &error)) {
+          std::cerr << "native-ui-integration: FAIL: combined-timing: "
+                    << error.toStdString() << std::endl;
+          return 1;
+        }
+      } else if (diagnosticSuite == "combined-cast-vector") {
+        runCastVectorIntegrationTest(window);
+      } else if (diagnosticSuite == "combined-fidelity") {
+        runCombinedFidelityIntegrationTest(window);
+      } else if (diagnosticSuite == "vector-renderer") {
+        runOpacityRenderNativeChecks();
+        runOfflineGLWorkflowNativeChecks();
+        std::cout << "vector-renderer-native: PASS" << std::endl;
+      } else {
+        require(false, "Unknown native UI diagnostic suite selector");
+      }
+      std::cout << "native-ui-diagnostic: PASS " << diagnosticSuite.constData()
+                << std::endl;
+      return 0;
+    }
+    if (qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"))
+      return runArtistWorkflowBenchmark(window);
+    QString cacheError;
+    if (!runMediaCacheIntegrationTest(window, &cacheError)) {
+      std::cerr << "native-ui-integration: FAIL: " << cacheError.toStdString() << std::endl;
+      return 1;
+    }
     QString animationError;
     if (!runAnimationWorkflowIntegrationTest(window, &animationError)) {
       std::cerr << "native-ui-integration: FAIL: animation workflow: "
@@ -908,6 +959,14 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       return 1;
     }
     runCastWorkflowIntegrationTest(window);
+    QString timingError;
+    if (!runFunctionTimingIntegrationTest(window, &timingError)) {
+      std::cerr << "native-ui-integration: FAIL: function timing: "
+                << timingError.toStdString() << std::endl;
+      return 1;
+    }
+    runCastVectorIntegrationTest(window);
+    runCombinedFidelityIntegrationTest(window);
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {

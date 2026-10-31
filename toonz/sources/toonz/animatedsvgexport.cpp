@@ -28,6 +28,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
+#include <QUuid>
 #include <QGridLayout>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -35,10 +37,16 @@
 #include <QMutex>
 #include <QTemporaryDir>
 #include <QUrl>
-#include <QWaitCondition>
+#include <QEventLoop>
+#include <QThread>
+#include <memory>
 #include <QXmlStreamWriter>
+#include <stdexcept>
 
 namespace {
+#ifdef BUILD_UI_PORT_TESTS
+ExportFidelity::SvgRenderTestHooks *svgRenderTestHooks = nullptr;
+#endif
 
 struct SvgExportData {
   QJsonArray layers;
@@ -126,8 +134,9 @@ void writeLayer(QXmlStreamWriter &xml, const QJsonObject &layer,
 
 bool writeAnimatedSvg(const TFilePath &svgPath, const TFilePath &imageDir,
                       const SvgExportData &data, bool embedImages) {
-  QFile file(svgPath.getQString());
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+  QSaveFile file(svgPath.getQString());
+  file.setDirectWriteFallback(false);
+  if (!file.open(QIODevice::WriteOnly)) return false;
 
   QXmlStreamWriter xml(&file);
   xml.setAutoFormatting(true);
@@ -158,7 +167,9 @@ bool writeAnimatedSvg(const TFilePath &svgPath, const TFilePath &imageDir,
     xml.writeAttribute("width", QString::number(asset.width));
     xml.writeAttribute("height", QString::number(asset.height));
     xml.writeAttribute("preserveAspectRatio", "none");
-    xml.writeAttribute("href", assetHref(asset, imageDir, embedImages));
+    const QString href = assetHref(asset, imageDir, embedImages);
+    if (href.isEmpty()) return false;
+    xml.writeAttribute("href", href);
   }
   xml.writeEndElement();
 
@@ -168,7 +179,7 @@ bool writeAnimatedSvg(const TFilePath &svgPath, const TFilePath &imageDir,
 
   xml.writeEndElement();
   xml.writeEndDocument();
-  return !xml.hasError();
+  return !xml.hasError() && file.commit();
 }
 
 SvgExportData fromOcaData(const OCAIo::OCAData &ocaData) {
@@ -281,50 +292,108 @@ public:
   void onRenderFinished(bool isCanceled = false) override {
     if (isCanceled)
       recordFailure(RenderData(), QObject::tr("Scene rendering was canceled."));
+#ifdef BUILD_UI_PORT_TESTS
+    if (svgRenderTestHooks && svgRenderTestHooks->completed)
+      svgRenderTestHooks->completed();
+#endif
     finished = true;
   }
 };
 
 bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
-                 SvgExportData &data, QString &failure) {
+                 SvgExportData &data, DVGui::ProgressDialog *progress,
+                 QString &failure) {
   TOutputProperties *properties = scene->getProperties()->getOutputProperties();
   TRenderSettings settings      = properties->getRenderSettings();
   TDimension cameraRes          = scene->getCurrentCamera()->getRes();
   int shrink                    = qMax(1, settings.m_shrinkX);
+  const int frameCount = xsheet->getFrameCount();
+  const double frameRate = properties->getFrameRate();
+  if (frameCount <= 0) {
+    failure = QObject::tr("The scene contains no frames to render.");
+    return false;
+  }
 
   SceneRenderPort port(imageDir, cameraRes);
   TRenderer renderer(1);
   renderer.enablePrecomputing(false);
   renderer.addPort(&port);
 
-  auto *renderData = new std::vector<TRenderer::RenderData>;
-  for (int frame = 0; frame < xsheet->getFrameCount(); ++frame) {
+  // A scene replacement signal is delivered before TSceneHandle schedules
+  // deletion of the old scene. Drain even a queued (not yet active) render in
+  // that direct callback; stopRendering(true) alone only sees active tasks.
+  struct RenderSession {
+    TRenderer &renderer;
+    SceneRenderPort &port;
+    bool submitted = false;
+    void drain() {
+      while (submitted && !port.finished.load()) {
+        renderer.stopRendering(false);
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
+        QThread::msleep(1);
+      }
+      renderer.stopRendering(true);
+    }
+    ~RenderSession() { drain(); renderer.removePort(&port); }
+  };
+  QObject lifetime;
+  bool contextChanged = false;
+  RenderSession session{renderer, port};
+  auto cancelRender = [&]() {
+    if (contextChanged) return;
+    contextChanged = true;
+#ifdef BUILD_UI_PORT_TESTS
+    if (svgRenderTestHooks && svgRenderTestHooks->cancelStarted)
+      svgRenderTestHooks->cancelStarted(port.finished.load());
+#endif
+    session.drain();
+#ifdef BUILD_UI_PORT_TESTS
+    if (svgRenderTestHooks && svgRenderTestHooks->cancelDrained)
+      svgRenderTestHooks->cancelDrained(port.finished.load());
+#endif
+  };
+  QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+                   &lifetime, cancelRender, Qt::DirectConnection);
+  QObject::connect(TApp::instance()->getCurrentXsheet(), &TXsheetHandle::xsheetSwitched,
+                   &lifetime, cancelRender, Qt::DirectConnection);
+  auto renderData = std::make_unique<std::vector<TRenderer::RenderData>>();
+  for (int frame = 0; frame < frameCount && !contextChanged; ++frame) {
     TFxPair fxPair;
     fxPair.m_frameA = ::buildSceneFx(
         scene, xsheet, frame, TOutputProperties::AllLevels, shrink, false);
     renderData->push_back(TRenderer::RenderData(frame, settings, fxPair));
   }
 
-  QMutex mutex;
-  mutex.lock();
-  renderer.startRendering(renderData);
-  while (!port.finished) {
+  if (contextChanged) return false;
+  renderer.startRendering(renderData.get());
+  renderData.release();
+  session.submitted = true;
+  progress->setProperty("sceneRenderActive", true);
+#ifdef BUILD_UI_PORT_TESTS
+  if (svgRenderTestHooks && svgRenderTestHooks->queued)
+    svgRenderTestHooks->queued();
+#endif
+  while (!port.finished.load()) {
     QCoreApplication::processEvents();
-    QWaitCondition waitCondition;
-    waitCondition.wait(&mutex, 100);
+    QThread::msleep(1);
   }
-  mutex.unlock();
-  renderer.removePort(&port);
+  session.drain();
+  if (contextChanged) return false;
   failure = port.failure();
   if (failure.isEmpty() && port.frameAssets.isEmpty())
     failure = QObject::tr("The renderer produced no scene frames.");
   if (!failure.isEmpty()) return false;
+  for (int frame = 0; frame < frameCount; ++frame)
+    if (!port.frameAssets.contains(frame)) {
+      failure = QObject::tr("The renderer did not produce frame %1.").arg(frame + 1);
+      return false;
+    }
 
   QJsonArray frames;
-  for (int frame = 0; frame < xsheet->getFrameCount();) {
+  for (int frame = 0; frame < frameCount;) {
     QString fileName = port.frameAssets.value(frame);
     int duration     = 1;
-    while (frame + duration < xsheet->getFrameCount() &&
+    while (frame + duration < frameCount &&
            port.frameAssets.value(frame + duration) == fileName)
       ++duration;
 
@@ -340,8 +409,8 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
   layer["opacity"]     = 1.0;
   data.layers.append(layer);
   data.assets     = port.assets;
-  data.frameRate  = properties->getFrameRate();
-  data.frameCount = xsheet->getFrameCount();
+  data.frameRate  = frameRate;
+  data.frameCount = frameCount;
   data.width      = cameraRes.lx / shrink;
   data.height     = cameraRes.ly / qMax(1, settings.m_shrinkY);
   return true;
@@ -357,6 +426,16 @@ void ExportAnimatedSVGCommand::execute() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   TXsheet *xsheet   = TApp::instance()->getCurrentXsheet()->getXsheet();
   TFilePath fp      = scene->getScenePath().withType("svg");
+  QObject contextLifetime;
+  bool contextChanged = false;
+  QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+                   &contextLifetime, [&]() { contextChanged = true; }, Qt::DirectConnection);
+  QObject::connect(TApp::instance()->getCurrentXsheet(), &TXsheetHandle::xsheetSwitched,
+                   &contextLifetime, [&]() { contextChanged = true; }, Qt::DirectConnection);
+  auto currentContext = [&]() {
+    return !contextChanged && TApp::instance()->getCurrentScene()->getScene() == scene &&
+           TApp::instance()->getCurrentXsheet()->getXsheet() == xsheet;
+  };
 
   static GenericSaveFilePopup *savePopup       = nullptr;
   static QCheckBox *rasterizeVectors           = nullptr;
@@ -399,6 +478,7 @@ void ExportAnimatedSVGCommand::execute() {
                      &QCheckBox::setDisabled);
 
     progressDialog = new DVGui::ProgressDialog("", QObject::tr("Hide"), 0, 0);
+    progressDialog->setObjectName("animatedSvgExportProgress");
     progressDialog->setWindowTitle(QObject::tr("Exporting..."));
     progressDialog->setWindowFlags(Qt::Dialog | Qt::WindowTitleHint);
     progressDialog->setWindowModality(Qt::WindowModal);
@@ -416,13 +496,15 @@ void ExportAnimatedSVGCommand::execute() {
         TProjectManager::instance()->getCurrentProject()->getScenesPath());
   savePopup->setFilename(fp.withoutParentDir());
   fp = savePopup->getPath();
-  if (fp.isEmpty()) return;
+  if (fp.isEmpty() || !currentContext()) return;
 
-  // Native SVG assets preserve editable shapes, but not a scene's full
-  // compositing/deformation semantics. Resolve the choice before writing assets.
+  // Resolve fidelity and unsupported profile styles before creating output.
+  // Profiled strokes can be rasterized inside SVG; the native PLI remains
+  // their editable source.
   if (!renderSceneResult->isChecked()) {
-    const auto choice = ExportFidelity::chooseAnimatedSvg();
-    if (choice == ExportFidelity::Cancel) return;
+    const auto capabilities = ExportFidelity::inspectAnimatedSvg(xsheet);
+    const auto choice = ExportFidelity::chooseAnimatedSvg(capabilities);
+    if (choice == ExportFidelity::Cancel || !currentContext()) return;
     if (choice == ExportFidelity::RenderedScene) renderSceneResult->setChecked(true);
   }
 
@@ -437,55 +519,90 @@ void ExportAnimatedSVGCommand::execute() {
                           .arg(qRound64(estimatedMb));
     std::vector<QString> buttons = {QObject::tr("Cancel"),
                                     QObject::tr("Export")};
-    if (DVGui::MsgBox(DVGui::WARNING, warning, buttons) != 2) return;
+    if (DVGui::MsgBox(DVGui::WARNING, warning, buttons) != 2 || !currentContext()) return;
   }
 
+  // Build assets in private staging. A failure must not overwrite assets used
+  // by a previously exported document. Each external publication gets its own
+  // generation, followed by one atomic document replacement.
   QTemporaryDir temporaryImageDir;
-  TFilePath imageDir =
-      embedImages->isChecked()
-          ? TFilePath(temporaryImageDir.path())
-          : fp.getParentDir() + TFilePath(fp.getName() + "_files");
-  QDir imageDirectory(imageDir.getQString());
-  if (!imageDirectory.exists() && !imageDirectory.mkpath(".")) {
-    DVGui::error(QObject::tr("Unable to create the image folder."));
+  if (!temporaryImageDir.isValid()) {
+    DVGui::error(QObject::tr("Unable to prepare the image folder."));
     return;
   }
-
+  const TFilePath stagingDir(temporaryImageDir.path());
+  TFilePath publishedDir = stagingDir;
+  struct RemoveUnpublished {
+    QString folder;
+    bool committed = false;
+    ~RemoveUnpublished() {
+      if (!committed && !folder.isEmpty()) QDir(folder).removeRecursively();
+    }
+  } publication;
   progressDialog->setLabelText(QObject::tr("Exporting image assets..."));
   progressDialog->setValue(0);
   progressDialog->show();
-  QCoreApplication::processEvents();
 
-  SvgExportData data;
-  if (renderSceneResult->isChecked()) {
-    progressDialog->setLabelText(QObject::tr("Rendering scene frames..."));
-    QString failure;
-    if (!renderScene(scene, xsheet, imageDir, data, failure)) {
-      progressDialog->close();
-      DVGui::error(QObject::tr("Unable to render the scene for SVG export.") +
-                   "\n" + failure);
-      return;
+  try {
+    SvgExportData data;
+    if (renderSceneResult->isChecked()) {
+      progressDialog->setLabelText(QObject::tr("Rendering scene frames..."));
+      QString failure;
+      const bool rendered = renderScene(scene, xsheet, stagingDir, data, progressDialog, failure);
+      progressDialog->setProperty("sceneRenderActive", false);
+      if (!currentContext()) { progressDialog->hide(); return; }
+      if (!rendered)
+        throw std::runtime_error((QObject::tr("Unable to render the scene for SVG export.") +
+                                  "\n" + failure).toStdString());
+    } else {
+      OCAIo::OCAData ocaData;
+      // Asset conversion is synchronous. Do not let OCA's per-column progress
+      // callback dispatch scene edits while it owns raw scene/level pointers.
+      ocaData.setProgressDialog(nullptr);
+      ocaData.build(scene, xsheet, QString::fromStdString(fp.getName()),
+                    stagingDir.getQString(), false, !rasterizeVectors->isChecked(),
+                    false);
+      if (ocaData.isEmpty())
+        throw std::runtime_error("No columns can be exported.");
+      data = fromOcaData(ocaData);
     }
-  } else {
-    OCAIo::OCAData ocaData;
-    ocaData.setProgressDialog(progressDialog);
-    ocaData.build(scene, xsheet, QString::fromStdString(fp.getName()),
-                  imageDir.getQString(), false, !rasterizeVectors->isChecked(),
-                  false);
-    if (ocaData.isEmpty()) {
-      progressDialog->close();
-      DVGui::error(QObject::tr("No columns can be exported."));
-      return;
+    // Verify every asset before opening the final SVG. Empty hrefs would create
+    // a syntactically valid document with silently missing artwork.
+    for (const OCAIo::OCAAsset &asset : data.assets) {
+      QFile input(QDir(stagingDir.getQString()).filePath(QFileInfo(asset.fileName).fileName()));
+      if (!input.open(QIODevice::ReadOnly) || input.size() <= 0)
+        throw std::runtime_error("An exported image asset is missing or unreadable.");
     }
-    data = fromOcaData(ocaData);
-  }
-  if (!writeAnimatedSvg(fp, imageDir, data, embedImages->isChecked())) {
-    progressDialog->close();
-    DVGui::error(QObject::tr("Unable to save the animated SVG file."));
+    if (!embedImages->isChecked()) {
+      const QString generation = QString::fromStdString(fp.getName()) +
+          QStringLiteral("_files_") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+      publishedDir = fp.getParentDir() + TFilePath(generation);
+      if (!QDir().mkdir(publishedDir.getQString()))
+        throw std::runtime_error("Unable to create the image folder.");
+      publication.folder = publishedDir.getQString();
+      for (const OCAIo::OCAAsset &asset : data.assets) {
+        const QString name = QFileInfo(asset.fileName).fileName();
+        if (!QFile::copy(QDir(stagingDir.getQString()).filePath(name),
+                        QDir(publishedDir.getQString()).filePath(name)))
+          throw std::runtime_error("Unable to publish an exported image asset.");
+      }
+    }
+    if (!writeAnimatedSvg(fp, publishedDir, data, embedImages->isChecked()))
+      throw std::runtime_error("Unable to save the animated SVG file.");
+    publication.committed = true;
+  } catch (const std::exception &problem) {
+    progressDialog->setProperty("sceneRenderActive", false);
+    progressDialog->hide();
+    DVGui::error(QObject::tr("Animated SVG export failed: %1")
+                    .arg(QString::fromUtf8(problem.what())));
+    return;
+  } catch (...) {
+    progressDialog->setProperty("sceneRenderActive", false);
+    progressDialog->hide();
+    DVGui::error(QObject::tr("Animated SVG export failed while preparing image assets."));
     return;
   }
-
-  progressDialog->close();
+  progressDialog->hide();
 
   if (openInBrowser->isChecked())
     QDesktopServices::openUrl(QUrl::fromLocalFile(fp.getQString()));
@@ -496,3 +613,9 @@ void ExportAnimatedSVGCommand::execute() {
 ExportAnimatedSVGCommand exportAnimatedSVGCommand;
 
 }  // namespace
+
+#ifdef BUILD_UI_PORT_TESTS
+void ExportFidelity::setSvgRenderTestHooks(SvgRenderTestHooks *hooks) {
+  svgRenderTestHooks = hooks;
+}
+#endif

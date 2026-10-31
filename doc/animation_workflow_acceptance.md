@@ -102,8 +102,11 @@ Execution remains pending CI. Platform-specific filesystem failures and preview/
 the existing integration/render suites and manual acceptance where no fixture is
 present. No passing build, test, or performance timing is asserted by this ledger.
 
-The concurrent vector-opacity-profile feature (item 36, PLI 150.1 for profiled
-strokes) requires an additional profile-specific compatibility/export finding
-once its production API is integrated. That cross-feature check remains pending;
-the known-extension inventory above is not a claim that every newer vector
-feature is currently covered.
+The combined vector-opacity-profile integration (item 36) reports PLI 150.1
+requirements and optional authoring metadata separately. Native export fixtures
+exercise actual profiled SVG images, explicit full-camera PNG fallback, Lottie
+loss disclosure, cancellation and overwrite behavior. SVG and Lottie documents
+publish atomically; each external-image export uses a unique generation, and
+previous published generations remain available to documents that reference
+them. This inventory describes known capabilities; it does not certify a target
+reader version. Execution remains pending the combined CI revision.

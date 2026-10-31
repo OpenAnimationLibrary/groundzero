@@ -402,6 +402,53 @@ void TXshSimpleLevel::clonePropertiesFrom(const TXshSimpleLevel* oldSl) {
 
 //-----------------------------------------------------------------------------
 
+void TXshSimpleLevel::copyAuthoringMetadataFrom(const TXshSimpleLevel* source) {
+  if (!source) return;
+  copyCastMetadataFrom(source);
+  // This helper follows drawing duplication into a distinct level. Retain its
+  // source attribution without claiming the new drawing still edits that file.
+  if (source != this) detachLibrarySource(LibraryProvenance::LocalCopy);
+  if (hasCastCover() && !isFid(getCastCover())) clearCastCover();
+
+  // Scene-owned hints are not part of cloned PLI geometry. Validate them only
+  // after every selected drawing has been copied; unresolved/ambiguous anchors
+  // and references to absent drawings must not become active in a new level.
+  QJsonArray records, retained;
+  if (getType() == PLI_XSHLEVEL &&
+      MorphHints::decode(source->getMorphHints(), records)) {
+    std::map<TFrameId, TVectorImageP> images;
+    for (const auto& value : records) {
+      const auto record = value.toObject();
+      bool valid = true;
+      for (const char* side : {"first", "last"}) {
+        const QString prefix = QString::fromLatin1(side);
+        const TFrameId fid =
+            MorphHints::frame(record.value(prefix + "Frame").toObject());
+        if (!isFid(fid)) { valid = false; break; }
+        auto found = images.find(fid);
+        if (found == images.end())
+          found = images.emplace(fid, TVectorImageP(getFrame(fid, false))).first;
+        const auto& image = found->second;
+        if (MorphHints::resolve(record.value(prefix).toObject(), image) < 0) {
+          valid = false;
+          break;
+        }
+        for (const auto& member : record.value(prefix + "Members").toArray()) {
+          if (MorphHints::resolve(member.toObject(), image) < 0) {
+            valid = false;
+            break;
+          }
+        }
+        if (!valid) break;
+      }
+      if (valid) retained.append(record);
+    }
+  }
+  m_morphHints = MorphHints::encode(retained);
+}
+
+//-----------------------------------------------------------------------------
+
 TPalette* TXshSimpleLevel::getPalette() const { return m_palette.getPointer(); }
 
 //-----------------------------------------------------------------------------

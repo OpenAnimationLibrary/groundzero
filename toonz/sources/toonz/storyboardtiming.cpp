@@ -339,6 +339,12 @@ bool moveStoryboardTiming(TXsheet *sheet, int first, int last, int insertion,
   }
   for (int i = 0; i < model.getFxsChannelCount(); ++i)
     collectCurves(model.getFxChannel(i), curves);
+  // This command edits every animated track, including camera, offset, Plastic
+  // and FX channels that have no column lock. Validate the complete set before
+  // preparing samples or publishing any exposure/curve undo transaction.
+  for (const auto *curve : curves)
+    if (curve->isEditorLocked())
+      return reject(QObject::tr("A Function Editor channel is locked. Unlock all animated channels in this xsheet before moving storyboard timing."));
   std::set<TDoubleParam *> baked;
   std::set<int> cuts{start + int(source.size())};
   cuts.insert(start - 1);

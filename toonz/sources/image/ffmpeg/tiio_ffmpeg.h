@@ -50,6 +50,7 @@ struct FfmpegTempFileGuard {
 };
 
 class FfmpegPipeWriter;
+namespace MediaCache { class Lease; }
 
 class Ffmpeg {
 public:
@@ -162,6 +163,7 @@ private:
   QString m_tempBaseName;
   // Import caches are immutable for the source content captured by this reader.
   mutable QString m_importCacheBase;
+  mutable std::unique_ptr<MediaCache::Lease> m_importLease;
   QString m_exportOutputPath;
   bool m_finalizationAttempted = false;
   bool m_aborted = false;
