@@ -222,6 +222,8 @@ set(SOURCES
 	lutcalibrator.cpp
 )
 
+list(APPEND SOURCES functioncurveoperations.cpp functionworkflow.cpp)
+
 set(RESOURCES toonzqt.qrc)
 
 get_target_property(QW_LOC Qt${QT_VERSION_MAJOR}::Widgets INTERFACE_INCLUDE_DIRECTORIES)
@@ -273,6 +275,21 @@ elseif(BUILD_ENV_UNIXLIKE)
 endif()
 
 target_link_libraries(toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg ${EXTRA_LIBS} ${GL_LIB})
+
+if(BUILD_UI_PORT_TESTS)
+    add_executable(ui_functioncurveoperations_test tests/functioncurveoperations_test.cpp)
+    target_link_libraries(ui_functioncurveoperations_test PRIVATE toonzqt toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME ui_functioncurveoperations COMMAND ui_functioncurveoperations_test)
+    add_executable(ui_functionworkflow_test tests/functionworkflow_test.cpp)
+    target_link_libraries(ui_functionworkflow_test PRIVATE toonzqt toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME ui_functionworkflow COMMAND ui_functionworkflow_test)
+    set_tests_properties(ui_functioncurveoperations ui_functionworkflow PROPERTIES TIMEOUT 180 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    if(WIN32)
+        # Qt 5.15's Windows QMessageBox requires a native platform interface;
+        # its offscreen plugin does not provide one. Exercise real Windows UI.
+        set_tests_properties(ui_functionworkflow PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    endif()
+endif()
 
 if(BUILD_SEEXPR_TESTS)
     add_executable(seexpr_editor_test

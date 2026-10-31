@@ -1719,8 +1719,42 @@ inline TPaletteP dirtyWhite(const TPaletteP &plt) {
 // IoCmd::saveSceneIfNeeded(message)
 //---------------------------------------------------------------------------
 
-bool IoCmd::saveSceneIfNeeded(QString msg) {
+namespace {
+IoCmd::SceneTransitionGuard *activeSceneTransition = nullptr;
+}
+
+IoCmd::SceneTransitionGuard::SceneTransitionGuard() {
+  if (activeSceneTransition) return;
+  m_scene = TApp::instance()->getCurrentScene()->retainScene();
+  m_admitted = true;
+  activeSceneTransition = this;
+}
+
+IoCmd::SceneTransitionGuard::~SceneTransitionGuard() {
+  if (!m_admitted) return;
+  if (m_iconsPaused) IconGenerator::instance()->resumeAfterSceneChange();
+  m_scene.reset();
+  activeSceneTransition = nullptr;
+}
+
+bool IoCmd::SceneTransitionGuard::pauseIcons() {
+  if (!m_admitted) return false;
+  if (m_iconsPaused) return true;
+  m_iconsPaused = IconGenerator::instance()->pauseForSceneChange();
+  if (!m_iconsPaused)
+    DVGui::error(QObject::tr("Unable to prepare thumbnail rendering for the scene change."));
+  return m_iconsPaused;
+}
+
+bool IoCmd::isSceneTransitionInProgress() { return activeSceneTransition != nullptr; }
+
+static bool saveSceneIfNeededImpl(QString msg,
+                                 const std::function<void()> &beforeClear,
+                                 IoCmd::SceneTransitionGuard &transition) {
+  if (!transition.isAdmitted()) return false;
   TApp *app = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  const auto scenePin = app->getCurrentScene()->retainScene();
 
   if (app->getCurrentScene()->getDirtyFlag()) {
     QString question;
@@ -1731,6 +1765,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
     int ret = DVGui::MsgBox(
         question, QObject::tr("Save All"), QObject::tr("Save Scene Only"),
         QObject::tr("Discard Changes"), QObject::tr("Cancel"), 0);
+    if (app->getCurrentScene()->getScene() != scene) return false;
     if (ret == 0 || ret == 4) {
       // cancel (or closed message box window)
       return false;
@@ -1744,7 +1779,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
     }
   }
 
-  ToonzScene *scene = app->getCurrentScene()->getScene();
+  if (app->getCurrentScene()->getScene() != scene) return false;
   if (scene) {
     QStringList dirtyResources;
     {
@@ -1777,6 +1812,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
       int ret =
           DVGui::MsgBox(question, QObject::tr("Save Changes"),
                         msg + QObject::tr(" Anyway"), QObject::tr("Cancel"), 0);
+      if (app->getCurrentScene()->getScene() != scene) return false;
       if (ret == 0 || ret == 3) {
         // cancel (or closed message box window)
         return false;
@@ -1786,6 +1822,19 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
       } else if (ret == 2) {
         // do nothing and continue
       }
+    }
+
+    // A resource prompt can dispatch another scene command. Never clear a
+    // replacement that the user did not review in this operation.
+    if (app->getCurrentScene()->getScene() != scene) return false;
+    if (beforeClear) {
+      beforeClear();
+      // Shutdown is terminal once accepted. A direct low-level replacement is
+      // retained safely, but the unreviewed replacement must remain untouched.
+      if (app->getCurrentScene()->getScene() != scene) return true;
+    } else {
+      if (!transition.pauseIcons()) return false;
+      if (app->getCurrentScene()->getScene() != scene) return false;
     }
 
     RenderingSuspender suspender;
@@ -1801,16 +1850,24 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
   return true;
 }
 
+bool IoCmd::saveSceneIfNeeded(QString msg,
+                             const std::function<void()> &beforeClear) {
+  SceneTransitionGuard transition;
+  if (!transition.isAdmitted()) return false;
+  return saveSceneIfNeededImpl(msg, beforeClear, transition);
+}
+
 //===========================================================================
 // IoCmd::newScene()
 //---------------------------------------------------------------------------
 
-void IoCmd::newScene() {
+static void newSceneImpl(IoCmd::SceneTransitionGuard &transition) {
   RenderingSuspender suspender;
   TApp *app        = TApp::instance();
   double cameraDpi = 120;  // used to be 64 and 53.33333
 
-  if (!saveSceneIfNeeded(QApplication::tr("New Scene"))) return;
+  if (!saveSceneIfNeededImpl(QApplication::tr("New Scene"), {}, transition)) return;
+  if (!transition.pauseIcons()) return;
 
   // temporary clear the current level to prevent UI to access deleted level
   // while switching scenes
@@ -1905,6 +1962,12 @@ void IoCmd::newScene() {
       scene->decodeFilePath(scene->getScenePath()));
   QAction *act = CommandManager::instance()->getAction(MI_RevertScene);
   if (act) act->setEnabled(exist);
+}
+
+void IoCmd::newScene() {
+  SceneTransitionGuard transition;
+  if (!transition.isAdmitted()) return;
+  newSceneImpl(transition);
 }
 
 //===========================================================================
@@ -2410,11 +2473,13 @@ bool IoCmd::loadScene(ToonzScene &scene, const TFilePath &scenePath,
 
 bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
                       bool checkSaveOldScene) {
+  SceneTransitionGuard transition;
+  if (!transition.isAdmitted()) return false;
   RenderingSuspender suspender;
 
   // - Check if old Scene saved
   if (checkSaveOldScene)
-    if (!saveSceneIfNeeded(QApplication::tr("Load Scene"))) return false;
+    if (!saveSceneIfNeededImpl(QApplication::tr("Load Scene"), {}, transition)) return false;
 
   // - Check if the scenePath is valid
   assert(!path.isEmpty());
@@ -2481,7 +2546,7 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
     int ret = DVGui::MsgBox(question, importAnswer, switchProjectAnswer,
                             cancelAnswer, 0);
     if (ret == 3 || ret == 0) {
-      newScene();
+      newSceneImpl(transition);
       return false;
     }
     if (ret == 2) pm->setCurrentProjectPath(sceneProject->getProjectPath());
@@ -2489,6 +2554,10 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
     // Import Scene Later because of difference of currentProject and
     // sceneProject
   }
+
+  // Keep admission closed through unchecked loads and all subsequent scene,
+  // cache and selection updates, including progress-dialog event service.
+  if (!transition.pauseIcons()) return false;
 
   // - Start to load scene
   QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2703,6 +2772,7 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
 //---------------------------------------------------------------------------
 
 bool IoCmd::loadScene() {
+  if (isSceneTransitionInProgress()) return false;
   TSelection *oldSelection =
       TApp::instance()->getCurrentSelection()->getSelection();
   FileSelection *fileSelection =

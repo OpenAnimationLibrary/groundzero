@@ -1,10 +1,13 @@
 #include "nativeuiintegrationtest.h"
+#include "functionworkflowintegrationtest.h"
+#include "offlineglworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
 #include "convertpopup.h"
 #include "drawingsubstitutionpane.h"
 #include "filmstrip.h"
+#include "iocommand.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
 #include "menubarcommandids.h"
@@ -16,9 +19,13 @@
 
 #include "tenv.h"
 #include "tundo.h"
+#include "tpalette.h"
 #include "tvectorimage.h"
+#include "toonz/fullcolorpalette.h"
+#include "toonz/levelproperties.h"
 #include "toonz/preferences.h"
 #include "toonz/levelset.h"
+#include "toonz/sceneresources.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzfolders.h"
@@ -29,8 +36,10 @@
 #include "toonz/txsheet.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txshleveltypes.h"
+#include "toonz/txshpalettelevel.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/selection.h"
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/uitranslations.h"
 
@@ -46,14 +55,20 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
+#include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPixmap>
 #include <QPointer>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTranslator>
 
+#include <exception>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 namespace {
 QString testRoot;
@@ -63,6 +78,14 @@ void checkpoint(const char *stage) {
   // the process before the fixture can report its final result.
   std::cerr << "native-ui-integration: checkpoint: " << stage << std::endl;
 }
+
+// Declare immediately before a fixture local to report its completed natural
+// destruction. Do not explicitly delete or reorder the native owners: these
+// checkpoints distinguish a teardown failure without changing its lifetime.
+struct DestructionCheckpoint {
+  const char *stage;
+  ~DestructionCheckpoint() { checkpoint(stage); }
+};
 
 // This recently added source is unfinished in the shipped catalogs. Supply one
 // distinct test caption for this exact native source so equal-text provenance
@@ -189,6 +212,173 @@ void choose(QComboBox *combo, const QString &value) {
   settle();
 }
 
+void exercisePanelTitleBarOwners() {
+  checkpoint("checking native title bar owner lifetimes");
+  // Declared before the temporary host: its native window is destroyed first,
+  // then the still-live application window regains activation.
+  struct RestoreActiveWindow {
+    QPointer<QWidget> previous;
+    ~RestoreActiveWindow() {
+      if (!previous || !previous->isVisible()) return;
+      previous->raise();
+      if (previous) previous->activateWindow();
+      if (previous) QApplication::setActiveWindow(previous.data());
+    }
+  } restoreActiveWindow{QApplication::activeWindow()};
+  int invalidCloses = 0;
+  QObject observations;
+  auto invalidEvents = [&](TPanelTitleBar *bar, bool includeMouse) {
+    // An ownerless title bar must not start panel-specific painting. Deliver
+    // real events; this also works during QWidget's destroyed notification,
+    // before its still-live child widgets are deleted.
+    QPaintEvent paint(bar->rect());
+    QApplication::sendEvent(bar, &paint);
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(bar, &leave);
+    if (includeMouse) {
+      const QPointF closePoint(bar->width() - 10, 8);
+      QMouseEvent move(QEvent::MouseMove, closePoint, Qt::NoButton,
+                       Qt::NoButton, Qt::NoModifier);
+      QApplication::sendEvent(bar, &move);
+      QMouseEvent press(QEvent::MouseButtonPress, closePoint, Qt::LeftButton,
+                        Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(bar, &press);
+    }
+  };
+
+  {
+    TPanelTitleBar orphan;
+    orphan.resize(220, 24);
+    QObject::connect(&orphan, &TPanelTitleBar::closeButtonPressed,
+                     &observations, [&]() { ++invalidCloses; });
+    invalidEvents(&orphan, true);
+    require(!orphan.parentWidget() && invalidCloses == 0,
+            "orphan title bar acted on an absent panel");
+  }
+  {
+    QWidget plainOwner;
+    TPanelTitleBar bar(&plainOwner);
+    bar.resize(220, 24);
+    QObject::connect(&bar, &TPanelTitleBar::closeButtonPressed,
+                     &observations, [&]() { ++invalidCloses; });
+    invalidEvents(&bar, true);
+    require(bar.parentWidget() == &plainOwner && invalidCloses == 0,
+            "title bar acted on a non-panel parent");
+  }
+
+  // Use a separate native docking host; the working room's panels and layout
+  // remain untouched. Test the real dock/float routes and title-bar events.
+  TMainWindow host;
+  host.setAttribute(Qt::WA_DeleteOnClose, false);
+  host.setAttribute(Qt::WA_QuitOnClose, false);
+  host.resize(360, 110);
+  host.show();
+  std::unique_ptr<TPanel> panel(new TPanel(&host));
+  panel->setPanelType("NativeTitleBarOwnerFixture");
+  panel->setWindowTitle(QStringLiteral("Native title bar owner"));
+  panel->resize(300, 70);
+  panel->show();
+  QPointer<TPanelTitleBar> bar = panel->getTitleBar();
+  bar->setCloseOverColor(QColor(231, 64, 57));
+  int closes = 0, doubleClicks = 0;
+  QObject::connect(bar.data(), &TPanelTitleBar::closeButtonPressed,
+                   &observations, [&]() { ++closes; });
+  QObject::connect(bar.data(), &TPanelTitleBar::doubleClick, &observations,
+                   [&](QMouseEvent *) { ++doubleClicks; });
+  const QColor dockedColor(181, 42, 57), floatingColor(33, 151, 79);
+  QPixmap dockedBorder(16, 16), floatingBorder(16, 16);
+  dockedBorder.fill(dockedColor);
+  floatingBorder.fill(floatingColor);
+  auto renderTitle = [&](const QColor &expected) {
+    bar->setBorderPixmap(dockedBorder);
+    bar->setActiveBorderPixmap(dockedBorder);
+    bar->setFloatBorderPixmap(floatingBorder);
+    bar->setFloatActiveBorderPixmap(floatingBorder);
+    require(bar->width() > 50 && bar->height() > 13,
+            "native title bar layout did not expose its painting area");
+    QImage image(bar->size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    bar->render(&image);
+    require(image.pixelColor(30, 1) == expected,
+            "native title bar lost its docked or floating border painting");
+    return image;
+  };
+  auto mouse = [&](QEvent::Type type) {
+    const QPointF closePoint(bar->width() - 10, 8);
+    const QPointF globalPoint = bar->mapToGlobal(closePoint.toPoint());
+    QMouseEvent event(type, closePoint, globalPoint,
+                     type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+                     type == QEvent::MouseMove || type == QEvent::MouseButtonRelease
+                         ? Qt::NoButton : Qt::LeftButton,
+                     Qt::NoModifier);
+    QApplication::sendEvent(bar, &event);
+  };
+  settle();
+  require(panel->isFloating(), "native title bar fixture did not start floating");
+  const QImage floating = renderTitle(floatingColor);
+  mouse(QEvent::MouseMove);
+  require(renderTitle(floatingColor) != floating,
+          "native floating title bar did not show its close-button hover");
+  QEvent leave(QEvent::Leave);
+  QApplication::sendEvent(bar, &leave);
+  require(renderTitle(floatingColor) == floating,
+          "native floating title bar did not restore its appearance after Leave");
+  mouse(QEvent::MouseButtonDblClick);
+  mouse(QEvent::MouseButtonRelease);
+  require(doubleClicks == 1 && closes == 0 && panel->isVisible(),
+          "native floating title bar changed its double-click behavior");
+
+  require(host.dockLayout()->dockItem(panel.get()),
+          "native title bar fixture did not dock");
+  host.dockLayout()->redistribute();
+  settle();
+  require(!panel->isFloating(), "native title bar fixture remained floating");
+  renderTitle(dockedColor);
+  mouse(QEvent::MouseMove);
+  mouse(QEvent::MouseButtonPress);
+  mouse(QEvent::MouseButtonRelease);
+  mouse(QEvent::MouseButtonDblClick);
+  mouse(QEvent::MouseButtonRelease);
+  require(closes == 0 && doubleClicks == 2 && panel->isVisible() &&
+              panel->isMaximized(),
+          "native docked title bar closed or lost its double-click behavior");
+  mouse(QEvent::MouseButtonDblClick);
+  mouse(QEvent::MouseButtonRelease);
+  require(doubleClicks == 3 && !panel->isMaximized(),
+          "native docked title bar did not restore from maximized state");
+
+  panel->setFloating(true);
+  panel->show();
+  settle();
+  renderTitle(floatingColor);
+  mouse(QEvent::MouseButtonPress);
+  require(closes == 1 && !panel->isVisible(),
+          "native floating title bar did not close through its real button");
+
+  bool teardownObserved = false, baseOwnerObserved = false;
+  std::exception_ptr teardownFailure;
+  QObject::connect(panel.get(), &QObject::destroyed, &observations,
+                   [&](QObject *owner) {
+    teardownObserved = true;
+    baseOwnerObserved = bar && bar->parentWidget() == owner &&
+                        !qobject_cast<TPanel *>(owner);
+    if (baseOwnerObserved) {
+      try {
+        invalidEvents(bar, false);
+      } catch (...) {
+        teardownFailure = std::current_exception();
+      }
+    }
+  });
+  panel.reset();
+  if (teardownFailure) std::rethrow_exception(teardownFailure);
+  require(teardownObserved && baseOwnerObserved && !bar && closes == 1,
+          "native title bar did not survive its owner's QWidget teardown interval");
+  require(host.dockLayout()->count() == 0,
+          "native title bar left a stale item in its docking host");
+  checkpoint("native title bar owner lifetimes passed");
+}
+
 void exerciseNativeUi(QMainWindow *window) {
   checkpoint("checking initialized application isolation");
   require(window && window->isVisible(), "application window is not visible");
@@ -211,6 +401,39 @@ void exerciseNativeUi(QMainWindow *window) {
   TXsheet *xsheet = app->getCurrentXsheet()->getXsheet();
   require(scene && xsheet, "native startup did not create a disposable scene");
   require(xsheet->getFrameCount() == 0, "test scene is not empty");
+  {
+    QPointer<Room> currentRoom = qobject_cast<Room *>(app->getCurrentRoom());
+    require(currentRoom, "title bar fixture has no current native room");
+    DockLayout *layout = currentRoom->dockLayout();
+    const QString roomName = currentRoom->getName();
+    std::vector<QPointer<QWidget>> panels;
+    for (int i = 0; i < layout->count(); ++i)
+      panels.emplace_back(layout->itemAt(i)->widget());
+    const int frame = app->getCurrentFrame()->getFrame();
+    const int column = app->getCurrentColumn()->getColumnIndex();
+    const bool dirty = app->getCurrentScene()->getDirtyFlag();
+    TUndoManager *history = TUndoManager::manager();
+    const int count = history->getHistoryCount();
+    const int index = history->getCurrentHistoryIndex();
+    exercisePanelTitleBarOwners();
+    require(app->getCurrentScene()->getScene() == scene &&
+                app->getCurrentXsheet()->getXsheet() == xsheet &&
+                xsheet->getFrameCount() == 0 &&
+                app->getCurrentFrame()->getFrame() == frame &&
+                app->getCurrentColumn()->getColumnIndex() == column &&
+                app->getCurrentScene()->getDirtyFlag() == dirty &&
+                history->getHistoryCount() == count &&
+                history->getCurrentHistoryIndex() == index,
+            "title bar fixture changed the source scene, navigation or undo history");
+    require(currentRoom && app->getCurrentRoom() == currentRoom.data() &&
+                currentRoom->getName() == roomName &&
+                currentRoom->dockLayout() == layout &&
+                layout->count() == int(panels.size()),
+            "title bar fixture replaced the working room or its layout");
+    for (int i = 0; i < layout->count(); ++i)
+      require(panels[i] && layout->itemAt(i)->widget() == panels[i].data(),
+              "title bar fixture replaced or reordered a working-room panel");
+  }
 
   // Test the real action registry and factory, including current Animate IDs.
   checkpoint("opening and searching native command palette");
@@ -250,6 +473,8 @@ void exerciseNativeUi(QMainWindow *window) {
   app->getCurrentColumn()->setColumnIndex(1);
   app->getCurrentFrame()->setFrame(0);
 
+  DestructionCheckpoint translatorDestroyed{
+      "fixture empty-cell translator destroyed"};
   EmptyCellCaptionTranslator emptyCellCaptionTranslator;
   checkpoint("checking native Drawing Substitution captions");
   require(QCoreApplication::installTranslator(&emptyCellCaptionTranslator),
@@ -318,6 +543,8 @@ void exerciseNativeUi(QMainWindow *window) {
   require(runnable(palette, MI_ToggleColumnOutline),
           "valid native outline selection was not runnable");
   int invocations = 0;
+  DestructionCheckpoint outlineObserverDestroyed{
+      "fixture outline observer destroyed"};
   QObject observer;
   QObject::connect(nativeAction(MI_ToggleColumnOutline), &QAction::triggered,
                    &observer, [&]() { ++invocations; });
@@ -352,6 +579,8 @@ void exerciseNativeUi(QMainWindow *window) {
   // Exercise the real owners of translated choices. Keep these dialogs hidden:
   // no inbetween command or conversion is requested.
   checkpoint("initializing native interpolation dialog");
+  DestructionCheckpoint interpolationDestroyed{
+      "fixture interpolation dialog destroyed"};
   InbetweenDialog interpolation(window);
   interpolation.setValue("Ease Out");
   interpolation.setEase(23, 71);
@@ -366,6 +595,8 @@ void exerciseNativeUi(QMainWindow *window) {
   // setFormat(). Supply a real, disposable full-color image so the owner can
   // classify it and read its metadata through the normal initialization path.
   checkpoint("initializing idle native conversion dialog");
+  DestructionCheckpoint conversionInputsDestroyed{
+      "fixture conversion input directory destroyed"};
   QTemporaryDir conversionInputs(QDir(testRoot).filePath("conversion-input-XXXXXX"));
   require(conversionInputs.isValid(), "conversion input fixture directory failed");
   const QString conversionInput = conversionInputs.filePath("fixture.png");
@@ -373,6 +604,8 @@ void exerciseNativeUi(QMainWindow *window) {
   conversionImage.fill(Qt::white);
   require(conversionImage.save(conversionInput, "PNG"),
           "conversion input fixture image could not be written");
+  DestructionCheckpoint conversionDestroyed{
+      "fixture conversion dialog destroyed"};
   ConvertPopup conversion(false);
   conversion.setFiles({TFilePath(conversionInput.toStdWString())});
   conversion.setFormat("tlv");
@@ -389,6 +622,8 @@ void exerciseNativeUi(QMainWindow *window) {
           "native conversion fixture unexpectedly started conversion");
 
   int modeChanges = 0;
+  DestructionCheckpoint modeObserverDestroyed{
+      "fixture mode observer destroyed"};
   QObject modeObserver;
   for (QComboBox *combo : {interpolationMode, conversionMode}) {
     QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -430,6 +665,8 @@ void exerciseNativeUi(QMainWindow *window) {
   auto *room = dynamic_cast<Room *>(app->getCurrentRoom());
   require(room, "native room type is missing");
   const QString roomName = room->getName();
+  DestructionCheckpoint customTitlePanelDestroyed{
+      "fixture custom title panel destroyed"};
   std::unique_ptr<TPanel> customTitlePanel(new TPanel(room));
   // Deliberately matches an existing translated caption but has no UI source
   // identity: a custom caption must never be translated by its spelling.
@@ -444,6 +681,8 @@ void exerciseNativeUi(QMainWindow *window) {
   require(UiLanguageManager::instance()->currentLanguage() == japanese &&
               Preferences::instance()->getCurrentLanguage() == japanese,
           "Preferences language choice did not update native persisted state");
+  DestructionCheckpoint savedPreferencesDestroyed{
+      "fixture saved preferences destroyed"};
   QSettings savedPreferences(
       (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
       QSettings::IniFormat);
@@ -559,15 +798,96 @@ bool prepareNativeUiIntegrationTest(QString *error) {
   return true;
 }
 
+bool resetNativeUiIntegrationScene(QString *error) {
+  const auto reject = [error](const QString &message) {
+    if (error) *error = message;
+    std::cerr << "native-ui-integration: fixture reset: "
+              << message.toStdString() << std::endl;
+    return false;
+  };
+  if (error) error->clear();
+  // This intentionally destructive cleanup is available only in a prepared
+  // native test process, whose application data and current directory are the
+  // disposable root validated before TApp initialization.
+  if (testRoot.isEmpty() || !TEnv::getIsPortable() ||
+      QFileInfo(QDir::currentPath()).canonicalFilePath() != testRoot ||
+      QFileInfo(TEnv::getStuffDir().getQString()).canonicalFilePath() !=
+          testRoot + "/portablestuff")
+    return reject("Refusing to reset an unprepared or non-disposable scene");
+  if (auto *modal = QApplication::activeModalWidget())
+    return reject(QString("Unexpected modal before fixture reset: %1 (%2)")
+                      .arg(modal->objectName(), modal->windowTitle()));
+  auto *app = TApp::instance();
+  auto *scene = app->getCurrentScene()->getScene();
+  if (!scene) return reject("Disposable application scene is missing");
+  checkpoint("discarding disposable fixture resources");
+  if (auto *selection = TSelection::getCurrent()) selection->makeNotCurrent();
+  TUndoManager::manager()->reset();
+  std::vector<TXshLevel *> levels;
+  scene->getLevelSet()->listLevels(levels);
+  for (auto *level : levels) {
+    if (auto *simple = level->getSimpleLevel()) {
+      simple->getProperties()->setDirtyFlag(false);
+      if (simple->getPalette()) simple->getPalette()->setDirtyFlag(false);
+    } else if (auto *palette = level->getPaletteLevel()) {
+      if (palette->getPalette()) palette->getPalette()->setDirtyFlag(false);
+    }
+  }
+  if (FullColorPalette::instance()->getDirtyFlag())
+    FullColorPalette::instance()->getPalette(scene)->setDirtyFlag(false);
+  QStringList dirty;
+  {
+    SceneResources resources(scene, nullptr);
+    resources.getDirtyResources(dirty);
+  }
+  if (!dirty.empty() || FullColorPalette::instance()->getDirtyFlag())
+    return reject("Disposable resource inventory is still dirty before New Scene");
+  app->getCurrentScene()->setDirtyFlag(false);
+
+  // A save or error prompt here is a fixture failure, never a dialog to accept
+  // automatically. Report the exact modal before the runner's outer timeout.
+  QTimer deadline;
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &deadline, []() {
+    if (auto *modal = QApplication::activeModalWidget())
+      std::cerr << "native-ui-integration: unexpected reset modal: "
+                << modal->objectName().toStdString() << " ("
+                << modal->windowTitle().toStdString() << ")" << std::endl;
+    qFatal("native-ui-integration: disposable New Scene exceeded its 15-second deadline");
+  });
+  checkpoint("starting clean native New Scene");
+  deadline.start(15000);
+  IoCmd::newScene();
+  deadline.stop();
+  checkpoint("clean native New Scene returned");
+  auto *fresh = app->getCurrentScene()->getScene();
+  auto *sheet = app->getCurrentXsheet()->getXsheet();
+  if (!fresh || !sheet || sheet != fresh->getXsheet() ||
+      sheet->getFrameCount() != 0 || fresh->getLevelSet()->getLevelCount() != 0 ||
+      app->getCurrentScene()->getDirtyFlag() || TSelection::getCurrent() ||
+      TUndoManager::manager()->getHistoryCount() != 0)
+    return reject("Native New Scene did not produce an empty clean fixture");
+  return true;
+}
+
 int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
     exerciseNativeUi(window);
+    checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");
+    QString functionError;
+    if (!runFunctionWorkflowIntegrationTest(window, &functionError)) {
+      std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
+      return 1;
+    }
+    runOfflineGLWorkflowNativeChecks();
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {
     std::cerr << "native-ui-integration: FAIL: " << failure.message << std::endl;
+  } catch (const std::exception &failure) {
+    std::cerr << "native-ui-integration: FAIL: " << failure.what() << std::endl;
   } catch (...) {
     std::cerr << "native-ui-integration: FAIL: unexpected native exception"
               << std::endl;

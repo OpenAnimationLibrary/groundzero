@@ -199,6 +199,31 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Ensure original Windows crash debugger is available
+        timeout-minutes: 12
+        shell: pwsh
+        run: ./ci-scripts/install_windows_debugger.ps1
+
+      - name: Verify original Windows process containment and crash capture
+        timeout-minutes: 5
+        run: python ci-scripts/run_harness_tests.py --pattern test_windows_process.py --report native-process-contracts-output.txt
+
+      - name: Verify early harness failure reporting
+        run: python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+
+      - name: Verify failure-only native binary retention
+        timeout-minutes: 3
+        run: python ci-scripts/run_harness_tests.py --pattern test_native_windows_bundle.py --report native-windows-bundle-contracts-output.txt
+
+      - name: Verify native diagnostic isolation
+        run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
+      - name: Verify bounded desktop GL launcher
+        run: python -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
+
+      - name: Verify Unicode regression reporting
+        run: python -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+
       - name: Install SeExpr parser tools
         shell: pwsh
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
@@ -295,6 +320,9 @@ jobs:
 
       - name: Verify benchmark harness contracts
         run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
+
+      - name: Verify native lifecycle harness contracts
+        run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
 
       # Show the compile and link errors on the run (annotations), since the
       # full log is not always reachable
@@ -411,7 +439,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_" > cadmium-tests-output.txt 2>&1
+          python ../../ci-scripts/run_windows_gl_test.py --runtime "%NATIVE_UI_MESA_RUNTIME%" --renderer-executable "%CD%\RelWithDebInfo\cadmium_vector_test.exe" --timeout 600 -- ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_" > cadmium-tests-output.txt 2>&1
           set "CADMIUM_TEST_EXIT=%ERRORLEVEL%"
           type cadmium-tests-output.txt
           exit /b %CADMIUM_TEST_EXIT%
@@ -425,7 +453,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --output-junit ui-tests.xml --no-tests=error -R "^ui_" > ui-tests-output.txt 2>&1
+          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_shellthumbnail ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
           set "UI_TEST_EXIT=%ERRORLEVEL%"
           type ui-tests-output.txt
           exit /b %UI_TEST_EXIT%
@@ -433,17 +461,57 @@ jobs:
       - name: Test native application integration
         id: ui_integration
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
-        timeout-minutes: 8
+        # Full run (240s), required reviewed-clear run (120s), optional debugger
+        # (120s), and existing bounded cleanup/fixture-copy overhead.
+        timeout-minutes: 10
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python -c "import os,time; open(os.environ['GITHUB_ENV'],'a',encoding='utf-8').write('NATIVE_BUNDLE_STEP_STARTED_AT='+str(time.time())+'\n')"
+          if errorlevel 1 exit /b 1
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --output toonz/build/ui-integration-output.txt --windows-crash-debugger --windows-original-dump-directory "%RUNNER_TEMP%\groundzero-original-dumps" --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+      # Retain the already-tested runtime before any subsequent workload starts.
+      # The helper additionally requires a fresh, same-run confirmed-cleanup
+      # sidecar. Diagnostic failures never replace the original native result.
+      - name: Prepare failed native Windows binaries
+        id: native_failure_bundle
+        if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $sourceSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Could not establish the built source revision" }
+          python ci-scripts/native_windows_bundle.py `
+            --package toonz/build/Opentoonz --build toonz/build/RelWithDebInfo `
+            --mesa "$env:NATIVE_UI_MESA_RUNTIME" `
+            --release-report toonz/build/ui-integration-output-release.json `
+            --output toonz/build/native-windows-failure-bundle.zip `
+            --source-sha "$sourceSha" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT" `
+            --native-step-started-at "$env:NATIVE_BUNDLE_STEP_STARTED_AT" --native-outcome failure `
+            --recorder-build-id "${env:GITHUB_SHA}-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}" `
+            --flag=--require-function-workflow --flag=--require-offline-gl-workflow `
+            --flag=--windows-crash-debugger
+          exit $LASTEXITCODE
+
+      - name: Retain failed native Windows binaries
+        if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' && steps.native_failure_bundle.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-windows-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: toonz/build/native-windows-failure-bundle.zip
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
 
       - name: Report native application crash stack
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
@@ -462,6 +530,38 @@ jobs:
         timeout-minutes: 3
         shell: pwsh
         run: ./ci-scripts/debug_theme_test_windows.ps1 -BuildDirectory toonz/build -ThemeDirectory stuff/config/qss -TestOutput toonz/build/ui-tests-output.txt -QtDirectory $env:QT_PATH
+
+      - name: Diagnose Function Editor widget crash
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: python ci-scripts/debug_ui_test_windows.py --build toonz/build --qt "$env:QT_PATH" --test ui_functionworkflow --test-output toonz/build/ui-tests-output.txt --output toonz/build/function-workflow-debugger.txt
+
+      - name: Report Function Editor widget crash stack
+        if: ${{ failure() && hashFiles('toonz/build/function-workflow-debugger.txt') != '' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/function-workflow-debugger.txt "Function Editor crash stack"
+
+      - name: Diagnose vector profile widget crash
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: python ci-scripts/debug_ui_test_windows.py --build toonz/build --qt "$env:QT_PATH" --test ui_vector_profilemanager --test-output toonz/build/ui-tests-output.txt --output toonz/build/vector-profile-debugger.txt
+
+      - name: Report vector profile widget crash stack
+        if: ${{ failure() && hashFiles('toonz/build/vector-profile-debugger.txt') != '' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/vector-profile-debugger.txt "Vector profile crash stack"
+
+      - name: Retain native widget diagnostics
+        if: ${{ !cancelled() && steps.ui_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-widget-crash-windows
+          path: |
+            toonz/build/ui-tests.xml
+            toonz/build/ui-tests-output.txt
+            toonz/build/function-workflow-debugger.txt
+            toonz/build/vector-profile-debugger.txt
+          if-no-files-found: ignore
 
       - name: Report Cadmium adapter failures
         if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
@@ -511,6 +611,10 @@ jobs:
         with:
           name: windows-reliability-results
           path: |
+            native-process-contracts-output.txt
+            native-windows-bundle-contracts-output.txt
+            toonz/build/ui-integration-output*.txt
+            toonz/build/ui-integration-output-release.json
             toonz/build/reliability-tests.xml
             toonz/build/stdfx/fxrender-output
           if-no-files-found: ignore
@@ -524,11 +628,11 @@ jobs:
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           toonz\build\RelWithDebInfo\cadmium_installer_test.exe --download models
           if errorlevel 1 exit /b 1
-          toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
+          python ci-scripts/run_windows_gl_test.py --runtime "%NATIVE_UI_MESA_RUNTIME%" --renderer-executable "%CD%\toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe" --timeout 600 -- toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
 
       - name: Report cel test failures
         if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
-        run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
+        run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt --outcome '${{ steps.cel_tests.outcome }}'
 
       - name: Add the recorder encoder to the package
         shell: cmd
@@ -536,11 +640,11 @@ jobs:
           xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
-      - name: Remove SeExpr test drivers from the package
+      - name: Remove native test drivers from the package
         shell: pwsh
         run: |
           $package = "toonz/build/Opentoonz"
-          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_fx_ui_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_fx_ui_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "ui_shellthumbnail_test", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {
@@ -549,7 +653,7 @@ jobs:
                 Remove-Item -LiteralPath $path -Force -ErrorAction Stop
               }
               if (Test-Path -LiteralPath $path) {
-                throw "A SeExpr test driver or companion artifact remained in the production package"
+                throw "A native test driver or companion artifact remained in the production package"
               }
             }
           }
@@ -558,7 +662,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($directory in @("toonz/build/RelWithDebInfo", "toonz/build/Opentoonz")) {
-            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
+            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local", "cadmium_vector_test.exe.local", "cadmium_pipeline_test.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
               if (Test-Path -LiteralPath (Join-Path $directory $name)) {
                 throw "A test-only renderer or SDK fixture remained in the application runtime or package"
               }
@@ -587,7 +691,7 @@ jobs:
       - name: Verify native UI renderer was removed from package
         shell: pwsh
         run: |
-          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local")) {
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local", "cadmium_vector_test.exe.local", "cadmium_pipeline_test.exe.local")) {
             if (Test-Path -LiteralPath (Join-Path "toonz/build/Opentoonz" $name)) {
               throw "A temporary native UI renderer file remained in the package"
             }

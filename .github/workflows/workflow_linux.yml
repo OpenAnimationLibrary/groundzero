@@ -41,6 +41,29 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Verify native diagnostic isolation
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
+    - name: Verify original native crash identity and process contracts
+      run: |
+        python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
+        python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+
+    - name: Verify original native core capture contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_core.py -v
+
+    - name: Verify early harness failure reporting
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+
+    - name: Verify native lifecycle harness contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
+
+    - name: Verify bounded desktop GL launcher
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
+
+    - name: Verify Unicode regression reporting
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+
     - name: Install libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,
@@ -130,6 +153,7 @@ jobs:
         if-no-files-found: error
 
     - name: Test cel effects
+      id: cel_tests
       working-directory: toonz/build
       run: |
         set -o pipefail
@@ -146,23 +170,97 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --output toonz/build/ui-integration-output.txt
+        set -euo pipefail
+        native_core_directory=$(mktemp -d "$GITHUB_WORKSPACE/toonz/build/native-ui-cores.XXXXXX")
+        native_core_report="$GITHUB_WORKSPACE/toonz/build/ui-integration-output-original-core.txt"
+        native_core_pattern_recorded=0
+        restore_native_core_state() {
+          native_status=$?
+          trap - EXIT
+          set +e
+          ulimit -S -c 0
+          cleanup_status=0
+          if [ "$native_core_pattern_recorded" = 1 ]; then
+            timeout --kill-after=2s 8s sudo -n sysctl -w "kernel.core_pattern=$native_core_previous_pattern" >/dev/null
+            if [ "$?" -ne 0 ]; then
+              printf 'Original core kernel-pattern restoration failed.\n' >> "$native_core_report"
+              cleanup_status=1
+            fi
+          fi
+          # Raw cores are never uploaded, including when collection/setup fails.
+          rm -f -- "$native_core_directory"/core.*
+          if [ "$?" -ne 0 ] || ! rmdir -- "$native_core_directory"; then
+            printf 'Original raw core directory cleanup failed.\n' >> "$native_core_report"
+            cleanup_status=1
+          fi
+          if [ "$native_status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then
+            native_status=$cleanup_status
+          fi
+          exit "$native_status"
+        }
+        trap restore_native_core_state EXIT
+        trap 'exit 143' TERM
+        trap 'exit 130' INT
+        native_core_previous_pattern=$(sysctl -n kernel.core_pattern)
+        native_core_pattern_recorded=1
+        timeout --kill-after=2s 8s sudo -n sysctl -w "kernel.core_pattern=$native_core_directory/core.%p" >/dev/null
+        # The runner enables a per-core soft cap for its original OpenToonz
+        # launch tree, then restores zero before clear/diagnostic processes.
+        ulimit -S -c 0
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --linux-crash-debugger --linux-original-core-directory "$native_core_directory" --output toonz/build/ui-integration-output.txt
 
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
 
+    - name: Report native application crash stack
+      if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+      run: |
+        if [ -f toonz/build/ui-integration-output-debugger.txt ]; then
+          python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
+        fi
+
     - name: Report native UI failures
       if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
+    - name: Diagnose Function Editor crash
+      if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+      working-directory: toonz/build
+      run: |
+        # Diagnostic only: the original CTest failure remains authoritative.
+        # Run only this crashed fixture, not the complete failed test suite.
+        if grep -Eq 'ui_functionworkflow[[:space:]].*(SegFault|Exception)' ui-tests-output.txt; then
+          set -o pipefail
+          QT_QPA_PLATFORM=offscreen timeout --kill-after=5s 60s gdb --batch \
+            -ex 'set pagination off' -ex 'set print frame-arguments none' \
+            -ex run -ex 'thread apply all backtrace 30' \
+            --args bin/ui_functionworkflow_test 2>&1 | tee function-workflow-debugger.txt
+        fi
+
+    - name: Report Function Editor crash stack
+      if: ${{ failure() && hashFiles('toonz/build/function-workflow-debugger.txt') != '' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/function-workflow-debugger.txt 'Function Editor crash stack'
+
+    - name: Retain native UI diagnostics
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: Native-UI-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
+        path: |
+          toonz/build/ui-tests.xml
+          toonz/build/ui-tests-output.txt
+          toonz/build/ui-integration-output*.txt
+          toonz/build/function-workflow-debugger.txt
+        if-no-files-found: ignore
+
     - name: Diagnose cel UI crash
-      if: failure()
+      if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
       working-directory: toonz/build
       run: |
         if [ -f cel-tests-output.txt ] && grep -q 'celfx_colorkeep_ui.*SegFault' cel-tests-output.txt; then
@@ -173,8 +271,8 @@ jobs:
         fi
 
     - name: Report cel test failures
-      if: failure()
-      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
+      if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
+      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt --outcome '${{ steps.cel_tests.outcome }}'
 
     - name: Build application
       id: application_build

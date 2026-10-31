@@ -107,7 +107,7 @@ private slots:
   void onMouseMovedInLineEdit(QMouseEvent *event);
 };
 
-class FunctionSheet final : public SpreadsheetViewer {
+class DVAPI FunctionSheet final : public SpreadsheetViewer {
   Q_OBJECT
 
   FunctionSheetRowViewer *m_rowViewer;

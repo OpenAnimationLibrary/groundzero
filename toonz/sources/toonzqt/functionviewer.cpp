@@ -9,6 +9,7 @@
 #include "toonzqt/functionsheet.h"
 #include "toonzqt/functionsegmentviewer.h"
 #include "toonzqt/functiontoolbar.h"
+#include "toonzqt/functionworkflow.h"
 #include "toonzqt/swatchviewer.h"
 #include "toonzqt/dvscrollwidget.h"
 
@@ -165,6 +166,7 @@ FunctionViewer::FunctionViewer(QWidget *parent, Qt::WindowFlags flags)
   rightLayout->setSpacing(5);
   {
     rightLayout->addWidget(m_segmentViewer, 0);
+    rightLayout->addWidget(createFunctionWorkflowControls(this, m_treeView, m_functionGraph), 0);
     rightLayout->addWidget(m_treeView, 1);
   }
   rightPanel->setLayout(rightLayout);
@@ -245,6 +247,7 @@ FunctionViewer::FunctionViewer(QWidget *parent, Qt::WindowFlags flags)
 //-----------------------------------------------------------------------------
 
 FunctionViewer::~FunctionViewer() {
+  emit workflowPanelClosed();
   delete m_selection;
   m_toolbar->setFrameHandle(0);
 }
@@ -252,6 +255,7 @@ FunctionViewer::~FunctionViewer() {
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::showEvent(QShowEvent *) {
+  emit workflowContextChanged();
   refreshModel();
 
   // Connect handles
@@ -289,6 +293,8 @@ void FunctionViewer::showEvent(QShowEvent *) {
 
   // display animated channels when the scene is switched
   if (m_sceneHandle) {
+    ret = ret && connect(m_sceneHandle, SIGNAL(sceneSwitched()), this,
+                         SIGNAL(workflowContextChanged()));
     ret = ret && connect(m_sceneHandle, SIGNAL(sceneSwitched()), m_treeView,
                          SLOT(displayAnimatedChannels()));
     ret = ret &&
@@ -321,6 +327,7 @@ void FunctionViewer::showEvent(QShowEvent *) {
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::hideEvent(QHideEvent *) {
+  emit workflowPanelClosed();
   if (m_xshHandle) m_xshHandle->disconnect(this);
   if (m_frameHandle) {
     m_frameHandle->disconnect(this);
@@ -349,6 +356,7 @@ void FunctionViewer::openContextMenu(TreeModel::Item *item,
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::rebuildModel() {
+  emit workflowContextChanged();
   getSelection()->selectNone();
   onCurveSelected(0);
   m_functionGraph->getModel()->resetAll();
@@ -382,6 +390,7 @@ void FunctionViewer::refreshModel() {
     int distance, offset, secDistance;
     scene->getProperties()->getMarkers(distance, offset, secDistance);
     m_numericalColumns->setMarkRow(distance, offset, secDistance);
+    m_functionGraph->setSceneMarkers(distance, offset, secDistance);
   }
 
   m_treeView->updateAll();
@@ -430,6 +439,7 @@ void FunctionViewer::refreshMaterialChannels() {
 
 void FunctionViewer::setXsheetHandle(TXsheetHandle *xshHandle) {
   if (xshHandle == m_xshHandle) return;
+  emit workflowContextChanged();
 
   if (m_xshHandle) m_xshHandle->disconnect(this);
 
@@ -591,6 +601,7 @@ void FunctionViewer::toggleMode() {
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::onCurveChanged(bool isDragging) {
+  if (!isDragging) m_functionGraph->refreshNormalization();
   if (m_objectHandle) m_objectHandle->notifyObjectIdChanged(isDragging);
 
   // emit signal if the current channel belongs to Fx in order to update the
@@ -615,6 +626,7 @@ void FunctionViewer::onCurveChanged(bool isDragging) {
 void FunctionViewer::onCurveSelected(TDoubleParam *curve) {
   m_curve = curve;
   m_toolbar->setCurve(curve);
+  m_segmentViewer->setEnabled(!curve || !curve->isEditorLocked());
 
   QPair<TDoubleParam *, int> selectedSegment =
       getSelection()->getSelectedSegment();
@@ -832,6 +844,7 @@ bool FunctionViewer::columnsOrGraphHasFocus() {
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::setSceneHandle(TSceneHandle *sceneHandle) {
+  if (m_sceneHandle != sceneHandle) emit workflowContextChanged();
   m_sceneHandle = sceneHandle;
 }
 

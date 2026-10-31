@@ -5,6 +5,7 @@
 
 // TnzCore includes
 #include "tcommon.h"
+#include "tdoubleparam.h"
 #include "saveloadqsettings.h"
 
 // TnzLib includes
@@ -138,6 +139,10 @@ public:
   QColor getCurrentTextColor() const;
 
 signals:
+  // Cached previews contain expression grammars owned by the current scene.
+  void workflowContextChanged();
+  // Close pending nested workflows before the panel hides or is destroyed.
+  void workflowPanelClosed();
 
   void curveChanged();
   void curveIo(int type, TDoubleParam *curve, const std::string &name);
@@ -209,6 +214,7 @@ public:  //  :(
     emit curveChanged();
   }  //!< \deprecated  Should not be public.
   void emitIoCurve(int type, TDoubleParam *curve, const std::string &name) {
+    if (type == eLoadCurve && curve && curve->isEditorLocked()) return;
     emit curveIo(type, curve, name);
   }  //!< \deprecated  Should not be public.
 

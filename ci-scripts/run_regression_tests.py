@@ -23,6 +23,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config")
     parser.add_argument("--report", default="reliability-tests.xml")
+    parser.add_argument("--include-prefix", action="append", default=[],
+                        help="Also retain every registered test with this prefix")
     parser.add_argument("tests", nargs="+")
     args = parser.parse_args()
     command = ["ctest"] + (["-C", args.config] if args.config else [])
@@ -35,6 +37,8 @@ def main():
         error("Required tests were not registered: " + ", ".join(sorted(missing)))
         return 1
 
+    expected.update(name for name in available
+                    if any(name.startswith(prefix) for prefix in args.include_prefix))
     report = Path(args.report)
     report.unlink(missing_ok=True)
     pattern = "^(" + "|".join(re.escape(name) for name in sorted(expected)) + ")$"
@@ -59,6 +63,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Redirected Windows stdout otherwise uses the ANSI code page. A Unicode
+    # test path must not replace the actual failure with an encoding exception.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     try:
         sys.exit(main())
     except (OSError, ValueError, KeyError, ET.ParseError, subprocess.SubprocessError) as exc:

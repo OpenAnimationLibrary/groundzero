@@ -2,6 +2,7 @@
 #include "cadmiumtypes.h"
 
 #include "tofflinegl.h"
+#include "texception.h"
 #include "tregion.h"
 #include "tsimplecolorstyles.h"
 #include "tstroke.h"
@@ -286,8 +287,12 @@ bool snapshotVector(const TImageP &source, Frame &frame, QString &error) {
     result.fingerprint = fingerprintOf(original, regions);
     frame = result;
     return true;
-  } catch (const std::exception &) {
-    error = QObject::tr("Unable to prepare native vector regions for Cadmium.");
+  } catch (const TException &failure) {
+    error = QObject::tr("Unable to render the vector analysis image: %1")
+                .arg(QString::fromStdWString(failure.getMessage()));
+  } catch (const std::exception &failure) {
+    error = QObject::tr("Unable to prepare native vector regions for Cadmium: %1")
+                .arg(QString::fromUtf8(failure.what()));
   } catch (...) {
     error = QObject::tr("Unable to render the vector analysis image.");
   }
