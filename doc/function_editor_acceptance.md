@@ -39,6 +39,14 @@ replacement failure. These additions need fresh exact-head CI; no original
 failure or existing acceptance assertion was waived.
 [Recorded macOS failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41139721386).
 
+Shared Windows timeout reporting now observes the same still-owned process with
+bounded noninvasive CDB capture before retiring its process tree. The original
+timeout remains a failure, and both original and debugger cleanup must be proved.
+A fresh atomic cleanup witness gates failure-only retention of exact runtime
+binaries and matching PDBs for later diagnosis without another compilation.
+Portable contracts and real hung-parent/live-child checks qualify these paths;
+their presence does not substitute for final application/package checks.
+
 The implementation keeps native curve data and the SeExpr evaluator. The new
 operation layer plans immutable before/after snapshots, checks ranges, units,
 locks and stale previews, then applies one undo transaction. Dialog previews
