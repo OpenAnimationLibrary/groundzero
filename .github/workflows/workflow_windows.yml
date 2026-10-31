@@ -209,6 +209,10 @@ jobs:
       - name: Verify early harness failure reporting
         run: python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
 
+      - name: Verify failure-only native binary retention
+        timeout-minutes: 3
+        run: python ci-scripts/run_harness_tests.py --pattern test_native_windows_bundle.py --report native-windows-bundle-contracts-output.txt
+
       - name: Verify native diagnostic isolation
         run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
 
@@ -465,11 +469,49 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          python -c "import os,time; open(os.environ['GITHUB_ENV'],'a',encoding='utf-8').write('NATIVE_BUNDLE_STEP_STARTED_AT='+str(time.time())+'\n')"
+          if errorlevel 1 exit /b 1
           python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --windows-original-dump-directory "%RUNNER_TEMP%\groundzero-original-dumps" --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+      # Retain the already-tested runtime before any subsequent workload starts.
+      # The helper additionally requires a fresh, same-run confirmed-cleanup
+      # sidecar. Diagnostic failures never replace the original native result.
+      - name: Prepare failed native Windows binaries
+        id: native_failure_bundle
+        if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $sourceSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Could not establish the built source revision" }
+          python ci-scripts/native_windows_bundle.py `
+            --package toonz/build/Opentoonz --build toonz/build/RelWithDebInfo `
+            --mesa "$env:NATIVE_UI_MESA_RUNTIME" `
+            --release-report toonz/build/ui-integration-output-release.json `
+            --output toonz/build/native-windows-failure-bundle.zip `
+            --source-sha "$sourceSha" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT" `
+            --native-step-started-at "$env:NATIVE_BUNDLE_STEP_STARTED_AT" --native-outcome failure `
+            --recorder-build-id "${env:GITHUB_SHA}-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}" `
+            --flag=--require-function-workflow --flag=--require-offline-gl-workflow `
+            --flag=--require-vector-workflows --flag=--windows-crash-debugger
+          exit $LASTEXITCODE
+
+      - name: Retain failed native Windows binaries
+        if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' && steps.native_failure_bundle.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-windows-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: toonz/build/native-windows-failure-bundle.zip
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
 
       - name: Report native application crash stack
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
@@ -570,6 +612,9 @@ jobs:
           name: windows-reliability-results
           path: |
             native-process-contracts-output.txt
+            native-windows-bundle-contracts-output.txt
+            toonz/build/ui-integration-output*.txt
+            toonz/build/ui-integration-output-release.json
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
             toonz/build/stdfx/fxrender-output
