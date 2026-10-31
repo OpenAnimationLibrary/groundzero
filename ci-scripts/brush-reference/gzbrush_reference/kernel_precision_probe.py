@@ -7,7 +7,7 @@ import sys
 import zlib
 
 PROFILE = "sRGB-elle-V2-srgbtrc.icc"
-COUNT = 58
+COUNT = 73
 WIDTH, HEIGHT = 1024, 256
 
 
@@ -42,9 +42,39 @@ def plan(fixtures):
         first = min(c["wetKernelOffset"] for c in subset)
         result.extend({"case": c, "depth": "U8", "low": 64, "high": 192, "dabs": 2}
                       for c in subset if c["wetKernelOffset"] == first)
+    # Append same-U8 chromatic holdouts without changing the original IDs.
+    # Near-lightness and strongly chromatic pairs distinguish a lightness-only
+    # stop from a full perceptual distance; both mask sizes test convergence.
+    for low, high in (([255, 0, 0], [0, 255, 0]),
+                      ([0, 0, 255], [255, 255, 0]),
+                      ([192, 32, 64], [32, 128, 192])):
+        result.extend({"case": c, "depth": "U8", "low": 0, "high": 255,
+                       "rgbLow": low, "rgbHigh": high, "dabs": 2}
+                      for c in selected if c["diameter"] == 64 and
+                      c["overrides"]["SmudgeRadiusValue"] == "100")
+    for diameter, count in ((72, 30), (88, 43), (120, 76)):
+        candidates = [c for c in fixtures["cases"] if c.get("wetPattern") == "opaque-black-white-points"
+                      and c["diameter"] == diameter and
+                      c["overrides"]["SmudgeRadiusValue"] == "100" and
+                      c["wetKernelOffset"] == count and not c["wetKernelComplement"]]
+        if len(candidates) != 1:
+            raise RuntimeError("Missing low-contrast initial-count discriminator")
+        result.append({"case": candidates[0], "depth": "U16", "low": 112,
+                       "high": 144, "dabs": 2})
     if len(result) != COUNT:
         raise RuntimeError("Unexpected kernel precision diagnostic count")
     return result
+
+
+def original_second_sample(record, case):
+    # Oracle status contains the complete scanline, whereas notice summaries
+    # retain only probePositions. The last full scan entry is not the last dab.
+    target = 256 + int(case["diameter"] * case["spacing"])
+    matches = [sample[1:] for sample in record["centerlineRGBA8"]
+               if len(sample) == 5 and sample[0] == target]
+    if len(matches) != 1:
+        raise ValueError("Missing unique original second-dab center sample")
+    return matches[0]
 
 
 def canonical(raw, depth):
@@ -90,6 +120,9 @@ def render(app, output, fixtures, presets, original_records, checkpoint):
                 raise RuntimeError("Kernel diagnostic node identity changed")
             scale, stride = (1, 4) if depth == "U8" else (257, 8)
             def pixel(gray):
+                if "rgbLow" in item:
+                    r, g, b = item["rgbLow" if gray == 0 else "rgbHigh"]
+                    return bytes((b, g, r, 255))
                 v, a = gray * scale, 255 * scale
                 return bytes((v, v, v, a)) if depth == "U8" else struct.pack("<4H", v, v, v, a)
             low, high = item["low"], item["high"]
@@ -142,11 +175,14 @@ def render(app, output, fixtures, presets, original_records, checkpoint):
                 offset = (128 * WIDTH + x) * stride
                 bgra = list(raw[offset:offset + stride]) if depth == "U8" else list(struct.unpack("<4H", raw[offset:offset + stride]))
                 samples.append([x, 128, bgra[2], bgra[1], bgra[0], bgra[3]])
-            equivalent = depth == "U8" and low == 0 and high == 255 and item["dabs"] == 2
+            equivalent = depth == "U8" and low == 0 and high == 255 and item["dabs"] == 2 and "rgbLow" not in item
             if equivalent:
-                expected = originals[case["preset"]]["centerlineRGBA8"][-1][1:]
+                expected = original_second_sample(originals[case["preset"]], case)
                 if samples[-1][2:] != expected:
-                    raise RuntimeError("Translated U8 kernel diagnostic differs from original coordinates")
+                    raise RuntimeError("Translated U8 kernel diagnostic differs from original coordinates: " +
+                                       json.dumps({"id": ordinal, "preset": case["preset"],
+                                                   "sourceX": samples[-1][0], "actualRGBA": samples[-1][2:],
+                                                   "expectedRGBA": expected}, separators=(",", ":")))
             radius = int(case["diameter"] * max(1, float(case["overrides"]["SmudgeRadiusValue"]) / 100) / 2) + 2
             cx = samples[-1][0]
             rect = [cx - radius, 128 - radius, 2 * radius + 1, 2 * radius + 1]
@@ -164,6 +200,8 @@ def render(app, output, fixtures, presets, original_records, checkpoint):
                             "repeatEquivalent": True, "rect": rect,
                             "encoding": "zlib-base64-bgra" + ("8" if depth == "U8" else "16le") + "-row-major",
                             "data": base64.b64encode(zlib.compress(crop)).decode("ascii")})
+            if "rgbLow" in item:
+                records[-1].update({key: item[key] for key in ("rgbLow", "rgbHigh")})
             (output / "kernel-precision.json").write_text(json.dumps({"schema": 1, "status": "running",
                 "qualification": "research-only; original U8 parity gates remain separate", "records": records}, indent=2))
         (output / "kernel-precision.json").write_text(json.dumps({"schema": 1, "status": "complete",
@@ -190,13 +228,19 @@ def validate(report, fixtures, originals):
     original = {r["preset"]: r for r in originals}
     for ordinal, (item, row) in enumerate(zip(plan(fixtures), records)):
         case, depth = item["case"], item["depth"]
+        # The public API includes a build suffix; retain that raw identity while
+        # comparing the same release token used by the main acquisition report.
+        runtime = row.get("runtimeVersion")
+        release = runtime.split()[0] if isinstance(runtime, str) and runtime.split() else ""
         require(row.get("id") == ordinal and row.get("preset") == case["preset"] and
                 row.get("depth") == depth and row.get("profile") == PROFILE and
                 row.get("pointCount") == len(case["wetKernelPoints"]) and
-                row.get("colorModel") == "RGBA" and row.get("runtimeVersion") == fixtures["version"] and
+                row.get("colorModel") == "RGBA" and release == fixtures["version"] and
                 row.get("canvas") == [WIDTH, HEIGHT] and
                 all(row.get(key) == item[key] for key in ("low", "high", "dabs")),
                 "stale diagnostic inputs")
+        require(all(row.get(key) == item.get(key) for key in ("rgbLow", "rgbHigh")),
+                "stale chromatic diagnostic inputs")
         maximum, stride = (255, 4) if depth == "U8" else (65535, 8)
         require(row.get("maximumComponent") == maximum and row.get("rawInitialRoundTrip") is True and
                 row.get("repeatEquivalent") is True, "unverified raw identity/repeat")
@@ -211,10 +255,10 @@ def validate(report, fixtures, originals):
             require(isinstance(sample, list) and len(sample) == 6 and
                     sample[:2] == [256 + int(case["diameter"] * case["spacing"]) * dab, 128] and
                     all(type(c) is int and 0 <= c <= maximum for c in sample[2:]), "invalid raw sample")
-        equivalent = depth == "U8" and item["low"] == 0 and item["high"] == 255 and item["dabs"] == 2
+        equivalent = depth == "U8" and item["low"] == 0 and item["high"] == 255 and item["dabs"] == 2 and "rgbLow" not in item
         require(row.get("translationControl") is equivalent, "missing translation classification")
         if equivalent:
-            require(samples[-1][2:] == original[case["preset"]]["centerlineRGBA8"][-1][1:],
+            require(samples[-1][2:] == original_second_sample(original[case["preset"]], case),
                     "translated U8 control changed")
         radius = int(case["diameter"] * max(1, float(case["overrides"]["SmudgeRadiusValue"]) / 100) / 2) + 2
         rect = [samples[-1][0] - radius, 128 - radius, 2 * radius + 1, 2 * radius + 1]

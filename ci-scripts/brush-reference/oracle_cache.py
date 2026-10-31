@@ -19,6 +19,7 @@ import stat
 import struct
 import subprocess
 import zipfile
+from mask_repeat_contract import contract as mask_repeat_contract
 
 VERSION = 2
 FILE_LIMIT = 64 * 1024 * 1024
@@ -127,6 +128,54 @@ def cpu_dispatch_identity(text):
             "dispatchClasses": [parse(record) for record in distinct]}
 
 
+# These modules only produce fresh fixture bytes before identity is computed.
+# Keep this explicit: an unknown module (even one named *_fixtures.py) hashes.
+GENERATORS = frozenset({
+    "gih_cadence_fixtures.py", "masked_fixtures.py", "option_fixtures.py",
+    "hsv_joint_fixtures.py", "wet_drift_fixtures.py", "hsv_heldout_fixtures.py",
+    "resource_fixtures.py", "hsv_pressure_fixtures.py", "sensor_fixtures.py",
+    "mirror_fixtures.py", "texture_pickup_fixtures.py", "wet_hsv_fixtures.py",
+    "timed_fixtures.py",
+})
+PURE_TESTS = frozenset({
+    "application_test.py", "package_test.py", "oracle_cache_test.py",
+    "hsv_joint_test.py", "kernel_precision_probe_test.py",
+    "wet_drift_contract_test.py", "gih_cadence_test.py", "test_stochastic_gate.py",
+})
+
+
+def acquisition_scripts(source):
+    # Runtime plugin modules also occur in the freshly copied data inventory.
+    # Hash them here too, along with validators, prepare.py and unknown modules.
+    return {p.relative_to(source).as_posix(): digest(read(p))
+            for p in sorted(source.rglob("*.py"))
+            if p.relative_to(source).as_posix() not in GENERATORS | PURE_TESTS}
+
+
+def acquisition_workflow(data):
+    # The selected group is separately keyed, as are its complete generated
+    # inputs. Other groups' scheduling cannot alter this group's acquisition.
+    # Normalize exactly one single-line selector; retain every other byte,
+    # including job environment, runner, runtime installation and render gates.
+    lines = data.splitlines(keepends=True)
+    selectors = [i for i, line in enumerate(lines)
+                 if line.startswith(b"        fixture_group: ")]
+    require(len(selectors) == 1, "ambiguous source fixture matrix")
+    index = selectors[0]
+    require(lines[index].rstrip().endswith(b"}}"),
+            "source fixture matrix must remain a single expression")
+    # Captures are sealed before reporting and candidate compilation. Later
+    # metadata-only changes must not force the source application to repaint.
+    boundaries = [i for i, line in enumerate(lines)
+                  if line == b"      - name: Report source parameter probes\n"]
+    seals = [i for i, line in enumerate(lines)
+             if line == b"      - name: Seal complete source acquisition\n"]
+    require(len(boundaries) == len(seals) == 1 and
+            index < seals[0] < boundaries[0], "ambiguous source seal boundary")
+    lines[index] = b"        fixture_group: <selected-group-in-identity>\n"
+    return digest(b"".join(lines[:boundaries[0]]))
+
+
 def identity(root, repository, appimage):
     normalize_generated_packages(root)
     # The binary itself is too large for the response-file reader. Hash it in
@@ -136,9 +185,7 @@ def identity(root, repository, appimage):
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             h.update(block)
     source = repository / "ci-scripts/brush-reference"
-    scripts = {p.relative_to(source).as_posix(): digest(read(p))
-               for p in sorted(source.rglob("*.py"))
-               if p.name not in ("application_test.py", "package_test.py")}
+    scripts = acquisition_scripts(source)
     # procfs reports zero st_size, so use an explicit read bound rather than
     # the regular on-disk cache-payload reader.
     with open("/proc/cpuinfo", "rb") as cpu:
@@ -160,7 +207,7 @@ def identity(root, repository, appimage):
             "group": os.environ["BRUSH_REFERENCE_GROUP"], "scripts": scripts,
             # Includes Xvfb command, environment and acquisition success gates.
             # Engine source/build outputs are deliberately absent from identity.
-            "workflow": digest(read(repository / ".github/workflows/raster_brush_reference.yml")),
+            "workflow": acquisition_workflow(read(repository / ".github/workflows/raster_brush_reference.yml")),
             "runtime": runtime, "data": inventory(root / "data"),
             "config": inventory(root / "config"), "inputs": inventory(root / "output")}
 
@@ -183,12 +230,35 @@ def acquisition(output, fixtures):
             and 0 < len(expected) <= 512 and len(set(expected)) == len(expected)
             and len(cases) == len(expected) and
             [r["preset"] for r in rows] == expected, "incomplete acquisition")
+    diagnostic = mask_repeat_contract(fixtures["group"])
+    if diagnostic:
+        observed = status.get("repeatDiagnostic", {})
+        require(all(observed.get(key) == value for key, value in diagnostic.items()) and
+                observed.get("configurationReadback") == ("1" if diagnostic["configuredMaxThreads"] == 1 else "<default>") and
+                observed.get("configurationKey") == "maxNumberOfThreads" and
+                observed.get("configurationGroup") == "", "source worker diagnostic readback missing")
     files = {"oracle-status.json": status_bytes}
     for case, row in zip(cases, rows):
         require(all(row.get(k) == v for k, v in case.items()), "stale case inputs")
+        if "driftProbe" in case:
+            evidence = row.get("driftEvidence", {})
+            spec = case["driftProbe"]
+            require(evidence.get("nominalDabs") == spec["nominalDabs"] and
+                    evidence.get("observedDepositCells") == spec["nominalDabs"] - (0 if spec["calibration"] else 1) and
+                    evidence.get("calibration") == spec["calibration"] and
+                    evidence.get("singleContinuousStroke") is True and
+                    evidence.get("firstCellUnchanged") == (not spec["calibration"]) and
+                    type(evidence.get("maximumCellOffset")) is int and 0 <= evidence["maximumCellOffset"] <= 5 and
+                    (not spec["calibration"] or evidence.get("calibrationAlpha") in (127, 128)),
+                    "missing source drift count evidence")
         repeated = row["repeatSha256Pixels"]
         repetitions = 3 if fixtures["group"] == "geometry" else (
             2 if case.get("variant") == "baseline" or fixtures["group"] == "wetboundary" else 1)
+        diagnostic = mask_repeat_contract(fixtures["group"])
+        if diagnostic:
+            require(fixtures.get("repeatDiagnostic") == diagnostic and row.get("repeatDiagnostic") == diagnostic,
+                    "missing mask-repeat diagnostic identity")
+            repetitions = diagnostic["repetitions"]
         canonical = row["sha256RepeatPixels"]
         require(HEX.fullmatch(row["sha256Pixels"]) and len(repeated) == repetitions
                 and repeated[0] == row["sha256Pixels"] and all(HEX.fullmatch(h) for h in repeated)
@@ -237,6 +307,12 @@ def acquisition(output, fixtures):
             require(row["changed"] is False, "source no-op mismatch")
         elif "changeExpectation" not in case:
             require(row["changed"] is True, "source stroke missing")
+        if case.get("generatedTipProbe"):
+            from runpy import run_path
+            evidence = row.get("generatedTipEvidence", {})
+            validate_tip = run_path(str(Path(__file__).parent / "gzbrush_reference/generated_tip_probe.py"))["controls"]
+            require(validate_tip(case, evidence.get("brushDefinition", "")) == evidence,
+                    "generated tip readback mismatch")
         for field, suffix in (("image", ".png"), ("effectivePresetXml", ".xml")):
             name = filename(row[field], suffix)
             expected_name = row["preset"].replace(" ", "_") + (
@@ -259,6 +335,11 @@ def acquisition(output, fixtures):
             "gzbrush_reference/kernel_precision_probe.py"))["validate"]
         validate_precision(parse(data), fixtures, rows)
         files["kernel-precision.json"] = data
+    if fixtures.get("group") in ("wetkernelcount", "lab-conversion"):
+        from runpy import run_path
+        lab = read(output / "managed-lab.json", 1024 * 1024)
+        run_path(str(Path(__file__).parent / "gzbrush_reference/managed_lab_probe.py"))["validate"](parse(lab))
+        files["managed-lab.json"] = lab
         require(sum(map(len, files.values())) <= TOTAL_LIMIT, "capture byte budget")
     require(len(files) <= COUNT_LIMIT, "capture count budget")
     return files
@@ -287,7 +368,7 @@ def restore(root, cache, expected):
             "unexpected or missing cache files")
     total = 0
     for name, spec in entries.items():
-        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json") else
+        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json", "managed-lab.json") else
                  ".png" if name.endswith(".png") else ".xml")
         require(isinstance(spec, list) and len(spec) == 2 and type(spec[0]) is int
                 and 0 <= spec[0] <= FILE_LIMIT and HEX.fullmatch(spec[1]), "invalid file manifest")

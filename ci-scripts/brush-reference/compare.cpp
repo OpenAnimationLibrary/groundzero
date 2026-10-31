@@ -344,6 +344,8 @@ int main(int argc, char **argv) {
               "Incomplete spacing sensor fixture matrix");
     if (fixtures["group"].toString() == "mirrortips")
       require(expected.size() == 42, "Incomplete mirror fixture matrix");
+    if (fixtures["group"].toString() == "lab-conversion")
+      require(expected.size() == 1, "Incomplete public Lab dry control");
     if (fixtures["group"].toString() == "wethsv")
       require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvpressure")
@@ -355,7 +357,7 @@ int main(int argc, char **argv) {
       require(expected.size() == 24,
               "Incomplete order-discriminating HSV matrix");
     if (fixtures["group"].toString() == "hsvjoint")
-      require(expected.size() == 36, "Incomplete joint HSV acquisition matrix");
+      require(expected.size() == 64, "Incomplete joint HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvheldout")
       require(expected.size() == 54,
               "Incomplete heldout HSV acquisition matrix");
@@ -591,6 +593,13 @@ int main(int argc, char **argv) {
                 "nonempty requirement");
       }
       initial = stripInitial;
+      if (source["background"].toString() == "wet-drift")
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x) {
+            const bool red = (x / 64) % 2 == 0;
+            initial.setPixel(x, y, qRgba(red ? 255 : 0, 0, red ? 0 : 255,
+                                        std::min(255, y * 255 / 1280)));
+          }
       if (source["background"].toString() == "transparent")
         initial.fill(Qt::transparent);
       if (source["background"].toString() == "blend-stripes") {
@@ -701,7 +710,7 @@ int main(int argc, char **argv) {
                              fixtures["group"].toString() == "hsvorder" ||
                              fixtures["group"].toString() == "hsvchroma";
       const bool sourceHard =
-          maskCase || source["sourceBarrelCandidate"].toBool(false) ||
+          fixtures["group"].toString() == "lab-conversion" || maskCase || source["sourceBarrelCandidate"].toBool(false) ||
           sourceHsv || (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
@@ -888,6 +897,45 @@ int main(int argc, char **argv) {
         p.seed = UINT64_C(0x9e3779b97f4a7c15) *
                  std::uint64_t(spec["replicate"].toInt() + 1);
       }
+      bool bitmapViewRequiresNativeConversion = false;
+      if (p.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" &&
+          !validate(p).empty()) {
+        // Authored view transforms can leave the imported source domain.
+        // Compare that case explicitly as native conversion, never as parity.
+        bitmapViewRequiresNativeConversion = true;
+        p.profile = "groundzero-native-1";
+      }
+      const bool sourceBitmap =
+          p.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1";
+      if (fixtures["group"].toString() == "bitmaptips") {
+        const auto probe = source["resourceProbe"].toObject();
+        const auto dimensions = probe["originalDimensions"].toArray();
+        const QString kind = probe["kind"].toString();
+        require(dimensions.size() == 2, "Missing original bitmap dimensions");
+        const int extent =
+            std::max(dimensions[0].toInt(), dimensions[1].toInt());
+        const bool expected =
+            (kind == "alpha" || kind == "color-image" || kind == "incremental" ||
+             (kind.startsWith("filter-") && kind != "filter-rgba-mask")) &&
+            (p.size.value >= extent && p.size.value <= extent * 2);
+        require(sourceBitmap == expected,
+                "Bitmap importer failed to enforce the measured source domain");
+      }
+      if (source.contains("bitmapPathProbe")) {
+        const auto delivery = source["deliveryReport"].toObject();
+        const auto start = source["start"].toArray();
+        const auto end = source["end"].toArray();
+        require(source["bitmapPathProbe"].isBool() &&
+                    source["bitmapPathProbe"].toBool() && resourceCase &&
+                    source["resourceProbe"].toObject()["kind"].toString().startsWith("filter-") &&
+                    start.size() == 2 && end.size() == 2 &&
+                    end[0].toDouble() == start[0].toDouble() + 1 &&
+                    end[1].toDouble() == start[1].toDouble() &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["vertices"].toArray() == QJsonArray{start, end} &&
+                    delivery["singleContinuousStroke"].toBool(),
+                "Missing exact fractional bitmap path delivery evidence");
+      }
       Canvas canvas(initial);
       Stroke stroke(canvas, p);
       Sample first, last;
@@ -963,6 +1011,43 @@ int main(int argc, char **argv) {
           if (mode == "discrete")
             require(dab.finish(), QString::fromStdString(dab.error()));
         }
+      } else if (fixtures["group"].toString() == "wetdrift") {
+        const auto spec = source["driftProbe"].toObject();
+        const int count = spec["nominalDabs"].toInt();
+        require(count == 1 || count == 10 || count == 100 || count == 1000 || count == 10000,
+                "Invalid drift checkpoint");
+        auto center = [](int index) {
+          const int row = index / 128, column = index % 128;
+          return QPoint(8 + 16 * (row % 2 ? 127 - column : column), 8 + 16 * row);
+        };
+        std::vector<QPoint> points{center(0)};
+        for (int i = 1; i < count; ++i) {
+          if (i > 1 && center(i) - center(i - 1) == center(i - 1) - center(i - 2))
+            points.back() = center(i);
+          else points.push_back(center(i));
+        }
+        points.push_back(center(count - 1) + (center(count) - center(count - 1)) / 16);
+        QJsonArray expectedPath;
+        for (const auto &point : points) expectedPath.append(QJsonArray{point.x(), point.y()});
+        const auto delivery = source["deliveryReport"].toObject();
+        const auto evidence = source["driftEvidence"].toObject();
+        require(source["sourcePath"].toArray() == expectedPath &&
+                    delivery["vertices"].toArray() == expectedPath &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["singleContinuousStroke"].toBool() &&
+                    evidence["observedDepositCells"].toInt() == count - (spec["calibration"].toBool() ? 0 : 1) &&
+                    evidence["maximumCellOffset"].toInt() <= 5,
+                "Missing continuous drift geometry/count evidence");
+        const QString model = spec["model"].toString();
+        require(p.profile == ("krita-5.3.4.1-" +
+                    (spec["calibration"].toBool() ? QString("hard-pixel") : model) + "-candidate-1").toStdString(),
+                "Drift imported a native conversion instead of source candidate");
+        for (size_t i = 0; i < points.size(); ++i) {
+          Sample event = first;
+          event.x = points[i].x(); event.y = points[i].y();
+          event.time = double(i) / 240;
+          require(stroke.add(event), QString::fromStdString(stroke.error()));
+        }
       } else if (fixtures["group"].toString() == "gihlabels") {
         const auto path = source["sourcePath"].toArray();
         const auto delivery = source["deliveryReport"].toObject();
@@ -1029,8 +1114,59 @@ int main(int argc, char **argv) {
                       duration == 1000000 || duration == 1125000 ||
                       duration == 1250000 || duration == 2250000,
                   "Unexpected paced duration");
+          const auto discarded = evidence["discardedTimingAttempts"].toArray();
+          require(evidence["discardedTimingAttempts"].isArray() &&
+                      discarded.size() <= 1,
+                  "Too many discarded timing acquisitions");
+          for (const auto &item : discarded) {
+            const auto attempt = item.toObject();
+            const auto detail = attempt["detail"].toObject();
+            const QString phase = detail["phase"].toString();
+            const int index = detail["index"].toInt(-1);
+            const auto authoredEvents = source["events"].toArray();
+            require(attempt["attempt"].toInt() == 1 &&
+                        attempt["reason"].toString() == "timing-only" &&
+                        attempt["cleanup"].toString() == "release-and-leave" &&
+                        (phase == "contact" || phase == "release") &&
+                        index >= 0 && index <= authoredEvents.size() &&
+                        (phase != "contact" || index < authoredEvents.size()) &&
+                        (phase != "release" || index == authoredEvents.size()),
+                    "Invalid timing-only discarded acquisition");
+            const double planned =
+                phase == "release"
+                    ? duration
+                    : authoredEvents[index].toObject()["timeUs"].toDouble();
+            const double elapsed = detail["elapsedUs"].toDouble();
+            const double late = detail["latenessUs"].toDouble();
+            require(std::isfinite(elapsed) && elapsed == std::floor(elapsed) &&
+                        detail["authoredUs"].toDouble() == planned &&
+                        detail["boundUs"].toDouble() == maxLateness &&
+                        late == elapsed - planned &&
+                        (late > maxLateness || late < -2000),
+                    "Discarded acquisition was inside the timing contract");
+          }
           const double origin =
               contacts[0].toObject()["monotonicUs"].toDouble();
+          const auto clock = evidence["deviceClock"].toObject();
+          const int clockScale = spec["deviceTimestampScale"].toInt(1);
+          const int clockOffset = spec["deviceTimestampOffsetMs"].toInt(0);
+          require(((clockScale == 1 && clockOffset == 0) ||
+                   (clockScale == 2 && (clockOffset == 0 || clockOffset == 1000000))) &&
+                      (clockScale == 1 || spec["target"].toString().startsWith("time-clock-")) &&
+                      clock["scale"].toInt() == clockScale &&
+                      clock["offsetMs"].toInt(-1) == clockOffset &&
+                      std::isfinite(clock["baseMs"].toDouble(-1)) &&
+                      clock["baseMs"].toDouble(-1) >= 0 &&
+                      std::isfinite(clock["originNs"].toDouble(-1)) &&
+                      clock["originNs"].toDouble(-1) >= 0,
+                  "Invalid authored/delivered device clock discriminator");
+          auto clockMatches = [&](const QJsonObject &event) {
+            const double clockMs = std::max(0.0, std::floor(
+                (event["monotonicUs"].toDouble() * 1000 -
+                 clock["originNs"].toDouble()) / 1000000));
+            return event["timeMs"].toDouble(-1) ==
+                   clock["baseMs"].toDouble() + clockMs * clockScale;
+          };
           const auto authored = source["events"].toArray();
           for (int i = 0; i < contacts.size(); ++i) {
             const auto contact = contacts[i].toObject();
@@ -1038,14 +1174,14 @@ int main(int argc, char **argv) {
             const double planned = authored[i].toObject()["timeUs"].toDouble();
             require(std::isfinite(elapsed) && elapsed >= planned - 2000 &&
                         elapsed <= planned + maxLateness &&
-                        contact["pressure"].toDouble() == 1,
-                    "Paced contact failed actual elapsed-time bounds");
+                        contact["pressure"].toDouble() == 1 && clockMatches(contact),
+                    "Paced contact failed elapsed/device-clock bounds");
           }
           auto release = evidence["release"].toObject();
           const double held = release["monotonicUs"].toDouble() - origin;
           require(std::isfinite(held) && held >= duration - 2000 &&
-                      held <= duration + maxLateness,
-                  "Paced release failed actual elapsed-time bounds");
+                      held <= duration + maxLateness && clockMatches(release),
+                  "Paced release failed elapsed/device-clock bounds");
           release["pressure"] = 1;
           contacts.append(release);
           events = QJsonArray();
@@ -1105,6 +1241,18 @@ int main(int argc, char **argv) {
             "measured release; native conversion only";
       }
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
+      metrics["bitmapViewRequiresNativeConversion"] =
+          bitmapViewRequiresNativeConversion;
+      if (sourceBitmap) {
+        const bool passed =
+            metrics["maxAlphaError"].toDouble() <= 1.0 / 255 + 1e-12 &&
+            metrics["maxRGBError"].toDouble() <= 2.0 / 255 + 1e-12 &&
+            metrics["alphaCoverageIoU"].toDouble() == 1 &&
+            !metrics["emptyCandidateFailure"].toBool();
+        metrics["bitmapSourceCandidatePassed"] = passed;
+        if (!passed)
+          failedHardCases.append(name);
+      }
       if (fixtures["group"].toString() == "gihstatistics") {
         const auto rect = source["resourceProbe"].toObject()["rect"].toArray();
         require(rect.size() == 4, "Missing stochastic region");
@@ -1211,8 +1359,28 @@ int main(int argc, char **argv) {
           }
         }
         metrics["candidateFrameSelections"] = labels;
-        metrics["cadenceQualification"] =
-            "Exploratory frame-advancement acquisition; no fitted source RNG";
+        const bool incremental =
+            source["resourceProbe"].toObject()["kind"].toString() == "incremental";
+        require(sourceBitmap == incremental,
+                "GIH importer did not separate incremental from random source behavior");
+        if (incremental) {
+          const auto referenceLabels =
+              source["resourceReadback"].toObject()["frameSelections"].toArray();
+          const bool discrete =
+              source["cadenceProbe"].toObject()["mode"].toString() == "discrete";
+          bool ordered = labels.size() == 32 && referenceLabels.size() == 32;
+          for (int slot = 0; slot < 32 && ordered; ++slot) {
+            const int expected = discrete ? 0 : slot % 3;
+            ordered = !labels[slot].isNull() && !referenceLabels[slot].isNull() &&
+                      labels[slot].toInt(-1) == expected &&
+                      referenceLabels[slot].toInt(-1) == expected;
+          }
+          metrics["incrementalFrameSequencePassed"] = ordered;
+          if (!ordered) failedHardCases.append(name + " frame advancement");
+        }
+        metrics["cadenceQualification"] = incremental
+            ? "Incremental source candidate: exact frame/reset and full-region pixel gates"
+            : "Exploratory random selection; no fitted source RNG";
       }
       metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
@@ -1320,6 +1488,27 @@ int main(int argc, char **argv) {
             "convention)";
         metrics["sensorSourceParityQualified"] = false;
       }
+      if (fixtures["group"].toString() == "wetdrift") {
+        const auto spec = source["driftProbe"].toObject();
+        const int count = spec["nominalDabs"].toInt();
+        bool passed = stroke.dabCount() == size_t(count);
+        if (spec["calibration"].toBool())
+          passed = passed && metrics["maxAlphaError"].toDouble() == 0 &&
+                   metrics["maxRGBError"].toDouble() == 0;
+        else
+          passed = passed && metrics["premultipliedRGBMAE"].toDouble() <= 3 / 255.0 &&
+                   metrics["alphaMAE"].toDouble() <= 2 / 255.0 &&
+                   metrics["deltaE00BlackMean"].toDouble() <= 3 &&
+                   metrics["deltaE00WhiteMean"].toDouble() <= 3 &&
+                   metrics["deltaE00BlackP95"].toDouble() <= 6 &&
+                   metrics["deltaE00WhiteP95"].toDouble() <= 6;
+        metrics["driftCheckpoint"] = count;
+        metrics["driftModel"] = spec["model"];
+        metrics["driftCheckpointPassed"] = passed;
+        metrics["sourceCountQualification"] =
+            "Observable deposits and dry path controls; internal source dab counter unavailable";
+        if (!passed && !failedHardCases.contains(name)) failedHardCases.append(name);
+      }
       metrics["renderMilliseconds"] = elapsed;
       metrics["dabs"] = double(stroke.dabCount());
       metrics["diagnostics"] =
@@ -1332,6 +1521,20 @@ int main(int argc, char **argv) {
              fixtures["group"].toString() != "gihlabels") ||
                 stochasticReplicates.size() == 100,
             "Incomplete independent stochastic candidate workload");
+    if (fixtures["group"].toString() == "wetdrift") {
+      for (const QString &model : {QString("legacy-smear"), QString("legacy-dulling"),
+                                   QString("new-smear"), QString("new-dulling")}) {
+        double thousand = -1, tenThousand = -1;
+        for (const auto &value : results) {
+          const auto row = value.toObject();
+          if (row["driftModel"].toString() != model) continue;
+          if (row["driftCheckpoint"].toInt() == 1000) thousand = row["premultipliedRGBMAE"].toDouble();
+          if (row["driftCheckpoint"].toInt() == 10000) tenThousand = row["premultipliedRGBMAE"].toDouble();
+        }
+        if (thousand < 0 || tenThousand < 0 || tenThousand > thousand + 1 / 255.0)
+          failedHardCases.append("Source drift growth: " + model);
+      }
+    }
     QFile report(root.filePath("output/comparison.json"));
     require(report.open(QIODevice::WriteOnly),
             "Cannot write comparison report");

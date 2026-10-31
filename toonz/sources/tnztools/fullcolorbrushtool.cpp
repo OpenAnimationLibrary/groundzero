@@ -586,6 +586,7 @@ protected:
 
 bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
   QDialog dialog(parent);
+  dialog.setObjectName("nativeBrushDynamicsDialog");
   dialog.setWindowTitle(QObject::tr("Brush Dynamics"));
   auto layout = new QVBoxLayout(&dialog);
   auto help   = new QLabel(
@@ -594,7 +595,8 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
             "pairs between 0 and 1, in increasing input order. Scale normalizes "
             "distance, time, speed and dab index before the curve. Dab index "
             "starts at zero. Initial direction uses the first moving segment; "
-            "before movement its value is zero."),
+            "before movement its value is zero. Repeat cycles a Time curve "
+            "after each scale interval; other sensors do not repeat."),
       &dialog);
   help->setWordWrap(true);
   layout->addWidget(help);
@@ -605,10 +607,11 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
   auto form = new QFormLayout;
   form->addRow(QObject::tr("Minimum fraction"), minimum);
   layout->addLayout(form);
-  auto table = new QTableWidget(0, 4, &dialog);
-  table->setHorizontalHeaderLabels({QObject::tr("Sensor"), QObject::tr("Scale"),
-                                    QObject::tr("Curve points"),
-                                    QObject::tr("Interpolation")});
+  auto table = new QTableWidget(0, 5, &dialog);
+  table->setObjectName("nativeBrushDynamicsTable");
+  table->setHorizontalHeaderLabels(
+      {QObject::tr("Sensor"), QObject::tr("Scale"), QObject::tr("Curve points"),
+       QObject::tr("Interpolation"), QObject::tr("Repeat time")});
   table->horizontalHeader()->setStretchLastSection(true);
   layout->addWidget(table);
   const QStringList sensors = {QObject::tr("Pressure"),
@@ -644,6 +647,19 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
         {QObject::tr("Linear"), QObject::tr("Natural cubic")});
     interpolation->setCurrentIndex(int(mapping.interpolation));
     table->setCellWidget(row, 3, interpolation);
+    auto repeat = new QCheckBox(table);
+    repeat->setChecked(mapping.periodic);
+    repeat->setEnabled(mapping.sensor == RasterBrush::Sensor::Time);
+    repeat->setToolTip(
+        QObject::tr("Repeat the Time curve after each scale interval."));
+    table->setCellWidget(row, 4, repeat);
+    QObject::connect(sensor, qOverload<int>(&QComboBox::currentIndexChanged),
+                                      repeat, [repeat](int index) {
+                       const bool time =
+                           index == int(RasterBrush::Sensor::Time);
+                       if (!time) repeat->setChecked(false);
+                       repeat->setEnabled(time);
+                     });
   };
   for (const auto &mapping : dynamic.mappings) add(mapping);
   auto actions = new QHBoxLayout;
@@ -672,6 +688,9 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
           static_cast<QComboBox *>(table->cellWidget(row, 0))->currentIndex());
       m.interpolation = RasterBrush::Interpolation(
           static_cast<QComboBox *>(table->cellWidget(row, 3))->currentIndex());
+      m.periodic =
+          static_cast<QCheckBox *>(table->cellWidget(row, 4))->isChecked();
+      valid &= !m.periodic || m.sensor == RasterBrush::Sensor::Time;
       bool ok = false;
       m.scale = table->item(row, 1)->text().toDouble(&ok);
       valid &=
@@ -994,8 +1013,10 @@ bool editNativeBrush(RasterBrush::Record &record) {
     QObject::connect(button, &QPushButton::clicked, &dialog, [&, target]() {
       if (editNativeDynamics(&dialog, *target)) refresh();
     });
+    return button;
   };
-  dynamics(QObject::tr("Size dynamics"), p.size);
+  dynamics(QObject::tr("Size dynamics"), p.size)
+      ->setObjectName("nativeBrushSizeDynamics");
   dynamics(QObject::tr("Aspect dynamics"), p.aspect);
   dynamics(QObject::tr("Angle dynamics"), p.angle);
   dynamics(QObject::tr("Opacity dynamics"), p.opacity);

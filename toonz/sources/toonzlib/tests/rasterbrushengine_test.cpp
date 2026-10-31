@@ -1,4 +1,5 @@
 #include "toonz/rasterbrushengine.h"
+#include "rasterbrushbitmapreference.h"
 #include <cmath>
 #include <array>
 #include <algorithm>
@@ -55,6 +56,155 @@ void line(Canvas &c, Preset p) {
   for (int i = 0; i <= 120; ++i)
     require(s.add(sample(i, 64, i / 240.0)), s.error().c_str());
   finishStroke(s);
+}
+void testPeriodicTimeMapping() {
+  auto render = [](bool periodic, double origin) {
+    Canvas canvas;
+    Preset preset;
+    preset.size.value = 4;
+    preset.spacing    = 4;
+    Mapping time;
+    time.sensor             = Sensor::Time;
+    time.periodic           = periodic;
+    time.curve              = {{0, .25}, {1, 1}};
+    preset.opacity.mappings = {time};
+    Stroke stroke(canvas, preset);
+    require(stroke.add(sample(10.5, 10.5, origin)), stroke.error().c_str());
+    require(stroke.add(sample(90.5, 10.5, origin + 1.25)),
+            stroke.error().c_str());
+    finishStroke(stroke);
+    return canvas;
+  };
+  const auto cycling = render(true, 0), shifted = render(true, 100);
+  const auto clamped = render(false, 0);
+  require(same(cycling, shifted), "Time cycle used absolute device epoch");
+  require(std::abs(cycling.read(10, 10).a - .25) < 1e-12 &&
+              std::abs(cycling.read(74, 10).a - .25) < 1e-12 &&
+              std::abs(clamped.read(74, 10).a - 1) < 1e-12,
+          "Time cycle did not restart while nonperiodic time saturated");
+  Preset invalid;
+  Mapping pressure;
+  pressure.periodic     = true;
+  invalid.size.mappings = {pressure};
+  require(!validate(invalid).empty(),
+          "Non-Time sensor admitted a periodic flag");
+}
+void testSourceFixedBitmapCaptures() {
+  for (const auto &capture : RasterBrushBitmapReference::captures()) {
+    auto image    = std::make_shared<Image>();
+    image->width  = capture.width;
+    image->height = capture.height;
+    image->color  = capture.pattern >= 6;
+    for (int y = 0; y < image->height; ++y)
+      for (int x = 0; x < image->width; ++x) {
+        int alpha = 0;
+        if (capture.pattern == 0)
+          alpha =
+              x == 0 || y == 0
+                  ? 0
+                  : std::array<int, 4>{{64, 128, 192, 255}}[(x + 2 * y) % 4];
+        else if (capture.pattern == 3)
+          alpha = (x * 31 + y * 7) % 256;
+        else if (capture.pattern == 5)
+          alpha = 255;
+        else if (x == (capture.pattern == 2 ? 0 : image->width / 2) &&
+                 y == (capture.pattern == 2 ? 0 : image->height / 2))
+          alpha = 255;
+        if (capture.pattern >= 6) {
+          std::array<int, 4> rgba;
+          if (capture.pattern == 6) {
+            const std::array<std::array<int, 4>, 4> colors = {
+                {{{255, 0, 0, 255}},
+                 {{0, 255, 0, 128}},
+                 {{0, 0, 255, 64}},
+                 {{255, 255, 255, 0}}}};
+            rgba = colors[(x / 2 + y / 4) % 4];
+          } else
+            rgba = {{(x * 31 + 17) % 256, (y * 29 + 23) % 256,
+                     (x * 13 + y * 19 + 41) % 256,
+                     std::array<int, 4>{{0, 64, 128, 255}}[(x + y) % 4]}};
+          const double a = rgba[3] / 255.0;
+          image->pixels.push_back({rgba[0] / 255.0 * a, rgba[1] / 255.0 * a,
+                                   rgba[2] / 255.0 * a, a});
+        } else
+          image->pixels.push_back({0, 0, 0, alpha / 255.0});
+      }
+    Preset p;
+    p.profile     = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+    p.tip.shape   = Shape::Bitmap;
+    p.tip.images  = {image};
+    p.size.value  = std::max(image->width, image->height) * capture.scale;
+    p.spacing     = 4;
+    p.angle.value = capture.angle;
+    require(validate(p).empty(), "original source bitmap fixture rejected");
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(32 + capture.phase, 32 + capture.phase, 0)) &&
+                stroke.add(sample(33 + capture.phase, 32 + capture.phase, 1)),
+            "source bitmap capture stroke failed");
+    finishStroke(stroke);
+    std::vector<int> expected(canvas.pixels.size(), 0);
+    for (const auto &point : capture.pixels)
+      expected[size_t(point.y) * canvas.w + point.x] = point.alpha;
+    // Full canvas, including zeros: never crop away an extra edge pixel.
+    for (size_t i = 0; i < expected.size(); ++i) {
+      const int actual = int(std::floor(canvas.pixels[i].a * 255 + .5));
+      require((actual != 0) == (expected[i] != 0) &&
+                  std::abs(actual - expected[i]) <= 1,
+              "source bitmap full-region support/one-byte gate failed");
+    }
+    if (image->color)
+      for (const auto &point : capture.pixels) {
+        const auto &actual =
+            canvas.pixels[size_t(point.y) * canvas.w + point.x];
+        const double alpha = point.alpha / 255.0;
+        require(
+            std::abs(actual.r - point.r / 255.0 * alpha) <= 2.0 / 255 + 1e-12 &&
+                std::abs(actual.g - point.g / 255.0 * alpha) <=
+                    2.0 / 255 + 1e-12 &&
+                std::abs(actual.b - point.b / 255.0 * alpha) <=
+                    2.0 / 255 + 1e-12,
+            "source bitmap premultiplied-color two-byte gate failed");
+      }
+    p.size.value = std::max(image->width, image->height) * .75;
+    require(!validate(p).empty(), "unqualified bitmap downscale admitted");
+    p.size.value  = std::max(image->width, image->height);
+    p.flipX       = true;
+    require(!validate(p).empty(), "unqualified bitmap mirror admitted");
+  }
+}
+void testSourceBitmapWorkBudget() {
+  struct Guard : Surface {
+    bool touched = false;
+    int width() const override { return 8192; }
+    int height() const override { return 8192; }
+    bool prepare(int, int, int, int) override {
+      touched = true;
+      return true;
+    }
+    Pixel read(int, int) const override { return {}; }
+    void write(int, int, const Pixel &) override { touched = true; }
+  } canvas;
+  auto image    = std::make_shared<Image>();
+  image->width  = 2048;
+  image->height = 1;
+  image->pixels.assign(2048, Pixel{0, 0, 0, 1});
+  Preset p;
+  p.profile    = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+  p.tip.shape  = Shape::Bitmap;
+  p.tip.images = {image};
+  p.size.value = 4096;
+  require(validate(p).empty(), "bitmap budget fixture rejected");
+  auto budget = std::make_shared<MemoryBudget>(256u * 1024u * 1024u);
+  Stroke stroke(canvas, p, 256u * 1024u * 1024u, budget);
+  require(!stroke.add(sample(4096, 4096, 0)) &&
+              stroke.error() == "Stroke input pixel work limit exceeded" &&
+              !canvas.touched,
+          "two-stage bitmap work not rejected before raster access");
+  stroke.cancel();
+  require(budget->used() == 0 && !stroke.add(sample(1, 1, 1)) &&
+              !stroke.finish() && !canvas.touched,
+          "bitmap work failure retained storage or resumed");
 }
 void testSourceMaskedEventBudget() {
   struct GuardCanvas : Canvas {
@@ -875,8 +1025,216 @@ void testKritaPressureHsvCandidate() {
             "source H/S/V pressure differs from independently captured dab");
       }
       p.sourceHsvV2[(channel + 1) % 3] = p.sourceHsvV2[channel];
+      p.sourceHsvV2[(channel + 1) % 3].control.mappings[0].sensor =
+          Sensor::TiltX;
       require(!validate(p).empty(),
-              "unqualified simultaneous dynamic HSV admitted");
+              "unqualified simultaneous tilt HSV admitted");
+    }
+}
+
+void testKritaMixedPressureHsvCandidate() {
+  struct WideCanvas : Canvas {
+    WideCanvas() {
+      w = 320;
+      h = 64;
+      pixels.assign(size_t(w) * h, {});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  // Original source captures: mixed/fixed companions and simultaneous ramps.
+  // Values are captured RGB bytes, never generated by the candidate model.
+  const int captured[14][11][3] = {{{135, 136, 132},
+                                    {132, 136, 130},
+                                    {127, 136, 128},
+                                    {125, 136, 131},
+                                    {123, 136, 135},
+                                    {121, 130, 136},
+                                    {118, 122, 136},
+                                    {119, 114, 136},
+                                    {126, 109, 136},
+                                    {136, 103, 134},
+                                    {136, 96, 117}},
+                                   {{33, 34, 30},
+                                    {49, 54, 47},
+                                    {64, 73, 65},
+                                    {81, 92, 87},
+                                    {98, 111, 110},
+                                    {115, 124, 130},
+                                    {133, 136, 148},
+                                    {155, 152, 164},
+                                    {177, 171, 181},
+                                    {198, 190, 197},
+                                    {214, 209, 212}},
+                                   {{33, 34, 34},
+                                    {51, 52, 54},
+                                    {68, 70, 73},
+                                    {84, 88, 92},
+                                    {100, 106, 111},
+                                    {115, 123, 130},
+                                    {131, 139, 148},
+                                    {148, 156, 164},
+                                    {164, 173, 181},
+                                    {182, 190, 198},
+                                    {201, 208, 214}},
+                                   {{34, 34, 33},
+                                    {52, 54, 51},
+                                    {68, 73, 69},
+                                    {84, 92, 88},
+                                    {100, 111, 110},
+                                    {115, 125, 130},
+                                    {131, 135, 148},
+                                    {151, 148, 164},
+                                    {175, 164, 181},
+                                    {198, 182, 197},
+                                    {214, 201, 208}},
+                                   {{205, 207, 196},
+                                    {200, 207, 196},
+                                    {196, 207, 198},
+                                    {196, 207, 202},
+                                    {196, 207, 207},
+                                    {196, 203, 207},
+                                    {196, 199, 207},
+                                    {199, 196, 207},
+                                    {203, 196, 207},
+                                    {207, 196, 207},
+                                    {207, 196, 202}},
+                                   {{206, 207, 206},
+                                    {205, 207, 206},
+                                    {204, 207, 205},
+                                    {203, 207, 204},
+                                    {202, 207, 204},
+                                    {201, 207, 203},
+                                    {200, 207, 202},
+                                    {199, 207, 201},
+                                    {197, 207, 200},
+                                    {194, 207, 198},
+                                    {191, 207, 196}},
+                                   {{27, 34, 30},
+                                    {43, 54, 46},
+                                    {58, 73, 62},
+                                    {73, 92, 79},
+                                    {88, 111, 95},
+                                    {104, 130, 112},
+                                    {123, 148, 130},
+                                    {143, 164, 150},
+                                    {164, 181, 169},
+                                    {184, 198, 188},
+                                    {205, 214, 208}},
+                                   {{0, 173, 102},
+                                    {0, 173, 29},
+                                    {44, 173, 0},
+                                    {117, 173, 0},
+                                    {173, 158, 15},
+                                    {173, 104, 41},
+                                    {173, 66, 59},
+                                    {173, 77, 112},
+                                    {173, 95, 156},
+                                    {160, 112, 173},
+                                    {146, 130, 173}},
+                                   {{202, 234, 221},
+                                    {173, 223, 181},
+                                    {161, 211, 144},
+                                    {172, 200, 115},
+                                    {188, 178, 85},
+                                    {177, 114, 56},
+                                    {156, 49, 42},
+                                    {132, 36, 71},
+                                    {108, 29, 91},
+                                    {71, 23, 83},
+                                    {32, 16, 59}},
+                                   {{234, 192, 170},
+                                    {223, 157, 122},
+                                    {211, 128, 83},
+                                    {200, 115, 69},
+                                    {188, 104, 59},
+                                    {177, 94, 50},
+                                    {156, 89, 53},
+                                    {132, 84, 59},
+                                    {108, 76, 59},
+                                    {83, 64, 54},
+                                    {59, 49, 44}},
+                                   {{170, 234, 208},
+                                    {122, 223, 139},
+                                    {116, 211, 83},
+                                    {157, 200, 69},
+                                    {188, 176, 59},
+                                    {177, 111, 50},
+                                    {156, 60, 53},
+                                    {132, 59, 85},
+                                    {108, 59, 97},
+                                    {77, 54, 83},
+                                    {50, 44, 59}},
+                                   {{136, 222, 187},
+                                    {136, 222, 150},
+                                    {157, 222, 136},
+                                    {194, 222, 136},
+                                    {222, 214, 136},
+                                    {222, 177, 136},
+                                    {222, 141, 136},
+                                    {222, 136, 167},
+                                    {222, 136, 204},
+                                    {204, 136, 222},
+                                    {168, 136, 222}},
+                                   {{222, 120, 207},
+                                    {222, 120, 207},
+                                    {222, 126, 208},
+                                    {222, 145, 211},
+                                    {222, 159, 213},
+                                    {222, 169, 214},
+                                    {222, 177, 215},
+                                    {222, 184, 216},
+                                    {222, 191, 218},
+                                    {222, 198, 219},
+                                    {222, 205, 220}},
+                                   {{234, 179, 226},
+                                    {223, 137, 210},
+                                    {211, 95, 194},
+                                    {200, 53, 178},
+                                    {188, 11, 162},
+                                    {177, 0, 150},
+                                    {156, 0, 133},
+                                    {132, 0, 112},
+                                    {108, 0, 92},
+                                    {83, 0, 71},
+                                    {59, 0, 50}}};
+  const char *channels[7] = {"hs", "hv", "sv", "hsv", "hsv", "hsv", "hsv"};
+  const char *dynamic[7]  = {"hs", "hv", "sv", "hsv", "h", "s", "v"};
+  const int colors[2][3]  = {{120, 128, 136}, {173, 91, 47}};
+  for (int color = 0; color < 2; ++color)
+    for (int variant = 0; variant < 7; ++variant) {
+      Preset p;
+      p.profile             = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.size.value          = 24;
+      p.spacing             = 1;
+      p.color               = {colors[color][0] / 255., colors[color][1] / 255.,
+                               colors[color][2] / 255., 1};
+      const double fixed[3] = {.3, .7, .8};
+      for (int channel = 0; channel < 3; ++channel) {
+        const char name = "hsv"[channel];
+        if (std::string(channels[variant]).find(name) == std::string::npos)
+          continue;
+        p.sourceHsvV2[channel].enabled = true;
+        if (std::string(dynamic[variant]).find(name) != std::string::npos)
+          p.sourceHsvV2[channel].control = {
+              1, 0, {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}}};
+        else
+          p.sourceHsvV2[channel].control = {fixed[channel], 0, {}};
+      }
+      WideCanvas canvas;
+      Stroke stroke(canvas, p);
+      require(stroke.add(sample(32, 32, 0, color ? .875 : .125)) &&
+                  stroke.add(sample(288, 32, 1, color ? .125 : .875)),
+              stroke.error().c_str());
+      require(stroke.finish(), stroke.error().c_str());
+      for (int dab = 0; dab < 11; ++dab) {
+        const auto pixel     = canvas.read(33 + 24 * dab, 32);
+        const auto &expected = captured[color * 7 + variant][dab];
+        require(pixel.a == 1 &&
+                    int(std::floor(pixel.r * 255 + .5)) == expected[0] &&
+                    int(std::floor(pixel.g * 255 + .5)) == expected[1] &&
+                    int(std::floor(pixel.b * 255 + .5)) == expected[2],
+                "mixed source HSV differs from independently captured output");
+      }
     }
 }
 
@@ -911,7 +1269,7 @@ void testKritaJointHsvCandidate() {
       Canvas canvas;
       Stroke stroke(canvas, p);
       require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
-      stroke.finish();
+      finishStroke(stroke);
       const auto pixel = canvas.read(64, 64);
       require(pixel.a == 1 &&
                   int(std::floor(pixel.r * 255 + .5)) ==
@@ -1008,7 +1366,7 @@ void testKritaFixedHsvCandidate() {
     Canvas canvas;
     Stroke stroke(canvas, heldout);
     require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
-    stroke.finish();
+    finishStroke(stroke);
     const Pixel actual = canvas.read(64, 64);
     require(std::floor(actual.r * 255 + .5) == capture[4] &&
                 std::floor(actual.g * 255 + .5) == capture[5] &&
@@ -1042,6 +1400,7 @@ void testKritaHardPixelCandidate() {
     p.size.value = diameters[i];
     Stroke stroke(canvas, p);
     require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+    finishStroke(stroke);
     int count = 0;
     for (const auto &pixel : canvas.pixels) {
       require(pixel.a == 0 || pixel.a == 1,
@@ -1547,6 +1906,7 @@ void testSourceTextureMasks() {
         p.sourceTextureSoftTexturing = soft;
         Stroke stroke(canvas, p);
         require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+        finishStroke(stroke);
         for (int band = 0; band < 4; ++band)
           require(
               std::abs(canvas.read(64 + 4 * band, 64).a * 255 -
@@ -2391,6 +2751,7 @@ void testSourceBarrelGeometry() {
     input.hasRotation = true;
     input.rotation    = capture.barrel * 3.14159265358979323846 / 180;
     require(stroke.add(input), stroke.error().c_str());
+    finishStroke(stroke);
     uint64_t hash = 14695981039346656037ull;
     for (int y = 0; y < capture.h; ++y)
       for (int x = 0; x < capture.w; ++x)
@@ -2427,11 +2788,13 @@ void testSourceSymmetricTiltRotation() {
       input.tiltX   = sensor == Sensor::TiltX ? degrees / 60 : 0;
       input.tiltY   = sensor == Sensor::TiltY ? degrees / 60 : 0;
       require(a.add(input), a.error().c_str());
+      finishStroke(a);
       p.angle.mappings.front().sensor = Sensor::Rotation;
       Stroke b(barrel, p);
       input.hasRotation = true;
       input.rotation    = std::abs(degrees) * 6 * 3.14159265358979323846 / 180;
       require(b.add(input), b.error().c_str());
+      finishStroke(b);
       require(same(tilted, barrel),
               "source tilt normalization disagrees with measured orientation "
               "class");
@@ -2495,13 +2858,15 @@ void testSourcePixelPressureTransfer() {
 void testSourceTransferCurves() {
   // Independent natural-spline solution for (0,0),(.5,1),(1,0):
   // on [0,.5], f(x)=3*x-4*x^3; f(.25)=.6875.
-  // This verifies the candidate composition, not foreign transfer parity.
+  // Original Node shared/false-Pressure-flag controls also establish the
+  // two-/three-dab bytes below; full-region gates remain independent.
   for (bool wash : {false, true})
     for (bool opacity : {false, true}) {
       Preset p;
       p.profile     = "krita-5.3.4.1-hard-pixel-candidate-1";
       p.size.value  = 32;
       p.wash        = wash;
+      p.spacing     = .25;
       auto &control = opacity ? p.opacity : p.flow;
       control.value = .5;
       Mapping curve;
@@ -2513,9 +2878,25 @@ void testSourceTransferCurves() {
       auto input     = sample(32, 32, 0);
       input.pressure = .25;
       require(stroke.add(input), stroke.error().c_str());
+      auto firstMotion = input;
+      firstMotion.x += .5;
+      firstMotion.time = .01;
+      require(stroke.add(firstMotion), stroke.error().c_str());
       const double expected = !wash && !opacity ? 1 : .34375;
       require(std::abs(canvas.read(32, 32).a - expected) <= 1.0 / 255,
               "source candidate cubic transfer composition changed");
+      auto last     = sample(56, 32, 1);
+      last.pressure = .25;
+      require(stroke.add(last), stroke.error().c_str());
+      finishStroke(stroke);
+      require(stroke.dabCount() == 3,
+              "source spline fixture lost interior dabs");
+      const int two   = !wash && !opacity ? 255 : wash && opacity ? 88 : 145;
+      const int three = !wash && !opacity ? 255 : wash && opacity ? 88 : 183;
+      require(
+          std::abs(std::lround(canvas.read(32, 32).a * 255) - two) <= 1 &&
+              std::abs(std::lround(canvas.read(40, 32).a * 255) - three) <= 1,
+          "source spline transfer differs from original overlap bytes");
       control.mappings.front().interpolation = Interpolation::Linear;
       require(!validate(p).empty(),
               "source multi-knot transfer admitted linear interpolation");
@@ -2525,6 +2906,54 @@ void testSourceTransferCurves() {
       require(!validate(p).empty(),
               "Pixel cubic transfer broadened wet qualification");
     }
+}
+void testSourcePathDirectionGeometry() {
+  // Original dry count controls from continuous Node.paintPath. The window
+  // includes forward, reverse and reverse-to-downward corner footprints.
+  // Negative diagnostic coordinates are deliberately outside this crop.
+  struct Capture {
+    int count;
+    uint64_t hash;
+  };
+  const Capture captures[] = {
+      {1, 5422027869455958821ull},      {10, 4613665443013575461ull},
+      {100, 4613665443013575461ull},    {1000, 15843215279964946725ull},
+      {10000, 15843215279964946725ull},
+  };
+  auto point = [](int index) {
+    int row = index / 128, column = index % 128;
+    return sample(8 + 16 * (row % 2 ? 127 - column : column), 8 + 16 * row,
+                  index);
+  };
+  struct FullCanvas : Canvas {
+    double coverage(int, int) const override { return 1; }
+  };
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value    = 8;
+    p.spacing       = 2;
+    p.opacity.value = .5;
+    FullCanvas canvas;
+    Stroke stroke(canvas, p);
+    for (int index = 0; index < capture.count; ++index)
+      require(stroke.add(point(index)), stroke.error().c_str());
+    Sample last = point(capture.count - 1), next = point(capture.count);
+    last.x += (next.x - last.x) / 16;
+    last.y += (next.y - last.y) / 16;
+    last.time += .0625;
+    require(stroke.add(last), stroke.error().c_str());
+    finishStroke(stroke);
+    require(stroke.dabCount() == size_t(capture.count),
+            "source outgoing path changed observed deposit count");
+    uint64_t hash = 14695981039346656037ull;
+    for (int y = 0; y < 32; ++y)
+      for (int x = 0; x < 64; ++x)
+        hash = (hash ^ uint64_t(std::lround(canvas.read(x, y).a * 255))) *
+               1099511628211ull;
+    require(hash == capture.hash,
+            "source reverse/corner geometry differs from original path window");
+  }
 }
 void testSourceHalfPixelLookahead() {
   Preset p;
@@ -2611,6 +3040,92 @@ void testSourceHalfPixelLookahead() {
         hash == capture.hash,
         "source half-pixel pressure spacing differs from original sparse row");
   }
+}
+void testSourceAbsoluteSpacingFloor() {
+  // Original 1536px source traces: rising/falling/constant pressure and
+  // three spacings. Extents are captured observations, not runtime output.
+  // Sparse full-row hashes remain independently checked above; dense alpha
+  // and low-opacity full-region qualification remain source-CI obligations.
+  struct Capture {
+    double first, last, spacing;
+    int left, right;
+  };
+  const Capture captures[] = {
+      {0.0, 1.0, 0.1, 304, 1804},       {0.0, 1.0, 0.25, 304, 1801},
+      {0.0, 1.0, 1.0, 305, 1785},       {1.0, 0.0, 0.1, 241, 1743},
+      {1.0, 0.0, 0.25, 241, 1743},      {1.0, 0.0, 1.0, 241, 1735},
+      {0.1, 1.0, 0.1, 255, 1804},       {0.1, 1.0, 0.25, 255, 1801},
+      {0.1, 1.0, 1.0, 255, 1782},       {1.0, 0.1, 0.1, 241, 1792},
+      {1.0, 0.1, 0.25, 241, 1793},      {1.0, 0.1, 1.0, 241, 1790},
+      {0.25, 0.75, 0.1, 253, 1802},     {0.25, 0.75, 0.25, 253, 1802},
+      {0.25, 0.75, 1.0, 253, 1780},     {0.5, 0.5, 0.1, 249, 1798},
+      {0.5, 0.5, 0.25, 249, 1795},      {0.5, 0.5, 1.0, 249, 1783},
+      {0.04, 0.04, 0.1, 256, 1791},     {0.04, 0.04, 0.25, 256, 1791},
+      {0.04, 0.04, 1.0, 256, 1791},     {0.05, 0.05, 0.1, 256, 1792},
+      {0.05, 0.05, 0.25, 256, 1792},    {0.05, 0.05, 1.0, 256, 1791},
+      {0.0625, 0.0625, 0.1, 256, 1792}, {0.0625, 0.0625, 0.25, 256, 1792},
+      {0.0625, 0.0625, 1.0, 256, 1790}, {0.0, 0.05, 0.1, 1216, 1792},
+      {0.0, 0.05, 0.25, 1216, 1792},    {0.0, 0.05, 1.0, 1235, 1791},
+      {0.05, 0.0, 0.1, 256, 831},       {0.05, 0.0, 0.25, 256, 831},
+      {0.05, 0.0, 1.0, 256, 794},
+  };
+  struct WideCanvas : Canvas {
+    WideCanvas() {
+      w = 2048;
+      pixels.assign(size_t(w) * h, {});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value    = 32;
+    p.size.minimum  = 0;
+    p.size.mappings = {Mapping{}};
+    p.spacing       = capture.spacing;
+    WideCanvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(256, 64, 0, capture.first)) &&
+                stroke.add(sample(1792, 64, 1, capture.last)),
+            stroke.error().c_str());
+    finishStroke(stroke);
+    int left = canvas.w, right = -1;
+    for (int x = 0; x < canvas.w; ++x)
+      if (canvas.read(x, 63).a > 0) {
+        left  = std::min(left, x);
+        right = std::max(right, x);
+      }
+    require(left == capture.left && right == capture.right,
+            "source absolute spacing/available endpoint differs from original "
+            "extent");
+  }
+  // Exact half-pixel availability is a real input sample, not a tolerance.
+  // This also exercises retaining the previous endpoint when a subsequent
+  // delivery starts exactly at the consumed future sample.
+  Preset p;
+  p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+  p.size.value    = 32;
+  p.size.minimum  = 0;
+  p.size.mappings = {Mapping{}};
+  p.spacing       = .1;
+  p.opacity.value = .5;
+  Canvas whole, split;
+  Stroke a(whole, p), b(split, p);
+  require(a.add(sample(32, 32, 0, .05)) && a.add(sample(33, 32, 1, .05)),
+          a.error().c_str());
+  require(b.add(sample(32, 32, 0, .05)) && b.add(sample(32.499, 32, .499, .05)),
+          b.error().c_str());
+  require(b.dabCount() == 0,
+          "source emitted before future input was available");
+  require(b.add(sample(32.5, 32, .5, .05)), b.error().c_str());
+  require(b.dabCount() == 1, "source excluded exact future input boundary");
+  require(b.add(sample(33, 32, 1, .05)), b.error().c_str());
+  require(a.dabCount() == 2 && b.dabCount() == 2,
+          "source absolute spacing changed exact-boundary stamp count");
+  finishStroke(a);
+  finishStroke(b);
+  require(same(whole, split),
+          "source exact-boundary event split changed pixels");
 }
 void testSourceSubpixelSpacingFloor() {
   // Original D32, half-opacity, four-pixel Qt traces at all three requested
@@ -2892,6 +3407,7 @@ void testSourcePixelBlendCandidates() {
       for (auto &pixel : build.pixels) pixel = base;
       Stroke first(build, p);
       require(first.add(sample(32, 32, 0)), first.error().c_str());
+      finishStroke(first);
       require(equal(build.read(32, 32), expected),
               "source blend analytic alpha case");
       p.wash       = true;
@@ -2917,6 +3433,7 @@ void testSourcePixelBlendCandidates() {
       for (auto &pixel : empty.pixels) pixel = base;
       Stroke zero(empty, p);
       require(zero.add(sample(32, 32, 0)), zero.error().c_str());
+      finishStroke(zero);
       require(equal(empty.read(32, 32), base),
               "zero-flow source wash changed backdrop");
     }
@@ -3271,6 +3788,8 @@ int main() {
   const Case cases[] = {
       {"testNativeEraseCoverage", testNativeEraseCoverage},
       {"testSourceMaskedWash", testSourceMaskedWash},
+      {"testSourceFixedBitmapCaptures", testSourceFixedBitmapCaptures},
+      {"testSourceBitmapWorkBudget", testSourceBitmapWorkBudget},
       {"testSourceMaskedEventBudget", testSourceMaskedEventBudget},
       {"testFloatTransaction", testFloatTransaction},
       {"testSnapshotAndPrepareBudgets", testSnapshotAndPrepareBudgets},
@@ -3293,10 +3812,13 @@ int main() {
       {"testKritaFixedHsvCandidate", testKritaFixedHsvCandidate},
       {"testKritaPressureHsvCandidate", testKritaPressureHsvCandidate},
       {"testKritaJointHsvCandidate", testKritaJointHsvCandidate},
+      {"testKritaMixedPressureHsvCandidate",
+       testKritaMixedPressureHsvCandidate},
       {"testStationaryAndBatching", testStationaryAndBatching},
       {"testNativePressureDeliveryBatches", testNativePressureDeliveryBatches},
       {"testColorDynamics", testColorDynamics},
       {"testCubicCurves", testCubicCurves},
+      {"testPeriodicTimeMapping", testPeriodicTimeMapping},
       {"testSourceDefaultCircle", testSourceDefaultCircle},
       {"testSourceDullingRadiusImpulses", testSourceDullingRadiusImpulses},
       {"testSourceWetPressureColorAttenuation",
@@ -3308,8 +3830,10 @@ int main() {
       {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
       {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
+      {"testSourcePathDirectionGeometry", testSourcePathDirectionGeometry},
       {"testSourceHalfPixelLookahead", testSourceHalfPixelLookahead},
       {"testSourceLookaheadLifecycle", testSourceLookaheadLifecycle},
+      {"testSourceAbsoluteSpacingFloor", testSourceAbsoluteSpacingFloor},
       {"testSourceSubpixelSpacingFloor", testSourceSubpixelSpacingFloor},
       {"testSourceBarrelGeometry", testSourceBarrelGeometry},
       {"testSourceSymmetricTiltRotation", testSourceSymmetricTiltRotation},

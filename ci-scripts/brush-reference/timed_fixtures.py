@@ -55,6 +55,18 @@ def prepare(root, resources, preset_writer, group):
                         'SizeUseSameCurve': 'true', 'SizeValue': '1', 'SizecurveMode': '0',
                         'SizecommonCurve': curve,
                         'SizeSensor': '<params id="speed"><curve>' + curve + '</curve></params>'}, 'speed-cadence-' + str(count)))
+        # Causal clock controls: identical real pacing with independently
+        # scaled device timestamps and shifted device epoch. No inferred clock.
+        for duration in (1250000, 2250000):
+            for periodic in (False, True):
+                for scale, offset in ((1, 0), (2, 0), (2, 1000000)):
+                    curve = '0,0.25;1,1;'
+                    plans.append((duration, True, {
+                        'PressureSize': 'true', 'SizeUseCurve': 'true',
+                        'SizeUseSameCurve': 'true', 'SizeValue': '1', 'SizecurveMode': '0',
+                        'SizecommonCurve': curve,
+                        'SizeSensor': '<params id="time" duration="1000" periodic="' + str(int(periodic)) + '"><curve>' + curve + '</curve></params>'},
+                        'time-clock-' + str(scale) + '-' + str(offset)))
     else:
         raise RuntimeError('Unknown paced acquisition group')
     names, cases = [], []
@@ -83,6 +95,10 @@ def prepare(root, resources, preset_writer, group):
                                      'rect': [864, 992, 320, 64],
                                      'maxLatenessUs': 20000 if duration in (375000, 1125000, 1250000, 2250000) or target.startswith('speed-cadence-') else 250000,
                                      'qualification': 'paced source acquisition; no physical tablet or source parity claim'}})
+        if target.startswith('time-clock-'):
+            scale, offset = map(int, target[len('time-clock-'):].split('-'))
+            cases[-1]['timedProbe'].update(deviceTimestampScale=scale,
+                                           deviceTimestampOffsetMs=offset)
     (root / 'output' / 'fixtures.json').write_text(json.dumps({
         'version': '5.3.4.1', 'group': group, 'presets': names, 'cases': cases,
         'license': 'CC0-1.0', 'width': 2048, 'height': 2048,

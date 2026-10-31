@@ -22,8 +22,12 @@ bool sourcePixelProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
          sourceDefaultProfile(profile);
 }
+bool sourceBitmapProfile(const std::string &profile) {
+  return profile == "krita-5.3.4.1-fixed-bitmap-candidate-1";
+}
 bool sourceProfile(const std::string &profile) {
-  return sourcePixelProfile(profile) || sourceWetProfile(profile);
+  return sourcePixelProfile(profile) || sourceWetProfile(profile) ||
+         sourceBitmapProfile(profile);
 }
 double unit(double v) { return std::max(0.0, std::min(1.0, v)); }
 Pixel clean(Pixel p) {
@@ -172,6 +176,59 @@ Pixel texel(const Image &im, double x, double y, bool repeat) {
   return mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
              mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix), fy - iy);
 }
+// Independent source bitmap model: clamp/upsample to the next admitted
+// pyramid level, then combine inverse rotation, residual scale and subpixel
+// placement in one sample. Do not round the nominal transformed dimensions.
+// On-demand evaluation avoids allocating a transformed bitmap cache.
+Pixel sourceBitmapPixel(const Image &image, double diameter, double angle,
+                        double centerX, double centerY, int x, int y) {
+  const double scale = diameter / std::max(image.width, image.height);
+  const int pyramid  = scale > 1 ? 2 : 1;
+  const int width = image.width * pyramid, height = image.height * pyramid;
+  auto original = [&](int i, int j) {
+    const Pixel value = image.pixels[size_t(j) * image.width + i];
+    // Grayscale resources are byte coverage. Work in byte units so exact
+    // quarter-weight pyramid samples do not gain a byte from normalization
+    // roundoff at an otherwise integral intermediate coverage.
+    return image.color ? value : Pixel{0, 0, 0, std::floor(value.a * 255 + .5)};
+  };
+  auto resized = [&](int i, int j) {
+    if (i < 0 || j < 0 || i >= width || j >= height) return Pixel{};
+    const double u =
+        std::clamp((i + .5) / pyramid - .5, 0.0, double(image.width - 1));
+    const double v =
+        std::clamp((j + .5) / pyramid - .5, 0.0, double(image.height - 1));
+    const int a = int(std::floor(u)), b = int(std::floor(v));
+    const int c = std::min(a + 1, image.width - 1),
+              d = std::min(b + 1, image.height - 1);
+    Pixel value = mix(mix(original(a, b), original(c, b), u - a),
+                      mix(original(a, d), original(c, d), u - a), v - b);
+    if (!image.color && pyramid > 1) value.a = std::ceil(value.a);
+    return value;
+  };
+  const double radians = std::remainder(angle, 360.0) * pi / 180;
+  double c = std::cos(radians), sn = std::sin(radians);
+  // Quarter turns have exact lattice coefficients, including under rotations
+  // stored as full turns. This removes only trig evaluation error.
+  const bool quarter = std::remainder(angle, 90.0) == 0;
+  if (quarter) {
+    c  = std::round(c);
+    sn = std::round(sn);
+  }
+  const double dx = x - centerX, dy = y - centerY + .5;
+  const double u = (c * dx + sn * dy) / scale * pyramid + width * .5 - .5;
+  const double v = (-sn * dx + c * dy) / scale * pyramid + height * .5 - .5;
+  if (u <= -1 || v <= -1 || u >= width || v >= height) return {};
+  const int a = int(std::floor(u)), b = int(std::floor(v));
+  const Pixel value =
+      mix(mix(resized(a, b), resized(a + 1, b), u - a),
+          mix(resized(a, b + 1), resized(a + 1, b + 1), u - a), v - b);
+  if (!image.color)
+    return {0, 0, 0, std::floor(std::clamp(value.a, 0.0, 255.0) + .5) / 255};
+  const double alpha =
+      std::floor(unit(value.a) * 255 + (quarter ? 0 : .5)) / 255;
+  return value.a > 0 ? mul(value, alpha / value.a) : Pixel{};
+}
 Pixel tipPixel(const Tip &tip, size_t index, double x, double y) {
   if (tip.shape == Shape::Bitmap) {
     const auto &image   = *tip.images[index % tip.images.size()];
@@ -293,14 +350,16 @@ std::string validate(const Preset &p) {
   const bool sourceSoft = sourceDefaultProfile(p.profile);
   const bool sourceRect = p.profile == "krita-5.3.4.1-default-rect-candidate-1";
   const bool sourceWet  = sourceWetProfile(p.profile);
-  if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
+  if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet &&
+      !sourceBitmapProfile(p.profile))
     return "Unimplemented behavior profile: " + p.profile;
   if (p.varySeedPerStroke && p.profile != "groundzero-native-1")
     return "Per-stroke seed variation requires the native profile";
   auto linearPressure = [](const Dynamic &value) {
     if (value.minimum != 0 || value.mappings.size() != 1) return false;
     const auto &mapping = value.mappings.front();
-    return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
+    return mapping.sensor == Sensor::Pressure && !mapping.periodic &&
+           mapping.scale == 1 &&
            mapping.interpolation == Interpolation::Linear &&
            mapping.curve.size() == 2 && mapping.curve[0].x == 0 &&
            mapping.curve[0].y == 0 && mapping.curve[1].x == 1 &&
@@ -384,6 +443,36 @@ std::string validate(const Preset &p) {
         p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
   }
+  if (sourceBitmapProfile(p.profile)) {
+    auto fixed = [](const Dynamic &d, double value) {
+      return d.value == value && d.mappings.empty();
+    };
+    if (p.tip.shape != Shape::Bitmap || p.tip.images.empty() ||
+        !p.tip.images[0] || p.tip.randomSequence || p.tip.antialiasEdges ||
+        !p.size.mappings.empty() || !p.angle.mappings.empty() ||
+        !std::isfinite(p.angle.value) || !fixed(p.aspect, 1) ||
+        !fixed(p.opacity, 1) || !fixed(p.flow, 1) || !fixed(p.scatter, 0) ||
+        !fixed(p.countControl, 1) || !fixed(p.backgroundMix, 0) ||
+        !fixed(p.hue, 0) || !fixed(p.saturation, 1) ||
+        !fixed(p.brightness, 1) || p.count != 1 || p.airbrushRate != 0 ||
+        p.wash || p.lockAlpha || p.flipX || p.flipY || p.wet != Wet::Off ||
+        p.blend != Blend::Normal || p.color.a != 1 || p.texture.image ||
+        p.secondary.enabled || p.sourceMasked.enabled ||
+        p.sourceHsvChannel != SourceHsvChannel::Off ||
+        p.sourceHsvV2[0].enabled || p.sourceHsvV2[1].enabled ||
+        p.sourceHsvV2[2].enabled)
+      return "Unimplemented source bitmap combination";
+    const auto &image = *p.tip.images[0];
+    const int extent  = std::max(image.width, image.height);
+    for (const auto &frame : p.tip.images)
+      if (!frame || frame->width != image.width ||
+          frame->height != image.height || frame->color != image.color)
+        return "Source bitmap frames must share geometry/application";
+    if (image.width < 1 || image.height < 1 || extent > 4096 ||
+        (!std::isfinite(p.size.value) || p.size.value < extent ||
+         p.size.value > 2.0 * extent))
+      return "Unimplemented source bitmap scale";
+  }
   const auto &maskSettings = p.sourceMasked;
   for (double value : {maskSettings.diameter, maskSettings.masterSizeCoeff,
                        maskSettings.aspect, maskSettings.spacing,
@@ -419,7 +508,7 @@ std::string validate(const Preset &p) {
       !std::isfinite(p.sourceHsvValue) || p.sourceHsvValue < 0 ||
       p.sourceHsvValue > 1)
     return "Invalid source HSV setting";
-  int hsvV2Active = 0, hsvV2Dynamic = 0;
+  int hsvV2Active = 0;
   for (size_t channel = 0; channel < p.sourceHsvV2.size(); ++channel) {
     const auto &setting = p.sourceHsvV2[channel];
     if (setting.enabled) {
@@ -430,7 +519,6 @@ std::string validate(const Preset &p) {
             setting.control.minimum != 0)
           return "Invalid fixed source HSV V2 control";
       } else {
-        ++hsvV2Dynamic;
         if (setting.control.value != 1 || !linearPressure(setting.control))
           return "Unimplemented source HSV V2 dynamic control";
       }
@@ -438,9 +526,8 @@ std::string validate(const Preset &p) {
                !setting.control.mappings.empty())
       return "Inactive source HSV V2 control must be neutral";
   }
-  if ((hsvV2Dynamic && hsvV2Active > 1) ||
-      (hsvV2Active &&
-       (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5)))
+  if (hsvV2Active &&
+      (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5))
     return "Conflicting source HSV versions or unimplemented composition";
   const bool staticWetHsv =
       sourceWet && !hsvV2Active && p.sourceSmearAlpha && p.smudgeRadius == 0 &&
@@ -506,7 +593,8 @@ std::string validate(const Preset &p) {
       return false;
     for (const auto &m : d.mappings) {
       if (int(m.sensor) < 0 || int(m.sensor) > int(Sensor::DabIndex) ||
-          !range(m.scale, 1e-9, 1e9) || m.curve.empty() ||
+          !range(m.scale, 1e-9, 1e9) ||
+          (m.periodic && m.sensor != Sensor::Time) || m.curve.empty() ||
           m.curve.size() > 1024 || int(m.interpolation) < 0 ||
           int(m.interpolation) > int(Interpolation::NaturalCubic))
         return false;
@@ -577,6 +665,10 @@ std::string validate(const Preset &p) {
   if (!dynamic(p.backgroundMix, 0, 1) || !dynamic(p.hue, -36000, 36000) ||
       !dynamic(p.saturation, 0, 2) || !dynamic(p.brightness, 0, 2))
     return "Invalid color dynamics";
+  // Source color controls share the same bounded sensor contract as native
+  // dynamics, even when their strict source predicate already accepts them.
+  for (const auto &control : p.sourceHsvV2)
+    if (!dynamic(control.control, 0, 1)) return "Invalid source HSV dynamics";
   if (!range(p.pickup, 0, 1) || !range(p.colorRate, 0, 1) ||
       !range(p.reload, 0, 1) || !range(p.smudgeRadius, 0, 3))
     return "Invalid wet brush settings";
@@ -694,6 +786,7 @@ struct Stroke::Impl {
   std::vector<SourcePoint> sourcePath;
   double sourceInputDistance = 0, sourceNextDab = 0;
   bool sourcePressureLookahead = false;
+  Sample sourceFuturePosition;
   double sourceFuturePressure  = 1;
   bool sourceFutureHasPressure = false;
   bool hasInitialDirection     = false;
@@ -901,9 +994,17 @@ struct Stroke::Impl {
                                 !control.control.mappings.empty();
                        });
   }
+  Sample sourceGeometrySample(const Sample &nominal) const {
+    if (sourcePressureLookahead) return sourceFuturePosition;
+    // Tap compatibility is a separate delivery contract. This fallback keeps
+    // existing tap behavior until timed press/release qualification completes.
+    Sample value = nominal;
+    value.x += .5;
+    return value;
+  }
   Sample sourcePressureSample(const Sample &geometric) const {
     Sample value = geometric;
-    if (sourcePressureLookahead) {
+    if (sourcePressureLookahead && needsSourcePressureLookahead()) {
       value.pressure    = sourceFuturePressure;
       value.hasPressure = sourceFutureHasPressure;
     }
@@ -955,12 +1056,10 @@ struct Stroke::Impl {
       if (!appendSourcePoint(s, 0)) return false;
       first = previous = s;
       started          = true;
-      // Size and the admitted HSV V2 channels have measured future-pressure
-      // semantics. Transfer retains its geometric-position sample.
-      if (!needsSourcePressureLookahead()) {
-        if (!dab(s)) return false;
-        sourceNextDab = spacing;
-      }
+      // Every moving hard Pixel mask needs the future path position, even
+      // with fixed size: reverse strokes and corners disprove a fixed +X
+      // offset. Transfer still uses the nominal pressure sample.
+
       return true;
     }
     if (s.time < previous.time) {
@@ -976,7 +1075,9 @@ struct Stroke::Impl {
     sourceInputDistance += distance;
     if (!appendSourcePoint(s, sourceInputDistance)) return false;
     size_t events = 0;
-    while (sourceNextDab + .5 < sourceInputDistance - 1e-12) {
+    // The future sample is available at equality too. Excluding that exact
+    // half-pixel boundary drops the final stamp in small-tip source traces.
+    while (sourceNextDab + .5 <= sourceInputDistance) {
       if (++events > 65536) {
         failure = "Stroke input event work limit exceeded";
         return false;
@@ -984,6 +1085,7 @@ struct Stroke::Impl {
       Sample geometric        = sourceSampleAt(sourceNextDab);
       const Sample future     = sourceSampleAt(sourceNextDab + .5);
       sourcePressureLookahead = true;
+      sourceFuturePosition    = future;
       sourceFuturePressure    = future.pressure;
       sourceFutureHasPressure = future.hasPressure;
       travel                  = sourceNextDab;
@@ -1051,7 +1153,7 @@ struct Stroke::Impl {
       v = double(secondaryEvaluation ? secondaryDabs : dabs);
       break;
     }
-    return unit(v / m.scale);
+    return m.periodic ? wrap(v / m.scale) : unit(v / m.scale);
   }
   double eval(const Dynamic &d, const Sample &s) const {
     double factor = 1;
@@ -1667,10 +1769,10 @@ struct Stroke::Impl {
     const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
     const double diameter =
                      std::max(sourceHard ? .5 : .25, eval(p.size, sizeSample)),
-                 radius       = diameter * .5;
-    spacing                   = sourceHard ? diameter * std::max(.02, p.spacing)
-                                : sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
-                                                           : diameter * p.spacing;
+                 radius = diameter * .5;
+    spacing = sourceHard ? std::max(.5, diameter * std::max(.02, p.spacing))
+              : sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
+                                         : diameter * p.spacing;
     const double aspect       = std::max(.01, eval(p.aspect, s));
     const double angleDegrees = eval(p.angle, s);
     // The measured barrel mapping is periodic; evaluate equivalent angles in
@@ -1700,16 +1802,19 @@ struct Stroke::Impl {
     for (int stamp = 0; stamp < stampCount; ++stamp) {
       const double scatterX = (random() * 2 - 1) * scatter,
                    scatterY = (random() * 2 - 1) * scatter;
-      // Independently measured K5341 hard-circle lattice: integer x and
-      // half-integer y distances from an integral API stroke position. The
-      // native profile retains its pixel-center convention unchanged.
-      const double sourceOffset = sourcePixelProfile(p.profile) ? .5 : 0;
-      const double cx           = s.x + sourceOffset +
+      // The hard Pixel center follows the half-pixel future path position.
+      // Forward lines therefore have the previously measured integer-x /
+      // half-integer-y lattice; reverse and outgoing corners differ. Other
+      // source profiles retain their independently qualified placement.
+      const Sample position = sourceHard ? sourceGeometrySample(s) : s;
+      const double sourceOffset =
+          !sourceHard && sourcePixelProfile(p.profile) ? .5 : 0;
+      const double cx = position.x + sourceOffset +
                         (p.scatterBothAxes ? scatterX
                                            : -std::sin(direction) * scatterX),
-                   cy = s.y + (p.scatterBothAxes
-                                   ? scatterY
-                                   : std::cos(direction) * scatterX);
+                   cy = position.y + (p.scatterBothAxes
+                                          ? scatterY
+                                          : std::cos(direction) * scatterX);
       const int reach = int(std::ceil(radius * 1.415 + 1));
       int x0          = std::max(0, int(std::floor(cx)) - reach),
           y0          = std::max(0, int(std::floor(cy)) - reach);
@@ -1717,8 +1822,9 @@ struct Stroke::Impl {
           y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
       const size_t samples =
-          tipWork(p.tip) + (p.sourceMasked.enabled ? 1 : 0) +
-          (p.texture.image ? 4 : 0) + (p.wet == Wet::Smear ? 4 : 0) +
+          (sourceBitmapProfile(p.profile) ? 16 : tipWork(p.tip)) +
+          (p.sourceMasked.enabled ? 1 : 0) + (p.texture.image ? 4 : 0) +
+          (p.wet == Wet::Smear ? 4 : 0) +
           (p.secondary.enabled && !p.secondary.independentSpacing
                ? size_t(p.secondary.count) * tipWork(p.secondary.tip)
                : 0);
@@ -1817,7 +1923,11 @@ struct Stroke::Impl {
                        vy = fv * c / (radius * aspect);
           Pixel tip;
           double a = 0;
-          if (sourceDefaultProfile(p.profile)) {
+          if (sourceBitmapProfile(p.profile)) {
+            tip = sourceBitmapPixel(*p.tip.images[primaryIndex], diameter,
+                                    angleDegrees, s.x, s.y, x, y);
+            a   = tip.a;
+          } else if (sourceDefaultProfile(p.profile)) {
             // Independently recovered from complete alpha masks at five fade
             // values. Default circles fade in squared distance, with a
             // one-pixel inner radius at zero fade, rather than native linear

@@ -412,7 +412,164 @@ QByteArray archive(
   le(local, 0, 2);
   return local;
 }
+void testSourceBitmapImport() {
+  QString error;
+  for (const QString &variant :
+       {QString("unit"), QString("double"), QString("fractional"),
+        QString("downscale"), QString("rotation"), QString("unknown"),
+        QString("color"), QString("color-image"), QString("wash"),
+        QString("gih-incremental"), QString("gih-random")}) {
+    const bool sequence = variant.startsWith("gih-");
+    QImage image =
+        QImage::fromData(RasterBrushTest::hardPixelKpp(
+                             variant == "wash" ? "freehandWash" : "buildUp"),
+                         "PNG");
+    QString xml          = image.text("preset");
+    const QString marker = "<param name=\"brush_definition\">";
+    const int begin      = xml.indexOf(marker) + marker.size();
+    const int end        = xml.indexOf("</param>", begin);
+    require(begin >= marker.size() && end > begin,
+            "bitmap preset fixture missing definition");
+    QString definition =
+        "<Brush type=\"gbr_brush\" BrushVersion=\"2\" "
+        "filename=\"original.gbr\" "
+        "scale=\"%1\" spacing=\"4\" angle=\"0\" useAutoSpacing=\"0\" "
+        "autoSpacingCoeff=\"1\" ColorAsMask=\"1\" preserveLightness=\"0\"/>";
+    definition = definition.arg(variant == "double"       ? "2"
+                                : variant == "fractional" ? "1.5"
+                                : variant == "downscale"  ? ".75"
+                                                          : "1");
+    if (variant == "rotation")
+      definition.replace("angle=\"0\"", "angle=\"1.5707963267948966\"");
+    if (variant == "color-image" || sequence)
+      definition.replace("ColorAsMask=\"1\"", "ColorAsMask=\"0\"");
+    if (variant == "unknown")
+      definition.replace("<Brush ", "<Brush unimplemented=\"1\" ");
+    if (sequence) definition.replace("original.gbr", "original.gih");
+    xml.replace(begin, end - begin, definition.toHtmlEscaped());
+    image.setText("preset", xml);
+    QByteArray preset;
+    QBuffer output(&preset);
+    output.open(QIODevice::WriteOnly);
+    require(image.save(&output, "PNG"), "cannot encode source bitmap fixture");
+    QByteArray manifest =
+        "<manifest:manifest "
+        "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
+        "manifest:version=\"1.2\"><manifest:file-entry "
+        "manifest:full-path=\"paintoppresets/original.kpp\" "
+        "manifest:media-type=\"paintoppresets\"/><manifest:file-entry "
+        "manifest:full-path=\"brushes/original.gbr\" "
+        "manifest:media-type=\"brushes\"/></manifest:manifest>";
+    QByteArray resource =
+        gbr(2, variant.startsWith("color") || sequence ? 4 : 1);
+    if (sequence) {
+      manifest.replace("original.gbr", "original.gih");
+      resource =
+          "Original sequence\n3 ncells:3 step:400 dim:1 cols:1 rows:1 "
+          "cellwidth:2 cellheight:1 rank0:3 selection:" +
+          (variant == "gih-random" ? QByteArray("random\n")
+                                   : QByteArray("incremental\n"));
+      for (int frame = 0; frame < 3; ++frame) {
+        QByteArray image = gbr(2, 4);
+        for (int pixel = 0; pixel < 2; ++pixel)
+          for (int component = 0; component < 4; ++component)
+            image[image.size() - 8 + pixel * 4 + component] =
+                char(component == frame || component == 3 ? 255 : 0);
+        resource += image;
+      }
+    }
+    const auto imported =
+        importBrush(archive({{"mimetype", "application/x-krita-resourcebundle"},
+                             {"META-INF/manifest.xml", manifest},
+                             {"paintoppresets/original.kpp", preset},
+                             {sequence ? QByteArray("brushes/original.gih")
+                                       : QByteArray("brushes/original.gbr"),
+                              resource}},
+                            true),
+                    "bundle", error);
+    require(error.isEmpty() && imported.records.size() == 1,
+            "source bitmap bundle failed");
+    const bool candidate = variant == "unit" || variant == "double" ||
+                           variant == "fractional" || variant == "rotation" ||
+                           variant == "color-image" ||
+                           variant == "gih-incremental";
+    const auto &record = imported.records.front();
+    require(
+        (record.preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1") ==
+            candidate,
+        "source bitmap admission ignored exact settings or resource origin");
+    if (!candidate) continue;
+    const auto restored = decode(encode(record, error), error);
+    require(
+        error.isEmpty() && restored.decoded &&
+            restored.preset.profile == record.preset.profile &&
+            restored.preset.tip.images[0]->width == 2 &&
+            restored.preset.tip.images[0]->pixels[0].a == 1 &&
+            restored.preset.tip.images[0]->pixels[1].a == (sequence ? 1 : 0),
+        "source bitmap codec changed candidate/resources");
+    const auto portable = importBrush(
+        encodePortable(record, ResourcePackaging::PrivateCopy, error),
+        "gzbrush", error);
+    require(error.isEmpty() && portable.records.size() == 1 &&
+                portable.records[0].preset.profile == record.preset.profile &&
+                !record.provenance["sourceReferenceVerified"].toBool(),
+            "source bitmap portable reopen lost profile or invented parity");
+    if (sequence) {
+      require(restored.preset.tip.images.size() == 3 &&
+                  !restored.preset.tip.randomSequence,
+              "Incremental GIH portable order changed");
+      struct Canvas : Surface {
+        std::vector<Pixel> pixels = std::vector<Pixel>(512 * 32);
+        int width() const override { return 512; }
+        int height() const override { return 32; }
+        bool prepare(int x0, int y0, int x1, int y1) override {
+          return x0 >= 0 && y0 >= 0 && x1 <= width() && y1 <= height();
+        }
+        Pixel read(int x, int y) const override {
+          return pixels.at(y * 512 + x);
+        }
+        void write(int x, int y, const Pixel &p) override {
+          pixels.at(y * 512 + x) = p;
+        }
+        double coverage(int, int) const override { return 1; }
+      };
+      for (bool endpointAtSlot : {false, true})
+        for (bool split : {false, true}) {
+          Canvas canvas;
+          Stroke stroke(canvas, portable.records[0].preset);
+          Sample point;
+          point.x = 10;
+          point.y = 10;
+          require(stroke.add(point), stroke.error().c_str());
+          if (split) {
+            point.x    = 133;
+            point.time = .5;
+            require(stroke.add(point), stroke.error().c_str());
+          }
+          point.x    = endpointAtSlot ? 258 : 259;
+          point.time = 1;
+          require(stroke.add(point) && stroke.finish(), stroke.error().c_str());
+          const int count = endpointAtSlot ? 31 : 32;
+          require(stroke.dabCount() == size_t(count),
+                  "Source GIH count/endpoints changed");
+          if (endpointAtSlot)
+            require(canvas.read(258, 10).a == 0,
+                    "Source GIH painted the excluded final endpoint");
+          for (int dab = 0; dab < count; ++dab) {
+            const Pixel pixel       = canvas.read(10 + 8 * dab, 10);
+            const double channels[] = {pixel.r, pixel.g, pixel.b};
+            require(
+                pixel.a > 0 && channels[dab % 3] > .99 * pixel.a &&
+                    channels[(dab + 1) % 3] == 0 &&
+                    channels[(dab + 2) % 3] == 0,
+                "Source GIH did not advance per dab or restart at frame zero");
+          }
+        }
+    }
+  }
+}
 void testBundles() {
+  testSourceBitmapImport();
   QByteArray manifest =
       "<manifest:manifest "
       "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
@@ -1001,6 +1158,34 @@ void testImports() {
                         control.mappings[0].curve.size() == 2 &&
                         control.mappings[0].curve[1].y == 1,
                     "source HSV V2 portable control lost");
+            // A forged periodic pressure field used to bypass the generic
+            // dynamic validator and wrap full pressure from one back to zero.
+            auto periodic = restored;
+            periodic.preset.sourceHsvV2[index].control.mappings[0].periodic =
+                true;
+            require(encode(periodic, error).isEmpty() && !error.isEmpty(),
+                    "periodic source HSV pressure encoded");
+            auto document =
+                QJsonDocument::fromJson(encode(restored, error)).object();
+            require(error.isEmpty(), "valid source HSV failed encoding");
+            auto settings       = document["settings"].toObject();
+            auto controls       = settings["sourceHsvControlsV2"].toArray();
+            auto channel        = controls[index].toObject();
+            auto dynamic        = channel["control"].toObject();
+            auto mappings       = dynamic["mappings"].toArray();
+            auto mapping        = mappings[0].toObject();
+            mapping["periodic"] = true;
+            mappings[0]         = mapping;
+            dynamic["mappings"] = mappings;
+            channel["control"]  = dynamic;
+            controls[index]     = channel;
+            settings["sourceHsvControlsV2"] = controls;
+            document["settings"]            = settings;
+            const auto malformed =
+                decode(QJsonDocument(document).toJson(), error);
+            require(!malformed.decoded && !error.isEmpty(),
+                    "decoder admitted periodic source HSV pressure");
+            error.clear();
             auto conflict                    = restored;
             conflict.preset.sourceHsvChannel = SourceHsvChannel::Hue;
             require(encode(conflict, error).isEmpty(),
@@ -1008,8 +1193,16 @@ void testImports() {
             conflict = restored;
             conflict.preset.sourceHsvV2[(index + 1) % 3] =
                 conflict.preset.sourceHsvV2[index];
+            const auto joint = decode(encode(conflict, error), error);
+            require(error.isEmpty() &&
+                        joint.preset.sourceHsvV2[index].enabled &&
+                        joint.preset.sourceHsvV2[(index + 1) % 3].enabled,
+                    "joint pressure HSV portable controls lost");
+            conflict.preset.sourceHsvV2[(index + 1) % 3]
+                .control.mappings[0]
+                .sensor = Sensor::TiltX;
             require(encode(conflict, error).isEmpty(),
-                    "unqualified joint HSV encoded");
+                    "unqualified joint tilt HSV encoded");
             error.clear();
           }
         }
@@ -1133,18 +1326,21 @@ void testImports() {
                      .toBool(),
             "Time conversion improperly admitted a source profile");
     const auto &maps     = importedTime.records.front().preset.size.mappings;
-    const bool supported = attributes == "duration=\"1000\" periodic=\"0\"";
+    const bool supported = attributes.startsWith("duration=\"1000\"");
+    const bool periodic  = attributes.endsWith("periodic=\"1\"");
     require(supported ? maps.size() == 1 && maps[0].sensor == Sensor::Time &&
-                            maps[0].scale == 1
+                            maps[0].scale == 1 && maps[0].periodic == periodic
                       : maps.empty(),
             "Time conversion guessed absent or unmeasured period semantics");
     if (supported) {
       auto reopened =
           decode(encode(importedTime.records.front(), error), error);
-      require(error.isEmpty() && reopened.preset.size.mappings.size() == 1 &&
-                  reopened.preset.size.mappings[0].sensor == Sensor::Time &&
-                  reopened.preset.size.mappings[0].scale == 1,
-              "Native time unit conversion did not survive preset reopen");
+      require(
+          error.isEmpty() && reopened.preset.size.mappings.size() == 1 &&
+              reopened.preset.size.mappings[0].sensor == Sensor::Time &&
+              reopened.preset.size.mappings[0].scale == 1 &&
+              reopened.preset.size.mappings[0].periodic == periodic,
+          "Native time cycle/unit conversion did not survive preset reopen");
     }
   }
   // Unknown source curve declarations must not be qualified merely because
@@ -1188,8 +1384,9 @@ void testImports() {
     const auto &preset = transfer.records.front().preset;
     const auto &control =
         variant == "wetOpacityPressure" ? preset.opacity : preset.flow;
-    require(control.mappings.size() == (variant == "wetFlowDisabled" ? 0u : 1u),
-            "Pixel pressure enable flag not preserved");
+    require(control.mappings.size() == 1,
+            "Pixel UseCurve was incorrectly disabled by retained Pressure "
+            "metadata");
     const auto restored =
         decode(encode(transfer.records.front(), error), error);
     require(
@@ -1200,35 +1397,45 @@ void testImports() {
         "Pixel pressure transfer lost on portable round trip");
   }
   for (const QString target : {"Opacity", "Flow"})
-    for (bool local : {false, true}) {
-      QImage image =
-          QImage::fromData(hardPixelKpp("wet" + target + "Pressure"), "PNG");
-      QString xml = image.text("preset");
-      xml.replace("0,0;1,1;", "0,0;.5,1;1,0;");
-      if (local)
-        xml.replace("<param name=\"" + target + "UseSameCurve\">true</param>",
-                    "<param name=\"" + target + "UseSameCurve\">false</param>");
-      image.setText("preset", xml);
-      QByteArray bytes;
-      QBuffer buffer(&bytes);
-      buffer.open(QIODevice::WriteOnly);
-      require(image.save(&buffer, "PNG"),
-              "cannot encode transfer curve fixture");
-      auto imported = importBrush(bytes, "kpp", error);
-      require(imported.complete && imported.records.size() == 1 &&
-                  imported.records.front().preset.profile ==
-                      "krita-5.3.4.1-hard-pixel-candidate-1",
-              "source pressure spline lost candidate eligibility");
-      auto restored = decode(encode(imported.records.front(), error), error);
-      const auto &control =
-          target == "Opacity" ? restored.preset.opacity : restored.preset.flow;
-      require(
-          error.isEmpty() && control.mappings.size() == 1 &&
-              control.mappings.front().interpolation ==
-                  Interpolation::NaturalCubic &&
-              control.mappings.front().curve.size() == 3,
-          "source pressure spline lost interpolation on portable round trip");
-    }
+    for (bool enabledFlag : {false, true})
+      for (bool local : {false, true}) {
+        QImage image =
+            QImage::fromData(hardPixelKpp("wet" + target + "Pressure"), "PNG");
+        QString xml = image.text("preset");
+        if (!enabledFlag) {
+          const QString flag =
+              "<param name=\"Pressure" + target + "\">true</param>";
+          require(xml.count(flag) == 1,
+                  "missing transfer pressure flag control");
+          xml.replace(flag,
+                      "<param name=\"Pressure" + target + "\">false</param>");
+        }
+        xml.replace("0,0;1,1;", "0,0;.5,1;1,0;");
+        if (local)
+          xml.replace(
+              "<param name=\"" + target + "UseSameCurve\">true</param>",
+              "<param name=\"" + target + "UseSameCurve\">false</param>");
+        image.setText("preset", xml);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        require(image.save(&buffer, "PNG"),
+                "cannot encode transfer curve fixture");
+        auto imported = importBrush(bytes, "kpp", error);
+        require(imported.complete && imported.records.size() == 1 &&
+                    imported.records.front().preset.profile ==
+                        "krita-5.3.4.1-hard-pixel-candidate-1",
+                "source pressure spline lost candidate eligibility");
+        auto restored = decode(encode(imported.records.front(), error), error);
+        const auto &control = target == "Opacity" ? restored.preset.opacity
+                                                  : restored.preset.flow;
+        require(
+            error.isEmpty() && control.mappings.size() == 1 &&
+                control.mappings.front().interpolation ==
+                    Interpolation::NaturalCubic &&
+                control.mappings.front().curve.size() == 3,
+            "source pressure spline lost interpolation on portable round trip");
+      }
   for (const QString axis : {"xtilt", "ytilt"}) {
     QImage image = QImage::fromData(hardPixelKpp("barrel"), "PNG");
     QString xml  = image.text("preset");
@@ -1481,6 +1688,33 @@ void testImports() {
           "generated KPP antialias choice was discarded");
   require(!dry.records[0].provenance["sourceSemanticallySupported"].toBool(),
           "KPP approximation claimed exact");
+  for (const QString &shape : {QString("circle"), QString("rect")}) {
+    QImage image = QImage::fromData(kpp(), "PNG");
+    QString xml  = image.text("preset");
+    xml.replace("id=\"default\"", "id=\"gauss\"");
+    xml.replace("type=\"circle\"", "type=\"" + shape + "\"");
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    require(image.save(&buffer, "PNG"), "Gaussian fixture encoding failed");
+    auto converted = importBrush(bytes, "kpp", error);
+    require(converted.complete && converted.records.size() == 1,
+            "Gaussian native conversion failed");
+    const auto &record = converted.records.front();
+    require(
+        record.preset.tip.shape == Shape::Gaussian &&
+            record.provenance["conversionKind"] == "partial-native" &&
+            record.provenance["sourceGeneratedMaskV1"].toObject()["shape"] ==
+                shape &&
+            record.provenance["conversionReport"].toString().contains(
+                "native Gaussian approximation"),
+        "Gaussian source approximation lost explicit provenance");
+    auto reopened = decode(encode(record, error), error);
+    require(error.isEmpty() && reopened.provenance["sourceGeneratedMaskV1"] ==
+                                   record.provenance["sourceGeneratedMaskV1"],
+            "Gaussian source metadata lost on portable roundtrip");
+  }
   auto wet = importBrush(kpp("colorsmudge"), "kpp", error);
   require(wet.complete, qPrintable(error));
   require(wet.records[0].preset.wet == Wet::Dulling,

@@ -50,6 +50,8 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QTableWidget>
 #include <QDoubleSpinBox>
 #include <QInputDialog>
 #include <QDialogButtonBox>
@@ -57,6 +59,7 @@
 #include <QLabel>
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -129,9 +132,12 @@ void requireSame(const TRaster32P &expected, const TRaster32P &actual,
   }
   throw std::runtime_error(context.toStdString());
 }
-TRaster32P raster(TXshSimpleLevel *level, int frame) {
-  TRasterImageP image(level->getFrame(TFrameId(frame), true));
+TRaster32P raster(TXshSimpleLevel *level, const TFrameId &frame) {
+  TRasterImageP image(level->getFrame(frame, true));
   return image ? TRaster32P(image->getRaster()) : TRaster32P();
+}
+TRaster32P raster(TXshSimpleLevel *level, int frame) {
+  return raster(level, TFrameId(frame));
 }
 void checkpoint(const char *stage) {
   std::cerr << "raster-brush-integration: " << stage << std::endl;
@@ -149,7 +155,8 @@ void tap(TTool *tool) {
   settle();
 }
 void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
-          double rotation = .4, bool uprightReturn = false) {
+          double rotation = .4, bool uprightReturn = false,
+          const std::function<void()> &beforeRelease = {}) {
   require(tool->preLeftButtonDown(), "brush refused prepared raster");
   TMouseEvent event;
   event.m_button   = Qt::LeftButton;
@@ -171,6 +178,7 @@ void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
     }
     tool->leftButtonDrag(TPointD(-30 + 3 * i, 0), event);
   }
+  if (beforeRelease) beforeRelease();
   if (cancel) {
     QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     require(tool->keyDown(&escape), "native stroke did not handle Escape");
@@ -304,6 +312,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       settle();
       tool->onImageChanged();
       level->eraseFrame(TFrameId(2));
+      app->getCurrentLevel()->notifyLevelChange();
+      settle();
       undo->reset();
     };
     checkpoint("qualifying native editor scratchpad isolation and cancel");
@@ -346,6 +356,131 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "native editor scratchpad did not paint, clear and regenerate");
       require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
               "cancelled native editor scratchpad changed document or undo");
+    }
+    checkpoint("qualifying periodic Time dynamics editor persistence");
+    {
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original periodic Time editor fixture";
+      RasterBrush::Mapping clock;
+      clock.sensor   = RasterBrush::Sensor::Time;
+      clock.periodic = true;
+      fixture.preset.size.mappings.push_back(clock);
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString original =
+          RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !original.isEmpty(),
+              "cannot install periodic editor fixture");
+      const QByteArray originalBytes = RasterBrush::readBoundedRegularFile(
+          original, 64 * 1024 * 1024, importError);
+      require(importError.isEmpty(),
+              "cannot read original periodic editor fixture");
+      const auto originalSelection =
+          QDir(folder).relativeFilePath(original).toStdWString();
+      const auto baseline = raster(level, 1)->clone();
+      for (bool accept : {false, true}) {
+        tool->onActivate();
+        property->setValue(originalSelection);
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select periodic editor fixture");
+        bool periodicSeen = false, timeOnly = false;
+        QTimer::singleShot(0, [&] {
+          auto editor =
+              qobject_cast<QDialog *>(QApplication::activeModalWidget());
+          if (!editor) return;
+          auto button =
+              editor->findChild<QPushButton *>("nativeBrushSizeDynamics");
+          if (!button) {
+            editor->reject();
+            return;
+          }
+          QTimer::singleShot(0, [&] {
+            auto dynamics =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dynamics) return;
+            auto table =
+                dynamics->findChild<QTableWidget *>("nativeBrushDynamicsTable");
+            if (table && table->rowCount() == 1 && table->columnCount() == 5) {
+              auto sensor = qobject_cast<QComboBox *>(table->cellWidget(0, 0));
+              auto repeat = qobject_cast<QCheckBox *>(table->cellWidget(0, 4));
+              if (sensor && repeat) {
+                periodicSeen =
+                    repeat->isEnabled() && repeat->isChecked() &&
+                    sensor->currentIndex() == int(RasterBrush::Sensor::Time);
+                sensor->setCurrentIndex(int(RasterBrush::Sensor::Pressure));
+                timeOnly = !repeat->isEnabled() && !repeat->isChecked();
+                sensor->setCurrentIndex(int(RasterBrush::Sensor::Time));
+                timeOnly =
+                    timeOnly && repeat->isEnabled() && !repeat->isChecked();
+                repeat->setChecked(true);
+                table->item(0, 1)->setText("2");
+              }
+            }
+            auto buttons = dynamics->findChild<QDialogButtonBox *>();
+            if (buttons && periodicSeen && timeOnly)
+              buttons->button(QDialogButtonBox::Ok)->click();
+            else
+              dynamics->reject();
+          });
+          button->click();
+          auto buttons = editor->findChild<QDialogButtonBox *>();
+          if (!accept || !periodicSeen || !timeOnly || !buttons) {
+            editor->reject();
+            return;
+          }
+          QTimer::singleShot(0, [] {
+            if (auto name = qobject_cast<QInputDialog *>(
+                    QApplication::activeModalWidget()))
+              name->accept();
+          });
+          buttons->button(QDialogButtonBox::Ok)->click();
+        });
+        property->setValue(L"<edit>");
+        require(tool->onPropertyChanged("Native Brush:") && periodicSeen &&
+                    timeOnly,
+                "periodic Time editor lost its repeat setting or admitted "
+                "another repeating sensor");
+        require(RasterBrush::readBoundedRegularFile(
+                    original, 64 * 1024 * 1024, importError) == originalBytes &&
+                    importError.isEmpty() && same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "periodic editor modified original preset or document");
+        if (!accept) {
+          require(property->getValue() == originalSelection,
+                  "cancelled periodic editor selected a copy");
+          continue;
+        }
+        const QString savedPath = QDir(folder).filePath(
+            QString::fromStdWString(property->getValue()));
+        const auto saved = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), savedPath, importError);
+        require(importError.isEmpty() && saved.complete &&
+                    saved.records.size() == 1,
+                "cannot reopen saved periodic editor preset");
+        const auto &mappings = saved.records.front().preset.size.mappings;
+        require(mappings.size() == 1 &&
+                    mappings.front().sensor == RasterBrush::Sensor::Time &&
+                    mappings.front().periodic && mappings.front().scale == 2,
+                "editing and saving discarded periodic Time semantics");
+        const QString portable =
+            QDir::current().filePath("periodic-time-editor.gzbrush");
+        require(RasterBrush::savePortable(
+                    portable, saved.records.front(),
+                    RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                "cannot export periodic editor preset");
+        const auto reopened = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), portable, importError);
+        require(
+            importError.isEmpty() && reopened.complete &&
+                reopened.records.size() == 1 &&
+                reopened.records.front().preset.size.mappings.size() == 1 &&
+                reopened.records.front()
+                    .preset.size.mappings.front()
+                    .periodic &&
+                reopened.records.front().preset.size.mappings.front().scale ==
+                    2,
+            "portable reimport discarded periodic editor setting");
+      }
     }
     checkpoint(
         "qualifying scratchpad tablet pressure and elapsed-time dynamics");
@@ -1094,17 +1229,74 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         app->getCurrentFrame()->setFid(TFrameId(6));
         settle();
         tool->onImageChanged();
-        draw(tool, true, .8);
+        const TFrameId selectedEmptyFid = app->getCurrentFrame()->getFid();
+        TFrameId createdSourceFid;
+        bool createdSourceFrame = false;
+        draw(tool, true, .8, .2, .4, false, [&] {
+          createdSourceFid   = app->getCurrentFrame()->getFid();
+          createdSourceFrame = bool(level->getFrame(createdSourceFid, false));
+        });
+        checkpoint(qPrintable(
+            QString(
+                "source cancellation context: kind=%1 "
+                "selected=%2 created=%3 existedBeforeEscape=%4 afterEscape=%5")
+                .arg(kind)
+                .arg(selectedEmptyFid.getNumber())
+                .arg(createdSourceFid.getNumber())
+                .arg(createdSourceFrame)
+                .arg(app->getCurrentFrame()->getFid().getNumber())));
+        require(selectedEmptyFid == TFrameId(6) &&
+                    createdSourceFid == TFrameId(6) && createdSourceFrame,
+                "source cancellation fixture did not create its selected empty "
+                "frame");
         require(!level->getFrame(TFrameId(6), false) &&
                     undo->getHistoryCount() == 0,
                 "cancelled source painting retained a new frame");
+        const auto retrySelection = property->getValue();
+        const TFrameId retryFid   = app->getCurrentFrame()->getFid();
+        const bool retryLevelMode = app->getCurrentFrame()->isEditingLevel();
+        // Deleting a drawing may move the viewer to its empty next-frame
+        // placeholder. Retry at the user's actual selected target, retaining
+        // the separate frame6-before-Escape and cleanup assertions above.
+        require(retryLevelMode &&
+                    app->getCurrentLevel()->getSimpleLevel() == level &&
+                    !retryFid.isEmptyFrame() &&
+                    !level->getFrame(retryFid, false),
+                "cancelled source stroke did not leave an empty selected frame "
+                "in its level");
+        QStringList retryWarnings;
+        QObject retryCapture;
+        QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage,
+                         &retryCapture, [&](int type, const QString &message) {
+                           if (type == DVGui::WARNING) retryWarnings << message;
+                         });
         draw(tool, false, .8);
-        require(bool(raster(level, 6)) && undo->getHistoryCount() == 1,
-                "source painting did not create one frame transaction");
-        const TRaster32P created = raster(level, 6)->clone();
-        require(undo->undo() && !level->getFrame(TFrameId(6), false) &&
-                    undo->redo() && same(created, raster(level, 6)) &&
-                    undo->undo() && !level->getFrame(TFrameId(6), false),
+        require(
+            bool(raster(level, retryFid)) && undo->getHistoryCount() == 1 &&
+                app->getCurrentFrame()->getFid() == retryFid &&
+                app->getCurrentLevel()->getSimpleLevel() == level &&
+                property->getValue() == retrySelection,
+            qPrintable(
+                QString(
+                    "source painting did not create one frame transaction: "
+                    "kind=%1 frameExists=%2 history=%3 fidBefore=%4 "
+                    "fidAfter=%5 "
+                    "levelModeBefore=%6 levelModeAfter=%7 levelPreserved=%8 "
+                    "selectionPreserved=%9 warnings=%10")
+                    .arg(kind)
+                    .arg(bool(raster(level, retryFid)))
+                    .arg(undo->getHistoryCount())
+                    .arg(retryFid.getNumber())
+                    .arg(app->getCurrentFrame()->getFid().getNumber())
+                    .arg(retryLevelMode)
+                    .arg(app->getCurrentFrame()->isEditingLevel())
+                    .arg(app->getCurrentLevel()->getSimpleLevel() == level)
+                    .arg(property->getValue() == retrySelection)
+                    .arg(retryWarnings.join(" | "))));
+        const TRaster32P created = raster(level, retryFid)->clone();
+        require(undo->undo() && !level->getFrame(retryFid, false) &&
+                    undo->redo() && same(created, raster(level, retryFid)) &&
+                    undo->undo() && !level->getFrame(retryFid, false),
                 "source painting new-frame undo/redo changed pixels or state");
         undo->reset();
         app->getCurrentFrame()->setFid(TFrameId(1));

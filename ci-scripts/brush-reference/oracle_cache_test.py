@@ -50,6 +50,56 @@ class OracleCacheTest(unittest.TestCase):
         (self.output / "Original_dry.png").write_bytes(png())
         (self.output / "Original_dry.repeat-1.png").write_bytes(png())
 
+    def test_acquisition_scripts_exclude_only_known_generation_and_tests(self):
+        source = Path(self.temp.name) / "scripts"
+        source.mkdir()
+        names = ("hsv_joint_fixtures.py", "oracle_cache_test.py", "prepare.py",
+                 "unknown_fixtures.py", "gzbrush_reference/sensor_probe.py")
+        for name in names:
+            path = source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"original")
+        baseline = cache.acquisition_scripts(source)
+        for name in names[:2]:
+            (source / name).write_bytes(b"unrelated edit")
+            self.assertEqual(baseline, cache.acquisition_scripts(source))
+        for name in names[2:]:
+            (source / name).write_bytes(b"acquisition edit")
+            self.assertNotEqual(baseline, cache.acquisition_scripts(source))
+            (source / name).write_bytes(b"original")
+        before = cache.inventory(self.output)
+        (self.output / "fixtures.json").write_bytes(b"changed generated input")
+        self.assertNotEqual(before, cache.inventory(self.output))
+
+    def test_matrix_only_edits_do_not_hide_acquisition_changes(self):
+        workflow = (b"    runs-on: ubuntu-22.04\n"
+                    b"        fixture_group: ${{ fromJSON('[one]') }}\n"
+                    b"    env: {LANG: C}\n"
+                    b"        run: xvfb-run source-app\n"
+                    b"      - name: Seal complete source acquisition\n"
+                    b"        run: validate-and-seal\n"
+                    b"      - name: Report source parameter probes\n"
+                    b"        run: report-metadata\n")
+        baseline = cache.acquisition_workflow(workflow)
+        self.assertEqual(baseline, cache.acquisition_workflow(
+            workflow.replace(b"[one]", b"[one,two]")))
+        self.assertEqual(baseline, cache.acquisition_workflow(
+            workflow.replace(b"report-metadata", b"expanded-report-metadata")))
+        for old, new in ((b"validate-and-seal", b"changed-validation"),
+                         (b"ubuntu-22.04", b"ubuntu-24.04"),
+                         (b"LANG: C", b"LANG: changed"),
+                         (b"xvfb-run", b"changed-render")):
+            self.assertNotEqual(baseline, cache.acquisition_workflow(
+                workflow.replace(old, new)))
+        for malformed in (workflow.replace(b"fixture_group:", b"other:"),
+                          workflow + b"        fixture_group: ${{ duplicate }}\n",
+                          workflow.replace(b" }}", b"\n          }}"),
+                          workflow.replace(b"Seal complete source acquisition", b"missing seal"),
+                          workflow.replace(b"Report source parameter probes", b"missing boundary"),
+                          workflow + b"      - name: Report source parameter probes\n"):
+            with self.assertRaises(ValueError):
+                cache.acquisition_workflow(malformed)
+
     def sealed(self):
         cache.seal(self.root, self.destination, self.expected)
         for name in ("oracle-status.json", "Original_dry.effective.xml", "Original_dry.png", "Original_dry.repeat-1.png"):
@@ -200,6 +250,94 @@ class OracleCacheTest(unittest.TestCase):
                               (transparent + bytes([0, 0, 0, 255]), hidden + bytes([0, 1, 0, 255]))):
             self.assertNotEqual(pixels.canonical_hash(first), pixels.canonical_hash(second))
             self.assertEqual(pixels.differences(first, second)["visibleOrAlphaChangedPixels"], 1)
+
+    def test_repeat_canonical_mask_matches_pixelwise_definition(self):
+        import hashlib
+        import importlib.util
+        import random
+        spec = importlib.util.spec_from_file_location("repeat_pixels", Path(__file__).parent / "gzbrush_reference/repeat_pixels.py")
+        pixels = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pixels)
+        random_source = random.Random(0x52474241)
+        for count in (0, 1, 7, 256, 4097):
+            raw = bytearray(random_source.randrange(256) for _ in range(count * 4))
+            for index in range(count):
+                raw[4 * index + 3] = (0, 1, 127, 255)[index % 4]
+            expected = bytearray(raw)
+            for offset in range(0, len(expected), 4):
+                if expected[offset + 3] == 0:
+                    expected[offset:offset + 3] = bytes(3)
+            self.assertEqual(pixels.canonical_hash(bytes(raw)), hashlib.sha256(expected).hexdigest())
+            self.assertEqual(pixels.differences(bytes(raw), bytes(raw)),
+                             {"hiddenRgbOnlyPixels": 0, "visibleOrAlphaChangedPixels": 0})
+        with self.assertRaises(ValueError):
+            pixels.canonical_hash(b"bad")
+
+    def test_repeat_differences_match_pixelwise_definition_across_chunks(self):
+        import importlib.util
+        import random
+        spec = importlib.util.spec_from_file_location("repeat_pixels", Path(__file__).parent / "gzbrush_reference/repeat_pixels.py")
+        pixels = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pixels)
+        source = random.Random(0x44494646)
+        for count in (0, 1, 7, 256, 65537):
+            first = bytearray(source.randrange(256) for _ in range(count * 4))
+            second = bytearray(first)
+            for index in range(count):
+                offset = index * 4
+                first[offset + 3] = second[offset + 3] = (0, 1, 127, 255)[index % 4]
+                if index % 3:
+                    second[offset + index % 4] ^= 255
+            hidden = visible = 0
+            for offset in range(0, len(first), 4):
+                if first[offset:offset + 4] != second[offset:offset + 4]:
+                    if first[offset + 3] == second[offset + 3] == 0:
+                        hidden += 1
+                    else:
+                        visible += 1
+            self.assertEqual(pixels.differences(bytes(first), bytes(second)),
+                             {"hiddenRgbOnlyPixels": hidden, "visibleOrAlphaChangedPixels": visible})
+            self.assertEqual(pixels.differences(bytes(second), bytes(first)),
+                             {"hiddenRgbOnlyPixels": hidden, "visibleOrAlphaChangedPixels": visible})
+        for first, second in ((b"bad", b"bad"), (bytes(4), bytes(8))):
+            with self.assertRaises(ValueError):
+                pixels.differences(first, second)
+
+    def test_fixed_readback_checkpoint_never_selects_a_favorable_capture(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("repeat_pixels", Path(__file__).parent / "gzbrush_reference/repeat_pixels.py")
+        pixels = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pixels)
+        clear, hidden, painted = bytes(4), bytes([7, 9, 11, 0]), bytes([1, 2, 3, 255])
+        for first, second, reset, fails in (
+                (painted, painted, None, False),
+                (clear, hidden, None, False),
+                (painted, clear, None, True),
+                (clear, painted, None, True),
+                (clear, hidden, clear, True),
+                (clear, clear, clear, False)):
+            with self.subTest(first=first, second=second, reset=reset):
+                observations = iter((first, second))
+                read = mock.Mock(side_effect=lambda: next(observations))
+                wait = mock.Mock()
+                capture = pixels.capture_checkpoint(read, wait, 4, "diagnostic", reset)
+                self.assertEqual(next(capture), 20)
+                if fails:
+                    with self.assertRaisesRegex(RuntimeError, "fixed Qt checkpoint"):
+                        next(capture)
+                else:
+                    with self.assertRaises(StopIteration) as result:
+                        next(capture)
+                    self.assertEqual(result.exception.value[0], first)
+                self.assertEqual(read.call_count, 2)
+                self.assertEqual(wait.call_count, 2)
+        for initial, reset, message in ((b"bad", None, "Incomplete"),
+                                         (painted, clear, "reset readback differs")):
+            read = mock.Mock(return_value=initial)
+            capture = pixels.capture_checkpoint(read, mock.Mock(), 4, "diagnostic", reset)
+            with self.assertRaisesRegex(RuntimeError, message):
+                next(capture)
+            self.assertEqual(read.call_count, 1)
 
     def test_explicit_source_pressure_mode_is_retained(self):
         self.case["sourcePressureFlag"] = True

@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import struct
 import zlib
+from mask_repeat_contract import contract as mask_repeat_contract
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
@@ -64,6 +65,7 @@ resources = root / "data" / "krita"
 (root / "output").mkdir(parents=True, exist_ok=True)
 source = Path(__file__).resolve().parent
 shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_reference", dirs_exist_ok=True)
+shutil.copyfile(source / "mask_repeat_contract.py", resources / "pykrita" / "gzbrush_reference" / "mask_repeat_contract.py")
 (resources / "pykrita" / "gzbrush_reference.desktop").write_text("[Desktop Entry]\nType=Service\nServiceTypes=Krita/PythonPlugin\nX-KDE-Library=gzbrush_reference\nX-Python-2-Compatible=false\nName=Brush Reference Fixtures\nComment=Render original API-line fixtures for brush qualification\n")
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 def finalize_input_contract():
@@ -80,9 +82,48 @@ def finalize_input_contract():
 
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group == "lab-conversion":
+    from hsv_joint_fixtures import prepare as prepare_hsv
+    prepare_hsv(root, resources, preset, "hsvchroma")
+    path = root / "output" / "fixtures.json"
+    fixture = json.loads(path.read_text())
+    fixture["cases"] = fixture["cases"][:1]  # Original disabled dry control.
+    fixture["presets"] = [fixture["cases"][0]["preset"]]
+    fixture["group"] = group
+    path.write_text(json.dumps(fixture, indent=2))
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "generatedtips":
+    from generated_tip_fixtures import prepare as prepare_generated
+    prepare_generated(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "wetdrift":
+    from wet_drift_fixtures import prepare as prepare_wet_drift
+    prepare_wet_drift(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "texturepickup":
     from texture_pickup_fixtures import prepare as prepare_texture_pickup
     prepare_texture_pickup(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if mask_repeat_contract(group):
+    from masked_fixtures import prepare as prepare_masked
+    diagnostic = mask_repeat_contract(group)
+    prepare_masked(root, resources, preset, "maskwash")
+    path = root / "output" / "fixtures.json"
+    fixture = json.loads(path.read_text())
+    fixture["cases"] = [fixture["cases"][i] for i in diagnostic["indices"]]
+    fixture["presets"] = [case["preset"] for case in fixture["cases"]]
+    fixture["group"] = group
+    fixture["repeatDiagnostic"] = diagnostic
+    for case in fixture["cases"]:
+        case["repeatDiagnostic"] = diagnostic
+    path.write_text(json.dumps(fixture, indent=2))
+    if diagnostic["configuredMaxThreads"] == 1:
+        config = root / "config" / "kritarc"
+        config.write_text("maxNumberOfThreads=1\n" + config.read_text())
     finalize_input_contract()
     raise SystemExit(0)
 if group in ("maskwash", "maskbuildup"):
@@ -553,7 +594,7 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     if group == "wetkernelcount":
         planned = json.loads((source / "wetkernelcount.json").read_text())
-        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 227:
+        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 230:
             raise RuntimeError("Unexpected bounded Dulling probe plan")
         variants = []
         kernel_objectives = {}

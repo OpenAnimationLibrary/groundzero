@@ -319,6 +319,7 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
   if (fields.value(prefix + "curveMode", "0") != "0") return false;
   QXmlStreamReader xml(fields.value(prefix + "Sensor"));
   QString sensor, curve;
+  bool periodic = false;
   while (!xml.atEnd()) {
     xml.readNext();
     if (xml.isEntityReference()) return false;
@@ -328,12 +329,15 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
     if (xml.name() == QStringLiteral("params")) {
       if (!sensor.isEmpty()) return false;
       sensor = xml.attributes().value("id").toString();
-      // Original real-clock Size captures establish this explicit one-second
-      // nonperiodic unit conversion, not source dab timing or general periods.
+      // Original real-clock Size captures establish explicit one-second
+      // clamping versus cycling. Native conversion preserves that distinction;
+      // exact source time origin/dab scheduling remain separate qualification.
       if (sensor == "time") {
-        if (prefix != "Size" || xml.attributes().value("duration") != "1000" ||
-            xml.attributes().value("periodic") != "0")
+        if (prefix != "Size" || xml.attributes().value("duration") != QStringLiteral("1000") ||
+            (xml.attributes().value("periodic") != QStringLiteral("0") &&
+             xml.attributes().value("periodic") != QStringLiteral("1")))
           return false;
+        periodic = xml.attributes().value("periodic") == QStringLiteral("1");
         for (auto a : xml.attributes())
           if (a.name() != QStringLiteral("id") &&
               a.name() != QStringLiteral("duration") &&
@@ -364,6 +368,7 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
   if (points.size() < 2 || points.size() > 1024) return false;
   Mapping mapping;
   mapping.sensor = names[sensor];
+  mapping.periodic = periodic;
   mapping.curve.clear();
   double previous = -1;
   for (auto point : points) {
@@ -423,7 +428,7 @@ struct BundleResources {
 Tip resolveTip(const QMap<QString, QByteArray> *resources,
                const QString &filename, const QString &md5,
                QStringList &diagnostics, size_t maximumDecodedBytes,
-               int application) {
+               int application, bool *originalBitmapSource = nullptr) {
   if (!resources)
     throw Invalid(
         "KPP tip resource is missing; import a bundle containing its "
@@ -449,6 +454,7 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
     Tip tip;
     tip.shape = Shape::Bitmap;
     tip.images.push_back(std::move(image));
+    if (originalBitmapSource) *originalBitmapSource = application == 1;
     if (application != 1) convertTipToMask(tip, application < 0);
     diagnostics
         << (application == 1
@@ -466,6 +472,21 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
     throw Invalid("Cannot decode KPP tip dependency");
   diagnostics.append(imported.diagnostics);
   auto tip = std::move(imported.records[0].preset.tip);
+  if (originalBitmapSource) {
+    // The GIH decoder already enforces one complete incremental/random
+    // dimension and equal frame geometry. Captured K5341 incremental strokes
+    // start at frame zero, advance once per deposited dab and restart at the
+    // next stroke. Random selection has unexplained source correlations and
+    // must not inherit this deterministic candidate.
+    *originalBitmapSource = !tip.images.empty() && !tip.randomSequence &&
+                            (suffix == "gbr" || suffix == "gih");
+    const auto first = tip.images.empty() ? nullptr : tip.images.front();
+    for (const auto &frame : tip.images)
+      *originalBitmapSource =
+          *originalBitmapSource && frame && first &&
+          frame->width == first->width && frame->height == first->height &&
+          frame->color == first->color && (!frame->color || application == 1);
+  }
   if (application == 0) convertTipToMask(tip);
   return tip;
 }
@@ -501,8 +522,8 @@ bool eligiblePressureSensor(const QString &sensorXml,
   }
   return !xml.hasError() && depth == 0 && roots == 1 && curves == 1;
 }
-// Versioned source HSV admission: fixed channel composition or one measured
-// identity-pressure channel. Validation rejects unsupported dynamic combinations
+// Versioned source HSV admission: fixed and identity-pressure channel
+// composition. Validation rejects unsupported sensor and geometry combinations
 // and contexts; unknown sensors remain explicit native conversions.
 bool sourceHsvSettings(const QMap<QString, QString> &fields,
                        SourceHsvChannel &channel, double &value,
@@ -686,6 +707,49 @@ bool sourceMaskedSettings(const QMap<QString, QString> &fields, Preset &preset,
       return false;
   }
   return !xml.hasError() && brushes == 1 && generators == 1;
+}
+bool eligibleBitmapDefinition(const QString &definition, const Preset &preset) {
+  QXmlStreamReader xml(definition);
+  int brushes = 0;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isDTD() || xml.isEntityReference()) return false;
+    if (!xml.isStartElement()) continue;
+    if (++brushes != 1 || xml.name() != QStringLiteral("Brush") ||
+        !xml.namespaceUri().isEmpty())
+      return false;
+    const auto attrs   = xml.attributes();
+    const QString type = attrs.value("type").toString();
+    if (preset.tip.images.empty() || !preset.tip.images[0] ||
+        (type != "gbr_brush" && type != "png_brush"))
+      return false;
+    const bool color = preset.tip.images[0]->color;
+    if (!color && type != "gbr_brush") return false;
+    const QMap<QString, QString> fixed = {{"type", type},
+                                          {"BrushVersion", "2"},
+                                          {"useAutoSpacing", "0"},
+                                          {"autoSpacingCoeff", "1"},
+                                          {"ColorAsMask", color ? "0" : "1"},
+                                          {"preserveLightness", "0"}};
+    for (auto i = fixed.begin(); i != fixed.end(); ++i)
+      if (attrs.value(i.key()) != i.value()) return false;
+    const QSet<QString> variable = {"filename", "md5sum", "scale", "angle",
+                                    "spacing"};
+    for (const auto &attribute : attrs)
+      if (!attribute.namespaceUri().isEmpty() ||
+          (!fixed.contains(attribute.name().toString()) &&
+           !variable.contains(attribute.name().toString())))
+        return false;
+    if (attrs.value("filename").isEmpty()) return false;
+    for (const QString &key : {"scale", "angle", "spacing"}) {
+      bool ok            = false;
+      const double value = attrs.value(key).toDouble(&ok);
+      if (!ok || !std::isfinite(value)) return false;
+      if (key == "scale" && (value < 1 || value > 2)) return false;
+      if (key == "spacing" && value != preset.spacing) return false;
+    }
+  }
+  return !xml.hasError() && brushes == 1 && validate(preset).empty();
 }
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
@@ -968,6 +1032,9 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     if (!required.contains(i.key()) && !inactive.contains(i.key()) &&
         i.key() != "brush_definition")
       return false;
+  if (preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1")
+    return engine == "paintbrush" &&
+           eligibleBitmapDefinition(fields.value("brush_definition"), preset);
   QXmlStreamReader xml(fields.value("brush_definition"));
   int depth = 0, brushes = 0, masks = 0;
   while (!xml.atEnd()) {
@@ -1065,7 +1132,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   r.provenance["containerVersion"] = QString::fromLatin1(png.text["version"]);
   r.provenance["sourceEngine"]     = engine;
   QXmlStreamReader brush(fields.value("brush_definition"));
-  bool found = false, maskFound = false;
+  bool found = false, maskFound = false, originalBitmapSource = false;
   auto numeric = [](const QString &v) {
     bool ok  = false;
     double n = v.toDouble(&ok);
@@ -1105,10 +1172,11 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
             application < 0    ? "legacy-unspecified"
             : application == 1 ? "color-image"
                                : "alpha-mask";
-        r.preset.tip = resolveTip(resources ? &resources->brushes : nullptr,
-                                  a.value("filename").toString(),
-                                  a.value("md5sum").toString(), diagnostics,
-                                  maximumDecodedBytes, application);
+        r.preset.tip =
+            resolveTip(resources ? &resources->brushes : nullptr,
+                       a.value("filename").toString(),
+                       a.value("md5sum").toString(), diagnostics,
+                       maximumDecodedBytes, application, &originalBitmapSource);
         r.preset.size.value = std::max(r.preset.tip.images[0]->width,
                                        r.preset.tip.images[0]->height) *
                               numeric(a.value("scale").toString());
@@ -1135,6 +1203,21 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         throw Invalid("Unsupported KPP generated-tip shape");
       if (generator != "default" && generator != "gauss")
         throw Invalid("Unsupported KPP mask generator");
+      if (generator == "gauss") {
+        r.provenance["sourceGeneratedMaskV1"] =
+            QJsonObject{{"generator", generator},
+                        {"shape", shape},
+                        {"horizontalFade", a.value("hfade").toString()},
+                        {"verticalFade", a.value("vfade").toString()}};
+        r.provenance["conversionKind"] = "partial-native";
+        diagnostics
+            << "Gaussian source mask uses the native Gaussian approximation; "
+               "source fade equations are not reproduced.";
+        if (shape == "rect")
+          diagnostics
+              << "Rectangular Gaussian source mask becomes a native elliptical "
+                 "Gaussian; rectangular source shape is not reproduced.";
+      }
       r.preset.tip.shape    = generator == "gauss" ? Shape::Gaussian
                               : shape == "rect"    ? Shape::Square
                                                    : Shape::Round;
@@ -1207,8 +1290,18 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   convertCurve(fields, "SmudgeRadius", r.preset.radiusControl, mapped,
                diagnostics);
   convertCurve(fields, "Size", r.preset.size, mapped, diagnostics);
-  convertCurve(fields, "Opacity", r.preset.opacity, mapped, diagnostics, true);
-  convertCurve(fields, "Flow", r.preset.flow, mapped, diagnostics, true);
+  auto transferFields = fields;
+  if (engine == "paintbrush")
+    for (const QString prefix : {"Opacity", "Flow"})
+      // These Pixel options are not enabled by the retained Pressure* flag.
+      // Original paired spline probes with that flag false still evaluate the
+      // curve whenever UseCurve is true. Size and wet controls differ.
+      if (transferFields.value("Pressure" + prefix) == "false")
+        transferFields["Pressure" + prefix] = "true";
+  convertCurve(transferFields, "Opacity", r.preset.opacity, mapped, diagnostics,
+               true);
+  convertCurve(transferFields, "Flow", r.preset.flow, mapped, diagnostics,
+               true);
   convertCurve(fields, "Ratio", r.preset.aspect, mapped, diagnostics);
   QStringList unmapped;
   for (auto i = fields.begin(); i != fields.end(); ++i)
@@ -1346,6 +1439,8 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                      ignoredDiagnostics))
       candidate.angle = std::move(barrel);
   }
+  if (engine == "paintbrush" && originalBitmapSource)
+    candidate.profile = "krita-5.3.4.1-fixed-bitmap-candidate-1";
   QMap<QString, QString> primaryFields;
   const bool maskSettingsKnown =
       sourceMaskedSettings(fields, candidate, primaryFields);
@@ -1370,7 +1465,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
            "source engine parity are not verified.";
     r.provenance["conversion"] = "strict source-profile candidate";
     r.provenance["candidateEligibility"] =
-        "k5341-fixed-tip-explicit-settings-1";
+        r.preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1"
+            ? "k5341-fixed-bitmap-pyramid-1"
+            : "k5341-fixed-tip-explicit-settings-1";
   }
   r.provenance["conversionReport"] = diagnostics.join("\n");
   r.diagnostics.append(diagnostics);

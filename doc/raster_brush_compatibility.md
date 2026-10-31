@@ -1370,8 +1370,14 @@ profile and this expanded dynamic region still require source CI qualification.
 The hard Pixel candidate now shares its independently measured natural-cubic
 pressure evaluator between size, opacity and flow. Two-knot curves remain affine;
 multiple knots use natural endpoint conditions and clamp the evaluated output.
-The source adapter resolves either shared or sensor-local pressure curves, keeps
-disabled curves inactive, and preserves the interpolation in portable presets.
+The source adapter resolves either shared or sensor-local pressure curves and
+preserves the interpolation in portable presets. For Pixel opacity/flow,
+`UseCurve` enables evaluation; retained `PressureOpacity`/`PressureFlow=false`
+does not disable it. All eight original shared-versus-false-flag spline pairs
+have byte-identical captured alpha windows. Turning-curve quarter-pressure
+controls produce wash alpha 88 and accumulating two-/three-dab alpha 145/183.
+The adapter now retains these mappings. This rule does not change Size or wet
+control enable semantics; `UseCurve=false` still leaves transfer curves inactive.
 This extends candidate implementation, not the source-reference-verified claim:
 identity transfer equations and size spline evidence establish the components,
 while 24 original Node transfer captures exercise their composition independently.
@@ -1464,8 +1470,27 @@ exactly; it also matches all eleven earlier sparse pressure centerline captures,
 including ascending and descending near-zero pressure. This replaces the former
 integer-ceiling approximation. Pressure-size has a measured half-pixel minimum
 diameter. Original subpixel-spacing captures establish a two-percent diameter
-spacing floor; the preset retains its serialized spacing and applies that source
-rule only while rendering. Native and wet profiles retain their own semantics.
+spacing floor. The independent candidate also applies a half-document-pixel
+absolute spacing floor and includes a dab when its future sample is exactly the
+delivered endpoint. Together these rules match all 33 original rising, falling
+and constant-pressure trace extents across dense and sparse spacing; the prior
+exclusive endpoint omitted small-tip terminal pixels. Captured sparse row hashes
+and partition windows remain separate regressions. Extent agreement alone does
+not establish dense opacity parity: the added low-opacity full-region source
+captures remain required. The preset retains its serialized spacing and applies
+these rules only while rendering. Native and wet profiles retain their own semantics.
+
+Moving hard Pixel geometry also uses the physical path position half a pixel
+past each nominal dab. Original continuous path count controls distinguish
+forward, reverse and reverse-to-vertical corners: the outgoing future position
+matches all five in-canvas alpha windows exactly, whereas a fixed positive-X
+offset and the incoming tangent do not. The first moving dab therefore waits
+for path data even with fixed size. Single-stamp component tests explicitly
+finalize. Tap placement and wall-clock first-press latency are separate from
+this moving-path contract and remain under qualification; the existing tap
+fallback is not evidence of source timing or tap lattice parity. Native, masked
+and wet schedulers are unchanged by this slice; wet pickup adaptation requires
+its own state qualification.
 
 The bounded source path history preserves authored position, time, pressure,
 tilt and shortest-arc barrel interpolation. It emits a geometric dab only when
@@ -1483,6 +1508,36 @@ destruction discard buffered input. `finish()` reports errors so host rendering,
 preview, undo/new-frame transactions and comparisons cannot silently accept a
 failed tap allocation. Full-image CI qualification remains required; the captured
 windows do not establish arbitrary source-engine parity.
+
+### Source wet drift checkpoint acquisition
+
+The `wetdrift` source group adds 20 radius-zero, untextured wet prefixes (four
+models at nominal dabs 1, 10, 100, 1,000 and 10,000), plus five dry build-up count
+controls. Every case uses one continuous `Node.paintPath`, not a sequence of
+independent strokes. A fixed 2048-square canvas holds 10,000 distinct cells at
+16-pixel pitch. Hard 8-pixel tips and spacing two avoid overlap; the original
+background alternates red/blue strips under a continuous alpha ramp. All prefixes
+follow the same serpentine and end one pixel beyond their last nominal center,
+shorter than the next dab spacing. Foreground green keeps deposits distinguishable
+from the original background throughout the wet state handoffs.
+
+Source capture requires exactly N-1 changed wet cells with an unchanged first
+initialization cell, no out-of-cell paint, and exactly N dry calibration cells.
+The half-opacity dry controls require a uniform single-deposit alpha at all
+centers, exposing duplicate deposits at path corners or endpoints. These are
+observable count controls: the public API does not expose an internal wet dab
+counter, so private source counts remain inferred rather than directly recorded.
+Failure of these controls blocks acquisition; no checkpoint is silently renamed.
+The candidate additionally must report exactly N actual engine dabs.
+
+Every checkpoint retains the full source image and enforces the original drift
+limits over the source/candidate union region: premultiplied RGB MAE at most
+3/255, alpha MAE at most 2/255, mean DeltaE00 at most 3 and p95 at most 6 on both
+black and white composites. RGB MAE at 10,000 cannot exceed the 1,000 checkpoint
+by more than 1/255. Dry count controls require exact RGBA agreement. Existing
+short-stroke source gates remain unchanged. This group does not expose a foreign
+reservoir or qualify textured/nonzero-radius wet models; transition direction,
+halo character and physical-tablet delivery remain distinct acceptance items.
 
 ### Shared wet foreground transform plumbing
 
@@ -1556,3 +1611,45 @@ for two additional ABR 6.2 collections. All tips are sampled and all dynamics
 are disabled; both pattern sections are empty. This evidence does not resolve
 modern computed-tip, pattern-association, dynamic-control or other-version gaps,
 and does not establish source rendering parity. No pack assets are included.
+
+### Source chroma qualification checkpoint
+
+At implementation head `1974c32c`, the pinned source comparison passed all 24
+full-region H/S/V pressure heldouts and all 36 uncapped low-chroma controls,
+including isolated S and joint SV/HSV adjustments at .55, .7 and .9. The latter
+reported zero premultiplied RGB and alpha error across the union region; the
+joint-order group also passed. These are measured original fixture results,
+not a promotion of arbitrary imported presets or other active combinations.
+The application lifecycle, platform packaging and remaining source-profile
+requirements keep their own acceptance status.
+
+### Incremental GIH source candidate
+
+The fixed-bitmap candidate also admits resource-resolved one-dimensional
+incremental GIH sequences with equal frame dimensions and color application.
+The same static build-up, Normal, unit/double scale and quarter-turn restrictions
+apply. Standalone GIH remains a resource conversion; a qualified KPP definition
+and its resolved resources are required for source-candidate admission. Random
+GIH stays a native conversion because the observed source sequence correlations
+are not yet explained by a generalized advancement model.
+
+The original cadence acquisition contains 72 incremental controls: three
+spacings, six delivery modes and four independent strokes per combination.
+Every continuous source stroke starts at frame zero and repeats 0,1,2; each of
+32 separate one-dab strokes restarts at zero. The comparison now requires those
+exact observed and candidate labels, together with the fixed-bitmap full-region
+alpha/color/support gates. Original portable import tests exercise actual
+bundle-to-preset-to-render order, event partition and stroke restart. These are
+candidate qualification gates, not a claim that random selection, arbitrary
+transforms, dynamics or every GIH version has been verified.
+
+### Time cycle preservation and clock qualification
+
+Explicit one-second Time size curves now preserve their periodic flag through
+native conversion, private/portable presets and rendering. Periodic Time wraps
+at its declared scale; nonperiodic Time saturates. The optional portable field
+defaults to false for existing presets and is rejected for non-Time sensors.
+Source-profile admission remains separate: completed real-paced captures show
+periodic resets beyond one and two seconds, but aligned device timestamps and
+wall-clock delivery alone do not identify the source's internal time origin.
+The current native conversion does not advertise source timing parity.

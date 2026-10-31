@@ -369,3 +369,18 @@ Format/API evidence:
   Only serialized KPP metadata was inspected; no bundled pixels or engine source
   were copied into these fixtures. Pinned 5.3.4.1 effective XML/readback remains
   the authority for actual execution.
+
+Source cache identity excludes an explicit list of pure fixture generators and
+CI-only tests. Fresh generated preset/resource/document bytes, copied runtime
+plugin modules, configuration and fixture metadata remain fully inventoried;
+changing generated output therefore invalidates the capture even when its
+producer script is excluded. Unknown Python modules, preparation, acquisition
+and validation code remain hashed. The selected fixture group remains an
+explicit identity field.
+
+Only the workflow's single-line `fixture_group` selector is normalized, so
+adding an unrelated matrix member does not invalidate every existing group.
+Missing, duplicate or multiline selectors fail closed. Every other workflow
+byte remains hashed, including runner, environment, dependency setup, rendering
+and success gates; reporting-only edits still conservatively invalidate captures.
+Candidate comparison is always rebuilt and rerun at the current head.

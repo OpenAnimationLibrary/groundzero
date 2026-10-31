@@ -272,9 +272,8 @@ than treating authored/fabricated timestamps as actual elapsed time.
 
 Native color dynamics remain unchanged. V1 retains its single fixed channel and
 paired portable fields. V2 stores three explicit enabled/control slots, admitting
-joint fixed controls or one identity-pressure H, S or V control. Mixed fixed and
-dynamic controls, multiple dynamic controls, other sensors and nonidentity curves
-remain excluded. Disabled slots must be neutral and V1 cannot coexist with V2.
+joint fixed and/or identity-pressure H, S and V controls. Other sensors and
+nonidentity curves remain excluded. Disabled slots must be neutral and V1 cannot coexist with V2.
 The strict hard-round Pixel context remains required; the separately qualified
 wet subset admits only V1, not joint or dynamic V2 controls.
 
@@ -467,3 +466,129 @@ replacement for the existing statistical gates or a new source compatibility
 claim. They distinguish geometry-distance, input-segment and stroke-reset
 advancement hypotheses. A versioned source selector remains blocked on actual
 sequence/cadence evidence; no transition-rate fitting is implemented.
+
+### Paced acquisition recovery
+
+A dense 65-contact capture failed its existing 20ms scheduling bound before
+comparison. The previous error omitted the failed index and measured lateness;
+no numeric cause can be reconstructed for that run. Timing failures now report
+phase, contact index, authored deadline, actual monotonic elapsed time, lateness
+and unchanged bound. Contact/proximity is cleared before the failure propagates.
+
+Exactly one retry is allowed only for this typed timing-contract failure. It
+first drains source work, restores the entire original raster, refreshes and
+drains projection, then services the event loop before delivering a new stroke.
+Every discarded attempt emits a notice and remains in accepted timing evidence;
+a second failure ends acquisition. All actual accepted contacts/release must
+still satisfy the original 20ms or 250ms authored bound. Comparison validates
+the discard provenance and timing arithmetic. Pixel differences, empty output,
+resource/settings mismatches and any other failures are never retried. The
+elapsed clocks used by candidate comparison remain actual accepted delivery,
+not fabricated timestamps. CI tests exercise exact bounds and reject extra,
+within-bound or pixel-driven discarded attempts.
+
+The joint HSV matrix now appends 28 original paired captures (64 total), keeping
+its first 36 preset identities unchanged. New cases cover identity-pressure HS,
+HV, SV and HSV, plus each isolated pressure channel with two fixed companions.
+Two foreground colors include an uncapped low-chroma input; opposing .125/.875
+ramps exercise both temporal directions. Every channel's actual curve, enabled
+state, source metadata and delivered input are checked. Complete source capture
+is saved before candidate comparison. Mixed/multiple pressure admission remains
+closed pending these observations: a comparison eligibility failure is expected
+until evidence supports extending the current strict adapter. The full-union
+exact RGB/alpha gates remain unchanged, including for the newly added cases.
+
+The first retry-enabled dense acquisition still exhausted its one retry: the
+65-contact/.25s control was 20,518µs late at contact11 (authored42,969µs,
+actual63,487µs). The deadline-driven sender now omits the additional unconditional
+Qt turn after each paced contact; the next future deadline already yields to the
+event loop. Already-due contacts may catch up in the same bounded input batch,
+with original measured timestamps and unchanged lateness checks. Stationary holds
+still service timers. Non-paced input delivery is unchanged. Both rejected
+attempts remain in the bounded terminal error even when only the runtime log tail
+is available. This is acquisition scheduling, not a brush timer equation or a
+relaxation of the authored timing contract; successful source execution is pending.
+
+
+The completed 64-case joint acquisition includes all 28 appended mixed/pressure
+cases. All 154 active dab-center samples match the existing chroma transform and
+half-pixel future-pressure model exactly, without modifying equations or bounds.
+V2 now admits fixed/identity-pressure combinations across H/S/V within the same
+strict hard-round Pixel context. Other sensors and nonidentity curves remain
+rejected, as do source wet V2 and unsupported geometry/transfer interactions.
+Captured-byte regressions cover each combination, portable multiple-pressure
+roundtrip is checked, and the unchanged full-image exact gates must rerun against
+the newly admitted candidate. Source completion alone is not full-image parity.
+
+### Public managed-color Lab observations
+
+`managed-lab.json` is a required, repeated research sidecar for `wetkernelcount`.
+It measures original gray and chromatic inputs through the public ManagedColor
+API, separately from brush sampling. Source RGBA U8/U16 uses the exact pinned
+sRGB-elle-V2-srgbtrc.icc profile. Each LABA U16/F32 destination uses its registered
+default profile, records that explicit name and the available profile names,
+and checks identity after conversion. Actual application version is retained.
+
+The [official ManagedColor API](https://api.kde.org/legacy/krita/html/classManagedColor.html)
+describes `components()` as normalized storage values and `componentsOrdered()`
+as display order. The diagnostic stores both, plus XML and named display text.
+Distinct RGB controls verify BGR integer storage and RGB display order; black,
+white and primaries provide Lab normalization/channel reference observations.
+No raw Lab component is silently multiplied by an assumed physical scale.
+In particular, F32 and U16 Lab encodings are not presumed interchangeable.
+Public conversion uses the API's documented perceptual intent and quality flags;
+this measurement does not establish the brush renderer's conversion intent,
+whitepoint, distance metric or stopping threshold. Those hypotheses still need
+independent brush captures. No candidate renderer or threshold is changed here.
+
+Manual focus `lab-conversion` runs one original disabled dry control plus the
+same public-color observations, independently of the large kernel acquisition.
+The [public registry API](https://api.kde.org/legacy/krita/html/classKrita.html)
+provides compatible depths and profiles; the helper checks those before
+constructing Lab colors. Missing F32 is an explicit unsupported-depth record,
+not a failure of the U16 observations. Missing U16 produces the explicit research
+status `unsupported-U16`, never guessed conversion values or a parity claim.
+Registered conversions still require exact identity/readback and repeat checks.
+The kernel sidecar uses the same availability contract, so an absent optional
+Lab depth cannot invalidate completed brush captures. The focused group remains
+manual research and does not replace any full brush matrix gate.
+
+### Distinct generated-tip acquisition
+
+The [public brush-tip manual](https://docs.krita.org/en/reference_manual/brushes/brush_settings/brush_tips.html)
+distinguishes Default fade, curve-based Soft and Gaussian generators. The pinned
+[format serializer/deserializer metadata](https://github.com/KDE/krita/blob/bd6e8d0/libs/image/kis_base_mask_generator.cpp)
+identifies `softness_curve` for the Soft generator; only format metadata informed
+the fixtures, not renderer equations. `generatedtips` contains 32 original cases:
+circle/rectangle, 16/64px, Default/Gaussian fades .25/.75, three distinct Soft
+curves, and unequal horizontal/vertical fade controls. Actual serialized mask
+identity, both fades and every curve knot must survive source readback. Bounded
+96x96 BGRA observations supplement the complete repeated source PNGs.
+
+These are acquisitions, not source generator parity. Soft remains explicitly
+unsupported by the importer until independently measured semantics are available.
+Gaussian conversion remains native, with explicit diagnostics for unmatched fade
+math and rectangular-to-elliptical geometry, plus portable source-mask metadata.
+No guessed Soft renderer or source Gaussian profile is introduced. Source capture
+seals independently; comparison currently fails when it reaches unsupported Soft,
+which must remain visible until implementation and full-image qualification.
+
+Time clock identification preserves the first 28 `timedsensors` cases and adds
+12 original controls at 1.25/2.25 seconds: periodic/nonperiodic size curves,
+1x or 2x device timestamps, and a shifted device epoch. Real monotonic pacing
+and lateness limits stay unchanged. Every delivered timestamp is checked
+against the declared device clock formula; notices include its scale, epoch
+and origin alongside actual contact times. This is a causal discriminator for
+source clock consumption, not permission to fit a per-fixture time offset.
+Native comparisons retain their explicitly reported real elapsed-time basis;
+source Time admission remains unverified pending these observations.
+
+Airbrush acquisition additionally observes public GUI-thread Qt timer events
+without consuming them. It retains timers with 50/200ms interval properties
+and receivers without such a property, with a 512-record cap and explicit drop
+count. Receiver class, timer ID and monotonic dispatch time are diagnostic
+metadata; no receiver is presumed to be the painting timer. Worker-thread
+callbacks and unrelated timer intervals are outside this observation. The
+filter is removed even on acquisition failure. APIs used are documented by
+[Qt timer events](https://doc.qt.io/archives/qt-5.15/qtimerevent.html) and
+[QObject event filters](https://doc.qt.io/archives/qt-5.15/qobject.html#installEventFilter).

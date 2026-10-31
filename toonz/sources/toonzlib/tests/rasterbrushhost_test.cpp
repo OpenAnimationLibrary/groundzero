@@ -78,8 +78,23 @@ void testSourceOffCanvasFailureRollback() {
     point.time = 1;
     require(stroke.add(point), stroke.error().c_str());
     require(!same(original, raster), "source rollback fixture did not paint");
-    TRaster32P beforeFailure = raster->clone();
-    obstruction              = limit - memory->used() - 50000;
+    // Source spacing defers the endpoint dab at x16 until more motion.
+    // Flush that successful interior dab before taking the atomicity snapshot:
+    // the next scheduled dab is x8, whose radius8 plus sampling halo reaches
+    // outside the canvas. A sample may legitimately publish earlier complete
+    // dabs before a later dab fails; only the failing dab must be
+    // all-or-nothing.
+    const size_t interiorDabs       = stroke.dabCount();
+    const TRaster32P beforeInterior = raster->clone();
+    point.x                         = 15;
+    point.time                      = 1.5;
+    require(stroke.add(point), stroke.error().c_str());
+    require(
+        stroke.dabCount() == interiorDabs + 1 && !same(beforeInterior, raster),
+        "source rollback fixture did not isolate its deferred interior dab");
+    const size_t completedDabs = stroke.dabCount();
+    TRaster32P beforeFailure   = raster->clone();
+    obstruction                = limit - memory->used() - 50000;
     require(memory->reserve(obstruction),
             "cannot constrain source outside budget");
     point.x    = 0;
@@ -87,7 +102,7 @@ void testSourceOffCanvasFailureRollback() {
     require(!stroke.add(point) &&
                 stroke.error() == "Source off-canvas memory limit exceeded",
             "off-canvas allocation failure was not bounded before host writes");
-    require(same(beforeFailure, raster),
+    require(stroke.dabCount() == completedDabs && same(beforeFailure, raster),
             "failed outside allocation partially published dab");
     require(!stroke.finish(),
             "failed source host stroke finalized successfully");

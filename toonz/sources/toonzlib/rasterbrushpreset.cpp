@@ -88,6 +88,7 @@ QJsonObject dynamicJson(const Dynamic &d) {
     maps.append(
         QJsonObject{{"sensor", sensors[int(m.sensor)]},
                     {"scale", m.scale},
+                    {"periodic", m.periodic},
                     {"interpolation", interpolations[int(m.interpolation)]},
                     {"curve", curve}});
   }
@@ -101,10 +102,11 @@ Dynamic dynamic(const QJsonValue &v) {
   d.minimum = number(o["minimum"]);
   for (auto item : array(o["mappings"], 16)) {
     auto a = object(item);
-    keys(a, {"sensor", "scale", "curve", "interpolation"});
+    keys(a, {"sensor", "scale", "curve", "interpolation", "periodic"});
     Mapping m;
     m.sensor = Sensor(choice(a["sensor"], sensors));
     m.scale  = number(a["scale"]);
+    if (a.contains("periodic")) m.periodic = boolean(a["periodic"]);
     if (a.contains("interpolation"))
       m.interpolation =
           Interpolation(choice(a["interpolation"], interpolations));
@@ -1028,7 +1030,8 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
     const QString originalProfile =
         record.provenance.value("sourceProfileBeforeNativeConversion")
             .toString();
-    const QStringList sourceProfiles{"krita-5.3.4.1-hard-pixel-candidate-1",
+    const QStringList sourceProfiles{"krita-5.3.4.1-fixed-bitmap-candidate-1",
+                                     "krita-5.3.4.1-hard-pixel-candidate-1",
                                      "krita-5.3.4.1-default-circle-candidate-1",
                                      "krita-5.3.4.1-default-rect-candidate-1",
                                      "krita-5.3.4.1-legacy-smear-candidate-1",

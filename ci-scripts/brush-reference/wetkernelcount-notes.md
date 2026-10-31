@@ -1,5 +1,72 @@
 # Dulling count and normalization discriminators
 
+## Acquired precision evidence and adaptive-sampling hypothesis
+
+All 58 raw-depth diagnostics completed, including exact translated U8 controls,
+raw initialization identity, and repeated visible/alpha equivalence. Uniform
+gray 0, 64, 128, 192 and 255 is preserved exactly at both U8 and U16. The
+black/white complement deficit persists at U16; ordinary byte rounding cannot
+explain it. The same-U8 64/192 complement pairs instead sum to 256 exactly.
+
+The raw U16 values identify integer averaging denominators. For example, the
+extent-28 first-20-point mask produces 10240/65535, agreeing with 20/128 within
+one U16 unit. Its complement produces 53832/65535, agreeing with 1−20/112.
+The first-60-point pair similarly identifies denominators 208 and 192. Across
+the four extents, the inferred counts are:
+
+| Extent | Point count | Normal denominator | Complement denominator |
+| --- | --- | --- | --- |
+| 28 | 20 | 128 | 112 |
+| 28 | 60 | 208 | 192 |
+| 32 | 25 | 147 | 131 |
+| 32 | 75 | 227 | 211 |
+| 40 | 36 | 162 | 146 |
+| 40 | 109 | 258 | 258 |
+| 48 | 50 | 202 | 202 |
+| 48 | 151 | 298 | 298 |
+
+Every denominator is an independently observed minimum (80, 99, 146 or 202)
+plus a multiple of 16. Testing the standard sRGB-to-CIELAB lightness of
+successive cumulative averages gives a common convergence explanation: stop
+when the lightness difference falls below approximately 3. The previous batch
+is above 3 for every non-minimum high-depth observation. This predicts the
+previously held-out half-sized point sets at extents 28, 32 and 48 as well as
+the quarter/three-quarter sets; it does not require a table of mask results.
+
+Two unresolved details prohibit treating this as a complete sampler equation:
+
+- The initial count formula predicts 81/100 at extents 28/32 instead of the
+  observed 80/99. Globally subtracting one contradicts extents 40/48 and older
+  captures. Integer sampling-window geometry remains a possible explanation.
+- For the extent-40 half-sized 72-point normal mask, source U8 output 87 implies
+  stopping at 210 samples. Analytic sRGB lightness changes by 3.002060 there;
+  a strict floating-point threshold of 3 continues to 226 and predicts 81.
+  Profile conversion or Lab quantization must be measured, not replaced by a
+  tolerance chosen to make this single case pass.
+
+Gray observations cannot distinguish a full Lab distance from lightness alone,
+or establish the chromatic adaptation/profile conversion. Original colored
+point/complement holdouts and public color-conversion readback are the next
+discriminators. No runtime eligibility or numerical gate is changed by this
+analysis, and diagnostic U16 support remains separate from the U8 product.
+
+The sidecar now appends 12 same-U8 chromatic holdouts after its original 58 IDs:
+red/green, blue/yellow, and a near-lightness pair (192,32,64)/(32,128,192), each
+using both extent-32 point-set sizes and both polarities. These test full-color
+convergence without changing the 227 U8 acceptance fixtures. Exact authored RGB
+endpoints are part of cache identity; none is misclassified as a gray translated
+control. The original two-document lifetime and raw/repeat budgets are retained.
+
+Three additional point presets at extents 36, 44 and 60 follow the original 227
+acceptance fixtures without renaming them. Their nominal first 30, 43 and 76
+coordinates are stored explicitly. Sidecar IDs 70–72 use these masks in U16
+with gray endpoints 112/144. Their small contrast is intended to stabilize the
+perceptual comparison at the initial count, while U16 resolves neighboring
+integer denominators. This distinguishes rectangular and square area estimates
+at extents not used to infer the earlier counts. It does not assume either
+formula or declare that adaptive extension is impossible; the observed ratios
+must establish the actual count.
+
 The first 185 cases retain their names and order. The next 42 cases are original
 two-dab masks, appended to the same bounded acquisition group. They do not change
 candidate eligibility, comparison thresholds, or the sampling implementation.

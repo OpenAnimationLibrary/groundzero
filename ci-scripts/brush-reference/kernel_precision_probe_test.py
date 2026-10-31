@@ -28,13 +28,19 @@ class KernelPrecisionContract(unittest.TestCase):
 
     def test_bounded_balanced_plan(self):
         cases = probe.plan(self.fixtures())
-        self.assertEqual(len(cases), 58)
-        self.assertEqual(sum(c["depth"] == "U16" for c in cases), 25)
+        self.assertEqual(len(cases), 73)
+        self.assertEqual(sum(c["depth"] == "U16" for c in cases), 28)
         gray = [c for c in cases if c["low"] == 64 and c["high"] == 192]
         self.assertEqual(len(gray), 8)
         self.assertTrue(all(c["depth"] == "U8" for c in gray))
         self.assertEqual(sum(c["low"] == c["high"] for c in cases), 10)
         self.assertEqual(sum(c["dabs"] == 3 for c in cases), 8)
+        colored = [c for c in cases if "rgbLow" in c]
+        self.assertEqual(len(colored), 12)
+        self.assertTrue(all(c["depth"] == "U8" for c in colored))
+        counts = [c for c in cases if c["low"] == 112 and c["high"] == 144]
+        self.assertEqual([c["case"]["diameter"] for c in counts], [72, 88, 120])
+        self.assertTrue(all(c["depth"] == "U16" for c in counts))
 
     def test_missing_mask_rejected(self):
         fixtures = self.fixtures()
@@ -45,7 +51,8 @@ class KernelPrecisionContract(unittest.TestCase):
     def complete_report(self):
         fixtures = self.fixtures()
         originals = [{"preset": c["preset"], "effectivePresetSha256": "a" * 64,
-                      "centerlineRGBA8": [[512, 0, 0, 0, 0]]} for c in fixtures["cases"]]
+                      "centerlineRGBA8": [[256 + c["diameter"] * c["spacing"], 0, 0, 0, 0],
+                                           [1808, 17, 23, 31, 255]]} for c in fixtures["cases"]]
         rows = []
         for ordinal, item in enumerate(probe.plan(fixtures)):
             case, depth = item["case"], item["depth"]
@@ -58,12 +65,14 @@ class KernelPrecisionContract(unittest.TestCase):
                 "runtimeVersion": fixtures["version"], "canvas": [probe.WIDTH, probe.HEIGHT],
                 "maximumComponent": 255 if depth == "U8" else 65535,
                 "samplesRGBA": [[256 + case["diameter"] * 4 * d, 128, 0, 0, 0, 0] for d in range(item["dabs"])],
-                "translationControl": depth == "U8" and item["low"] == 0 and item["high"] == 255 and item["dabs"] == 2,
+                "translationControl": depth == "U8" and item["low"] == 0 and item["high"] == 255 and item["dabs"] == 2 and "rgbLow" not in item,
                 "rawInitialRoundTrip": True, "repeatEquivalent": True,
                 "initialRawSha256": "a" * 64, "canonicalSha256": "a" * 64,
                 "effectivePresetSha256": "a" * 64, "rawSha256": ["a" * 64, "a" * 64],
                 "rect": rect, "encoding": "zlib-base64-bgra" + ("8" if depth == "U8" else "16le") + "-row-major",
                 "data": base64.b64encode(zlib.compress(bytes(rect[2] * rect[3] * (4 if depth == "U8" else 8)))).decode()})
+            if "rgbLow" in item:
+                rows[-1].update({key: item[key] for key in ("rgbLow", "rgbHigh")})
         return fixtures, originals, {"schema": 1, "status": "complete",
             "qualification": "research-only; original U8 parity gates remain separate", "records": rows}
 
@@ -82,6 +91,36 @@ class KernelPrecisionContract(unittest.TestCase):
                 broken["records"][0]["data"] = base64.b64encode(zlib.compress(bytes(200000))).decode()
             with self.assertRaises(ValueError):
                 probe.validate(broken, fixtures, originals)
+
+    def test_second_sample_is_selected_by_coordinate_not_scan_tail(self):
+        case = {"diameter": 56, "spacing": 4}
+        record = {"centerlineRGBA8": [[256, 0, 0, 0, 255], [480, 40, 40, 40, 255],
+                                       [1808, 0, 0, 0, 0]]}
+        self.assertEqual(probe.original_second_sample(record, case), [40, 40, 40, 255])
+        record["centerlineRGBA8"].append([480, 1, 1, 1, 255])
+        with self.assertRaises(ValueError):
+            probe.original_second_sample(record, case)
+        record["centerlineRGBA8"] = [[1808, 0, 0, 0, 0]]
+        with self.assertRaises(ValueError):
+            probe.original_second_sample(record, case)
+
+    def test_public_api_build_suffix_preserves_exact_release_gate(self):
+        fixtures, originals, report = self.complete_report()
+        for row in report["records"]:
+            row["runtimeVersion"] = "5.3.4.1 (git bd6e8d0)"
+        probe.validate(report, fixtures, originals)
+        for changed in ("5.3.4.10 (git bd6e8d0)", "5.3.4.2", "", None):
+            broken = copy.deepcopy(report)
+            broken["records"][0]["runtimeVersion"] = changed
+            with self.assertRaises(ValueError):
+                probe.validate(broken, fixtures, originals)
+
+    def test_chromatic_input_identity_is_required(self):
+        fixtures, originals, report = self.complete_report()
+        probe.validate(report, fixtures, originals)
+        report["records"][-1]["rgbLow"] = [0, 0, 0]
+        with self.assertRaises(ValueError):
+            probe.validate(report, fixtures, originals)
 
     def test_u16_repeat_uses_full_alpha_channel(self):
         invisible = struct.pack("<4H", 65535, 123, 456, 0)

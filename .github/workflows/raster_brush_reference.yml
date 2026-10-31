@@ -16,15 +16,23 @@ on:
         options:
           - all
           - wet-interactions
+          - wet-drift
+          - kernel-sampling
+          - bitmap-input
+          - hsv-composition
           - wet-color
           - pixel-input
           - hsv-interactions
+          - mask-repeat
           - masked-timed
           - resources
+          - generatedtips
+          - lab-conversion
 permissions:
   contents: read
 concurrency:
-  group: brush-reference-${{ github.ref }}
+  group: brush-reference-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.focus || 'all' }}
+  # Independent manual groups can run together; the full PR matrix stays intact.
   # Preserve running source acquisitions when an unrelated platform fix lands.
   # Complete content-addressed source captures may be reused; every new head
   # still builds and runs its own complete candidate comparison matrix.
@@ -38,9 +46,15 @@ jobs:
       - name: Reject corrupt, stale, incomplete and unsafe source caches
         run: |
           python3 ci-scripts/brush-reference/oracle_cache_test.py
+          python3 ci-scripts/brush-reference/mask_repeat_contract_test.py
           python3 ci-scripts/brush-reference/hsv_joint_test.py
+          python3 ci-scripts/brush-reference/generated_tip_test.py
+          python3 ci-scripts/brush-reference/wet_drift_contract_test.py
           python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
+          python3 ci-scripts/brush-reference/managed_lab_probe_test.py
           python3 ci-scripts/brush-reference/gih_cadence_test.py
+          python3 ci-scripts/brush-reference/bitmap_path_test.py
+          python3 ci-scripts/brush-reference/paced_policy_test.py
   native-metrics:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -120,7 +134,7 @@ jobs:
       matrix:
         # Pull requests always run every declared source group. Manual subsets
         # shorten diagnostics without representing full source qualification.
-        fixture_group: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-color' && fromJSON('["wethsv","texturepickup","wetkernelcount","hsvorder","hsvheldout"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-interactions' && fromJSON('["wethsv","texturepickup","wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'pixel-input' && fromJSON('["pixelprecision","tabletsensors","pixelpressure","pixelsmallpressure","pixeltransfer","hsvpressure"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-interactions' && fromJSON('["hsvpressure","hsvchroma","hsvorder","hsvjoint","hsvheldout","hsvdynamics"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'masked-timed' && fromJSON('["maskwash","maskbuildup","airbrushtimed","timedsensors"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'resources' && fromJSON('["bitmaptips","mirrortips","gihlabels","gihstatistics","gihcadence"]') || fromJSON('["wethsv","texturepickup","wetkernelcount","hsvorder","hsvpressure","hsvchroma","pixelprecision","tabletsensors","hsvjoint","hsvheldout","airbrushtimed","timedsensors","maskwash","maskbuildup","hsvdynamics","distancesensors","mirrortips","spacingdynamics","bitmaptips","gihlabels","gihstatistics","gihcadence","pixelcurveknots","texturestate","pixeltransfer","wetboundary","texturemasks","pixelblend","wetopacitycombo","wettransfer","pixelcurves","wetkernelscale","wetkernel","wettexture3","wetpressure","pixelsoftsize","pixelrectsize","pixelsoft","pixelopacitytablet","pixelopacity","pixelpressure","wetstate","wethold","wettexture","pixelaarange","pixelcontrols","pixelsmallpressure","pixelshape","wetswitches","wetcombined","wetsteps","hardpixel","geometry","tablet","parameters"]') }}
+        fixture_group: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'generatedtips' && fromJSON('["generatedtips"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'lab-conversion' && fromJSON('["lab-conversion"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'mask-repeat' && fromJSON('["maskrepeat-reused","maskrepeat-freshnode","maskrepeat-single-reused","maskrepeat-single-freshnode"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'bitmap-input' && fromJSON('["bitmaptips"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'kernel-sampling' && fromJSON('["wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-composition' && fromJSON('["hsvjoint"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-drift' && fromJSON('["wetdrift"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-color' && fromJSON('["wetdrift","wethsv","texturepickup","wetkernelcount","hsvorder","hsvheldout"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-interactions' && fromJSON('["wetdrift","wethsv","texturepickup","wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'pixel-input' && fromJSON('["pixelprecision","tabletsensors","pixelpressure","pixelsmallpressure","pixeltransfer","hsvpressure"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-interactions' && fromJSON('["hsvpressure","hsvchroma","hsvorder","hsvjoint","hsvheldout","hsvdynamics"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'masked-timed' && fromJSON('["maskwash","maskbuildup","airbrushtimed","timedsensors"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'resources' && fromJSON('["bitmaptips","mirrortips","gihlabels","gihstatistics","gihcadence"]') || fromJSON('["generatedtips","wetdrift","wethsv","texturepickup","wetkernelcount","hsvorder","hsvpressure","hsvchroma","pixelprecision","tabletsensors","hsvjoint","hsvheldout","airbrushtimed","timedsensors","maskwash","maskbuildup","hsvdynamics","distancesensors","mirrortips","spacingdynamics","bitmaptips","gihlabels","gihstatistics","gihcadence","pixelcurveknots","texturestate","pixeltransfer","wetboundary","texturemasks","pixelblend","wetopacitycombo","wettransfer","pixelcurves","wetkernelscale","wetkernel","wettexture3","wetpressure","pixelsoftsize","pixelrectsize","pixelsoft","pixelopacitytablet","pixelopacity","pixelpressure","wetstate","wethold","wettexture","pixelaarange","pixelcontrols","pixelsmallpressure","pixelshape","wetswitches","wetcombined","wetsteps","hardpixel","geometry","tablet","parameters"]') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -213,7 +227,9 @@ jobs:
           expected = fixtures['presets']
           actual = [record['preset'] for record in result['records']]
           if result['status'] != 'complete' or actual != expected or len(set(actual)) != len(expected):
-              raise SystemExit('Incomplete source reference workload: ' + str(result))
+              raise SystemExit('Incomplete source reference workload: ' + json.dumps({
+                  'status': result['status'], 'completed': len(actual), 'expected': len(expected),
+                  'lastCompleted': actual[-1] if actual else None, 'error': result.get('error')}))
           PY
           test "$runtime_status" -eq 0
       # Save independent source facts even if a later current-head candidate
@@ -262,8 +278,6 @@ jobs:
                       events = report.get('events', [])
                       probe['device'] = [{key: event.get(key) for key in ('device', 'pointerType', 'uniqueId', 'pressure')}
                           for event in events if event.get('type') == 92][:1]
-                  if row.get('startStateProbe'):
-                      probe['startStatePixels'] = row.get('deliveryReport', {}).get('startStatePixels')
                   if row.get('boundaryProbe') or row.get('pressureShortProbe') or row.get('startStateProbe'):
                       probe['boundary'] = row.get('boundaryProbe')
                       probe['shortPath'] = row.get('pressureShortProbe')
@@ -276,6 +290,8 @@ jobs:
                   if os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate', 'texturepickup'):
                       texture = row.get('effectiveTextureControls', {})
                       probe['texture'] = [texture.get(key) for key in ('Texture/Pattern/TexturingMode', 'Texture/Pattern/UseSoftTexturing', 'Texture/Pattern/Invert', 'Texture/Strength/Value', 'PressureTexture/Strength/', 'Texture/Strength/UseCurve')]
+                  if row.get('driftEvidence') is not None:
+                      probe['driftEvidence'] = row['driftEvidence']
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
                   positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' or os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate', 'texturepickup') else (256, 384, 512, 640, 768, 896, 1024, 1152)
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]
@@ -283,6 +299,14 @@ jobs:
               import runpy
               report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
               report_records('Source parameter probes; not parity', probes)
+              stages = []
+              for row in result.get('records', []):
+                  for stage in row.get('deliveryReport', {}).get('startStatePixels', []):
+                      for surface, pixels in stage['surfaces'].items():
+                          stages.append({'preset': row['preset'],
+                              **{key: value for key, value in stage.items() if key != 'surfaces'},
+                              'surface': surface, 'pixels': pixels})
+              report_records('Source stroke stage observations; not settled-state parity', stages)
           PYPROBES
       - name: Report kernel precision research diagnostics
         if: always() && matrix.fixture_group == 'wetkernelcount'
@@ -331,7 +355,7 @@ jobs:
                   data = capture.get('data', '')
                   if not isinstance(data, str) or len(data) > 200000:
                       raise RuntimeError('Bitmap readback exceeds diagnostic bound')
-                  records.append({'preset': row['preset'], **{key: value for key, value in capture.items() if key != 'data'}})
+                  records.append({'preset': row['preset'], 'resourceResolution': row.get('resourceResolution'), 'effectiveView': row.get('effectiveView'), **{key: value for key, value in capture.items() if key != 'data'}})
                   for offset in range(0, len(data), 1800):
                       records.append({'preset': row['preset'], 'capture': 'bitmap-bgra',
                           'offset': offset, 'total': len(data), 'data': data[offset:offset + 1800]})
@@ -402,6 +426,8 @@ jobs:
           keys = ('preset', 'premultipliedRGBMAE', 'alphaMAE', 'alphaP99', 'changedPixelIoU', 'visibleChangedPixelIoU', 'referenceBounds', 'candidateBounds', 'deltaE00BlackMean', 'deltaE00WhiteMean', 'sourceReferenceVerified', 'sourceSemanticallySupported')
           measurements = [{key: round(row[key], 8) if isinstance(row[key], float) else row[key] for key in keys} for row in report['records']]
           for row, measurement in zip(report['records'], measurements):
+              if 'bitmapSourceCandidatePassed' in row:
+                  measurement['bitmapGate'] = row['bitmapSourceCandidatePassed']
               if 'hardPixelCandidatePassed' in row:
                   measurement['hardGate'] = row['hardPixelCandidatePassed']
                   measurement['alphaIoU'] = round(row['alphaCoverageIoU'], 8)

@@ -53,6 +53,8 @@ struct Mapping {
   std::vector<Knot> curve{{0, 0}, {1, 1}};
   double scale                = 1;
   Interpolation interpolation = Interpolation::Linear;
+  bool periodic =
+      false;  // Explicit Time cycle; other sensors reject this flag.
 };
 struct Dynamic {
   double value = 1, minimum = 0;

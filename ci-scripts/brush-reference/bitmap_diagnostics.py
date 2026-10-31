@@ -5,7 +5,7 @@ import zipfile
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
-def append(root, resources, preset_writer, names, cases):
+def append(root, resources, preset_writer, names, cases, heldout=False, scale_boundaries=False):
     from resource_fixtures import png
 
     assets = []
@@ -33,8 +33,11 @@ def append(root, resources, preset_writer, names, cases):
     for label, width, height, brush_type, data, mask in assets:
         filename = "gz-original-filter-" + label + (".png" if brush_type == "png_brush" else ".gbr")
         (resources / "brushes" / filename).write_bytes(data)
-        for scale, phase, angle in ((1, 0, 0), (1, .25, 0), (1.5, 0, 0),
-                                    (2, 0, 0), (1, 0, 37)):
+        controls = (((.5, 0, 0), (.75, .25, 37), (2.01, 0, 0),
+                     (3, .25, -23), (4, 0, 0)) if scale_boundaries else
+                    ((1.25, 0, -23), (1.75, .25, 61), (1.01, 0, 0)) if heldout else
+                    ((1, 0, 0), (1, .25, 0), (1.5, 0, 0), (2, 0, 0), (1, 0, 37)))
+        for scale, phase, angle in controls:
             index = len(cases)
             size = max(width, height) * scale
             name = "GZ Original dry resource bitmaptips " + str(index).zfill(3)
@@ -70,9 +73,20 @@ def append(root, resources, preset_writer, names, cases):
                           "end": [257 + phase, 1024 + phase], "brushRotationDegrees": angle,
                           "background": "transparent", "overrides": overrides,
                           "expectUnchanged": False, "candidatePackage": package,
+                          "bitmapPathProbe": True, "bitmapHeldout": heldout,
+                          "bitmapScaleBoundary": scale_boundaries,
                           "resourceProbe": {"filename": filename, "kind": "filter-" + label,
                                             "type": brush_type, "sha256": hashlib.sha256(data).hexdigest(),
                                             "md5": hashlib.md5(data).hexdigest(), "bytes": len(data),
                                             "originalDimensions": [width, height], "replicate": 0,
                                             "expectedSlots": 1, "rect": [232, 1000, 48, 48],
                                             "qualification": "original filter discrimination; no source parity"}})
+
+    # Append prospectively chosen combinations after every original control so
+    # existing case identities and cached evidence retain their exact meaning.
+    if not heldout and not scale_boundaries:
+        append(root, resources, preset_writer, names, cases, heldout=True)
+        # Fixed prospective scales distinguish reduction and later pyramid
+        # levels. They remain research-only until source full-region gates
+        # establish a generalized sampler; no candidate admission is implied.
+        append(root, resources, preset_writer, names, cases, scale_boundaries=True)

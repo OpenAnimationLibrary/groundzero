@@ -21,7 +21,7 @@ class JointHsvEvidence(unittest.TestCase):
         (root / "paintoppresets").mkdir()
         prepare(root, root, lambda *args: b"original fixture placeholder")
         self.fixtures = json.loads((root / "output" / "fixtures.json").read_text())
-        self.case = self.fixtures["cases"][-1]
+        self.case = self.fixtures["cases"][35]
         self.case["sensorProbe"]["rect"] = [0, 0, 1, 1]
         self.fields = {**self.case["overrides"], "brush_definition": "<Brush/>"}
         self.delivery = {"mode": "Node.paintLine", "events": [
@@ -34,12 +34,30 @@ class JointHsvEvidence(unittest.TestCase):
                              self.delivery if delivery is None else delivery, b"\x11\x22\x33\xff", 1)
 
     def test_complete_matrix_and_node_evidence(self):
-        self.assertEqual(len(self.fixtures["cases"]), 36)
-        self.assertEqual(len(set(self.fixtures["presets"])), 36)
+        self.assertEqual(len(self.fixtures["cases"]), 64)
+        self.assertEqual(len(set(self.fixtures["presets"])), 64)
         evidence = self.capture()
         self.assertEqual(evidence["deliveryInterface"], "Node.paintLine")
         self.assertEqual(evidence["deliveredContactEvents"], self.delivery["events"])
         self.assertIn("vSensor", evidence["effectiveControls"])
+
+    def test_joint_and_mixed_pressure_append_without_changing_originals(self):
+        added = self.fixtures["cases"][36:]
+        self.assertEqual(len(added), 28)
+        self.assertEqual({tuple(c["pressure"]) for c in added},
+                         {(.125, .875), (.875, .125)})
+        self.assertEqual({c["jointHsvProbe"]["pressureChannels"] for c in added},
+                         {"h", "s", "v", "hs", "hv", "sv", "hsv"})
+        for case in added:
+            spec = case["jointHsvProbe"]
+            for channel in "hsv":
+                fields = case["overrides"]
+                self.assertEqual(fields["Pressure" + channel],
+                    str(spec["enabled"] and channel in spec["channels"]).lower())
+                curve = fields[channel + "commonCurve"]
+                self.assertEqual(curve == "0,0;1,1;",
+                                 channel in spec["pressureChannels"])
+                self.assertIn(curve, fields[channel + "Sensor"])
 
     def test_order_matrix_exercises_noncommuting_controls(self):
         root=Path(self.temp.name)
