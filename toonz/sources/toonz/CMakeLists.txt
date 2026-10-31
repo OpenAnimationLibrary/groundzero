@@ -965,11 +965,16 @@ if(BUILD_CADMIUM_TESTS)
     target_include_directories(cadmium_codec_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_codec_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui tnzcore)
     add_test(NAME cadmium_codec COMMAND cadmium_codec_test)
+    # Each test owns its MOC output. Reusing OpenToonz's generated sources
+    # lets independent MSBuild projects race to write the same file.
+    # The application's manual Qt wrapper disables AUTOMOC on these headers.
+    # Re-enable their scan for the tests; OpenToonz still uses manual MOC.
+    set_source_files_properties(cadmiumruntime.h cadmiumsettingswidget.h cadmiuminstaller.h
+        PROPERTIES SKIP_AUTOMOC OFF)
     add_executable(cadmium_settings_test tests/cadmiumsettings_test.cpp
         cadmiumruntime.cpp cadmiumsettingswidget.cpp cadmiuminstaller.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumsettingswidget.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+        cadmiumruntime.h cadmiumsettingswidget.h cadmiuminstaller.h)
+    set_target_properties(cadmium_settings_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_settings_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_settings_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
     add_test(NAME cadmium_settings COMMAND cadmium_settings_test)
@@ -979,7 +984,8 @@ endif()
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_pipeline_test tests/cadmiumpipeline_test.cpp
         cadmiumruntime.cpp cadmiumtoonzraster.cpp cadmiumvector.cpp cadmiumfullcolor.cpp cadmiumconsensus.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp)
+        cadmiumruntime.h)
+    set_target_properties(cadmium_pipeline_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_pipeline_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_pipeline_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
@@ -1002,7 +1008,8 @@ endif()
 
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_installer_test tests/cadmiuminstaller_test.cpp cadmiuminstaller.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+        cadmiuminstaller.h)
+    set_target_properties(cadmium_installer_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_installer_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_installer_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
     add_test(NAME cadmium_installer COMMAND cadmium_installer_test)
