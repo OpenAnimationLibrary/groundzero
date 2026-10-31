@@ -39,6 +39,7 @@
 #include "tlevel.h"
 #include "tofflinegl.h"
 #include "tvectorgl.h"
+#include "tvectorrenderdata.h"
 #include "tthreadmessage.h"
 #include <QApplication>
 #include <QDialog>
