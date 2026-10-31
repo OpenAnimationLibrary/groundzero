@@ -8,6 +8,19 @@ on:
       - 'toonz/sources/toonzlib/rasterbrush*'
       - '.github/workflows/raster_brush_reference.yml'
   workflow_dispatch:
+    inputs:
+      focus:
+        description: 'Diagnostic subset; only all qualifies the full source matrix'
+        type: choice
+        default: all
+        options:
+          - all
+          - wet-interactions
+          - wet-color
+          - pixel-input
+          - hsv-interactions
+          - masked-timed
+          - resources
 permissions:
   contents: read
 concurrency:
@@ -26,6 +39,8 @@ jobs:
         run: |
           python3 ci-scripts/brush-reference/oracle_cache_test.py
           python3 ci-scripts/brush-reference/hsv_joint_test.py
+          python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
+          python3 ci-scripts/brush-reference/gih_cadence_test.py
   native-metrics:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -103,7 +118,9 @@ jobs:
       max-parallel: 4
       fail-fast: false
       matrix:
-        fixture_group: [wethsv, texturepickup, wetkernelcount, pixelprecision, tabletsensors, hsvjoint, hsvheldout, airbrushtimed, timedsensors, maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, spacingdynamics, bitmaptips, gihlabels, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, texturemasks, pixelblend, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        # Pull requests always run every declared source group. Manual subsets
+        # shorten diagnostics without representing full source qualification.
+        fixture_group: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-color' && fromJSON('["wethsv","texturepickup","wetkernelcount","hsvorder","hsvheldout"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-interactions' && fromJSON('["wethsv","texturepickup","wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'pixel-input' && fromJSON('["pixelprecision","tabletsensors","pixelpressure","pixelsmallpressure","pixeltransfer","hsvpressure"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-interactions' && fromJSON('["hsvpressure","hsvchroma","hsvorder","hsvjoint","hsvheldout","hsvdynamics"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'masked-timed' && fromJSON('["maskwash","maskbuildup","airbrushtimed","timedsensors"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'resources' && fromJSON('["bitmaptips","mirrortips","gihlabels","gihstatistics","gihcadence"]') || fromJSON('["wethsv","texturepickup","wetkernelcount","hsvorder","hsvpressure","hsvchroma","pixelprecision","tabletsensors","hsvjoint","hsvheldout","airbrushtimed","timedsensors","maskwash","maskbuildup","hsvdynamics","distancesensors","mirrortips","spacingdynamics","bitmaptips","gihlabels","gihstatistics","gihcadence","pixelcurveknots","texturestate","pixeltransfer","wetboundary","texturemasks","pixelblend","wetopacitycombo","wettransfer","pixelcurves","wetkernelscale","wetkernel","wettexture3","wetpressure","pixelsoftsize","pixelrectsize","pixelsoft","pixelopacitytablet","pixelopacity","pixelpressure","wetstate","wethold","wettexture","pixelaarange","pixelcontrols","pixelsmallpressure","pixelshape","wetswitches","wetcombined","wetsteps","hardpixel","geometry","tablet","parameters"]') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -245,6 +262,13 @@ jobs:
                       events = report.get('events', [])
                       probe['device'] = [{key: event.get(key) for key in ('device', 'pointerType', 'uniqueId', 'pressure')}
                           for event in events if event.get('type') == 92][:1]
+                  if row.get('startStateProbe'):
+                      probe['startStatePixels'] = row.get('deliveryReport', {}).get('startStatePixels')
+                  if row.get('boundaryProbe') or row.get('pressureShortProbe') or row.get('startStateProbe'):
+                      probe['boundary'] = row.get('boundaryProbe')
+                      probe['shortPath'] = row.get('pressureShortProbe')
+                      probe['delivery'] = [{key: event.get(key) for key in ('type', 'local', 'image', 'authoredImage', 'pressure')}
+                          for event in row.get('deliveryReport', {}).get('events', []) if event.get('type') in (87, 92, 93)]
                   if os.environ['BRUSH_REFERENCE_GROUP'] == 'pixeltransfer':
                       probe['transfer'] = row.get('effectivePixelTransferControls')
                       probe['input'] = row.get('input')
@@ -260,6 +284,23 @@ jobs:
               report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
               report_records('Source parameter probes; not parity', probes)
           PYPROBES
+      - name: Report kernel precision research diagnostics
+        if: always() && matrix.fixture_group == 'wetkernelcount'
+        run: |
+          python3 - <<'PYPRECISION'
+          import json, os, runpy
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'kernel-precision.json'
+          if path.is_file():
+              report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
+              records = []
+              for row in json.loads(path.read_text()).get('records', []):
+                  records.append({key: value for key, value in row.items() if key != 'data'})
+                  for offset in range(0, len(row['data']), 1800):
+                      records.append({'id': row['id'], 'capture': 'kernel-precision-raw',
+                          'offset': offset, 'total': len(row['data']), 'data': row['data'][offset:offset + 1800]})
+              report_records('Kernel precision research; not parity', records)
+          PYPRECISION
       - name: Report bundled public setting metadata
         if: always()
         run: |
@@ -274,6 +315,29 @@ jobs:
                       raise RuntimeError('Setting metadata exceeds annotation limit')
                   print('::notice title=Public bundled setting metadata::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PYSETTINGS
+      - name: Report bounded bitmap pixel readback
+        if: always() && matrix.fixture_group == 'bitmaptips'
+        run: |
+          python3 - <<'PYBITMAP'
+          import json, os, runpy
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
+          if path.is_file():
+              records = []
+              for row in json.loads(path.read_text()).get('records', []):
+                  capture = row.get('resourceReadback')
+                  if capture is None:
+                      continue
+                  data = capture.get('data', '')
+                  if not isinstance(data, str) or len(data) > 200000:
+                      raise RuntimeError('Bitmap readback exceeds diagnostic bound')
+                  records.append({'preset': row['preset'], **{key: value for key, value in capture.items() if key != 'data'}})
+                  for offset in range(0, len(data), 1800):
+                      records.append({'preset': row['preset'], 'capture': 'bitmap-bgra',
+                          'offset': offset, 'total': len(data), 'data': data[offset:offset + 1800]})
+              runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records'](
+                  'Bitmap pixel research; not parity', records)
+          PYBITMAP
       - name: Report exact short-stroke alpha probes
         if: always()
         run: |

@@ -100,9 +100,14 @@ if group == "wethsv":
     prepare_wet_hsv(root, resources, preset)
     finalize_input_contract()
     raise SystemExit(0)
-if group == "hsvjoint":
+if group == "hsvpressure":
+    from hsv_pressure_fixtures import prepare as prepare_hsv_pressure
+    prepare_hsv_pressure(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group in ("hsvjoint", "hsvorder", "hsvchroma"):
     from hsv_joint_fixtures import prepare as prepare_hsv_joint
-    prepare_hsv_joint(root, resources, preset)
+    prepare_hsv_joint(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
 if group == "hsvheldout":
@@ -125,7 +130,7 @@ if group in ("tabletsensors", "spacingdynamics"):
     prepare_sensors(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
-if group in ("bitmaptips", "gihstatistics", "gihlabels"):
+if group in ("bitmaptips", "gihstatistics", "gihlabels", "gihcadence"):
     from resource_fixtures import prepare as prepare_resources
     prepare_resources(root, resources, preset, group)
     finalize_input_contract()
@@ -222,6 +227,7 @@ for mode, modern in profiles:
                             32, .25, [1, 1], opacity, flow))
     precision_positions = {}
     precision_partitions = {}
+    precision_boundaries = {}
     if group == "pixelprecision":
         pressure_curve = {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}
         variants = []
@@ -250,6 +256,60 @@ for mode, modern in profiles:
             variants.append((label, pressure_curve, 32, .1, [.25, .75], 1, 1))
             precision_positions[label] = (0, 0, 16)
             precision_partitions[label] = positions
+    if group == "pixelprecision":
+        # Boundary geometry, not a fitted tolerance: two independent radii,
+        # upper/lower tangent pixels, translated document origins and offsets
+        # clearly outside the existing delivery round-trip tolerance.
+        for diameter in (1.6, 2.6):
+            for side in ("upper", "lower"):
+                phase = diameter / 2 - .5 if side == "upper" else 1.5 - diameter / 2
+                for delta in (-.0001, 0, .0001):
+                    for origin in (64, 256, 1024):
+                        label = (f"precision boundary diameter tenths {round(diameter * 10):02d} "
+                                 f"{side} delta micros {round(delta * 1000000):+04d} origin {origin}")
+                        pressure_value = diameter / 32
+                        variants.append((label, pressure_curve, 32, 5,
+                                         [pressure_value, pressure_value], 1, 1))
+                        precision_positions[label] = (0, phase + delta, 1)
+                        precision_boundaries[label] = {"origin": origin, "nominalDiameter": diameter,
+                            "side": side, "phase": phase, "delta": delta,
+                            "objective": "distinguish radius/coordinate quantization from cancellation at a strict boundary"}
+    if group == "pixelprecision":
+        # Probe finalization on both sides of the half-pixel availability
+        # boundary, including zero-motion pressure changes and constant taps.
+        for length in (0, .1, .4, .5, .6):
+            for first, last in ((.25, .75), (.75, .25)):
+                label = (f"pressure short length tenths {round(length * 10):02d} "
+                         f"from {round(first * 100):02d} to {round(last * 100):02d}")
+                variants.append((label, pressure_curve, 32, .1, [first, last], 1, 1))
+                precision_positions[label] = (0, 0, length)
+        for pressure_value in (.25, .75):
+            label = f"pressure constant tap {round(pressure_value * 100):02d}"
+            variants.append((label, pressure_curve, 32, .1,
+                             [pressure_value, pressure_value], 1, 1))
+            precision_positions[label] = (0, 0, 0)
+    if group == "pixelprecision":
+        # Low-opacity build-up reveals duplicate/preview dabs hidden by opaque
+        # final masks. Stage reads observe both paintable and projected pixels.
+        for length in (0, .1, .4, .5, .6):
+            for first, last in ((.25, .75), (.75, .25)):
+                label = f"start state length {round(length * 10):02d} pressure {round(first * 100):02d}"
+                variants.append((label, {**pressure_curve, "OpacityValue": ".5"},
+                                 32, .1, [first, last], .5, 1))
+                precision_positions[label] = (0, 0, length)
+        for value in (.25, .75):
+            label = f"start state tap pressure {round(value * 100):02d}"
+            variants.append((label, {**pressure_curve, "OpacityValue": ".5"},
+                             32, .1, [value, value], .5, 1))
+            precision_positions[label] = (0, 0, 0)
+        # Constant pressure separates a possible absolute spacing floor from
+        # pressure lookahead and radius changes. No source equation assumed.
+        for value in (.025, .05):
+            for spacing in (.1, .25, 1):
+                label = f"spacing floor pressure {round(value * 1000):03d} spacing {spacing}"
+                variants.append((label, {**pressure_curve, "OpacityValue": ".5"},
+                                 32, spacing, [value, value], .5, 1))
+                precision_positions[label] = (0, 0, 4)
     if group == "pixelcurveknots":
         variants = []
         # Nonuniform knots, interior extrema and between-knot probes separate
@@ -493,24 +553,35 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     if group == "wetkernelcount":
         planned = json.loads((source / "wetkernelcount.json").read_text())
-        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 185:
+        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 227:
             raise RuntimeError("Unexpected bounded Dulling probe plan")
         variants = []
         kernel_objectives = {}
+        kernel_masks = {}
         for probe in planned["cases"]:
             if probe["model"] != ("new" if modern else "legacy"):
                 continue
             diameter, radius = probe["diameter"], probe["radiusPercent"]
             axis, offset = probe["axis"], probe["offset"]
             if not (0 < diameter <= 128 and 0 <= radius <= 300 and
-                    axis in ("column", "row", "point") and abs(offset) <= 200 and
+                    axis in ("column", "row", "point", "points") and abs(offset) <= 200 and
                     (axis != "point" or (isinstance(probe.get("offsetY"), int) and abs(probe["offsetY"]) <= 200))):
                 raise RuntimeError("Out-of-bounds Dulling probe")
+            if axis == "points":
+                points = probe.get("points", [])
+                if not (1 <= len(points) <= 256 and type(probe.get("complement")) is bool and
+                        all(isinstance(p, list) and len(p) == 2 and
+                            all(type(v) is int and abs(v) <= 200 for v in p) for p in points) and
+                        len({tuple(p) for p in points}) == len(points)):
+                    raise RuntimeError("Invalid bounded kernel point-set mask")
             dabs = probe.get("dabs", 2)
             if dabs not in (2, 3, 4):
                 raise RuntimeError("Out-of-bounds Dulling state probe")
             point_y = f" y {probe['offsetY']}" if axis == "point" else ""
             label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis}{point_y} dabs {dabs}"
+            if axis == "points":
+                label = label.replace(" dabs ", f" complement {int(probe['complement'])} dabs ")
+                kernel_masks[label] = (probe["points"], probe["complement"])
             if label in kernel_objectives:
                 raise RuntimeError("Duplicate Dulling probe")
             kernel_objectives[label] = probe["reason"]
@@ -543,15 +614,15 @@ for mode, modern in profiles:
             for control in ("Opacity", "Flow"):
                 for shape, curve in (("turning", "0,0;.5,1;1,0;"),
                                      ("nonuniform", "0,.1;.2,.9;.7,.15;1,.8;")):
-                    for mode in ("shared", "local", "disabled"):
+                    for curve_mode in ("shared", "local", "disabled"):
                         overrides = {"PaintOpAction": str(action), control + "Value": ".5",
-                            "Pressure" + control: str(mode != "disabled").lower(),
+                            "Pressure" + control: str(curve_mode != "disabled").lower(),
                             control + "UseCurve": "true",
-                            control + "UseSameCurve": str(mode != "local").lower(),
-                            control + "commonCurve": curve if mode != "local" else "0,1;1,1;",
+                            control + "UseSameCurve": str(curve_mode != "local").lower(),
+                            control + "commonCurve": curve if curve_mode != "local" else "0,1;1,1;",
                             control + "Sensor": '<params id="pressure"><curve>' +
-                                (curve if mode == "local" else "0,0;1,1;") + '</curve></params>'}
-                        label = f"transfer spline {control} action {action} {shape} {mode} Node control"
+                                (curve if curve_mode == "local" else "0,0;1,1;") + '</curve></params>'}
+                        label = f"transfer spline {control} action {action} {shape} {curve_mode} Node control"
                         variants.append((label, overrides, 32, .25, [.25, .25],
                                          .5 if control == "Opacity" else 1,
                                          .5 if control == "Flow" else 1))
@@ -594,15 +665,38 @@ for mode, modern in profiles:
             # case, including its zero-offset baseline. Node.paintLine accepts
             # integer QPoint endpoints and cannot measure subpixel geometry.
             case = cases[-1]
-            case.update({"start": [256 + dx, 1024 + dy],
-                         "end": [256 + dx + length, 1024 + dy],
-                         "probePositions": [256, 257, 258, 259, 260],
-                         "delivery": "Qt tablet events", "canvasCenter": [256, 1024]})
+            origin_x, origin_y = 256, 1024
+            if label in precision_boundaries:
+                origin_x = origin_y = precision_boundaries[label]["origin"]
+                case["boundaryProbe"] = precision_boundaries[label]
+                case["probeY"] = origin_y
+            case.update({"start": [origin_x + dx, origin_y + dy],
+                         "end": [origin_x + dx + length, origin_y + dy],
+                         "probePositions": [origin_x + offset for offset in
+                                            (range(-2, 3) if label in precision_boundaries else range(5))],
+                         "delivery": "Qt tablet events", "canvasCenter": [origin_x, origin_y]})
             case["events"] = [{"x": point[0], "y": point[1],
                                "pressure": pressure[i], "tiltX": 0,
                                "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)}
                               for i, point in enumerate((case["start"], case["end"]))]
+        if group == "pixelprecision" and (label.startswith("pressure short") or
+                                           label.startswith("pressure constant tap")):
+            case = cases[-1]
+            case["changeExpectation"] = "measure short-path/tap output, including a possible source no-op; comparison gates remain enforced"
+            case["pressureShortProbe"] = {"kind": "press-release-only" if label.startswith("pressure constant tap") else "pressure-move-release",
+                                           "length": precision_positions[label][2]}
+            if label.startswith("pressure constant tap"):
+                # A physical-style tap has contact/release, not a zero-length
+                # TabletMove that might enter a different source tool path.
+                case["events"] = case["events"][:1]
+        if group == "pixelprecision" and label.startswith(("start state", "spacing floor")):
+            case = cases[-1]
+            case["changeExpectation"] = "measure source start and spacing behavior; full-image comparison remains enforced"
+            if label.startswith("start state tap"):
+                case["events"] = case["events"][:1]
+            case["startStateProbe"] = {"rect": [236, 1004, 48, 40],
+                "objective": "distinguish press-time paint from deferred emission and absolute spacing"}
         if group == "pixelprecision" and label in precision_partitions:
             case = cases[-1]
             case["events"] = [{"x": 256 + distance, "y": 1024,
@@ -638,9 +732,13 @@ for mode, modern in profiles:
                               "wetBoundary": 256 + diameter * spacing * .8,
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetkernelcount":
-            if "axis point" in label:
+            if "axis point y" in label:
                 cases[-1]["wetPattern"] = "opaque-black-white-point"
                 cases[-1]["wetKernelOffsetY"] = int(label.split(" y ")[1].split()[0])
+            if label in kernel_masks:
+                points, complement = kernel_masks[label]
+                cases[-1].update({"wetPattern": "opaque-black-white-points",
+                                  "wetKernelPoints": points, "wetKernelComplement": complement})
             dabs = int(label.rsplit(" ", 1)[1])
             cases[-1]["probePositions"] = [round(256 + diameter * spacing * i) for i in range(dabs)]
             cases[-1].update({"kernelProbeObjective": kernel_objectives[label],

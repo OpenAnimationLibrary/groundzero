@@ -90,6 +90,18 @@ struct Secondary {
   int count      = 1;
   bool flipX = false, flipY = false;
 };
+struct SourceHsvControl {
+  bool enabled = false;
+  Dynamic control{.5, 0, {}};
+};
+// Independently measured K5341 generated secondary field, separate from native
+// Secondary. Flow accumulates at mask dabs; opacity scales the retained field.
+struct SourceMasked {
+  bool enabled = false, useMasterSize = true;
+  double diameter = 12, masterSizeCoeff = .5, aspect = .5, spacing = .5;
+  double opacity = 1, flow = 1;
+  MaskMode mode = MaskMode::Multiply;
+};
 struct Preset {
   std::string name = "Native brush", profile = "groundzero-native-1";
   Tip tip;
@@ -109,6 +121,7 @@ struct Preset {
       brightness{1, 0, {}};
   Texture texture;
   Secondary secondary;
+  SourceMasked sourceMasked;
   Wet wet       = Wet::Off;
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
   // Versioned source-wet state switches; native wet equations do not use them.
@@ -117,6 +130,9 @@ struct Preset {
   bool sourceTextureSoftTexturing   = false;
   SourceHsvChannel sourceHsvChannel = SourceHsvChannel::Off;
   double sourceHsvValue             = .5;
+  // V2 per-channel controls (H,S,V). Admission determines measured
+  // combinations; storage order does not establish a source composition order.
+  std::array<SourceHsvControl, 3> sourceHsvV2;
   Dynamic pickupControl{1, 0, {}}, colorRateControl{1, 0, {}},
       radiusControl{1, 0, {}};
   // Host policy only: Stroke always renders the explicit resolved seed.
@@ -191,7 +207,10 @@ public:
   Stroke(const Stroke &)            = delete;
   Stroke &operator=(const Stroke &) = delete;
   bool add(const Sample &sample);
-  void finish();
+  // Commit a pending source tap; failure requires transaction rollback.
+  bool finish();
+  // Discard buffered input without painting. Destruction also never flushes.
+  void cancel();
   const std::string &error() const;
   size_t dabCount() const;
   // Read-only qualification/diagnostic state after reload. Smear coordinates

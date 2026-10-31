@@ -328,16 +328,29 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
     if (xml.name() == QStringLiteral("params")) {
       if (!sensor.isEmpty()) return false;
       sensor = xml.attributes().value("id").toString();
-      // Non-default source-specific sensor options need their own adapter.
-      for (auto a : xml.attributes())
-        if (a.name() != QStringLiteral("id")) return false;
+      // Original real-clock Size captures establish this explicit one-second
+      // nonperiodic unit conversion, not source dab timing or general periods.
+      if (sensor == "time") {
+        if (prefix != "Size" || xml.attributes().value("duration") != "1000" ||
+            xml.attributes().value("periodic") != "0")
+          return false;
+        for (auto a : xml.attributes())
+          if (a.name() != QStringLiteral("id") &&
+              a.name() != QStringLiteral("duration") &&
+              a.name() != QStringLiteral("periodic"))
+            return false;
+      } else {
+        for (auto a : xml.attributes())
+          if (a.name() != QStringLiteral("id")) return false;
+      }
     } else if (xml.name() == QStringLiteral("curve"))
       curve = xml.readElementText();
     else
       return false;
   }
   if (xml.hasError()) return false;
-  const QMap<QString, Sensor> names = {{"pressure", Sensor::Pressure},
+  const QMap<QString, Sensor> names = {{"time", Sensor::Time},
+                                       {"pressure", Sensor::Pressure},
                                        {"xtilt", Sensor::TiltX},
                                        {"ytilt", Sensor::TiltY},
                                        {"ascension", Sensor::TiltDirection},
@@ -488,14 +501,16 @@ bool eligiblePressureSensor(const QString &sensorXml,
   }
   return !xml.hasError() && depth == 0 && roots == 1 && curves == 1;
 }
-// Versioned source HSV admission: independently measured, one constant
-// pressure curve at a time. Unknown sensors, active combinations and varying
-// curves remain explicit native conversions rather than source candidates.
+// Versioned source HSV admission: fixed channel composition or one measured
+// identity-pressure channel. Validation rejects unsupported dynamic combinations
+// and contexts; unknown sensors remain explicit native conversions.
 bool sourceHsvSettings(const QMap<QString, QString> &fields,
                        SourceHsvChannel &channel, double &value,
+                       std::array<SourceHsvControl, 3> &controls,
                        QMap<QString, QString> &accepted) {
-  channel = SourceHsvChannel::Off;
-  value   = .5;
+  channel  = SourceHsvChannel::Off;
+  value    = .5;
+  controls = {};
   const QStringList prefixes{"h", "s", "v"};
   const QStringList suffixes{"UseCurve",  "UseSameCurve", "Value",
                              "curveMode", "commonCurve",  "Sensor"};
@@ -506,7 +521,7 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
       present = present || fields.contains(prefix + suffix);
   }
   if (!present) return true;
-  int payloads = 0;
+  int activeChannels = 0;
   for (int index = 0; index < prefixes.size(); ++index) {
     const QString prefix = prefixes[index], flag = "Pressure" + prefix;
     if (fields.value(flag) != "false" && fields.value(flag) != "true")
@@ -519,7 +534,7 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
       if (fields[flag] == "true") return false;
       continue;
     }
-    if (++payloads > 1 || fields.value(prefix + "UseCurve") != "true" ||
+    if (fields.value(prefix + "UseCurve") != "true" ||
         fields.value(prefix + "UseSameCurve") != "true" ||
         fields.value(prefix + "Value") != "1" ||
         fields.value(prefix + "curveMode") != "0" ||
@@ -534,23 +549,151 @@ bool sourceHsvSettings(const QMap<QString, QString> &fields,
         curve.mappings.size() != 1)
       return false;
     const auto &knots = curve.mappings.front().curve;
-    if (knots.size() != 2 || knots[0].x != 0 || knots[1].x != 1 ||
-        knots[0].y != knots[1].y)
-      return false;
+    if (knots.size() != 2 || knots[0].x != 0 || knots[1].x != 1) return false;
+    const bool fixed    = knots[0].y == knots[1].y;
+    const bool identity = knots[0].y == 0 && knots[1].y == 1;
+    if (!fixed && !identity) return false;
     for (const auto &suffix : suffixes) {
       if (!fields.contains(prefix + suffix)) return false;
       accepted[prefix + suffix] = fields[prefix + suffix];
     }
     if (fields[flag] == "true") {
-      channel = SourceHsvChannel(index + 1);
-      value   = knots[0].y;
+      ++activeChannels;
+      controls[index].enabled = true;
+      controls[index].control =
+          fixed ? Dynamic{knots[0].y, 0, {}} : std::move(curve);
     }
   }
+  // Preserve V1 representation for a single fixed channel. V2 stores joint
+  // fixed controls or one measured pressure control without ambiguous mixing.
+  if (activeChannels == 1)
+    for (size_t index = 0; index < 3; ++index)
+      if (controls[index].enabled && controls[index].control.mappings.empty()) {
+        channel  = SourceHsvChannel(index + 1);
+        value    = controls[index].control.value;
+        controls = {};
+        break;
+      }
+
   return true;
+}
+// Resolve only the measured static generated mask contract. Unknown enabled
+// groups and absent defaults never disappear into a source-candidate label.
+bool sourceMaskedSettings(const QMap<QString, QString> &fields, Preset &preset,
+                          QMap<QString, QString> &primary) {
+  primary      = fields;
+  bool hasMask = false;
+  for (auto i = fields.begin(); i != fields.end(); ++i)
+    if (i.key().startsWith("MaskingBrush/")) hasMask = true;
+  if (!hasMask) return true;
+  if (preset.wet != Wet::Off) return false;
+  const QString prefix               = "MaskingBrush/Preset/";
+  const QMap<QString, QString> fixed = {
+      {prefix + "paintop", "paintbrush"},
+      {prefix + "OpacityUseCurve", "false"},
+      {prefix + "FlowUseCurve", "false"},
+      {prefix + "PressureOpacity", "false"},
+      {prefix + "PressureFlow", "false"},
+      {prefix + "PressureSize", "false"},
+      {prefix + "PressureRatio", "false"},
+      {prefix + "PressureRotation", "false"},
+      {prefix + "PressureSpacing", "false"},
+      {prefix + "PressureScatter", "false"},
+      {prefix + "PressureMirror", "false"},
+      {prefix + "Texture/Pattern/Enabled", "false"}};
+  for (auto i = fixed.begin(); i != fixed.end(); ++i)
+    if (fields.value(i.key()) != i.value()) return false;
+  QSet<QString> allowed;
+  for (auto i = fixed.begin(); i != fixed.end(); ++i) allowed.insert(i.key());
+  for (const auto &key :
+       {QString("MaskingBrush/Enabled"), QString("MaskingBrush/UseMasterSize"),
+        QString("MaskingBrush/MasterSizeCoeff"),
+        QString("MaskingBrush/MaskingCompositeOp"), prefix + "OpacityValue",
+        prefix + "FlowValue", prefix + "brush_definition"}) {
+    if (!fields.contains(key)) return false;
+    allowed.insert(key);
+  }
+  for (auto i = fields.begin(); i != fields.end(); ++i)
+    if (i.key().startsWith("MaskingBrush/")) {
+      if (!allowed.contains(i.key())) return false;
+      primary.remove(i.key());
+    }
+  const auto boolean = [&](const QString &key) {
+    return fields[key] == "true" || fields[key] == "false";
+  };
+  if (!boolean("MaskingBrush/Enabled") ||
+      !boolean("MaskingBrush/UseMasterSize"))
+    return false;
+  auto &mask         = preset.sourceMasked;
+  mask.enabled       = fields["MaskingBrush/Enabled"] == "true" && preset.wash;
+  mask.useMasterSize = fields["MaskingBrush/UseMasterSize"] == "true";
+  const QString mode = fields["MaskingBrush/MaskingCompositeOp"];
+  if (mode != "multiply" && mode != "subtract") return false;
+  mask.mode   = mode == "multiply" ? MaskMode::Multiply : MaskMode::Subtract;
+  auto scalar = [&](const QString &text, double &value) {
+    bool ok = false;
+    value   = text.toDouble(&ok);
+    return ok && std::isfinite(value);
+  };
+  if (!scalar(fields["MaskingBrush/MasterSizeCoeff"], mask.masterSizeCoeff) ||
+      !scalar(fields[prefix + "OpacityValue"], mask.opacity) ||
+      !scalar(fields[prefix + "FlowValue"], mask.flow))
+    return false;
+  QXmlStreamReader xml(fields[prefix + "brush_definition"]);
+  int depth = 0, brushes = 0, generators = 0;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isDTD() || xml.isEntityReference()) return false;
+    if (xml.isEndElement()) {
+      --depth;
+      continue;
+    }
+    if (!xml.isStartElement()) continue;
+    ++depth;
+    const bool brush = depth == 1 && xml.name() == QStringLiteral("Brush");
+    const bool generator =
+        depth == 2 && xml.name() == QStringLiteral("MaskGenerator");
+    if (!brush && !generator) return false;
+    if (brush)
+      ++brushes;
+    else
+      ++generators;
+    const QMap<QString, QString> exact =
+        brush
+            ? QMap<QString, QString>{{"type", "auto_brush"},
+                                     {"BrushVersion", "2"},
+                                     {"angle", "0"},
+                                     {"randomness", "0"},
+                                     {"density", "1"},
+                                     {"useAutoSpacing", "0"}}
+            : QMap<QString, QString>{{"id", "default"},       {"type", "rect"},
+                                     {"hfade", "1"},          {"vfade", "1"},
+                                     {"antialiasEdges", "0"}, {"spikes", "2"}};
+    const auto attrs = xml.attributes();
+    for (auto i = exact.begin(); i != exact.end(); ++i)
+      if (attrs.value(i.key()) != i.value()) return false;
+    for (const auto &attr : attrs)
+      if (!exact.contains(attr.name().toString()) &&
+          !(brush ? attr.name() == QStringLiteral("spacing")
+                  : (attr.name() == QStringLiteral("diameter") ||
+                     attr.name() == QStringLiteral("ratio"))))
+        return false;
+    if (brush) {
+      if (!scalar(attrs.value("spacing").toString(), mask.spacing))
+        return false;
+    } else if (!scalar(attrs.value("diameter").toString(), mask.diameter) ||
+               !scalar(attrs.value("ratio").toString(), mask.aspect))
+      return false;
+  }
+  return !xml.hasError() && brushes == 1 && generators == 1;
 }
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
   if (engine != "paintbrush" && engine != "colorsmudge") return false;
+  // Time's native unit adapter is not a source-profile admission. Source
+  // time-to-dab evaluation and periodic behavior are still being acquired.
+  for (const auto &mapping : preset.size.mappings)
+    if (mapping.sensor == Sensor::Time) return false;
   // Explicit eligibility, not inference from a partially decoded preset.
   // Missing defaults and unknown settings stay native conversions.
   QMap<QString, QString> required = {
@@ -577,11 +720,15 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   SourceHsvChannel hsvChannel;
   double hsvValue;
   QMap<QString, QString> hsvFields;
-  if (!sourceHsvSettings(fields, hsvChannel, hsvValue, hsvFields) ||
+  std::array<SourceHsvControl, 3> hsvControls;
+  if (!sourceHsvSettings(fields, hsvChannel, hsvValue, hsvControls,
+                         hsvFields) ||
       hsvChannel != preset.sourceHsvChannel ||
-      hsvValue != preset.sourceHsvValue ||
-      (!hsvFields.empty() && engine != "paintbrush"))
+      hsvValue != preset.sourceHsvValue)
     return false;
+  for (size_t channel = 0; channel < 3; ++channel)
+    if (hsvControls[channel].enabled != preset.sourceHsvV2[channel].enabled)
+      return false;
   for (auto i = hsvFields.begin(); i != hsvFields.end(); ++i)
     required[i.key()] = i.value();
   if (fields.contains("Spacing/Isotropic"))
@@ -1189,7 +1336,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         control->mappings.front().interpolation = Interpolation::NaturalCubic;
   QMap<QString, QString> hsvFields;
   sourceHsvSettings(fields, candidate.sourceHsvChannel,
-                    candidate.sourceHsvValue, hsvFields);
+                    candidate.sourceHsvValue, candidate.sourceHsvV2, hsvFields);
   if (engine == "paintbrush" && candidate.angle.value == 0 &&
       fields.value("PressureRotation") == "true") {
     Dynamic barrel{360, 0, {}};
@@ -1199,8 +1346,14 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                      ignoredDiagnostics))
       candidate.angle = std::move(barrel);
   }
-  if (eligibleFixedSource(fields, engine, candidate)) {
+  QMap<QString, QString> primaryFields;
+  const bool maskSettingsKnown =
+      sourceMaskedSettings(fields, candidate, primaryFields);
+  if (maskSettingsKnown &&
+      eligibleFixedSource(primaryFields, engine, candidate)) {
     r.preset = std::move(candidate);
+    if (fields.value("MaskingBrush/Enabled") == "true" && !r.preset.wash)
+      r.provenance["sourceInactiveMask"] = "build-up-mask-ignored";
     if (engine == "colorsmudge" && fields.value("FlowUseCurve") == "true") {
       r.provenance["sourceInactiveFlowCurve"] = "identity-pressure";
       r.provenance["sourceInactiveFlowPressureEnabled"] =

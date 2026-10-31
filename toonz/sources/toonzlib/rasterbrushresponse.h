@@ -29,6 +29,26 @@
 
 namespace RasterBrush {
 namespace Detail {
+inline bool validateResponsePathInput(const QString &path, QString &error) {
+  if (path.contains(QChar::Null)) {
+    error = "Invalid response path";
+    return false;
+  }
+#ifdef _WIN32
+  // QFileInfo can normalize an extended/device prefix away. Reject these
+  // namespaces before any normalization, not only on the resulting path.
+  // Do not use QDir::fromNativeSeparators here: Qt 5 itself strips the
+  // extended prefix in that function before replacing backslashes.
+  const auto separator = [](QChar c) {
+    return c == QLatin1Char('/') || c == QLatin1Char('\\');
+  };
+  if (path.size() >= 2 && separator(path[0]) && separator(path[1])) {
+    error = "Regular-file protocol requires a local disk path";
+    return false;
+  }
+#endif
+  return true;
+}
 // The worker's directory contents are hostile, including on platforms whose
 // privilege sandbox is not yet complete. Never inspect with QFileInfo and then
 // open with QFile: that follows a replaced link and can block opening a FIFO.
@@ -56,6 +76,7 @@ public:
   }
   bool open(const QString &path, QString &error) {
     error.clear();
+    if (!validateResponsePathInput(path, error)) return false;
     auto fail = [&](const char *message) {
       error = QString::fromLatin1(message);
       return false;

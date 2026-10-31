@@ -422,8 +422,26 @@ static QByteArray encodeRecord(
         {"sourceSmearAlpha", p.sourceSmearAlpha},
         {"sourceColorRateEnabled", p.sourceColorRateEnabled},
         {"sourceTextureSoftTexturing", p.sourceTextureSoftTexturing},
+        {"sourceMaskedV1",
+         QJsonObject{{"enabled", p.sourceMasked.enabled},
+                     {"useMasterSize", p.sourceMasked.useMasterSize},
+                     {"diameter", p.sourceMasked.diameter},
+                     {"masterSizeCoeff", p.sourceMasked.masterSizeCoeff},
+                     {"aspect", p.sourceMasked.aspect},
+                     {"spacing", p.sourceMasked.spacing},
+                     {"opacity", p.sourceMasked.opacity},
+                     {"flow", p.sourceMasked.flow},
+                     {"mode", masks[int(p.sourceMasked.mode)]}}},
         {"sourceHsvChannelV1", sourceHsvChannels[int(p.sourceHsvChannel)]},
         {"sourceHsvValueV1", p.sourceHsvValue},
+        {"sourceHsvControlsV2",
+         QJsonArray{
+             QJsonObject{{"enabled", p.sourceHsvV2[0].enabled},
+                         {"control", dynamicJson(p.sourceHsvV2[0].control)}},
+             QJsonObject{{"enabled", p.sourceHsvV2[1].enabled},
+                         {"control", dynamicJson(p.sourceHsvV2[1].control)}},
+             QJsonObject{{"enabled", p.sourceHsvV2[2].enabled},
+                         {"control", dynamicJson(p.sourceHsvV2[2].control)}}}},
         {"pickupControl", dynamicJson(p.pickupControl)},
         {"colorRateControl", dynamicJson(p.colorRateControl)},
         {"radiusControl", dynamicJson(p.radiusControl)},
@@ -579,8 +597,10 @@ static Record decodeRecord(
              "sourceSmearAlpha",
              "sourceColorRateEnabled",
              "sourceTextureSoftTexturing",
+             "sourceMaskedV1",
              "sourceHsvChannelV1",
-             "sourceHsvValueV1"});
+             "sourceHsvValueV1",
+             "sourceHsvControlsV2"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
@@ -609,6 +629,31 @@ static Record decodeRecord(
       p.sourceHsvChannel =
           SourceHsvChannel(choice(o["sourceHsvChannelV1"], sourceHsvChannels));
       p.sourceHsvValue = number(o["sourceHsvValueV1"]);
+    }
+    if (o.contains("sourceHsvControlsV2")) {
+      const auto controls = array(o["sourceHsvControlsV2"], 3);
+      if (controls.size() != 3)
+        throw Invalid("Incomplete source HSV V2 channel set");
+      for (int channel = 0; channel < 3; ++channel) {
+        const auto setting = object(controls[channel]);
+        keys(setting, {"enabled", "control"});
+        p.sourceHsvV2[channel].enabled = boolean(setting["enabled"]);
+        p.sourceHsvV2[channel].control = dynamic(setting["control"]);
+      }
+    }
+    if (o.contains("sourceMaskedV1")) {
+      const auto mask = object(o["sourceMaskedV1"]);
+      keys(mask, {"enabled", "useMasterSize", "diameter", "masterSizeCoeff",
+                  "aspect", "spacing", "opacity", "flow", "mode"});
+      p.sourceMasked.enabled         = boolean(mask["enabled"]);
+      p.sourceMasked.useMasterSize   = boolean(mask["useMasterSize"]);
+      p.sourceMasked.diameter        = number(mask["diameter"]);
+      p.sourceMasked.masterSizeCoeff = number(mask["masterSizeCoeff"]);
+      p.sourceMasked.aspect          = number(mask["aspect"]);
+      p.sourceMasked.spacing         = number(mask["spacing"]);
+      p.sourceMasked.opacity         = number(mask["opacity"]);
+      p.sourceMasked.flow            = number(mask["flow"]);
+      p.sourceMasked.mode            = MaskMode(choice(mask["mode"], masks));
     }
     if (o.contains("sourceTextureSoftTexturing"))
       p.sourceTextureSoftTexturing = boolean(o["sourceTextureSoftTexturing"]);
@@ -725,6 +770,8 @@ static Record decodeRecord(
 
 QByteArray readBoundedRegularFile(const QString &path, qint64 maximumBytes,
                                   QString &error) {
+  error.clear();
+  if (!Detail::validateResponsePathInput(path, error)) return {};
   const QFileInfo info(path);
   Detail::RegularResponseDirectory directory;
   if (!directory.open(info.absolutePath(), error)) return {};

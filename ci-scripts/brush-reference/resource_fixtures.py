@@ -61,20 +61,27 @@ def prepare(root, resources, preset_writer, group):
                       if group in ("gihstatistics", "gihlabels") else
                       [(kind, size, angle, path, 0) for kind in ("alpha", "color-mask", "color-image", "incremental")
                        for size in (8, 16) for angle in (0, 90) for path in ("stamp", "sequence")])
+    if group == "gihcadence":
+        from gih_cadence_fixtures import plans
+        specifications = [(kind, 8, 0, "sequence", replicate) for kind, spacing, mode, replicate in plans()]
     names, cases = [], []
     for index, (kind, size, angle, path, replicate) in enumerate(specifications):
+        spacing = 4
+        if group == "gihcadence":
+            from gih_cadence_fixtures import plans
+            spacing = plans()[index][1]
         filename = ("gz-original-alpha.gbr" if kind == "alpha" else "gz-original-color.png"
                     if kind.startswith("color") else "gz-original-" + kind + ".gih")
         data = assets[filename]
         brush_type = "png_brush" if filename.endswith("png") else "gbr_brush"
         mask = kind in ("alpha", "color-mask")
         brush = Element("Brush", type=brush_type, BrushVersion="2", filename=filename,
-                        scale=str(size / 8), spacing="4", angle="0", useAutoSpacing="0",
+                        scale=str(size / 8), spacing=str(spacing), angle="0", useAutoSpacing="0",
                         autoSpacingCoeff="1", ColorAsMask="1" if mask else "0", preserveLightness="0")
         definition = tostring(brush, encoding="unicode")
         name = "GZ Original dry resource " + group + " " + str(index).zfill(3)
         overrides = {"brush_definition": definition, "PressureSize": "false", "SizeUseCurve": "false"}
-        preset_data = preset_writer(name, "dry", False, overrides, size, 4, 0)
+        preset_data = preset_writer(name, "dry", False, overrides, size, spacing, 0)
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset_data)
         ns = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"
         manifest = Element("{" + ns + "}manifest", {"{" + ns + "}version": "1.2"})
@@ -104,6 +111,10 @@ def prepare(root, resources, preset_writer, group):
                                         "rect": [232, 1000, end - 232 + 25, 48],
                                         "qualification": "100 independent strokes; distribution acquisition, not seed parity"
                                         if kind == "random" else "deterministic source repeat; candidate rendering exploratory"}})
+    if group == "gihcadence":
+        from gih_cadence_fixtures import configure
+        for index, case in enumerate(cases):
+            configure(case, index)
     if group == "gihlabels":
         from pathlib import Path
         import runpy
@@ -114,9 +125,14 @@ def prepare(root, resources, preset_writer, group):
             case["start"], case["end"] = case["sourcePath"][0], case["sourcePath"][-1]
             case["resourceProbe"]["expectedSlots"] = 3072
             case["resourceProbe"]["rect"] = [0, 0, 2048, 1536]
+    if group == "bitmaptips":
+        import bitmap_diagnostics
+        bitmap_diagnostics.append(root, resources, preset_writer, names, cases)
     (root / "output" / "fixtures.json").write_text(json.dumps({
         "version": "5.3.4.1", "group": group, "presets": names, "cases": cases,
         "license": "CC0-1.0", "width": 2048, "height": 2048,
-        "input": ("Node.paintPath API; one continuous authored path; no physical tablet claim"
+        "input": ("Paired Node.paintLine/paintPath paths and discrete strokes; exact per-case delivery recorded"
+                  if group == "gihcadence" else
+                  "Node.paintPath API; one continuous authored path; no physical tablet claim"
                   if group == "gihlabels" else
                   "Node.paintLine API; authored and delivered endpoints recorded; no physical tablet claim")}, indent=2))

@@ -165,3 +165,12 @@ conversion without claiming Photoshop renderer parity. Reference stroke traces
 would additionally be needed to establish source random distributions, sensor
 normalization, fade endpoints and per-dab ordering. No source-code reuse,
 paid pack acquisition or runtime emulation is necessary to obtain such evidence.
+
+## Additional original static ABR corpus
+
+The [pinned 64-preset author corpus census](raster_brush_abr_corpus.md)
+records asset hashes, license scope and complete serialized-field observations
+for two additional ABR 6.2 collections. All tips are sampled and all dynamics
+are disabled; both pattern sections are empty. This evidence does not resolve
+modern computed-tip, pattern-association, dynamic-control or other-version gaps,
+and does not establish source rendering parity. No pack assets are included.

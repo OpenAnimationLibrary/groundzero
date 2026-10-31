@@ -28,6 +28,8 @@
 #include "timage_io.h"
 #include "tmsgcore.h"
 #include <QApplication>
+#include <QBuffer>
+#include <QImage>
 #include <QDialog>
 #include <QTimer>
 #include <QMainWindow>
@@ -459,21 +461,69 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "cannot remove invalid installed fixture");
     }
     checkpoint("qualifying explicit source-to-native copy conversion");
-    for (int conversionKind : {0, 1, 2}) {
+    const auto noSourceHsvSensors = [](const RasterBrush::Preset &preset) {
+      return std::all_of(preset.sourceHsvV2.begin(), preset.sourceHsvV2.end(),
+                         [](const RasterBrush::SourceHsvControl &channel) {
+                           return !channel.enabled &&
+                                  channel.control.value == .5 &&
+                                  channel.control.minimum == 0 &&
+                                  channel.control.mappings.empty();
+                         });
+    };
+    const auto noSourceMask = [](const RasterBrush::Preset &preset) {
+      const auto &mask = preset.sourceMasked;
+      return !mask.enabled && mask.useMasterSize && mask.diameter == 12 &&
+             mask.masterSizeCoeff == .5 && mask.aspect == .5 &&
+             mask.spacing == .5 && mask.opacity == 1 && mask.flow == 1 &&
+             mask.mode == RasterBrush::MaskMode::Multiply;
+    };
+    for (int conversionKind : {0, 1, 2, 3, 4, 5}) {
       const bool wetConversion = conversionKind == 1;
-      const bool hsvConversion = conversionKind == 2;
+      const bool hsvConversion = conversionKind >= 2 && conversionKind <= 4;
+      const bool hsvSensorConversion =
+          conversionKind == 3 || conversionKind == 4;
+      const bool maskedConversion       = conversionKind == 5;
+      const bool resourceFreeConversion = hsvConversion || maskedConversion;
       RasterBrush::Record fixture;
-      fixture.preset.name    = wetConversion ? "Original wet conversion fixture"
-                               : hsvConversion
-                                   ? "Original HSV conversion fixture"
-                                   : "Original pixel conversion fixture";
+      if (maskedConversion) {
+        const QString sourcePath =
+            QDir::current().filePath("conversion-masked.kpp");
+        QFile source(sourcePath);
+        const auto bytes = RasterBrushTest::maskedPixelKpp();
+        require(source.open(QIODevice::WriteOnly) &&
+                    source.write(bytes) == bytes.size(),
+                "cannot stage source masked conversion fixture");
+        source.close();
+        auto imported = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && imported.complete &&
+                    imported.records.size() == 1 &&
+                    imported.records.front().preset.sourceMasked.enabled,
+                "cannot import source masked conversion fixture");
+        fixture = imported.records.front();
+      }
+      fixture.preset.name = wetConversion ? "Original wet conversion fixture"
+                            : hsvConversion
+                                ? "Original HSV conversion fixture"
+                                : "Original pixel conversion fixture";
+      if (maskedConversion)
+        fixture.preset.name = "Original source masked conversion fixture";
+      if (hsvSensorConversion)
+        fixture.preset.name +=
+            conversionKind == 3 ? " pressure hue" : " pressure value";
       fixture.preset.profile = wetConversion
                                    ? "krita-5.3.4.1-legacy-dulling-candidate-1"
                                    : "krita-5.3.4.1-hard-pixel-candidate-1";
       fixture.preset.wet =
           wetConversion ? RasterBrush::Wet::Dulling : RasterBrush::Wet::Off;
       fixture.preset.smudgeRadius = 0;
-      if (hsvConversion) {
+      if (hsvSensorConversion) {
+        auto &channel = fixture.preset.sourceHsvV2[conversionKind == 3 ? 0 : 2];
+        channel.enabled = true;
+        channel.control = RasterBrush::Dynamic{1, 0, {}};
+        channel.control.mappings.push_back(
+            {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      } else if (hsvConversion) {
         fixture.preset.sourceHsvChannel =
             RasterBrush::SourceHsvChannel::Saturation;
         fixture.preset.sourceHsvValue = .75;
@@ -488,15 +538,14 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       auto texture   = std::make_shared<RasterBrush::Image>();
       texture->width = texture->height = 1;
       texture->pixels                  = {{0, 0, 0, 1}};
-      // The experimental source HSV profile excludes texture resources
-      // entirely. Pixel/wet cases retain the resource-rights preservation
-      // coverage.
-      if (!hsvConversion) fixture.preset.texture.image = texture;
+      // These source HSV/masked profiles exclude texture resources.
+      // Pixel/wet cases retain the resource-rights preservation coverage.
+      if (!resourceFreeConversion) fixture.preset.texture.image = texture;
       const auto assets = RasterBrush::resources(fixture, importError);
-      require(
-          importError.isEmpty() && assets.size() == (hsvConversion ? 0u : 1u),
-          "source conversion resource fixture invalid");
-      if (!hsvConversion)
+      require(importError.isEmpty() &&
+                  assets.size() == (resourceFreeConversion ? 0u : 1u),
+              "source conversion resource fixture invalid");
+      if (!resourceFreeConversion)
         fixture.resourceRights[assets.front().hash] = QJsonObject{
             {"redistribution", "restricted"}, {"license", "Original fixture"}};
       const QString folder =
@@ -547,8 +596,16 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                      confirmation->text().contains("native wet mixing")) &&
                     (!hsvConversion ||
                      (confirmation->text().contains(
-                          "HSV color adjustment will be removed") &&
-                      confirmation->text().contains("different equations")));
+                          hsvSensorConversion
+                              ? "HSV sensor controls will be removed"
+                              : "HSV color adjustment will be removed") &&
+                      confirmation->text().contains("different equations"))) &&
+                    (!maskedConversion ||
+                     (confirmation->text().contains(
+                          "source masked brush will be removed") &&
+                      confirmation->text().contains("separate opacity, flow") &&
+                      confirmation->text().contains(
+                          "not an equivalent replacement")));
                 if (outcome == 0)
                   confirmation->reject();
                 else {
@@ -629,7 +686,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   converted.preset.sourceHsvChannel ==
                       RasterBrush::SourceHsvChannel::Off &&
                   converted.preset.sourceHsvValue == .5 &&
-                  bool(converted.preset.texture.image) == !hsvConversion &&
+                  noSourceHsvSensors(converted.preset) &&
+                  noSourceMask(converted.preset) &&
+                  bool(converted.preset.texture.image) ==
+                      !resourceFreeConversion &&
                   converted.resourceRights == fixture.resourceRights &&
                   converted.provenance["sourceProfileBeforeNativeConversion"]
                           .toString() ==
@@ -641,9 +701,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "native conversion lost assets, declarations, edited values or "
               "reset semantics");
           const QString portable = QDir::current().filePath(
-              wetConversion   ? "converted-wet.gzbrush"
-              : hsvConversion ? "converted-hsv.gzbrush"
-                              : "converted-pixel.gzbrush");
+              wetConversion      ? "converted-wet.gzbrush"
+              : hsvConversion    ? "converted-hsv.gzbrush"
+              : maskedConversion ? "converted-masked.gzbrush"
+                                 : "converted-pixel.gzbrush");
           require(RasterBrush::savePortable(
                       portable, converted,
                       RasterBrush::ResourcePackaging::PrivateCopy, importError),
@@ -656,6 +717,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   reopened.records.front().preset.sourceHsvChannel ==
                       RasterBrush::SourceHsvChannel::Off &&
                   reopened.records.front().preset.sourceHsvValue == .5 &&
+                  noSourceHsvSensors(reopened.records.front().preset) &&
+                  noSourceMask(reopened.records.front().preset) &&
                   reopened.records.front().provenance["conversionKind"] ==
                       "native-reinterpretation" &&
                   reopened.records.front()
@@ -895,6 +958,165 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         requireSame(originalValues, values,
                     "PNG premultiplied channel round trip");
       }
+    }
+    checkpoint("qualifying imported source mask and HSV painting lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const auto previousColor     = palette->getStyle(1)->getMainColor();
+      palette->getStyle(1)->setMainColor(TPixel32(160, 80, 40, 255));
+      for (const QString &kind :
+           {QString("mask"), QString("h"), QString("v")}) {
+        checkpoint(qPrintable("source painting lifecycle: " + kind));
+        QByteArray sourceBytes;
+        if (kind == "mask")
+          sourceBytes = RasterBrushTest::maskedPixelKpp();
+        else {
+          QImage image =
+              QImage::fromData(RasterBrushTest::hardPixelKpp("buildUp"), "PNG");
+          QString xml = image.text("preset"), extra;
+          auto param  = [&](const QString &key, const QString &value) {
+            extra += "<param name=\"" + key + "\">" + value.toHtmlEscaped() +
+                     "</param>";
+          };
+          for (const QString &channel :
+               {QString("h"), QString("s"), QString("v")})
+            param("Pressure" + channel, channel == kind ? "true" : "false");
+          param(kind + "UseCurve", "true");
+          param(kind + "UseSameCurve", "true");
+          param(kind + "Value", "1");
+          param(kind + "curveMode", "0");
+          param(kind + "commonCurve", "0,0;1,1;");
+          param(kind + "Sensor",
+                "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+          xml.replace("</Preset>", extra + "</Preset>");
+          image.setText("preset", xml);
+          QBuffer buffer(&sourceBytes);
+          require(
+              buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+              "cannot encode original source HSV lifecycle fixture");
+        }
+        const QString sourcePath =
+            QDir::current().filePath("paint-source-" + kind + ".kpp");
+        QFile sourceFile(sourcePath);
+        require(sourceFile.open(QIODevice::WriteOnly) &&
+                    sourceFile.write(sourceBytes) == sourceBytes.size(),
+                "cannot stage source painting lifecycle fixture");
+        sourceFile.close();
+        const auto imported = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && imported.complete &&
+                    imported.records.size() == 1,
+                "source painting worker import failed");
+        const auto &record = imported.records.front();
+        auto checkIdentity = [&](const RasterBrush::Record &candidate) {
+          require(
+              candidate.preset.profile ==
+                      "krita-5.3.4.1-hard-pixel-candidate-1" &&
+                  !candidate.referenceVerified &&
+                  !candidate.provenance["sourceReferenceVerified"].toBool(),
+              "source painting workflow lost candidate or unverified status");
+          if (kind == "mask")
+            require(
+                candidate.preset.sourceMasked.enabled &&
+                    candidate.preset.sourceMasked.opacity == .5 &&
+                    candidate.preset.sourceMasked.flow == .5 &&
+                    candidate.preset.wash,
+                "source mask painting workflow lost separate mask controls");
+          else {
+            const auto &channel =
+                candidate.preset.sourceHsvV2[kind == "h" ? 0 : 2];
+            require(channel.enabled && channel.control.value == 1 &&
+                        channel.control.minimum == 0 &&
+                        channel.control.mappings.size() == 1 &&
+                        channel.control.mappings.front().sensor ==
+                            RasterBrush::Sensor::Pressure,
+                    "source HSV painting workflow lost pressure control");
+          }
+        };
+        checkIdentity(record);
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        auto select = [&](const RasterBrush::Record &candidate) {
+          const QString installed =
+              RasterBrush::install(folder, candidate, importError);
+          require(importError.isEmpty() && !installed.isEmpty(),
+                  "source painting install failed");
+          tool->onActivate();
+          property->setValue(
+              QDir(folder).relativeFilePath(installed).toStdWString());
+          require(tool->onPropertyChanged("Native Brush:"),
+                  "source painting selection failed");
+        };
+        select(record);
+        const TRaster32P baseline = raster(level, 1)->clone();
+        undo->reset();
+        draw(tool, false, .2);
+        const TRaster32P low = raster(level, 1)->clone();
+        require(!same(baseline, low) && undo->getHistoryCount() == 1 &&
+                    undo->undo() && same(baseline, raster(level, 1)),
+                "source painting low-pressure transaction failed");
+        undo->reset();
+        draw(tool, false, .8);
+        const TRaster32P painted = raster(level, 1)->clone();
+        require(!same(baseline, painted) && undo->getHistoryCount() == 1 &&
+                    (kind == "mask" || !same(low, painted)),
+                "source HSV pressure failed to affect actual pixels");
+        verifyScenePersistence(painted, "source-paint-" + kind);
+        require(undo->undo() && same(baseline, raster(level, 1)) &&
+                    undo->redo() && same(painted, raster(level, 1)) &&
+                    undo->undo() && same(baseline, raster(level, 1)),
+                "source painting exact undo/redo failed");
+        undo->reset();
+        draw(tool, true, .8);
+        require(
+            same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled source painting left pixels or history");
+        const QString portable =
+            QDir::current().filePath("paint-source-" + kind + ".gzbrush");
+        require(RasterBrush::savePortable(
+                    portable, record,
+                    RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                "source painting portable export failed");
+        const auto reopened = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), portable, importError);
+        require(importError.isEmpty() && reopened.complete &&
+                    reopened.records.size() == 1,
+                "source painting portable worker reimport failed");
+        checkIdentity(reopened.records.front());
+        select(reopened.records.front());
+        draw(tool, false, .8);
+        requireSame(painted, raster(level, 1),
+                    "portable source repaint: " + kind);
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "portable source repaint undo failed");
+        undo->reset();
+        verifyMidStrokeFrameSwitch();
+        app->getCurrentFrame()->setFid(TFrameId(6));
+        settle();
+        tool->onImageChanged();
+        draw(tool, true, .8);
+        require(!level->getFrame(TFrameId(6), false) &&
+                    undo->getHistoryCount() == 0,
+                "cancelled source painting retained a new frame");
+        draw(tool, false, .8);
+        require(bool(raster(level, 6)) && undo->getHistoryCount() == 1,
+                "source painting did not create one frame transaction");
+        const TRaster32P created = raster(level, 6)->clone();
+        require(undo->undo() && !level->getFrame(TFrameId(6), false) &&
+                    undo->redo() && same(created, raster(level, 6)) &&
+                    undo->undo() && !level->getFrame(TFrameId(6), false),
+                "source painting new-frame undo/redo changed pixels or state");
+        undo->reset();
+        app->getCurrentFrame()->setFid(TFrameId(1));
+        settle();
+        tool->onImageChanged();
+        requireSame(baseline, raster(level, 1),
+                    "source painting original frame: " + kind);
+      }
+      palette->getStyle(1)->setMainColor(previousColor);
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore brush after source painting qualification");
     }
     checkpoint("qualifying source wet stroke transactions and persistence");
     for (const QString &model :
@@ -1648,6 +1870,164 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot restore preset after airbrush qualification");
       undo->reset();
+    }
+    checkpoint("qualifying deferred source taps through actual tool lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const TRaster32P baseline    = raster(level, 1)->clone();
+      RasterBrush::Record fixture;
+      fixture.preset.name         = "Original deferred source tap";
+      fixture.preset.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+      fixture.preset.size.value   = 32;
+      fixture.preset.size.minimum = 0;
+      fixture.preset.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      auto select = [&]() {
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install deferred source tap fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select deferred source tap fixture");
+      };
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = 1;
+      auto begin       = [&](const TPointD &point) {
+        require(tool->preLeftButtonDown(), "brush refused deferred tap");
+        event.m_buttons = Qt::LeftButton;
+        tool->leftButtonDown(point, event);
+        settle();
+      };
+      auto release = [&](const TPointD &point) {
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(point, event);
+        settle();
+      };
+      auto cancel = [&]() {
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        require(tool->keyDown(&escape), "deferred tap ignored cancellation");
+      };
+      select();
+      undo->reset();
+      begin(TPointD());
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source tap painted before deferred finalization");
+      release(TPointD());
+      const TRaster32P painted = raster(level, 1)->clone();
+      require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+              "source tap did not commit at pen-up");
+      verifyScenePersistence(painted, "deferred-source-tap");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(painted, raster(level, 1)) &&
+                  undo->undo() && same(baseline, raster(level, 1)),
+              "deferred tap undo/redo failed to preserve exact pixels");
+      undo->reset();
+      begin(TPointD());
+      cancel();
+      release(TPointD());
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled pending source tap flushed pixels or history");
+      require(!level->getFrame(TFrameId(8), false),
+              "deferred tap scratch frame already exists");
+      for (int outcome : {0, 1, 2}) {
+        app->getCurrentFrame()->setFid(TFrameId(8));
+        settle();
+        tool->onImageChanged();
+        const TPointD point = outcome == 1 ? TPointD(10000, 10000) : TPointD();
+        begin(point);
+        if (outcome == 0) cancel();
+        release(point);
+        if (outcome < 2)
+          require(!level->getFrame(TFrameId(8), false) &&
+                      undo->getHistoryCount() == 0,
+                  "cancelled or off-canvas source tap left a created frame");
+        else {
+          require(bool(raster(level, 8)) && undo->getHistoryCount() == 1,
+                  "released source tap did not create one frame transaction");
+          const TRaster32P frame = raster(level, 8)->clone();
+          require(
+              undo->undo() && !level->getFrame(TFrameId(8), false) &&
+                  undo->redo() && same(frame, raster(level, 8)) &&
+                  undo->undo() && !level->getFrame(TFrameId(8), false),
+              "source tap new-frame undo/redo did not restore exact content");
+          undo->reset();
+        }
+        app->getCurrentFrame()->setFid(TFrameId(1));
+        settle();
+        tool->onImageChanged();
+        require(same(baseline, raster(level, 1)),
+                "source tap new-frame lifecycle changed the original frame");
+      }
+      checkpoint("rolling back a deferred source tap finalization failure");
+      fixture.preset.name       = "Original deferred source budget failure";
+      fixture.preset.size.value = 4096;
+      select();
+      const auto previousResolution = level->getProperties()->getImageRes();
+      level->getProperties()->setImageRes(TDimension(3072, 3072));
+      TRaster32P empty(3072, 3072);
+      empty->clear();
+      TRasterImageP largeImage(new TRasterImage(empty));
+      largeImage->setDpi(72, 72);
+      level->setFrame(TFrameId(8), largeImage);
+      QStringList warnings;
+      QObject capture;
+      QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &capture,
+                       [&](int type, const QString &message) {
+                         if (type == DVGui::WARNING) warnings << message;
+                       });
+      QTimer dismiss;
+      QObject::connect(&dismiss, &QTimer::timeout, &capture, [] {
+        if (auto dialog =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+          dialog->done(0);
+      });
+      // A 4096-pixel source tap needs the whole 3072-square float cache.
+      // Its ~288 MiB exceeds the real tool's 256 MiB shared budget. The
+      // buffered first sample must fail only on release, without test knobs.
+      for (int frame : {8, 9}) {
+        app->getCurrentFrame()->setFid(TFrameId(frame));
+        settle();
+        tool->onImageChanged();
+        warnings.clear();
+        dismiss.start(10);
+        begin(TPointD());
+        require(warnings.empty() && undo->getHistoryCount() == 0,
+                "pending source tap failed before finalization");
+        release(TPointD());
+        dismiss.stop();
+        require(warnings.size() == 1 &&
+                    warnings.front() ==
+                        "Raster transaction refused the stroke region",
+                "source tap finalization did not report cache budget refusal");
+        require(undo->getHistoryCount() == 0,
+                "failed source tap published undo history");
+        if (frame == 9)
+          require(!level->getFrame(TFrameId(9), false),
+                  "failed source tap left a newly created frame");
+        else {
+          const auto result = raster(level, 8);
+          require(bool(result), "failed source tap removed an existing frame");
+          for (int y = 0; y < result->getLy(); ++y)
+            for (int x = 0; x < result->getLx(); ++x)
+              require(result->pixels(y)[x] == TPixel32(0, 0, 0, 0),
+                      "failed source tap left partial pixels");
+        }
+      }
+      level->getProperties()->setImageRes(previousResolution);
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(8));
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after deferred tap qualification");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "deferred tap failure changed original frame or history");
     }
     checkpoint("rolling back actual-tool work-limit failure");
     {

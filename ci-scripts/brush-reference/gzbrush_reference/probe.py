@@ -10,7 +10,8 @@ import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
-from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe
+from . import repeat_pixels
+from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe, cadence_probe, sequence_evidence
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
 from PyQt5.QtGui import QColor, QImage, QTabletEvent, QPainterPath
@@ -53,6 +54,20 @@ class Probe(Extension):
         QTimer.singleShot(0 if delay is None else min(20, max(0, int(delay))), self.advance)
 
     def paint_case(self, app, view, node, case):
+        if "cadenceProbe" in case:
+            paths = cadence_probe.validate(case)
+            mode = case["cadenceProbe"]["mode"]
+            for points in paths:
+                if mode in ("line", "discrete"):
+                    node.paintLine(QPoint(*points[0]), QPoint(*points[-1]), 1, 1, "ForegroundColor")
+                else:
+                    path = QPainterPath()
+                    path.moveTo(*points[0])
+                    for point in points[1:]:
+                        path.lineTo(*point)
+                    node.paintPath(path, "ForegroundColor", "None")
+            return {"mode": "Node.paintLine" if mode in ("line", "discrete") else "Node.paintPath",
+                    "cadencePaths": paths, "strokeCount": len(paths), "physicalTabletClaimed": False}
         if "labelProbe" in case:
             label_probe.validate(case)
             path = QPainterPath()
@@ -195,30 +210,58 @@ class Probe(Extension):
         print("::notice title=Tablet source state::" + json.dumps(
             {"phase": "beforeContact", "state": before_contact}, separators=(",", ":")).replace(
                 "%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
+        stage_pixels = []
+        def capture_stage(phase):
+            if "startStateProbe" not in case:
+                return
+            rect = case["startStateProbe"]["rect"]
+            if (len(rect) != 4 or any(type(value) is not int for value in rect)
+                    or not 0 < rect[2] * rect[3] <= 4096):
+                raise RuntimeError("Invalid bounded start-state capture rectangle")
+            # Public Node APIs: paintable data may omit an indirect painting
+            # target, so retain its projection separately. No GUI screenshot
+            # or private paint-operation state is used.
+            app.activeDocument().waitForDone()
+            entry = {"phase": phase, "rect": rect, "channels": "BGRA8",
+                     "eventCount": len(delivered), "surfaces": {}}
+            for name, reader in (("paintable", node.pixelData),
+                                 ("projection", node.projectionPixelData)):
+                raw = bytes(reader(*rect))
+                if len(raw) != rect[2] * rect[3] * 4:
+                    raise RuntimeError("Incomplete start-state " + name + " raster")
+                entry["surfaces"][name] = {"zlibBase64": base64.b64encode(zlib.compress(raw)).decode(),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "nonzeroAlpha": sum(value != 0 for value in raw[3::4]),
+                    "maxAlpha": max(raw[3::4])}
+            stage_pixels.append(entry)
+        capture_stage("beforePress")
         contact_start_ns = time.monotonic_ns()
         for index, row in enumerate(rows):
             if paced:
                 deadline_ns = contact_start_ns + row["timeUs"] * 1000
                 while time.monotonic_ns() < deadline_ns:
                     yield max(1, math.ceil((deadline_ns - time.monotonic_ns()) / 1000000))
-                if time.monotonic_ns() - deadline_ns > 250000000:
+                if time.monotonic_ns() - deadline_ns > case["timedProbe"]["maxLatenessUs"] * 1000:
                     raise RuntimeError("Paced contact exceeded bounded lateness")
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
                  Qt.LeftButton, row["pressure"])
             yield
+            capture_stage("afterPress" if index == 0 else "afterMove" + str(index))
+        capture_stage("beforeRelease")
         if paced:
             deadline_ns = contact_start_ns + case["timedProbe"]["durationUs"] * 1000
             while time.monotonic_ns() < deadline_ns:
                 yield max(1, math.ceil((deadline_ns - time.monotonic_ns()) / 1000000))
-            if time.monotonic_ns() - deadline_ns > 250000000:
+            if time.monotonic_ns() - deadline_ns > case["timedProbe"]["maxLatenessUs"] * 1000:
                 raise RuntimeError("Paced release exceeded bounded lateness")
         send(rows[-1], QEvent.TabletRelease, canvas, Qt.LeftButton, Qt.NoButton, 0)
         yield
+        capture_stage("afterRelease")
         send(rows[-1], QEvent.TabletLeaveProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
         yield
         return {"mode": "Qt tablet events", "canvasClass": canvas.metaObject().className(),
-                "smoothing": combo.currentText(),
+                "smoothing": combo.currentText(), "startStatePixels": stage_pixels,
                 "stateBeforeProximity": before_proximity,
                 "stateAfterProximity": after_proximity, "stateBeforeContact": before_contact,
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
@@ -299,7 +342,7 @@ class Probe(Extension):
                         raise RuntimeError("Cannot clear source off-document fixture margin")
             report["documentIsolation"] = "full-raster reset before each independent stroke; input mode recorded per case"
             execution_cases = list(fixtures["cases"])
-            if fixtures.get("group") in ("gihstatistics", "gihlabels"):
+            if fixtures.get("group") in ("gihstatistics", "gihlabels", "gihcadence"):
                 random.Random(0x47494831).shuffle(execution_cases)
             for execution_ordinal, case in enumerate(execution_cases):
                 name = case["preset"]
@@ -350,6 +393,20 @@ class Probe(Extension):
                     offset = (y * w + x) * 4
                     initial_point[offset:offset + 4] = bytes((255, 255, 255, 255))
                     initial = bytes(initial_point)
+                if case.get("wetPattern") == "opaque-black-white-points":
+                    boundary = math.ceil(case["wetBoundary"])
+                    complement = case["wetKernelComplement"]
+                    base = 255 if complement else 0
+                    row = bytes((base, base, base, 255)) * boundary + bytes(4) * (w - boundary)
+                    pixels = bytearray(row * h)
+                    for dx, dy in case["wetKernelPoints"]:
+                        x, y = 256 + dx, 1024 + dy
+                        if not (0 <= x < boundary and 0 <= y < h):
+                            raise RuntimeError("Kernel mask point outside bounded backdrop")
+                        pos = (y * w + x) * 4
+                        value = 255 - base
+                        pixels[pos:pos + 4] = bytes((value, value, value, 255))
+                    initial = bytes(pixels)
                 checkpoint(name + ": initialize pixels")
                 if fixtures.get("group") == "wetboundary":
                     clear_boundary_margin()
@@ -375,7 +432,7 @@ class Probe(Extension):
                 # name. Paired false controls prove this baseline-specific rule.
                 view.setDisablePressure(pressure_flag)
                 view.setForeGroundColor(ManagedColor.fromQColor(QColor(*case.get("foregroundRGBA8", [220, 40, 30, 255])), view.canvas()))
-                if case.get("sensorProbe", {}).get("verifyForeground"):
+                if case.get("sensorProbe", {}).get("verifyForeground") or ("maskProbe" in case and "foregroundRGBA8" in case):
                     observed_color = view.foregroundColor().colorForCanvas(view.canvas())
                     observed_rgba = [observed_color.red(), observed_color.green(), observed_color.blue(), observed_color.alpha()]
                     if any(abs(a - b) > 1 for a, b in zip(observed_rgba, case["foregroundRGBA8"])):
@@ -423,7 +480,9 @@ class Probe(Extension):
                 effective_root = fromstring(effective_xml)
                 expected_engine = "paintbrush" if " dry " in name else "colorsmudge"
                 if effective_root.attrib.get("paintopid") != expected_engine:
-                    raise RuntimeError("Selected source engine differs from fixture")
+                    raise RuntimeError("Selected source engine differs from fixture: " + name +
+                                       "; expected=" + expected_engine +
+                                       "; actual=" + str(effective_root.attrib.get("paintopid")))
                 effective_name = name.replace(" ", "_") + ".effective.xml"
                 (output / effective_name).write_text(effective_xml)
                 effective_fields = {field.attrib["name"]: field.text or "" for field in effective_root.findall("param") if "name" in field.attrib}
@@ -510,7 +569,7 @@ class Probe(Extension):
                     timed_probe.emit_notices(name, timed_evidence)
                     (output / (name.replace(" ", "_") + ".timed.json")).write_text(
                         json.dumps(timed_evidence, indent=2))
-                mask_evidence = (masked_probe.capture(case, effective_fields, delivery, raw, w)
+                mask_evidence = (masked_probe.capture(case, effective_fields, delivery, raw, w, initial)
                                  if "maskProbe" in case else None)
                 if mask_evidence is not None:
                     masked_probe.emit_notices(name, mask_evidence)
@@ -533,6 +592,9 @@ class Probe(Extension):
                 if raw != initial and case.get("expectUnchanged", False):
                     raise RuntimeError("Source no-op boundary case unexpectedly changed pixels")
                 repeat_hashes = [hashlib.sha256(raw).hexdigest()]
+                canonical_hash = repeat_pixels.canonical_hash(raw)
+                canonical_repeats = [canonical_hash]
+                repeat_images, repeat_differences = [], []
                 repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" or fixtures.get("group") == "wetboundary" else 1)
                 for repetition in range(1, repetitions):
                     # These fixtures disable random dynamics. Independent
@@ -549,7 +611,15 @@ class Probe(Extension):
                     document.waitForDone()
                     repeated = bytes(node.pixelData(0, 0, w, h))
                     repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
-                    if repeated != raw:
+                    canonical_repeats.append(repeat_pixels.canonical_hash(repeated))
+                    difference = repeat_pixels.differences(raw, repeated)
+                    repeat_differences.append(difference)
+                    repeat_name = name.replace(" ", "_") + ".repeat-" + str(repetition) + ".png"
+                    if not QImage(repeated, w, h, w * 4, QImage.Format_ARGB32).copy().save(str(output / repeat_name)):
+                        raise RuntimeError("Cannot retain original repeated source capture")
+                    repeat_images.append({"image": repeat_name,
+                                          "sha256File": hashlib.sha256((output / repeat_name).read_bytes()).hexdigest()})
+                    if difference["visibleOrAlphaChangedPixels"] or canonical_repeats[-1] != canonical_hash:
                         first_differences = []
                         changed_pixels = 0
                         for offset in range(0, len(raw), 4):
@@ -563,7 +633,8 @@ class Probe(Extension):
                             return [event for event in value.get("events", [])
                                     if event["type"] in (int(QEvent.TabletPress), int(QEvent.TabletRelease))]
                         detail = {"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes,
-                                  "changedPixels": changed_pixels, "firstDifferencesBGRA8": first_differences,
+                                  "changedPixels": changed_pixels, **difference, "repeatSemantics": repeat_pixels.SEMANTICS,
+                                  "canonicalRepeatHashes": canonical_repeats, "firstDifferencesBGRA8": first_differences,
                                   "firstToolState": delivery.get("stateAfterProximity"),
                                   "repeatedToolState": repeated_delivery.get("stateAfterProximity"),
                                   "firstEndpoints": endpoints(delivery), "repeatedEndpoints": endpoints(repeated_delivery)}
@@ -616,8 +687,9 @@ class Probe(Extension):
                     geometry = {"rect": [left, top, width, height],
                                 "encoding": "zlib-base64-bgra8-row-major",
                                 "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
-                if fixtures.get("group") in ("pixelpressure", "pixelsmallpressure") and case["spacing"] == 1:
-                    # Sparse pressure ramps expose individual footprint spacing.
+                if fixtures.get("group") in ("pixelpressure", "pixelsmallpressure"):
+                    # Sparse ramps expose individual footprints; dense ramps expose
+                    # near-zero pressure phase/extent differences.
                     # Preserve exact visible-change bits, including transparent
                     # strips, rather than infer dab centers from sparse RGB probes.
                     left, top, width, height = 232, 1000, 1584, 48
@@ -656,12 +728,18 @@ class Probe(Extension):
                                         "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
                                         "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
                 resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
-                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence})
+                if resource_readback is not None:
+                    sequence_evidence.emit(case, resource_readback, delivery)
+                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;
                 # one monolithic loop instead starved deferred view updates.
                 yield
+            if fixtures.get("group") == "wetkernelcount":
+                from . import kernel_precision_probe
+                yield from kernel_precision_probe.render(
+                    app, output, fixtures, by_name, report["records"], checkpoint)
             canonical_order = {name: index for index, name in enumerate(fixtures["presets"])}
             report["records"].sort(key=lambda record: canonical_order[record["preset"]])
             report["resourceStatistics"] = resource_probe.summarize(report["records"])

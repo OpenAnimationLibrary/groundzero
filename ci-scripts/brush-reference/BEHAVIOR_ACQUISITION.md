@@ -95,16 +95,23 @@ its exact serialized registry identifier still requires metadata evidence.
 
 ### Original masked-brush acquisition
 
-`maskwash` and `maskbuildup` each contain108 paired cases: mask off,
+`maskwash` and `maskbuildup` each contain 156 paired cases: the original 108
+controls plus 48 color/background heldouts. Original controls cover mask off,
 Multiply, Subtract; linked master-size coefficients .5/1 and independent-size;
 mask opacity/flow (1,1), (.5,1), (1,.5), (.5,.5); and independent spacing
 controls (primary,mask) (.25,.5), (.25,2), (2,.5). The24px round primary and
 12px rectangular half-aspect secondary are original embedded procedural tips,
 with no external resource lookup or asset licensing dependency. Each source
-stroke uses the public Node.paintLine API at pressure1. Every case repeats from
-an identical transparent canvas. Full-image output and bounded complete320x64
+stroke uses the public Node.paintLine API at pressure1. The original controls
+repeat from an identical transparent canvas. The 48 appended
+heldouts pair two non-primary foreground colors, transparent versus heterogeneous
+opaque/translucent backgrounds, primary opacity 1/.5 and secondary opacity/flow
+(.5,1)/(1,.5) for all three modes. Foreground readback is checked. Full-image
+output and bounded complete320x64
 BGRA captures are retained, including nested effective metadata and delivered
-line endpoints. Any painted pixels outside the capture fail acquisition.
+line endpoints. Any visible pixel change outside the capture fails acquisition,
+compared with
+the exact initial raster; transparent RGB is ignored only where alpha is zero.
 
 Pinned metadata sources (only serialization/registry facts used):
 
@@ -121,14 +128,30 @@ Pinned metadata sources (only serialization/registry facts used):
   brush settings. No rendering implementation was used to generate these probes.
 
 All authored nested scalars and procedural geometry attributes must survive
-source effective-setting readback. Off controls must paint. Enabled results,
-including empty output, are explicitly exploratory observations, never accepted
-as parity. Build-up cases diagnose the manual's Wash-only behavior; preserving
-requested metadata does not prove the renderer applies masking in that mode.
-Mask opacity and flow remain independent dimensions; no source representation
-has been collapsed into the native secondary opacity control. These cases cover
-procedural resources only; bitmap secondary resources and broader sensor/dynamic
-interactions still need their own qualified acquisitions.
+source effective-setting readback. Off controls must paint. The original 108 Wash captures identify independent
+primary/secondary spacing with omitted final-boundary dabs, byte-quantized
+secondary flow accumulation and opacity applied after accumulation. An
+independent model reproduces every alpha pixel of every original 320×64 capture.
+Multiply and Subtract outputs sum to the corresponding unmasked alpha. Linked
+half-size and independent 12px controls coincide. All 72 enabled Build-up masks
+have the same alpha as their paired disabled controls.
+
+The source candidate retains primary paint/base and a separate charged
+secondary field. Either scheduler event recomposes dirty pixels, so a later
+secondary dab can reveal or remove already retained primary paint. Native
+Secondary semantics are unchanged. `sourceMaskedV1` preserves flow, opacity,
+master-size linkage and geometry through portable save/reopen. Strict import
+requires explicit known nested settings and generated hard rectangular masks;
+unknown enabled controls stay native conversions with diagnostics. Build-up
+records the mask as inactive. Initial Wash combinations require a fixed hard
+round primary, static opacity, primary flow1, Normal blend and no texture, HSV
+or dynamic masks. Other combinations, bitmap secondary resources and dynamics
+remain unfinished contract work, not silently admitted.
+
+All 156 cases now enforce the existing complete-image source candidate gates,
+including the 48 new retained-color/background heldouts. Those heldouts and
+C++ implementation tests have not yet executed at this revision. No broad
+source parity or reference-verified flag follows from the alpha model alone.
 
 ### GIH statistical qualification gate
 
@@ -245,50 +268,42 @@ import diagnostics and explicitly remain unqualified native-conversion metrics.
 No timer/speed equation or timed source-profile parity is established by these
 acquisition hooks. Future source semantics must use the captured timing rather
 than treating authored/fabricated timestamps as actual elapsed time.
-### Fixed source HSV candidate
+### Versioned source HSV candidates
 
-The hard round Pixel candidate has a separate versioned fixed-channel color
-adapter. It accepts one explicit constant two-knot pressure curve for Hue,
-Saturation, or Value, with the other two controls disabled. Native color dynamics
-are unchanged. Portable `sourceHsvChannelV1` and `sourceHsvValueV1` must occur
-together; older records default to off. Nonconstant curves, simultaneous channels,
-soft/image tips, texture, wash, transfer modulation and wet combinations are not
-admitted by this adapter. Disabled source controls remain inactive.
+Native color dynamics remain unchanged. V1 retains its single fixed channel and
+paired portable fields. V2 stores three explicit enabled/control slots, admitting
+joint fixed controls or one identity-pressure H, S or V control. Mixed fixed and
+dynamic controls, multiple dynamic controls, other sensors and nonidentity curves
+remain excluded. Disabled slots must be neutral and V1 cannot coexist with V2.
+The strict hard-round Pixel context remains required; the separately qualified
+wet subset admits only V1, not joint or dynamic V2 controls.
 
-Original source captures for two opaque foreground colors and six control values
-support hue rotation about neutral .5 and piecewise value scaling/lightening.
-Saturation scales below neutral and adds above neutral. The saturation candidate
-has a measured one-byte RGB residual for one of twelve original active samples;
-this is explicitly not byte-exact reference verification. Engine regressions use
-the independently captured RGB values. Reference comparison always rerenders the
-current candidate and enforces full union-region maximum RGB error: zero for Hue,
-Value and disabled controls, at most one byte for Saturation, with zero alpha
-error and the existing hard-mask geometry gate. Source qualification flags remain
-false until the broader contract is completed.
+Independent original foreground captures identify a chroma-domain transform.
+For saturation control u, d=2u-1 scales original chroma by 1+d below neutral and
+1+d+2*d*d above neutral. Intermediate chroma is capped at 255 encoded units.
+Value scales maximum/chroma together below neutral; above neutral it moves the
+maximum toward 255 while scaling chroma toward zero. Final chroma is capped at
+the final maximum and hue-preserving reconstruction is quantized once. Hue shifts
+by 360*(u-.5) degrees. Achromatic input stays achromatic. No source renderer was
+copied and these equations do not change native HSV behavior.
 
-`hsvheldout` adds 54 independent source acquisitions: three previously unseen
-foreground colors (including gray), three unseen/neutral controls, all three
-isolated channels, and enabled/disabled pairs. This also challenges achromatic
-saturation behavior. These are qualification gates, not evidence of success
-before CI runs. Neither heldout inputs nor expected source output are generated
-by the candidate color equations.
+The 24 order-discriminating captures and 30 static joint captures support this
+composition. All 66 dynamic center samples match when evaluated at the measured
+half-pixel future-pressure sample. These observations do not replace full-image
+qualification: every candidate is rebuilt and compared over the union region,
+including alpha and missing paint. Existing V1 Saturation allows at most one
+RGB byte; all other HSV cases require exact RGB bytes, and all require exact
+alpha and the hard-mask geometry gate. Source verification flags remain false.
 
-`hsvjoint` is a separate 36-case acquisition, not an expanded runtime admission:
-for each of the two original foreground colors it captures three channel pairs,
-two non-neutral three-channel combinations, a three-channel neutral control, and
-three isolated identity-pressure curves, each enabled and disabled. It uses the
-public `Node.paintLine` endpoint-pressure interface, records those exact calls,
-and validates every channel's flag, shared curve and sensor payload. It does not
-infer internal dab pressure from endpoint arguments. Full source raster evidence
-and repeat gates remain mandatory. Until those captures identify composition and
-dynamic behavior, V1 remains the backward-compatible single fixed-channel
-candidate; multiple active channels and nonconstant curves are not admitted.
-
-A subsequent compositional adapter should use a separately versioned ordered
-channel representation and explicit curve semantics, migrating V1 as exactly one
-fixed channel. Neither an order nor a migration to guessed native HSV dynamics
-is implemented by this acquisition change. Joint captures and independent
-heldouts must establish those semantics first.
+`hsvheldout` retains 54 original acquisitions including gray. `hsvjoint` retains
+36 paired fixed/joint/identity-pressure cases and `hsvorder` retains 24 cases
+that distinguish noncommuting composition. `hsvpressure` now has 24 full-region
+heldouts: two unseen colors, H/S/V and opposite .125/.875 Node pressure ramps.
+`hsvchroma` adds 36 paired cases using two low-chroma colors, positive saturation
+.55/.7/.9, isolated S and joint SV/HSV. Neither chroma cap activates for these
+inputs, directly challenging the quadratic expansion away from capped training
+examples. New heldouts are pending CI, not claimed source parity. All acquisition
+controls, input readback, source version and repeats remain mandatory.
 
 ### Prospective GIH label sample-size correction
 
@@ -351,3 +366,104 @@ full union-region max RGB <=2/255, max alpha <=1/255, changed-pixel IoU >=.98,
 and nonempty candidate output. Current wet HSV eligibility remains disabled;
 native conversion cannot satisfy this gate. Shared foreground plumbing or
 synthetic all-model equivalence tests do not establish source interaction parity.
+
+Repeat protocol `transparent-rgb-zero-v1` retains original BGRA captures and raw
+hashes, including each repeated stroke PNG. It separately hashes a copy with RGB
+zeroed only at exactly zero alpha. Every raw discrepancy is classified: only
+pixels whose two alpha bytes are both zero may differ invisibly. Every alpha
+change and every RGB change at nonzero alpha fails exact repeat equality; mixed
+hidden/visible differences fail too. Source pixels and internal state are never
+rewritten. This corrects the raw-byte gate that rejected observed transparent
+black/white storage differences in wet HSV and texture-pickup acquisitions.
+Cache schema 2 requires versioned canonical hashes, raw hashes, consistent full
+classifications and hashed repeated PNG files; older/partial caches fall back to
+fresh source acquisition. Candidate RGBA thresholds remain unchanged.
+### Airbrush timer-boundary follow-up
+
+Completed source job124365157119 at bf78a7bc recorded32 acquisitions. Disabled
+stationary alpha stayed26. Enabled stationary alpha was49 for5/s over251ms,
+105 for5/s over1001ms and20/s over251ms, and227 for20/s over1001ms.
+IgnoreSpacing did not change stationary results. Moving ignoreSpacing=true
+produced2 separated marks at5/s over.25s and6 at5/s over1s or20/s over.25s.
+This supports the pinned header's rate-as-frequency interpretation, but exact
+boundary counts depend on source timer firing order, which input timestamps
+alone do not expose. No scheduler equation or count-specific patch is justified.
+
+`airbrushtimed` now preserves000–031 and appends24 off-boundary cases032–055:
+5/20 rates,375/1125ms stationary holds, three independent enabled/off pairs for
+each setting. The20Hz half-period offset is25ms; actual event/release lateness
+must remain within20ms (with the existing2ms timestamp-origin tolerance), keeping
+accepted input away from the neighboring intended boundary. Older cases retain
+their250ms diagnostic bound. Complete actual timing and per-repeat pixels remain
+recorded; these repeats are observations, not retry-until-match behavior. Source
+and comparison both enforce the same duration-specific deadline bounds. The
+maximum nominal hold is now1.125s, and additional nominal hold time is18s.
+
+The first joint captures matched the isolated equations but did not identify a
+unique composition order: their saturation/value combinations commute.
+`hsvorder` therefore adds 24 original paired cases with both saturation and value
+above neutral, including an unsaturated foreground and three-channel hue shifts.
+These cases distinguish saturation-before-lightening from the reverse; no order
+is assigned merely because the earlier joint acquisition completed successfully.
+### Time-period and speed-cadence discriminators
+
+The original12 timed-sensor case identities are preserved. Cases012–019 add
+1.25/2.25s paths with time duration1000, periodic/nonperiodic and enabled/off
+pairs, ensuring actual painting continues beyond one and two periods.
+Cases020–027 use17/65 contacts over the same256px path at.25/1s, with paired
+enabled/off speed controls. Together with existing33-contact traces this
+separates physical speed from event cadence. New traces enforce20ms lateness,
+record every actual elapsed timestamp, and retain the same capture area. Maximum
+nominal hold becomes2.25s; the added nominal contact time is19s. No source speed
+normalization or periodic wrapping is inferred before these captures execute.
+
+Completed job124365157160 shows enabled time-size starting at4px and approaching
+16px over1s for serialized duration1000; disabled controls remain16px. The
+independent importer therefore maps only explicit Size/time duration1000,
+periodic0 to the existing **native** elapsed-time sensor with one-second scale.
+Other durations, missing attributes and periodic1 remain unapplied. This is
+portable native unit conversion, explicitly excluded from strict source-profile
+eligibility: source time-to-dab scheduling remains unverified. Original import
+fixtures verify exact admission, rejection of guessed periods and save/reopen.
+
+The V2 extension and current admission limits are described in the versioned
+source HSV section above. Portable snapshots preserve every enabled/control
+slot, and explicit conversion to native clears all source HSV state with a
+user-visible disclosure. Full-region pressure gates remain mandatory; sampled
+center regressions alone cannot qualify a source profile.
+
+### GIH advancement discriminators
+
+The first powered label acquisition had near-uniform color frequencies but 27
+failed transition gates. Self-transition joint frequencies were about .18,
+versus native independent selection near .11. This is evidence of dependence,
+not permission to fit a sticky random selector. The straight-stroke alpha
+workload independently found one extra native endpoint tip. Native scheduling
+and RNG remain unchanged.
+
+Full original sequences were unavailable through the artifact download (403),
+and aggregate transitions cannot identify lag, run-length or row-turn effects.
+Each acquired GIH stroke now emits a bounded compressed exact label sequence,
+its digest, lag-equality counts at 1/2/3/4/8/16/32/63/64, run-length counts and
+separate row-boundary/interior transitions. Null slots remain explicit. The
+existing 24 alpha and 39 powered label gates are unchanged.
+
+`gihcadence` adds 144 original cases: incremental and random resources, spacing
+2/3/4, six delivery modes and four independently acquired replicates. Modes are
+one Node.paintLine, endpoint-only Node.paintPath, path vertices at each dab,
+half-spacing vertices, fixed off-grid 17px vertices, and 32 independent short
+Node.paintLine strokes. Each case observes the same 32 nonoverlapping stamp
+centers, with a final endpoint one pixel beyond the last center. Thus an omitted
+spacing-boundary endpoint cannot masquerade as a frame-selection difference.
+The 8px tips and original three colored frames are unchanged. Serialized spacing,
+resource identity and exact delivered paths/call counts are checked. No more
+than 120 vertices or 32 source API calls occur per case, on the existing bounded
+2048² canvas; complete images and compact actual labels are retained.
+
+Candidate comparisons replay the identical paths and resets. Discrete native
+strokes receive distinct explicit reproducible seeds; no correspondence with
+source seeds is claimed. These cadence comparisons are exploratory, not a
+replacement for the existing statistical gates or a new source compatibility
+claim. They distinguish geometry-distance, input-segment and stroke-reset
+advancement hypotheses. A versioned source selector remains blocked on actual
+sequence/cadence evidence; no transition-rate fitting is implemented.

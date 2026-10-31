@@ -95,31 +95,54 @@ Pixel hsv(Pixel p, double degrees, double saturation, double brightness) {
   }
   return {(out.r + m) * p.a, (out.g + m) * p.a, (out.b + m) * p.a, p.a};
 }
-Pixel sourceHsvColor(Pixel color, SourceHsvChannel channel, double value) {
-  if (channel == SourceHsvChannel::Off) return color;
-  // Independently derived from original opaque RGB source captures. A neutral
-  // control is .5. Value lightens toward white rather than multiplying V;
-  // saturation increases additively above neutral, multiplicatively below it.
-  if (channel == SourceHsvChannel::Hue)
-    color = hsv(color, 360 * (value - .5), 1, 1);
-  else if (channel == SourceHsvChannel::Value) {
-    auto adjust = [value](double c) {
-      return value <= .5 ? c * (2 * value) : c + (1 - c) * (2 * value - 1);
-    };
-    color = {adjust(color.r), adjust(color.g), adjust(color.b), 1};
-  } else {
-    const double high       = std::max({color.r, color.g, color.b});
-    const double low        = std::min({color.r, color.g, color.b});
-    const double saturation = high > 0 ? (high - low) / high : 0;
-    const double adjusted   = value <= .5 ? saturation * (2 * value)
-                                          : unit(saturation + 2 * value - 1);
-    if (saturation > 0)
-      color = hsv(color, 0, adjusted / saturation, 1);
-    else
-      color = {high, high * (1 - adjusted), high * (1 - adjusted), 1};
-  }
+Pixel sourceHsvTransform(Pixel color, const std::array<bool, 3> &enabled,
+                         const std::array<double, 3> &values) {
+  if (!enabled[0] && !enabled[1] && !enabled[2]) return color;
+  if (enabled[0]) color = hsv(color, 360 * (values[0] - .5), 1, 1);
   auto byte = [](double c) { return std::floor(unit(c) * 255 + .5) / 255; };
-  return {byte(color.r), byte(color.g), byte(color.b), 1};
+  if (!enabled[1]) {
+    // Preserve direct affine RGB math for H/V-only byte ties.
+    if (enabled[2]) {
+      const double d = 2 * values[2] - 1;
+      auto adjust    = [d](double c) {
+        return d <= 0 ? c * (1 + d) : c + d * (1 - c);
+      };
+      color = {adjust(color.r), adjust(color.g), adjust(color.b), 1};
+    }
+    return {byte(color.r), byte(color.g), byte(color.b), 1};
+  }
+  // Independently measured chroma-domain adjustment, not native HSV scaling.
+  // Expand original chroma, cap its intermediate range at one encoded unit,
+  // apply Value to maximum/chroma, then cap final chroma to final maximum.
+  // This preserves hue without clamping individual negative intermediates.
+  const double r = color.r * 255, g = color.g * 255, b = color.b * 255;
+  const double originalHigh = std::max({r, g, b}), low = std::min({r, g, b});
+  const double originalChroma = originalHigh - low;
+  const double d              = 2 * values[1] - 1;
+  double chroma =
+      std::min(255.0, originalChroma * (d <= 0 ? 1 + d : 1 + d + 2 * d * d));
+  double high = originalHigh;
+  if (enabled[2]) {
+    const double v = 2 * values[2] - 1;
+    high           = v <= 0 ? high * (1 + v) : high + v * (255 - high);
+    chroma *= v <= 0 ? 1 + v : 1 - v;
+  }
+  chroma              = std::min(high, chroma);
+  const double factor = originalChroma > 0 ? chroma / originalChroma : 0;
+  auto adjust         = [high, originalHigh, factor](double c) {
+    return std::floor(std::max(0.0, high - (originalHigh - c) * factor) + .5) /
+           255;
+  };
+  return {adjust(r), adjust(g), adjust(b), 1};
+}
+Pixel sourceHsvColor(Pixel color, SourceHsvChannel channel, double value) {
+  std::array<bool, 3> enabled{};
+  std::array<double, 3> values{.5, .5, .5};
+  if (channel != SourceHsvChannel::Off) {
+    enabled[int(channel) - 1] = true;
+    values[int(channel) - 1]  = value;
+  }
+  return sourceHsvTransform(color, enabled, values);
 }
 
 double arc(double x) { return std::remainder(x, 2 * pi); }
@@ -361,17 +384,75 @@ std::string validate(const Preset &p) {
         p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
   }
+  const auto &maskSettings = p.sourceMasked;
+  for (double value : {maskSettings.diameter, maskSettings.masterSizeCoeff,
+                       maskSettings.aspect, maskSettings.spacing,
+                       maskSettings.opacity, maskSettings.flow})
+    if (!std::isfinite(value)) return "Invalid source mask scalar";
+  if (maskSettings.diameter < 1 || maskSettings.diameter > 4096 ||
+      maskSettings.masterSizeCoeff <= 0 || maskSettings.masterSizeCoeff > 16 ||
+      maskSettings.aspect <= 0 || maskSettings.aspect > 1 ||
+      maskSettings.spacing < .01 || maskSettings.spacing > 5 ||
+      maskSettings.opacity < 0 || maskSettings.opacity > 1 ||
+      maskSettings.flow < 0 || maskSettings.flow > 1 ||
+      (maskSettings.mode != MaskMode::Multiply &&
+       maskSettings.mode != MaskMode::Subtract))
+    return "Invalid source mask settings";
+  if (maskSettings.enabled) {
+    const double diameter = maskSettings.useMasterSize
+                                ? p.size.value * maskSettings.masterSizeCoeff
+                                : maskSettings.diameter;
+    if (p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" || !p.wash ||
+        p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
+        p.tip.antialiasEdges || !p.size.mappings.empty() ||
+        p.aspect.value != 1 || p.angle.value != 0 ||
+        !p.angle.mappings.empty() || !p.opacity.mappings.empty() ||
+        p.flow.value != 1 || !p.flow.mappings.empty() || p.texture.image ||
+        p.blend != Blend::Normal || p.secondary.enabled ||
+        p.sourceHsvChannel != SourceHsvChannel::Off ||
+        p.sourceHsvV2[0].enabled || p.sourceHsvV2[1].enabled ||
+        p.sourceHsvV2[2].enabled || diameter < 1 || diameter > 4096 ||
+        diameter != std::floor(diameter))
+      return "Unimplemented source masked brush combination";
+  }
   if (int(p.sourceHsvChannel) < 0 || int(p.sourceHsvChannel) > 3 ||
       !std::isfinite(p.sourceHsvValue) || p.sourceHsvValue < 0 ||
       p.sourceHsvValue > 1)
     return "Invalid source HSV setting";
-  if (p.sourceHsvChannel != SourceHsvChannel::Off &&
-      (p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" || p.texture.image ||
-       p.wash || p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
-       p.tip.antialiasEdges || p.blend != Blend::Normal ||
-       p.opacity.value != 1 || !p.opacity.mappings.empty() ||
-       p.flow.value != 1 || !p.flow.mappings.empty() ||
-       !p.size.mappings.empty() || p.aspect.value != 1 || p.angle.value != 0))
+  int hsvV2Active = 0, hsvV2Dynamic = 0;
+  for (size_t channel = 0; channel < p.sourceHsvV2.size(); ++channel) {
+    const auto &setting = p.sourceHsvV2[channel];
+    if (setting.enabled) {
+      ++hsvV2Active;
+      if (setting.control.mappings.empty()) {
+        if (!std::isfinite(setting.control.value) ||
+            setting.control.value < 0 || setting.control.value > 1 ||
+            setting.control.minimum != 0)
+          return "Invalid fixed source HSV V2 control";
+      } else {
+        ++hsvV2Dynamic;
+        if (setting.control.value != 1 || !linearPressure(setting.control))
+          return "Unimplemented source HSV V2 dynamic control";
+      }
+    } else if (setting.control.value != .5 || setting.control.minimum != 0 ||
+               !setting.control.mappings.empty())
+      return "Inactive source HSV V2 control must be neutral";
+  }
+  if ((hsvV2Dynamic && hsvV2Active > 1) ||
+      (hsvV2Active &&
+       (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5)))
+    return "Conflicting source HSV versions or unimplemented composition";
+  const bool staticWetHsv =
+      sourceWet && !hsvV2Active && p.sourceSmearAlpha && p.smudgeRadius == 0 &&
+      p.pickupControl.mappings.empty() && p.colorRateControl.mappings.empty();
+  if ((p.sourceHsvChannel != SourceHsvChannel::Off || hsvV2Active) &&
+      ((p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" && !staticWetHsv) ||
+       p.texture.image || p.wash || p.tip.shape != Shape::Round ||
+       p.tip.hardness != 1 || p.tip.antialiasEdges ||
+       p.blend != Blend::Normal || p.opacity.value != 1 ||
+       !p.opacity.mappings.empty() || p.flow.value != 1 ||
+       !p.flow.mappings.empty() || !p.size.mappings.empty() ||
+       p.aspect.value != 1 || p.angle.value != 0))
     return "Unimplemented source HSV setting combination";
   if ((sourceHard || sourceWet) && p.texture.image &&
       (p.tip.antialiasEdges || p.tip.hardness != 1 ||
@@ -605,7 +686,17 @@ struct Stroke::Impl {
   Sample previous, first, previousSourceDab;
   bool started = false, finished = false;
   bool pendingSourceEndpoint = false;
-  bool hasInitialDirection   = false;
+  bool pendingMaskPrimary = false, pendingMaskSecondary = false;
+  struct SourcePoint {
+    Sample sample;
+    double distance;
+  };
+  std::vector<SourcePoint> sourcePath;
+  double sourceInputDistance = 0, sourceNextDab = 0;
+  bool sourcePressureLookahead = false;
+  double sourceFuturePressure  = 1;
+  bool sourceFutureHasPressure = false;
+  bool hasInitialDirection     = false;
   double travel = 0, sinceDab = 0, sinceTime = 0, spacing = 1, direction = 0,
          speed = 0, initialDirection = 0;
   std::uint64_t rng, secondaryRng;
@@ -657,12 +748,26 @@ struct Stroke::Impl {
           account(v.tip.images.size(), sizeof(std::shared_ptr<const Image>)) &&
           account(v.secondary.tip.images.size(),
                   sizeof(std::shared_ptr<const Image>));
-      for (const Dynamic *dynamic :
-           {&v.size, &v.aspect, &v.angle, &v.opacity, &v.flow, &v.scatter,
-            &v.countControl, &v.pickupControl, &v.colorRateControl,
-            &v.radiusControl, &v.backgroundMix, &v.hue, &v.saturation,
-            &v.brightness, &v.secondary.size, &v.secondary.angle,
-            &v.secondary.opacity}) {
+      for (const Dynamic *dynamic : {&v.size,
+                                     &v.aspect,
+                                     &v.angle,
+                                     &v.opacity,
+                                     &v.flow,
+                                     &v.scatter,
+                                     &v.countControl,
+                                     &v.pickupControl,
+                                     &v.colorRateControl,
+                                     &v.radiusControl,
+                                     &v.backgroundMix,
+                                     &v.hue,
+                                     &v.saturation,
+                                     &v.brightness,
+                                     &v.secondary.size,
+                                     &v.secondary.angle,
+                                     &v.secondary.opacity,
+                                     &v.sourceHsvV2[0].control,
+                                     &v.sourceHsvV2[1].control,
+                                     &v.sourceHsvV2[2].control}) {
         if (!dynamic->mappings.empty())
           fits = fits && account(dynamic->mappings.size(), sizeof(Mapping));
         for (const auto &mapping : dynamic->mappings)
@@ -674,12 +779,26 @@ struct Stroke::Impl {
       }
       reserved += snapshot;
       p = v;
-      for (const Dynamic *dynamic :
-           {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
-            &p.countControl, &p.pickupControl, &p.colorRateControl,
-            &p.radiusControl, &p.backgroundMix, &p.hue, &p.saturation,
-            &p.brightness, &p.secondary.size, &p.secondary.angle,
-            &p.secondary.opacity}) {
+      for (const Dynamic *dynamic : {&p.size,
+                                     &p.aspect,
+                                     &p.angle,
+                                     &p.opacity,
+                                     &p.flow,
+                                     &p.scatter,
+                                     &p.countControl,
+                                     &p.pickupControl,
+                                     &p.colorRateControl,
+                                     &p.radiusControl,
+                                     &p.backgroundMix,
+                                     &p.hue,
+                                     &p.saturation,
+                                     &p.brightness,
+                                     &p.secondary.size,
+                                     &p.secondary.angle,
+                                     &p.secondary.opacity,
+                                     &p.sourceHsvV2[0].control,
+                                     &p.sourceHsvV2[1].control,
+                                     &p.sourceHsvV2[2].control}) {
         for (const auto &mapping : dynamic->mappings) {
           if (mapping.interpolation != Interpolation::NaturalCubic) continue;
           size_t n      = mapping.curve.size(),
@@ -716,12 +835,26 @@ struct Stroke::Impl {
     }
   }
   void releasePresetStorage() {
-    for (Dynamic *dynamic :
-         {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
-          &p.countControl, &p.pickupControl, &p.colorRateControl,
-          &p.radiusControl, &p.backgroundMix, &p.hue, &p.saturation,
-          &p.brightness, &p.secondary.size, &p.secondary.angle,
-          &p.secondary.opacity})
+    for (Dynamic *dynamic : {&p.size,
+                             &p.aspect,
+                             &p.angle,
+                             &p.opacity,
+                             &p.flow,
+                             &p.scatter,
+                             &p.countControl,
+                             &p.pickupControl,
+                             &p.colorRateControl,
+                             &p.radiusControl,
+                             &p.backgroundMix,
+                             &p.hue,
+                             &p.saturation,
+                             &p.brightness,
+                             &p.secondary.size,
+                             &p.secondary.angle,
+                             &p.secondary.opacity,
+                             &p.sourceHsvV2[0].control,
+                             &p.sourceHsvV2[1].control,
+                             &p.sourceHsvV2[2].control})
       std::vector<Mapping>().swap(dynamic->mappings);
     std::vector<std::shared_ptr<const Image>>().swap(p.tip.images);
     std::vector<std::shared_ptr<const Image>>().swap(p.secondary.tip.images);
@@ -733,6 +866,7 @@ struct Stroke::Impl {
     tiles.clear();
     secondaryMask.clear();
     sourceOutside.clear();
+    std::vector<SourcePoint>().swap(sourcePath);
     cubic.clear();
     releasePresetStorage();
     std::vector<Pixel>().swap(smear);
@@ -756,7 +890,118 @@ struct Stroke::Impl {
            (1.0 / 9007199254740992.0);
   }
   bool independentSecondary() const {
-    return p.secondary.enabled && p.secondary.independentSpacing;
+    return p.sourceMasked.enabled ||
+           (p.secondary.enabled && p.secondary.independentSpacing);
+  }
+  bool needsSourcePressureLookahead() const {
+    return !p.size.mappings.empty() ||
+           std::any_of(p.sourceHsvV2.begin(), p.sourceHsvV2.end(),
+                       [](const SourceHsvControl &control) {
+                         return control.enabled &&
+                                !control.control.mappings.empty();
+                       });
+  }
+  Sample sourcePressureSample(const Sample &geometric) const {
+    Sample value = geometric;
+    if (sourcePressureLookahead) {
+      value.pressure    = sourceFuturePressure;
+      value.hasPressure = sourceFutureHasPressure;
+    }
+    return value;
+  }
+  bool appendSourcePoint(const Sample &s, double distance) {
+    // Dense device input can place arbitrarily many samples in half a pixel.
+    // Bound retained history and charge reallocation peak before allocating.
+    if (sourcePath.size() >= 4096) {
+      failure = "Source input history limit exceeded";
+      return false;
+    }
+    if (sourcePath.size() == sourcePath.capacity()) {
+      const size_t capacity = std::min(
+          size_t(4096), std::max(size_t(16), sourcePath.capacity() * 2));
+      const size_t charge = capacity * sizeof(SourcePoint);
+      if (charge > budget - reserved || !shared->reserve(charge)) {
+        failure = "Source input history memory limit exceeded";
+        return false;
+      }
+      const size_t old = sourcePath.capacity() * sizeof(SourcePoint);
+      try {
+        sourcePath.reserve(capacity);
+      } catch (const std::bad_alloc &) {
+        shared->release(charge);
+        throw;
+      }
+      shared->release(old);
+      reserved += charge - old;
+    }
+    sourcePath.push_back({s, distance});
+    return true;
+  }
+  Sample sourceSampleAt(double distance) const {
+    auto upper =
+        std::lower_bound(sourcePath.begin(), sourcePath.end(), distance,
+                         [](const SourcePoint &point, double value) {
+                           return point.distance < value;
+                         });
+    if (upper == sourcePath.begin()) return upper->sample;
+    if (upper == sourcePath.end()) return sourcePath.back().sample;
+    const auto &lower = *(upper - 1);
+    return interpolate(
+        lower.sample, upper->sample,
+        (distance - lower.distance) / (upper->distance - lower.distance));
+  }
+  bool addSourcePixel(const Sample &s) {
+    if (!started) {
+      if (!appendSourcePoint(s, 0)) return false;
+      first = previous = s;
+      started          = true;
+      // Size and the admitted HSV V2 channels have measured future-pressure
+      // semantics. Transfer retains its geometric-position sample.
+      if (!needsSourcePressureLookahead()) {
+        if (!dab(s)) return false;
+        sourceNextDab = spacing;
+      }
+      return true;
+    }
+    if (s.time < previous.time) {
+      failure = "Tablet timestamps moved backwards";
+      return false;
+    }
+    const double distance = std::hypot(s.x - previous.x, s.y - previous.y);
+    if (distance == 0) {
+      sourcePath.back().sample = s;
+      previous                 = s;
+      return true;
+    }
+    sourceInputDistance += distance;
+    if (!appendSourcePoint(s, sourceInputDistance)) return false;
+    size_t events = 0;
+    while (sourceNextDab + .5 < sourceInputDistance - 1e-12) {
+      if (++events > 65536) {
+        failure = "Stroke input event work limit exceeded";
+        return false;
+      }
+      Sample geometric        = sourceSampleAt(sourceNextDab);
+      const Sample future     = sourceSampleAt(sourceNextDab + .5);
+      sourcePressureLookahead = true;
+      sourceFuturePressure    = future.pressure;
+      sourceFutureHasPressure = future.hasPressure;
+      travel                  = sourceNextDab;
+      if (!dab(geometric)) return false;
+      sourcePressureLookahead = false;
+      sourceNextDab += spacing;
+    }
+    // Preserve the endpoint preceding the next geometric sample and the
+    // unconsumed half-pixel tail; do not resample away authored corner data.
+    auto keep =
+        std::upper_bound(sourcePath.begin(), sourcePath.end(), sourceNextDab,
+                         [](double value, const SourcePoint &point) {
+                           return value < point.distance;
+                         });
+    if (keep != sourcePath.begin()) --keep;
+    sourcePath.erase(sourcePath.begin(), keep);
+    previous = s;
+    return true;
   }
   double sensor(const Mapping &m, const Sample &s) const {
     double v = 0;
@@ -878,7 +1123,73 @@ struct Stroke::Impl {
     inputPixelWork += pixels * samples;
     return true;
   }
+  void recomposeSourceMask(int x, int y) {
+    const auto key     = std::make_pair(x / 32, y / 32);
+    const auto primary = tiles.find(key);
+    if (primary == tiles.end()) return;
+    const size_t k       = size_t(y % 32) * 32 + x % 32;
+    const auto secondary = secondaryMask.find(key);
+    const double retained =
+        secondary == secondaryMask.end() ? 0 : (*secondary->second)[k];
+    double coverage =
+        std::floor(retained * p.sourceMasked.opacity * 255 + .5) / 255;
+    if (p.sourceMasked.mode == MaskMode::Subtract) coverage = 1 - coverage;
+    const auto &tile = *primary->second;
+    surface.write(
+        x, y,
+        sourcePixelComposite(tile.base[k],
+                             mul(tile.paint[k], coverage * p.opacity.value),
+                             Blend::Normal));
+  }
+  bool sourceMaskDab(const Sample &s) {
+    if (secondaryDabs >= 1000000) {
+      failure = "Secondary stroke dab limit exceeded";
+      return false;
+    }
+    const auto &settings  = p.sourceMasked;
+    const double diameter = settings.useMasterSize
+                                ? p.size.value * settings.masterSizeCoeff
+                                : settings.diameter;
+    const double radius = diameter * .5, halfHeight = radius * settings.aspect;
+    secondarySpacing = diameter * settings.spacing;
+    const int x0     = std::max(0, int(std::ceil(s.x - radius))),
+              x1 = std::min(surface.width(), int(std::floor(s.x + radius)) + 1),
+              y0 = std::max(0, int(std::ceil(s.y - halfHeight - .5))),
+              y1 = std::min(surface.height(),
+                            int(std::floor(s.y + halfHeight - .5)) + 1);
+    if (x0 < x1 && y0 < y1) {
+      // Both field updates and dirty recomposition are charged before writes.
+      if (!accountPixelWork(x1 - x0, y1 - y0, 2)) return false;
+      if (!surface.prepare(x0, y0, x1, y1)) {
+        failure = "Raster transaction refused the source mask region";
+        return false;
+      }
+      const double flow = std::floor(settings.flow * 255 + .5);
+      for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+          const auto key = std::make_pair(x / 32, y / 32);
+          auto found     = secondaryMask.find(key);
+          if (found == secondaryMask.end()) {
+            constexpr size_t charge = sizeof(MaskTile) + 128;
+            if (charge > budget - reserved || !shared->reserve(charge)) {
+              failure = "Source mask memory limit exceeded";
+              return false;
+            }
+            reserved += charge;
+            found =
+                secondaryMask.emplace(key, std::make_unique<MaskTile>()).first;
+          }
+          double &alpha    = (*found->second)[size_t(y % 32) * 32 + x % 32];
+          const double old = std::floor(alpha * 255 + .5);
+          alpha = (old + std::floor((255 - old) * flow / 255 + .5)) / 255;
+          recomposeSourceMask(x, y);
+        }
+    }
+    ++secondaryDabs;
+    return true;
+  }
   bool secondaryDab(const Sample &s) {
+    if (p.sourceMasked.enabled) return sourceMaskDab(s);
     if (secondaryDabs >= 1000000) {
       failure = "Secondary stroke dab limit exceeded";
       return false;
@@ -988,6 +1299,13 @@ struct Stroke::Impl {
       sinceSecondary += advance * distance;
       f += advance;
       const Sample at = interpolate(from, s, f);
+      if (p.sourceMasked.enabled && std::abs(f - 1) <= 1e-12) {
+        pendingMaskSecondary = secondaryDistance <= step + 1e-12;
+        pendingMaskPrimary   = primary <= step + 1e-12;
+        if (pendingMaskSecondary) sinceSecondary = 0;
+        if (pendingMaskPrimary) sinceDab = sinceTime = 0;
+        break;
+      }
       // Equal-position secondary stamps are visible to the primary dab.
       if (secondaryDistance <= step + 1e-12) {
         if (++events > 65536) {
@@ -1097,8 +1415,8 @@ struct Stroke::Impl {
     // Model-specific equations are intentionally separate from native wet
     // paint.
     // Shared source foreground adjustment precedes the model-specific color
-    // injection. Admission remains separate: active wet HSV combinations are
-    // rejected until their original reference interaction has been qualified.
+    // injection. Original four-model captures qualify static single-channel
+    // controls; validation keeps other wet HSV combinations unsupported.
     // Off is an exact identity, preserving existing wet rounding and alpha.
     const Pixel foreground =
         sourceHsvColor(p.color, p.sourceHsvChannel, p.sourceHsvValue);
@@ -1330,16 +1648,29 @@ struct Stroke::Impl {
       return false;
     }
     if (sourceWetProfile(p.profile)) return sourceWetDab(s);
-    randomDab              = random();
-    const Pixel foreground = sourceHsvColor(
+    randomDab        = random();
+    Pixel foreground = sourceHsvColor(
         hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
             eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s)),
         p.sourceHsvChannel, p.sourceHsvValue);
+    std::array<bool, 3> hsvEnabled{};
+    std::array<double, 3> hsvValues{.5, .5, .5};
+    for (size_t channel = 0; channel < 3; ++channel) {
+      hsvEnabled[channel] = p.sourceHsvV2[channel].enabled;
+      if (hsvEnabled[channel])
+        hsvValues[channel] =
+            eval(p.sourceHsvV2[channel].control, sourcePressureSample(s));
+    }
+    foreground = sourceHsvTransform(foreground, hsvEnabled, hsvValues);
     if (!dabs) reservoir = foreground;
-    const double diameter = std::max(.25, eval(p.size, s)),
-                 radius   = diameter * .5;
-    spacing = sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
-                                       : diameter * p.spacing;
+    const Sample sizeSample = sourcePressureSample(s);
+    const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
+    const double diameter =
+                     std::max(sourceHard ? .5 : .25, eval(p.size, sizeSample)),
+                 radius       = diameter * .5;
+    spacing                   = sourceHard ? diameter * std::max(.02, p.spacing)
+                                : sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
+                                                           : diameter * p.spacing;
     const double aspect       = std::max(.01, eval(p.aspect, s));
     const double angleDegrees = eval(p.angle, s);
     // The measured barrel mapping is periodic; evaluate equivalent angles in
@@ -1386,8 +1717,8 @@ struct Stroke::Impl {
           y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
       const size_t samples =
-          tipWork(p.tip) + (p.texture.image ? 4 : 0) +
-          (p.wet == Wet::Smear ? 4 : 0) +
+          tipWork(p.tip) + (p.sourceMasked.enabled ? 1 : 0) +
+          (p.texture.image ? 4 : 0) + (p.wet == Wet::Smear ? 4 : 0) +
           (p.secondary.enabled && !p.secondary.independentSpacing
                ? size_t(p.secondary.count) * tipWork(p.secondary.tip)
                : 0);
@@ -1585,7 +1916,7 @@ struct Stroke::Impl {
                                                   : t.depth * b,
                      t.mode);
           }
-          if (independentSecondary()) {
+          if (independentSecondary() && !p.sourceMasked.enabled) {
             const auto found = secondaryMask.find({x / 32, y / 32});
             const double b   = found == secondaryMask.end()
                                    ? 0
@@ -1637,9 +1968,12 @@ struct Stroke::Impl {
             size_t k = size_t(y % 32) * 32 + x % 32;
             buf->paint[k] =
                 composite(buf->paint[k], mul(ink, a * flow), Blend::Normal);
-            surface.write(
-                x, y,
-                deposit(buf->base[k], mul(buf->paint[k], opacity), p.blend));
+            if (p.sourceMasked.enabled)
+              recomposeSourceMask(x, y);
+            else
+              surface.write(
+                  x, y,
+                  deposit(buf->base[k], mul(buf->paint[k], opacity), p.blend));
           } else
             surface.write(x, y,
                           deposit(surface.read(x, y),
@@ -1678,6 +2012,9 @@ bool Stroke::add(const Sample &s) {
   }
   try {
     m->inputPixelWork = 0;
+    if (!m->p.sourceMasked.enabled &&
+        m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1")
+      return m->addSourcePixel(s);
     if (!m->started) {
       m->first = m->previous = s;
       m->started             = true;
@@ -1691,6 +2028,11 @@ bool Stroke::add(const Sample &s) {
     const Sample from = m->previous;
     double distance   = std::hypot(s.x - from.x, s.y - from.y),
            dt         = s.time - from.time;
+    if (m->p.sourceMasked.enabled && distance > 0) {
+      if (m->pendingMaskSecondary && !m->secondaryDab(from)) return false;
+      if (m->pendingMaskPrimary && !m->dab(from)) return false;
+      m->pendingMaskSecondary = m->pendingMaskPrimary = false;
+    }
     if (m->pendingSourceEndpoint && distance > 0) {
       if (!m->dab(from)) return false;
       m->pendingSourceEndpoint = false;
@@ -1736,18 +2078,6 @@ bool Stroke::add(const Sample &s) {
         break;
       }
       Sample dabSample = interpolate(from, s, f);
-      if (m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
-          !m->p.size.mappings.empty() && distance > 0) {
-        // Original sparse K5341 pressure footprints establish a one-pixel
-        // distance step for size sampling, independent of fractional dab
-        // placement. Use accumulated path distance, not a canvas-axis snap.
-        // The current event bounds interpolation; no future input is invented.
-        const double nextDistance = std::ceil(m->travel - 1e-12);
-        const double pressureFraction =
-            std::min(1.0, f + (nextDistance - m->travel) / distance);
-        dabSample.pressure =
-            interpolate(from, s, std::max(f, pressureFraction)).pressure;
-      }
       if (!m->dab(dabSample)) return false;
       m->sinceDab  = 0;
       m->sinceTime = 0;
@@ -1762,7 +2092,23 @@ bool Stroke::add(const Sample &s) {
     return false;
   }
 }
-void Stroke::finish() {
+bool Stroke::finish() {
+  if (!m->finished && m->failure.empty() && m->started && !m->dabs &&
+      !m->p.sourceMasked.enabled &&
+      m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
+    try {
+      m->inputPixelWork          = 0;
+      m->sourcePressureLookahead = false;
+      m->dab(m->first);  // A committed tap has no future motion to sample.
+    } catch (const std::bad_alloc &) {
+      m->failure = "Brush finalization allocation failed";
+    }
+  }
+  const bool success = m->failure.empty();
+  cancel();
+  return success;
+}
+void Stroke::cancel() {
   m->finished              = true;
   m->pendingSourceEndpoint = false;
   m->releaseStorage();

@@ -9,7 +9,9 @@ from PyQt5.QtCore import QEvent
 
 def validate(case):
     spec, rows = case['timedProbe'], case['events']
-    if spec['durationUs'] not in (250000, 1000000) or spec['maxLatenessUs'] != 250000 or len(rows) not in (1, 33):
+    if (spec['durationUs'] not in (250000, 375000, 1000000, 1125000, 1250000, 2250000) or
+            spec['maxLatenessUs'] != (20000 if spec['durationUs'] in (375000, 1125000, 1250000, 2250000) or spec['target'].startswith('speed-cadence-') else 250000) or
+            len(rows) not in (1, 17, 33, 65)):
         raise RuntimeError('Invalid bounded paced acquisition')
     if rows[0]['timeUs'] != 0 or any(type(r['timeUs']) is not int or not 0 <= r['timeUs'] <= spec['durationUs'] for r in rows):
         raise RuntimeError('Invalid paced event deadline')
@@ -43,7 +45,7 @@ def capture(case, fields, delivery, raw, width):
         if abs((observed['timeMs'] - contacts[0]['timeMs']) * 1000 - (observed['monotonicUs'] - start)) > 2000:
             raise RuntimeError('Paced device timestamp differs from measured real clock')
     elapsed = releases[0]['monotonicUs'] - start
-    if not case['timedProbe']['durationUs'] - 2000 <= elapsed <= case['timedProbe']['durationUs'] + 250000:
+    if not case['timedProbe']['durationUs'] - 2000 <= elapsed <= case['timedProbe']['durationUs'] + case['timedProbe']['maxLatenessUs']:
         raise RuntimeError('Actual press/hold/release duration outside bound')
     left, top, w, h = case['timedProbe']['rect']
     pixels = b''.join(raw[(y * width + left) * 4:(y * width + left + w) * 4] for y in range(top, top + h))

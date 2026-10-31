@@ -81,7 +81,7 @@ Store these per preset, per importer version and per profile version; display th
 * **Semantically supported:** every active setting, dependency, numeric range and combination belongs to the selected profile and has an implemented mapping. Parsing an unknown field into an opaque blob does not qualify. Inactive settings may be preserved only when their disabled state is provable. An unrecognized enable flag is conservatively active/unknown. A preset needing conversion is labeled **converted approximation**, with source and replacement semantics shown.
 * **Reference-verified:** a specific preset or explicitly bounded equivalence class passed the comparison suite against the stated source application build, document settings and asset hashes. Record date, evidence and confidence scope. A supported preset can remain unverified; a verified tip decoder does not verify dynamics. Verification does not automatically cover another pack revision or app patch.
 
-The repository now supplies native rendering and package statuses. Foreign behavior profiles below remain planned, and reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
+The repository supplies native rendering and package statuses plus explicitly bounded experimental foreign profiles. The matrix below remains the complete target contract; implemented candidate subsets do not satisfy its missing combinations. Reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
 
 ### Source-version × engine × active-setting matrix
 
@@ -1400,7 +1400,7 @@ verification distinct. Acquiring source output is not an implemented adapter.
 | Dual tips | Enabled/class/mode metadata preserved; unknown active state explicitly diagnosed | Original Multiply/Subtract author exports, sampled/generated secondary association, spacing/scatter/count/flip controls and P2711 traces; observed colorBurn cannot be substituted with Multiply |
 | Color/airbrush/fade/direction controls | Independent native mechanisms exist; ABR active fields remain unverified | Exact serialized control mapping and source traces; unsupported hidden state must not be guessed from brush names |
 | K5341 bitmap/GIH | Original resource resolution/readback acquisition; native resource conversion | Actual source-profile bitmap geometry and sequence adapters, plus separate24-alpha/39-high-sample-label gates; long-path acquisition is not a parity result |
-| K5341 masked/timed inputs | Original Multiply/Subtract/Wash/Build-up and real-clock airbrush/time/speed acquisitions wired | Measured equations and source-specific representation, including distinct secondary opacity/flow; acquisition does not justify collapsing them |
+| K5341 masked/timed inputs | Generated rectangular mask Wash candidate retains distinct secondary opacity/flow and independently scheduled fields; Build-up inactive mask preserved. Original airbrush/time/speed acquisitions wired | Full-image masked candidate and new color/background heldout qualification; bitmap masks, mask dynamics and joint settings remain unfinished. Timed source equations remain under investigation |
 
 The externally unavailable requirement is controlled Photoshop export/reference
 execution (including exact27.11 build identification), not permission to independently
@@ -1454,20 +1454,35 @@ The existing fixed-base-angle/isotropic-spacing/Normal/full-transfer restriction
 remain. Sixteen ellipse source comparisons and twenty original asymmetric-tip
 controls extend the acquisition ledger; asymmetric source admission stays closed.
 
-### Open source pressure resampling contract
+### Measured source pressure resampling contract
 
-Same-event batching is independently checked for moving native pressure strokes.
-That guarantee does not mean changing the event sequence preserves a source
-stroke. The current source size scheduler samples pressure at the next integer
-path distance, bounded by the current event. A 32px diameter at 0.1 spacing and a
-linear pressure ramp from 0.25 to 0.75 over 16px illustrates the gap: an unsplit first
-dab at 0.8px samples pressure at 1px, while an event ending at 0.8px defers the dab
-and currently consumes that endpoint pressure when movement resumes. Those
-pressures are 0.28125 and 0.275, respectively. Four original Qt captures compare
-coarse, exact-dab-boundary, integer-lookahead and dense partitions of the identical
-path with exact delivered samples retained. Source event-resampling acceptance
-remains open; no renderer fix or source invariance claim is inferred before those
-captures establish the actual reference behavior.
+The hard Pixel candidate uses continuous pressure at half a document pixel ahead
+of each geometric dab for its size curve. Four original Qt traces (coarse, exact
+dab-boundary, integer-lookahead and dense event partitions) have identical source
+alpha windows and bounds. The continuous half-pixel model matches every window
+exactly; it also matches all eleven earlier sparse pressure centerline captures,
+including ascending and descending near-zero pressure. This replaces the former
+integer-ceiling approximation. Pressure-size has a measured half-pixel minimum
+diameter. Original subpixel-spacing captures establish a two-percent diameter
+spacing floor; the preset retains its serialized spacing and applies that source
+rule only while rendering. Native and wet profiles retain their own semantics.
+
+The bounded source path history preserves authored position, time, pressure,
+tilt and shortest-arc barrel interpolation. It emits a geometric dab only when
+its half-pixel lookahead is available; it does not extrapolate the unobserved
+terminal tail. Only explicitly qualified channels consume future pressure;
+existing opacity/flow evaluation remains at the geometric sample. The source
+history retains at most 4,096 points, accounts allocation peaks before growth,
+and shares the existing per-input work limit. Resource exhaustion fails the
+transaction instead of dropping events. Native same-event batching is tested
+separately from source path-partition equivalence.
+
+A pressure-size stroke's first dab waits for lookahead. Commit of an otherwise
+unpainted tap uses the original contact sample exactly once; cancellation and
+destruction discard buffered input. `finish()` reports errors so host rendering,
+preview, undo/new-frame transactions and comparisons cannot silently accept a
+failed tap allocation. Full-image CI qualification remains required; the captured
+windows do not establish arbitrary source-engine parity.
 
 ### Shared wet foreground transform plumbing
 
@@ -1476,8 +1491,68 @@ as the measured Pixel HSV candidate, before their model-specific Color Rate
 attenuation. The disabled transform is an exact identity. Synthetic composition
 regressions compare Pixel-transformed foregrounds with independently captured
 RGB values injected directly into each wet model, with smear-alpha on/off.
-These tests qualify wiring and preserve existing transport behavior; they do not
-establish source wet HSV interactions. Strict wet HSV eligibility remains closed
-until original enabled/disabled wet captures qualify those interactions. The
-public Color Smudge manual describes the shared foreground-transform order,
-but documentation alone is not treated as complete numerical parity evidence.
+Original enabled/disabled wet captures now cover 96 combinations: all four models,
+two foreground colors, three individually controlled channels, and two fixed
+values. An independent foreground/transport recurrence matches the captured third
+dab within one RGBA8 level, with exact alpha. Dedicated runtime regressions use
+those captured values rather than a duplicate implementation as their oracle.
+Static single-channel wet HSV can therefore enter the experimental candidate for
+hard round, normal, radius-zero, smear-alpha-on strokes with full opacity/flow,
+no texture, and no pressure-driven pickup/color controls. Other combinations,
+including dynamic or joint wet HSV, remain unsupported. Import and portable
+save/reopen tests exercise all four models and reject unsupported sensor curves.
+The full-image source comparison remains a required qualification gate; these
+measurements do not mark the candidate source-reference-verified.
+
+### Strict fractional-boundary discriminator
+
+The remaining tiny-tip observation at diameter 1.6 and y-offset 0.3 places an
+upper pixel exactly on the mathematical circle boundary. The source excludes
+that pixel while direct double-precision subtraction at document coordinate
+1024.3 can make it spuriously inside. That alone does not identify whether the
+source quantizes its radius or coordinates. Thirty-six original Qt cases now
+compare diameters 1.6 and 2.6, upper/lower boundary pixels, offsets of minus/zero/
+plus 0.0001, and translated document origins 64, 256 and 1024. Exact authored and
+delivered coordinates and pressure remain recorded; the standard full-image
+gates remain enforced. No special epsilon or fixture lookup is introduced while
+these observations are pending.
+
+Twelve paired short-path probes also qualify pending-tap finalization: ascending
+and descending pressure over distances 0, 0.1, 0.4, 0.5 and 0.6, plus constant
+quarter- and three-quarter-pressure taps. These distinguish the first-sample
+fallback from source behavior when sub-half-pixel motion changes pressure.
+That fallback is implemented and lifecycle-tested, but reference acceptance for
+these changing-pressure short paths remains open until the captures complete.
+
+### K5341 generated masked Wash candidate
+
+The versioned `sourceMaskedV1` path keeps secondary flow accumulation separate
+from post-field opacity and retains unmasked primary paint plus original canvas
+pixels. Independent primary and secondary spacing events both recompose their
+dirty region, with separate deferred final endpoints. Fields and tile map nodes
+share the stroke/host memory budget; both deposition and recomposition count
+against per-input work limits. Cancellation releases retained fields, and
+transaction ownership remains with the host undo/cancel mechanism.
+
+Original 108-case Wash alpha captures support this candidate; all 72 enabled
+Build-up controls ignore the mask. The importer requires explicit known nested
+settings, generated hard rectangular masks and a fixed hard round primary.
+Static primary opacity, primary flow1, Normal blend and no source HSV/texture
+interaction are the initial admitted Wash combinations. Unknown nested flags,
+mask dynamics, bitmap mask tips and unsupported combinations remain native
+conversions with diagnostics. Build-up preserves the mask as inactive. This is
+a source candidate, not complete K support or a reference-verified source brush.
+The existing full-image thresholds now gate both mask groups, including 48 new
+color/translucent-background heldouts per group; execution of the new code and
+heldouts is still pending CI. Import-to-runtime, portable roundtrip, captured
+histograms, secondary-only dirty changes, endpoints and budget/cancel regressions
+are included for CI. The wider RCP1 masked resource/dynamic contract remains open.
+
+## Additional original static ABR corpus
+
+The [pinned 64-preset author corpus census](raster_brush_abr_corpus.md)
+records asset hashes, license scope and complete serialized-field observations
+for two additional ABR 6.2 collections. All tips are sampled and all dynamics
+are disabled; both pattern sections are empty. This evidence does not resolve
+modern computed-tip, pattern-association, dynamic-control or other-version gaps,
+and does not establish source rendering parity. No pack assets are included.

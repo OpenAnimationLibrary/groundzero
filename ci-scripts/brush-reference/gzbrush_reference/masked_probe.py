@@ -6,7 +6,7 @@ import zlib
 from xml.etree.ElementTree import fromstring
 
 
-def capture(case, fields, delivery, raw, width):
+def capture(case, fields, delivery, raw, width, initial):
     controls = {}
     for key, wanted in case["overrides"].items():
         actual = fields.get(key)
@@ -45,13 +45,24 @@ def capture(case, fields, delivery, raw, width):
     left, top, w, h = case["maskProbe"]["rect"]
     pixels = b"".join(raw[(y * width + left) * 4:(y * width + left + w) * 4] for y in range(top, top + h))
     count = sum(alpha != 0 for alpha in pixels[3::4])
-    if count != sum(alpha != 0 for alpha in raw[3::4]):
-        raise RuntimeError("Masked source output extends outside captured region")
-    if case["maskProbe"]["mode"] == "off" and count == 0:
+    if len(initial) != len(raw):
+        raise RuntimeError("Masked source initial raster is incomplete")
+    changed = 0
+    for index in range(len(raw) // 4):
+        offset = index * 4
+        alpha = raw[offset + 3]
+        if alpha == initial[offset + 3] and (alpha == 0 or raw[offset:offset + 3] == initial[offset:offset + 3]):
+            continue
+        y, x = divmod(index, width)
+        if not (left <= x < left + w and top <= y < top + h):
+            raise RuntimeError("Masked source changes extend outside captured region")
+        changed += 1
+    if case["maskProbe"]["mode"] == "off" and changed == 0:
         raise RuntimeError("Unmasked paired control did not paint")
     return {"effectiveControls": controls, "effectivePrimaryBrush": fields["brush_definition"],
             "nestedMetadataVerified": True, "externalResourceDependencies": [],
             "deliveryVerified": True, "deliveredLine": delivery, "nonzeroAlphaPixels": count,
+            "changedPixels": changed, "outsideRegionUnchanged": True,
             "rect": case["maskProbe"]["rect"], "encoding": "zlib-base64-bgra8-row-major",
             "data": base64.b64encode(zlib.compress(pixels)).decode("ascii"),
             "sha256Pixels": hashlib.sha256(pixels).hexdigest(), "sourceParityQualified": False}

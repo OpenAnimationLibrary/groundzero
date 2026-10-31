@@ -21,6 +21,9 @@ def run(*args):
 
 
 def signing_targets(app):
+    # macOS /var and temporary roots may be aliases of /private/var. Compare
+    # canonical roots and canonical targets, while retaining the escape check.
+    app = app.resolve(strict=True)
     leaves, containers = set(), set()
     for directory in (app / "Contents" / "Frameworks", app / "Contents" / "PlugIns"):
         if not directory.exists():

@@ -58,6 +58,65 @@ struct Canvas : Surface {
     return result;
   }
 };
+void applyViewRotation(Preset &preset, const QJsonObject &source) {
+  if (!source.contains("brushRotationDegrees"))
+    return;
+  const auto modifier = source["brushRotationDegrees"];
+  require(modifier.isDouble() && std::isfinite(modifier.toDouble()) &&
+              std::abs(modifier.toDouble()) <= 36000,
+          "Invalid source view brush rotation");
+  // Imported fixed KPP angles already use raster-coordinate sign. Positive
+  // source View rotation is counterclockwise: the original asymmetric8x8
+  // resource's right edge becomes its top edge in the90degree capture.
+  preset.angle.value -= modifier.toDouble();
+}
+void testViewRotation() {
+  auto tip = std::make_shared<Image>();
+  tip->width = tip->height = 3;
+  tip->color = true;
+  tip->pixels.resize(9);
+  tip->pixels[5] = {1, 0, 0,
+                    1}; // An off-center mark exposes rotation direction.
+  auto render = [&](double serializedAngle, double viewAngle) {
+    Preset preset;
+    preset.tip.shape = Shape::Bitmap;
+    preset.tip.images = {tip};
+    preset.size.value = 12;
+    preset.angle.value = serializedAngle;
+    applyViewRotation(preset, QJsonObject{{"brushRotationDegrees", viewAngle}});
+    QImage blank(64, 64, QImage::Format_ARGB32);
+    blank.fill(Qt::transparent);
+    Canvas canvas(blank);
+    Stroke stroke(canvas, preset);
+    Sample sample;
+    sample.x = sample.y = 32;
+    require(stroke.add(sample) && stroke.finish(),
+            QString::fromStdString(stroke.error()));
+    return canvas.image();
+  };
+  auto center = [](const QImage &image) {
+    double mass = 0, x = 0, y = 0;
+    for (int row = 0; row < image.height(); ++row)
+      for (int col = 0; col < image.width(); ++col) {
+        const double a = qAlpha(image.pixel(col, row));
+        mass += a;
+        x += (col + .5) * a;
+        y += (row + .5) * a;
+      }
+    require(mass > 0, "Empty view-rotation regression stamp");
+    return std::make_pair(x / mass, y / mass);
+  };
+  const auto plain = render(0, 0), quarter = render(0, 90);
+  const auto p = center(plain), q = center(quarter),
+             oblique = center(render(0, 40));
+  require(p.first > 34 && std::abs(p.second - 32) < .1 && q.second < 30 &&
+              std::abs(q.first - 32) < .1 && plain != quarter &&
+              oblique.first > 33 && oblique.second < 31,
+          "Source view rotation did not rotate asymmetric candidate "
+          "counterclockwise");
+  require(render(-37, 53) == quarter && render(23, -17) == render(40, 0),
+          "View rotation replaced or mis-signed the serialized brush angle");
+}
 QJsonArray bounds(const QRect &r) {
   return {r.x(), r.y(), r.width(), r.height()};
 }
@@ -189,6 +248,7 @@ int main(int argc, char **argv) {
   try {
     if (app.arguments().size() == 2 &&
         app.arguments().at(1) == "--test-metrics") {
+      testViewRotation();
       QTemporaryDir directory;
       require(directory.isValid(), "Cannot create metric fixture directory");
       QImage base(2, 2, QImage::Format_ARGB32);
@@ -277,7 +337,7 @@ int main(int argc, char **argv) {
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
     if (fixtures["group"].toString() == "tabletsensors")
-      require(expected.size() == 138,
+      require(expected.size() == 188,
               "Incomplete tablet sensor fixture matrix");
     if (fixtures["group"].toString() == "spacingdynamics")
       require(expected.size() == 112,
@@ -286,6 +346,14 @@ int main(int argc, char **argv) {
       require(expected.size() == 42, "Incomplete mirror fixture matrix");
     if (fixtures["group"].toString() == "wethsv")
       require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
+    if (fixtures["group"].toString() == "hsvpressure")
+      require(expected.size() == 24, "Incomplete pressure HSV heldout matrix");
+    if (fixtures["group"].toString() == "hsvchroma")
+      require(expected.size() == 36,
+              "Incomplete low-chroma HSV heldout matrix");
+    if (fixtures["group"].toString() == "hsvorder")
+      require(expected.size() == 24,
+              "Incomplete order-discriminating HSV matrix");
     if (fixtures["group"].toString() == "hsvjoint")
       require(expected.size() == 36, "Incomplete joint HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvheldout")
@@ -295,14 +363,17 @@ int main(int argc, char **argv) {
       require(expected.size() == 72, "Incomplete HSV acquisition matrix");
     if (fixtures["group"].toString() == "distancesensors")
       require(expected.size() == 32, "Incomplete distance acquisition matrix");
+    if (fixtures["group"].toString() == "gihcadence")
+      require(expected.size() == 144,
+              "Incomplete GIH cadence acquisition matrix");
     if (fixtures["group"].toString() == "maskwash" ||
         fixtures["group"].toString() == "maskbuildup")
-      require(expected.size() == 108,
+      require(expected.size() == 156,
               "Incomplete masked-brush acquisition matrix");
     if (fixtures["group"].toString() == "airbrushtimed")
-      require(expected.size() == 32, "Incomplete paced airbrush workload");
+      require(expected.size() == 56, "Incomplete paced airbrush workload");
     if (fixtures["group"].toString() == "timedsensors")
-      require(expected.size() == 12, "Incomplete paced sensor workload");
+      require(expected.size() == 28, "Incomplete paced sensor workload");
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -317,7 +388,9 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
-      if (fixtures["group"].toString() == "hsvjoint") {
+      if (fixtures["group"].toString() == "hsvjoint" ||
+          fixtures["group"].toString() == "hsvorder" ||
+          fixtures["group"].toString() == "hsvchroma") {
         const auto evidence = source["sensorEvidence"].toObject();
         require(evidence["deliveryValuesMatchAuthored"].toBool() &&
                     evidence["deliveryInterface"].toString() ==
@@ -347,6 +420,26 @@ int main(int argc, char **argv) {
         for (int c = 0; c < 4; ++c)
           require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
                   "Joint HSV foreground readback differs");
+      }
+      if (fixtures["group"].toString() == "hsvpressure") {
+        const auto evidence = source["sensorEvidence"].toObject();
+        const auto controls = evidence["effectiveControls"].toObject();
+        const QString target =
+            source["sensorProbe"].toObject()["target"].toString();
+        require((target == "h" || target == "s" || target == "v") &&
+                    evidence["deliveryValuesMatchAuthored"].toBool() &&
+                    evidence["deliveryInterface"].toString() ==
+                        "Node.paintLine" &&
+                    controls[target + "commonCurve"].toString() == "0,0;1,1;",
+                "Missing dynamic HSV source input/readback");
+        const auto foreground =
+            evidence["effectiveForegroundDisplayRGBA8"].toArray();
+        const auto authored = source["foregroundRGBA8"].toArray();
+        require(foreground.size() == 4 && authored.size() == 4,
+                "Missing dynamic HSV foreground readback");
+        for (int c = 0; c < 4; ++c)
+          require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
+                  "Dynamic HSV foreground differs");
       }
       const bool wetHsvCase = fixtures["group"].toString() == "wethsv";
       if (wetHsvCase) {
@@ -553,6 +646,20 @@ int main(int argc, char **argv) {
                 : x == pointX && y == pointY ? qRgba(255, 255, 255, 255)
                                              : qRgba(0, 0, 0, 255));
       }
+      if (source["wetPattern"].toString() == "opaque-black-white-points") {
+        const int base = source["wetKernelComplement"].toBool() ? 255 : 0;
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(x, y,
+                             x >= source["wetBoundary"].toDouble()
+                                 ? qRgba(0, 0, 0, 0)
+                                 : qRgba(base, base, base, 255));
+        for (const auto &value : source["wetKernelPoints"].toArray()) {
+          const auto point = value.toArray();
+          initial.setPixel(256 + point[0].toInt(), 1024 + point[1].toInt(),
+                           qRgba(255 - base, 255 - base, 255 - base, 255));
+        }
+      }
       if (source.contains("wetThirdBoundary")) {
         const auto c = source["wetThirdRGBA8"].toArray();
         for (int y = 0; y < initial.height(); ++y)
@@ -568,6 +675,7 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "bitmaptips" ||
           fixtures["group"].toString() == "gihstatistics" ||
           fixtures["group"].toString() == "gihlabels" ||
+          fixtures["group"].toString() == "gihcadence" ||
           (sensorCase && source["resourceProbe"].isObject());
       QString package = "data/krita/paintoppresets/" + name + ".kpp";
       if (resourceCase) {
@@ -587,10 +695,14 @@ int main(int argc, char **argv) {
       Preset p = imported.records.front().preset;
       const bool textureGate = fixtures["group"].toString() == "texturemasks";
       const bool sourceHsv = fixtures["group"].toString() == "hsvdynamics" ||
-                             fixtures["group"].toString() == "hsvheldout";
+                             fixtures["group"].toString() == "hsvheldout" ||
+                             fixtures["group"].toString() == "hsvpressure" ||
+                             fixtures["group"].toString() == "hsvjoint" ||
+                             fixtures["group"].toString() == "hsvorder" ||
+                             fixtures["group"].toString() == "hsvchroma";
       const bool sourceHard =
-          source["sourceBarrelCandidate"].toBool(false) || sourceHsv ||
-          (textureGate && name.contains("dry legacy")) ||
+          maskCase || source["sourceBarrelCandidate"].toBool(false) ||
+          sourceHsv || (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
@@ -613,25 +725,52 @@ int main(int argc, char **argv) {
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
+      if (maskCase) {
+        const auto settings = source["overrides"].toObject();
+        const bool active =
+            fixtures["group"].toString() == "maskwash" &&
+            settings["MaskingBrush/Enabled"].toString() == "true";
+        require(p.sourceMasked.enabled == active &&
+                    p.sourceMasked.flow ==
+                        settings["MaskingBrush/Preset/FlowValue"]
+                            .toString()
+                            .toDouble() &&
+                    p.sourceMasked.opacity ==
+                        settings["MaskingBrush/Preset/OpacityValue"]
+                            .toString()
+                            .toDouble(),
+                "Source mask importer lost separate flow/opacity or Wash "
+                "eligibility");
+      }
       if (sourceHsv) {
-        const auto probe = source["sensorProbe"].toObject();
-        const QString target = probe["target"].toString();
-        require(target == "h" || target == "s" || target == "v",
-                "Invalid source HSV fixture channel");
-        const auto expectedChannel =
-            !probe["enabled"].toBool() ? SourceHsvChannel::Off
-            : target == "h"            ? SourceHsvChannel::Hue
-            : target == "s"            ? SourceHsvChannel::Saturation
-                                       : SourceHsvChannel::Value;
-        const QString curve =
-            source["overrides"].toObject()[target + "commonCurve"].toString();
-        bool ok = false;
-        const double expectedValue =
-            curve.section(';', 0, 0).section(',', 1, 1).toDouble(&ok);
-        require(ok && p.sourceHsvChannel == expectedChannel &&
-                    (expectedChannel == SourceHsvChannel::Off ||
-                     p.sourceHsvValue == expectedValue),
-                "Source HSV import did not preserve fixed channel control");
+        const auto fields = source["overrides"].toObject();
+        for (int channel = 0; channel < 3; ++channel) {
+          const QString prefix = QString("hsv").mid(channel, 1);
+          const bool enabled = fields["Pressure" + prefix].toString() == "true";
+          const bool legacy =
+              p.sourceHsvChannel == SourceHsvChannel(channel + 1);
+          require(enabled == (legacy || p.sourceHsvV2[channel].enabled),
+                  "Source HSV import lost enabled channel");
+          if (!enabled)
+            continue;
+          const auto points = fields[prefix + "commonCurve"].toString().split(
+              ';', Qt::SkipEmptyParts);
+          require(points.size() == 2, "Unsupported source HSV fixture curve");
+          bool ok0 = false, ok1 = false;
+          const double first = points[0].section(',', 1, 1).toDouble(&ok0),
+                       last = points[1].section(',', 1, 1).toDouble(&ok1);
+          require(ok0 && ok1, "Invalid source HSV fixture curve");
+          const auto &control = p.sourceHsvV2[channel].control;
+          if (first == last)
+            require(legacy ? p.sourceHsvValue == first
+                           : control.mappings.empty() && control.value == first,
+                    "Source HSV import lost fixed control");
+          else
+            require(!legacy && first == 0 && last == 1 && control.value == 1 &&
+                        control.mappings.size() == 1 &&
+                        control.mappings[0].sensor == Sensor::Pressure,
+                    "Source HSV import lost measured pressure control");
+        }
       }
       const bool sourceSoft =
           (fixtures["group"].toString() == "pixelblend" &&
@@ -712,6 +851,7 @@ int main(int argc, char **argv) {
                 "Strict source wet eligibility did not select the matching "
                 "candidate");
       }
+      applyViewRotation(p, source);
       p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
       if (source.contains("foregroundRGBA8")) {
@@ -736,6 +876,18 @@ int main(int argc, char **argv) {
         p.seed =
             UINT64_C(0x9e3779b97f4a7c15) * std::uint64_t(int(replicate) + 1);
       }
+      if (fixtures["group"].toString() == "gihcadence") {
+        const auto spec = source["cadenceProbe"].toObject();
+        const int spacing = spec["spacing"].toInt(-1);
+        require((spacing == 2 || spacing == 3 || spacing == 4) &&
+                    spec["slots"].toInt() == 32 &&
+                    source["diameter"].toDouble() == 8 &&
+                    p.spacing == spacing && spec["replicate"].toInt(-1) >= 0 &&
+                    spec["replicate"].toInt(-1) < 4 && p.tip.images.size() == 3,
+                "Invalid bounded GIH cadence candidate settings");
+        p.seed = UINT64_C(0x9e3779b97f4a7c15) *
+                 std::uint64_t(spec["replicate"].toInt() + 1);
+      }
       Canvas canvas(initial);
       Stroke stroke(canvas, p);
       Sample first, last;
@@ -750,7 +902,68 @@ int main(int argc, char **argv) {
       last.time = 1;
       QElapsedTimer timer;
       timer.start();
-      if (fixtures["group"].toString() == "gihlabels") {
+      if (fixtures["group"].toString() == "gihcadence") {
+        const auto spec = source["cadenceProbe"].toObject();
+        const QString mode = spec["mode"].toString();
+        const int step = 8 * spec["spacing"].toInt();
+        const int end = 16 + 31 * step + 1;
+        QJsonArray expectedPaths;
+        if (mode == "discrete") {
+          for (int i = 0; i < 32; ++i)
+            expectedPaths.append(QJsonArray{QJsonArray{16 + i * step, 1024},
+                                            QJsonArray{17 + i * step, 1024}});
+        } else {
+          require(mode == "line" || mode == "path-endpoints" ||
+                      mode == "path-dabs" || mode == "path-halves" ||
+                      mode == "path-offgrid",
+                  "Unknown GIH cadence mode");
+          const int increment = mode == "path-dabs"      ? step
+                                : mode == "path-halves"  ? step / 2
+                                : mode == "path-offgrid" ? 17
+                                                         : end;
+          QJsonArray path;
+          for (int x = 16; x < end; x += increment)
+            path.append(QJsonArray{x, 1024});
+          path.append(QJsonArray{end, 1024});
+          expectedPaths.append(path);
+        }
+        const auto delivered = source["deliveryReport"].toObject();
+        require(source["cadencePaths"].toArray() == expectedPaths &&
+                    delivered["cadencePaths"].toArray() == expectedPaths &&
+                    delivered["strokeCount"].toInt() == expectedPaths.size() &&
+                    delivered["mode"].toString() ==
+                        (mode == "line" || mode == "discrete"
+                             ? "Node.paintLine"
+                             : "Node.paintPath"),
+                "GIH source cadence delivery differs from authored paths");
+        const auto labels =
+            source["resourceReadback"].toObject()["frameSelections"].toArray();
+        require(labels.size() == 32,
+                "Missing bounded source cadence frame labels");
+        for (const auto &label : labels)
+          require(label.isNull() ||
+                      (label.isDouble() && label.toDouble() >= 0 &&
+                       label.toDouble() <= 2 &&
+                       label.toDouble() == std::floor(label.toDouble())),
+                  "Invalid source cadence label");
+        for (int i = 0; i < expectedPaths.size(); ++i) {
+          const auto path = expectedPaths[i].toArray();
+          Preset separate = p;
+          separate.seed ^= UINT64_C(0xd1b54a32d192ed03) * std::uint64_t(i + 1);
+          Stroke dab(canvas, separate);
+          Stroke &target = mode == "discrete" ? dab : stroke;
+          for (int j = 0; j < path.size(); ++j) {
+            const auto point = path[j].toArray();
+            Sample sample = first;
+            sample.x = point[0].toDouble();
+            sample.y = point[1].toDouble();
+            sample.time = j / 240.;
+            require(target.add(sample), QString::fromStdString(target.error()));
+          }
+          if (mode == "discrete")
+            require(dab.finish(), QString::fromStdString(dab.error()));
+        }
+      } else if (fixtures["group"].toString() == "gihlabels") {
         const auto path = source["sourcePath"].toArray();
         const auto delivery = source["deliveryReport"].toObject();
         require(path.size() == 96 && delivery["vertices"].toArray() == path &&
@@ -800,11 +1013,21 @@ int main(int argc, char **argv) {
                   "Missing measured paced source timing");
           auto contacts = evidence["deliveredContacts"].toArray();
           require(contacts.size() == source["events"].toArray().size() &&
-                      (contacts.size() == 1 || contacts.size() == 33),
+                      (contacts.size() == 1 || contacts.size() == 17 ||
+                       contacts.size() == 33 || contacts.size() == 65),
                   "Incomplete paced source contacts");
           const auto spec = source["timedProbe"].toObject();
           const double duration = spec["durationUs"].toDouble();
-          require(duration == 250000 || duration == 1000000,
+          const double maxLateness = spec["maxLatenessUs"].toDouble();
+          const bool strictTiming =
+              duration == 375000 || duration == 1125000 ||
+              duration == 1250000 || duration == 2250000 ||
+              spec["target"].toString().startsWith("speed-cadence-");
+          require(maxLateness == (strictTiming ? 20000 : 250000),
+                  "Unexpected paced lateness contract");
+          require(duration == 250000 || duration == 375000 ||
+                      duration == 1000000 || duration == 1125000 ||
+                      duration == 1250000 || duration == 2250000,
                   "Unexpected paced duration");
           const double origin =
               contacts[0].toObject()["monotonicUs"].toDouble();
@@ -814,14 +1037,14 @@ int main(int argc, char **argv) {
             const double elapsed = contact["monotonicUs"].toDouble() - origin;
             const double planned = authored[i].toObject()["timeUs"].toDouble();
             require(std::isfinite(elapsed) && elapsed >= planned - 2000 &&
-                        elapsed <= planned + 250000 &&
+                        elapsed <= planned + maxLateness &&
                         contact["pressure"].toDouble() == 1,
                     "Paced contact failed actual elapsed-time bounds");
           }
           auto release = evidence["release"].toObject();
           const double held = release["monotonicUs"].toDouble() - origin;
           require(std::isfinite(held) && held >= duration - 2000 &&
-                      held <= duration + 250000,
+                      held <= duration + maxLateness,
                   "Paced release failed actual elapsed-time bounds");
           release["pressure"] = 1;
           contacts.append(release);
@@ -860,7 +1083,8 @@ int main(int argc, char **argv) {
         require(stroke.add(first) && stroke.add(last),
                 QString::fromStdString(stroke.error()));
       }
-      stroke.finish();
+      if (!stroke.finish())
+        require(false, QString::fromStdString(stroke.error()));
       double elapsed = timer.nsecsElapsed() / 1e6;
       QImage candidate = canvas.image();
       QString basename = source["image"].toString();
@@ -962,6 +1186,34 @@ int main(int argc, char **argv) {
           }
         metrics["stochasticFrameSelections"] = labels;
       }
+      if (fixtures["group"].toString() == "gihcadence") {
+        QJsonArray labels;
+        for (int slot = 0; slot < 32; ++slot) {
+          const int cx =
+              16 +
+              slot * 8 * source["cadenceProbe"].toObject()["spacing"].toInt();
+          quint64 sums[3] = {0, 0, 0};
+          for (int y = 1018; y <= 1030; ++y)
+            for (int x = cx - 6; x <= cx + 6; ++x) {
+              const auto color = candidate.pixel(x, y);
+              sums[0] += qRed(color) * qAlpha(color);
+              sums[1] += qGreen(color) * qAlpha(color);
+              sums[2] += qBlue(color) * qAlpha(color);
+            }
+          const int winner = int(std::max_element(sums, sums + 3) - sums);
+          if (!sums[winner])
+            labels.append(QJsonValue(QJsonValue::Null));
+          else {
+            for (int channel = 0; channel < 3; ++channel)
+              require(channel == winner || sums[channel] == 0,
+                      "Candidate cadence cell mixes frame colors");
+            labels.append(winner);
+          }
+        }
+        metrics["candidateFrameSelections"] = labels;
+        metrics["cadenceQualification"] =
+            "Exploratory frame-advancement acquisition; no fitted source RNG";
+      }
       metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
@@ -1002,11 +1254,18 @@ int main(int argc, char **argv) {
         // no center-pixel-only qualification or dilution by empty canvas.
         const double colorTolerance =
             p.sourceHsvChannel == SourceHsvChannel::Saturation ? 1 / 255.0 : 0;
+        // Both hard masks are binary-alpha and RGB8. Compare integer code
+        // differences, avoiding floating subtraction placing exactly one byte
+        // microscopically above 1/255. Alpha and geometry gates are unchanged.
+        const int byteError =
+            int(std::floor(metrics["maxRGBError"].toDouble() * 255 + .5));
         const bool passed =
             metrics["hardPixelCandidatePassed"].toBool() &&
-            metrics["maxRGBError"].toDouble() <= colorTolerance &&
+            byteError <=
+                (p.sourceHsvChannel == SourceHsvChannel::Saturation ? 1 : 0) &&
             metrics["maxAlphaError"].toDouble() == 0;
         metrics["fixedHsvCandidatePassed"] = passed;
+        metrics["fixedHsvMaxRGBByteError"] = byteError;
         metrics["fixedHsvMaxRGBTolerance"] = colorTolerance;
         if (!passed && !failedHardCases.contains(name))
           failedHardCases.append(name);
