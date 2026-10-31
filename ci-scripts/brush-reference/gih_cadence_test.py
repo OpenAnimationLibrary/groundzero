@@ -26,11 +26,12 @@ class Cadence(unittest.TestCase):
             (root / 'paintoppresets').mkdir()
             prepare(root, root, lambda *args: b'original synthetic fixture', 'gihcadence')
             manifest = json.loads((root / 'output' / 'fixtures.json').read_text())
-            self.assertEqual(len(manifest['cases']), 144)
-            self.assertEqual(len(set(plans())), 144)
+            self.assertEqual(len(manifest['cases']), 168)
+            self.assertEqual(len(set(plans())), 168)
             validate = helper('cadence_probe').validate
             for case in manifest['cases']:
                 paths = validate(case)
+                self.assertEqual(len(case['cadenceCenters']), 32)
                 self.assertLessEqual(sum(len(p) for p in paths), 120)
                 self.assertTrue(all(0 <= v < 2048 for p in paths for point in p for v in point))
                 bad = copy.deepcopy(case)

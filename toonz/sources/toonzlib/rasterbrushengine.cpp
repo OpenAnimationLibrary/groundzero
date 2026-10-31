@@ -18,12 +18,16 @@ bool sourceDefaultProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-default-circle-candidate-1" ||
          profile == "krita-5.3.4.1-default-rect-candidate-1";
 }
+bool sourceAirbrushProfile(const std::string &profile) {
+  return profile == "krita-5.3.4.1-airbrush-candidate-1";
+}
 bool sourcePixelProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
-         sourceDefaultProfile(profile);
+         sourceDefaultProfile(profile) || sourceAirbrushProfile(profile);
 }
 bool sourceBitmapProfile(const std::string &profile) {
-  return profile == "krita-5.3.4.1-fixed-bitmap-candidate-1";
+  return profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
+         profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
 }
 bool sourceProfile(const std::string &profile) {
   return sourcePixelProfile(profile) || sourceWetProfile(profile) ||
@@ -181,12 +185,21 @@ Pixel texel(const Image &im, double x, double y, bool repeat) {
 // placement in one sample. Do not round the nominal transformed dimensions.
 // On-demand evaluation avoids allocating a transformed bitmap cache.
 Pixel sourceBitmapPixel(const Image &image, double diameter, double angle,
-                        double centerX, double centerY, int x, int y) {
+                        double centerX, double centerY, int x, int y,
+                        bool colorAsMask, bool mirrorX, bool mirrorY) {
   const double scale = diameter / std::max(image.width, image.height);
   const int pyramid  = scale > 1 ? 2 : 1;
   const int width = image.width * pyramid, height = image.height * pyramid;
   auto original = [&](int i, int j) {
-    const Pixel value = image.pixels[size_t(j) * image.width + i];
+    Pixel value = image.pixels[size_t(j) * image.width + i];
+    if (colorAsMask) {
+      // PNG decoding supplies premultiplied floats. The independently
+      // measured mask pipeline starts with nearest-byte premultiplied RGB.
+      value.r = std::floor(value.r * 255 + .5);
+      value.g = std::floor(value.g * 255 + .5);
+      value.b = std::floor(value.b * 255 + .5);
+      value.a = std::floor(value.a * 255 + .5);
+    }
     // Grayscale resources are byte coverage. Work in byte units so exact
     // quarter-weight pyramid samples do not gain a byte from normalization
     // roundoff at an otherwise integral intermediate coverage.
@@ -215,9 +228,10 @@ Pixel sourceBitmapPixel(const Image &image, double diameter, double angle,
     c  = std::round(c);
     sn = std::round(sn);
   }
-  const double dx = x - centerX, dy = y - centerY + .5;
-  const double u = (c * dx + sn * dy) / scale * pyramid + width * .5 - .5;
-  const double v = (-sn * dx + c * dy) / scale * pyramid + height * .5 - .5;
+  const double dx = (mirrorX ? -1 : 1) * (x - centerX),
+               dy = (mirrorY ? -1 : 1) * (y - centerY + .5);
+  const double u  = (c * dx + sn * dy) / scale * pyramid + width * .5 - .5;
+  const double v  = (-sn * dx + c * dy) / scale * pyramid + height * .5 - .5;
   if (u <= -1 || v <= -1 || u >= width || v >= height) return {};
   const int a = int(std::floor(u)), b = int(std::floor(v));
   const Pixel value =
@@ -225,6 +239,17 @@ Pixel sourceBitmapPixel(const Image &image, double diameter, double angle,
           mix(resized(a, b + 1), resized(a + 1, b + 1), u - a), v - b);
   if (!image.color)
     return {0, 0, 0, std::floor(std::clamp(value.a, 0.0, 255.0) + .5) / 255};
+  if (colorAsMask) {
+    if (value.a <= 0) return {};
+    // Preserve RGBA through both transforms. Converting the original or
+    // intermediate pyramid to coverage loses measured edge pixels.
+    const int r        = int(std::floor(unit(value.r / value.a) * 255));
+    const int g        = int(std::floor(unit(value.g / value.a) * 255));
+    const int b        = int(std::floor(unit(value.b / value.a) * 255));
+    const int gray     = (11 * r + 16 * g + 5 * b) / 32;
+    const double alpha = std::floor(std::clamp(value.a, 0.0, 255.0));
+    return {0, 0, 0, std::floor((255 - gray) * alpha / 255 + .5) / 255};
+  }
   const double alpha =
       std::floor(unit(value.a) * 255 + (quarter ? 0 : .5)) / 255;
   return value.a > 0 ? mul(value, alpha / value.a) : Pixel{};
@@ -436,12 +461,36 @@ std::string validate(const Preset &p) {
         !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
         !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
         !fixed(p.saturation, 1) || !fixed(p.brightness, 1) || p.count != 1 ||
-        p.airbrushRate != 0 || (sourceWet && p.wash) || p.lockAlpha ||
+        (p.airbrushRate != 0 && !sourceAirbrushProfile(p.profile)) ||
+        (sourceWet && p.wash) || p.lockAlpha ||
         p.flipX || p.flipY ||
         (sourceWet ? p.blend != Blend::Normal : p.blend == Blend::Erase) ||
         (sourceHard && p.wet != Wet::Off) || p.secondary.enabled ||
         p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
+  }
+  if (p.airbrushIgnoreSpacing && !sourceAirbrushProfile(p.profile))
+    return "Ignore distance spacing requires the source airbrush candidate";
+  if (sourceAirbrushProfile(p.profile)) {
+    // This deliberately opt-in candidate implements only the acquired static
+    // profile. Import admission awaits causal clock/timer dispatch evidence.
+    if (p.size.value != 16 || !p.size.mappings.empty() || p.spacing != 1 ||
+        p.aspect.value != 1 || p.angle.value != 0 || !p.angle.mappings.empty() ||
+        p.opacity.value != .1 || !p.opacity.mappings.empty() ||
+        p.flow.value != 1 || !p.flow.mappings.empty() ||
+        (p.airbrushRate != 5 && p.airbrushRate != 20) ||
+        p.wash || p.blend != Blend::Normal || p.texture.image ||
+        p.sourceMasked.enabled || p.sourceHsvChannel != SourceHsvChannel::Off ||
+        p.sourceHsvV2[0].enabled || p.sourceHsvV2[1].enabled || p.sourceHsvV2[2].enabled)
+      return "Unimplemented source airbrush candidate combination";
+  }
+  if (p.sourceMirror.enabled) {
+    const auto &mirror = p.sourceMirror;
+    if (!sourceBitmapProfile(p.profile) || p.tip.images.size() != 1 ||
+        !p.tip.images[0] || p.tip.images[0]->color || p.angle.value != 0 ||
+        (!mirror.horizontal && !mirror.vertical) || mirror.control.value != 1 ||
+        mirror.control.minimum != 0 || !linearPressure(mirror.control))
+      return "Unimplemented source mirror combination";
   }
   if (sourceBitmapProfile(p.profile)) {
     auto fixed = [](const Dynamic &d, double value) {
@@ -463,7 +512,10 @@ std::string validate(const Preset &p) {
         p.sourceHsvV2[2].enabled)
       return "Unimplemented source bitmap combination";
     const auto &image = *p.tip.images[0];
-    const int extent  = std::max(image.width, image.height);
+    if (p.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1" &&
+        (!image.color || p.tip.images.size() != 1))
+      return "Source PNG mask requires one original RGBA image";
+    const int extent = std::max(image.width, image.height);
     for (const auto &frame : p.tip.images)
       if (!frame || frame->width != image.width ||
           frame->height != image.height || frame->color != image.color)
@@ -529,16 +581,19 @@ std::string validate(const Preset &p) {
   if (hsvV2Active &&
       (p.sourceHsvChannel != SourceHsvChannel::Off || p.sourceHsvValue != .5))
     return "Conflicting source HSV versions or unimplemented composition";
-  const bool staticWetHsv =
-      sourceWet && !hsvV2Active && p.sourceSmearAlpha && p.smudgeRadius == 0 &&
-      p.pickupControl.mappings.empty() && p.colorRateControl.mappings.empty();
+  // Shared source foreground controls precede wet injection and the texture
+  // mask. Keep sampling-radius/alpha-model interactions outside this candidate
+  // until their source equations have independent reference qualification.
+  const bool wetHsv =
+      sourceWet && p.sourceSmearAlpha && p.smudgeRadius == 0;
   if ((p.sourceHsvChannel != SourceHsvChannel::Off || hsvV2Active) &&
-      ((p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" && !staticWetHsv) ||
-       p.texture.image || p.wash || p.tip.shape != Shape::Round ||
+      ((p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" && !wetHsv) ||
+       (!wetHsv && p.texture.image) || p.wash || p.tip.shape != Shape::Round ||
        p.tip.hardness != 1 || p.tip.antialiasEdges ||
-       p.blend != Blend::Normal || p.opacity.value != 1 ||
-       !p.opacity.mappings.empty() || p.flow.value != 1 ||
-       !p.flow.mappings.empty() || !p.size.mappings.empty() ||
+       p.blend != Blend::Normal ||
+       (!wetHsv && (p.opacity.value != 1 || !p.opacity.mappings.empty() ||
+                    p.flow.value != 1 || !p.flow.mappings.empty())) ||
+       !p.size.mappings.empty() ||
        p.aspect.value != 1 || p.angle.value != 0))
     return "Unimplemented source HSV setting combination";
   if ((sourceHard || sourceWet) && p.texture.image &&
@@ -635,6 +690,8 @@ std::string validate(const Preset &p) {
       if (!image(im)) return false;
     return true;
   };
+  if (!dynamic(p.sourceMirror.control, 0, 1))
+    return "Invalid source mirror control";
   if (!tip(p.tip) || !dynamic(p.size, .25, 4096) ||
       !dynamic(p.aspect, .01, 1) || !dynamic(p.angle, -36000, 36000) ||
       !dynamic(p.opacity, 0, 1) || !dynamic(p.flow, 0, 1) ||
@@ -786,10 +843,12 @@ struct Stroke::Impl {
   std::vector<SourcePoint> sourcePath;
   double sourceInputDistance = 0, sourceNextDab = 0;
   bool sourcePressureLookahead = false;
+  bool sourceHasInputUpdate    = false;
   Sample sourceFuturePosition;
   double sourceFuturePressure  = 1;
   bool sourceFutureHasPressure = false;
   bool hasInitialDirection     = false;
+  double sourceAirbrushDistance = 0;
   double travel = 0, sinceDab = 0, sinceTime = 0, spacing = 1, direction = 0,
          speed = 0, initialDirection = 0;
   std::uint64_t rng, secondaryRng;
@@ -858,6 +917,7 @@ struct Stroke::Impl {
                                      &v.secondary.size,
                                      &v.secondary.angle,
                                      &v.secondary.opacity,
+                                     &v.sourceMirror.control,
                                      &v.sourceHsvV2[0].control,
                                      &v.sourceHsvV2[1].control,
                                      &v.sourceHsvV2[2].control}) {
@@ -889,6 +949,7 @@ struct Stroke::Impl {
                                      &p.secondary.size,
                                      &p.secondary.angle,
                                      &p.secondary.opacity,
+                                     &p.sourceMirror.control,
                                      &p.sourceHsvV2[0].control,
                                      &p.sourceHsvV2[1].control,
                                      &p.sourceHsvV2[2].control}) {
@@ -945,6 +1006,7 @@ struct Stroke::Impl {
                              &p.secondary.size,
                              &p.secondary.angle,
                              &p.secondary.opacity,
+                             &p.sourceMirror.control,
                              &p.sourceHsvV2[0].control,
                              &p.sourceHsvV2[1].control,
                              &p.sourceHsvV2[2].control})
@@ -996,11 +1058,9 @@ struct Stroke::Impl {
   }
   Sample sourceGeometrySample(const Sample &nominal) const {
     if (sourcePressureLookahead) return sourceFuturePosition;
-    // Tap compatibility is a separate delivery contract. This fallback keeps
-    // existing tap behavior until timed press/release qualification completes.
-    Sample value = nominal;
-    value.x += .5;
-    return value;
+    // A true tap has no outgoing path. Original press/release-only captures
+    // use the contact-centered mask, distinct from moving-dab placement.
+    return nominal;
   }
   Sample sourcePressureSample(const Sample &geometric) const {
     Sample value = geometric;
@@ -1051,6 +1111,44 @@ struct Stroke::Impl {
         lower.sample, upper->sample,
         (distance - lower.distance) / (upper->distance - lower.distance));
   }
+  bool addSourceAirbrush(const Sample &s) {
+    if (!started) {
+      if (s.timerTick) {
+        failure = "Airbrush timer tick precedes pointer contact";
+        return false;
+      }
+      first = previous = s;
+      started = true;
+      sourceAirbrushDistance = 0;
+      return dab(s);
+    }
+    if (s.time < previous.time) {
+      failure = "Airbrush dispatch timestamps moved backwards";
+      return false;
+    }
+    if (s.timerTick) {
+      // Host dispatch is explicit. Neither interpolate to a nominal timer
+      // deadline nor invent catch-up ticks from elapsed/rate arithmetic.
+      Sample at = previous;
+      at.time = s.time;
+      at.timerTick = true;
+      if (!dab(at)) return false;
+      previous.time = s.time;
+      sourceAirbrushDistance = 0;
+      return true;
+    }
+    const double distance = std::hypot(s.x - previous.x, s.y - previous.y);
+    sourceAirbrushDistance += distance;
+    travel += distance;
+    previous = s;
+    if (!p.airbrushIgnoreSpacing && sourceAirbrushDistance >= spacing) {
+      // Source captures stamp at the delivered pointer position rather than
+      // subdividing a segment into interpolated fixed-distance deposits.
+      if (!dab(s)) return false;
+      sourceAirbrushDistance = 0;
+    }
+    return true;
+  }
   bool addSourcePixel(const Sample &s) {
     if (!started) {
       if (!appendSourcePoint(s, 0)) return false;
@@ -1062,6 +1160,7 @@ struct Stroke::Impl {
 
       return true;
     }
+    sourceHasInputUpdate = true;
     if (s.time < previous.time) {
       failure = "Tablet timestamps moved backwards";
       return false;
@@ -1512,16 +1611,27 @@ struct Stroke::Impl {
     (*sourceOutside.at({tx, ty}))[size_t(y - ty * 32) * 32 + (x - tx * 32)] =
         pixel;
   }
+  Pixel sourceForeground(Pixel color, const Sample &s) const {
+    color = sourceHsvColor(color, p.sourceHsvChannel, p.sourceHsvValue);
+    std::array<bool, 3> enabled{};
+    std::array<double, 3> values{.5, .5, .5};
+    for (size_t channel = 0; channel < 3; ++channel) {
+      enabled[channel] = p.sourceHsvV2[channel].enabled;
+      if (enabled[channel])
+        values[channel] =
+            eval(p.sourceHsvV2[channel].control, sourcePressureSample(s));
+    }
+    return sourceHsvTransform(color, enabled, values);
+  }
   bool sourceWetDab(const Sample &s) {
     // Independent candidate inferred from original first/second-dab fixtures.
     // Model-specific equations are intentionally separate from native wet
     // paint.
     // Shared source foreground adjustment precedes the model-specific color
     // injection. Original four-model captures qualify static single-channel
-    // controls; validation keeps other wet HSV combinations unsupported.
+    // controls; joint/dynamic composition remains separately reference-gated.
     // Off is an exact identity, preserving existing wet rounding and alpha.
-    const Pixel foreground =
-        sourceHsvColor(p.color, p.sourceHsvChannel, p.sourceHsvValue);
+    const Pixel foreground = sourceForeground(p.color, s);
     const double radius = p.size.value * .5;
     spacing             = std::max(.01, p.size.value * p.spacing);
     // Measured model distinction: Dulling retains the hard Pixel lattice;
@@ -1530,8 +1640,14 @@ struct Stroke::Impl {
     // Smear's 7px rows are 3/5/7/7/7/5/3; even masks retain their half-pixel
     // center. Dulling uses the independently measured Pixel lattice instead.
     const double oddOffset = (int(p.size.value) & 1) ? .5 : 0;
-    const double cx        = s.x + (p.wet == Wet::Dulling ? .5 : oddOffset),
-                 cy        = s.y - (p.wet == Wet::Smear ? oddOffset : 0);
+    // Moving source dabs use the actual half-pixel future path position,
+    // including outgoing corner direction. Retain the independently measured
+    // model footprint offsets; forward scans are unchanged. Wet direction
+    // parity is qualified separately from the shared hard Pixel scheduler.
+    Sample position = sourcePressureLookahead ? sourceGeometrySample(s) : s;
+    if (!sourcePressureLookahead) position.x += .5;  // Initial wet pickup.
+    const double cx = position.x + (p.wet == Wet::Dulling ? 0 : oddOffset - .5),
+                 cy = position.y - (p.wet == Wet::Smear ? oddOffset : 0);
     const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
                         p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
     const double pickupExtent =
@@ -1751,19 +1867,10 @@ struct Stroke::Impl {
     }
     if (sourceWetProfile(p.profile)) return sourceWetDab(s);
     randomDab        = random();
-    Pixel foreground = sourceHsvColor(
+    Pixel foreground = sourceForeground(
         hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
             eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s)),
-        p.sourceHsvChannel, p.sourceHsvValue);
-    std::array<bool, 3> hsvEnabled{};
-    std::array<double, 3> hsvValues{.5, .5, .5};
-    for (size_t channel = 0; channel < 3; ++channel) {
-      hsvEnabled[channel] = p.sourceHsvV2[channel].enabled;
-      if (hsvEnabled[channel])
-        hsvValues[channel] =
-            eval(p.sourceHsvV2[channel].control, sourcePressureSample(s));
-    }
-    foreground = sourceHsvTransform(foreground, hsvEnabled, hsvValues);
+        s);
     if (!dabs) reservoir = foreground;
     const Sample sizeSample = sourcePressureSample(s);
     const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
@@ -1775,6 +1882,8 @@ struct Stroke::Impl {
                                          : diameter * p.spacing;
     const double aspect       = std::max(.01, eval(p.aspect, s));
     const double angleDegrees = eval(p.angle, s);
+    const bool sourceMirrored =
+        p.sourceMirror.enabled && eval(p.sourceMirror.control, s) >= .5;
     // The measured barrel mapping is periodic; evaluate equivalent angles in
     // a common range so 315 and -45 degrees share the same mask boundary math.
     const double angle =
@@ -1808,7 +1917,9 @@ struct Stroke::Impl {
       // source profiles retain their independently qualified placement.
       const Sample position = sourceHard ? sourceGeometrySample(s) : s;
       const double sourceOffset =
-          !sourceHard && sourcePixelProfile(p.profile) ? .5 : 0;
+          !sourceHard && sourcePixelProfile(p.profile) &&
+                  !sourceAirbrushProfile(p.profile)
+              ? .5 : 0;
       const double cx = position.x + sourceOffset +
                         (p.scatterBothAxes ? scatterX
                                            : -std::sin(direction) * scatterX),
@@ -1924,9 +2035,13 @@ struct Stroke::Impl {
           Pixel tip;
           double a = 0;
           if (sourceBitmapProfile(p.profile)) {
-            tip = sourceBitmapPixel(*p.tip.images[primaryIndex], diameter,
-                                    angleDegrees, s.x, s.y, x, y);
-            a   = tip.a;
+            tip = sourceBitmapPixel(
+                *p.tip.images[primaryIndex], diameter, angleDegrees, s.x, s.y,
+                x, y,
+                p.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1",
+                sourceMirrored && p.sourceMirror.horizontal,
+                sourceMirrored && p.sourceMirror.vertical);
+            a = tip.a;
           } else if (sourceDefaultProfile(p.profile)) {
             // Independently recovered from complete alpha masks at five fade
             // values. Default circles fade in squared distance, with a
@@ -2058,7 +2173,9 @@ struct Stroke::Impl {
           if (a <= 0) continue;
           Pixel ink = paint;
           bool colorTip =
-              p.tip.shape == Shape::Bitmap && p.tip.images[primaryIndex]->color;
+              p.tip.shape == Shape::Bitmap &&
+              p.tip.images[primaryIndex]->color &&
+              p.profile != "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
           if (colorTip) ink = tip.a > 0 ? mul(tip, 1 / tip.a) : Pixel{};
           if (p.wet == Wet::Smear)
             ink =
@@ -2122,9 +2239,20 @@ bool Stroke::add(const Sample &s) {
   }
   try {
     m->inputPixelWork = 0;
+    if (sourceAirbrushProfile(m->p.profile)) return m->addSourceAirbrush(s);
     if (!m->p.sourceMasked.enabled &&
         m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1")
       return m->addSourcePixel(s);
+    if (sourceWetProfile(m->p.profile) && m->started) {
+      // Keep the first wet pickup immediate, preserving its transaction and
+      // preflight guarantees. Subsequent deposits need future path geometry;
+      // the retained history uses the same bounded allocation as dry input.
+      if (m->sourcePath.empty()) {
+        if (!m->appendSourcePoint(m->first, 0)) return false;
+        m->sourceNextDab = m->spacing;
+      }
+      return m->addSourcePixel(s);
+    }
     if (!m->started) {
       m->first = m->previous = s;
       m->started             = true;
@@ -2204,7 +2332,7 @@ bool Stroke::add(const Sample &s) {
 }
 bool Stroke::finish() {
   if (!m->finished && m->failure.empty() && m->started && !m->dabs &&
-      !m->p.sourceMasked.enabled &&
+      !m->sourceHasInputUpdate && !m->p.sourceMasked.enabled &&
       m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
     try {
       m->inputPixelWork          = 0;

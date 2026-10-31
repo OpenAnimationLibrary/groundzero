@@ -5,6 +5,22 @@ PITCH = 16
 COLUMNS = 128
 
 
+def geometry_windows(raw):
+    """Bounded in-canvas raw BGRA windows around both first-row turns."""
+    import base64
+    import zlib
+    if len(raw) != WIDTH * HEIGHT * 4:
+        raise ValueError("Incomplete drift geometry raster")
+    windows = []
+    for x in (0, WIDTH - 64):
+        rect = [x, 0, 64, 48]
+        crop = b"".join(raw[(y * WIDTH + x) * 4:(y * WIDTH + x + 64) * 4]
+                        for y in range(48))
+        windows.append({"rect": rect, "encoding": "zlib-base64-bgra8-row-major",
+                        "data": base64.b64encode(zlib.compress(crop)).decode("ascii")})
+    return windows
+
+
 def center(index):
     row, column = divmod(index, COLUMNS)
     return [8 + PITCH * (column if row % 2 == 0 else COLUMNS - 1 - column), 8 + PITCH * row]

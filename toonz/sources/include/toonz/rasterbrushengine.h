@@ -104,6 +104,10 @@ struct SourceMasked {
   double opacity = 1, flow = 1;
   MaskMode mode = MaskMode::Multiply;
 };
+struct SourceMirror {
+  bool enabled = false, horizontal = false, vertical = false;
+  Dynamic control{1, 0, {}};
+};
 struct Preset {
   std::string name = "Native brush", profile = "groundzero-native-1";
   Tip tip;
@@ -111,8 +115,9 @@ struct Preset {
   Dynamic opacity{1, 0, {}}, flow{1, 0, {}}, scatter{0, 0, {}};
   Dynamic countControl{1, 0, {}};
   double spacing = 0.1, airbrushRate = 0;
-  int count            = 1;
-  bool scatterBothAxes = true;
+  bool airbrushIgnoreSpacing = false;  // Source airbrush candidate only.
+  int count                  = 1;
+  bool scatterBothAxes       = true;
   bool wash = false, lockAlpha = false, flipX = false, flipY = false;
   Blend blend = Blend::Normal;
   Pixel color{0, 0, 0, 1};
@@ -124,6 +129,7 @@ struct Preset {
   Texture texture;
   Secondary secondary;
   SourceMasked sourceMasked;
+  SourceMirror sourceMirror;
   Wet wet       = Wet::Off;
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
   // Versioned source-wet state switches; native wet equations do not use them.
@@ -147,6 +153,7 @@ struct Sample {
   double x = 0, y = 0, pressure = 1, tiltX = 0, tiltY = 0;
   double rotation = 0, time = 0;  // radians and monotonic seconds
   bool hasPressure = false, hasTilt = false, hasRotation = false;
+  bool timerTick = false;  // Explicit host dispatch; source airbrush only.
 };
 class Surface {
 public:

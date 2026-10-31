@@ -1485,12 +1485,11 @@ past each nominal dab. Original continuous path count controls distinguish
 forward, reverse and reverse-to-vertical corners: the outgoing future position
 matches all five in-canvas alpha windows exactly, whereas a fixed positive-X
 offset and the incoming tangent do not. The first moving dab therefore waits
-for path data even with fixed size. Single-stamp component tests explicitly
-finalize. Tap placement and wall-clock first-press latency are separate from
-this moving-path contract and remain under qualification; the existing tap
-fallback is not evidence of source timing or tap lattice parity. Native, masked
-and wet schedulers are unchanged by this slice; wet pickup adaptation requires
-its own state qualification.
+for path data even with fixed size. Moving-mask component tests supply explicit
+half-pixel motion before finalizing. True taps use the unshifted contact center;
+wall-clock first-press latency is separate and remains unqualified. Native,
+masked and wet schedulers are unchanged by this slice; wet pickup adaptation
+requires its own state qualification.
 
 The bounded source path history preserves authored position, time, pressure,
 tilt and shortest-arc barrel interpolation. It emits a geometric dab only when
@@ -1503,8 +1502,10 @@ transaction instead of dropping events. Native same-event batching is tested
 separately from source path-partition equivalence.
 
 A pressure-size stroke's first dab waits for lookahead. Commit of an otherwise
-unpainted tap uses the original contact sample exactly once; cancellation and
-destruction discard buffered input. `finish()` reports errors so host rendering,
+unpainted true tap (one contact sample) uses that contact center exactly once.
+An additional input sample without sufficient path length remains a no-op,
+including zero-motion pressure changes. Cancellation and destruction discard
+buffered input. `finish()` reports errors so host rendering,
 preview, undo/new-frame transactions and comparisons cannot silently accept a
 failed tap allocation. Full-image CI qualification remains required; the captured
 windows do not establish arbitrary source-engine parity.
@@ -1553,11 +1554,27 @@ dab within one RGBA8 level, with exact alpha. Dedicated runtime regressions use
 those captured values rather than a duplicate implementation as their oracle.
 Static single-channel wet HSV can therefore enter the experimental candidate for
 hard round, normal, radius-zero, smear-alpha-on strokes with full opacity/flow,
-no texture, and no pressure-driven pickup/color controls. Other combinations,
-including dynamic or joint wet HSV, remain unsupported. Import and portable
+no texture, and no pressure-driven pickup/color controls. Import and portable
 save/reopen tests exercise all four models and reject unsupported sensor curves.
 The full-image source comparison remains a required qualification gate; these
 measurements do not mark the candidate source-reference-verified.
+
+The runtime also routes V2 joint/fixed/identity-pressure controls through that
+same transform before wet injection, transfer and texture masking. Candidate
+admission is bounded to hard round Normal, radius-zero, smear-alpha-on profiles;
+the existing texture guard still rejects New Dulling texture. Synthetic tests
+compare joint red-to-cyan hue transformation with direct cyan injection through
+all four wet models, half opacity/flow, and supported multiply/subtract masks.
+This establishes composition plumbing, not reference equivalence.
+
+The `wethsv` group retains its original 96 case identities and appends 48 strict
+composition gates: joint fixed controls, single/multiple moving pressure
+controls in both pressure directions, supported texture-mask crossproducts and
+half opacity/flow. Actual source controls, foreground, events and texture bytes
+are captured; native conversion cannot satisfy the explicit V2/import gate.
+Every case retains the existing full-region RGBA/changed-coverage thresholds.
+Wet pressure timing and these crossproducts remain pending source qualification;
+dry HSV pressure measurements alone do not establish their wet equivalence.
 
 ### Strict fractional-boundary discriminator
 
@@ -1574,10 +1591,14 @@ these observations are pending.
 
 Twelve paired short-path probes also qualify pending-tap finalization: ascending
 and descending pressure over distances 0, 0.1, 0.4, 0.5 and 0.6, plus constant
-quarter- and three-quarter-pressure taps. These distinguish the first-sample
-fallback from source behavior when sub-half-pixel motion changes pressure.
-That fallback is implemented and lifecycle-tested, but reference acceptance for
-these changing-pressure short paths remains open until the captures complete.
+quarter- and three-quarter-pressure taps. All twelve captured alpha windows
+agree with a contact-centered true tap, no deposition after an additional sample
+at lengths below 0.5, and the ordinary future-position/pressure rule at lengths
+0.5 and 0.6. Exact captured hashes now enforce these cases. Slow observation can
+change press-time behavior: an earlier blocking stage observation saw an initial
+stamp before motion, so these fast traces do not establish wall-clock latency or
+long-held-contact behavior. Corrected nonblocking timed stage capture remains
+required for that separate qualification.
 
 ### K5341 generated masked Wash candidate
 
@@ -1653,3 +1674,53 @@ Source-profile admission remains separate: completed real-paced captures show
 periodic resets beyond one and two seconds, but aligned device timestamps and
 wall-clock delivery alone do not identify the source's internal time origin.
 The current native conversion does not advertise source timing parity.
+
+### Explicit-dispatch airbrush candidate
+
+`krita-5.3.4.1-airbrush-candidate-1` is an opt-in experimental runtime profile,
+not an importer qualification. Its current domain is the acquired hard round
+16px Normal build-up brush, spacing one, opacity 0.1, flow one, rate 5/20Hz,
+with static opaque foreground and no dynamics/texture/secondary masks.
+`airbrushIgnoreSpacing` suppresses pointer-distance deposits. Source KPP
+admission remains disabled while source timer identification is pending.
+
+The host supplies actual callbacks as `Sample.timerTick`; pointer events update
+the current position. A timer callback stamps the latest pointer position and
+resets accumulated distance. Distance-triggered pointer callbacks stamp their
+delivered position without inventing intermediate deposits. Both use the
+observed tap lattice. Elapsed time alone does not synthesize source callbacks,
+so delayed/coalesced timers are represented by the actual supplied events.
+The renderer rejects a timer before contact, honors transaction/work limits,
+and does not add a release dab. Native timer interpolation is unchanged.
+
+Original off-boundary stationary captures qualify the 208-pixel mask and alpha
+accumulation for explicit 2/6/8/23-deposit traces. Tests also cover pointer/timer
+position separation, distance resets, ignored spacing, event overshoot,
+cancellation and failed preparation. These do not establish source callback
+identity, timing boundaries, curved-path distance rules or source import parity;
+those remain acceptance work, not claims made by the candidate profile.
+
+### Measured pressure Mirror candidate
+
+Original asymmetric bitmap pairs establish an inclusive pressure threshold:
+with Mirror enabled, pressure below 0.5 leaves the tip unchanged; pressure at
+or above 0.5 reflects the selected horizontal/vertical axes. All 21 original
+enabled/control pairs match byte-for-byte under reflection about x=centerX
+and y=centerY-0.5. PressureMirror=false disables this option, unlike Pixel
+opacity/flow's retained flag semantics.
+
+The versioned sourceMirrorV1 portable control admits identity pressure only,
+one grayscale bitmap, fixed angle zero and the existing 1–2x source bitmap
+scale domain. Other sensors, rotated/color/sequence combinations and source
+geometry outside that domain remain unqualified. The original 42 scale3
+acquisitions remain measurements rather than parity claims. Twenty-eight
+appended scale1/2 controls and threshold-crossing paths enforce the unchanged
+full-image bitmap gates; temporal pressure sampling is a candidate until
+those crossing paths pass. Native conversion must explicitly reset the source
+control and disclose its loss.
+
+Existing spacingdynamics acquisitions vary manual spacing and pressure; every
+brush definition sets useAutoSpacing=0. They provide no evidence for automatic
+spacing. No existing active Scatter acquisition establishes its random
+sampling law. Both remain required independent acquisition/implementation work;
+Mirror completion does not substitute for either feature.

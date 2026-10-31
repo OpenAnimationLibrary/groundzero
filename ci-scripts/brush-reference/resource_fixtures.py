@@ -131,7 +131,7 @@ def prepare(root, resources, preset_writer, group):
     (root / "output" / "fixtures.json").write_text(json.dumps({
         "version": "5.3.4.1", "group": group, "presets": names, "cases": cases,
         "license": "CC0-1.0", "width": 2048, "height": 2048,
-        "input": ("Paired Node.paintLine/paintPath paths and discrete strokes; exact per-case delivery recorded"
+        "input": ("Paired Node paths, discrete strokes and Qt tablet cadence; exact per-case delivery recorded"
                   if group == "gihcadence" else
                   "Node.paintPath API; one continuous authored path; no physical tablet claim"
                   if group == "gihlabels" else

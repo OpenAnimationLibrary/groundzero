@@ -40,6 +40,8 @@ def prepare(root, resources, preset_writer):
                                                 "verifyForeground": True,
                                                 "qualification": "Wet source interaction acquisition; eligibility and RGBA gate remain required"},
                             })
+    from wet_hsv_combo_fixtures import append
+    append(resources, preset_writer, cases, names)
     (root / "output" / "fixtures.json").write_text(json.dumps({
         "version": "5.3.4.1", "group": "wethsv", "presets": names, "cases": cases,
         "license": "CC0-1.0", "width": 2048, "height": 2048,

@@ -343,7 +343,7 @@ int main(int argc, char **argv) {
       require(expected.size() == 112,
               "Incomplete spacing sensor fixture matrix");
     if (fixtures["group"].toString() == "mirrortips")
-      require(expected.size() == 42, "Incomplete mirror fixture matrix");
+      require(expected.size() == 70, "Incomplete mirror fixture matrix");
     if (fixtures["group"].toString() == "lab-conversion")
       require(expected.size() == 1, "Incomplete public Lab dry control");
     if (fixtures["group"].toString() == "wethsv")
@@ -467,6 +467,11 @@ int main(int argc, char **argv) {
         require(controls[target + "commonCurve"] ==
                     requested[target + "commonCurve"],
                 "Wet HSV fixed curve differs");
+        if (spec.contains("composition"))
+          for (const QString &channel : {QString("h"), QString("s"), QString("v")})
+            require(controls[channel + "commonCurve"] == requested[channel + "commonCurve"] &&
+                        controls[channel + "Sensor"] == requested[channel + "Sensor"],
+                    "Wet HSV composition control differs");
         const auto foreground =
             evidence["effectiveForegroundDisplayRGBA8"].toArray();
         const auto authored = source["foregroundRGBA8"].toArray();
@@ -906,7 +911,8 @@ int main(int argc, char **argv) {
         p.profile = "groundzero-native-1";
       }
       const bool sourceBitmap =
-          p.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1";
+          p.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
+          p.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
       if (fixtures["group"].toString() == "bitmaptips") {
         const auto probe = source["resourceProbe"].toObject();
         const auto dimensions = probe["originalDimensions"].toArray();
@@ -915,11 +921,22 @@ int main(int argc, char **argv) {
         const int extent =
             std::max(dimensions[0].toInt(), dimensions[1].toInt());
         const bool expected =
-            (kind == "alpha" || kind == "color-image" || kind == "incremental" ||
-             (kind.startsWith("filter-") && kind != "filter-rgba-mask")) &&
+            (kind == "alpha" || kind == "color-image" || kind == "color-mask" ||
+             kind == "incremental" || kind.startsWith("filter-")) &&
             (p.size.value >= extent && p.size.value <= extent * 2);
         require(sourceBitmap == expected,
                 "Bitmap importer failed to enforce the measured source domain");
+      }
+      if (fixtures["group"].toString() == "mirrortips") {
+        const bool expected = source["diameter"].toDouble() <= 16;
+        require(
+            sourceBitmap == expected,
+            "Mirror importer failed to enforce measured bitmap scale domain");
+        if (expected) {
+          const auto spec = source["sensorProbe"].toObject();
+          require(p.sourceMirror.enabled == spec["enabled"].toBool(),
+                  "Mirror importer dropped source activation");
+        }
       }
       if (source.contains("bitmapPathProbe")) {
         const auto delivery = source["deliveryReport"].toObject();
@@ -955,18 +972,30 @@ int main(int argc, char **argv) {
         const QString mode = spec["mode"].toString();
         const int step = 8 * spec["spacing"].toInt();
         const int end = 16 + 31 * step + 1;
-        QJsonArray expectedPaths;
-        if (mode == "discrete") {
+        QJsonArray expectedPaths, expectedCenters;
+        for (int i = 0; i < 32; ++i)
+          expectedCenters.append(mode == "path-corners"
+              ? QJsonArray{768 + ((i + 1) / 2) * step, 768 + (i / 2) * step}
+              : QJsonArray{16 + i * step, 1024});
+        require(source["cadenceCenters"].toArray() == expectedCenters,
+                "GIH readback centers differ from exact path contract");
+        if (mode == "path-corners") {
+          require(step == 16, "Invalid corner cadence spacing");
+          QJsonArray path = expectedCenters;
+          const auto endPoint = path.last().toArray();
+          path.append(QJsonArray{endPoint[0].toInt() + 1, endPoint[1]});
+          expectedPaths.append(path);
+        } else if (mode == "discrete") {
           for (int i = 0; i < 32; ++i)
             expectedPaths.append(QJsonArray{QJsonArray{16 + i * step, 1024},
                                             QJsonArray{17 + i * step, 1024}});
         } else {
           require(mode == "line" || mode == "path-endpoints" ||
                       mode == "path-dabs" || mode == "path-halves" ||
-                      mode == "path-offgrid",
+                      mode == "path-offgrid" || mode == "qt-dabs" || mode == "qt-halves",
                   "Unknown GIH cadence mode");
-          const int increment = mode == "path-dabs"      ? step
-                                : mode == "path-halves"  ? step / 2
+          const int increment = (mode == "path-dabs" || mode == "qt-dabs") ? step
+                                : (mode == "path-halves" || mode == "qt-halves") ? step / 2
                                 : mode == "path-offgrid" ? 17
                                                          : end;
           QJsonArray path;
@@ -980,10 +1009,31 @@ int main(int argc, char **argv) {
                     delivered["cadencePaths"].toArray() == expectedPaths &&
                     delivered["strokeCount"].toInt() == expectedPaths.size() &&
                     delivered["mode"].toString() ==
-                        (mode == "line" || mode == "discrete"
-                             ? "Node.paintLine"
-                             : "Node.paintPath"),
+                        (mode.startsWith("qt-") ? "Qt tablet events"
+                         : mode == "line" || mode == "discrete"
+                             ? "Node.paintLine" : "Node.paintPath"),
                 "GIH source cadence delivery differs from authored paths");
+        if (mode.startsWith("qt-")) {
+          require(step == 16, "Qt cadence requires bounded spacing two");
+          QJsonArray contacts;
+          for (const auto &event : delivered["events"].toArray()) {
+            const auto item = event.toObject();
+            if ((item["type"].toInt() == 92 || item["type"].toInt() == 87) &&
+                item["pressure"].toDouble() > 0) contacts.append(item);
+          }
+          const auto path = expectedPaths[0].toArray();
+          require(contacts.size() == path.size(), "Incomplete Qt GIH contacts");
+          const double timeBase = contacts[0].toObject()["timeMs"].toDouble();
+          for (int i = 0; i < contacts.size(); ++i) {
+            const auto contact = contacts[i].toObject();
+            require(contact["image"].toArray() == path[i].toArray() &&
+                        contact["pressure"].toDouble() == 1 &&
+                        contact["tilt"].toArray() == QJsonArray{0, 0} &&
+                        contact["rotation"].toDouble() == 0 &&
+                        std::abs(contact["timeMs"].toDouble() - timeBase - i * 4.167) <= .500001,
+                    "Actual Qt GIH inputs differ from causal control");
+          }
+        }
         const auto labels =
             source["resourceReadback"].toObject()["frameSelections"].toArray();
         require(labels.size() == 32,
@@ -1337,11 +1387,10 @@ int main(int argc, char **argv) {
       if (fixtures["group"].toString() == "gihcadence") {
         QJsonArray labels;
         for (int slot = 0; slot < 32; ++slot) {
-          const int cx =
-              16 +
-              slot * 8 * source["cadenceProbe"].toObject()["spacing"].toInt();
+          const auto center = source["cadenceCenters"].toArray()[slot].toArray();
+          const int cx = center[0].toInt(), cy = center[1].toInt();
           quint64 sums[3] = {0, 0, 0};
-          for (int y = 1018; y <= 1030; ++y)
+          for (int y = cy - 6; y <= cy + 6; ++y)
             for (int x = cx - 6; x <= cx + 6; ++x) {
               const auto color = candidate.pixel(x, y);
               sums[0] += qRed(color) * qAlpha(color);
@@ -1446,13 +1495,41 @@ int main(int argc, char **argv) {
             : channel == "h"          ? SourceHsvChannel::Hue
             : channel == "s"          ? SourceHsvChannel::Saturation
                                       : SourceHsvChannel::Value;
-        const bool eligible =
+        bool eligible =
             p.profile ==
                 ("krita-5.3.4.1-" + spec["model"].toString() + "-candidate-1")
                     .toStdString() &&
             p.sourceHsvChannel == expectedChannel &&
             (expectedChannel == SourceHsvChannel::Off ||
              p.sourceHsvValue == spec["value"].toDouble());
+        if (spec.contains("composition")) {
+          const auto composition = spec["composition"].toArray();
+          eligible = composition.size() == 3 &&
+              p.profile == ("krita-5.3.4.1-" + spec["model"].toString() + "-candidate-1").toStdString() &&
+              p.sourceHsvChannel == SourceHsvChannel::Off &&
+              p.opacity.value == spec["transfer"].toDouble() &&
+              p.flow.value == spec["transfer"].toDouble();
+          for (int c = 0; c < composition.size() && c < 3; ++c) {
+            const auto &control = p.sourceHsvV2[c];
+            eligible = eligible && control.enabled;
+            if (composition[c].isString()) {
+              eligible = eligible && composition[c].toString() == "pressure" &&
+                  control.control.value == 1 && control.control.mappings.size() == 1;
+              if (control.control.mappings.size() == 1) {
+                const auto &mapping = control.control.mappings[0];
+                eligible = eligible && mapping.sensor == Sensor::Pressure &&
+                    mapping.curve.size() == 2 && mapping.curve[0].x == 0 &&
+                    mapping.curve[0].y == 0 && mapping.curve[1].x == 1 && mapping.curve[1].y == 1;
+              }
+            } else {
+              eligible = eligible && control.control.mappings.empty() &&
+                  control.control.value == composition[c].toDouble();
+            }
+          }
+          if (spec["textureMode"].isNull()) eligible = eligible && !p.texture.image;
+          else eligible = eligible && p.texture.image && p.texture.depth == .5 &&
+              p.texture.mode == (spec["textureMode"].toInt() == 0 ? MaskMode::Multiply : MaskMode::Subtract);
+        }
         const bool passed =
             eligible && metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
             metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&

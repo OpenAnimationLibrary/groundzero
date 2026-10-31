@@ -405,6 +405,7 @@ static QByteArray encodeRecord(
         {"scatterBothAxes", p.scatterBothAxes},
         {"spacing", p.spacing},
         {"airbrushRate", p.airbrushRate},
+        {"airbrushIgnoreSpacing", p.airbrushIgnoreSpacing},
         {"count", p.count},
         {"wash", p.wash},
         {"lockAlpha", p.lockAlpha},
@@ -424,6 +425,11 @@ static QByteArray encodeRecord(
         {"sourceSmearAlpha", p.sourceSmearAlpha},
         {"sourceColorRateEnabled", p.sourceColorRateEnabled},
         {"sourceTextureSoftTexturing", p.sourceTextureSoftTexturing},
+        {"sourceMirrorV1",
+         QJsonObject{{"enabled", p.sourceMirror.enabled},
+                     {"horizontal", p.sourceMirror.horizontal},
+                     {"vertical", p.sourceMirror.vertical},
+                     {"control", dynamicJson(p.sourceMirror.control)}}},
         {"sourceMaskedV1",
          QJsonObject{{"enabled", p.sourceMasked.enabled},
                      {"useMasterSize", p.sourceMasked.useMasterSize},
@@ -569,6 +575,7 @@ static Record decodeRecord(
              "scatter",
              "spacing",
              "airbrushRate",
+             "airbrushIgnoreSpacing",
              "count",
              "wash",
              "lockAlpha",
@@ -599,6 +606,7 @@ static Record decodeRecord(
              "sourceSmearAlpha",
              "sourceColorRateEnabled",
              "sourceTextureSoftTexturing",
+             "sourceMirrorV1",
              "sourceMaskedV1",
              "sourceHsvChannelV1",
              "sourceHsvValueV1",
@@ -618,7 +626,9 @@ static Record decodeRecord(
       p.scatterBothAxes = boolean(o["scatterBothAxes"]);
     p.spacing      = number(o["spacing"]);
     p.airbrushRate = number(o["airbrushRate"]);
-    double count   = number(o["count"]);
+    if (o.contains("airbrushIgnoreSpacing"))
+      p.airbrushIgnoreSpacing = boolean(o["airbrushIgnoreSpacing"]);
+    double count = number(o["count"]);
     if (count < 1 || count > 64 || count != std::floor(count))
       throw Invalid("Invalid dab count");
     p.count = int(count);
@@ -642,6 +652,14 @@ static Record decodeRecord(
         p.sourceHsvV2[channel].enabled = boolean(setting["enabled"]);
         p.sourceHsvV2[channel].control = dynamic(setting["control"]);
       }
+    }
+    if (o.contains("sourceMirrorV1")) {
+      const auto mirror = object(o["sourceMirrorV1"]);
+      keys(mirror, {"enabled", "horizontal", "vertical", "control"});
+      p.sourceMirror.enabled    = boolean(mirror["enabled"]);
+      p.sourceMirror.horizontal = boolean(mirror["horizontal"]);
+      p.sourceMirror.vertical   = boolean(mirror["vertical"]);
+      p.sourceMirror.control    = dynamic(mirror["control"]);
     }
     if (o.contains("sourceMaskedV1")) {
       const auto mask = object(o["sourceMaskedV1"]);
@@ -1030,14 +1048,16 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
     const QString originalProfile =
         record.provenance.value("sourceProfileBeforeNativeConversion")
             .toString();
-    const QStringList sourceProfiles{"krita-5.3.4.1-fixed-bitmap-candidate-1",
-                                     "krita-5.3.4.1-hard-pixel-candidate-1",
-                                     "krita-5.3.4.1-default-circle-candidate-1",
-                                     "krita-5.3.4.1-default-rect-candidate-1",
-                                     "krita-5.3.4.1-legacy-smear-candidate-1",
-                                     "krita-5.3.4.1-legacy-dulling-candidate-1",
-                                     "krita-5.3.4.1-new-smear-candidate-1",
-                                     "krita-5.3.4.1-new-dulling-candidate-1"};
+    const QStringList sourceProfiles{
+        "krita-5.3.4.1-fixed-bitmap-mask-candidate-1",
+        "krita-5.3.4.1-fixed-bitmap-candidate-1",
+        "krita-5.3.4.1-hard-pixel-candidate-1",
+        "krita-5.3.4.1-default-circle-candidate-1",
+        "krita-5.3.4.1-default-rect-candidate-1",
+        "krita-5.3.4.1-legacy-smear-candidate-1",
+        "krita-5.3.4.1-legacy-dulling-candidate-1",
+        "krita-5.3.4.1-new-smear-candidate-1",
+        "krita-5.3.4.1-new-dulling-candidate-1"};
     if (nativeProfile && conversionKind == "native-reinterpretation" &&
         sourceProfiles.contains(originalProfile))
       exported.provenance["sourceProfileBeforeNativeConversion"] =

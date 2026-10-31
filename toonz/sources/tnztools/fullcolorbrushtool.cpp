@@ -792,7 +792,9 @@ bool editNativeBrush(RasterBrush::Record &record) {
     convert->setObjectName("nativeBrushConvertCopy");
     layout->addWidget(convert);
     QObject::connect(convert, &QPushButton::clicked, &dialog, [&]() {
-      const bool wet = record.preset.wet != RasterBrush::Wet::Off;
+      const bool wet        = record.preset.wet != RasterBrush::Wet::Off;
+      const bool bitmapMask = record.preset.profile ==
+                              "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
       QString changes =
           wet ? QObject::tr(
                     "Source wet equations will be replaced by native wet "
@@ -826,11 +828,32 @@ bool editNativeBrush(RasterBrush::Record &record) {
             " Source HSV sensor controls will be removed, including their "
             "pressure mappings. Native saturation and value controls use "
             "different equations and do not preserve those adjustments.");
+      if (record.preset.profile == "krita-5.3.4.1-airbrush-candidate-1")
+        changes += QObject::tr(
+            " Source timer dispatch and dab placement will be replaced by "
+            "native "
+            "airbrush behavior. Ignore distance spacing will be reset; native "
+            "airbrush timing is not equivalent to the source profile.");
+      if (record.preset.sourceMirror.enabled)
+        changes += QObject::tr(
+            " Source pressure-controlled Mirror will be removed. Native fixed "
+            "tip flips remain separate and do not reproduce that dynamic "
+            "behavior.");
       if (record.preset.sourceMasked.enabled)
         changes += QObject::tr(
             " The source masked brush will be removed, including its separate "
             "opacity, flow and composition behavior. Native dual-tip controls "
             "use different equations and are not an equivalent replacement.");
+      if (bitmapMask)
+        changes += QObject::tr(
+            " The original RGBA tip will be baked into a native alpha mask "
+            "using inverse grayscale and alpha, not turned into a color stamp. "
+            "Baking before native filtering can change edge coverage. "
+            "The derived resource retains the original rights declaration. "
+            "Keep the saved converted copy, or export a Private Copy, to "
+            "repair "
+            "its manifest-only exports; the original PNG alone cannot match "
+            "the derived mask hash.");
       QMessageBox confirmation(
           QMessageBox::Warning, QObject::tr("Convert a Copy to Native"),
           changes + "\n\n" +
@@ -856,6 +879,53 @@ bool editNativeBrush(RasterBrush::Record &record) {
       native.sourceHsvValue             = .5;
       native.sourceHsvV2                = {};
       native.sourceMasked               = {};
+      native.sourceMirror               = {};
+      native.airbrushIgnoreSpacing      = false;
+      if (bitmapMask) {
+        QString error;
+        const auto originalAssets = RasterBrush::resources(record, error);
+        if (!error.isEmpty() || originalAssets.size() != 1 ||
+            native.tip.images.size() != 1) {
+          QMessageBox::warning(
+              &dialog, QObject::tr("Cannot convert these settings"),
+              QObject::tr("The source mask resource could not be identified."));
+          return;
+        }
+        try {
+          auto mask =
+              std::make_shared<RasterBrush::Image>(*native.tip.images.front());
+          mask->color = false;
+          for (auto &pixel : mask->pixels) {
+            const auto byte = [](double value) {
+              return int(std::floor(std::clamp(value, 0.0, 1.0) * 255 + .5));
+            };
+            const int alpha     = byte(pixel.a);
+            const auto straight = [&](double value) {
+              return alpha ? std::min(255, byte(value) * 255 / alpha) : 0;
+            };
+            const int gray =
+                qGray(straight(pixel.r), straight(pixel.g), straight(pixel.b));
+            const int coverage =
+                alpha ? int(std::floor((255 - gray) * alpha / 255.0 + .5)) : 0;
+            pixel = {0, 0, 0, coverage / 255.0};
+          }
+          native.tip.images.front() = std::move(mask);
+          const auto derivedAssets  = RasterBrush::resources(converted, error);
+          if (!error.isEmpty() || derivedAssets.size() != 1) {
+            QMessageBox::warning(
+                &dialog, QObject::tr("Cannot convert these settings"), error);
+            return;
+          }
+          if (record.resourceRights.contains(originalAssets.front().hash))
+            converted.resourceRights[derivedAssets.front().hash] =
+                record.resourceRights[originalAssets.front().hash];
+        } catch (const std::bad_alloc &) {
+          QMessageBox::warning(
+              &dialog, QObject::tr("Cannot convert these settings"),
+              QObject::tr("Not enough memory to create the native mask copy."));
+          return;
+        }
+      }
       if (wet) {
         native.pickup        = .5;
         native.colorRate     = .25;
@@ -1755,12 +1825,18 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
                      const auto tracks = m_inputmanager.getInputTracks();
                      for (const auto &track : tracks)
                        if (!track->finished() && track->size() > 0) {
-                         const auto point = track->back();
+                         const auto point        = track->back();
+                         const int injectedIndex = track->size();
                          m_inputmanager.trackEvent(
                              track->deviceId, track->touchId, point.position,
                              point.pressure, point.tilt, track->hasPressure,
                              track->hasTilt, false, TToolTimer::ticks(),
                              point.rotation, point.hasRotation);
+                         if (m_nativeRecord &&
+                             m_nativeRecord->preset.profile ==
+                                 "krita-5.3.4.1-airbrush-candidate-1" &&
+                             track->size() == injectedIndex + 1)
+                           m_nativeTimerPoints[track->id].insert(injectedIndex);
                        }
                      m_inputmanager.processTracks();
                    });
@@ -1987,10 +2063,11 @@ bool FullColorBrushTool::preLeftButtonDown() {
   if (m_nativeRecord) {
     TRasterImageP existing = TRasterImageP(getImage(false));
     if (existing && existing->getRaster() &&
-        !TRaster32P(existing->getRaster())) {
+        (!TRaster32P(existing->getRaster()) ||
+         existing->getRaster()->isLinear())) {
       DVGui::warning(
-          tr("Native raster brushes require an 8-bit RGBA raster. The drawing "
-             "was not converted."));
+          tr("Native raster brushes require an encoded-sRGB 8-bit RGBA raster. "
+             "The drawing was not converted."));
       return false;
     }
   }
@@ -2169,6 +2246,7 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
   if (m_skipStrokeUntilDown && busy) return;
   if (m_started == busy) return;
   if (busy) {
+    m_nativeTimerPoints.clear();
     if (m_nativeRecord)
       m_nativeResolvedSeed = resolveNativeStrokeSeed(m_nativeRecord->preset);
     m_nativeStrokeFailed  = false;
@@ -2181,10 +2259,10 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
       return;  // ri = (TRasterImageP)touchImage(); touch in preLeftButtonDown
     TRasterP ras = ri->getRaster();
     if (!ras) return;
-    if (m_nativeRecord && !TRaster32P(ras)) {
+    if (m_nativeRecord && (!TRaster32P(ras) || ras->isLinear())) {
       DVGui::warning(
-          tr("Native raster brushes require an 8-bit RGBA raster. The drawing "
-             "was not converted."));
+          tr("Native raster brushes require an encoded-sRGB 8-bit RGBA raster. "
+             "The drawing was not converted."));
       return;
     }
 
@@ -2217,8 +2295,15 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
     commitStroke();
   }
   m_started = busy;
-  if (busy && m_nativeRecord && m_nativeRecord->preset.airbrushRate > 0)
+  if (busy && m_nativeRecord && m_nativeRecord->preset.airbrushRate > 0) {
+    const bool sourceAirbrush =
+        m_nativeRecord->preset.profile == "krita-5.3.4.1-airbrush-candidate-1";
+    m_nativeAirbrushTimer.setInterval(
+        sourceAirbrush
+            ? int(std::lround(1000 / m_nativeRecord->preset.airbrushRate))
+            : 8);
     m_nativeAirbrushTimer.start();
+  }
 }
 
 //-------------------------------------------------------------------------------------------------------------
@@ -2262,6 +2347,11 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
         // alpha removal even when the saved brush or toolbar locks alpha.
         preset.lockAlpha = false;
       }
+      handler->nativeSourceAirbrush =
+          preset.profile == "krita-5.3.4.1-airbrush-candidate-1";
+      handler->nativeSourcePixel =
+          preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
+          !preset.sourceMasked.enabled;
       handler->nativeSurface = m_nativeSurface;
       handler->nativeStroke.reset(
           new RasterBrush::Stroke(*handler->nativeSurface, preset,
@@ -2280,7 +2370,34 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
   // paint stroke
   m_strokeSegmentRect.empty();
   if (handler->nativeStroke) {
+    bool timerTick = false;
+    if (handler->nativeSourceAirbrush) {
+      const auto *root = track.root();
+      const double originalIndex =
+          track.rootIndexByIndex(track.size() - track.pointsAdded);
+      const double integral = std::round(originalIndex);
+      // The source candidate is defined by delivered events. Segmentation
+      // points are not additional pointer events or timer dispatches.
+      if (originalIndex != integral && !point.final) return;
+      if (!firstTrack || !root || originalIndex != integral || integral < 0 ||
+          integral >= root->size() ||
+          integral != handler->nativeSourceLastIndex + 1 ||
+          point.position != root->point(int(integral)).position) {
+        m_nativeStrokeFailed = true;
+        handler->nativeStroke->cancel();
+        DVGui::warning(
+            tr("The experimental source airbrush requires unassisted pointer "
+               "events. "
+               "This stroke was cancelled."));
+        return;
+      }
+      handler->nativeSourceLastIndex = int(integral);
+      const auto injected            = m_nativeTimerPoints.find(root->id);
+      timerTick                      = injected != m_nativeTimerPoints.end() &&
+                  injected->second.count(int(integral)) != 0;
+    }
     RasterBrush::Sample sample;
+    sample.timerTick   = timerTick;
     sample.x           = point.position.x + rasCenter.x;
     sample.y           = ras->getLy() - 1 - (point.position.y + rasCenter.y);
     sample.pressure    = pressure;
@@ -2290,14 +2407,35 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     handler->nativeTiltObserved = handler->nativeTiltObserved ||
                                   track.hasTilt || point.tilt.x != 0 ||
                                   point.tilt.y != 0;
-    sample.hasTilt     = handler->nativeTiltObserved;
-    sample.rotation    = -point.rotation;
-    sample.hasRotation = point.hasRotation;
-    sample.time        = point.time;
-    const bool added   = handler->nativeStroke->add(sample);
+    sample.hasTilt      = handler->nativeTiltObserved;
+    sample.rotation     = -point.rotation;
+    sample.hasRotation  = point.hasRotation;
+    sample.time         = point.time;
+    const bool terminal = track.pointsAdded == 1 && track.finished();
+    const auto &last    = handler->nativeLastSample;
+    // The track appends a final point for pen-up. A source Pixel click is one
+    // contact followed by finish, not a second stationary input update. Only
+    // omit unchanged terminal data (including tablet pressure dropping to zero
+    // on contact loss). Real stationary updates, nonzero changed release
+    // pressure, moved releases and native elapsed-time input still go through.
+    const bool terminalContactPressure =
+        sample.pressure == last.pressure ||
+        (sample.hasPressure && last.hasPressure && sample.pressure == 0 &&
+         last.pressure > 0);
+    const bool terminalDuplicate =
+        terminal && handler->nativeSourcePixel && handler->nativeHasSample &&
+        sample.x == last.x && sample.y == last.y && terminalContactPressure &&
+        sample.hasPressure == last.hasPressure && sample.tiltX == last.tiltX &&
+        sample.tiltY == last.tiltY && sample.hasTilt == last.hasTilt &&
+        sample.rotation == last.rotation &&
+        sample.hasRotation == last.hasRotation;
+    const bool added = terminalDuplicate || handler->nativeStroke->add(sample);
+    if (added && !terminalDuplicate) {
+      handler->nativeLastSample = sample;
+      handler->nativeHasSample  = true;
+    }
     const bool committed =
-        added && (!(track.pointsAdded == 1 && track.finished()) ||
-                  handler->nativeStroke->finish());
+        added && (!terminal || handler->nativeStroke->finish());
     if (!committed) {
       // Abort atomically: restore every region touched by this stroke. Do not
       // publish a half-rendered stroke when a resource budget is exhausted.
@@ -2417,6 +2555,7 @@ bool FullColorBrushTool::keyDown(QKeyEvent *event) {
 
 void FullColorBrushTool::commitStroke() {
   m_nativeAirbrushTimer.stop();
+  m_nativeTimerPoints.clear();
   if (!m_started) return;
 
   TFrameId frameId =

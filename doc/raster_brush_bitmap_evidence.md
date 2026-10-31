@@ -47,8 +47,9 @@ bilinear pyramid construction followed by combined inverse affine sampling.
 It does not change native bitmap sampling. The admitted candidate geometry is scale 1–2, fixed orientation, static
 size/aspect, Normal
 build-up, full opacity/flow, and no sensors, texture, wet state or secondary tip.
-GBR grayscale coverage and original GBR/PNG color images are admitted; PNG mask
-luminance conversion remains separate unfinished work. Strict import checks
+GBR grayscale coverage and original GBR/PNG color images are admitted. The
+separate `krita-5.3.4.1-fixed-bitmap-mask-candidate-1` profile admits original PNG
+mask application while retaining the original RGBA resource. Strict import checks
 resource origin before native mask conversion can discard original color.
 
 Color samples interpolate premultiplied channels, quantize final coverage down
@@ -57,7 +58,7 @@ nearest-byte coverage; non-quarter-turn color transforms use nearest-byte
 coverage, while axis-aligned color uses downward coverage quantization. The complete captured regions—including zero pixels—gate maximum
 alpha error at one byte, premultiplied RGB error at two bytes and alpha-support
 IoU at exactly 1. These tolerances do not imply identical internal equations.
-Thirty-eight original captured regions cover asymmetric tips, impulses, ramps,
+Forty-seven original captured regions cover asymmetric tips, impulses, ramps,
 odd dimensions, fractional placement, quarter turns and general RGBA colors.
 The reference comparator enforces the same gates for admitted cases; other
 views are explicitly measured as native conversions, never passing source cases.
@@ -76,7 +77,7 @@ one sample. Preserve nominal fractional dimensions (5×7 at 1.5× remains
 7.5×10.5); rounding to 8×11 before placement causes large edge errors. The 1.5×
 impulse and odd-size controls and 37° unit-scale captures meet the same region
 gates under the combined model. Additional held-out scales/angle combinations,
-downscaling, scales above 2, PNG-as-mask conversion, dynamic size/orientation and
+downscaling, scales above 2, dynamic size/orientation and
 other source controls remain unfinished. The candidate status is preserved;
 this is not completion of the full bitmap contract.
 
@@ -92,3 +93,22 @@ the remaining controls isolate scale. Existing 88 case identities are preserved.
 These cases measure reduction and later pyramid levels; they do not expand the
 runtime admission range or count as source parity before their results pass the
 unchanged full-region gates. All measured regions remain 48×48 at fixed scale.
+
+
+The PNG-mask model preserves premultiplied color through the clamped pyramid
+and final affine sample. Its original premultiplied RGB is rounded to bytes;
+after sampling, straight RGB and alpha are floored to bytes, then inverse
+[qGray](https://doc.qt.io/qt-6/qcolor.html#qGray) coverage is multiplied by alpha
+and rounded to a byte. These are independently evaluated mathematical stages,
+not copied rendering code. All nine original mask regions satisfy the unchanged
+one-byte alpha and exact-support gates; the RGB gate also checks foreground
+color rather than retained tip pigment. Earlier conversion, even immediately
+after the pyramid, fails these controls. Prospective heldout controls remain
+necessary qualification; these measurements do not establish universal PNG
+mask or color-management equivalence.
+
+Strict import retains RGBA only for this explicit source candidate. If any
+active setting is unsupported, the rejected candidate alias is released and
+the existing native mask conversion runs in place, preserving decoded-memory
+limits. Codec and portable-preset tests retain the profile and original pixels;
+there is no transformed-raster allocation or altered native sampler.

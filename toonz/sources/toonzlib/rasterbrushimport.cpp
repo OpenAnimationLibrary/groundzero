@@ -428,7 +428,8 @@ struct BundleResources {
 Tip resolveTip(const QMap<QString, QByteArray> *resources,
                const QString &filename, const QString &md5,
                QStringList &diagnostics, size_t maximumDecodedBytes,
-               int application, bool *originalBitmapSource = nullptr) {
+               int application, bool *originalBitmapSource = nullptr,
+               bool *originalPngMaskSource = nullptr) {
   if (!resources)
     throw Invalid(
         "KPP tip resource is missing; import a bundle containing its "
@@ -455,7 +456,9 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
     tip.shape = Shape::Bitmap;
     tip.images.push_back(std::move(image));
     if (originalBitmapSource) *originalBitmapSource = application == 1;
-    if (application != 1) convertTipToMask(tip, application < 0);
+    const bool retainMask = originalPngMaskSource && application == 0;
+    if (retainMask) *originalPngMaskSource = true;
+    if (application != 1 && !retainMask) convertTipToMask(tip, application < 0);
     diagnostics
         << (application == 1
                 ? "Embedded PNG color image retained for native stamping."
@@ -723,14 +726,18 @@ bool eligibleBitmapDefinition(const QString &definition, const Preset &preset) {
     if (preset.tip.images.empty() || !preset.tip.images[0] ||
         (type != "gbr_brush" && type != "png_brush"))
       return false;
+    const bool mask =
+        preset.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
     const bool color = preset.tip.images[0]->color;
+    if (mask && type != "png_brush") return false;
     if (!color && type != "gbr_brush") return false;
-    const QMap<QString, QString> fixed = {{"type", type},
-                                          {"BrushVersion", "2"},
-                                          {"useAutoSpacing", "0"},
-                                          {"autoSpacingCoeff", "1"},
-                                          {"ColorAsMask", color ? "0" : "1"},
-                                          {"preserveLightness", "0"}};
+    const QMap<QString, QString> fixed = {
+        {"type", type},
+        {"BrushVersion", "2"},
+        {"useAutoSpacing", "0"},
+        {"autoSpacingCoeff", "1"},
+        {"ColorAsMask", color && !mask ? "0" : "1"},
+        {"preserveLightness", "0"}};
     for (auto i = fixed.begin(); i != fixed.end(); ++i)
       if (attrs.value(i.key()) != i.value()) return false;
     const QSet<QString> variable = {"filename", "md5sum", "scale", "angle",
@@ -750,6 +757,39 @@ bool eligibleBitmapDefinition(const QString &definition, const Preset &preset) {
     }
   }
   return !xml.hasError() && brushes == 1 && validate(preset).empty();
+}
+bool sourceMirrorSettings(const QMap<QString, QString> &fields,
+                          SourceMirror &mirror,
+                          QMap<QString, QString> &required) {
+  mirror = SourceMirror{};
+  if (!fields.contains("PressureMirror")) return true;
+  const QMap<QString, QString> exact = {{"MirrorUseCurve", "true"},
+                                        {"MirrorUseSameCurve", "true"},
+                                        {"MirrorValue", "1"},
+                                        {"MirrorcurveMode", "0"},
+                                        {"MirrorcommonCurve", "0,0;1,1;"}};
+  for (auto i = exact.begin(); i != exact.end(); ++i) {
+    if (fields.value(i.key()) != i.value()) return false;
+    required[i.key()] = i.value();
+  }
+  for (const QString key :
+       {"PressureMirror", "HorizontalMirrorEnabled", "VerticalMirrorEnabled"}) {
+    const QString value = fields.value(key);
+    if (value != "true" && value != "false") return false;
+    required[key] = value;
+  }
+  if (!eligiblePressureSensor(fields.value("MirrorSensor"))) return false;
+  required["MirrorSensor"] = fields["MirrorSensor"];
+  if (fields.value("PressureMirror") == "true") {
+    QSet<QString> mapped;
+    QStringList diagnostics;
+    if (!convertCurve(fields, "Mirror", mirror.control, mapped, diagnostics))
+      return false;
+    mirror.enabled    = true;
+    mirror.horizontal = fields.value("HorizontalMirrorEnabled") == "true";
+    mirror.vertical   = fields.value("VerticalMirrorEnabled") == "true";
+  }
+  return true;
 }
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
@@ -781,6 +821,15 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
       {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
       {"KisPrecisionOption/precisionLevel", "5"}};
+  SourceMirror mirror;
+  QMap<QString, QString> mirrorFields;
+  if (!sourceMirrorSettings(fields, mirror, mirrorFields) ||
+      mirror.enabled != preset.sourceMirror.enabled ||
+      mirror.horizontal != preset.sourceMirror.horizontal ||
+      mirror.vertical != preset.sourceMirror.vertical)
+    return false;
+  for (auto i = mirrorFields.begin(); i != mirrorFields.end(); ++i)
+    required[i.key()] = i.value();
   SourceHsvChannel hsvChannel;
   double hsvValue;
   QMap<QString, QString> hsvFields;
@@ -1032,7 +1081,8 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     if (!required.contains(i.key()) && !inactive.contains(i.key()) &&
         i.key() != "brush_definition")
       return false;
-  if (preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1")
+  if (preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
+      preset.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1")
     return engine == "paintbrush" &&
            eligibleBitmapDefinition(fields.value("brush_definition"), preset);
   QXmlStreamReader xml(fields.value("brush_definition"));
@@ -1133,7 +1183,8 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   r.provenance["sourceEngine"]     = engine;
   QXmlStreamReader brush(fields.value("brush_definition"));
   bool found = false, maskFound = false, originalBitmapSource = false;
-  auto numeric = [](const QString &v) {
+  bool originalPngMaskSource = false;
+  auto numeric               = [](const QString &v) {
     bool ok  = false;
     double n = v.toDouble(&ok);
     if (!ok || !std::isfinite(n)) throw Invalid("Invalid KPP number");
@@ -1172,11 +1223,11 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
             application < 0    ? "legacy-unspecified"
             : application == 1 ? "color-image"
                                : "alpha-mask";
-        r.preset.tip =
-            resolveTip(resources ? &resources->brushes : nullptr,
-                       a.value("filename").toString(),
-                       a.value("md5sum").toString(), diagnostics,
-                       maximumDecodedBytes, application, &originalBitmapSource);
+        r.preset.tip = resolveTip(
+            resources ? &resources->brushes : nullptr,
+            a.value("filename").toString(), a.value("md5sum").toString(),
+            diagnostics, maximumDecodedBytes, application,
+            &originalBitmapSource, &originalPngMaskSource);
         r.preset.size.value = std::max(r.preset.tip.images[0]->width,
                                        r.preset.tip.images[0]->height) *
                               numeric(a.value("scale").toString());
@@ -1441,10 +1492,15 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   }
   if (engine == "paintbrush" && originalBitmapSource)
     candidate.profile = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+  if (engine == "paintbrush" && originalPngMaskSource)
+    candidate.profile = "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
+  QMap<QString, QString> mirrorFields;
+  const bool mirrorSettingsKnown =
+      sourceMirrorSettings(fields, candidate.sourceMirror, mirrorFields);
   QMap<QString, QString> primaryFields;
   const bool maskSettingsKnown =
       sourceMaskedSettings(fields, candidate, primaryFields);
-  if (maskSettingsKnown &&
+  if (maskSettingsKnown && mirrorSettingsKnown &&
       eligibleFixedSource(primaryFields, engine, candidate)) {
     r.preset = std::move(candidate);
     if (fields.value("MaskingBrush/Enabled") == "true" && !r.preset.wash)
@@ -1465,9 +1521,17 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
            "source engine parity are not verified.";
     r.provenance["conversion"] = "strict source-profile candidate";
     r.provenance["candidateEligibility"] =
-        r.preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1"
+        (r.preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
+         r.preset.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1")
             ? "k5341-fixed-bitmap-pyramid-1"
             : "k5341-fixed-tip-explicit-settings-1";
+  }
+  if (originalPngMaskSource &&
+      r.preset.profile != "krita-5.3.4.1-fixed-bitmap-mask-candidate-1") {
+    // Drop the rejected candidate alias before the existing unique-owner,
+    // in-place native conversion; never duplicate the decoded image budget.
+    candidate.tip.images.clear();
+    convertTipToMask(r.preset.tip);
   }
   r.provenance["conversionReport"] = diagnostics.join("\n");
   r.diagnostics.append(diagnostics);

@@ -13,9 +13,11 @@ on:
 permissions:
   contents: read
 
+# Reusable workflows inherit the caller's name, so include the platform.
+# Only superseded pull request builds may cancel an in-progress build.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-macos-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   neural-oracle:

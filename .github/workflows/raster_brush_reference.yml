@@ -50,12 +50,16 @@ jobs:
           python3 ci-scripts/brush-reference/hsv_joint_test.py
           python3 ci-scripts/brush-reference/generated_tip_test.py
           python3 ci-scripts/brush-reference/wet_drift_contract_test.py
+          python3 ci-scripts/brush-reference/wet_hsv_combo_fixtures_test.py
           python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
           python3 ci-scripts/brush-reference/managed_lab_probe_test.py
           python3 ci-scripts/brush-reference/gih_cadence_test.py
           python3 ci-scripts/brush-reference/bitmap_path_test.py
           python3 ci-scripts/brush-reference/paced_policy_test.py
   native-metrics:
+    # Focused source diagnostics do not qualify the full native workload.
+    # Every PR and explicit full run still executes all native metric gates.
+    if: github.event_name != 'workflow_dispatch' || inputs.focus == 'all'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -372,6 +376,19 @@ jobs:
           if path.is_file():
               probes = [{'preset': row['preset'], **row['geometryProbe']} for row in json.loads(path.read_text()).get('records', []) if row.get('geometryProbe') is not None]
               probes.extend({'preset': row['preset'] + ' outside document', **row['boundaryOutsideProbe']} for row in json.loads(path.read_text()).get('records', []) if row.get('boundaryOutsideProbe') is not None)
+              for row in json.loads(path.read_text()).get('records', []):
+                  windows = row.get('driftGeometryWindows') or []
+                  if len(windows) > 2:
+                      raise RuntimeError('Drift window count exceeds diagnostic bound')
+                  for index, window in enumerate(windows):
+                      data = window['data']
+                      if len(data) > 18000 or window['rect'] not in ([0, 0, 64, 48], [1984, 0, 64, 48]):
+                          raise RuntimeError('Drift window exceeds diagnostic bound')
+                      probes.append({'preset': row['preset'], 'capture': 'drift-bgra',
+                          'window': index, 'rect': window['rect'], 'encoding': window['encoding']})
+                      for offset in range(0, len(data), 1800):
+                          probes.append({'preset': row['preset'], 'capture': 'drift-bgra',
+                              'window': index, 'offset': offset, 'total': len(data), 'data': data[offset:offset + 1800]})
               import runpy
               report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
               report_records('Exact source alpha probe; not parity', probes)

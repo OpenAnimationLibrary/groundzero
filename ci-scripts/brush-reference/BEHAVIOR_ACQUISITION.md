@@ -592,3 +592,14 @@ callbacks and unrelated timer intervals are outside this observation. The
 filter is removed even on acquisition failure. APIs used are documented by
 [Qt timer events](https://doc.qt.io/archives/qt-5.15/qtimerevent.html) and
 [QObject event filters](https://doc.qt.io/archives/qt-5.15/qobject.html#installEventFilter).
+
+The first 144 GIH cadence fixtures remain in their original order. Twenty-four
+additional controls compare Qt tablet delivery at each dab/half-dab position
+with a real 90-degree Node.paintPath staircase that turns at every dab. Each
+uses the same original resources, spacing two, 32 nonoverlapping readback
+centers, both incremental/random selectors and four independent strokes.
+Actual Qt coordinates, pressure, tilt, rotation and timestamps are checked;
+source and candidate frame labels use the explicit geometrically validated
+centers. Incremental controls retain exact sequence and full-image gates.
+Random controls distinguish API/event/corner causality without prescribing a
+sticky random selector or replacing the existing 100-stroke statistical gates.

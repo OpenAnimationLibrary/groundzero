@@ -418,7 +418,10 @@ void testSourceBitmapImport() {
        {QString("unit"), QString("double"), QString("fractional"),
         QString("downscale"), QString("rotation"), QString("unknown"),
         QString("color"), QString("color-image"), QString("wash"),
-        QString("gih-incremental"), QString("gih-random")}) {
+        QString("gih-incremental"), QString("gih-random"), QString("png-mask"),
+        QString("png-mask-unknown"), QString("mirror-x"), QString("mirror-y"),
+        QString("mirror-both"), QString("mirror-disabled"),
+        QString("mirror-unknown")}) {
     const bool sequence = variant.startsWith("gih-");
     QImage image =
         QImage::fromData(RasterBrushTest::hardPixelKpp(
@@ -435,18 +438,46 @@ void testSourceBitmapImport() {
         "filename=\"original.gbr\" "
         "scale=\"%1\" spacing=\"4\" angle=\"0\" useAutoSpacing=\"0\" "
         "autoSpacingCoeff=\"1\" ColorAsMask=\"1\" preserveLightness=\"0\"/>";
-    definition = definition.arg(variant == "double"       ? "2"
-                                : variant == "fractional" ? "1.5"
-                                : variant == "downscale"  ? ".75"
-                                                          : "1");
+    definition         = definition.arg(variant == "double"       ? "2"
+                                        : variant == "fractional" ? "1.5"
+                                        : variant == "downscale"  ? ".75"
+                                                                  : "1");
+    const bool pngMask = variant.startsWith("png-mask");
+    if (pngMask) {
+      definition.replace("gbr_brush", "png_brush");
+      definition.replace("original.gbr", "original.png");
+    }
     if (variant == "rotation")
       definition.replace("angle=\"0\"", "angle=\"1.5707963267948966\"");
     if (variant == "color-image" || sequence)
       definition.replace("ColorAsMask=\"1\"", "ColorAsMask=\"0\"");
-    if (variant == "unknown")
+    if (variant == "unknown" || variant == "png-mask-unknown")
       definition.replace("<Brush ", "<Brush unimplemented=\"1\" ");
     if (sequence) definition.replace("original.gbr", "original.gih");
     xml.replace(begin, end - begin, definition.toHtmlEscaped());
+    if (variant.startsWith("mirror-")) {
+      QString settings;
+      auto field = [&](const QString &key, const QString &value) {
+        settings +=
+            "<param name=\"" + key + "\">" + value.toHtmlEscaped() + "</param>";
+      };
+      field("PressureMirror", variant == "mirror-disabled" ? "false" : "true");
+      field("HorizontalMirrorEnabled",
+            variant == "mirror-y" ? "false" : "true");
+      field("VerticalMirrorEnabled", variant == "mirror-x" ? "false" : "true");
+      field("MirrorUseCurve", "true");
+      field("MirrorUseSameCurve", "true");
+      field("MirrorValue", "1");
+      field("MirrorcurveMode", "0");
+      field("MirrorcommonCurve", "0,0;1,1;");
+      field("MirrorSensor",
+            variant == "mirror-unknown"
+                ? "<params id=\"xtilt\"><curve>0,0;1,1;</curve></params>"
+                : "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+      require(xml.count("</Preset>") == 1,
+              "missing bitmap fixture preset root");
+      xml.replace("</Preset>", settings + "</Preset>");
+    }
     image.setText("preset", xml);
     QByteArray preset;
     QBuffer output(&preset);
@@ -478,26 +509,49 @@ void testSourceBitmapImport() {
         resource += image;
       }
     }
+    if (pngMask) {
+      QImage original(2, 2, QImage::Format_ARGB32);
+      original.fill(qRgba(47, 131, 219, 0));
+      original.setPixel(0, 0, qRgba(47, 131, 219, 255));
+      original.setPixel(0, 1, qRgba(127, 61, 19, 128));
+      resource.clear();
+      QBuffer encoded(&resource);
+      encoded.open(QIODevice::WriteOnly);
+      require(original.save(&encoded, "PNG"),
+              "cannot encode original PNG mask");
+      manifest.replace("original.gbr", "original.png");
+    }
     const auto imported =
         importBrush(archive({{"mimetype", "application/x-krita-resourcebundle"},
                              {"META-INF/manifest.xml", manifest},
                              {"paintoppresets/original.kpp", preset},
-                             {sequence ? QByteArray("brushes/original.gih")
-                                       : QByteArray("brushes/original.gbr"),
+                             {sequence  ? QByteArray("brushes/original.gih")
+                              : pngMask ? QByteArray("brushes/original.png")
+                                        : QByteArray("brushes/original.gbr"),
                               resource}},
                             true),
                     "bundle", error);
     require(error.isEmpty() && imported.records.size() == 1,
             "source bitmap bundle failed");
-    const bool candidate = variant == "unit" || variant == "double" ||
-                           variant == "fractional" || variant == "rotation" ||
-                           variant == "color-image" ||
-                           variant == "gih-incremental";
+    const bool candidate =
+        variant == "unit" || variant == "double" || variant == "fractional" ||
+        variant == "rotation" || variant == "color-image" ||
+        variant == "png-mask" || variant == "gih-incremental" ||
+        (variant.startsWith("mirror-") && variant != "mirror-unknown");
     const auto &record = imported.records.front();
     require(
-        (record.preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1") ==
-            candidate,
+        (record.preset.profile ==
+         (pngMask ? "krita-5.3.4.1-fixed-bitmap-mask-candidate-1"
+                  : "krita-5.3.4.1-fixed-bitmap-candidate-1")) == candidate,
         "source bitmap admission ignored exact settings or resource origin");
+    if (pngMask) {
+      require(record.preset.tip.images[0]->color == candidate,
+              "PNG mask lost original RGBA or native fallback conversion");
+      if (candidate)
+        require(std::abs(record.preset.tip.images[0]->pixels[0].r -
+                         47 / 255.0) < 1e-12,
+                "PNG source mask was converted before sampling");
+    }
     if (!candidate) continue;
     const auto restored = decode(encode(record, error), error);
     require(
@@ -507,6 +561,17 @@ void testSourceBitmapImport() {
             restored.preset.tip.images[0]->pixels[0].a == 1 &&
             restored.preset.tip.images[0]->pixels[1].a == (sequence ? 1 : 0),
         "source bitmap codec changed candidate/resources");
+    if (variant.startsWith("mirror-")) {
+      const auto &mirror = restored.preset.sourceMirror;
+      require(mirror.enabled == (variant != "mirror-disabled"),
+              "source Mirror enable changed on portable roundtrip");
+      if (mirror.enabled)
+        require(mirror.horizontal == (variant != "mirror-y") &&
+                    mirror.vertical == (variant != "mirror-x") &&
+                    mirror.control.mappings.size() == 1 &&
+                    mirror.control.mappings[0].sensor == Sensor::Pressure,
+                "source Mirror axes/control changed on portable roundtrip");
+    }
     const auto portable = importBrush(
         encodePortable(record, ResourcePackaging::PrivateCopy, error),
         "gzbrush", error);
@@ -568,7 +633,44 @@ void testSourceBitmapImport() {
     }
   }
 }
+void testAirbrushCandidateCodec() {
+  QString error;
+  Record record;
+  record.decoded                      = true;
+  record.semanticallySupported        = true;
+  record.preset.profile               = "krita-5.3.4.1-airbrush-candidate-1";
+  record.preset.size.value            = 16;
+  record.preset.spacing               = 1;
+  record.preset.opacity.value         = .1;
+  record.preset.airbrushRate          = 20;
+  record.preset.airbrushIgnoreSpacing = true;
+  const auto bytes =
+      encodePortable(record, ResourcePackaging::PrivateCopy, error);
+  const auto restored = decode(bytes, error);
+  require(
+      error.isEmpty() && restored.preset.profile == record.preset.profile &&
+          restored.preset.airbrushIgnoreSpacing &&
+          restored.preset.airbrushRate == 20 && !restored.referenceVerified &&
+          !restored.provenance["sourceReferenceVerified"].toBool(),
+      "Explicit airbrush candidate portable state lost or falsely qualified");
+  auto root                         = QJsonDocument::fromJson(bytes).object();
+  auto settings                     = root["settings"].toObject();
+  settings["airbrushIgnoreSpacing"] = "true";
+  root["settings"]                  = settings;
+  decode(QJsonDocument(root).toJson(), error);
+  require(!error.isEmpty(), "Malformed airbrush ignore-spacing type accepted");
+  settings.remove("airbrushIgnoreSpacing");
+  root["settings"]     = settings;
+  const auto defaulted = decode(QJsonDocument(root).toJson(), error);
+  require(
+      error.isEmpty() && !defaulted.preset.airbrushIgnoreSpacing,
+      "Missing optional airbrush field failed to preserve distance default");
+  record.preset.profile = "groundzero-native-1";
+  require(!validate(record.preset).empty(),
+          "Source-only ignore-spacing silently accepted by native profile");
+}
 void testBundles() {
+  testAirbrushCandidateCodec();
   testSourceBitmapImport();
   QByteArray manifest =
       "<manifest:manifest "

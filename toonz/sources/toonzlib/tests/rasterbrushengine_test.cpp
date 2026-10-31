@@ -51,11 +51,123 @@ Sample sample(double x, double y, double t, double pressure = 1) {
   s.hasPressure = true;
   return s;
 }
+void sourceFixtureMotion(Stroke &stroke, Sample contact) {
+  // Original component masks were acquired from a moving line, not a tap.
+  contact.x += .5;
+  contact.time += .001;
+  require(stroke.add(contact), stroke.error().c_str());
+}
 void line(Canvas &c, Preset p) {
   Stroke s(c, p);
   for (int i = 0; i <= 120; ++i)
     require(s.add(sample(i, 64, i / 240.0)), s.error().c_str());
   finishStroke(s);
+}
+void testSourceAirbrushDispatch() {
+  Preset preset;
+  preset.profile       = "krita-5.3.4.1-airbrush-candidate-1";
+  preset.size.value    = 16;
+  preset.spacing       = 1;
+  preset.opacity.value = .1;
+  preset.airbrushRate  = 5;
+  preset.color         = {220 / 255., 40 / 255., 30 / 255., 1};
+  require(validate(preset).empty(), "Static airbrush candidate rejected");
+  // Original off-boundary stationary source captures: 5Hz/.375s and1.125s,
+  // 20Hz/.375s and1.125s. Ticks are explicitly supplied, never count-fitted.
+  const int counts[]      = {2, 6, 8, 23};
+  const int sourceAlpha[] = {49, 120, 146, 232};
+  for (int variant = 0; variant < 4; ++variant) {
+    Canvas canvas;
+    preset.airbrushRate = variant < 2 ? 5 : 20;
+    Stroke stroke(canvas, preset);
+    require(stroke.add(sample(64, 64, 10)), stroke.error().c_str());
+    for (int tick = 1; tick < counts[variant]; ++tick) {
+      Sample event    = sample(100, 100, 10 + tick / preset.airbrushRate);
+      event.timerTick = true;
+      require(stroke.add(event), stroke.error().c_str());
+    }
+    finishStroke(stroke);
+    int occupied = 0;
+    for (int y = 0; y < canvas.h; ++y)
+      for (int x = 0; x < canvas.w; ++x) {
+        const auto pixel = canvas.read(x, y);
+        const bool mask =
+            (x + .5 - 64) * (x + .5 - 64) + (y + .5 - 64) * (y + .5 - 64) < 64;
+        require((pixel.a > 0) == mask,
+                "Airbrush tap lattice differs from source capture");
+        if (mask) {
+          ++occupied;
+          require(
+              std::abs(std::floor(pixel.a * 255 + .5) - sourceAlpha[variant]) <=
+                  1,
+              "Airbrush accumulation differs from stationary source capture");
+        }
+      }
+    require(occupied == 208 && stroke.dabCount() == size_t(counts[variant]),
+            "Explicit airbrush tick count or support changed");
+  }
+  preset.airbrushRate = 5;
+  for (bool ignore : {false, true}) {
+    Canvas canvas;
+    preset.airbrushIgnoreSpacing = ignore;
+    Stroke stroke(canvas, preset);
+    require(stroke.add(sample(24, 64, 0)) && stroke.add(sample(32, 64, .1)),
+            stroke.error().c_str());
+    Sample tick    = sample(96, 100, .2);
+    tick.timerTick = true;
+    require(stroke.add(tick) && stroke.add(sample(40, 64, .3)),
+            stroke.error().c_str());
+    require(stroke.dabCount() == 2 && canvas.read(32, 64).a > 0 &&
+                canvas.read(96, 100).a == 0,
+            "Timer did not use latest pointer/reset distance");
+    require(stroke.add(sample(48, 64, .4)), stroke.error().c_str());
+    require(stroke.dabCount() == size_t(ignore ? 2 : 3),
+            "Ignore-spacing did not suppress pointer distance deposits");
+    require(stroke.add(sample(48, 64, 10)), stroke.error().c_str());
+    require(stroke.dabCount() == size_t(ignore ? 2 : 3),
+            "Elapsed time synthesized unobserved airbrush ticks");
+    const Canvas before = canvas;
+    stroke.cancel();
+    require(same(canvas, before) && !stroke.add(tick),
+            "Cancelled airbrush resumed or deposited a final dab");
+  }
+  preset.airbrushIgnoreSpacing = false;
+  Canvas overshoot;
+  Stroke stroke(overshoot, preset);
+  require(stroke.add(sample(24, 64, 0)) && stroke.add(sample(60, 64, .1)),
+          stroke.error().c_str());
+  require(stroke.dabCount() == 2 && overshoot.read(40, 64).a == 0 &&
+              overshoot.read(60, 64).a > 0,
+          "Source airbrush interpolated pointer distance deposits");
+  Canvas refused;
+  refused.refuse = true;
+  Stroke failing(refused, preset);
+  require(!failing.add(sample(64, 64, 0)) && failing.dabCount() == 0,
+          "Airbrush bypassed transaction preparation failure");
+  Canvas limited;
+  auto budget = std::make_shared<MemoryBudget>(64);
+  Stroke exhausted(limited, preset, 64, budget);
+  require(!exhausted.add(sample(64, 64, 0)) && exhausted.dabCount() == 0 &&
+              budget->used() == 0,
+          "Airbrush snapshot allocation bypassed shared memory limit");
+  Canvas empty;
+  Stroke noContact(empty, preset);
+  Sample tick    = sample(64, 64, 0);
+  tick.timerTick = true;
+  require(!noContact.add(tick) && noContact.dabCount() == 0,
+          "Airbrush accepted a timer without pointer contact");
+  Preset native  = preset;
+  native.profile = "groundzero-native-1";
+  Canvas nativePointer, nativeFlagged;
+  Stroke a(nativePointer, native), b(nativeFlagged, native);
+  for (double time : {0., .25, 1.}) {
+    Sample event = sample(64, 64, time);
+    require(a.add(event), a.error().c_str());
+    event.timerTick = true;
+    require(b.add(event), b.error().c_str());
+  }
+  require(same(nativePointer, nativeFlagged) && a.dabCount() == b.dabCount(),
+          "Source tick flag changed native scheduling");
 }
 void testPeriodicTimeMapping() {
   auto render = [](bool periodic, double origin) {
@@ -130,7 +242,10 @@ void testSourceFixedBitmapCaptures() {
           image->pixels.push_back({0, 0, 0, alpha / 255.0});
       }
     Preset p;
-    p.profile     = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+    p.profile = capture.colorAsMask
+                    ? "krita-5.3.4.1-fixed-bitmap-mask-candidate-1"
+                    : "krita-5.3.4.1-fixed-bitmap-candidate-1";
+    if (capture.colorAsMask) p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
     p.tip.shape   = Shape::Bitmap;
     p.tip.images  = {image};
     p.size.value  = std::max(image->width, image->height) * capture.scale;
@@ -166,11 +281,74 @@ void testSourceFixedBitmapCaptures() {
                     2.0 / 255 + 1e-12,
             "source bitmap premultiplied-color two-byte gate failed");
       }
+    if (capture.colorAsMask) {
+      p.tip.images.push_back(image);
+      require(!validate(p).empty(),
+              "unqualified PNG mask frame sequence admitted");
+      p.tip.images.pop_back();
+      image->color = false;
+      require(!validate(p).empty(),
+              "PNG mask accepted discarded original color");
+      image->color = true;
+    }
     p.size.value = std::max(image->width, image->height) * .75;
     require(!validate(p).empty(), "unqualified bitmap downscale admitted");
-    p.size.value  = std::max(image->width, image->height);
-    p.flipX       = true;
+    p.size.value = std::max(image->width, image->height);
+    p.flipX      = true;
     require(!validate(p).empty(), "unqualified bitmap mirror admitted");
+  }
+}
+void testSourceMirrorThreshold() {
+  // All 21 original enabled/control source pairs establish this exact
+  // reflection and inclusive threshold. Scale1/2 composition has separate
+  // source holdouts; no unqualified scale3 geometry is admitted here.
+  auto image   = std::make_shared<Image>();
+  image->width = image->height = 8;
+  for (int y = 0; y < 8; ++y)
+    for (int x = 0; x < 8; ++x) {
+      const bool ink = ((x == 1 || x == 2) && y >= 1 && y <= 6) ||
+                       ((y == 5 || y == 6) && x >= 1 && x <= 6);
+      image->pixels.push_back({0, 0, 0, ink ? 1.0 : 0.0});
+    }
+  for (double scale : {1.0, 2.0}) {
+    Preset p;
+    p.profile    = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+    p.tip.shape  = Shape::Bitmap;
+    p.tip.images = {image};
+    p.size.value = 8 * scale;
+    Canvas original;
+    Stroke plain(original, p);
+    require(plain.add(sample(32, 32, 0)), plain.error().c_str());
+    finishStroke(plain);
+    for (int axes = 1; axes <= 3; ++axes)
+      for (double pressure : {.1, .25, .49, .5, .51, .75, 1.0}) {
+        p.sourceMirror.enabled          = true;
+        p.sourceMirror.horizontal       = axes & 1;
+        p.sourceMirror.vertical         = axes & 2;
+        p.sourceMirror.control.mappings = {Mapping{}};
+        Canvas mirrored;
+        Stroke stroke(mirrored, p);
+        require(stroke.add(sample(32, 32, 0, pressure)),
+                stroke.error().c_str());
+        finishStroke(stroke);
+        for (int y = 16; y < 48; ++y)
+          for (int x = 16; x < 48; ++x) {
+            const int sx = pressure >= .5 && (axes & 1) ? 64 - x : x;
+            const int sy = pressure >= .5 && (axes & 2) ? 63 - y : y;
+            require(mirrored.read(x, y).a == original.read(sx, sy).a,
+                    "source Mirror threshold/reflection differs from original "
+                    "pairs");
+          }
+      }
+    p.angle.value = 90;
+    require(!validate(p).empty(),
+            "unqualified source Mirror rotation admitted");
+    p.angle.value                             = 0;
+    p.sourceMirror.control.mappings[0].sensor = Sensor::TiltX;
+    require(!validate(p).empty(), "unqualified source Mirror sensor admitted");
+    p.profile = "groundzero-native-1";
+    require(!validate(p).empty(),
+            "source Mirror silently retained on native profile");
   }
 }
 void testSourceBitmapWorkBudget() {
@@ -1400,6 +1578,7 @@ void testKritaHardPixelCandidate() {
     p.size.value = diameters[i];
     Stroke stroke(canvas, p);
     require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+    sourceFixtureMotion(stroke, sample(64, 64, 0));
     finishStroke(stroke);
     int count = 0;
     for (const auto &pixel : canvas.pixels) {
@@ -1439,6 +1618,7 @@ void testKritaHardPixelCandidate() {
   Stroke pressureStroke(pressured, p);
   require(pressureStroke.add(sample(64, 64, 0, .25)),
           pressureStroke.error().c_str());
+  sourceFixtureMotion(pressureStroke, sample(64, 64, 0, .25));
   finishStroke(pressureStroke);
   int pressureCount = 0;
   for (const auto &pixel : pressured.pixels) pressureCount += pixel.a == 1;
@@ -1458,6 +1638,7 @@ void testKritaHardPixelCandidate() {
   Stroke minimumStroke(minimumPressure, p);
   require(minimumStroke.add(sample(64, 64, 0, 0)),
           minimumStroke.error().c_str());
+  sourceFixtureMotion(minimumStroke, sample(64, 64, 0, 0));
   finishStroke(minimumStroke);
   require(same(pressured, minimumPressure),
           "nonzero source pressure-curve minimum was discarded");
@@ -1471,13 +1652,18 @@ void testKritaHardPixelCandidate() {
   p.wash          = false;
   FullCanvas buildUp;
   Stroke buildUpStroke(buildUp, p);
-  require(buildUpStroke.add(sample(64, 64, 0)) && buildUp.read(64, 64).a == .5,
+  require(buildUpStroke.add(sample(64, 64, 0)), buildUpStroke.error().c_str());
+  sourceFixtureMotion(buildUpStroke, sample(64, 64, 0));
+  finishStroke(buildUpStroke);
+  require(buildUp.read(64, 64).a == .5,
           "source build-up incorrectly applied inactive flow");
   p.wash = true;
   FullCanvas wash;
   Stroke washStroke(wash, p);
-  require(washStroke.add(sample(64, 64, 0)) && wash.read(64, 64).a == 0,
-          "source wash ignored zero flow");
+  require(washStroke.add(sample(64, 64, 0)), washStroke.error().c_str());
+  sourceFixtureMotion(washStroke, sample(64, 64, 0));
+  finishStroke(washStroke);
+  require(wash.read(64, 64).a == 0, "source wash ignored zero flow");
   p.tip.antialiasEdges = true;
   require(!validate(p).empty(), "unimplemented source edge model accepted");
 }
@@ -1906,6 +2092,7 @@ void testSourceTextureMasks() {
         p.sourceTextureSoftTexturing = soft;
         Stroke stroke(canvas, p);
         require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+        sourceFixtureMotion(stroke, sample(64, 64, 0));
         finishStroke(stroke);
         for (int band = 0; band < 4; ++band)
           require(
@@ -2045,6 +2232,64 @@ void testSourceWetForegroundTransformPlumbing() {
                     "wet HSV eligibility lost its measured alpha boundary");
           }
 }
+void testSourceWetJointForegroundComposition() {
+  // Red plus a half-turn hue and neutral S/V is exactly cyan. Compare with
+  // direct injection through wet/transfer/texture, not duplicated equations.
+  for (const std::string model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
+    for (bool pressure : {false, true})
+      for (int texture = 0; texture < (model == "new-dulling" ? 1 : 3); ++texture) {
+        Preset preset;
+        preset.profile = "krita-5.3.4.1-" + model + "-candidate-1";
+        preset.wet = model.find("dulling") == std::string::npos ? Wet::Smear : Wet::Dulling;
+        preset.size.value = 8;
+        preset.spacing = 2;
+        preset.tip.antialiasEdges = false;
+        preset.smudgeRadius = 0;
+        preset.pickup = .5;
+        preset.colorRate = .25;
+        preset.opacity.value = .5;
+        preset.flow.value = .5;
+        preset.color = {1, 0, 0, 1};
+        for (auto &control : preset.sourceHsvV2) {
+          control.enabled = true;
+          control.control.value = .5;
+        }
+        preset.sourceHsvV2[0].control.value = .75;
+        if (pressure) {
+          Mapping mapping;
+          mapping.sensor = Sensor::Pressure;
+          mapping.curve = {{0, 0}, {1, 1}};
+          preset.sourceHsvV2[0].control = {1, 0, {mapping}};
+        }
+        if (texture) {
+          auto image = std::make_shared<Image>();
+          image->width = 2;
+          image->height = 1;
+          image->pixels = {{64 / 255., 64 / 255., 64 / 255., 1},
+                           {192 / 255., 192 / 255., 192 / 255., 1}};
+          preset.texture.image = image;
+          preset.texture.mode = texture == 1 ? MaskMode::Multiply : MaskMode::Subtract;
+          preset.texture.depth = .5;
+        }
+        require(validate(preset).empty(), "wet HSV composition candidate rejected");
+        Preset direct = preset;
+        direct.sourceHsvV2 = {};
+        direct.color = {0, 1, 1, 1};
+        Canvas actual, expected;
+        for (size_t i = 0; i < actual.pixels.size(); ++i)
+          actual.pixels[i] = expected.pixels[i] = {0, 0, .5, .5};
+        Stroke a(actual, preset), b(expected, direct);
+        for (const auto &point : {sample(16, 64, 0, .75), sample(81, 64, 1, .75)}) {
+          require(a.add(point), a.error().c_str());
+          require(b.add(point), b.error().c_str());
+        }
+        finishStroke(a);
+        finishStroke(b);
+        require(same(actual, expected), "joint wet HSV changed injection/texture order");
+      }
+}
+
 void testSourceWetHsvReferenceInteraction() {
   // Original K5341 captures: two foregrounds, each fixed channel at .2/.8,
   // enabled/disabled, four wet models. At the third dab the blue backdrop
@@ -2751,6 +2996,7 @@ void testSourceBarrelGeometry() {
     input.hasRotation = true;
     input.rotation    = capture.barrel * 3.14159265358979323846 / 180;
     require(stroke.add(input), stroke.error().c_str());
+    sourceFixtureMotion(stroke, input);
     finishStroke(stroke);
     uint64_t hash = 14695981039346656037ull;
     for (int y = 0; y < capture.h; ++y)
@@ -2788,12 +3034,14 @@ void testSourceSymmetricTiltRotation() {
       input.tiltX   = sensor == Sensor::TiltX ? degrees / 60 : 0;
       input.tiltY   = sensor == Sensor::TiltY ? degrees / 60 : 0;
       require(a.add(input), a.error().c_str());
+      sourceFixtureMotion(a, input);
       finishStroke(a);
       p.angle.mappings.front().sensor = Sensor::Rotation;
       Stroke b(barrel, p);
       input.hasRotation = true;
       input.rotation    = std::abs(degrees) * 6 * 3.14159265358979323846 / 180;
       require(b.add(input), b.error().c_str());
+      sourceFixtureMotion(b, input);
       finishStroke(b);
       require(same(tilted, barrel),
               "source tilt normalization disagrees with measured orientation "
@@ -3155,6 +3403,55 @@ void testSourceSubpixelSpacingFloor() {
               "source subpixel spacing differs from captured alpha row");
   }
 }
+void testSourceTapAndShortMotion() {
+  // Exact original Qt press/move/release and press/release-only alpha windows.
+  // These are fast authored event traces, not wall-clock latency claims.
+  struct Capture {
+    bool tap;
+    double length, first, last;
+    uint64_t hash;
+  };
+  const Capture captures[] = {
+      {false, 0.0, 0.25, 0.75, 6571640615898572149ull},
+      {false, 0.0, 0.75, 0.25, 6571640615898572149ull},
+      {false, 0.1, 0.25, 0.75, 6571640615898572149ull},
+      {false, 0.1, 0.75, 0.25, 6571640615898572149ull},
+      {false, 0.4, 0.25, 0.75, 6571640615898572149ull},
+      {false, 0.4, 0.75, 0.25, 6571640615898572149ull},
+      {false, 0.5, 0.25, 0.75, 7371093129759711509ull},
+      {false, 0.5, 0.75, 0.25, 16562168500648688885ull},
+      {false, 0.6, 0.25, 0.75, 5117783438066559437ull},
+      {false, 0.6, 0.75, 0.25, 16995377932085478973ull},
+      {true, 0, 0.25, 0.25, 17528376983619268489ull},
+      {true, 0, 0.75, 0.75, 9656716888816939093ull},
+  };
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value    = 32;
+    p.size.minimum  = 0;
+    p.size.mappings = {Mapping{}};
+    p.spacing       = .1;
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(32, 32, 0, capture.first)),
+            stroke.error().c_str());
+    if (!capture.tap)
+      require(
+          stroke.add(sample(32 + capture.length, 32, 1.0 / 240, capture.last)),
+          stroke.error().c_str());
+    finishStroke(stroke);
+    uint64_t hash = 14695981039346656037ull;
+    for (int y = 12; y < 54; ++y)
+      for (int x = 12; x < 54; ++x)
+        hash = (hash ^ uint64_t(std::lround(canvas.read(x, y).a * 255))) *
+               1099511628211ull;
+    require(hash == capture.hash,
+            "source tap/short motion differs from original alpha window");
+    require(stroke.dabCount() == size_t(capture.tap || capture.length >= .5),
+            "source no-op path finalized as a tap");
+  }
+}
 void testSourceLookaheadLifecycle() {
   Preset p;
   p.profile       = "krita-5.3.4.1-hard-pixel-candidate-1";
@@ -3276,6 +3573,7 @@ void testSourceNaturalCubicSize() {
     auto input     = sample(64, 64, 0);
     input.pressure = capture.pressure;
     require(stroke.add(input), stroke.error().c_str());
+    sourceFixtureMotion(stroke, input);
     finishStroke(stroke);
     uint64_t hash = 14695981039346656037ull;
     for (int y = 0; y < capture.h; ++y)
@@ -3445,6 +3743,49 @@ void testSourcePixelBlendCandidates() {
             "Pixel blend contract changed source wet eligibility");
   }
 }
+void testSourceWetOutgoingGeometry() {
+  // Candidate directional transport uses the same physical future path as
+  // hard Pixel. These original regressions enforce geometry/partitioning;
+  // source wet color windows and full drift gates qualify source agreement.
+  for (const std::string model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"}) {
+    Preset p;
+    p.profile = "krita-5.3.4.1-" + model + "-candidate-1";
+    p.wet = model.find("dulling") == std::string::npos ? Wet::Smear : Wet::Dulling;
+    p.size.value = 8;
+    p.spacing = 2;
+    p.tip.antialiasEdges = false;
+    p.smudgeRadius = 0;
+    p.pickup = 0;
+    p.colorRate = 1;
+    p.color = {1, 0, 0, 1};
+    auto render = [&](bool dense) {
+      Canvas canvas;
+      for (auto &pixel : canvas.pixels) pixel = {0, 0, 1, 1};
+      auto budget = std::make_shared<MemoryBudget>(1024 * 1024);
+      Stroke stroke(canvas, p, 1024 * 1024, budget);
+      require(stroke.add(sample(64, 32, 0)), stroke.error().c_str());
+      if (dense) {
+        for (int step = 1; step <= 196; ++step)
+          require(stroke.add(sample(64 - step * .25, 32, step / 240.0)),
+                  stroke.error().c_str());
+      } else {
+        require(stroke.add(sample(15, 32, 1)), stroke.error().c_str());
+      }
+      require(stroke.dabCount() == 4, "wet future path changed nominal dab count");
+      finishStroke(stroke);
+      require(budget->used() == 0, "wet future input history leaked budget");
+      return canvas;
+    };
+    const Canvas coarse = render(false), dense = render(true);
+    require(same(coarse, dense), "wet path geometry depends on event partitioning");
+    const int left = p.wet == Wet::Dulling ? 44 : 43;
+    for (int x = 41; x <= 53; ++x)
+      require((coarse.read(x, 31).r > 0) == (x >= left && x <= 50),
+              "reverse wet footprint retained a fixed forward offset");
+  }
+}
+
 void testSourceWetWorkBounds() {
   struct GuardSurface : Surface {
     int side;
@@ -3789,6 +4130,7 @@ int main() {
       {"testNativeEraseCoverage", testNativeEraseCoverage},
       {"testSourceMaskedWash", testSourceMaskedWash},
       {"testSourceFixedBitmapCaptures", testSourceFixedBitmapCaptures},
+      {"testSourceMirrorThreshold", testSourceMirrorThreshold},
       {"testSourceBitmapWorkBudget", testSourceBitmapWorkBudget},
       {"testSourceMaskedEventBudget", testSourceMaskedEventBudget},
       {"testFloatTransaction", testFloatTransaction},
@@ -3819,6 +4161,7 @@ int main() {
       {"testColorDynamics", testColorDynamics},
       {"testCubicCurves", testCubicCurves},
       {"testPeriodicTimeMapping", testPeriodicTimeMapping},
+      {"testSourceAirbrushDispatch", testSourceAirbrushDispatch},
       {"testSourceDefaultCircle", testSourceDefaultCircle},
       {"testSourceDullingRadiusImpulses", testSourceDullingRadiusImpulses},
       {"testSourceWetPressureColorAttenuation",
@@ -3827,11 +4170,13 @@ int main() {
       {"testSourceSmallCircle", testSourceSmallCircle},
       {"testSourceHardCircleAA", testSourceHardCircleAA},
       {"testSourceWetWorkBounds", testSourceWetWorkBounds},
+      {"testSourceWetOutgoingGeometry", testSourceWetOutgoingGeometry},
       {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
       {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
       {"testSourcePathDirectionGeometry", testSourcePathDirectionGeometry},
       {"testSourceHalfPixelLookahead", testSourceHalfPixelLookahead},
+      {"testSourceTapAndShortMotion", testSourceTapAndShortMotion},
       {"testSourceLookaheadLifecycle", testSourceLookaheadLifecycle},
       {"testSourceAbsoluteSpacingFloor", testSourceAbsoluteSpacingFloor},
       {"testSourceSubpixelSpacingFloor", testSourceSubpixelSpacingFloor},
@@ -3845,6 +4190,8 @@ int main() {
       {"testSourceTextureMasks", testSourceTextureMasks},
       {"testSourceWetHsvReferenceInteraction",
        testSourceWetHsvReferenceInteraction},
+      {"testSourceWetJointForegroundComposition",
+       testSourceWetJointForegroundComposition},
       {"testSourceWetForegroundTransformPlumbing",
        testSourceWetForegroundTransformPlumbing},
       {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},

@@ -100,7 +100,7 @@ class Probe(Extension):
             node.paintPath(path, "ForegroundColor", "None")
             return {"mode": "Node.paintPath", "vertices": points,
                     "singleContinuousStroke": True, "physicalTabletClaimed": False}
-        if "cadenceProbe" in case:
+        if "cadenceProbe" in case and not case["cadenceProbe"]["mode"].startswith("qt-"):
             paths = cadence_probe.validate(case)
             mode = case["cadenceProbe"]["mode"]
             for points in paths:
@@ -235,6 +235,8 @@ class Probe(Extension):
                               "pointerType": int(event.pointerType()), "uniqueId": event.uniqueId(), "tilt": [event.xTilt(), event.yTilt()],
                               "rotation": event.rotation()})
 
+        if "cadenceProbe" in case:
+            cadence_probe.validate(case)
         rows = case["events"]
         def tool_state():
             resource = view.currentBrushPreset()
@@ -355,6 +357,8 @@ class Probe(Extension):
                 "stateBeforeProximity": before_proximity,
                 "stateAfterProximity": after_proximity, "stateBeforeContact": before_contact,
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
+                "cadencePaths": case.get("cadencePaths"),
+                "strokeCount": 1 if "cadenceProbe" in case else None,
                 "deviceClock": {"scale": clock_scale, "offsetMs": clock_offset,
                                 "baseMs": timestamp_base, "originNs": clock_origin_ns},
                 "zoom": view.canvas().zoomLevel(),
@@ -646,7 +650,8 @@ class Probe(Extension):
                         if effective_fields.get(key) != expected:
                             raise RuntimeError("Source transfer setting did not round trip: " + key)
                 texture_controls = None
-                if fixtures.get("group") in ("texturemasks", "texturestate", "texturepickup"):
+                if (fixtures.get("group") in ("texturemasks", "texturestate", "texturepickup") or
+                        "texturePatternExpectedGray8" in case):
                     texture_controls = {key: value for key, value in effective_fields.items()
                                         if (key.startswith("Texture/") or key.startswith("PressureTexture/"))
                                         and key != "Texture/Pattern/Pattern"}
@@ -870,15 +875,17 @@ class Probe(Extension):
                                         "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
                                         "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
                 drift_evidence = None
+                drift_windows = None
                 if "driftProbe" in case:
                     from . import wet_drift_contract
                     drift_evidence = wet_drift_contract.capture(initial, raw, case)
+                    drift_windows = wet_drift_contract.geometry_windows(raw)
                 resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
                 if resource_readback is not None:
                     sequence_evidence.emit(case, resource_readback, delivery)
                 if generated_tip_evidence is not None:
                     generated_tip_probe.emit(case, generated_tip_evidence, raw, w)
-                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence})
+                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

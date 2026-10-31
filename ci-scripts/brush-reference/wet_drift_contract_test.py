@@ -1,9 +1,27 @@
 """Pure bounded-prefix contract checks, executed only in reference CI."""
 import unittest
-from wet_drift_contract import CHECKPOINTS, WIDTH, HEIGHT, center, path, validate, capture
+from wet_drift_contract import CHECKPOINTS, WIDTH, HEIGHT, center, path, validate, capture, geometry_windows
 
 
 class DriftPathContract(unittest.TestCase):
+    def test_geometry_windows_preserve_raw_channels_without_row_wrap(self):
+        import base64
+        import zlib
+        raw = bytearray(WIDTH * HEIGHT * 4)
+        raw[:4] = bytes((1, 2, 3, 4))
+        raw[(WIDTH - 64) * 4:(WIDTH - 64) * 4 + 4] = bytes((5, 6, 7, 8))
+        raw[(WIDTH - 1) * 4:WIDTH * 4] = bytes((9, 10, 11, 12))
+        windows = geometry_windows(raw)
+        self.assertEqual([w['rect'] for w in windows], [[0, 0, 64, 48], [1984, 0, 64, 48]])
+        left, right = [zlib.decompress(base64.b64decode(w['data'])) for w in windows]
+        self.assertEqual(len(left), 64 * 48 * 4)
+        self.assertEqual(left[:4], bytes((1, 2, 3, 4)))
+        self.assertEqual(left[64 * 4:64 * 4 + 4], bytes(4))
+        self.assertEqual(right[:4], bytes((5, 6, 7, 8)))
+        self.assertEqual(right[63 * 4:64 * 4], bytes((9, 10, 11, 12)))
+        with self.assertRaises(ValueError):
+            geometry_windows(raw[:-1])
+
     def test_exact_arc_length_and_bounds(self):
         for count in CHECKPOINTS:
             points = path(count)

@@ -62,9 +62,12 @@ def readback(raw, width, case):
         selections = []
         radius = math.ceil(case["diameter"] / 2) + 2
         for slot in range(spec["expectedSlots"]):
-            cx = (16 if "cadenceProbe" in case else 256) + slot * case["diameter"] * case["spacing"]
+            cx = 256 + slot * case["diameter"] * case["spacing"]
+            cy = 1024
+            if "cadenceProbe" in case:
+                cx, cy = case["cadenceCenters"][slot]
             sums = [0, 0, 0]
-            for y in range(1024 - radius, 1024 + radius + 1):
+            for y in range(cy - radius, cy + radius + 1):
                 for x in range(cx - radius, cx + radius + 1):
                     offset = (y * width + x) * 4
                     for c in range(3):

@@ -141,6 +141,9 @@ PURE_TESTS = frozenset({
     "application_test.py", "package_test.py", "oracle_cache_test.py",
     "hsv_joint_test.py", "kernel_precision_probe_test.py",
     "wet_drift_contract_test.py", "gih_cadence_test.py", "test_stochastic_gate.py",
+    "managed_lab_probe_test.py", "generated_tip_test.py", "bitmap_path_test.py",
+    "paced_policy_test.py", "wet_hsv_combo_fixtures_test.py",
+    "mask_repeat_contract_test.py",
 })
 
 

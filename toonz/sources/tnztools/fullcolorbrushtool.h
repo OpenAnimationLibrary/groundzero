@@ -24,6 +24,8 @@
 #include <QStringList>
 
 #include <memory>
+#include <map>
+#include <set>
 
 //==============================================================
 
@@ -54,6 +56,10 @@ public:
     std::shared_ptr<RasterBrush::Surface> nativeSurface;
     std::unique_ptr<RasterBrush::Stroke> nativeStroke;
     bool nativeTiltObserved = false;
+    bool nativeSourcePixel = false, nativeSourceAirbrush = false,
+         nativeHasSample = false;
+    RasterBrush::Sample nativeLastSample;
+    int nativeSourceLastIndex = -1;
 
     TrackHandler(const TRaster32P &ras, RasterController &controller,
                  const mypaint::Brush &brush)
@@ -164,6 +170,7 @@ protected:
   std::shared_ptr<RasterBrush::Surface> m_nativeSurface;
   std::shared_ptr<RasterBrush::MemoryBudget> m_nativeMemory;
   QTimer m_nativeAirbrushTimer;
+  std::map<TTrack::Id, std::set<int>> m_nativeTimerPoints;
 
   TPixel32 m_currentColor;
   bool m_enabledPressure;
@@ -192,8 +199,8 @@ protected:
 
   bool m_started;
   std::uint64_t m_nativeResolvedSeed = 1;
-  bool m_nativeStrokeFailed  = false;
-  bool m_nativePixelsChanged = false;
+  bool m_nativeStrokeFailed          = false;
+  bool m_nativePixelsChanged         = false;
   bool m_nativeCreatedFrame = false, m_nativeCreatedLevel = false;
   TFrameId m_strokeFrameId;
   TXshSimpleLevelP m_strokeLevel;
