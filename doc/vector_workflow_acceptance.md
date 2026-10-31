@@ -52,8 +52,24 @@ requires an identical actual repaint. It retains the exact 50/25/75/50-percent
 pixel sequence, Cancel/Apply and undo checks, and independently inspects generated
 geometry, opacity, profile, style, groups and unchanged source/palette contents.
 Bounded dimensions, pixel differences and transform diagnostics distinguish a
-rendering mismatch from altered artwork. This correction requires fresh CI;
-no comparison or original failure was waived.
+rendering mismatch from altered artwork. The corrected supplemental Linux
+application and installed package passed at
+`68b56d40978113ea597c598892e44b9b55e1977a`; later owning heads still require
+their own qualification. No comparison or original failure was waived.
+
+### Atomic deformation Undo (pending CI)
+
+The original Windows application at `1f504560` timed out between its final
+Envelope Undo/history-reset checkpoints after earlier geometry and region/style
+checks completed. Source review found a distinct renderer race: live control
+points were changed outside the image mutex, and notifications preceded fill
+restoration. Geometry, rebuilt regions and fills now restore under one recursive
+image lock; UI and icon notifications follow unlock and name the undo record's
+owned frame/level. The native regression exercises a real concurrent GL reader,
+complete fills at the first notification, off-frame Undo and untouched foreign
+level geometry, cache and dirty state. Separate Undo/reset checkpoints identify
+any remaining stall. These source-backed corrections do not by themselves
+establish the original timeout's cause or passing platform qualification.
 
 ### Original-window lifetime qualification (pending CI)
 
