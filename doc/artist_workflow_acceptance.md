@@ -23,7 +23,7 @@ Review and validation follow the dependency chain #116 → #117 → #119 → #12
 
 Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neural/color-style work in PR #114 is separately owned and excluded. Vector opacity/width/paint modes here operate on native vector artwork, not the external raster brush engine. Reuse existing native SeExpr, particle, collection and UI capabilities. Coordinate common CMake, command registrations, preferences and native integration fixtures explicitly.
 
-## Execution checkpoint — 2026-10-30
+## Execution checkpoint — 2026-10-31
 
 The following evidence is tied to its named revisions. Current publication and
 running-check status are maintained on the five PRs; an earlier pass does not
@@ -38,9 +38,12 @@ one and later reliability/package checks were skipped. The exact failure was
 audited. A source-reviewed correction removes the morph checkerboard's
 dependence on the previous view transform and adds deterministic prior-view
 repaint coverage plus independent generated-opacity/source invariants. Exact
-pixel, Cancel/Apply and undo assertions remain; fresh CI must establish whether
-the original failure is resolved.
+pixel, Cancel/Apply and undo assertions remain. Corrected supplemental candidate
+`68b56d40978113ea597c598892e44b9b55e1977a` subsequently passed the complete
+original Linux application and installed package, including those exact checks.
+This qualifies that revision, not later source changes.
 [Recorded combined failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41139719320).
+[Corrected Linux qualification](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41144589342).
 
 That cohort's Windows jobs stopped before application compilation because the
 real original-dump prerequisite produced no WER dump. The corrected launcher
@@ -54,6 +57,26 @@ This qualifies capture infrastructure, not the earlier application's fast-fail
 cause. These changes require their final owning-head application/platform
 checks. No local builds or tests ran.
 [Original capture qualification](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41143305949).
+
+The full Windows application on `1f504560` passed its gradient-owner routes,
+then timed out after 600 seconds between the final Envelope Undo/history-reset
+checkpoints. It did not reproduce the earlier fast-fail. Cleanup proved zero
+active processes; separate diagnostics and workloads passed, while installed
+qualification was skipped. Those passes do not replace the original timeout.
+Source review found live deformation geometry/fill restoration outside the
+renderer mutex and notifications routed through the current selection instead
+of the undo record's owner. Restoration is now atomic and notifies its owned
+frame after unlocking. Actual concurrent-render, publication-state and foreign
+level regressions accompany separate Undo/reset checkpoints; the timeout's
+cause remains unproven until application evidence establishes it.
+[Original Windows timeout](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41143663537).
+
+Bounded noninvasive capture can now inspect the same original process before
+timeout cleanup; its result cannot replace the timeout. A fresh, complete
+cleanup witness gates failure-only retention of exact runtime binaries,
+matching PDB identities and separate Mesa files. This enables later focused
+diagnostics without rebuilding solely to recover a binary. All new source
+changes still require exact owning-head application/package qualification.
 
 In that same published cohort, #118's macOS original native sequence and its
 separate required timing lifecycle passed, including both terminal cases and
