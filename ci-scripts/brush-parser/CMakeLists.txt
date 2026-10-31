@@ -1,0 +1,152 @@
+cmake_minimum_required(VERSION 3.16)
+project(BrushParserRegression LANGUAGES CXX)
+enable_testing()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+get_filename_component(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+add_executable(abrparser_test
+  "${REPO_ROOT}/toonz/sources/toonzlib/abrparser.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/tests/abrparser_test.cpp")
+target_include_directories(abrparser_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(abrparser_test PRIVATE TOONZLIB_EXPORTS)
+if(APPLE)
+  target_compile_definitions(abrparser_test PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(abrparser_test PRIVATE LINUX)
+endif()
+
+add_executable(rasterbrushbenchmark
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
+  "${REPO_ROOT}/ci-scripts/brush-reference/benchmark.cpp")
+target_include_directories(rasterbrushbenchmark PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(rasterbrushbenchmark PRIVATE TOONZLIB_EXPORTS)
+if(APPLE)
+  target_compile_definitions(rasterbrushbenchmark PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rasterbrushbenchmark PRIVATE LINUX)
+endif()
+option(BRUSH_SANITIZERS "Run parser regression with address/undefined sanitizers" OFF)
+if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(abrparser_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(abrparser_test PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME abrparser COMMAND abrparser_test)
+set_tests_properties(abrparser PROPERTIES TIMEOUT 60)
+
+add_executable(rasterbrushengine_test
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushengine_test.cpp")
+target_include_directories(rasterbrushengine_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(rasterbrushengine_test PRIVATE TOONZLIB_EXPORTS)
+# A compiled test omitted from the named registry must fail CI, not silently
+# disappear from coverage. Keep this warning local to the test translation unit.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_source_files_properties(
+    "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushengine_test.cpp"
+    PROPERTIES COMPILE_OPTIONS "-Werror=unused-function")
+endif()
+if(APPLE)
+  target_compile_definitions(rasterbrushengine_test PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rasterbrushengine_test PRIVATE LINUX)
+endif()
+if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(rasterbrushengine_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(rasterbrushengine_test PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME rasterbrushengine COMMAND rasterbrushengine_test)
+set_tests_properties(rasterbrushengine PROPERTIES TIMEOUT 60)
+
+set(BRUSH_QT_MAJOR 6 CACHE STRING "Qt major for the package adapter tests")
+find_package(Qt${BRUSH_QT_MAJOR} REQUIRED COMPONENTS Core Gui)
+find_package(ZLIB REQUIRED)
+target_link_libraries(abrparser_test PRIVATE ZLIB::ZLIB)
+add_executable(rasterbrushpreset_test
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpreset.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushimport.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushworker.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpng.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrusharchive.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/abrparser.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushpreset_test.cpp")
+target_include_directories(rasterbrushpreset_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(rasterbrushpreset_test PRIVATE TOONZLIB_EXPORTS RASTERBRUSH_SANDBOX_TESTING)
+target_link_libraries(rasterbrushpreset_test PRIVATE Qt${BRUSH_QT_MAJOR}::Core Qt${BRUSH_QT_MAJOR}::Gui ZLIB::ZLIB)
+if(APPLE)
+  target_compile_definitions(rasterbrushpreset_test PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rasterbrushpreset_test PRIVATE LINUX)
+endif()
+if(APPLE OR WIN32 OR (BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
+  # Sanitizer runtimes inspect process memory and spawn diagnostic helpers;
+  # the production privilege boundary deliberately denies those operations.
+  # Keep parser/decoder tests instrumented, and exercise the exact worker
+  # boundary in a separate uninstrumented child, as in the shipped app.
+  get_target_property(BRUSH_WORKER_TEST_SOURCES rasterbrushpreset_test SOURCES)
+  add_executable(rasterbrushworker_test ${BRUSH_WORKER_TEST_SOURCES})
+  target_include_directories(rasterbrushworker_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+  target_compile_definitions(rasterbrushworker_test PRIVATE TOONZLIB_EXPORTS RASTERBRUSH_SANDBOX_TESTING)
+  target_link_libraries(rasterbrushworker_test PRIVATE Qt${BRUSH_QT_MAJOR}::Core Qt${BRUSH_QT_MAJOR}::Gui ZLIB::ZLIB)
+  if(APPLE)
+    target_compile_definitions(rasterbrushworker_test PRIVATE MACOSX)
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(rasterbrushworker_test PRIVATE LINUX)
+  endif()
+  target_compile_definitions(rasterbrushpreset_test PRIVATE RASTERBRUSH_SEPARATE_WORKER_TEST)
+  add_dependencies(rasterbrushpreset_test rasterbrushworker_test)
+  if(BRUSH_SANITIZERS)
+    target_compile_options(rasterbrushpreset_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(rasterbrushpreset_test PRIVATE -fsanitize=address,undefined)
+  endif()
+endif()
+add_test(NAME rasterbrushpreset COMMAND rasterbrushpreset_test)
+set_tests_properties(rasterbrushpreset PROPERTIES TIMEOUT 1200)
+
+get_target_property(BRUSH_ADAPTER_SOURCES rasterbrushpreset_test SOURCES)
+list(REMOVE_ITEM BRUSH_ADAPTER_SOURCES "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushpreset_test.cpp")
+option(BRUSH_FUZZERS "Build the bounded import libFuzzer target" OFF)
+if(BRUSH_FUZZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "Brush fuzzing requires Clang libFuzzer")
+  endif()
+  add_executable(rasterbrushfuzz ${BRUSH_ADAPTER_SOURCES} fuzz.cpp)
+  target_include_directories(rasterbrushfuzz PRIVATE "${REPO_ROOT}/toonz/sources/include")
+  target_compile_definitions(rasterbrushfuzz PRIVATE TOONZLIB_EXPORTS LINUX)
+  target_link_libraries(rasterbrushfuzz PRIVATE Qt${BRUSH_QT_MAJOR}::Core Qt${BRUSH_QT_MAJOR}::Gui ZLIB::ZLIB)
+  target_compile_options(rasterbrushfuzz PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(rasterbrushfuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
+add_executable(rasterbrushreference ${BRUSH_ADAPTER_SOURCES}
+  "${REPO_ROOT}/ci-scripts/brush-reference/compare.cpp")
+target_include_directories(rasterbrushreference PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(rasterbrushreference PRIVATE TOONZLIB_EXPORTS)
+target_link_libraries(rasterbrushreference PRIVATE Qt${BRUSH_QT_MAJOR}::Core Qt${BRUSH_QT_MAJOR}::Gui ZLIB::ZLIB)
+if(APPLE)
+  target_compile_definitions(rasterbrushreference PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rasterbrushreference PRIVATE LINUX)
+endif()
+add_test(NAME rasterbrushmetrics COMMAND rasterbrushreference --test-metrics)
+set_tests_properties(rasterbrushmetrics PROPERTIES TIMEOUT 60)
+
+if(WIN32)
+  foreach(target rasterbrushpreset_test rasterbrushworker_test rasterbrushreference rasterbrushfuzz)
+    if(TARGET ${target})
+      target_link_libraries(${target} PRIVATE userenv advapi32 ws2_32 shell32 ole32)
+    endif()
+  endforeach()
+endif()
+
+if(APPLE)
+  include("${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushhelper.cmake")
+  sign_rasterbrush_helper(rasterbrushworker_test)
+  foreach(target rasterbrushpreset_test rasterbrushworker_test rasterbrushreference)
+    target_link_libraries(${target} PRIVATE "-framework Security" "-framework CoreFoundation")
+  endforeach()
+endif()
+
+if(WIN32)
+  include("${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushhelper.cmake")
+  deploy_rasterbrush_windows(rasterbrushworker_test ${BRUSH_QT_MAJOR} "brush-worker-test-runtime")
+endif()

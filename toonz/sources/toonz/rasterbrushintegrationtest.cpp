@@ -1,0 +1,2789 @@
+#include "rasterbrushintegrationtest.h"
+#include "../toonzlib/tests/rasterbrushfixture.h"
+#include "tapp.h"
+#include "sceneviewer.h"
+#include "tools/tool.h"
+#include "tools/toolhandle.h"
+#include "toonz/tscenehandle.h"
+#include "toonz/txshlevelhandle.h"
+#include "toonz/tframehandle.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/txsheethandle.h"
+#include "toonz/tpalettehandle.h"
+#include "toonz/toonzscene.h"
+#include "toonz/txshsimplelevel.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/levelproperties.h"
+#include "toonz/levelset.h"
+#include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
+#include "toonz/preferences.h"
+#include "toonz/rasterbrushimport.h"
+#include "toonz/toonzfolders.h"
+#include "tpalette.h"
+#include "tcolorstyles.h"
+#include "tproperty.h"
+#include "trasterimage.h"
+#include "tundo.h"
+#include "timage_io.h"
+#include "tmsgcore.h"
+#include <QApplication>
+#include <QBuffer>
+#include <QImage>
+#include <QDialog>
+#include <QTimer>
+#include <QMainWindow>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QElapsedTimer>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QLineEdit>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QTabletEvent>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QPointingDevice>
+#endif
+#include <QPushButton>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QComboBox>
+#include <QCheckBox>
+#include <QTableWidget>
+#include <QDoubleSpinBox>
+#include <QInputDialog>
+#include <QDialogButtonBox>
+#include <QTemporaryDir>
+#include <QLabel>
+#include <algorithm>
+#include <cstdlib>
+#include <functional>
+#include <iostream>
+#include <stdexcept>
+#include <vector>
+
+namespace {
+void require(bool value, const char *message) {
+  if (!value) throw std::runtime_error(message);
+}
+void settle() {
+  QCoreApplication::sendPostedEvents();
+  QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+}
+bool submitFileDialog(QFileDialog *picker, const QString &path) {
+  // A visible Qt 5 QFileDialog deliberately leaves a focused filename editor
+  // untouched in selectFile(). Our timer operates after show, so transfer focus
+  // first, then verify the actual selection before invoking the normal accept.
+  if (auto focus = picker->focusWidget()) focus->clearFocus();
+  picker->selectFile(path);
+  const auto selected = picker->selectedFiles();
+  if (selected.size() != 1 || QFileInfo(selected.front()).absoluteFilePath() !=
+                                  QFileInfo(path).absoluteFilePath()) {
+    std::cerr << "raster-brush-integration: file picker did not select fixture"
+              << std::endl;
+    picker->reject();
+    return false;
+  }
+  if (QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection))
+    return true;
+  picker->reject();
+  return false;
+}
+bool sameFiles(const QStringList &a, const QStringList &b) {
+  // Qt 5.15's QList equality instantiates removed MSVC stdext iterators.
+  // Compare the same ordered entries without that implementation dependency.
+  return a.size() == b.size() && std::equal(a.cbegin(), a.cend(), b.cbegin());
+}
+bool same(const TRaster32P &a, const TRaster32P &b) {
+  if (!a || !b || a->getSize() != b->getSize()) return false;
+  for (int y = 0; y < a->getLy(); ++y)
+    for (int x = 0; x < a->getLx(); ++x)
+      if (a->pixels(y)[x] != b->pixels(y)[x]) return false;
+  return true;
+}
+void requireSame(const TRaster32P &expected, const TRaster32P &actual,
+                 const QString &context) {
+  if (same(expected, actual)) return;
+  std::cerr << "raster-brush-integration: pixel mismatch "
+            << context.toStdString() << " expected "
+            << (expected ? expected->getLx() : -1) << 'x'
+            << (expected ? expected->getLy() : -1) << " actual "
+            << (actual ? actual->getLx() : -1) << 'x'
+            << (actual ? actual->getLy() : -1) << std::endl;
+  if (expected && actual && expected->getSize() == actual->getSize()) {
+    int differences = 0, maxChannel = 0;
+    for (int y = 0; y < expected->getLy(); ++y)
+      for (int x = 0; x < expected->getLx(); ++x) {
+        const auto a = expected->pixels(y)[x], b = actual->pixels(y)[x];
+        if (a == b) continue;
+        maxChannel = std::max(
+            {maxChannel, std::abs(int(a.r) - b.r), std::abs(int(a.g) - b.g),
+             std::abs(int(a.b) - b.b), std::abs(int(a.m) - b.m)});
+        if (++differences <= 8)
+          std::cerr << "pixel " << x << ',' << y << " RGBA " << int(a.r) << ','
+                    << int(a.g) << ',' << int(a.b) << ',' << int(a.m) << " -> "
+                    << int(b.r) << ',' << int(b.g) << ',' << int(b.b) << ','
+                    << int(b.m) << std::endl;
+      }
+    std::cerr << "different pixels " << differences << " max channel "
+              << maxChannel << std::endl;
+  }
+  throw std::runtime_error(context.toStdString());
+}
+TRaster32P raster(TXshSimpleLevel *level, const TFrameId &frame) {
+  TRasterImageP image(level->getFrame(frame, true));
+  return image ? TRaster32P(image->getRaster()) : TRaster32P();
+}
+TRaster32P raster(TXshSimpleLevel *level, int frame) {
+  return raster(level, TFrameId(frame));
+}
+void checkpoint(const char *stage) {
+  std::cerr << "raster-brush-integration: " << stage << std::endl;
+}
+void tap(TTool *tool) {
+  require(tool->preLeftButtonDown(), "brush refused tap");
+  TMouseEvent event;
+  event.m_button   = Qt::LeftButton;
+  event.m_buttons  = Qt::LeftButton;
+  event.m_isTablet = true;
+  event.m_pressure = 1;
+  tool->leftButtonDown(TPointD(0, 0), event);
+  event.m_buttons = Qt::NoButton;
+  tool->leftButtonUp(TPointD(0, 0), event);
+  settle();
+}
+void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
+          double rotation = .4, bool uprightReturn = false,
+          const std::function<void()> &beforeRelease = {}) {
+  require(tool->preLeftButtonDown(), "brush refused prepared raster");
+  TMouseEvent event;
+  event.m_button   = Qt::LeftButton;
+  event.m_buttons  = Qt::LeftButton;
+  event.m_isTablet = true;
+  event.m_pressure = pressure;
+  event.m_tilt     = TPointD(tiltX, -.3);
+  event.m_hasTilt = event.m_hasRotation = true;
+  event.m_rotation                      = rotation;
+  if (uprightReturn) {
+    event.m_tilt    = TPointD();
+    event.m_hasTilt = false;
+  }
+  tool->leftButtonDown(TPointD(-30, 0), event);
+  for (int i = 1; i <= 20; ++i) {
+    if (uprightReturn) {
+      event.m_tilt    = i < 10 ? TPointD(.8, 0) : TPointD();
+      event.m_hasTilt = i < 10;
+    }
+    tool->leftButtonDrag(TPointD(-30 + 3 * i, 0), event);
+  }
+  if (beforeRelease) beforeRelease();
+  if (cancel) {
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    require(tool->keyDown(&escape), "native stroke did not handle Escape");
+  }
+  event.m_buttons = Qt::NoButton;
+  tool->leftButtonUp(TPointD(30, 0), event);
+  settle();
+}
+}  // namespace
+
+int runRasterBrushIntegrationTest(QMainWindow *window) {
+  try {
+    checkpoint("importing through the packaged application worker");
+    RasterBrush::Record original;
+    QString importError;
+    QString package = QDir::current().filePath("original.gzbrush");
+    require(RasterBrush::save(package, original, importError),
+            "cannot write original native brush fixture");
+    auto imported = RasterBrush::importBrushProcess(
+        QCoreApplication::applicationFilePath(), package, importError);
+    require(importError.isEmpty() && imported.complete &&
+                imported.records.size() == 1,
+            "packaged application brush import worker failed");
+    checkpoint("creating disposable full-color level");
+    auto app   = TApp::instance();
+    auto scene = app->getCurrentScene()->getScene();
+    require(scene && window, "native application scene is missing");
+    Preferences::instance()->setValue(EnableAutocreation, true);
+    auto level = scene->createNewLevel(OVL_XSHLEVEL, L"RasterBrushFixture")
+                     ->getSimpleLevel();
+    require(level, "cannot create raster level");
+    level->setPath(TFilePath(QDir::current().filePath("brush..png")));
+    level->getProperties()->setImageRes(TDimension(128, 128));
+    level->getProperties()->setDpi(TPointD(72, 72));
+    level->getProperties()->setImageDpi(TPointD(72, 72));
+    auto palette = new TPalette;
+    level->setPalette(palette);
+    TRaster32P initial(128, 128);
+    initial->fill(TPixel32(255, 255, 255, 255));
+    TRasterImageP image(new TRasterImage(initial));
+    image->setDpi(72, 72);
+    level->setFrame(TFrameId(1), image);
+    app->getCurrentLevel()->setLevel(level);
+    app->getCurrentFrame()->setFid(TFrameId(1));
+    app->getCurrentPalette()->setPalette(palette, 1);
+    app->getCurrentTool()->setTool("T_Brush");
+    settle();
+    TTool *tool = TTool::getTool("T_Brush", TTool::RasterImage);
+    require(tool, "full-color brush tool unavailable");
+    SceneViewer *viewer = nullptr;
+    for (auto candidate : window->findChildren<SceneViewer *>())
+      if (candidate->isVisible()) {
+        viewer = candidate;
+        break;
+      }
+    require(viewer, "native scene viewer unavailable");
+    tool->setViewer(viewer);
+    tool->onActivate();
+    auto property = dynamic_cast<TEnumProperty *>(
+        tool->getProperties(0)->getProperty("Native Brush:"));
+    require(property && property->isValue(L"<round>"),
+            "native brush selector missing");
+    property->setValue(L"<round>");
+    require(tool->onPropertyChanged("Native Brush:"),
+            "native brush selection failed");
+    auto undo = TUndoManager::manager();
+    undo->reset();
+    auto verifyScenePersistence = [&](const TRaster32P &expected,
+                                      const QString &label) {
+      require(scene->getXsheet()->setCell(0, 0, TXshCell(level, TFrameId(1))),
+              "cannot expose lifecycle fixture for scene save");
+      level->save();
+      const TFilePath scenePath(
+          QDir::current().filePath("lifecycle-" + label + ".tnz"));
+      scene->saveCopy(scenePath);
+      ToonzScene restored;
+      restored.loadTnzFile(scenePath);
+      auto restoredLevel =
+          restored.getLevelSet()->getLevel(L"RasterBrushFixture");
+      require(restoredLevel && restoredLevel->getSimpleLevel(),
+              "lifecycle scene lost its raster level");
+      auto restoredRaster = restoredLevel->getSimpleLevel();
+      restoredRaster->load();
+      requireSame(expected, raster(restoredRaster, 1),
+                  "scene/level lifecycle pixels: " + label);
+      require(restored.getXsheet()->getCell(0, 0).m_frameId == TFrameId(1),
+              "lifecycle scene lost painted frame exposure");
+    };
+    auto verifyMidStrokeFrameSwitch = [&]() {
+      const auto baseline = raster(level, 1)->clone();
+      TRasterImageP secondImage(new TRasterImage(baseline->clone()));
+      secondImage->setDpi(72, 72);
+      level->setFrame(TFrameId(2), secondImage);
+      const auto selected = property->getValue();
+      require(tool->preLeftButtonDown(),
+              "brush refused midstroke lifecycle fixture");
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_buttons  = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = .8;
+      event.m_tilt     = TPointD(.5, -.2);
+      event.m_hasTilt  = true;
+      tool->leftButtonDown(TPointD(-30, 0), event);
+      for (int i = 1; i <= 10; ++i)
+        tool->leftButtonDrag(TPointD(-30 + 3 * i, 0), event);
+      property->setValue(L"<round>");
+      require(tool->onPropertyChanged("Native Brush:") &&
+                  property->getValue() == selected,
+              "midstroke preset change replaced an active stroke's settings");
+      app->getCurrentFrame()->setFid(TFrameId(2));
+      settle();
+      tool->onImageChanged();
+      const auto committed = raster(level, 1)->clone();
+      tool->leftButtonDrag(TPointD(30, 0), event);
+      event.m_buttons = Qt::NoButton;
+      tool->leftButtonUp(TPointD(30, 0), event);
+      settle();
+      require(!same(baseline, committed) && same(baseline, raster(level, 2)) &&
+                  undo->getHistoryCount() == 1,
+              "frame switch lost the original stroke or painted the new frame");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  same(baseline, raster(level, 2)),
+              "frame-switch undo changed the wrong frame");
+      require(undo->redo() && same(committed, raster(level, 1)) &&
+                  same(baseline, raster(level, 2)),
+              "frame-switch redo did not restore the original target only");
+      require(undo->undo(),
+              "cannot restore lifecycle fixture after frame switch");
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(2));
+      app->getCurrentLevel()->notifyLevelChange();
+      settle();
+      undo->reset();
+    };
+    checkpoint("qualifying native editor scratchpad isolation and cancel");
+    {
+      const auto baseline = raster(level, 1)->clone();
+      bool editorSeen = false, scratchQualified = false;
+      QTimer::singleShot(0, [&]() {
+        auto dialog =
+            qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        editorSeen   = dialog->objectName() == "nativeBrushEditor";
+        auto preview = dialog->findChild<QWidget *>("nativeBrushScratchpad");
+        auto clear =
+            dialog->findChild<QPushButton *>("nativeBrushClearScratchpad");
+        auto demo = dialog->findChild<QPushButton *>("nativeBrushSampleStroke");
+        if (preview && clear && demo) {
+          clear->click();
+          const auto blank = preview->grab().toImage();
+          QMouseEvent press(QEvent::MouseButtonPress, QPointF(40, 70),
+                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+          QApplication::sendEvent(preview, &press);
+          QMouseEvent move(QEvent::MouseMove, QPointF(240, 70), Qt::NoButton,
+                           Qt::LeftButton, Qt::NoModifier);
+          QApplication::sendEvent(preview, &move);
+          QMouseEvent release(QEvent::MouseButtonRelease, QPointF(240, 70),
+                              Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+          QApplication::sendEvent(preview, &release);
+          const auto painted = preview->grab().toImage();
+          clear->click();
+          const bool erased = preview->grab().toImage() == blank;
+          demo->click();
+          scratchQualified =
+              painted != blank && erased && preview->grab().toImage() != blank;
+        }
+        dialog->reject();
+      });
+      property->setValue(L"<edit>");
+      require(tool->onPropertyChanged("Native Brush:") && editorSeen &&
+                  scratchQualified,
+              "native editor scratchpad did not paint, clear and regenerate");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled native editor scratchpad changed document or undo");
+    }
+    checkpoint("qualifying periodic Time dynamics editor persistence");
+    {
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original periodic Time editor fixture";
+      RasterBrush::Mapping clock;
+      clock.sensor   = RasterBrush::Sensor::Time;
+      clock.periodic = true;
+      fixture.preset.size.mappings.push_back(clock);
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString original =
+          RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !original.isEmpty(),
+              "cannot install periodic editor fixture");
+      const QByteArray originalBytes = RasterBrush::readBoundedRegularFile(
+          original, 64 * 1024 * 1024, importError);
+      require(importError.isEmpty(),
+              "cannot read original periodic editor fixture");
+      const auto originalSelection =
+          QDir(folder).relativeFilePath(original).toStdWString();
+      const auto baseline = raster(level, 1)->clone();
+      for (bool accept : {false, true}) {
+        tool->onActivate();
+        property->setValue(originalSelection);
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select periodic editor fixture");
+        bool periodicSeen = false, timeOnly = false;
+        QTimer::singleShot(0, [&] {
+          auto editor =
+              qobject_cast<QDialog *>(QApplication::activeModalWidget());
+          if (!editor) return;
+          auto button =
+              editor->findChild<QPushButton *>("nativeBrushSizeDynamics");
+          if (!button) {
+            editor->reject();
+            return;
+          }
+          QTimer::singleShot(0, [&] {
+            auto dynamics =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dynamics) return;
+            auto table =
+                dynamics->findChild<QTableWidget *>("nativeBrushDynamicsTable");
+            if (table && table->rowCount() == 1 && table->columnCount() == 5) {
+              auto sensor = qobject_cast<QComboBox *>(table->cellWidget(0, 0));
+              auto repeat = qobject_cast<QCheckBox *>(table->cellWidget(0, 4));
+              if (sensor && repeat) {
+                periodicSeen =
+                    repeat->isEnabled() && repeat->isChecked() &&
+                    sensor->currentIndex() == int(RasterBrush::Sensor::Time);
+                sensor->setCurrentIndex(int(RasterBrush::Sensor::Pressure));
+                timeOnly = !repeat->isEnabled() && !repeat->isChecked();
+                sensor->setCurrentIndex(int(RasterBrush::Sensor::Time));
+                timeOnly =
+                    timeOnly && repeat->isEnabled() && !repeat->isChecked();
+                repeat->setChecked(true);
+                table->item(0, 1)->setText("2");
+              }
+            }
+            auto buttons = dynamics->findChild<QDialogButtonBox *>();
+            if (buttons && periodicSeen && timeOnly)
+              buttons->button(QDialogButtonBox::Ok)->click();
+            else
+              dynamics->reject();
+          });
+          button->click();
+          auto buttons = editor->findChild<QDialogButtonBox *>();
+          if (!accept || !periodicSeen || !timeOnly || !buttons) {
+            editor->reject();
+            return;
+          }
+          QTimer::singleShot(0, [] {
+            if (auto name = qobject_cast<QInputDialog *>(
+                    QApplication::activeModalWidget()))
+              name->accept();
+          });
+          buttons->button(QDialogButtonBox::Ok)->click();
+        });
+        property->setValue(L"<edit>");
+        require(tool->onPropertyChanged("Native Brush:") && periodicSeen &&
+                    timeOnly,
+                "periodic Time editor lost its repeat setting or admitted "
+                "another repeating sensor");
+        require(RasterBrush::readBoundedRegularFile(
+                    original, 64 * 1024 * 1024, importError) == originalBytes &&
+                    importError.isEmpty() && same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "periodic editor modified original preset or document");
+        if (!accept) {
+          require(property->getValue() == originalSelection,
+                  "cancelled periodic editor selected a copy");
+          continue;
+        }
+        const QString savedPath = QDir(folder).filePath(
+            QString::fromStdWString(property->getValue()));
+        const auto saved = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), savedPath, importError);
+        require(importError.isEmpty() && saved.complete &&
+                    saved.records.size() == 1,
+                "cannot reopen saved periodic editor preset");
+        const auto &mappings = saved.records.front().preset.size.mappings;
+        require(mappings.size() == 1 &&
+                    mappings.front().sensor == RasterBrush::Sensor::Time &&
+                    mappings.front().periodic && mappings.front().scale == 2,
+                "editing and saving discarded periodic Time semantics");
+        const QString portable =
+            QDir::current().filePath("periodic-time-editor.gzbrush");
+        require(RasterBrush::savePortable(
+                    portable, saved.records.front(),
+                    RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                "cannot export periodic editor preset");
+        const auto reopened = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), portable, importError);
+        require(
+            importError.isEmpty() && reopened.complete &&
+                reopened.records.size() == 1 &&
+                reopened.records.front().preset.size.mappings.size() == 1 &&
+                reopened.records.front()
+                    .preset.size.mappings.front()
+                    .periodic &&
+                reopened.records.front().preset.size.mappings.front().scale ==
+                    2,
+            "portable reimport discarded periodic editor setting");
+      }
+    }
+    checkpoint(
+        "qualifying scratchpad tablet pressure and elapsed-time dynamics");
+    {
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original scratchpad time and pressure fixture";
+      fixture.preset.opacity.mappings.push_back(
+          {RasterBrush::Sensor::Time, {{0, 0}, {.05, 0}, {.06, 1}, {1, 1}}, 1});
+      fixture.preset.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString path = RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !path.isEmpty(),
+              "cannot install tablet scratchpad fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select scratchpad time fixture");
+      const auto baseline = raster(level, 1)->clone();
+      bool qualified      = false;
+      QTimer::singleShot(0, [&]() {
+        auto dialog =
+            qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto preview = dialog->findChild<QWidget *>("nativeBrushScratchpad");
+        auto clear =
+            dialog->findChild<QPushButton *>("nativeBrushClearScratchpad");
+        if (preview && clear) {
+          clear->click();
+          const auto blank = preview->grab().toImage();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+          QPointingDevice device("Original tablet fixture", 1,
+                                 QInputDevice::DeviceType::Stylus,
+                                 QPointingDevice::PointerType::Pen,
+                                 QInputDevice::Capability::Position |
+                                     QInputDevice::Capability::Pressure |
+                                     QInputDevice::Capability::XTilt |
+                                     QInputDevice::Capability::YTilt |
+                                     QInputDevice::Capability::Rotation,
+                                 1, 1);
+#endif
+          auto sendTablet = [&](QEvent::Type type, double x, double pressure,
+                                int tilt) {
+            const auto button =
+                type == QEvent::TabletMove ? Qt::NoButton : Qt::LeftButton;
+            const Qt::MouseButtons buttons =
+                type == QEvent::TabletRelease ? Qt::NoButton : Qt::LeftButton;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            QTabletEvent event(type, &device, QPointF(x, 70), QPointF(x, 70),
+                               pressure, tilt, 0, 0, 0, 0, Qt::NoModifier,
+                               button, buttons);
+#else
+            QTabletEvent event(type, QPointF(x, 70), QPointF(x, 70), QTabletEvent::RotationStylus,
+                               QTabletEvent::Pen, pressure, tilt, 0, 0, 0, 0,
+                               Qt::NoModifier, 1, button, buttons);
+#endif
+            QApplication::sendEvent(preview, &event);
+          };
+          sendTablet(QEvent::TabletPress, 40, 0, 0);
+          QEventLoop elapsed;
+          QTimer::singleShot(100, &elapsed, &QEventLoop::quit);
+          elapsed.exec();
+          sendTablet(QEvent::TabletMove, 140, 1, 20);
+          sendTablet(QEvent::TabletMove, 240, 1, 0);
+          sendTablet(QEvent::TabletRelease, 240, 0, 0);
+          qualified = preview->grab().toImage() != blank;
+        }
+        dialog->reject();
+      });
+      property->setValue(L"<edit>");
+      require(
+          tool->onPropertyChanged("Native Brush:") && qualified,
+          "tablet scratchpad replaced elapsed time with an event-count clock");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "tablet scratchpad changed document or undo");
+    }
+    checkpoint("qualifying invalid installed preset selection isolation");
+    {
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString brokenPath =
+          QDir(folder).filePath("original-invalid-installed.gzbrush");
+      QFile broken(brokenPath);
+      require(broken.open(QIODevice::WriteOnly) &&
+                  broken.write("invalid JSON") == 12,
+              "cannot stage invalid installed preset");
+      broken.close();
+      tool->onActivate();
+      const auto previousSelection = property->getValue();
+      const auto baseline          = raster(level, 1)->clone();
+      bool warningSeen             = false;
+      QTimer rejectWarning;
+      QObject::connect(&rejectWarning, &QTimer::timeout, [&]() {
+        auto dialog =
+            qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (dialog && dialog->windowTitle() != "Import Raster Brush") {
+          warningSeen = true;
+          dialog->accept();
+        }
+      });
+      rejectWarning.start(25);
+      property->setValue(
+          QDir(folder).relativeFilePath(brokenPath).toStdWString());
+      const bool handled = tool->onPropertyChanged("Native Brush:");
+      rejectWarning.stop();
+      require(
+          handled && warningSeen && property->getValue() == previousSelection &&
+              same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+          "invalid installed brush replaced active selection or changed "
+          "document");
+      require(QFile::remove(brokenPath),
+              "cannot remove invalid installed fixture");
+    }
+    checkpoint("qualifying explicit source-to-native copy conversion");
+    const auto noSourceHsvSensors = [](const RasterBrush::Preset &preset) {
+      return std::all_of(preset.sourceHsvV2.begin(), preset.sourceHsvV2.end(),
+                         [](const RasterBrush::SourceHsvControl &channel) {
+                           return !channel.enabled &&
+                                  channel.control.value == .5 &&
+                                  channel.control.minimum == 0 &&
+                                  channel.control.mappings.empty();
+                         });
+    };
+    const auto noSourceMask = [](const RasterBrush::Preset &preset) {
+      const auto &mask = preset.sourceMasked;
+      return !mask.enabled && mask.useMasterSize && mask.diameter == 12 &&
+             mask.masterSizeCoeff == .5 && mask.aspect == .5 &&
+             mask.spacing == .5 && mask.opacity == 1 && mask.flow == 1 &&
+             mask.mode == RasterBrush::MaskMode::Multiply;
+    };
+    for (int conversionKind : {0, 1, 2, 3, 4, 5, 6, 7, 8}) {
+      const bool wetConversion = conversionKind == 1;
+      const bool hsvConversion = conversionKind >= 2 && conversionKind <= 4;
+      const bool hsvSensorConversion =
+          conversionKind == 3 || conversionKind == 4;
+      const bool mirrorConversion     = conversionKind == 8;
+      const bool airbrushConversion   = conversionKind == 7;
+      const bool bitmapMaskConversion = conversionKind == 6;
+      const bool maskedConversion     = conversionKind == 5;
+      const bool resourceFreeConversion =
+          hsvConversion || maskedConversion || airbrushConversion;
+      RasterBrush::Record fixture;
+      if (maskedConversion) {
+        const QString sourcePath =
+            QDir::current().filePath("conversion-masked.kpp");
+        QFile source(sourcePath);
+        const auto bytes = RasterBrushTest::maskedPixelKpp();
+        require(source.open(QIODevice::WriteOnly) &&
+                    source.write(bytes) == bytes.size(),
+                "cannot stage source masked conversion fixture");
+        source.close();
+        auto imported = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && imported.complete &&
+                    imported.records.size() == 1 &&
+                    imported.records.front().preset.sourceMasked.enabled,
+                "cannot import source masked conversion fixture");
+        fixture = imported.records.front();
+      }
+      fixture.preset.name = wetConversion ? "Original wet conversion fixture"
+                            : hsvConversion
+                                ? "Original HSV conversion fixture"
+                                : "Original pixel conversion fixture";
+      if (maskedConversion)
+        fixture.preset.name = "Original source masked conversion fixture";
+      if (hsvSensorConversion)
+        fixture.preset.name +=
+            conversionKind == 3 ? " pressure hue" : " pressure value";
+      fixture.preset.profile = wetConversion
+                                   ? "krita-5.3.4.1-legacy-dulling-candidate-1"
+                                   : "krita-5.3.4.1-hard-pixel-candidate-1";
+      fixture.preset.wet =
+          wetConversion ? RasterBrush::Wet::Dulling : RasterBrush::Wet::Off;
+      fixture.preset.smudgeRadius = 0;
+      if (bitmapMaskConversion) {
+        fixture.preset.name    = "Original PNG mask native-copy fixture";
+        fixture.preset.profile = "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
+        fixture.preset.size.value = 4;
+        fixture.preset.tip.shape  = RasterBrush::Shape::Bitmap;
+        auto image                = std::make_shared<RasterBrush::Image>();
+        image->width = image->height = 2;
+        image->color                 = true;
+        image->pixels                = {{0, 0, 0, 1},
+                                        {1, 1, 1, 1},
+                                        {1, 0, 0, 1},
+                                        {0, 0, 128.0 / 255, 128.0 / 255}};
+        fixture.preset.tip.images    = {image};
+      }
+      if (mirrorConversion) {
+        fixture.preset.name       = "Original pressure Mirror conversion";
+        fixture.preset.profile    = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+        fixture.preset.size.value = 4;
+        fixture.preset.tip.shape  = RasterBrush::Shape::Bitmap;
+        auto image                = std::make_shared<RasterBrush::Image>();
+        image->width = image->height = 2;
+        image->pixels                = {
+            {0, 0, 0, 1}, {0, 0, 0, .2}, {0, 0, 0, .6}, {0, 0, 0, 0}};
+        fixture.preset.tip.images = {image};
+        fixture.preset.sourceMirror.enabled =
+            fixture.preset.sourceMirror.horizontal = true;
+        fixture.preset.sourceMirror.control.mappings.push_back(
+            {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      }
+      if (airbrushConversion) {
+        fixture.preset.name          = "Original source airbrush conversion";
+        fixture.preset.profile       = "krita-5.3.4.1-airbrush-candidate-1";
+        fixture.preset.size.value    = 16;
+        fixture.preset.spacing       = 1;
+        fixture.preset.opacity.value = .1;
+        fixture.preset.airbrushRate  = 20;
+        fixture.preset.airbrushIgnoreSpacing = true;
+      }
+      if (hsvSensorConversion) {
+        auto &channel = fixture.preset.sourceHsvV2[conversionKind == 3 ? 0 : 2];
+        channel.enabled = true;
+        channel.control = RasterBrush::Dynamic{1, 0, {}};
+        channel.control.mappings.push_back(
+            {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      } else if (hsvConversion) {
+        fixture.preset.sourceHsvChannel =
+            RasterBrush::SourceHsvChannel::Saturation;
+        fixture.preset.sourceHsvValue = .75;
+      }
+      // A forged classification must not hide the actual source runtime in
+      // the editor; the explicit conversion action is still required.
+      fixture.provenance["conversionKind"] = "native-reinterpretation";
+      fixture.provenance["sourceProfileBeforeNativeConversion"] =
+          QString::fromStdString(fixture.preset.profile);
+      fixture.provenance["sourceSha256"] =
+          QString(64, wetConversion ? 'b' : 'c');
+      auto texture   = std::make_shared<RasterBrush::Image>();
+      texture->width = texture->height = 1;
+      texture->pixels                  = {{0, 0, 0, 1}};
+      // These source HSV/masked profiles exclude texture resources.
+      // Pixel/wet cases retain the resource-rights preservation coverage.
+      if (!resourceFreeConversion && !bitmapMaskConversion && !mirrorConversion)
+        fixture.preset.texture.image = texture;
+      const auto assets = RasterBrush::resources(fixture, importError);
+      require(importError.isEmpty() &&
+                  assets.size() == (resourceFreeConversion ? 0u : 1u),
+              "source conversion resource fixture invalid");
+      if (!resourceFreeConversion)
+        fixture.resourceRights[assets.front().hash] = QJsonObject{
+            {"redistribution", bitmapMaskConversion ? "unknown" : "restricted"},
+            {"license", "Original fixture"}};
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString originalPath =
+          RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !originalPath.isEmpty(),
+              "cannot install source conversion fixture");
+      const auto originalBytes = RasterBrush::readBoundedRegularFile(
+          originalPath, 64 * 1024 * 1024, importError);
+      require(importError.isEmpty(),
+              "cannot capture original conversion preset");
+      tool->onActivate();
+      property->setValue(
+          QDir(folder).relativeFilePath(originalPath).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select source conversion fixture");
+      const auto originalSelection = property->getValue();
+      const auto baseline          = raster(level, 1)->clone();
+      for (int outcome = 0; outcome < 3; ++outcome) {
+        bool requested = false, confirmed = false, statusCorrect = false,
+             originalStatus = false;
+        QTimer conversionDriver;
+        QObject::connect(&conversionDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (modal && modal->objectName() == "nativeBrushEditor") {
+            auto editor = qobject_cast<QDialog *>(modal);
+            auto status =
+                editor->findChild<QLabel *>("nativeBrushCompatibilityStatus");
+            auto convert =
+                editor->findChild<QPushButton *>("nativeBrushConvertCopy");
+            if (!requested && convert) {
+              requested      = true;
+              originalStatus = status && status->text().contains(
+                                             "Experimental source profile");
+              QTimer::singleShot(0, [&]() {
+                auto confirmation = qobject_cast<QMessageBox *>(
+                    QApplication::activeModalWidget());
+                if (!confirmation || confirmation->objectName() !=
+                                         "nativeBrushConfirmNativeConversion")
+                  return;
+                confirmed =
+                    confirmation->defaultButton() ==
+                        confirmation->button(QMessageBox::Cancel) &&
+                    confirmation->text().contains(
+                        "original remains unchanged") &&
+                    (!mirrorConversion ||
+                     confirmation->text().contains(
+                         "pressure-controlled Mirror will be removed")) &&
+                    (!wetConversion ||
+                     confirmation->text().contains("native wet mixing")) &&
+                    (!airbrushConversion ||
+                     confirmation->text().contains("Source timer dispatch")) &&
+                    (!bitmapMaskConversion ||
+                     (confirmation->text().contains("native alpha mask") &&
+                      confirmation->text().contains(
+                          "original PNG alone cannot match"))) &&
+                    (!hsvConversion ||
+                     (confirmation->text().contains(
+                          hsvSensorConversion
+                              ? "HSV sensor controls will be removed"
+                              : "HSV color adjustment will be removed") &&
+                      confirmation->text().contains("different equations"))) &&
+                    (!maskedConversion ||
+                     (confirmation->text().contains(
+                          "source masked brush will be removed") &&
+                      confirmation->text().contains("separate opacity, flow") &&
+                      confirmation->text().contains(
+                          "not an equivalent replacement")));
+                if (outcome == 0)
+                  confirmation->reject();
+                else {
+                  auto accept = confirmation->findChild<QPushButton *>(
+                      "nativeBrushAcceptNativeConversion");
+                  if (accept)
+                    accept->click();
+                  else
+                    confirmation->reject();
+                }
+              });
+              convert->click();
+            } else if (requested) {
+              statusCorrect =
+                  status && status->text().contains(
+                                outcome == 0 ? "Experimental source profile"
+                                             : "Native reinterpretation");
+              if (wetConversion && outcome != 0) {
+                auto pickup =
+                    editor->findChild<QDoubleSpinBox *>("nativeBrushPickup");
+                auto colorRate =
+                    editor->findChild<QDoubleSpinBox *>("nativeBrushColorRate");
+                auto radius = editor->findChild<QDoubleSpinBox *>(
+                    "nativeBrushSmudgeRadius");
+                statusCorrect = statusCorrect && pickup && colorRate &&
+                                radius && pickup->value() == .5 &&
+                                colorRate->value() == .25 &&
+                                radius->value() == 1;
+              }
+              if (outcome < 2)
+                editor->reject();
+              else {
+                auto size = editor->findChild<QDoubleSpinBox *>(
+                    "nativeBrushPresetSize");
+                auto buttons = editor->findChild<QDialogButtonBox *>();
+                if (size && buttons && buttons->button(QDialogButtonBox::Ok)) {
+                  size->setValue(32.5);  // Deliberately outside strict integer
+                                         // source-size eligibility.
+                  buttons->button(QDialogButtonBox::Ok)->click();
+                } else
+                  editor->reject();
+              }
+            }
+          } else if (auto name = qobject_cast<QInputDialog *>(modal))
+            name->accept();
+        });
+        conversionDriver.start(25);
+        property->setValue(L"<edit>");
+        const bool handled = tool->onPropertyChanged("Native Brush:");
+        conversionDriver.stop();
+        require(handled && requested && confirmed && originalStatus &&
+                    statusCorrect,
+                "explicit conversion acknowledgment/status workflow failed");
+        const auto unchanged = RasterBrush::readBoundedRegularFile(
+            originalPath, 64 * 1024 * 1024, importError);
+        require(importError.isEmpty() && unchanged == originalBytes &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "source conversion modified original preset or document");
+        if (outcome < 2)
+          require(property->getValue() == originalSelection,
+                  "cancelled native conversion selected a copy");
+        else {
+          require(property->getValue() != originalSelection,
+                  "accepted native conversion replaced original selection "
+                  "identity");
+          const QString copyPath = QDir(folder).filePath(
+              QString::fromStdWString(property->getValue()));
+          const auto copy = RasterBrush::importBrushProcess(
+              QCoreApplication::applicationFilePath(), copyPath, importError);
+          require(importError.isEmpty() && copy.complete &&
+                      copy.records.size() == 1,
+                  "native conversion copy failed reopening");
+          const auto &converted = copy.records.front();
+          require(
+              converted.preset.profile == "groundzero-native-1" &&
+                  converted.preset.size.value == 32.5 &&
+                  converted.preset.sourceHsvChannel ==
+                      RasterBrush::SourceHsvChannel::Off &&
+                  converted.preset.sourceHsvValue == .5 &&
+                  noSourceHsvSensors(converted.preset) &&
+                  !converted.preset.sourceMirror.enabled &&
+                  !converted.preset.sourceMirror.horizontal &&
+                  !converted.preset.sourceMirror.vertical &&
+                  converted.preset.sourceMirror.control.mappings.empty() &&
+                  noSourceMask(converted.preset) &&
+                  !converted.preset.airbrushIgnoreSpacing &&
+                  bool(converted.preset.texture.image) ==
+                      (!resourceFreeConversion && !bitmapMaskConversion &&
+                       !mirrorConversion) &&
+                  (bitmapMaskConversion ||
+                   converted.resourceRights == fixture.resourceRights) &&
+                  converted.provenance["sourceProfileBeforeNativeConversion"]
+                          .toString() ==
+                      QString::fromStdString(fixture.preset.profile) &&
+                  !converted.provenance["sourceReferenceVerified"].toBool() &&
+                  (!wetConversion || (converted.preset.smudgeRadius == 1 &&
+                                      converted.preset.pickup == .5 &&
+                                      converted.preset.colorRate == .25)),
+              "native conversion lost assets, declarations, edited values or "
+              "reset semantics");
+          const QString portable = QDir::current().filePath(
+              wetConversion      ? "converted-wet.gzbrush"
+              : hsvConversion    ? "converted-hsv.gzbrush"
+              : maskedConversion ? "converted-masked.gzbrush"
+                                 : "converted-pixel.gzbrush");
+          require(RasterBrush::savePortable(
+                      portable, converted,
+                      RasterBrush::ResourcePackaging::PrivateCopy, importError),
+                  "cannot export native conversion copy");
+          const auto reopened = RasterBrush::importBrushProcess(
+              QCoreApplication::applicationFilePath(), portable, importError);
+          require(
+              importError.isEmpty() && reopened.complete &&
+                  reopened.records.size() == 1 &&
+                  reopened.records.front().preset.sourceHsvChannel ==
+                      RasterBrush::SourceHsvChannel::Off &&
+                  reopened.records.front().preset.sourceHsvValue == .5 &&
+                  noSourceHsvSensors(reopened.records.front().preset) &&
+                  !reopened.records.front().preset.sourceMirror.enabled &&
+                  !reopened.records.front().preset.sourceMirror.horizontal &&
+                  !reopened.records.front().preset.sourceMirror.vertical &&
+                  reopened.records.front()
+                      .preset.sourceMirror.control.mappings.empty() &&
+                  noSourceMask(reopened.records.front().preset) &&
+                  !reopened.records.front().preset.airbrushIgnoreSpacing &&
+                  reopened.records.front().provenance["conversionKind"] ==
+                      "native-reinterpretation" &&
+                  reopened.records.front()
+                          .provenance["sourceProfileBeforeNativeConversion"] ==
+                      converted
+                          .provenance["sourceProfileBeforeNativeConversion"] &&
+                  (bitmapMaskConversion ||
+                   reopened.records.front().resourceRights ==
+                       fixture.resourceRights),
+              "portable conversion reimport lost original-profile identity or "
+              "resource rights");
+          if (bitmapMaskConversion) {
+            const auto derived = RasterBrush::resources(converted, importError);
+            require(
+                importError.isEmpty() && derived.size() == 1 &&
+                    !derived.front().color &&
+                    derived.front().hash != assets.front().hash &&
+                    converted.resourceRights[derived.front().hash] ==
+                        fixture.resourceRights[assets.front().hash],
+                "native mask copy did not remap the original resource rights");
+            const auto &image = *converted.preset.tip.images.front();
+            const int alpha[] = {255, 0, 168, 108};
+            require(!image.color && image.pixels.size() == 4,
+                    "native mask copy became a color stamp");
+            for (size_t i = 0; i < image.pixels.size(); ++i)
+              require(
+                  image.pixels[i].r == 0 && image.pixels[i].g == 0 &&
+                      image.pixels[i].b == 0 &&
+                      std::abs(image.pixels[i].a - alpha[i] / 255.0) < 1e-12,
+                  "native mask copy lost inverse grayscale/alpha coverage");
+            const auto exportedAssets =
+                RasterBrush::resources(reopened.records.front(), importError);
+            require(importError.isEmpty() && exportedAssets.size() == 1 &&
+                        exportedAssets.front().hash == derived.front().hash &&
+                        exportedAssets.front().redistribution == "unknown" &&
+                        exportedAssets.front().license == "Original fixture",
+                    "private native mask copy lost derived mask identity or "
+                    "rights");
+            const QString manifestPath =
+                QDir::current().filePath("derived-mask-manifest.gzbrush");
+            require(
+                RasterBrush::savePortable(
+                    manifestPath, converted,
+                    RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                "cannot export derived mask manifest");
+            const auto manifest = RasterBrush::readBoundedRegularFile(
+                manifestPath, 64 * 1024 * 1024, importError);
+            const auto info =
+                RasterBrush::inspectPortable(manifest, importError);
+            require(importError.isEmpty() && info.resources.size() == 1 &&
+                        !info.resources.front().embedded &&
+                        info.resources.front().hash == derived.front().hash,
+                    "derived mask manifest embedded unknown-rights resource");
+            QStringList matched;
+            const auto unmatched = RasterBrush::relinkPortable(
+                manifest, {fixture}, matched, importError);
+            require(
+                importError.isEmpty() && !unmatched.isEmpty() &&
+                    matched.isEmpty(),
+                "original RGBA source falsely matched the derived mask hash");
+            const bool nativeDialogsDisabled =
+                QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+            for (const QString &resourceCopy : {copyPath, portable}) {
+              bool relinkSeen = false, acceptanceSeen = false;
+              int pickers = 0, attempts = 0;
+              QTimer driver;
+              QObject::connect(&driver, &QTimer::timeout, [&] {
+                auto modal = QApplication::activeModalWidget();
+                if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+                  if (!picker->property("fixtureSubmitted").toBool()) {
+                    picker->setProperty("fixtureSubmitted", true);
+                    submitFileDialog(
+                        picker, pickers++ == 0 ? manifestPath : resourceCopy);
+                  }
+                } else if (modal && modal->objectName() ==
+                                        "nativeBrushRelinkResources") {
+                  relinkSeen = true;
+                  if (auto choose = modal->findChild<QPushButton *>(
+                          "nativeBrushChooseResourceCopies"))
+                    choose->click();
+                  else
+                    qobject_cast<QDialog *>(modal)->reject();
+                } else if (modal && modal->objectName() ==
+                                        "nativeBrushApproximationAcceptance") {
+                  acceptanceSeen = true;
+                  if (auto accept = modal->findChild<QPushButton *>(
+                          "nativeBrushAcceptApproximation"))
+                    accept->click();
+                  else
+                    qobject_cast<QDialog *>(modal)->reject();
+                } else if (++attempts > 2400) {
+                  if (auto dialog = qobject_cast<QDialog *>(modal))
+                    dialog->reject();
+                }
+              });
+              driver.start(25);
+              property->setValue(L"<import>");
+              const bool handledRepair =
+                  tool->onPropertyChanged("Native Brush:");
+              driver.stop();
+              require(
+                  handledRepair && relinkSeen && acceptanceSeen &&
+                      pickers == 2 && same(baseline, raster(level, 1)) &&
+                      undo->getHistoryCount() == 0,
+                  "derived mask resource repair UI failed or altered document");
+              const QString repairedPath = QDir(folder).filePath(
+                  QString::fromStdWString(property->getValue()));
+              const auto repaired = RasterBrush::importBrushProcess(
+                  QCoreApplication::applicationFilePath(), repairedPath,
+                  importError);
+              require(importError.isEmpty() && repaired.complete &&
+                          repaired.records.size() == 1,
+                      "repaired derived mask copy failed isolated validation");
+              const auto repairedAssets =
+                  RasterBrush::resources(repaired.records.front(), importError);
+              require(importError.isEmpty() && repairedAssets.size() == 1 &&
+                          repairedAssets.front().hash == derived.front().hash &&
+                          !repairedAssets.front().color &&
+                          repairedAssets.front().redistribution == "unknown",
+                      "derived mask repair changed mask or rights");
+            }
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
+                                       nativeDialogsDisabled);
+          }
+        }
+      }
+    }
+    checkpoint("qualifying explicit approximation acceptance and rejection");
+    for (const QString &kind :
+         {QString(), QString("tip-only"), QString("static-native"),
+          QString("partial-native")}) {
+      const QString sourcePath =
+          QDir::current().filePath("original-ui-acceptance.gzbrush");
+      QFile source(sourcePath);
+      RasterBrush::Record importedFixture;
+      importedFixture.preset.name =
+          "Original diagnostic-free conversion fixture " + kind.toStdString();
+      if (!kind.isEmpty()) importedFixture.provenance["conversionKind"] = kind;
+      importedFixture.provenance["sourceSha256"] = QString(64, 'a');
+      const auto bytes                           = RasterBrush::encodePortable(
+          importedFixture, RasterBrush::ResourcePackaging::ManifestOnly,
+          importError);
+      require(importError.isEmpty() && importedFixture.diagnostics.empty(),
+              "cannot encode diagnostic-free conversion fixture");
+      require(source.open(QIODevice::WriteOnly) &&
+                  source.write(bytes) == bytes.size(),
+              "cannot stage approximation acceptance fixture");
+      source.close();
+      const auto baseline = raster(level, 1)->clone();
+      const QDir library(ToonzFolder::getLibraryFolder().getQString() +
+                         "/rasterbrushes");
+      bool alreadyInstalled = false;
+      for (bool acceptImport : {false, true, true}) {
+        const auto beforeFiles =
+            library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+        const bool nativeDialogsDisabled =
+            QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        bool acceptanceSeen = false, defaultCancel = false,
+             labelsCorrect = false, pickerSubmitted = false;
+        bool driverExpired = false;
+        QString previousModal, unexpectedWarning;
+        QElapsedTimer deadline;
+        deadline.start();
+        std::cerr << "raster-brush-integration: import "
+                  << (kind.isEmpty() ? "unclassified" : kind.toStdString())
+                  << " accept=" << acceptImport
+                  << " duplicate=" << alreadyInstalled << std::endl;
+        QTimer modalDriver;
+        QObject::connect(&modalDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          const QString identity =
+              modal ? QString::fromLatin1(modal->metaObject()->className()) +
+                          ":" + modal->objectName() + ":" + modal->windowTitle()
+                    : QString("no active modal");
+          if (identity != previousModal) {
+            std::cerr << "raster-brush-integration: acceptance modal "
+                      << identity.toStdString() << std::endl;
+            previousModal = identity;
+            if (modal && identity.startsWith("DVGui::Dialog:")) {
+              QStringList body;
+              for (auto label : modal->findChildren<QLabel *>())
+                if (!label->text().isEmpty()) body << label->text();
+              unexpectedWarning = identity + " | " + body.join(" | ");
+              std::cerr
+                  << "raster-brush-integration: unexpected import warning "
+                  << unexpectedWarning.toStdString() << std::endl;
+              if (auto dialog = qobject_cast<QDialog *>(modal))
+                dialog->reject();
+              return;
+            }
+          }
+          if (deadline.elapsed() > 15000) {
+            driverExpired = true;
+            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+            return;
+          }
+          if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+            if (!pickerSubmitted) {
+              pickerSubmitted = true;
+              // Exercise the focused filename condition that previously made
+              // selectFile a no-op and left the real picker open indefinitely.
+              if (auto filename =
+                      picker->findChild<QLineEdit *>("fileNameEdit")) {
+                filename->setFocus();
+                filename->clear();
+              }
+              if (!submitFileDialog(picker, sourcePath)) driverExpired = true;
+            }
+          } else if (modal && modal->objectName() ==
+                                  "nativeBrushApproximationAcceptance") {
+            auto report   = qobject_cast<QMessageBox *>(modal);
+            defaultCancel = report && report->defaultButton() ==
+                                          report->button(QMessageBox::Cancel);
+            acceptanceSeen = true;
+            if (report) {
+              auto acceptLabel = report->findChild<QPushButton *>(
+                  "nativeBrushAcceptApproximation");
+              labelsCorrect =
+                  kind.isEmpty() ||
+                  (kind == "tip-only" &&
+                   report->text().contains("Tip extraction only") &&
+                   acceptLabel &&
+                   acceptLabel->text() == "Accept extracted tips only") ||
+                  (kind == "static-native" &&
+                   report->text().contains("Static native conversion") &&
+                   acceptLabel &&
+                   acceptLabel->text() == "Accept static native conversions") ||
+                  (kind == "partial-native" &&
+                   report->text().contains("Partial native conversion") &&
+                   acceptLabel &&
+                   acceptLabel->text() == "Accept partial native conversions");
+              if (acceptImport) {
+                auto accept = report->findChild<QPushButton *>(
+                    "nativeBrushAcceptApproximation");
+                if (accept)
+                  accept->click();
+                else
+                  report->reject();
+              } else
+                report->reject();
+            }
+          }
+        });
+        modalDriver.start(25);
+        property->setValue(L"<import>");
+        const bool handled = tool->onPropertyChanged("Native Brush:");
+        modalDriver.stop();
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
+                                   nativeDialogsDisabled);
+        require(unexpectedWarning.isEmpty(),
+                qPrintable("Import failed after conversion decision: " +
+                           unexpectedWarning));
+        require(!driverExpired, "conversion import modal driver exceeded 15s");
+        require(handled && acceptanceSeen && defaultCancel && labelsCorrect,
+                "foreign import lacked explicit approximation acceptance with "
+                "Cancel default");
+        const auto afterFiles =
+            library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+        require((acceptImport && !alreadyInstalled
+                     ? !sameFiles(afterFiles, beforeFiles)
+                     : sameFiles(afterFiles, beforeFiles)) &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "approximation acceptance did not control installation "
+                "independently of document state");
+        if (acceptImport) alreadyInstalled = true;
+        if (acceptImport && !kind.isEmpty()) {
+          checkpoint("checking installed approximation editor classification");
+          bool statusCorrect = false, editorExpired = false;
+          QElapsedTimer editorDeadline;
+          editorDeadline.start();
+          QTimer editorDriver;
+          QObject::connect(&editorDriver, &QTimer::timeout, [&]() {
+            auto editor =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (editorDeadline.elapsed() > 15000) {
+              editorExpired = true;
+              if (editor) editor->reject();
+              return;
+            }
+            if (!editor || editor->objectName() != "nativeBrushEditor") return;
+            auto status =
+                editor->findChild<QLabel *>("nativeBrushCompatibilityStatus");
+            statusCorrect =
+                status &&
+                status->text().contains(
+                    kind == "tip-only"         ? "Tip extraction only"
+                    : kind == "partial-native" ? "Partial native conversion"
+                                               : "Static native conversion");
+            editor->reject();
+          });
+          editorDriver.start(25);
+          property->setValue(L"<edit>");
+          const bool edited = tool->onPropertyChanged("Native Brush:");
+          editorDriver.stop();
+          require(
+              edited && statusCorrect && !editorExpired,
+              "portable conversion classification was lost in editor status");
+        }
+      }
+    }
+    checkpoint("qualifying source initialization without paint or undo");
+    {
+      RasterBrush::Record fixture;
+      fixture.preset.name         = "Original source initializer";
+      fixture.preset.profile      = "krita-5.3.4.1-legacy-dulling-candidate-1";
+      fixture.preset.wet          = RasterBrush::Wet::Dulling;
+      fixture.preset.smudgeRadius = 0;
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      QString path = RasterBrush::install(folder, fixture, importError);
+      require(!path.isEmpty() && importError.isEmpty(),
+              "cannot install source initializer");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select source initializer");
+      TRaster32P baseline = raster(level, 1)->clone();
+      tap(tool);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source initialization painted or created an undo entry");
+      app->getCurrentFrame()->setFid(TFrameId(4));
+      settle();
+      tap(tool);
+      require(
+          !level->getFrame(TFrameId(4), false) && undo->getHistoryCount() == 0,
+          "unpainted source initialization retained a created frame");
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+    }
+    checkpoint("qualifying exact premultiplied PNG persistence");
+    {
+      // Exercise every valid 8-bit alpha/channel pair through real file I/O.
+      // Two cycles also expose cumulative rounding drift.
+      TRaster32P values(256, 256);
+      for (int alpha = 0; alpha < 256; ++alpha)
+        for (int channel = 0; channel < 256; ++channel) {
+          const int c                    = std::min(channel, alpha);
+          values->pixels(alpha)[channel] = TPixel32(c, alpha - c, c / 2, alpha);
+        }
+      const TRaster32P originalValues = values->clone();
+      const TFilePath path(
+          QDir::current().filePath("premultiplied-roundtrip.png"));
+      for (int cycle = 0; cycle < 2; ++cycle) {
+        TImageWriter::save(path, TRasterP(values));
+        TRasterP decoded;
+        require(TImageReader::load(path, decoded),
+                "cannot read PNG channel fixture");
+        values = TRaster32P(decoded);
+        requireSame(originalValues, values,
+                    "PNG premultiplied channel round trip");
+      }
+    }
+    checkpoint("qualifying imported source mask and HSV painting lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const auto previousColor     = palette->getStyle(1)->getMainColor();
+      palette->getStyle(1)->setMainColor(TPixel32(160, 80, 40, 255));
+      for (const QString &kind :
+           {QString("mask"), QString("h"), QString("v")}) {
+        checkpoint(qPrintable("source painting lifecycle: " + kind));
+        QByteArray sourceBytes;
+        if (kind == "mask")
+          sourceBytes = RasterBrushTest::maskedPixelKpp();
+        else {
+          QImage image =
+              QImage::fromData(RasterBrushTest::hardPixelKpp("buildUp"), "PNG");
+          QString xml = image.text("preset"), extra;
+          auto param  = [&](const QString &key, const QString &value) {
+            extra += "<param name=\"" + key + "\">" + value.toHtmlEscaped() +
+                     "</param>";
+          };
+          for (const QString &channel :
+               {QString("h"), QString("s"), QString("v")})
+            param("Pressure" + channel, channel == kind ? "true" : "false");
+          param(kind + "UseCurve", "true");
+          param(kind + "UseSameCurve", "true");
+          param(kind + "Value", "1");
+          param(kind + "curveMode", "0");
+          param(kind + "commonCurve", "0,0;1,1;");
+          param(kind + "Sensor",
+                "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+          xml.replace("</Preset>", extra + "</Preset>");
+          image.setText("preset", xml);
+          QBuffer buffer(&sourceBytes);
+          require(
+              buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+              "cannot encode original source HSV lifecycle fixture");
+        }
+        const QString sourcePath =
+            QDir::current().filePath("paint-source-" + kind + ".kpp");
+        QFile sourceFile(sourcePath);
+        require(sourceFile.open(QIODevice::WriteOnly) &&
+                    sourceFile.write(sourceBytes) == sourceBytes.size(),
+                "cannot stage source painting lifecycle fixture");
+        sourceFile.close();
+        const auto imported = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && imported.complete &&
+                    imported.records.size() == 1,
+                "source painting worker import failed");
+        const auto &record = imported.records.front();
+        auto checkIdentity = [&](const RasterBrush::Record &candidate) {
+          require(
+              candidate.preset.profile ==
+                      "krita-5.3.4.1-hard-pixel-candidate-1" &&
+                  !candidate.referenceVerified &&
+                  !candidate.provenance["sourceReferenceVerified"].toBool(),
+              "source painting workflow lost candidate or unverified status");
+          if (kind == "mask")
+            require(
+                candidate.preset.sourceMasked.enabled &&
+                    candidate.preset.sourceMasked.opacity == .5 &&
+                    candidate.preset.sourceMasked.flow == .5 &&
+                    candidate.preset.wash,
+                "source mask painting workflow lost separate mask controls");
+          else {
+            const auto &channel =
+                candidate.preset.sourceHsvV2[kind == "h" ? 0 : 2];
+            require(channel.enabled && channel.control.value == 1 &&
+                        channel.control.minimum == 0 &&
+                        channel.control.mappings.size() == 1 &&
+                        channel.control.mappings.front().sensor ==
+                            RasterBrush::Sensor::Pressure,
+                    "source HSV painting workflow lost pressure control");
+          }
+        };
+        checkIdentity(record);
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        auto select = [&](const RasterBrush::Record &candidate) {
+          const QString installed =
+              RasterBrush::install(folder, candidate, importError);
+          require(importError.isEmpty() && !installed.isEmpty(),
+                  "source painting install failed");
+          tool->onActivate();
+          property->setValue(
+              QDir(folder).relativeFilePath(installed).toStdWString());
+          require(tool->onPropertyChanged("Native Brush:"),
+                  "source painting selection failed");
+        };
+        select(record);
+        const TRaster32P baseline = raster(level, 1)->clone();
+        undo->reset();
+        draw(tool, false, .2);
+        const TRaster32P low = raster(level, 1)->clone();
+        require(!same(baseline, low) && undo->getHistoryCount() == 1 &&
+                    undo->undo() && same(baseline, raster(level, 1)),
+                "source painting low-pressure transaction failed");
+        undo->reset();
+        draw(tool, false, .8);
+        const TRaster32P painted = raster(level, 1)->clone();
+        require(!same(baseline, painted) && undo->getHistoryCount() == 1 &&
+                    (kind == "mask" || !same(low, painted)),
+                "source HSV pressure failed to affect actual pixels");
+        verifyScenePersistence(painted, "source-paint-" + kind);
+        require(undo->undo() && same(baseline, raster(level, 1)) &&
+                    undo->redo() && same(painted, raster(level, 1)) &&
+                    undo->undo() && same(baseline, raster(level, 1)),
+                "source painting exact undo/redo failed");
+        undo->reset();
+        draw(tool, true, .8);
+        require(
+            same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled source painting left pixels or history");
+        const QString portable =
+            QDir::current().filePath("paint-source-" + kind + ".gzbrush");
+        require(RasterBrush::savePortable(
+                    portable, record,
+                    RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                "source painting portable export failed");
+        const auto reopened = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), portable, importError);
+        require(importError.isEmpty() && reopened.complete &&
+                    reopened.records.size() == 1,
+                "source painting portable worker reimport failed");
+        checkIdentity(reopened.records.front());
+        select(reopened.records.front());
+        draw(tool, false, .8);
+        requireSame(painted, raster(level, 1),
+                    "portable source repaint: " + kind);
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "portable source repaint undo failed");
+        undo->reset();
+        verifyMidStrokeFrameSwitch();
+        app->getCurrentFrame()->setFid(TFrameId(6));
+        settle();
+        tool->onImageChanged();
+        const TFrameId selectedEmptyFid = app->getCurrentFrame()->getFid();
+        TFrameId createdSourceFid;
+        bool createdSourceFrame = false;
+        draw(tool, true, .8, .2, .4, false, [&] {
+          createdSourceFid   = app->getCurrentFrame()->getFid();
+          createdSourceFrame = bool(level->getFrame(createdSourceFid, false));
+        });
+        checkpoint(qPrintable(
+            QString(
+                "source cancellation context: kind=%1 "
+                "selected=%2 created=%3 existedBeforeEscape=%4 afterEscape=%5")
+                .arg(kind)
+                .arg(selectedEmptyFid.getNumber())
+                .arg(createdSourceFid.getNumber())
+                .arg(createdSourceFrame)
+                .arg(app->getCurrentFrame()->getFid().getNumber())));
+        require(selectedEmptyFid == TFrameId(6) &&
+                    createdSourceFid == TFrameId(6) && createdSourceFrame,
+                "source cancellation fixture did not create its selected empty "
+                "frame");
+        require(!level->getFrame(TFrameId(6), false) &&
+                    undo->getHistoryCount() == 0,
+                "cancelled source painting retained a new frame");
+        const auto retrySelection = property->getValue();
+        const TFrameId retryFid   = app->getCurrentFrame()->getFid();
+        const bool retryLevelMode = app->getCurrentFrame()->isEditingLevel();
+        // Deleting a drawing may move the viewer to its empty next-frame
+        // placeholder. Retry at the user's actual selected target, retaining
+        // the separate frame6-before-Escape and cleanup assertions above.
+        require(retryLevelMode &&
+                    app->getCurrentLevel()->getSimpleLevel() == level &&
+                    !retryFid.isEmptyFrame() &&
+                    !level->getFrame(retryFid, false),
+                "cancelled source stroke did not leave an empty selected frame "
+                "in its level");
+        QStringList retryWarnings;
+        QObject retryCapture;
+        QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage,
+                         &retryCapture, [&](int type, const QString &message) {
+                           if (type == DVGui::WARNING) retryWarnings << message;
+                         });
+        draw(tool, false, .8);
+        require(
+            bool(raster(level, retryFid)) && undo->getHistoryCount() == 1 &&
+                app->getCurrentFrame()->getFid() == retryFid &&
+                app->getCurrentLevel()->getSimpleLevel() == level &&
+                property->getValue() == retrySelection,
+            qPrintable(
+                QString(
+                    "source painting did not create one frame transaction: "
+                    "kind=%1 frameExists=%2 history=%3 fidBefore=%4 "
+                    "fidAfter=%5 "
+                    "levelModeBefore=%6 levelModeAfter=%7 levelPreserved=%8 "
+                    "selectionPreserved=%9 warnings=%10")
+                    .arg(kind)
+                    .arg(bool(raster(level, retryFid)))
+                    .arg(undo->getHistoryCount())
+                    .arg(retryFid.getNumber())
+                    .arg(app->getCurrentFrame()->getFid().getNumber())
+                    .arg(retryLevelMode)
+                    .arg(app->getCurrentFrame()->isEditingLevel())
+                    .arg(app->getCurrentLevel()->getSimpleLevel() == level)
+                    .arg(property->getValue() == retrySelection)
+                    .arg(retryWarnings.join(" | "))));
+        const TRaster32P created = raster(level, retryFid)->clone();
+        require(undo->undo() && !level->getFrame(retryFid, false) &&
+                    undo->redo() && same(created, raster(level, retryFid)) &&
+                    undo->undo() && !level->getFrame(retryFid, false),
+                "source painting new-frame undo/redo changed pixels or state");
+        undo->reset();
+        app->getCurrentFrame()->setFid(TFrameId(1));
+        settle();
+        tool->onImageChanged();
+        requireSame(baseline, raster(level, 1),
+                    "source painting original frame: " + kind);
+      }
+      palette->getStyle(1)->setMainColor(previousColor);
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore brush after source painting qualification");
+    }
+    checkpoint("qualifying source wet stroke transactions and persistence");
+    for (const QString &model :
+         {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
+      for (const QString &variant :
+           {QString(), QString("wetPressure"), QString("radiusPressure"),
+            QString("halfOpacity")}) {
+        const QString label =
+            model + "-" + (variant.isEmpty() ? QString("fixed") : variant);
+        const QString sourcePath =
+            QDir::current().filePath("original-source-" + label + ".kpp");
+        QFile sourceFile(sourcePath);
+        const QByteArray sourceBytes =
+            RasterBrushTest::hardPixelKpp(variant, model);
+        require(sourceFile.open(QIODevice::WriteOnly) &&
+                    sourceFile.write(sourceBytes) == sourceBytes.size(),
+                "cannot write original KPP transaction fixture");
+        sourceFile.close();
+        const auto sourceImport = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && sourceImport.complete &&
+                    sourceImport.records.size() == 1,
+                "packaged application KPP import failed");
+        auto fixture = sourceImport.records.front();
+        require(
+            fixture.preset.profile ==
+                    "krita-5.3.4.1-" + model.toStdString() + "-candidate-1" &&
+                !fixture.provenance["sourceReferenceVerified"].toBool(),
+            "KPP worker lost strict candidate identity or qualification");
+        if (variant == "halfOpacity")
+          require(fixture.preset.opacity.value == .5,
+                  "source static half opacity lost during worker import");
+        if (variant == "radiusPressure")
+          require(fixture.preset.smudgeRadius ==
+                          (model.endsWith("dulling") ? 1 : 0) &&
+                      fixture.preset.pickupControl.mappings.size() == 1 &&
+                      fixture.preset.colorRateControl.mappings.size() == 1,
+                  "combined source radius and pressure mappings were lost");
+        fixture.preset.name =
+            "Original source transaction " + label.toStdString();
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(!path.isEmpty() && importError.isEmpty(),
+                "cannot install source transaction fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select source transaction fixture");
+        const TRaster32P baseline = raster(level, 1)->clone();
+        draw(tool, false);
+        const TRaster32P painted = raster(level, 1)->clone();
+        require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+                "source wet stroke did not create one painted transaction");
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "source wet undo did not restore original pixels");
+        require(undo->redo() && same(painted, raster(level, 1)),
+                "source wet redo did not restore exact pixels");
+        const TFilePath output(
+            QDir::current().filePath("source-" + label + ".png"));
+        TImageWriter::save(output, TRasterP(painted));
+        TRasterP reopened;
+        require(TImageReader::load(output, reopened),
+                "source wet PNG could not reopen");
+        requireSame(
+            painted, TRaster32P(reopened),
+            "source wet save/reopen changed committed pixels: " + model);
+        if (variant == "halfOpacity") verifyScenePersistence(painted, label);
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "source wet second undo failed");
+        undo->reset();
+        draw(tool, true);
+        require(
+            same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled source wet stroke left pixels or undo history");
+        draw(tool, false);
+        require(
+            same(painted, raster(level, 1)),
+            "source wet state leaked across completed or cancelled strokes");
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "repeated source wet undo failed");
+        undo->reset();
+        if (variant == "halfOpacity") verifyMidStrokeFrameSwitch();
+        if (variant.isEmpty() &&
+            (model == "legacy-smear" || model == "new-dulling")) {
+          checkpoint("qualifying actual source wet canvas exit and reentry");
+          auto boundaryStroke = [&](bool cancel, bool outsideOnly) {
+            TMouseEvent event;
+            event.m_button   = Qt::LeftButton;
+            event.m_buttons  = Qt::LeftButton;
+            event.m_isTablet = true;
+            event.m_pressure = 1;
+            // Existing fixture is128px wide, centered at tool coordinate0.
+            // x=160 is fully outside, including the source pickup footprint.
+            // The separate new-frame case uses10000 to remain outside even
+            // if automatic creation adopts the scene camera dimensions.
+            const std::vector<TPointD> points =
+                outsideOnly ? std::vector<TPointD>{{10000, 0},
+                                                   {10016, 0},
+                                                   {10016, 24},
+                                                   {10000, 24}}
+                            : std::vector<TPointD>{
+                                  {-20, 0}, {160, 0}, {160, 24}, {-20, 24}};
+            require(tool->preLeftButtonDown(), "source boundary input refused");
+            tool->leftButtonDown(points.front(), event);
+            for (size_t segment = 1; segment < points.size(); ++segment) {
+              const auto from = points[segment - 1], to = points[segment];
+              for (int sample = 1; sample <= 24; ++sample)
+                tool->leftButtonDrag(from + (to - from) * (sample / 24.0),
+                                     event);
+            }
+            if (cancel) {
+              require(!same(baseline, raster(level, 1)),
+                      "source boundary cancel fixture did not paint first");
+              QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape,
+                               Qt::NoModifier);
+              require(tool->keyDown(&escape), "source boundary Escape failed");
+            }
+            event.m_buttons = Qt::NoButton;
+            tool->leftButtonUp(points.back(), event);
+            settle();
+          };
+          boundaryStroke(false, false);
+          const TRaster32P boundaryPixels = raster(level, 1)->clone();
+          bool changedAtEdge              = false;
+          for (int y = 0; y < baseline->getLy(); ++y)
+            for (int x = baseline->getLx() - 4; x < baseline->getLx(); ++x)
+              changedAtEdge = changedAtEdge || baseline->pixels(y)[x] !=
+                                                   boundaryPixels->pixels(y)[x];
+          require(changedAtEdge && undo->getHistoryCount() == 1,
+                  "source exit/reentry failed to paint the actual canvas edge");
+          verifyScenePersistence(boundaryPixels, label + "-boundary");
+          require(undo->undo() && same(baseline, raster(level, 1)),
+                  "source boundary undo did not restore original pixels");
+          require(undo->redo() && same(boundaryPixels, raster(level, 1)),
+                  "source boundary redo rerendered or lost committed pixels");
+          require(undo->undo(), "source boundary second undo failed");
+          undo->reset();
+          boundaryStroke(true, false);
+          require(
+              same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source boundary cancel left paint or undo history");
+          boundaryStroke(false, false);
+          requireSame(
+              boundaryPixels, raster(level, 1),
+              "source outside feedback leaked across cancelled strokes");
+          require(undo->undo() && same(baseline, raster(level, 1)),
+                  "source boundary repeated undo failed");
+          undo->reset();
+          require(!level->getFrame(TFrameId(5), false),
+                  "outside-only source fixture frame already exists");
+          app->getCurrentFrame()->setFid(TFrameId(5));
+          settle();
+          boundaryStroke(false, true);
+          require(!level->getFrame(TFrameId(5), false) &&
+                      undo->getHistoryCount() == 0,
+                  "outside-only source stroke retained an empty created frame");
+          app->getCurrentFrame()->setFid(TFrameId(1));
+          settle();
+          requireSame(baseline, raster(level, 1),
+                      "outside-only source stroke changed the previous frame");
+        }
+      }
+    checkpoint("qualifying combined portable resources and native dynamics");
+    for (bool wet : {false, true}) {
+      RasterBrush::Record fixture;
+      auto mask   = std::make_shared<RasterBrush::Image>();
+      mask->width = mask->height = 4;
+      for (int i = 0; i < 16; ++i)
+        mask->pixels.push_back({0, 0, 0, (i + i / 4) % 2 ? .25 : 1});
+      auto &p = fixture.preset;
+      p.name =
+          wet ? "Original combined native wet" : "Original combined native dry";
+      p.tip.shape = RasterBrush::Shape::Bitmap;
+      p.tip.images.push_back(mask);
+      p.texture.image = mask;
+      p.texture.scale = 2;
+      p.texture.depth = .7;
+      p.size.value    = 24;
+      p.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
+      p.aspect.value = .6;
+      p.angle.value  = 90;
+      p.angle.mappings.push_back(
+          {RasterBrush::Sensor::Rotation, {{0, 0}, {1, 1}}, 1});
+      p.opacity.value = .8;
+      p.opacity.mappings.push_back(
+          {RasterBrush::Sensor::TiltX, {{0, .3}, {1, 1}}, 1});
+      p.flow.value          = .3;
+      p.backgroundMix.value = .2;
+      p.wash                = !wet;
+      if (wet) {
+        p.wet = RasterBrush::Wet::Dulling;
+        p.pickupControl.mappings.push_back(
+            {RasterBrush::Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
+      } else {
+        p.secondary.enabled            = true;
+        p.secondary.independentSpacing = true;
+        p.secondary.spacing            = .6;
+        p.secondary.tip.shape          = RasterBrush::Shape::Square;
+        p.secondary.size.value         = .75;
+        p.secondary.opacity.value      = .7;
+        p.blend                        = RasterBrush::Blend::Multiply;
+      }
+      // Export an unknown-rights manifest, fail closed on missing resources,
+      // then relink recipient-owned copies through the isolated decoder.
+      const QString exported = QDir::current().filePath(
+          wet ? "combined-wet.gzbrush" : "combined-dry.gzbrush");
+      const QString ownCopy = QDir::current().filePath(
+          wet ? "original-wet-copy.gzbrush" : "original-dry-copy.gzbrush");
+      require(RasterBrush::save(ownCopy, fixture, importError),
+              "cannot save original recipient resource copy");
+      require(RasterBrush::savePortable(
+                  exported, fixture,
+                  RasterBrush::ResourcePackaging::ManifestOnly, importError),
+              "combined manifest export failed");
+      const auto manifest = RasterBrush::readBoundedRegularFile(
+          exported, 64 * 1024 * 1024, importError);
+      const auto info = RasterBrush::inspectPortable(manifest, importError);
+      require(importError.isEmpty() && info.portable &&
+                  info.resources.size() == 1 &&
+                  !info.resources.front().embedded &&
+                  info.resources.front().redistribution == "unknown",
+              "unknown-rights manifest embedded or lost a shared resource");
+      const TRaster32P beforeRepair = raster(level, 1)->clone();
+      const auto incomplete         = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), exported, importError);
+      require(!importError.isEmpty() && incomplete.records.empty() &&
+                  !incomplete.complete && undo->getHistoryCount() == 0 &&
+                  same(beforeRepair, raster(level, 1)),
+              "missing-resource import changed the document or became usable");
+      const auto copies = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), ownCopy, importError);
+      require(importError.isEmpty() && copies.complete,
+              "recipient copy import failed");
+      QStringList matched;
+      const auto repaired = RasterBrush::relinkPortable(
+          manifest, copies.records, matched, importError);
+      require(importError.isEmpty() && matched.size() == 1,
+              "shared tip/texture hash did not relink exactly once");
+      QFile repairedFile(exported);
+      require(repairedFile.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                  repairedFile.write(repaired) == repaired.size(),
+              "cannot stage repaired integration fixture");
+      repairedFile.close();
+      const auto restored = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), exported, importError);
+      require(importError.isEmpty() && restored.complete &&
+                  restored.records.size() == 1,
+              "complete portable resource repair failed worker validation");
+      fixture = restored.records.front();
+      require(fixture.preset.tip.images.size() == 1 &&
+                  fixture.preset.texture.image &&
+                  fixture.preset.tip.images.front() ==
+                      fixture.preset.texture.image &&
+                  fixture.preset.secondary.enabled == !wet &&
+                  fixture.preset.secondary.independentSpacing == !wet &&
+                  (wet || fixture.preset.secondary.spacing == .6),
+              "combined preset lost relinked resources or settings");
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString installed =
+          RasterBrush::install(folder, fixture, importError);
+      require(!installed.isEmpty() && importError.isEmpty(),
+              "combined preset install failed");
+      tool->onActivate();
+      property->setValue(
+          QDir(folder).relativeFilePath(installed).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "combined preset selection failed");
+      if (!wet) {
+        checkpoint("qualifying export defaults and resource repair through UI");
+        QTemporaryDir uiFiles;
+        require(uiFiles.isValid(), "cannot stage UI export fixture");
+        const QString uiExport = uiFiles.filePath("manifest.gzbrush");
+        const auto beforeUi    = raster(level, 1)->clone();
+        const bool nativeDialogsDisabled =
+            QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        bool exportDefault = false;
+        int exportAttempts = 0;
+        QTimer exportDriver;
+        QObject::connect(&exportDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+            if (!picker->property("fixtureSubmitted").toBool()) {
+              picker->setProperty("fixtureSubmitted", true);
+              submitFileDialog(picker, uiExport);
+            }
+          } else if (modal &&
+                     modal->objectName() == "nativeBrushExportResources") {
+            auto choice =
+                modal->findChild<QComboBox *>("nativeBrushResourcePackaging");
+            exportDefault =
+                choice && choice->currentData().toInt() ==
+                              int(RasterBrush::ResourcePackaging::ManifestOnly);
+            qobject_cast<QDialog *>(modal)->accept();
+          } else if (++exportAttempts > 2400) {
+            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+          }
+        });
+        exportDriver.start(25);
+        property->setValue(L"<export>");
+        const bool exportedUi = tool->onPropertyChanged("Native Brush:");
+        exportDriver.stop();
+        const auto uiBytes = RasterBrush::readBoundedRegularFile(
+            uiExport, 64 * 1024 * 1024, importError);
+        const auto uiInfo = RasterBrush::inspectPortable(uiBytes, importError);
+        require(
+            exportedUi && exportDefault && importError.isEmpty() &&
+                uiInfo.portable && !uiInfo.resources.empty() &&
+                std::none_of(uiInfo.resources.begin(), uiInfo.resources.end(),
+                             [](const RasterBrush::ResourceInfo &r) {
+                               return r.embedded;
+                             }),
+            "unknown-rights export UI did not default to manifest-only");
+        for (bool repairResources : {false, true}) {
+          const QDir library(folder);
+          const auto beforeFiles =
+              library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+          const auto previousSelection = property->getValue();
+          bool relinkSeen = false, unexpectedAcceptance = false;
+          int pickers = 0, attempts = 0;
+          QTimer repairDriver;
+          QObject::connect(&repairDriver, &QTimer::timeout, [&]() {
+            auto modal = QApplication::activeModalWidget();
+            if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+              if (!picker->property("fixtureSubmitted").toBool()) {
+                picker->setProperty("fixtureSubmitted", true);
+                submitFileDialog(picker, pickers++ == 0 ? uiExport : ownCopy);
+              }
+            } else if (modal &&
+                       modal->objectName() == "nativeBrushRelinkResources") {
+              relinkSeen  = true;
+              auto repair = qobject_cast<QMessageBox *>(modal);
+              auto choose = modal->findChild<QPushButton *>(
+                  "nativeBrushChooseResourceCopies");
+              if (repairResources && choose)
+                choose->click();
+              else if (repair)
+                repair->reject();
+            } else if (modal && modal->objectName() ==
+                                    "nativeBrushApproximationAcceptance") {
+              unexpectedAcceptance = true;
+              qobject_cast<QDialog *>(modal)->reject();
+            } else if (++attempts > 2400) {
+              if (auto dialog = qobject_cast<QDialog *>(modal))
+                dialog->reject();
+            }
+          });
+          repairDriver.start(25);
+          property->setValue(L"<import>");
+          const bool importedUi = tool->onPropertyChanged("Native Brush:");
+          repairDriver.stop();
+          require(importedUi && relinkSeen && !unexpectedAcceptance &&
+                      same(beforeUi, raster(level, 1)) &&
+                      undo->getHistoryCount() == 0,
+                  "native resource repair UI changed document or claimed "
+                  "foreign conversion");
+          if (!repairResources)
+            require(property->getValue() == previousSelection &&
+                        sameFiles(library.entryList(QDir::AllEntries |
+                                                    QDir::NoDotAndDotDot),
+                                  beforeFiles),
+                    "cancelled unresolved-resource repair installed or "
+                    "selected a preset");
+          else {
+            const auto selectedPath = QDir(folder).filePath(
+                QString::fromStdWString(property->getValue()));
+            const auto repairedPreset = RasterBrush::importBrushProcess(
+                QCoreApplication::applicationFilePath(), selectedPath,
+                importError);
+            require(
+                importError.isEmpty() && repairedPreset.complete &&
+                    repairedPreset.records.size() == 1 &&
+                    repairedPreset.records.front().preset.tip.images.size() ==
+                        1 &&
+                    repairedPreset.records.front().preset.texture.image,
+                "resource repair UI did not install and select a complete "
+                "portable brush");
+          }
+        }
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
+                                   nativeDialogsDisabled);
+      }
+      const TRaster32P baseline = raster(level, 1)->clone();
+      draw(tool, false, .8, .8, 1.5707963267948966);
+      const TRaster32P high = raster(level, 1)->clone();
+      require(!same(baseline, high) && undo->getHistoryCount() == 1 &&
+                  undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(high, raster(level, 1)),
+              "combined preset paint/undo/redo transaction failed");
+      const TFilePath output(QDir::current().filePath(
+          wet ? "combined-wet.png" : "combined-dry.png"));
+      TImageWriter::save(output, TRasterP(high));
+      TRasterP reopened;
+      require(TImageReader::load(output, reopened),
+              "combined preset painted image did not reopen");
+      requireSame(high, TRaster32P(reopened), "combined preset PNG round trip");
+      verifyScenePersistence(high,
+                             wet ? "combined-wet" : "combined-dual-texture");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "combined preset restore failed");
+      undo->reset();
+      draw(tool, true, .8, .8, 1.5707963267948966);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "combined preset cancellation left pixels or history");
+      draw(tool, false, .2, -.8, .4);
+      require(!same(high, raster(level, 1)),
+              "combined preset ignored changed tablet input");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "combined preset low-input undo failed");
+      undo->reset();
+      verifyMidStrokeFrameSwitch();
+      checkpoint("qualifying same-name preset copies and duplicate saves");
+      const auto originalSelection = property->getValue();
+      const QString originalPath =
+          QDir(folder).filePath(QString::fromStdWString(originalSelection));
+      const auto originalBytes = RasterBrush::readBoundedRegularFile(
+          originalPath, 64 * 1024 * 1024, importError);
+      require(importError.isEmpty(),
+              "cannot capture original preset for copy workflow");
+      std::wstring editedSelection;
+      for (int saveIndex = 0; saveIndex < 2; ++saveIndex) {
+        bool edited = false, named = false;
+        QTimer editorDriver;
+        QObject::connect(&editorDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (modal && modal->objectName() == "nativeBrushEditor") {
+            auto opacity =
+                modal->findChild<QDoubleSpinBox *>("nativeBrushPresetOpacity");
+            auto buttons = modal->findChild<QDialogButtonBox *>();
+            if (opacity && buttons && buttons->button(QDialogButtonBox::Ok)) {
+              opacity->setValue(.333);
+              edited = true;
+              buttons->button(QDialogButtonBox::Ok)->click();
+            } else
+              qobject_cast<QDialog *>(modal)->reject();
+          } else if (auto name = qobject_cast<QInputDialog *>(modal)) {
+            named = name->textValue() ==
+                    QString::fromStdString(fixture.preset.name);
+            name->accept();
+          }
+        });
+        editorDriver.start(25);
+        property->setValue(L"<edit>");
+        const bool handled = tool->onPropertyChanged("Native Brush:");
+        editorDriver.stop();
+        require(
+            handled && edited && named &&
+                property->getValue() != originalSelection,
+            "same-name edit did not create and select a distinct preset copy");
+        if (saveIndex == 0)
+          editedSelection = property->getValue();
+        else
+          require(property->getValue() == editedSelection,
+                  "identical edited preset created a duplicate copy");
+        const auto newPath = QDir(folder).filePath(
+            QString::fromStdWString(property->getValue()));
+        const auto saved = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), newPath, importError);
+        require(
+            importError.isEmpty() && saved.complete &&
+                saved.records.size() == 1 &&
+                saved.records.front().preset.opacity.value == .333 &&
+                saved.records.front().preset.name == fixture.preset.name,
+            "same-name preset copy did not preserve edited settings on reopen");
+        const auto unchanged = RasterBrush::readBoundedRegularFile(
+            originalPath, 64 * 1024 * 1024, importError);
+        require(importError.isEmpty() && unchanged == originalBytes &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "preset editing overwrote original resource package or changed "
+                "document");
+      }
+      property->setValue(originalSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore original preset after copy workflow");
+    }
+    checkpoint(
+        "qualifying preset and toolbar alpha preservation through actual tool");
+    {
+      auto alphaModifier = dynamic_cast<TBoolProperty *>(
+          tool->getProperties(0)->getProperty("Lock Alpha"));
+      auto eraserModifier = dynamic_cast<TBoolProperty *>(
+          tool->getProperties(0)->getProperty("ModifierEraser"));
+      require(alphaModifier && eraserModifier,
+              "native tool alpha/eraser modifiers missing");
+      const bool previousEraser = eraserModifier->getValue();
+      const auto previousColor  = palette->getStyle(1)->getMainColor();
+      TRaster32P opaqueEraserResult;
+      const bool previousModifier  = alphaModifier->getValue();
+      const auto previousSelection = property->getValue();
+      const auto originalPixels    = raster(level, 1)->clone();
+      TRaster32P alphaRamp(originalPixels->getSize());
+      for (int y = 0; y < alphaRamp->getLy(); ++y)
+        for (int x = 0; x < alphaRamp->getLx(); ++x) {
+          const int alpha         = x < 64 ? 0 : std::min(255, (x - 63) * 4);
+          alphaRamp->pixels(y)[x] = TPixel32(alpha, alpha, alpha, alpha);
+        }
+      for (int mode = 0; mode < 5; ++mode) {
+        const bool erase        = mode >= 3;
+        const bool presetLock   = mode == 1 || erase,
+                   modifierLock = mode == 2 || erase;
+        palette->getStyle(1)->setMainColor(mode == 4 ? TPixel32(0, 0, 0, 0)
+                                                     : previousColor);
+        RasterBrush::Record fixture;
+        fixture.preset.name =
+            "Original alpha-preservation fixture " + std::to_string(mode);
+        fixture.preset.lockAlpha  = presetLock;
+        fixture.preset.size.value = 24;
+        if (erase) fixture.preset.wet = RasterBrush::Wet::Dulling;
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install alpha-preservation fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select alpha-preservation fixture");
+        eraserModifier->setValue(erase);
+        require(tool->onPropertyChanged("ModifierEraser"),
+                "cannot set toolbar eraser modifier");
+        alphaModifier->setValue(modifierLock);
+        require(tool->onPropertyChanged("Lock Alpha"),
+                "cannot set toolbar alpha-lock modifier");
+        raster(level, 1)->copy(alphaRamp);
+        tool->onImageChanged();
+        undo->reset();
+        draw(tool, false);
+        const TRaster32P painted = raster(level, 1)->clone();
+        bool alphaChanged = false, transparentPainted = false,
+             alphaReduced = false, alphaIncreased = false;
+        for (int y = 0; y < alphaRamp->getLy(); ++y)
+          for (int x = 0; x < alphaRamp->getLx(); ++x) {
+            const auto before = alphaRamp->pixels(y)[x];
+            const auto after  = painted->pixels(y)[x];
+            alphaChanged      = alphaChanged || before.m != after.m;
+            alphaReduced      = alphaReduced || after.m < before.m;
+            alphaIncreased    = alphaIncreased || after.m > before.m;
+            transparentPainted =
+                transparentPainted || (before.m == 0 && after.m != 0);
+          }
+        require(!same(alphaRamp, painted) && undo->getHistoryCount() == 1,
+                "alpha-lock fixture did not paint existing color in one "
+                "transaction");
+        if (erase) {
+          require(alphaReduced && !alphaIncreased && !transparentPainted,
+                  "global eraser failed to override native wet mode and both "
+                  "alpha locks");
+          if (mode == 3)
+            opaqueEraserResult = painted;
+          else
+            require(same(opaqueEraserResult, painted),
+                    "native eraser coverage depended on foreground alpha");
+        } else if (presetLock || modifierLock)
+          require(!alphaChanged && !transparentPainted,
+                  "saved or toolbar alpha lock failed to preserve the alpha "
+                  "ramp and transparent region");
+        else
+          require(alphaChanged && transparentPainted,
+                  "unlocked control did not paint the transparent region");
+        require(undo->undo() && same(alphaRamp, raster(level, 1)) &&
+                    undo->redo() && same(painted, raster(level, 1)),
+                "alpha-preserving stroke undo/redo changed channels");
+        verifyScenePersistence(painted, "alpha-lock-" + QString::number(mode));
+        require(undo->undo() && same(alphaRamp, raster(level, 1)),
+                "alpha-preserving stroke restore failed");
+        undo->reset();
+        draw(tool, true);
+        require(
+            same(alphaRamp, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled alpha-preserving stroke changed the frame");
+      }
+      raster(level, 1)->copy(originalPixels);
+      tool->onImageChanged();
+      palette->getStyle(1)->setMainColor(previousColor);
+      eraserModifier->setValue(previousEraser);
+      require(tool->onPropertyChanged("ModifierEraser"),
+              "cannot restore toolbar eraser modifier");
+      alphaModifier->setValue(previousModifier);
+      require(tool->onPropertyChanged("Lock Alpha"),
+              "cannot restore toolbar alpha modifier");
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore original brush after alpha qualification");
+      undo->reset();
+    }
+    checkpoint("qualifying fixed and varying native stroke seeds");
+    {
+      const auto previousSelection = property->getValue();
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      for (bool varying : {false, true}) {
+        RasterBrush::Record fixture;
+        fixture.preset.name =
+            varying ? "Varying seed fixture" : "Fixed seed fixture";
+        fixture.preset.size.value        = 9;
+        fixture.preset.scatter.value     = 1;
+        fixture.preset.spacing           = .3;
+        fixture.preset.varySeedPerStroke = varying;
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install seed fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select seed fixture");
+        const auto baseline = raster(level, 1)->clone();
+        auto draw           = [&](bool cancel) {
+          TMouseEvent event;
+          event.m_button   = Qt::LeftButton;
+          event.m_buttons  = Qt::LeftButton;
+          event.m_isTablet = true;
+          event.m_pressure = 1;
+          require(tool->preLeftButtonDown(), "seed fixture refused input");
+          tool->leftButtonDown(TPointD(-35, 0), event);
+          for (int x = -30; x <= 35; x += 5)
+            tool->leftButtonDrag(TPointD(x, 0), event);
+          if (cancel) {
+            QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            require(tool->keyDown(&escape), "seed fixture cancellation failed");
+          }
+          event.m_buttons = Qt::NoButton;
+          tool->leftButtonUp(TPointD(35, 0), event);
+          settle();
+        };
+        draw(false);
+        const auto first = raster(level, 1)->clone();
+        require(!same(first, baseline), "seed fixture did not paint");
+        undo->undo();
+        require(same(raster(level, 1), baseline),
+                "seed fixture undo changed baseline");
+        undo->redo();
+        require(same(raster(level, 1), first),
+                "seed fixture redo rerandomized stroke");
+        undo->undo();
+        draw(false);
+        const auto second = raster(level, 1)->clone();
+        require(same(first, second) != varying,
+                "host failed fixed versus per-stroke variation policy");
+        undo->undo();
+        undo->reset();
+        draw(true);
+        require(
+            same(raster(level, 1), baseline) && undo->getHistoryCount() == 0,
+            "seed fixture cancellation left pixels or history");
+      }
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore brush after seed fixture");
+    }
+    checkpoint(
+        "qualifying stationary airbrush timer lifecycle in the actual tool");
+    for (int airbrushProfile : {0, 1, 2, 3}) {
+      const auto previousSelection = property->getValue();
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original stationary airbrush lifecycle fixture";
+      fixture.preset.size.value   = 20;
+      fixture.preset.flow.value   = .03;
+      fixture.preset.airbrushRate = 30;
+      if (airbrushProfile) {
+        fixture.preset.name = "Original source timer lifecycle " +
+                              std::to_string(airbrushProfile);
+        fixture.preset.profile       = "krita-5.3.4.1-airbrush-candidate-1";
+        fixture.preset.size.value    = 16;
+        fixture.preset.spacing       = 1;
+        fixture.preset.flow.value    = 1;
+        fixture.preset.opacity.value = .1;
+        fixture.preset.airbrushRate  = airbrushProfile == 1 ? 5 : 20;
+        fixture.preset.airbrushIgnoreSpacing = airbrushProfile == 3;
+      }
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString path = RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !path.isEmpty(),
+              "cannot install stationary airbrush fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select stationary airbrush fixture");
+      const TRaster32P baseline = raster(level, 1)->clone();
+      auto pump                 = [](int milliseconds) {
+        QEventLoop loop;
+        QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
+        loop.exec();
+      };
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_buttons  = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = 1;
+      auto begin       = [&]() {
+        event.m_buttons = Qt::LeftButton;
+        require(tool->preLeftButtonDown(), "stationary airbrush refused input");
+        tool->leftButtonDown(TPointD(0, 0), event);
+      };
+      auto release = [&]() {
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(TPointD(0, 0), event);
+        settle();
+      };
+      begin();
+      const auto initialDab = raster(level, 1)->clone();
+      pump(250);
+      const TRaster32P accumulated = raster(level, 1)->clone();
+      require(!same(initialDab, accumulated),
+              "stationary airbrush did not accumulate without move events");
+      for (int y = 0; y < baseline->getLy(); ++y)
+        for (int x = 0; x < baseline->getLx(); ++x)
+          if (std::abs(x - baseline->getLx() / 2) > 24 ||
+              std::abs(y - baseline->getLy() / 2) > 24)
+            require(baseline->pixels(y)[x] == accumulated->pixels(y)[x],
+                    "stationary airbrush changed pixels outside its bounded "
+                    "footprint");
+      release();
+      const auto committed = raster(level, 1)->clone();
+      pump(150);
+      require(
+          same(committed, raster(level, 1)) && undo->getHistoryCount() == 1,
+          "airbrush timer continued painting or adding history after pen-up");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(committed, raster(level, 1)) &&
+                  undo->undo() && same(baseline, raster(level, 1)),
+              "stationary airbrush undo/redo failed");
+      if (airbrushProfile == 2)
+        verifyScenePersistence(baseline, "source-airbrush-undo");
+      undo->reset();
+      if (airbrushProfile) {
+        // Synchronous original pointer events, with no Qt timer turn between:
+        // the delivered endpoint may stamp; segmented intermediate points may
+        // not.
+        begin();
+        const auto contact = raster(level, 1)->clone();
+        tool->leftButtonDrag(TPointD(48, 0), event);
+        const int x = baseline->getLx() / 2, y = baseline->getLy() / 2;
+        require(
+            raster(level, 1)->pixels(y)[x + 24] == baseline->pixels(y)[x + 24],
+            "source airbrush stamped a segmentation-generated pointer event");
+        require((airbrushProfile == 3) == same(contact, raster(level, 1)),
+                "source airbrush ignored its distance-spacing policy");
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(TPointD(48, 0), event);
+        settle();
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "source pointer-dispatch undo changed original pixels");
+        undo->reset();
+      }
+      begin();
+      pump(250);
+      require(!same(baseline, raster(level, 1)),
+              "cancel fixture did not accumulate airbrush paint");
+      QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+      require(tool->keyDown(&escape),
+              "stationary airbrush did not handle Escape");
+      release();
+      pump(150);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled stationary airbrush left pixels/history or restarted "
+              "its timer");
+      TRasterImageP nextFrame(new TRasterImage(baseline->clone()));
+      nextFrame->setDpi(72, 72);
+      level->setFrame(TFrameId(2), nextFrame);
+      begin();
+      pump(250);
+      app->getCurrentFrame()->setFid(TFrameId(2));
+      settle();
+      tool->onImageChanged();
+      const auto frameOne = raster(level, 1)->clone();
+      release();
+      pump(150);
+      require(
+          !same(baseline, frameOne) && same(frameOne, raster(level, 1)) &&
+              same(baseline, raster(level, 2)) && undo->getHistoryCount() == 1,
+          "airbrush timer painted after frame switch or changed the new frame");
+      require(
+          undo->undo() && same(baseline, raster(level, 1)) &&
+              same(baseline, raster(level, 2)),
+          "frame-switched stationary airbrush undo changed the wrong frame");
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(2));
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after airbrush qualification");
+      undo->reset();
+    }
+    checkpoint("qualifying deferred source taps through actual tool lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const TRaster32P baseline    = raster(level, 1)->clone();
+      RasterBrush::Record fixture;
+      fixture.preset.name         = "Original deferred source tap";
+      fixture.preset.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+      fixture.preset.size.value   = 32;
+      fixture.preset.size.minimum = 0;
+      fixture.preset.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      auto select = [&]() {
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install deferred source tap fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select deferred source tap fixture");
+      };
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = 1;
+      auto begin       = [&](const TPointD &point) {
+        require(tool->preLeftButtonDown(), "brush refused deferred tap");
+        event.m_buttons = Qt::LeftButton;
+        tool->leftButtonDown(point, event);
+        settle();
+      };
+      auto release = [&](const TPointD &point) {
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(point, event);
+        settle();
+      };
+      auto cancel = [&]() {
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        require(tool->keyDown(&escape), "deferred tap ignored cancellation");
+      };
+      select();
+      undo->reset();
+      begin(TPointD());
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source tap painted before deferred finalization");
+      release(TPointD());
+      const TRaster32P painted = raster(level, 1)->clone();
+      require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+              "source tap did not commit at pen-up");
+      verifyScenePersistence(painted, "deferred-source-tap");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(painted, raster(level, 1)) &&
+                  undo->undo() && same(baseline, raster(level, 1)),
+              "deferred tap undo/redo failed to preserve exact pixels");
+      undo->reset();
+      begin(TPointD());
+      cancel();
+      release(TPointD());
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled pending source tap flushed pixels or history");
+      // Pen-up pressure0 denotes contact loss, not a stationary pressure
+      // update. Its tap must match the same final contact released at
+      // pressure1.
+      begin(TPointD());
+      event.m_pressure = 0;
+      release(TPointD());
+      require(same(painted, raster(level, 1)) && undo->getHistoryCount() == 1,
+              "tablet contact-loss release discarded or changed source tap");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(painted, raster(level, 1)) &&
+                  undo->undo() && same(baseline, raster(level, 1)),
+              "contact-loss tap undo/redo changed pixels");
+      undo->reset();
+      for (int update : {0, 1, 2, 3}) {
+        event.m_pressure = 1;
+        begin(TPointD());
+        const TPointD point = update == 2 ? TPointD(.1, 0) : TPointD();
+        if (update == 1 || update == 3) event.m_pressure = .5;
+        // 0: stationary sample, 1: stationary pressure change, 2: short
+        // motion, 3: nonzero pressure change supplied only by release.
+        if (update != 3) tool->leftButtonDrag(point, event);
+        release(point);
+        require(
+            same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "real source input update was incorrectly converted into a tap");
+      }
+      event.m_pressure = 1;
+      begin(TPointD());
+      release(TPointD(2, 0));
+      const TRaster32P releaseMotion = raster(level, 1)->clone();
+      require(!same(baseline, releaseMotion) && undo->getHistoryCount() == 1,
+              "source release motion was discarded as a terminal duplicate");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(releaseMotion, raster(level, 1)) &&
+                  undo->undo() && same(baseline, raster(level, 1)),
+              "source release-motion undo/redo changed pixels");
+      undo->reset();
+      require(!level->getFrame(TFrameId(8), false),
+              "deferred tap scratch frame already exists");
+      for (int outcome : {0, 1, 2, 3}) {
+        app->getCurrentFrame()->setFid(TFrameId(8));
+        settle();
+        tool->onImageChanged();
+        const TPointD point = outcome == 1 ? TPointD(10000, 10000) : TPointD();
+        begin(point);
+        if (outcome == 0) cancel();
+        const TPointD releasePoint =
+            outcome == 3 ? point + TPointD(.1, 0) : point;
+        if (outcome == 3) tool->leftButtonDrag(releasePoint, event);
+        release(releasePoint);
+        if (outcome != 2)
+          require(!level->getFrame(TFrameId(8), false) &&
+                      undo->getHistoryCount() == 0,
+                  "cancelled, off-canvas or sub-threshold source input left a "
+                  "created frame");
+        else {
+          require(bool(raster(level, 8)) && undo->getHistoryCount() == 1,
+                  "released source tap did not create one frame transaction");
+          const TRaster32P frame = raster(level, 8)->clone();
+          require(
+              undo->undo() && !level->getFrame(TFrameId(8), false) &&
+                  undo->redo() && same(frame, raster(level, 8)) &&
+                  undo->undo() && !level->getFrame(TFrameId(8), false),
+              "source tap new-frame undo/redo did not restore exact content");
+          undo->reset();
+        }
+        app->getCurrentFrame()->setFid(TFrameId(1));
+        settle();
+        tool->onImageChanged();
+        require(same(baseline, raster(level, 1)),
+                "source tap new-frame lifecycle changed the original frame");
+      }
+      checkpoint("rolling back a deferred source tap finalization failure");
+      fixture.preset.name       = "Original deferred source budget failure";
+      fixture.preset.size.value = 4096;
+      select();
+      const auto previousResolution = level->getProperties()->getImageRes();
+      level->getProperties()->setImageRes(TDimension(3072, 3072));
+      TRaster32P empty(3072, 3072);
+      empty->clear();
+      TRasterImageP largeImage(new TRasterImage(empty));
+      largeImage->setDpi(72, 72);
+      level->setFrame(TFrameId(8), largeImage);
+      QStringList warnings;
+      QObject capture;
+      QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &capture,
+                       [&](int type, const QString &message) {
+                         if (type == DVGui::WARNING) warnings << message;
+                       });
+      QTimer dismiss;
+      QObject::connect(&dismiss, &QTimer::timeout, &capture, [] {
+        if (auto dialog =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+          dialog->done(0);
+      });
+      // A 4096-pixel source tap needs the whole 3072-square float cache.
+      // Its ~288 MiB exceeds the real tool's 256 MiB shared budget. The
+      // buffered first sample must fail only on release, without test knobs.
+      for (int frame : {8, 9}) {
+        app->getCurrentFrame()->setFid(TFrameId(frame));
+        settle();
+        tool->onImageChanged();
+        warnings.clear();
+        dismiss.start(10);
+        begin(TPointD());
+        require(warnings.empty() && undo->getHistoryCount() == 0,
+                "pending source tap failed before finalization");
+        release(TPointD());
+        dismiss.stop();
+        require(warnings.size() == 1 &&
+                    warnings.front() ==
+                        "Raster transaction refused the stroke region",
+                "source tap finalization did not report cache budget refusal");
+        require(undo->getHistoryCount() == 0,
+                "failed source tap published undo history");
+        if (frame == 9)
+          require(!level->getFrame(TFrameId(9), false),
+                  "failed source tap left a newly created frame");
+        else {
+          const auto result = raster(level, 8);
+          require(bool(result), "failed source tap removed an existing frame");
+          for (int y = 0; y < result->getLy(); ++y)
+            for (int x = 0; x < result->getLx(); ++x)
+              require(result->pixels(y)[x] == TPixel32(0, 0, 0, 0),
+                      "failed source tap left partial pixels");
+        }
+      }
+      level->getProperties()->setImageRes(previousResolution);
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(8));
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after deferred tap qualification");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "deferred tap failure changed original frame or history");
+    }
+    checkpoint("rolling back actual-tool work-limit failure");
+    {
+      RasterBrush::Record fixture;
+      auto &p                        = fixture.preset;
+      p.name                         = "Original bounded-work rollback fixture";
+      p.size.value                   = 4096;
+      p.tip.antialiasEdges           = true;
+      p.count                        = 64;
+      p.secondary.enabled            = true;
+      p.secondary.count              = 64;
+      p.secondary.tip.antialiasEdges = true;
+      // On this 128-square canvas, early synchronized stamps fit the work
+      // budget and paint; later stamps in the same add exceed it. This checks
+      // actual transaction rollback after partial deposition, not just an
+      // engine's initial preflight rejection.
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString installed =
+          RasterBrush::install(folder, fixture, importError);
+      require(!installed.isEmpty() && importError.isEmpty(),
+              "cannot install work-limit rollback fixture");
+      tool->onActivate();
+      property->setValue(
+          QDir(folder).relativeFilePath(installed).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select work-limit rollback fixture");
+      const TRaster32P baseline = raster(level, 1)->clone();
+      const int history         = undo->getHistoryCount();
+      QStringList warnings;
+      QObject capture;
+      QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &capture,
+                       [&](int type, const QString &message) {
+                         if (type == DVGui::WARNING)
+                           warnings.push_back(message);
+                       });
+      // The app may show warnings in its log panel or in a modal popup. Keep
+      // the production error path intact and acknowledge a modal as a user
+      // would, then assert the emitted reason rather than suppressing errors.
+      QTimer dismiss;
+      QObject::connect(&dismiss, &QTimer::timeout, &capture, [] {
+        if (auto dialog =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+          dialog->done(0);
+      });
+      dismiss.start(10);
+      tap(tool);
+      dismiss.stop();
+      require(warnings.size() == 1 &&
+                  warnings.front() == "Stroke input pixel work limit exceeded",
+              "actual tool did not report the expected work-limit failure");
+      requireSame(baseline, raster(level, 1),
+                  "work-limit failure raster rollback");
+      require(undo->getHistoryCount() == history,
+              "work-limit failure published partial stroke undo history");
+      // A subsequent valid stroke must not inherit a failed track/mask state.
+      property->setValue(L"<round>");
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore valid preset after work-limit failure");
+      draw(tool, false);
+      require(!same(baseline, raster(level, 1)) && undo->undo() &&
+                  same(baseline, raster(level, 1)),
+              "work-limit failure poisoned the next stroke transaction");
+      undo->reset();
+    }
+    checkpoint("rejecting linear RGBA8 native and source brush targets");
+    {
+      const auto previousSelection = property->getValue();
+      const TFrameId selected      = app->getCurrentFrame()->getFid();
+      const TRaster32P target      = raster(level, selected);
+      const TRaster32P baseline    = target->clone();
+      const int frames             = level->getFrameCount();
+      const int history            = undo->getHistoryCount();
+      QStringList warnings;
+      QObject capture;
+      QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &capture,
+                       [&](int type, const QString &message) {
+                         if (type == DVGui::WARNING) warnings << message;
+                       });
+      QTimer dismiss;
+      QObject::connect(&dismiss, &QTimer::timeout, &capture, [] {
+        if (auto dialog =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+          dialog->done(0);
+      });
+      dismiss.start(10);
+      for (bool source : {false, true}) {
+        RasterBrush::Record fixture;
+        fixture.preset.name = source ? "Original linear source rejection"
+                                     : "Original linear native rejection";
+        if (source) {
+          fixture.preset.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+          fixture.preset.tip.antialiasEdges = false;
+        }
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install linear rejection fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select linear rejection fixture");
+        target->setLinear(true);
+        warnings.clear();
+        const bool accepted = tool->preLeftButtonDown();
+        require(!accepted && target->isLinear() && same(baseline, target) &&
+                    warnings.size() == 1 &&
+                    warnings.front().contains("encoded-sRGB") &&
+                    undo->getHistoryCount() == history &&
+                    level->getFrameCount() == frames &&
+                    app->getCurrentFrame()->getFid() == selected &&
+                    app->getCurrentLevel()->getSimpleLevel() == level,
+                "linear target preflight modified pixels, frame, color space "
+                "or undo");
+        // A raster can change between preflight and first input. The second
+        // guard must reject before allocating a native painting transaction.
+        target->setLinear(false);
+        require(tool->preLeftButtonDown(),
+                "encoded raster preflight was rejected");
+        target->setLinear(true);
+        warnings.clear();
+        TMouseEvent event;
+        event.m_button   = Qt::LeftButton;
+        event.m_buttons  = Qt::LeftButton;
+        event.m_pressure = 1;
+        tool->leftButtonDown(TPointD(), event);
+        event.m_buttons = Qt::NoButton;
+        tool->leftButtonUp(TPointD(), event);
+        settle();
+        require(target->isLinear() && same(baseline, target) &&
+                    warnings.size() == 1 &&
+                    warnings.front().contains("encoded-sRGB") &&
+                    undo->getHistoryCount() == history &&
+                    level->getFrameCount() == frames &&
+                    app->getCurrentFrame()->getFid() == selected,
+                "linear target painting guard modified document state");
+        target->setLinear(false);
+        tool->onImageChanged();
+      }
+      dismiss.stop();
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after linear rejection");
+    }
+    checkpoint("qualifying pressure, tilt and rotation through tool input");
+    for (auto sensor :
+         {RasterBrush::Sensor::Pressure, RasterBrush::Sensor::TiltX,
+          RasterBrush::Sensor::Rotation}) {
+      RasterBrush::Record fixture;
+      fixture.preset.name          = "Original input fixture";
+      fixture.preset.opacity.value = .7;
+      fixture.preset.opacity.mappings.push_back({sensor, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      QString path = RasterBrush::install(folder, fixture, importError);
+      require(!path.isEmpty() && importError.isEmpty(),
+              "cannot install original sensor fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select installed sensor fixture");
+      TRaster32P baseline = raster(level, 1)->clone();
+      draw(tool, false, .2, -.8, 1.5707963267948966);
+      TRaster32P low = raster(level, 1)->clone();
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "sensor stroke undo did not restore baseline");
+      draw(tool, false, .8, .8, 3.141592653589793);
+      TRaster32P high = raster(level, 1)->clone();
+      require(!same(low, high), "tablet sensor did not affect actual pixels");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "second sensor stroke undo did not restore baseline");
+      if (sensor == RasterBrush::Sensor::TiltX) {
+        draw(tool, false, .8, 0, 0, true);
+        const auto upright = raster(level, 1)->clone();
+        require(!same(baseline, upright) && undo->undo() &&
+                    same(baseline, raster(level, 1)),
+                "zero/nonzero/zero tablet tilt stroke or undo failed");
+        draw(tool, true, .8, 0, 0, true);
+        require(same(baseline, raster(level, 1)),
+                "cancelled upright-return stroke left pixels");
+        draw(tool, false, .8, 0, 0, true);
+        require(same(upright, raster(level, 1)) && undo->undo(),
+                "tablet tilt capability state leaked across stroke boundaries");
+      }
+      undo->reset();
+    }
+    property->setValue(L"<round>");
+    require(tool->onPropertyChanged("Native Brush:"),
+            "cannot restore native round brush");
+    TRaster32P before = raster(level, 1)->clone();
+    checkpoint("drawing through actual brush tool and undo manager");
+    draw(tool, false);
+    TRaster32P after = raster(level, 1)->clone();
+    require(!same(before, after), "native tool did not paint");
+    require(undo->getHistoryCount() == 1,
+            "stroke was not one undo transaction");
+    require(undo->undo(), "native undo unavailable");
+    require(same(before, raster(level, 1)), "actual undo changed prior pixels");
+    require(undo->redo(), "native redo unavailable");
+    require(same(after, raster(level, 1)),
+            "actual redo changed painted pixels");
+    checkpoint("cancelling existing-frame stroke");
+    int history = undo->getHistoryCount();
+    draw(tool, true);
+    require(same(after, raster(level, 1)), "cancel failed to restore raster");
+    require(undo->getHistoryCount() == history, "cancel created an undo entry");
+    checkpoint("creating and undoing a new frame");
+    app->getCurrentFrame()->setFid(TFrameId(2));
+    settle();
+    draw(tool, false);
+    require(bool(raster(level, 2)), "new frame was not created");
+    TRaster32P second = raster(level, 2)->clone();
+    require(undo->undo(), "new-frame undo unavailable");
+    require(!level->getFrame(TFrameId(2), false),
+            "undo did not remove created frame");
+    require(undo->redo(), "new-frame redo unavailable");
+    require(same(second, raster(level, 2)),
+            "redo did not restore created frame");
+    checkpoint("cancelling newly created frame");
+    app->getCurrentFrame()->setFid(TFrameId(3));
+    settle();
+    draw(tool, true);
+    require(!level->getFrame(TFrameId(3), false),
+            "cancel left a newly created frame");
+    checkpoint("saving and reopening native-painted image");
+    TFilePath output(QDir::current().filePath("native-painted.png"));
+    TImageWriter::save(output, TRasterP(second));
+    TRasterP reopened;
+    require(TImageReader::load(output, reopened),
+            "cannot reopen saved native-painted image");
+    require(same(second, TRaster32P(reopened)),
+            "saved native-painted pixels changed");
+    checkpoint("saving and reopening scene and raster level");
+    require(scene->getXsheet()->setCell(0, 0, TXshCell(level, TFrameId(1))) &&
+                scene->getXsheet()->setCell(1, 0, TXshCell(level, TFrameId(2))),
+            "cannot expose painted level for scene persistence");
+    level->save();
+    TFilePath scenePath(QDir::current().filePath("native-painted.tnz"));
+    scene->saveCopy(scenePath);
+    {
+      ToonzScene restored;
+      restored.loadTnzFile(scenePath);
+      auto restoredLevel =
+          restored.getLevelSet()->getLevel(L"RasterBrushFixture");
+      require(restoredLevel && restoredLevel->getSimpleLevel(),
+              "scene lost painted raster level");
+      auto restoredRaster = restoredLevel->getSimpleLevel();
+      restoredRaster->load();
+      require(same(after, raster(restoredRaster, 1)) &&
+                  same(second, raster(restoredRaster, 2)),
+              "scene/level reopening changed native-painted pixels");
+      require(restored.getXsheet()->getCell(1, 0).m_frameId == TFrameId(2),
+              "scene reopening lost painted frame exposure");
+      require(!restoredRaster->getFrame(TFrameId(3), false),
+              "scene reopening resurrected cancelled frame");
+    }
+    checkpoint("creating, undoing and redoing a new raster level");
+    Preferences::instance()->setValue(DefLevelType, OVL_XSHLEVEL);
+    app->getCurrentColumn()->setColumnIndex(1);
+    app->getCurrentFrame()->setFrame(0);
+    app->getCurrentLevel()->setLevel(nullptr);
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    settle();
+    const int levelCount = scene->getLevelSet()->getLevelCount();
+    draw(tool, false);
+    auto createdCell = scene->getXsheet()->getCell(0, 1);
+    require(createdCell.getSimpleLevel(), "stroke did not create raster level");
+    TRasterImageP createdImage(createdCell.getImage(true));
+    require(bool(createdImage), "new level has no painted raster");
+    TRaster32P createdPixels = createdImage->getRaster()->clone();
+    require(scene->getLevelSet()->getLevelCount() == levelCount + 1,
+            "new level was not added to the scene cast");
+    require(undo->undo(), "new-level undo unavailable");
+    require(scene->getXsheet()->getCell(0, 1).isEmpty() &&
+                scene->getLevelSet()->getLevelCount() == levelCount,
+            "new-level undo left scene cells or cast entries");
+    require(undo->redo(), "new-level redo unavailable");
+    auto restoredCell = scene->getXsheet()->getCell(0, 1);
+    TRasterImageP restoredImage(restoredCell.getImage(true));
+    require(restoredImage &&
+                same(createdPixels, TRaster32P(restoredImage->getRaster())) &&
+                scene->getLevelSet()->getLevelCount() == levelCount + 1,
+            "new-level redo lost painted pixels or scene cast entry");
+    checkpoint("cancelling a newly created raster level");
+    app->getCurrentColumn()->setColumnIndex(2);
+    app->getCurrentFrame()->setFrame(0);
+    app->getCurrentLevel()->setLevel(nullptr);
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    settle();
+    history = undo->getHistoryCount();
+    draw(tool, true);
+    require(scene->getXsheet()->getCell(0, 2).isEmpty() &&
+                scene->getLevelSet()->getLevelCount() == levelCount + 1 &&
+                undo->getHistoryCount() == history,
+            "cancelled new level left scene content or undo history");
+    tool->onDeactivate();
+    undo->reset();
+    app->getCurrentScene()->setDirtyFlag(false);
+    std::cout << "raster-brush-integration: PASS" << std::endl;
+    return 0;
+  } catch (const std::exception &error) {
+    std::cerr << "raster-brush-integration: FAIL: " << error.what()
+              << std::endl;
+  } catch (...) {
+    std::cerr << "raster-brush-integration: FAIL: unexpected native exception"
+              << std::endl;
+  }
+  return 1;
+}

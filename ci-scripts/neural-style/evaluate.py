@@ -112,8 +112,13 @@ def main():
             raise RuntimeError("Unverified registry source")
         path = WHEELS / wheel["filename"]
         count = download(wheel["url"], path, wheel["bytes"])
-        if count != wheel["bytes"] or digest(path) != wheel["sha256"]:
-            raise RuntimeError("Registry artifact size/hash mismatch")
+        actual_hash = digest(path)
+        if count != wheel["bytes"] or actual_hash != wheel["sha256"]:
+            raise RuntimeError(
+                "Registry artifact size/hash mismatch: " + wheel["filename"] +
+                "; expected bytes=" + str(wheel["bytes"]) +
+                " sha256=" + wheel["sha256"] +
+                "; received bytes=" + str(count) + " sha256=" + actual_hash)
     if native_only:
         requirements = ROOT / "native-requirements.txt"
         requirements.write_text("numpy==2.3.5 --hash=sha256:" + selected[0]["sha256"] + "\n")

@@ -1,0 +1,168 @@
+name: Raster Brush Parser
+on:
+  pull_request:
+    paths:
+      - 'toonz/sources/include/toonz/abrparser.h'
+      - 'toonz/sources/toonzlib/abrparser.cpp'
+      - 'toonz/sources/toonzlib/tests/abrparser_test.cpp'
+      - 'toonz/sources/include/toonz/rasterbrush*'
+      - 'toonz/sources/toonzlib/rasterbrush*'
+      - 'toonz/sources/toonzlib/tests/rasterbrush*'
+      - 'ci-scripts/brush-parser/**'
+      - 'ci-scripts/brush-reference/annotations.py'
+      - '.github/workflows/raster_brush_compatibility.yml'
+  workflow_dispatch:
+    inputs:
+      windows_only:
+        description: 'Run only Windows diagnostics; not full PR qualification'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: brush-parser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  import-fuzz:
+    if: github.event_name != 'workflow_dispatch' || !inputs.windows_only
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate deployment signing inventory and metadata policy
+        run: python3 ci-scripts/brush-parser/sign_macos_deployment_test.py
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          cache: true
+      - name: Build instrumented import fuzzer
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/brush-parser -B brush-fuzz-build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBRUSH_FUZZERS=ON
+          cmake --build brush-fuzz-build --target rasterbrushfuzz rasterbrushpreset_test --parallel 2 2>&1 | tee brush-fuzz-build.log
+      - name: Exercise original corpus and bounded mutations
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p brush-fuzz-corpus brush-fuzz-artifacts
+          brush-fuzz-build/rasterbrushpreset_test --write-corpus brush-fuzz-corpus 2>&1 | tee brush-corpus.log
+          brush-fuzz-build/rasterbrushfuzz brush-fuzz-corpus -max_total_time=180 -max_len=65536 -timeout=5 -rss_limit_mb=1024 -malloc_limit_mb=256 -artifact_prefix=brush-fuzz-artifacts/ 2>&1 | tee brush-fuzz.log
+      - name: Report fuzz failure
+        if: failure()
+        run: |
+          python3 - <<'PYREPORT'
+          from pathlib import Path
+          for name in ('brush-fuzz-build.log', 'brush-corpus.log', 'brush-fuzz.log'):
+              path = Path(name)
+              if path.is_file():
+                  text = path.read_text(errors='replace')[-3500:]
+                  print('::error title=' + name + '::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYREPORT
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-brush-fuzz-${{ github.sha }}
+          path: |
+            brush-fuzz.log
+            brush-corpus.log
+            brush-fuzz-build.log
+            brush-fuzz-artifacts/
+            brush-fuzz-corpus/
+  parser:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS 14 retirement/brownouts: actions/runner-images#13518.
+        # Pull requests always retain the complete release matrix.
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_only && fromJSON('["windows-2022"]') || fromJSON('["ubuntu-22.04","windows-2022","macos-15"]') }}
+        qt: ['5.15.2', '6.8.3']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt }}
+          cache: true
+      - name: Install bounded decompression dependency (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          vcpkg install zlib:x64-windows
+          echo "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> "$GITHUB_PATH"
+          echo "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/debug/bin" >> "$GITHUB_PATH"
+          echo "CMAKE_PREFIX_PATH=$VCPKG_INSTALLATION_ROOT/installed/x64-windows;$QT_ROOT_DIR" >> "$GITHUB_ENV"
+      - name: Configure
+        shell: bash
+        run: |
+          args=()
+          # Qt 5.15.2's official macOS package is Intel-only. macos-15 runs on
+          # Apple silicon; target Intel explicitly and execute through Rosetta.
+          if [[ '${{ matrix.os }}' == 'macos-15' && '${{ matrix.qt }}' == '5.15.2' ]]; then
+            file "$QT_ROOT_DIR/lib/QtCore.framework/QtCore"
+            args+=('-DCMAKE_OSX_ARCHITECTURES=x86_64')
+          fi
+          cmake -S ci-scripts/brush-parser -B brush-parser-build -DBRUSH_QT_MAJOR=${{ matrix.qt == '5.15.2' && '5' || '6' }} -DBRUSH_SANITIZERS=${{ matrix.os == 'ubuntu-22.04' && 'ON' || 'OFF' }} "${args[@]}"
+      - name: Build parser regression
+        id: build_parser
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build brush-parser-build --config Debug --parallel 2 2>&1 | tee brush-parser-build.log
+      - name: Record Windows network isolation prerequisites
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Service BFE, MpsSvc | Select-Object Name, Status | Format-Table
+          Get-NetFirewallProfile | Select-Object Name, Enabled | Format-Table
+      - name: Run parser regression
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --test-dir brush-parser-build -C Debug --output-on-failure 2>&1 | tee brush-parser-test.log
+      - name: Qualify signed macOS worker startup
+        if: ${{ !cancelled() && startsWith(matrix.os, 'macos-') && steps.build_parser.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 ci-scripts/brush-parser/qualify_macos_helper.py brush-parser-build/rasterbrushworker_test 2>&1 | tee brush-helper-startup.log
+      - name: Report failure evidence
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PYREPORT'
+          from pathlib import Path
+          import re
+          for name in ('brush-parser-build.log', 'brush-parser-test.log', 'brush-helper-startup.log'):
+              path = Path(name)
+              if not path.is_file():
+                  continue
+              lines = path.read_text(errors='replace').splitlines()
+              # Keep each failed case and its immediate diagnostic visible even
+              # when another case emits a long log. Full output stays in artifacts.
+              matches = [i for i, line in enumerate(lines) if re.search(
+                  r'error(?:\s+[A-Z]\d+)?[: ]|Undefined symbols|undefined reference|'
+                  r'FAILED|Failed|failed|timeout|exception|Segmentation|AddressSanitizer', line)]
+              selected = set(range(max(0, len(lines) - 12), len(lines)))
+              for i in matches:
+                  selected.update(range(max(0, i - 3), min(len(lines), i + 2)))
+              import runpy
+              report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
+              # Bound individual records before lossless batching. Split long
+              # diagnostic lines instead of truncating away the failure cause.
+              records = []
+              for i in sorted(selected):
+                  line = lines[i]
+                  for start in range(0, max(1, len(line)), 400):
+                      records.append({'line': i + 1, 'message': line[start:start + 400]})
+              report_records(name + ' failure context', records)
+          PYREPORT
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: brush-parser-${{ matrix.os }}-qt${{ matrix.qt }}-${{ github.sha }}
+          path: |
+            brush-parser-*.log
+            brush-helper-startup.log
+            brush-parser-build/Testing/Temporary/LastTest.log

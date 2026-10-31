@@ -26,6 +26,7 @@
 #include <QMainWindow>
 #include <QSet>
 #include <QStringList>
+#include <QTemporaryDir>
 
 namespace {
 
@@ -40,6 +41,15 @@ QString sanitizedName(const QString &name) {
   }
   result = result.trimmed();
   while (result.endsWith('.')) result.chop(1);
+  // Keep room for numbering and extensions on all supported filesystems.
+  result = result.left(120);
+  while (result.endsWith('.') || result.endsWith(' ')) result.chop(1);
+  if (result.startsWith('.')) result.prepend('_');
+  const QString base = result.section('.', 0, 0).toUpper();
+  if (base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" ||
+      (base.size() == 4 && (base.startsWith("COM") || base.startsWith("LPT")) &&
+       base[3] >= QChar('1') && base[3] <= QChar('9')))
+    result.prepend('_');
   return result.isEmpty() ? QString("brushes") : result;
 }
 
@@ -54,13 +64,26 @@ int importFile(const QString &abrPath, QStringList &messages) {
     messages << UiTranslations::text(QObject::tr("%1: the file cannot be read.")).arg(fileName);
     return 0;
   }
-  QByteArray bytes = file.readAll();
+  const AbrParser::Limits limits;
+  if (file.size() > static_cast<qint64>(limits.maxFileBytes)) {
+    messages << QObject::tr("%1: the brush file exceeds the 256 MiB import limit.")
+                    .arg(fileName);
+    return 0;
+  }
+  // Bound the read too: the file can grow after the size check.
+  QByteArray bytes = file.read(static_cast<qint64>(limits.maxFileBytes) + 1);
+  if (file.error() != QFile::NoError || !file.atEnd() ||
+      static_cast<size_t>(bytes.size()) > limits.maxFileBytes) {
+    messages << QObject::tr("%1: the brush file could not be read within the import limit.")
+                    .arg(fileName);
+    return 0;
+  }
   file.close();
 
   AbrParser::Result result;
   std::string error;
   if (!AbrParser::parseAbr((const unsigned char *)bytes.constData(),
-                           (size_t)bytes.size(), result, error)) {
+                           (size_t)bytes.size(), result, error, limits)) {
     messages << UiTranslations::text(QObject::tr("%1: %2")).arg(fileName).arg(
         QString::fromStdString(error));
     return 0;
@@ -69,13 +92,36 @@ int importFile(const QString &abrPath, QStringList &messages) {
     messages << UiTranslations::text(QObject::tr("%1: no sampled brushes found.")).arg(fileName);
   }
 
-  QString folder = ToonzFolder::getLibraryFolder().getQString() +
-                   "/brushtips/" +
-                   sanitizedName(QFileInfo(abrPath).completeBaseName());
-  if (!result.tips.empty() && !QDir().mkpath(folder)) {
+  if (result.computedBrushes > 0)
+    messages << UiTranslations::text(QObject::tr(
+                    "%1: %2 computed (round) brushes have no image "
+                    "and were skipped."))
+                    .arg(fileName)
+                    .arg(result.computedBrushes);
+  if (result.skippedSamples > 0)
+    messages << UiTranslations::text(QObject::tr(
+                    "%1: %2 brushes could not be read and were "
+                    "skipped."))
+                    .arg(fileName)
+                    .arg(result.skippedSamples);
+  for (const std::string &w : result.warnings)
+    messages << QString("%1: %2").arg(fileName).arg(QString::fromStdString(w));
+
+  if (result.tips.empty()) return 0;
+  const QString root = ToonzFolder::getLibraryFolder().getQString() + "/brushtips";
+  const QString collection = sanitizedName(QFileInfo(abrPath).completeBaseName());
+  if (!QDir().mkpath(root)) {
     messages << UiTranslations::text(QObject::tr("%1: the folder %2 cannot be created."))
                     .arg(fileName)
-                    .arg(folder);
+                    .arg(root);
+    return 0;
+  }
+  // Stage on the same filesystem. A failed write leaves no selectable tips;
+  // publishing is a single directory rename, never overwrite existing packs.
+  QTemporaryDir staging(root + "/.abr-import-XXXXXX");
+  if (!staging.isValid()) {
+    messages << QObject::tr("%1: the import staging folder cannot be created.")
+                    .arg(fileName);
     return 0;
   }
 
@@ -94,32 +140,45 @@ int importFile(const QString &abrPath, QStringList &messages) {
     usedNames.insert(unique.toLower());
 
     QImage image(tip.width, tip.height, QImage::Format_Grayscale8);
+    if (image.isNull()) {
+      messages << QObject::tr("%1: not enough memory to import the brush tips.")
+                      .arg(fileName);
+      return 0;
+    }
     for (int y = 0; y < tip.height; ++y) {
       unsigned char *line      = image.scanLine(y);
       const unsigned char *src = &tip.pixels[(size_t)y * tip.width];
       for (int x = 0; x < tip.width; ++x) line[x] = 255 - src[x];
     }
-    if (image.save(folder + "/" + unique + ".png", "PNG"))
+    if (image.save(staging.path() + "/" + unique + ".png", "PNG"))
       ++written;
-    else
+    else {
       messages
           << UiTranslations::text(QObject::tr("%1: %2 cannot be saved.")).arg(fileName).arg(unique);
+      return 0;
+    }
   }
 
-  if (result.computedBrushes > 0)
-    messages << UiTranslations::text(QObject::tr(
-                    "%1: %2 computed (round) brushes have no image "
-                    "and were skipped."))
-                    .arg(fileName)
-                    .arg(result.computedBrushes);
-  if (result.skippedSamples > 0)
-    messages << UiTranslations::text(QObject::tr(
-                    "%1: %2 brushes could not be read and were "
-                    "skipped."))
-                    .arg(fileName)
-                    .arg(result.skippedSamples);
-  for (const std::string &w : result.warnings)
-    messages << QString("%1: %2").arg(fileName).arg(QString::fromStdString(w));
+  bool installed = false;
+  for (int n = 1; n <= 10000; ++n) {
+    const QString folder = root + "/" + collection +
+                           (n == 1 ? QString() : QString(" (%1)").arg(n));
+    if (QFileInfo::exists(folder)) continue;
+    if (QDir().rename(staging.path(), folder)) {
+      staging.setAutoRemove(false);
+      installed = true;
+      break;
+    }
+    // A concurrent import may have won this name. Retry only that collision;
+    // do not repeatedly retry a permission or disk error.
+    if (!QFileInfo::exists(folder)) break;
+  }
+  if (!installed) {
+    messages << QObject::tr("%1: the brush collection could not be installed; no tips were changed.")
+                    .arg(fileName);
+    return 0;
+  }
+
   return written;
 }
 

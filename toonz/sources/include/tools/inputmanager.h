@@ -183,13 +183,9 @@ private:
     TTimerTicks ticks,
     bool hasPressure,
     bool hasTilt );
-  void addTrackPoint(
-    const TTrackP& track,
-    const TPointD &position,
-    double pressure,
-    const TPointD &tilt,
-    double time,
-    bool final );
+  void addTrackPoint(const TTrackP &track, const TPointD &position,
+                     double pressure, const TPointD &tilt, double time,
+                     bool final, double rotation = 0, bool hasRotation = false);
   void touchTracks(bool finish = false);
 
   void modifierActivate(const TInputModifierP &modifier);
@@ -231,16 +227,11 @@ public:
     { removeModifier(findModifier(modifier)); }
   void clearModifiers();
 
-  void trackEvent(
-    TInputState::DeviceId deviceId,
-    TInputState::TouchId touchId,
-    const TPointD &position,
-    const double pressure,
-    const TPointD &tilt,
-    bool hasPressure,
-    bool hasTilt,
-    bool final,
-    TTimerTicks ticks );
+  void trackEvent(TInputState::DeviceId deviceId, TInputState::TouchId touchId,
+                  const TPointD &position, const double pressure,
+                  const TPointD &tilt, bool hasPressure, bool hasTilt,
+                  bool final, TTimerTicks ticks, double rotation = 0,
+                  bool hasRotation = false);
   bool keyEvent(
     bool press,
     TInputState::Key key,

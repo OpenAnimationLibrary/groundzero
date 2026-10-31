@@ -1,6 +1,13 @@
 #include "toonz/abrparser.h"
 
 #include <cstring>
+#include <cstdlib>
+#include <limits>
+#include <zlib.h>
+#include <cmath>
+#include <set>
+#include <stdexcept>
+#include <utility>
 
 namespace AbrParser {
 
@@ -9,6 +16,51 @@ namespace {
 // Limits of what is accepted as a tip: Photoshop tips stay below 2500 pixels.
 const int c_maxTipSide         = 10000;
 const long long c_maxTipPixels = 64LL * 1024 * 1024;
+
+struct Budget {
+  const Limits &limits;
+  size_t decoded = 0, records = 0;
+  size_t descriptorNodes = 0, descriptorBytes = 0;
+  std::string error;
+  explicit Budget(const Limits &value) : limits(value) {}
+  bool record() {
+    if (records >= limits.maxRecords) {
+      error = "The ABR record limit was exceeded.";
+      return false;
+    }
+    ++records;
+    return true;
+  }
+  bool allocate(size_t bytes) {
+    if (bytes > limits.maxDecodedBytes - decoded) {
+      error = "The ABR decoded image budget was exceeded.";
+      return false;
+    }
+    decoded += bytes;
+    return true;
+  }
+  void descriptorAllocate(size_t bytes) {
+    if (bytes > limits.maxDescriptorBytes - descriptorBytes) {
+      error = "The ABR descriptor allocation budget was exceeded.";
+      throw std::runtime_error(error);
+    }
+    descriptorBytes += bytes;
+  }
+  void descriptorReserve(size_t count) {
+    if (count > limits.maxDescriptorNodes - descriptorNodes) {
+      error = "The ABR descriptor node budget was exceeded.";
+      throw std::runtime_error(error);
+    }
+    // Include bounded container bookkeeping, including duplicate-key checks.
+    const size_t perNode = sizeof(DescriptorValue) + 64;
+    if (count > (limits.maxDescriptorBytes - descriptorBytes) / perNode) {
+      error = "The ABR descriptor allocation budget was exceeded.";
+      throw std::runtime_error(error);
+    }
+    descriptorAllocate(count * perNode);
+    descriptorNodes += count;
+  }
+};
 
 //-----------------------------------------------------------------------------
 // Bounds checked reader of big endian values. It never reads at or past its
@@ -100,10 +152,14 @@ void appendUtf8(std::string &s, unsigned cp) {
 
 //! Reads a version 2 name: the number of UTF-16 units (the final null
 //! included), then the units, big endian.
-bool readUnicodeName(Reader &r, std::string &name) {
+bool readUnicodeName(Reader &r, std::string &name, Budget &budget) {
   int32_t count;
   if (!r.i32(count) || count < 0) return false;
   if ((size_t)count > r.remaining() / 2) return false;
+  if ((size_t)count > budget.limits.maxNameUnits) {
+    budget.error = "The ABR name length limit was exceeded.";
+    return false;
+  }
 
   std::vector<unsigned> units(count);
   for (int32_t i = 0; i < count; ++i) r.u16(units[i]);
@@ -123,6 +179,172 @@ bool readUnicodeName(Reader &r, std::string &name) {
   }
   return true;
 }
+
+// Independently written reader of Adobe's documented Action Descriptor data
+// layout. Decoding a typed value does not interpret its brush-engine meaning.
+// https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/
+class DescriptorReader {
+  Reader &r;
+  Budget &budget;
+  void need(bool valid) {
+    if (!valid) throw std::runtime_error("truncated or invalid descriptor");
+  }
+  uint32_t word() {
+    uint32_t value;
+    need(r.u32(value));
+    return value;
+  }
+  std::string bytes(size_t count) {
+    need(count <= r.remaining());
+    budget.descriptorAllocate(count);
+    std::string value(reinterpret_cast<const char *>(r.ptr()), count);
+    r.skip(count);
+    return value;
+  }
+  std::string id() {
+    size_t count = word();
+    if (!count) count = 4;
+    need(count <= 4096);
+    return bytes(count);
+  }
+  std::string unicode() {
+    Reader peek = r;
+    uint32_t count;
+    need(peek.u32(count));
+    if (count > budget.limits.maxNameUnits ||
+        count >
+            (budget.limits.maxDescriptorBytes - budget.descriptorBytes) / 8) {
+      budget.error = "The ABR descriptor string budget was exceeded.";
+      throw std::runtime_error(budget.error);
+    }
+    budget.descriptorAllocate(size_t(count) * 8);
+    std::string value;
+    need(readUnicodeName(r, value, budget));
+    return value;
+  }
+  uint64_t wide() {
+    const uint64_t high = word();
+    return (high << 32) | word();
+  }
+  double real() {
+    uint64_t bits = wide();
+    double value;
+    static_assert(sizeof(value) == sizeof(bits), "IEEE binary64 required");
+    std::memcpy(&value, &bits, sizeof(value));
+    need(std::isfinite(value));
+    return value;
+  }
+  void children(DescriptorValue &value, size_t depth, bool keyed) {
+    const size_t count = word();
+    need(count <= r.remaining() / (keyed ? 12 : 4));
+    budget.descriptorReserve(count);
+    value.children.reserve(count);
+    std::set<std::string> keys;
+    for (size_t i = 0; i < count; ++i) {
+      std::string key = keyed ? id() : std::string();
+      if (keyed) budget.descriptorAllocate(key.size());
+      if (keyed && !keys.insert(key).second)
+        throw std::runtime_error("duplicate descriptor key");
+      auto child = item(depth + 1);
+      child.key  = std::move(key);
+      value.children.push_back(std::move(child));
+    }
+  }
+  void reference(DescriptorValue &value, size_t depth) {
+    const size_t count = word();
+    need(count <= r.remaining() / 4);
+    if (count && depth >= budget.limits.maxDescriptorDepth) {
+      budget.error = "The ABR descriptor nesting limit was exceeded.";
+      throw std::runtime_error(budget.error);
+    }
+    budget.descriptorReserve(count);
+    value.children.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      DescriptorValue child;
+      child.type = bytes(4);
+      // Adobe's published Reference/Property/Class/Enumerated/Offset tables.
+      // Other reference kinds lack a complete layout there: do not guess.
+      if (child.type != "prop" && child.type != "Clss" &&
+          child.type != "Enmr" && child.type != "rele")
+        throw std::runtime_error("unsupported descriptor reference: " +
+                                 child.type);
+      child.name    = unicode();
+      child.classId = id();
+      if (child.type == "prop")
+        child.text = id();
+      else if (child.type == "Enmr") {
+        child.unit = id();  // Reference enum's TypeID, retained verbatim.
+        child.text = id();
+      } else if (child.type == "rele") {
+        child.integer = word();  // Raw32-bit offset, not a resolved index.
+      }
+      value.children.push_back(std::move(child));
+    }
+  }
+  void object(DescriptorValue &value, size_t depth) {
+    value.name    = unicode();
+    value.classId = id();
+    children(value, depth, true);
+  }
+  DescriptorValue item(size_t depth) {
+    if (depth > budget.limits.maxDescriptorDepth) {
+      budget.error = "The ABR descriptor nesting limit was exceeded.";
+      throw std::runtime_error(budget.error);
+    }
+    DescriptorValue value;
+    value.type = bytes(4);
+    if (value.type == "obj ") {
+      reference(value, depth);
+    } else if (value.type == "Objc" || value.type == "GlbO") {
+      object(value, depth);
+    } else if (value.type == "VlLs") {
+      children(value, depth, false);
+    } else if (value.type == "TEXT") {
+      value.text = unicode();
+    } else if (value.type == "enum") {
+      value.classId = id();
+      value.text    = id();
+    } else if (value.type == "long") {
+      uint32_t n    = word();
+      value.integer = n >= 0x80000000u ? int64_t(n) - 0x100000000LL : n;
+    } else if (value.type == "comp") {
+      uint64_t n    = wide();
+      value.integer = n >> 63 ? -int64_t(~n) - 1 : int64_t(n);
+    } else if (value.type == "doub" || value.type == "UntF") {
+      if (value.type == "UntF") value.unit = bytes(4);
+      value.number = real();
+    } else if (value.type == "bool") {
+      unsigned n;
+      need(r.u8(n) && n <= 1);
+      value.boolean = n != 0;
+    } else if (value.type == "type" || value.type == "GlbC") {
+      value.name    = unicode();
+      value.classId = id();
+    } else if (value.type == "tdta" || value.type == "alis") {
+      // Preserve opaque bytes only. Aliases are never opened or resolved.
+      value.text = bytes(word());
+    } else {
+      throw std::runtime_error("unsupported descriptor type: " + value.type);
+    }
+    return value;
+  }
+
+public:
+  DescriptorReader(Reader &reader, Budget &b) : r(reader), budget(b) {}
+  DescriptorValue read() {
+    need(word() == 16);
+    budget.descriptorReserve(1);
+    DescriptorValue value;
+    value.type = "Objc";
+    object(value, 0);
+    need(r.remaining() <= 3);
+    while (r.remaining()) {
+      unsigned padding;
+      need(r.u8(padding) && padding == 0);
+    }
+    return value;
+  }
+};
 
 //-----------------------------------------------------------------------------
 
@@ -217,7 +439,7 @@ bool decodeImage(Reader &r, int width, int height, int depth,
 
 //! Reads the 32 bit bounds, the depth and the image: the part which versions
 //! 1, 2 and 6 and up have in common.
-bool readBoundsAndImage(Reader &r, Tip &tip, std::string &why) {
+bool readBoundsAndImage(Reader &r, Tip &tip, std::string &why, Budget &budget) {
   int32_t top, left, bottom, right;
   int depth;
   if (!r.i32(top) || !r.i32(left) || !r.i32(bottom) || !r.i32(right) ||
@@ -235,6 +457,10 @@ bool readBoundsAndImage(Reader &r, Tip &tip, std::string &why) {
   }
   if (depth != 8 && depth != 16) {
     why = "unsupported depth " + std::to_string(depth);
+    return false;
+  }
+  if (!budget.allocate((size_t)(width * height))) {
+    why = budget.error;
     return false;
   }
   tip.width  = (int)width;
@@ -255,7 +481,8 @@ std::string defaultName(int index) {
 // Versions 1 and 2
 
 //! \b r ends where the brush ends.
-bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why) {
+bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why,
+                   Budget &budget) {
   int32_t misc;
   int spacing;
   if (!r.i32(misc) || !r.i16(spacing)) {
@@ -265,7 +492,7 @@ bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why) {
   tip.spacing = spacing;
   if (version == 2) {
     std::string name;
-    if (!readUnicodeName(r, name)) {
+    if (!readUnicodeName(r, name, budget)) {
       why = "bad name";
       return false;
     }
@@ -277,13 +504,14 @@ bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why) {
     why = "truncated header";
     return false;
   }
-  return readBoundsAndImage(r, tip, why);
+  return readBoundsAndImage(r, tip, why, budget);
 }
 
 void parseV12(const unsigned char *data, size_t size, int version, int count,
-              Result &out) {
+              Result &out, Budget &budget) {
   Reader r(data, size, 4);
   for (int i = 0; i < count; ++i) {
+    if (!budget.record()) return;
     int type;
     int32_t length;
     if (!r.i16(type) || !r.i32(length)) {
@@ -299,13 +527,27 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
     size_t next = r.pos() + (size_t)length;
     if (type == 1) {
       ++out.computedBrushes;
+      // Adobe Photoshop 6 file-format specification, fixed 14-byte record.
+      // Decode the signed geometry without inventing a bitmap or source model.
+      Reader shape = r.sub(next);
+      int32_t miscellaneous;
+      Result::Computed value;
+      value.name = "computed_" + std::to_string(i + 1);
+      if (length == 14 && shape.i32(miscellaneous) &&
+          shape.i16(value.spacing) && shape.i16(value.diameter) &&
+          shape.i16(value.roundness) && shape.i16(value.angle) &&
+          shape.i16(value.hardness))
+        out.computed.push_back(std::move(value));
+      else
+        out.warnings.push_back("Computed brush " + std::to_string(i + 1) +
+                               " has an invalid fixed record length.");
     } else if (type == 2) {
       Tip tip;
       tip.name      = defaultName(i + 1);
       Reader sample = r.sub(next);
       std::string why;
-      if (readSampleV12(sample, version, tip, why)) {
-        out.tips.push_back(tip);
+      if (readSampleV12(sample, version, tip, why, budget)) {
+        out.tips.push_back(std::move(tip));
       } else {
         ++out.skippedSamples;
         out.warnings.push_back("Brush " + std::to_string(i + 1) +
@@ -324,21 +566,32 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
 // Versions 6 and up
 
 //! \b r ends where the sample ends.
-bool readSampleV6(Reader &r, int subVersion, Tip &tip, std::string &why) {
+bool readSampleV6(Reader &r, int subVersion, Tip &tip, std::string &why,
+                  Budget &budget) {
   // The id of the brush (a pascal string of 36 characters) and some fields
   // which are not used: 47 bytes for sub version 1, 301 for the others.
-  if (!r.skip(subVersion == 1 ? 47 : 301)) {
+  const size_t headerSize = subVersion == 1 ? 47 : 301;
+  if (r.remaining() < headerSize) {
     why = "truncated header";
     return false;
   }
-  return readBoundsAndImage(r, tip, why);
+  const unsigned idSize = r.ptr()[0];
+  if (idSize > 36) {
+    why = "invalid sample identifier";
+    return false;
+  }
+  tip.sampleId.assign(reinterpret_cast<const char *>(r.ptr() + 1), idSize);
+  r.skip(headerSize);
+  return readBoundsAndImage(r, tip, why, budget);
 }
 
 //! \b section holds the samples, each one preceded by its length and padded
 //! to a multiple of 4 bytes.
-void parseSamples(Reader &section, int subVersion, Result &out) {
+void parseSamples(Reader &section, int subVersion, Result &out,
+                  Budget &budget) {
   int index = 0;
   while (section.remaining() >= 4) {
+    if (!budget.error.empty() || !budget.record()) return;
     uint32_t length;
     section.u32(length);
     ++index;
@@ -355,8 +608,8 @@ void parseSamples(Reader &section, int subVersion, Result &out) {
     tip.name      = defaultName(index);
     Reader sample = section.sub(start + length);
     std::string why;
-    if (readSampleV6(sample, subVersion, tip, why)) {
-      out.tips.push_back(tip);
+    if (readSampleV6(sample, subVersion, tip, why, budget)) {
+      out.tips.push_back(std::move(tip));
     } else {
       ++out.skippedSamples;
       out.warnings.push_back("Sample " + std::to_string(index) +
@@ -366,16 +619,187 @@ void parseSamples(Reader &section, int subVersion, Result &out) {
   }
 }
 
+// zlib's internal allocations participate in the same live decoded-byte
+// budget as channel output. Allocation headers preserve alignment on all hosts.
+struct alignas(std::max_align_t) InflateAllocation {
+  size_t bytes;
+};
+voidpf patternZalloc(voidpf opaque, uInt count, uInt size) {
+  auto &budget        = *static_cast<Budget *>(opaque);
+  const size_t header = sizeof(InflateAllocation);
+  if (size &&
+      size_t(count) > (std::numeric_limits<size_t>::max() - header) / size)
+    return Z_NULL;
+  const size_t bytes = header + size_t(count) * size;
+  if (!budget.allocate(bytes)) return Z_NULL;
+  auto *allocation = static_cast<InflateAllocation *>(std::calloc(1, bytes));
+  if (!allocation) {
+    budget.decoded -= bytes;
+    return Z_NULL;
+  }
+  allocation->bytes = bytes;
+  return allocation + 1;
+}
+void patternZfree(voidpf opaque, voidpf pointer) {
+  if (!pointer) return;
+  auto &budget     = *static_cast<Budget *>(opaque);
+  auto *allocation = static_cast<InflateAllocation *>(pointer) - 1;
+  budget.decoded -= allocation->bytes;
+  std::free(allocation);
+}
+
+bool inflatePattern(Reader &input, std::vector<unsigned char> &output,
+                    Budget &budget) {
+  if (input.remaining() > std::numeric_limits<uInt>::max() ||
+      output.size() > std::numeric_limits<uInt>::max())
+    return false;
+  z_stream stream{};
+  stream.zalloc   = patternZalloc;
+  stream.zfree    = patternZfree;
+  stream.opaque   = &budget;
+  stream.next_in  = const_cast<Bytef *>(input.ptr());
+  stream.avail_in = uInt(input.remaining());
+  // A one-byte sentinel handles empty channels and checks for output overrun
+  // without expanding the destination to accommodate a decompression bomb.
+  unsigned char sentinel = 0;
+  stream.next_out        = output.empty() ? &sentinel : output.data();
+  stream.avail_out       = output.empty() ? 1 : uInt(output.size());
+  if (inflateInit(&stream) != Z_OK) return false;
+  int status = inflate(&stream, Z_FINISH);
+  if (status == Z_BUF_ERROR && stream.avail_out == 0 &&
+      stream.total_out == output.size()) {
+    stream.next_out  = &sentinel;
+    stream.avail_out = 1;
+    status           = inflate(&stream, Z_FINISH);
+  }
+  const bool valid = status == Z_STREAM_END && stream.avail_in == 0 &&
+                     stream.total_out == output.size();
+  inflateEnd(&stream);
+  return valid;
+}
+
+// Independently implemented from Adobe Photoshop File Formats Specification,
+// "Patterns" and "Virtual memory array list" (November 2019). This decodes
+// resources only: the specification does not define brush texture behavior.
+void parsePatterns(Reader &section, Result &out, Budget &budget) {
+  auto need = [](bool ok) {
+    if (!ok) throw std::runtime_error("Invalid pattern resource layout");
+  };
+  while (section.remaining()) {
+    need(budget.record());
+    uint32_t length, version, mode;
+    need(section.u32(length) && length <= section.remaining());
+    const size_t end = section.pos() + length;
+    Reader r         = section.sub(end);
+    Pattern pattern;
+    need(r.u32(version) && version == 1 && r.u32(mode));
+    need(mode == 0 || mode == 1 || mode == 2 || mode == 3 || mode == 4 ||
+         mode == 7 || mode == 8 || mode == 9);
+    pattern.mode = mode;
+    need(r.u16(pattern.pointY) && r.u16(pattern.pointX));
+    need(readUnicodeName(r, pattern.name, budget));
+    unsigned idLength;
+    need(r.u8(idLength) && idLength && idLength <= r.remaining());
+    budget.descriptorAllocate(sizeof(Pattern) + pattern.name.size() + idLength);
+    pattern.id.assign(reinterpret_cast<const char *>(r.ptr()), idLength);
+    r.skip(idLength);
+    for (const auto &existing : out.patterns)
+      need(existing.id != pattern.id);  // Never resolve ambiguous identities.
+    if (mode == 2) {
+      need(r.remaining() >= 768);
+      need(budget.allocate(768));
+      pattern.palette.assign(r.ptr(), r.ptr() + 768);
+      r.skip(768);
+    }
+    uint32_t vmLength, count;
+    need(r.u32(version) && version == 3 && r.u32(vmLength) &&
+         vmLength <= r.remaining());
+    Reader vm = r.sub(r.pos() + vmLength);
+    need(vm.i32(pattern.top) && vm.i32(pattern.left) &&
+         vm.i32(pattern.bottom) && vm.i32(pattern.right) && vm.u32(count));
+    need(pattern.bottom >= pattern.top && pattern.right >= pattern.left);
+    // The documented channel count excludes the user-mask and sheet-mask slots.
+    need(count <= 64 && count + 2 <= vm.remaining() / 4);
+    budget.descriptorAllocate((size_t(count) + 2) * sizeof(PatternChannel));
+    pattern.channels.reserve(size_t(count) + 2);
+    for (uint32_t i = 0; i < count + 2; ++i) {
+      need(budget.record());
+      PatternChannel channel;
+      uint32_t written, channelLength, depth;
+      need(vm.u32(written) && written <= 1);
+      channel.written = written != 0;
+      if (written) {
+        need(vm.u32(channelLength) && channelLength <= vm.remaining());
+        if (channelLength) {
+          Reader cr = vm.sub(vm.pos() + channelLength);
+          need(cr.u32(depth) && cr.i32(channel.top) && cr.i32(channel.left) &&
+               cr.i32(channel.bottom) && cr.i32(channel.right) &&
+               cr.u16(channel.depth) && cr.u8(channel.compression));
+          need(depth == channel.depth &&
+               (depth == 1 || depth == 8 || depth == 16 || depth == 32));
+          const int64_t width  = int64_t(channel.right) - channel.left;
+          const int64_t height = int64_t(channel.bottom) - channel.top;
+          need(width >= 0 && height >= 0 && width <= c_maxTipSide &&
+               height <= c_maxTipSide && width * height <= c_maxTipPixels);
+          if ((depth == 8 || depth == 16) && channel.compression <= 1) {
+            const size_t bytes = size_t(width * height) * (depth / 8);
+            need(budget.allocate(bytes));
+            if (channel.compression == 0) {
+              need(cr.remaining() == bytes);
+              channel.pixels.assign(cr.ptr(), cr.ptr() + bytes);
+              channel.encodingProfile = "adobe-vm-raw";
+            } else {
+              // VM-array documentation assigns 1 to ZIP. Do not substitute
+              // the PSD image-data enum (1=PackBits, 2=ZIP, 3=prediction),
+              // or try multiple decoders until a malformed input succeeds.
+              channel.pixels.resize(bytes);
+              need(inflatePattern(cr, channel.pixels, budget));
+              channel.encodingProfile = "adobe-vm-zip1";
+              out.warnings.push_back(
+                  "Pattern ZIP decoded under the documented "
+                  "VM-array profile; ABR producer encoding "
+                  "is not reference-verified.");
+            }
+            channel.decoded = true;
+          } else {
+            out.warnings.push_back(
+                "Pattern channel encoding is not decoded; "
+                "texture behavior is unavailable.");
+          }
+          vm.seek(cr.end());
+        }
+      }
+      pattern.channels.push_back(std::move(channel));
+    }
+    need(vm.remaining() == 0);
+    r.seek(vm.end());
+    need(r.remaining() <= 3);
+    while (r.remaining()) {
+      unsigned padding;
+      need(r.u8(padding) && padding == 0);
+    }
+    out.patterns.push_back(std::move(pattern));
+    section.seek(end);
+    // Pattern lengths are padded to a multiple of four in the section.
+    const size_t padding = (4 - (length % 4)) % 4;
+    for (size_t i = 0; i < padding; ++i) {
+      unsigned value;
+      need(section.u8(value) && value == 0);
+    }
+  }
+}
+
 bool isSignatureAt(const Reader &r, size_t offset) {
   return r.remaining() >= offset + 4 &&
          std::memcmp(r.ptr() + offset, "8BIM", 4) == 0;
 }
 
 void parseV6(const unsigned char *data, size_t size, int subVersion,
-             Result &out) {
+             Result &out, Budget &budget) {
   Reader r(data, size, 4);
   bool sawSamples = false;
   while (r.remaining() >= 12) {
+    if (!budget.error.empty() || !budget.record()) return;
     if (!isSignatureAt(r, 0)) {
       // tolerate up to 3 bytes of padding between sections
       size_t pad = 1;
@@ -395,14 +819,46 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
     r.u32(length);
     if (length > r.remaining()) {
       out.warnings.push_back("A section is truncated.");
+      if (std::memcmp(tag, "patt", 4) == 0) {
+        out.patternDataComplete = false;
+        out.patterns.clear();
+      }
       length = (uint32_t)r.remaining();
     }
     Reader section = r.sub(r.pos() + length);
     if (std::memcmp(tag, "samp", 4) == 0) {
       sawSamples = true;
-      parseSamples(section, subVersion, out);
+      parseSamples(section, subVersion, out, budget);
     }
-    // 'desc' (names, spacing and dynamics), 'patt' and the others are skipped
+    // A decoded sample is not a decoded preset. Report the skipped behavioral
+    // data even if all tip pixels decoded successfully.
+    else if (std::memcmp(tag, "desc", 4) == 0) {
+      try {
+        out.descriptors.push_back(DescriptorReader(section, budget).read());
+      } catch (const std::exception &error) {
+        out.warnings.push_back(std::string("Preset descriptors not decoded: ") +
+                               error.what() + ".");
+      }
+      out.warnings.push_back(
+          "Descriptor decoding alone does not apply preset settings; a "
+          "qualified "
+          "version-specific adapter is required. Source behavior is "
+          "unverified.");
+    } else if (std::memcmp(tag, "patt", 4) == 0) {
+      try {
+        if (out.patternDataComplete) parsePatterns(section, out, budget);
+        out.warnings.push_back(
+            "Pattern resources do not imply texture behavior: "
+            "brush association is not source-verified.");
+      } catch (const std::exception &error) {
+        // A malformed section invalidates its identity graph. Keep no partial
+        // pattern binding (including duplicates across separate sections).
+        out.patterns.clear();
+        out.patternDataComplete = false;
+        out.warnings.push_back(std::string("Pattern resources not decoded: ") +
+                               error.what() + ".");
+      }
+    }
     r.seek(section.end());
   }
   if (!sawSamples)
@@ -415,9 +871,19 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
 
 bool parseAbr(const unsigned char *data, size_t size, Result &out,
               std::string &error) {
+  return parseAbr(data, size, out, error, Limits());
+}
+
+bool parseAbr(const unsigned char *data, size_t size, Result &out,
+              std::string &error, const Limits &limits) {
   out = Result();
   error.clear();
 
+  if (size > limits.maxFileBytes) {
+    error = "The ABR file size limit was exceeded.";
+    return false;
+  }
+  Budget budget(limits);
   Reader header(data, size, 0);
   unsigned version, second;
   if (!data || !header.u16(version) || !header.u16(second)) {
@@ -427,13 +893,22 @@ bool parseAbr(const unsigned char *data, size_t size, Result &out,
 
   out.version = (int)version;
   if (version == 1 || version == 2) {
-    parseV12(data, size, (int)version, (int)second, out);
+    parseV12(data, size, (int)version, (int)second, out, budget);
   } else if (version >= 6 && version <= 10) {
+    if (second != 1 && second != 2) {
+      error = "Unsupported ABR subversion " + std::to_string(second) + ".";
+      return false;
+    }
     out.subVersion = (int)second;
-    parseV6(data, size, (int)second, out);
+    parseV6(data, size, (int)second, out, budget);
   } else {
     error = "ABR version " + std::to_string(version) +
             " is not supported (versions 1, 2 and 6 to 10 are).";
+    return false;
+  }
+  if (!budget.error.empty()) {
+    error = budget.error;
+    out   = Result();
     return false;
   }
   return true;

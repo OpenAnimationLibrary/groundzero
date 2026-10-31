@@ -320,6 +320,7 @@ jobs:
           REM Create Opentoonz directory and copy files from RelWithDebInfo
           mkdir Opentoonz
           copy /Y RelWithDebInfo\*.* Opentoonz\
+          xcopy /Y /E /I RelWithDebInfo\brush-import-runtime Opentoonz\brush-import-runtime
           xcopy /Y /E /I licenses Opentoonz\licenses
           REM Copy required DLLs for proper functionality
           copy /Y ..\..\thirdparty\glut\3.7.6\lib\glut64.dll Opentoonz
@@ -338,6 +339,10 @@ jobs:
           del /Q Opentoonz\*.pdb  REM Remove .pdb files
           del /Q Opentoonz\vc_redist.x64.exe REM Remove vc_redist.x64.exe file
           
+          REM Qualify installed brush runtime without changing its permissions
+          python ..\..\ci-scripts\brush-parser\qualify_windows_helper.py Opentoonz\brush-import-runtime
+          if errorlevel 1 exit /b 1
+
           REM Create portablestuff directory and copy stuff folder
           mkdir Opentoonz\portablestuff
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
@@ -466,6 +471,21 @@ jobs:
       - name: Report Cadmium adapter failures
         if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/cadmium-tests-output.txt "Cadmium adapter regression"
+
+      - name: Test native raster brush application
+        id: raster_brush_application
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
+          ctest --test-dir toonz/build -C RelWithDebInfo --output-on-failure --no-tests=error -R "^rasterbrush_application$"
+
+      - name: Report raster brush application failure
+        if: ${{ failure() && steps.raster_brush_application.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/rasterbrush-application-output.txt "Raster brush application"
 
       - name: Test SeExpr native integration
         id: seexpr_tests

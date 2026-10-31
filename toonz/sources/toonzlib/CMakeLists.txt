@@ -78,6 +78,9 @@ set(HEADERS
     ../include/orientation.h
     ../include/toonz/Naa2TlvConverter.h
     ../include/toonz/abrparser.h
+    ../include/toonz/rasterbrushengine.h
+    ../include/toonz/rasterbrushpreset.h
+    ../include/toonz/rasterbrushimport.h
     ../include/toonz/autoclose.h
     ../include/toonz/boardsettings.h
     ../include/toonz/captureparameters.h
@@ -198,6 +201,12 @@ set(HEADERS
 set(SOURCES
     particlecache.cpp
     abrparser.cpp
+    rasterbrushengine.cpp
+    rasterbrushpreset.cpp
+    rasterbrushimport.cpp
+    rasterbrushworker.cpp
+    rasterbrushpng.cpp
+    rasterbrusharchive.cpp
     autoadjust.cpp
     autoclose.cpp
     autopos.cpp
@@ -489,6 +498,17 @@ endif()
 # Optional regression target for the Photoshop brush (ABR) reader.
 option(BUILD_ABR_TESTS "Build the ABR brush reader test" ${BUILD_TESTS})
 if(BUILD_ABR_TESTS)
+    add_executable(rasterbrushhost_test tests/rasterbrushhost_test.cpp)
+    target_link_libraries(rasterbrushhost_test PRIVATE toonzlib tnzcore tnztools image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME rasterbrushhost COMMAND rasterbrushhost_test)
+    add_executable(rasterbrushpreset_test tests/rasterbrushpreset_test.cpp)
+    target_link_libraries(rasterbrushpreset_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME rasterbrushpreset COMMAND rasterbrushpreset_test)
+    # Isolated case driver bounds every child and still reports other failures.
+    set_tests_properties(rasterbrushpreset PROPERTIES TIMEOUT 1200)
+    add_executable(rasterbrushengine_test tests/rasterbrushengine_test.cpp)
+    target_link_libraries(rasterbrushengine_test PRIVATE toonzlib tnzcore)
+    add_test(NAME rasterbrushengine COMMAND rasterbrushengine_test)
     add_executable(abrparser_test tests/abrparser_test.cpp)
     target_link_libraries(abrparser_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME abrparser COMMAND abrparser_test)
@@ -748,3 +768,24 @@ if(BUILD_COMPAT_REGRESSION)
     target_link_libraries(compat_regression PRIVATE toonzlib tnzbase tnzcore tnzext image tnzstdfx colorfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 endif()
 # compat_regression: end
+
+if(WIN32)
+    target_link_libraries(toonzlib userenv advapi32 ws2_32 shell32 ole32)
+endif()
+
+if(APPLE OR WIN32)
+    if(APPLE)
+        find_package(ZLIB REQUIRED)
+        target_link_libraries(toonzlib "-framework Security" "-framework CoreFoundation")
+    endif()
+    include("${CMAKE_CURRENT_SOURCE_DIR}/rasterbrushhelper.cmake")
+    add_rasterbrush_helper(rasterbrushimport-helper ${QT_VERSION_MAJOR}
+        "${CMAKE_CURRENT_SOURCE_DIR}/rasterbrushimporthelper.cpp")
+    if(TARGET rasterbrushpreset_test)
+        add_rasterbrush_helper(rasterbrushworker_test ${QT_VERSION_MAJOR}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/rasterbrushpreset_test.cpp")
+        target_compile_definitions(rasterbrushworker_test PRIVATE RASTERBRUSH_SANDBOX_TESTING)
+        target_compile_definitions(rasterbrushpreset_test PRIVATE RASTERBRUSH_SEPARATE_WORKER_TEST)
+        add_dependencies(rasterbrushpreset_test rasterbrushworker_test)
+    endif()
+endif()

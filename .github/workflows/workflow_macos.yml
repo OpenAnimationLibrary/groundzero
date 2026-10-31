@@ -189,6 +189,15 @@ jobs:
       - name: Verify benchmark harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
+      - name: Test native raster brush application
+        id: raster_brush_application
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: DYLD_LIBRARY_PATH="$PWD/toonz/build/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --test-dir toonz/build --output-on-failure --no-tests=error -R '^rasterbrush_application$'
+
+      - name: Report raster brush application failure
+        if: ${{ failure() && steps.raster_brush_application.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/rasterbrush-application-output.txt "Raster brush application"
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -273,6 +282,7 @@ jobs:
           mkdir -p OpenToonz.app/Contents/Resources/licenses
           cp ../licenses/Partio-LICENSE.txt OpenToonz.app/Contents/Resources/licenses/
           /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
+            -executable=OpenToonz.app/Contents/MacOS/rasterbrushimport-helper \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \
             -executable=OpenToonz.app/Contents/MacOS/tcleanup \
@@ -291,6 +301,16 @@ jobs:
               fi
             done
           done
+      - name: Sign relocated dependencies and isolated brush helper
+        run: |
+          python3 ci-scripts/brush-parser/sign_macos_deployment_test.py
+          python3 ci-scripts/brush-parser/sign_macos_deployment.py \
+            toonz/build/toonz/OpenToonz.app \
+            toonz/sources/toonzlib/resources/rasterbrushimport.entitlements
+
+      - name: Qualify deployed brush helper sandbox
+        run: python3 ci-scripts/brush-parser/qualify_macos_helper.py toonz/build/toonz/OpenToonz.app/Contents/MacOS/rasterbrushimport-helper
+
       - name: Prepare optional benchmark bundle
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         run: |
@@ -312,19 +332,31 @@ jobs:
       - name: Create Artifact
         run: |
           cd toonz/build/toonz
-          echo "Creating DMG..."
+          # Deployment and signing are complete. A second macdeployqt pass
+          # would mutate signed libraries and can package invalid signatures.
+          STAGING_DIR=$(mktemp -d)
+          MOUNT_DIR=$(mktemp -d)
+          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true; rm -rf "$STAGING_DIR" "$MOUNT_DIR"' EXIT
+          ditto OpenToonz.app "$STAGING_DIR/OpenToonz.app"
+          ln -s /Applications "$STAGING_DIR/Applications"
           ATTEMPT=1
-          until /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -dmg -verbose=0 && [ -f OpenToonz.dmg ]; do
-            echo "Attempt $ATTEMPT failed to build DMG."
-            if [ $ATTEMPT -eq 10 ]; then
-              echo ">>> DMG file creation failed after 10 attempts. Aborting!"
+          until hdiutil create -volname Groundzero -srcfolder "$STAGING_DIR" -ov -format UDZO OpenToonz.dmg; do
+            if [ "$ATTEMPT" -eq 10 ]; then
+              echo "::error::DMG creation failed after 10 attempts"
               exit 1
             fi
             ATTEMPT=$((ATTEMPT + 1))
-            echo "Retrying in 5 seconds..."
             sleep 5
           done
-          echo "DMG created successfully."
+          # Test the exact read-only image delivered to users, including its
+          # relocated library signatures, not merely the pre-package helper.
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" OpenToonz.dmg
+          python3 ../../../ci-scripts/brush-parser/sign_macos_deployment.py \
+            "$MOUNT_DIR/OpenToonz.app" \
+            ../../../toonz/sources/toonzlib/resources/rasterbrushimport.entitlements --verify-app-only
+          codesign --verify --strict --verbose=2 "$MOUNT_DIR/OpenToonz.app/Contents/MacOS/rasterbrushimport-helper"
+          python3 ../../../ci-scripts/brush-parser/qualify_macos_helper.py "$MOUNT_DIR/OpenToonz.app/Contents/MacOS/rasterbrushimport-helper"
+          hdiutil detach "$MOUNT_DIR"
       # A transient artifact-service DNS failure must not throw away a built
       # DMG. Retry only delivery, with bounded backoff; the last attempt is
       # required, so a package that never uploads still fails the job.
