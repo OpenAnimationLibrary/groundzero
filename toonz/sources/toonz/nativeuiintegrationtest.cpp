@@ -28,6 +28,7 @@
 #include "pane.h"
 #include "tapp.h"
 #include "themeapplication.h"
+#include "toolbar.h"
 #include "widgetinspector.h"
 #include "xsheetviewer.h"
 
@@ -408,6 +409,8 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   auto *preferences             = Preferences::instance();
   const QString originalProfile = preferences->getCurrentRoomChoice();
   const bool originalLazy       = preferences->isLazyLoadRoomsEnabled();
+  QPointer<QWidget> settings    = preferencesPopup();
+  QComboBox *roomSet            = comboWithValue(settings, "Tradigital");
   TApp *app                     = TApp::instance();
   ToonzScene *scene             = app->getCurrentScene()->getScene();
   TXsheet *xsheet               = app->getCurrentXsheet()->getXsheet();
@@ -418,6 +421,10 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   const int historyIndex = TUndoManager::manager()->getCurrentHistoryIndex();
 
   auto check = [&]() {
+    require(settings &&
+                roomSet->currentData().toString() == main->currentRoomSet() &&
+                preferences->getCurrentRoomChoice() == main->currentRoomSet(),
+            "Preferences and Workflow menu selected different room sets");
     require(main->getRoomCount() > 0 && tabs->count() == main->getRoomCount() &&
                 menus->count() == main->getRoomCount(),
             "workflow tabs, rooms and menus diverged");
@@ -451,6 +458,41 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
         "workspace switching changed scene, navigation or undo history");
   };
   check();
+  // A rejected Preferences request must neither change the live set nor queue
+  // a different saved choice for the next startup.
+  {
+    IoCmd::SceneTransitionGuard transition;
+    choose(roomSet, "Cutout");
+    require(main->currentRoomSet() == originalProfile,
+            "Preferences switched room sets during a scene transition");
+    check();
+  }
+  // Each native toolbar owns its separator actions. Creating a second toolbar
+  // must not borrow separators that die with the first one.
+  {
+    auto first  = std::make_unique<Toolbar>(window);
+    auto second = std::make_unique<Toolbar>(window);
+    QPointer<QAction> firstSeparator, secondSeparator;
+    for (QAction *action : first->actions())
+      if (action->isSeparator()) {
+        firstSeparator = action;
+        break;
+      }
+    for (QAction *action : second->actions())
+      if (action->isSeparator()) {
+        secondSeparator = action;
+        break;
+      }
+    require(
+        firstSeparator && secondSeparator && firstSeparator != secondSeparator,
+        "native toolbars share a separator action");
+    first.reset();
+    require(firstSeparator.isNull() && secondSeparator,
+            "destroying one toolbar retired another toolbar's separator");
+    require(QMetaObject::invokeMethod(second.get(), "updateToolbar",
+                                      Qt::DirectConnection),
+            "remaining native toolbar could not refresh");
+  }
 
   // Exercise real lazy/eager panels, including Function Editor and pooled
   // floating Flipbooks, rather than testing a mock layout switch.
@@ -474,8 +516,10 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
         for (auto *menu : bar->findChildren<QMenu *>())
           retired.emplace_back(menu);
       }
-      QAction *action = nativeAction(preset.command);
-      action->trigger();
+      if (lazy)
+        nativeAction(preset.command)->trigger();
+      else
+        roomSet->setCurrentIndex(roomSet->findData(preset.profile));
       require(outgoing && main->getCurrentRoom() == outgoing.data(),
               "workflow destroyed its caller during QAction dispatch");
       settle();
@@ -517,6 +561,7 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
     if (originalProfile == preset.profile) trigger(preset.command);
   preferences->setValue(lazyLoadRooms, originalLazy);
   check();
+  settings->hide();
   checkpoint("workflow menus and panel lifetimes passed");
 }
 

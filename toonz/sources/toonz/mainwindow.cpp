@@ -1244,8 +1244,11 @@ void MainWindow::autofillToggle() {
 
 // The switch is deferred out of QAction/menu dispatch. Rebuilding a room must
 // never destroy the menu, command palette or panel still dispatching its click.
-void MainWindow::requestWorkflowSwitch(QString profile) {
+void MainWindow::requestRoomSetChange(QString profile) {
   updateWorkflowChecks();
+  // Keep both controls on the loaded set until the deferred request succeeds.
+  // Rejected requests must not save a different choice for the next startup.
+  emit roomSetChanged(m_currentRoomsChoice);
   if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
       IoCmd::isSceneTransitionInProgress())
     return;
@@ -1296,13 +1299,16 @@ void MainWindow::switchWorkflow(const QString &profile) {
   if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
       IoCmd::isSceneTransitionInProgress())
     return;
-  bool shipped = false;
-  for (const auto &preset : WorkflowPresets::presets)
-    if (profile == preset.profile) shipped = true;
-  if (!shipped || profile == m_currentRoomsChoice) return;
+  if (!Preferences::instance()->getRoomMap().values().contains(profile) ||
+      profile == m_currentRoomsChoice)
+    return;
+#if !defined(x64)
+  if (profile == "StopMotion") return;
+#endif
 
-  // Validate the shipped profile before saving or retiring any existing panel.
-  // Existing per-user overrides continue to use Groundzero's normal loader.
+  // Validate the installed profile before saving or retiring any existing
+  // panel. Existing per-user overrides continue to use Groundzero's normal
+  // loader.
   const TFilePath directory =
       ToonzFolder::getRoomsDir() + profile.toStdWString();
   QFile list(toQString(directory + "layouts.txt"));
@@ -1349,7 +1355,6 @@ void MainWindow::switchWorkflow(const QString &profile) {
   if (capture->m_liveViewStatus > StopMotion::LiveViewClosed)
     capture->toggleLiveView();
 #endif
-  // Preferences can still hold a room choice queued for the next startup.
   // Save outgoing rooms under the profile that actually owns them.
   Preferences::instance()->setValue(CurrentRoomChoice, m_currentRoomsChoice);
   writeSettings();
@@ -1383,6 +1388,7 @@ void MainWindow::switchWorkflow(const QString &profile) {
   m_stackedWidget->setVisible(restore.visible);
   updatePanelVisibility();
   updateWorkflowChecks();
+  emit roomSetChanged(m_currentRoomsChoice);
   changeWindowTitle();
 }
 
@@ -3188,7 +3194,7 @@ void MainWindow::defineActions() {
     action->setCheckable(true);
     CommandManager::instance()->setHandler(
         preset.command, new CommandHandlerHelper2<MainWindow, QString>(
-                            this, &MainWindow::requestWorkflowSwitch,
+                            this, &MainWindow::requestRoomSetChange,
                             QString::fromLatin1(preset.profile)));
 #if !defined(x64)
     if (QString::fromLatin1(preset.profile) == "StopMotion")

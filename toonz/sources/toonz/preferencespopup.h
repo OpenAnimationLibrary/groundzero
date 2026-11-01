@@ -133,7 +133,6 @@ private:
   void onPixelsOnlyChanged();
   void beforeUnitChanged();
   void onUnitChanged();
-  void beforeRoomChoiceChanged();
   void onColorCalibrationChanged();
   // Drawing
   void onDefLevelTypeChanged();

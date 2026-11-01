@@ -135,6 +135,8 @@ public:
 
   Room *getCurrentRoom() const;
   void refreshWriteSettings();
+  QString currentRoomSet() const { return m_currentRoomsChoice; }
+  void requestRoomSetChange(QString profile);
 
   void onNewVectorLevelButtonPressed();
   void onNewToonzRasterLevelButtonPressed();
@@ -166,7 +168,6 @@ protected:
 private:
   /*!Must be call before readSettings().*/
   void defineActions();
-  void requestWorkflowSwitch(QString profile);
   void switchWorkflow(const QString &profile);
   void updateWorkflowChecks();
   void clearWorkflowRooms();
@@ -283,6 +284,7 @@ public slots:
   void changeWindowTitle(QString &);
 
 signals:
+  void roomSetChanged(const QString &profile);
   void exit(bool &);
 };
 

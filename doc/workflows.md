@@ -12,9 +12,10 @@ four new sets arranged for particular tasks. The menu offers:
 - **Character Mode**: cutout rooms with Groundzero's Rig Library, Poses and Drawing Substitution panels in a dedicated Character room.
 - **Default Rooms** and **Studio Ghibli Rooms**: return to the existing shipped profiles.
 
-Preferences labels the existing selector **Room Set***. That selector retains
-its existing next-start behavior; the Workflow menu activates the same sets
-immediately. The asterisk retains its normal restart meaning.
+Preferences labels the selector **Room Set**, without a restart asterisk.
+Both controls use the same deferred switch and update immediately. An open
+Preferences selector follows menu changes; an unavailable or rejected switch
+keeps the loaded set selected and does not save a different startup choice.
 
 The active choice has a checkmark. Commands can be assigned shortcuts or added
 to command bars using the existing command registry. Stop-Motion Mode requires
@@ -30,7 +31,8 @@ migration is added.
 Switching is deferred until the invoking menu or panel has returned. Room/tab
 callbacks are blocked while rooms and their menus are replaced; the old stack
 is hidden throughout teardown. Viewer references are cleared when their viewer
-is destroyed, and the Flipbook pool is reloaded before new panels process events.
+is destroyed, toolbar separators are owned per toolbar, and the Flipbook pool
+is reloaded before new panels process events.
 Lazy and eager room loading use the same switching path.
 
 Workspace selection does not assign a scene role, convert a scene, restructure
@@ -57,7 +59,7 @@ AI-assisted implementation: OpenAI Codex.
 The existing native UI CI fixture exercises both lazy and eager room loading,
 all available presets and their room tabs, menu/action alignment and checkmarks,
 deferred teardown, outgoing panel/menu destruction, repeated Flipbook use,
-no-op selection and queued requests. It also checks that scene identity,
+no-op selection, queued requests and bidirectional Preferences/menu updates. It also checks that scene identity,
 frame/column navigation, dirty state and undo history remain unchanged.
 
 Interactive acceptance: switch profiles with a scene open, reopen floating

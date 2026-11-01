@@ -13,6 +13,7 @@
 #include "versioncontrolxmlwriter.h"
 #include "levelsettingspopup.h"
 #include "tapp.h"
+#include "mainwindow.h"
 #include "cleanupsettingsmodel.h"
 #include "formatsettingspopups.h"
 #include "columncommand.h"
@@ -654,12 +655,6 @@ void PreferencesPopup::onUnitChanged() {
        m_pref->getStringValue(cameraUnits) == "pixel")) {
     pixelsOnlyCB->setCheckState(Qt::Checked);
   }
-}
-
-//-----------------------------------------------------------------------------
-
-void PreferencesPopup::beforeRoomChoiceChanged() {
-  TApp::instance()->writeSettings();
 }
 
 //-----------------------------------------------------------------------------
@@ -1327,7 +1322,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       //{ oldCameraUnits,                         tr("") },
       {linearUnits, tr("Unit:")},
       {cameraUnits, tr("Camera Unit:")},
-      {CurrentRoomChoice, tr("Room Set*:")},
+      {CurrentRoomChoice, tr("Room Set:")},
       {functionEditorToggle, tr("Function Editor*:")},
       {moveCurrentFrameByClickCellArea,
        tr("Move Current Frame by Clicking on Xsheet / Numerical Columns Cell "
@@ -2022,10 +2017,22 @@ QWidget* PreferencesPopup::createInterfacePage() {
   int row = lay->rowCount();
   lay->addWidget(additionalStyleSheetBtn, row - 1, 2, Qt::AlignRight);
   insertUI(CurrentRoomChoice, lay, roomItemList);
+  QComboBox* roomSetCombo = getUI<QComboBox*>(CurrentRoomChoice);
   UiTranslations::bind(
-      getUI<QComboBox*>(CurrentRoomChoice), "toolTip", "PreferencesPopup",
-      QStringLiteral("Room sets are collections of rooms. The Workflow menu "
-                     "switches these same sets immediately."));
+      roomSetCombo, "toolTip", "PreferencesPopup",
+      QStringLiteral("Switch room sets immediately. This selects the same "
+                     "room set as the Workflow menu."));
+  if (auto* main =
+          qobject_cast<MainWindow*>(TApp::instance()->getMainWindow())) {
+    const QSignalBlocker blocker(roomSetCombo);
+    roomSetCombo->setCurrentIndex(
+        roomSetCombo->findData(main->currentRoomSet()));
+    connect(main, &MainWindow::roomSetChanged, roomSetCombo,
+            [roomSetCombo](const QString& profile) {
+              const QSignalBlocker blocker(roomSetCombo);
+              roomSetCombo->setCurrentIndex(roomSetCombo->findData(profile));
+            });
+  }
   insertUI(interfaceFont, lay);  // creates QFontComboBox
   insertUI(interfaceFontStyle, lay, buildFontStyleList());
   qobject_cast<QComboBox*>(m_controlIdMap.key(interfaceFontStyle))
@@ -2073,8 +2080,6 @@ QWidget* PreferencesPopup::createInterfacePage() {
   m_onEditedFuncMap.insert(linearUnits, &PreferencesPopup::onUnitChanged);
   m_preEditedFuncMap.insert(cameraUnits, &PreferencesPopup::beforeUnitChanged);
   m_onEditedFuncMap.insert(cameraUnits, &PreferencesPopup::onUnitChanged);
-  m_preEditedFuncMap.insert(CurrentRoomChoice,
-                            &PreferencesPopup::beforeRoomChoiceChanged);
   m_onEditedFuncMap.insert(colorCalibrationEnabled,
                            &PreferencesPopup::onColorCalibrationChanged);
 
@@ -3007,6 +3012,14 @@ void PreferencesPopup::onChange() {
       combo->setCurrentIndex(combo->findData(UiLanguageManager::instance()->currentLanguage()));
       DVGui::warning(error);
     }
+    return;
+  }
+
+  if (id == CurrentRoomChoice) {
+    auto* combo = qobject_cast<QComboBox*>(senderWidget);
+    auto* main  = qobject_cast<MainWindow*>(TApp::instance()->getMainWindow());
+    if (combo && main)
+      main->requestRoomSetChange(combo->currentData().toString());
     return;
   }
 
