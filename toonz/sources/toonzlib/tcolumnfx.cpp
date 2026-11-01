@@ -351,11 +351,15 @@ static void applyVectorChecks(TVectorRenderData &rd,
 //-------------------------------------------------------------------
 
 static void prepareFillCheck(TToonzImageP &image,
-                             const TRenderCheckSettings &checks) {
+                             const TRenderCheckSettings &checks,
+                             const TRect &sourceSavebox) {
   if (!(checks.activeChecks() & TRenderCheckSettings::Fill)) return;
 
-  image               = image->clone();
-  const TRect savebox = image->getSavebox() * image->getRaster()->getBounds();
+  image = image->clone();
+  // LevelFxBuilder reconstructs the cached raster with full-image bounds.
+  // Restore the drawing's savebox only on this private Fill Check image.
+  const TRect savebox = sourceSavebox * image->getRaster()->getBounds();
+  image->setSavebox(savebox);
   if (savebox.getLx() < 3 || savebox.getLy() < 3) return;
 
   // Do this before extracting render tiles: a closed area can cross several
@@ -1499,7 +1503,10 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
     } else if (ti) {
       // Colormap case
 
-      if (checkImage) prepareFillCheck(ti, checks);
+      if (checkImage)
+        prepareFillCheck(ti, checks,
+                         TRect(imageInfo.m_x0, imageInfo.m_y0, imageInfo.m_x1,
+                               imageInfo.m_y1));
 
       // Use the imageInfo's dpi
       ti->setDpi(imageInfo.m_dpix, imageInfo.m_dpiy);
