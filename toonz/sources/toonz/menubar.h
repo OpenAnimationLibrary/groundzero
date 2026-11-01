@@ -157,6 +157,7 @@ public:
   void createMenuBarByName(const QString &roomName);
   void loadAndAddMenubar(const TFilePath &fp);
   bool readMenuRecursive(QXmlStreamReader &, QMenu *);
+  void clear();
 
   QMenu *addMenu(const QString &, QMenuBar *);
   void addMenuItem(QMenu *, const char *);

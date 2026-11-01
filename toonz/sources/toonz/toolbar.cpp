@@ -32,47 +32,46 @@
 TEnv::IntVar ShowAllToolsToggle("ShowAllToolsToggle", 1);
 
 namespace {
-struct {
+const struct {
   const char *toolName;
   bool collapsible;
-  QAction *action;
-} buttonLayout[] = {{T_Edit, false, 0},
-                    {T_Selection, false, 0},
-                    {"Separator_1", false, 0},
-                    {T_Brush, false, 0},
-                    {T_Geometric, false, 0},
-                    {T_Type, true, 0},
-                    {T_Fill, false, 0},
-                    {T_PaintBrush, false, 0},
-                    {"Separator_2", false, 0},
-                    {T_Eraser, false, 0},
-                    {T_Tape, false, 0},
-                    {T_Finger, false, 0},
-                    {T_GradientTransform, true, 0},
-                    {"Separator_3", false, 0},
-                    {T_StylePicker, false, 0},
-                    {T_RGBPicker, false, 0},
-                    {T_Ruler, false, 0},
-                    {T_EditAssistants, false, 0},
-                    {"Separator_4", false, 0},
-                    {T_ControlPointEditor, false, 0},
-                    {T_Pinch, true, 0},
-                    {T_Pump, true, 0},
-                    {T_Magnet, true, 0},
-                    {T_Bender, true, 0},
-                    {T_Iron, true, 0},
-                    {T_Cutter, true, 0},
-                    {T_LassoCutter, true, 0},
-                    {"Separator_5", true, 0},
-                    {T_Skeleton, true, 0},
-                    {T_Tracker, true, 0},
-                    {T_Hook, true, 0},
-                    {T_Plastic, true, 0},
-                    {"Separator_6", false, 0},
-                    {T_Zoom, false, 0},
-                    {T_Rotate, true, 0},
-                    {T_Hand, false, 0},
-                    {0, false, 0}};
+} buttonLayout[] = {{T_Edit, false},
+                    {T_Selection, false},
+                    {"Separator_1", false},
+                    {T_Brush, false},
+                    {T_Geometric, false},
+                    {T_Type, true},
+                    {T_Fill, false},
+                    {T_PaintBrush, false},
+                    {"Separator_2", false},
+                    {T_Eraser, false},
+                    {T_Tape, false},
+                    {T_Finger, false},
+                    {T_GradientTransform, true},
+                    {"Separator_3", false},
+                    {T_StylePicker, false},
+                    {T_RGBPicker, false},
+                    {T_Ruler, false},
+                    {T_EditAssistants, false},
+                    {"Separator_4", false},
+                    {T_ControlPointEditor, false},
+                    {T_Pinch, true},
+                    {T_Pump, true},
+                    {T_Magnet, true},
+                    {T_Bender, true},
+                    {T_Iron, true},
+                    {T_Cutter, true},
+                    {T_LassoCutter, true},
+                    {"Separator_5", true},
+                    {T_Skeleton, true},
+                    {T_Tracker, true},
+                    {T_Hook, true},
+                    {T_Plastic, true},
+                    {"Separator_6", false},
+                    {T_Zoom, false},
+                    {T_Rotate, true},
+                    {T_Hand, false},
+                    {0, false}};
 }  // namespace
 //=============================================================================
 // Toolbar
@@ -176,7 +175,8 @@ void Toolbar::updateToolbar() {
 
   // Hide action for now
   for (int idx = 0; buttonLayout[idx].toolName; idx++) {
-    if (buttonLayout[idx].action) removeAction(buttonLayout[idx].action);
+    if (QAction *action = m_toolbarList[buttonLayout[idx].toolName])
+      removeAction(action);
   }
 
   removeAction(m_expandAction);
@@ -200,20 +200,23 @@ void Toolbar::updateToolbar() {
 
     if (!m_isExpanded && buttonLayout[idx].collapsible) continue;
 
-    if (!buttonLayout[idx].action) {
+    // addSeparator() creates an action owned by this toolbar. Sharing that
+    // pointer across rooms left a dangling action when a workflow retired it.
+    QAction *&action = m_toolbarList[buttonLayout[idx].toolName];
+    if (!action) {
       if (isSeparator)
-        buttonLayout[idx].action = addSeparator();
+        action = addSeparator();
       else
-        buttonLayout[idx].action =
+        action =
             CommandManager::instance()->getAction(buttonLayout[idx].toolName);
     }
 
     if (levelBasedDisplay != 2)
-      buttonLayout[idx].action->setEnabled(enable);
+      action->setEnabled(enable);
     else if (!enable)
       continue;
 
-    actionEnabled = addAction(buttonLayout[idx].action) || actionEnabled;
+    actionEnabled = addAction(action) || actionEnabled;
 
     if (isSeparator) actionEnabled = false;
   }

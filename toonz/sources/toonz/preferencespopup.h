@@ -119,9 +119,7 @@ private:
   QWidget* createColorsPage();
   QWidget* createVersionControlPage();
   QWidget* createTouchTabletPage();
-#ifdef _WIN32
   QWidget* createAddonsPage();
-#endif
   //--- callbacks ---
   // General
   void onAutoSaveChanged();
@@ -133,7 +131,6 @@ private:
   void onPixelsOnlyChanged();
   void beforeUnitChanged();
   void onUnitChanged();
-  void beforeRoomChoiceChanged();
   void onColorCalibrationChanged();
   // Drawing
   void onDefLevelTypeChanged();

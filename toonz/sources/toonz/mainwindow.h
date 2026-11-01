@@ -80,6 +80,8 @@ class MainWindow final : public QMainWindow {
 
   bool m_saveSettingsOnQuit;
   bool m_closeInProgress = false;
+  bool m_isSwitchingWorkflows = false;
+  QString m_pendingWorkflow;
   bool m_startupPopupShown = false;
   bool m_wasMaximized      = false;
   int m_oldRoomIndex;
@@ -133,6 +135,8 @@ public:
 
   Room *getCurrentRoom() const;
   void refreshWriteSettings();
+  QString currentRoomSet() const { return m_currentRoomsChoice; }
+  void requestRoomSetChange(QString profile);
 
   void onNewVectorLevelButtonPressed();
   void onNewToonzRasterLevelButtonPressed();
@@ -164,6 +168,10 @@ protected:
 private:
   /*!Must be call before readSettings().*/
   void defineActions();
+  void switchWorkflow(const QString &profile);
+  void updateWorkflowChecks();
+  void clearWorkflowRooms();
+  void launchRelatedApplication(int application);
   /*
   Room *createPaintRoom();
   Room *createAnimationRoom();
@@ -254,6 +262,7 @@ private:
   void setCommandToWIP(QAction *);
 
 protected slots:
+  void onRoomTabChanged(int index);
   void onCurrentRoomChanged(int newRoomIndex);
   void onIndexSwapped(int firstIndex, int secondIndex);
   void insertNewRoom();
@@ -276,6 +285,7 @@ public slots:
   void changeWindowTitle(QString &);
 
 signals:
+  void roomSetChanged(const QString &profile);
   void exit(bool &);
 };
 
