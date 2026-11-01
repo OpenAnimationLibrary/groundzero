@@ -524,6 +524,10 @@ void Preferences::definePreferenceItems() {
   setCallBack(autosaveEnabled, &Preferences::enableAutosave);
   setCallBack(autosavePeriod, &Preferences::setAutosavePeriod);
 
+  // Related applications: explicit paths only, disabled by default.
+  define(ztorycExecutablePath, "ztorycExecutablePath", QMetaType::QString, "");
+  define(ot3dExecutablePath, "ot3dExecutablePath", QMetaType::QString, "");
+
   // Import / Export
   define(ffmpegPath, "ffmpegPath", QMetaType::QString, "");
   define(pdfRendererPath, "pdfRendererPath", QMetaType::QString, "");

@@ -171,6 +171,7 @@ private:
   void switchWorkflow(const QString &profile);
   void updateWorkflowChecks();
   void clearWorkflowRooms();
+  void launchRelatedApplication(int application);
   /*
   Room *createPaintRoom();
   Room *createAnimationRoom();

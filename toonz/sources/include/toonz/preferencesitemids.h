@@ -263,6 +263,10 @@ enum PreferencesItemId {
   // Tape Tool confirmation (stored only; no Preferences popup control)
   tapeToolFillRiskPolicy,
 
+  // Related application launchers (Preferences > Addons)
+  ztorycExecutablePath,
+  ot3dExecutablePath,
+
   PreferencesItemCount
 };
 

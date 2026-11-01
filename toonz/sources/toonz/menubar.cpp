@@ -5,6 +5,7 @@
 #include "toonzqt/uitranslations.h"
 #include "customhelplink.h"
 #include "workflowpresets.h"
+#include "externalapplications.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -89,6 +90,27 @@ void installWorkflowMenu(QMenuBar *menuBar) {
         !workflow->actions().isEmpty())
       workflow->addSeparator();
     workflow->addAction(action);
+  }
+  workflow->setToolTipsVisible(true);
+  bool separatorAdded = false;
+  for (auto application :
+       {ExternalApplications::Ztoryc, ExternalApplications::OT3D}) {
+    QAction *action = CommandManager::instance()->getAction(
+        ExternalApplications::command(application));
+    if (!action || workflow->actions().contains(action)) continue;
+    if (!separatorAdded) {
+      workflow->addSeparator();
+      separatorAdded = true;
+    }
+    workflow->addAction(action);
+  }
+  if (!workflow->property("externalApplicationsConnected").toBool()) {
+    workflow->setProperty("externalApplicationsConnected", true);
+    QObject::connect(workflow, &QMenu::aboutToShow, workflow, []() {
+      // Recheck only the two supplied paths when the menu is opened. No scans,
+      // timer or watcher; empty settings never probe the filesystem.
+      NativeExternalApplications::instance().refresh();
+    });
   }
 }
 

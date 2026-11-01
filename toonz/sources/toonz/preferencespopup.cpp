@@ -5,6 +5,7 @@
 #include "diagnosticssettingswidget.h"
 #include "themeapplication.h"
 #include "languagemanager.h"
+#include "externalapplications.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -1760,13 +1761,12 @@ PreferencesPopup::PreferencesPopup()
     QStringList categories;
     categories << tr("General") << tr("Interface") << tr("Preview/Render")
                << tr("Load/Import") << tr("Saving") << tr("Decoder/Encoder")
-               << tr("Drawing") << tr("Tools") << tr("Xsheet") << tr("Onion Skin")
-               << tr("Animation") << tr("Auto Lip-Sync") << tr("Colors")
-               << tr("Vector Visualize") << tr("Version Control")
-               << tr("Touch/Tablet Settings") << tr("Cadmium") << tr("Diagnostics");
-#ifdef _WIN32
+               << tr("Drawing") << tr("Tools") << tr("Xsheet")
+               << tr("Onion Skin") << tr("Animation") << tr("Auto Lip-Sync")
+               << tr("Colors") << tr("Vector Visualize")
+               << tr("Version Control") << tr("Touch/Tablet Settings")
+               << tr("Cadmium") << tr("Diagnostics");
     categories << tr("Addons");
-#endif
     return categories;
   };
   categoryList->addItems(categoryCaptions());
@@ -1808,9 +1808,7 @@ PreferencesPopup::PreferencesPopup()
   addPage(createTouchTabletPage());
   addPage(createCadmiumPage());
   addPage(new DiagnosticsSettingsWidget(this));
-#ifdef _WIN32
   addPage(createAddonsPage());
-#endif  // WIN32
 
   QHBoxLayout* mainLayout = new QHBoxLayout();
   mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -2902,10 +2900,17 @@ QWidget* PreferencesPopup::createTouchTabletPage() {
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
 QWidget* PreferencesPopup::createAddonsPage() {
   QWidget* widget  = new QWidget(this);
   QGridLayout* lay = new QGridLayout();
 
+  setupLayout(lay);
+  lay->addWidget(createExternalApplicationsSettings(
+                     NativeExternalApplications::instance(), widget),
+                 lay->rowCount(), 0, 1, 4);
+
+#ifdef _WIN32
   static auto CheckToonzPreview = []() -> bool {
     HKEY h;
     bool r = RegOpenKeyW(HKEY_CLASSES_ROOT,
@@ -2978,13 +2983,13 @@ QWidget* PreferencesPopup::createAddonsPage() {
   });
 
   lay->addWidget(groupBox, lay->rowCount(), 0, 2, 4, Qt::AlignLeft);
+#endif
   lay->setRowStretch(lay->rowCount(), 1);
 
   widget->setLayout(lay);
 
   return widget;
 }
-#endif  // _WIN32
 
 //-----------------------------------------------------------------------------
 

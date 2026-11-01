@@ -42,6 +42,30 @@ companion metadata format, scene-save persistence changes, or editing/undo comma
 Character Mode uses Groundzero's existing character tools; it does not import
 Ztoryc's separate character or production-management systems.
 
+## Launch related applications
+
+**Workflow > Launch Ztoryc** and **Launch OT3D** open a separately configured
+application. These entries are launch commands, not Room Sets; they do not have
+an active-set checkmark and do not change Groundzero's rooms.
+
+Set each executable path in **Preferences > Addons > Related Applications**.
+Use an executable on Windows/Linux (including an executable AppImage on Linux),
+or an application bundle/executable on macOS. Relative paths resolve against
+Groundzero's application directory. Paths are saved using the existing
+Preferences mechanism.
+
+A blank or invalid path leaves its command disabled. There is no installation
+search, background polling, download or automatic fallback. Groundzero checks
+only supplied paths when settings change, when Workflow opens, and at launch.
+Removing or clearing a configured executable disables its entry at the next
+check. The running Groundzero executable cannot be selected as its own target.
+
+The other application starts independently with its own working directory and
+without Groundzero's Qt-plugin/stuff-root environment overrides. No scene is
+automatically saved, converted, transferred or opened. A failure to start is
+reported; a successful start does not imply that the other build has completed
+its own startup. Groundzero does not close the launched application on exit.
+
 ## Provenance
 
 Adapted from Ztoryc's non-storyboard Workflow commands, switching safeguards and
@@ -63,6 +87,12 @@ deferred teardown, outgoing panel/menu destruction, repeated Flipbook use,
 no-op selection, queued requests and bidirectional Preferences/menu updates. It also checks that scene identity,
 frame/column navigation, dirty state and undo history remain unchanged.
 
-Interactive acceptance: switch profiles with a scene open, reopen floating
+The standalone `ui_externalapplications` CI test covers saved and cleared paths,
+disabled commands, missing/invalid executables, relative paths and spaces,
+self-launch rejection, Addons synchronization, launch arguments/environment and
+process-start failures. macOS also exercises bundle resolution.
+
+Interactive acceptance: configure actual related builds, open them from Workflow,
+clear their paths and verify disabled entries. Switch profiles with a scene open, reopen floating
 panels, customize a room menu and switch away/back, restart in each profile,
 and test Stop Motion live view on supported hardware.

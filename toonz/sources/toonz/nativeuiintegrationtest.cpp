@@ -24,6 +24,7 @@
 #include "mainwindow.h"
 #include "menubar.h"
 #include "workflowpresets.h"
+#include "externalapplications.h"
 #include "menubarcommandids.h"
 #include "pane.h"
 #include "tapp.h"
@@ -411,6 +412,15 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   const bool originalLazy       = preferences->isLazyLoadRoomsEnabled();
   QPointer<QWidget> settings    = preferencesPopup();
   QComboBox *roomSet            = comboWithValue(settings, "Tradigital");
+  checkpoint("workflow Preferences opened");
+  require(settings->findChild<QLineEdit *>("ztorycApplicationPath") &&
+              settings->findChild<QLineEdit *>("ot3dApplicationPath"),
+          "Addons is missing related application paths");
+  for (auto application :
+       {ExternalApplications::Ztoryc, ExternalApplications::OT3D})
+    require(
+        !nativeAction(ExternalApplications::command(application))->isEnabled(),
+        "unconfigured related application is enabled");
   TApp *app                     = TApp::instance();
   ToonzScene *scene             = app->getCurrentScene()->getScene();
   TXsheet *xsheet               = app->getCurrentXsheet()->getXsheet();
@@ -438,6 +448,11 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
       require(workflowMenus.size() == 1,
               "workflow menu is missing or duplicated in a room");
       QMenu *workflow = workflowMenus.front();
+      for (auto application :
+           {ExternalApplications::Ztoryc, ExternalApplications::OT3D})
+        require(workflow->actions().count(nativeAction(
+                    ExternalApplications::command(application))) == 1,
+                "room menu lost or duplicated an external launcher");
       for (const auto &preset : WorkflowPresets::presets) {
         QAction *action = nativeAction(preset.command);
         require(workflow->actions().count(action) == 1,
@@ -467,6 +482,7 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
             "Preferences switched room sets during a scene transition");
     check();
   }
+  checkpoint("workflow rejected-request checks passed");
   // Each native toolbar owns its separator actions. Creating a second toolbar
   // must not borrow separators that die with the first one.
   {
@@ -494,6 +510,7 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
             "remaining native toolbar could not refresh");
   }
 
+  checkpoint("workflow independent-toolbar checks passed");
   // Exercise real lazy/eager panels, including Function Editor and pooled
   // floating Flipbooks, rather than testing a mock layout switch.
   for (bool lazy : {true, false}) {
@@ -503,6 +520,8 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
       if (QString::fromLatin1(preset.profile) == "StopMotion") continue;
 #endif
       if (preferences->getCurrentRoomChoice() == preset.profile) continue;
+      std::cerr << "workflow-switch: loading " << preset.profile
+                << " lazy=" << lazy << std::endl;
       trigger(MI_OpenFileViewer);
       QPointer<Room> outgoing = main->getCurrentRoom();
       std::vector<QPointer<QWidget>> retired;
@@ -533,6 +552,7 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
       // widget.
       trigger(MI_OpenFileViewer);
       for (int i = 0; i < main->getRoomCount(); ++i) {
+        std::cerr << "workflow-switch: activating room " << i << std::endl;
         tabs->setCurrentIndex(i);
         settle();
         Room *room = main->getCurrentRoom();

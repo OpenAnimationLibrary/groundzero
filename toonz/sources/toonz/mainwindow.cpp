@@ -9,6 +9,7 @@
 #include "rigeasecommand.h"
 #include "customhelplink.h"
 #include "workflowpresets.h"
+#include "externalapplications.h"
 #if defined(x64)
 #include "../stopmotion/stopmotion.h"
 #endif
@@ -1390,6 +1391,15 @@ void MainWindow::switchWorkflow(const QString &profile) {
   updateWorkflowChecks();
   emit roomSetChanged(m_currentRoomsChoice);
   changeWindowTitle();
+}
+
+void MainWindow::launchRelatedApplication(int application) {
+  const auto target =
+      static_cast<ExternalApplications::Application>(application);
+  QString error;
+  if (!NativeExternalApplications::instance().launch(target, &error))
+    DVGui::warning(tr("Unable to launch %1.\n%2")
+                       .arg(ExternalApplications::name(target), error));
 }
 
 void MainWindow::resetRoomsLayout() {
@@ -3202,6 +3212,21 @@ void MainWindow::defineActions() {
 #endif
   }
   updateWorkflowChecks();
+  for (auto application :
+       {ExternalApplications::Ztoryc, ExternalApplications::OT3D}) {
+    const char *id    = ExternalApplications::command(application);
+    const char *label = application == ExternalApplications::Ztoryc
+                            ? QT_TR_NOOP("Launch Ztoryc")
+                            : QT_TR_NOOP("Launch OT3D");
+    QAction *action   = createMenuWindowsAction(id, label, "", "");
+    UiTranslations::bind(action, "text", "MainWindow",
+                         QString::fromLatin1(label));
+    CommandManager::instance()->setHandler(
+        id, new CommandHandlerHelper2<MainWindow, int>(
+                this, &MainWindow::launchRelatedApplication,
+                static_cast<int>(application)));
+    NativeExternalApplications::instance().bindAction(application, action);
+  }
 
   // Menu - Windows
 
