@@ -899,6 +899,11 @@ void SceneViewer::setVisual(const ImagePainter::VisualSettings &settings) {
 //-----------------------------------------------------------------------------
 
 SceneViewer::~SceneViewer() {
+  TApp *app = TApp::instance();
+  if (app->getActiveViewer() == this) app->setActiveViewer(nullptr);
+  TTool *tool = app->getCurrentTool()->getTool();
+  if (tool && tool->getViewer() == this) tool->setViewer(nullptr);
+
   // notify FilmStripFrames and safely disconnect with this
   emit aboutToBeDestroyed();
 

@@ -8,6 +8,10 @@
 #include "distributecommand.h"
 #include "rigeasecommand.h"
 #include "customhelplink.h"
+#include "workflowpresets.h"
+#if defined(x64)
+#include "../stopmotion/stopmotion.h"
+#endif
 
 // Tnz6 includes
 #include "menubar.h"
@@ -53,6 +57,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/tproject.h"
+#include "toonz/tframehandle.h"
 
 // TnzBase includes
 #include "tenv.h"
@@ -78,6 +83,9 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
+#include <QSignalBlocker>
+#include <QEventLoop>
+#include <QFile>
 #include <QActionGroup>
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 // Qt 6 has no QtPlatformHeaders
@@ -234,6 +242,11 @@ void makePrivate(Room *room) {
     else {
       TFilePath templateFullMBPath =
           ToonzFolder::getTemplateRoomsDir() + "menubar_template.xml";
+      // Workflow templates share Groundzero's complete standard menu. Their
+      // own room/menu overrides still take precedence as before.
+      if (!TFileStatus(templateFullMBPath).doesExist())
+        templateFullMBPath =
+            ToonzFolder::getRoomsDir() + "Default/menubar_template.xml";
       if (TFileStatus(templateFullMBPath).doesExist())
         TSystem::copyFile(myMBPath, templateFullMBPath);
       else
@@ -457,7 +470,7 @@ void Room::load(const TFilePath &fp, RoomLoadParams &params) {
   }
 
   // resolve resize events here to avoid unwanted minimize of floating viewer
-  qApp->processEvents();
+  qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
   DockLayout::State state(geometries,
                           m_settings->value("hierarchy").toString());
@@ -547,11 +560,8 @@ centralWidget->setLayout(centralWidgetLayout);*/
   connect(m_stackedWidget, SIGNAL(currentChanged(int)),
           SLOT(onCurrentRoomChanged(int)));
 
-  QObject::connect(roomTabWidget, &QTabBar::currentChanged, [this](int index) {
-    Room *dstRoom = getRoom(index);
-    if (dstRoom->notInitialized()) dstRoom->initialize();
-    this->m_stackedWidget->setCurrentIndex(index);
-  });
+  connect(roomTabWidget, &QTabBar::currentChanged, this,
+          &MainWindow::onRoomTabChanged);
 
   /*-- タイトルバーにScene名を表示する --*/
   connect(TApp::instance()->getCurrentScene(), SIGNAL(nameSceneChanged()), this,
@@ -824,6 +834,7 @@ void MainWindow::readSettings(const QString &argumentLayoutFileName) {
 //-----------------------------------------------------------------------------
 
 void MainWindow::writeSettings() {
+  if (!getCurrentRoom()) return;
   std::vector<Room *> rooms;
   int i;
 
@@ -1084,7 +1095,8 @@ Room *MainWindow::createBrowserRoom() {
 //-----------------------------------------------------------------------------
 
 Room *MainWindow::getCurrentRoom() const {
-  return getRoom(m_stackedWidget->currentIndex());
+  const int index = m_stackedWidget->currentIndex();
+  return index >= 0 && index < getRoomCount() ? getRoom(index) : nullptr;
 }
 
 //-----------------------------------------------------------------------------
@@ -1230,6 +1242,150 @@ void MainWindow::autofillToggle() {
   h->toggleAutopaint();
 }
 
+// The switch is deferred out of QAction/menu dispatch. Rebuilding a room must
+// never destroy the menu, command palette or panel still dispatching its click.
+void MainWindow::requestWorkflowSwitch(QString profile) {
+  updateWorkflowChecks();
+  if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
+      IoCmd::isSceneTransitionInProgress())
+    return;
+  const bool scheduled = !m_pendingWorkflow.isEmpty();
+  m_pendingWorkflow    = profile;
+  if (scheduled) return;
+  QTimer::singleShot(0, this, [this]() {
+    const QString profile = m_pendingWorkflow;
+    m_pendingWorkflow.clear();
+    switchWorkflow(profile);
+  });
+}
+
+void MainWindow::updateWorkflowChecks() {
+  for (const auto &preset : WorkflowPresets::presets) {
+    QAction *action = CommandManager::instance()->getAction(preset.command);
+    if (action) action->setChecked(m_currentRoomsChoice == preset.profile);
+  }
+}
+
+void MainWindow::clearWorkflowRooms() {
+  // Hiding the whole stack prevents removeWidget() from showing the next room
+  // while it is being destroyed (notably Function Editor model callbacks).
+  // Tab, stack and menu signals are blocked by switchWorkflow().
+  m_stackedWidget->hide();
+  TSelection::setCurrent(nullptr);
+  for (QWidget *widget : QApplication::allWidgets())
+    if (auto *inspector = qobject_cast<WidgetInspector *>(widget))
+      inspector->cancelPicking();
+  QTabBar *tabs = m_topBar->getRoomTabWidget();
+  while (tabs->count()) tabs->removeTab(0);
+  while (m_stackedWidget->count()) {
+    QWidget *room = m_stackedWidget->widget(0);
+    room->hide();
+    m_stackedWidget->removeWidget(room);
+    delete room;
+  }
+  m_topBar->getStackedMenuBar()->clear();
+  // writeSettings() returned floating Flipbooks to their pool. Its raw widget
+  // entries are no longer alive; reload the saved geometry before Room::load()
+  // can process events or another command can pop one of them.
+  FlipBookPool::instance()->load(ToonzFolder::getMyModuleDir() +
+                                 TFilePath("fliphistory.ini"));
+  m_oldRoomIndex = 0;
+}
+
+void MainWindow::switchWorkflow(const QString &profile) {
+  if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
+      IoCmd::isSceneTransitionInProgress())
+    return;
+  bool shipped = false;
+  for (const auto &preset : WorkflowPresets::presets)
+    if (profile == preset.profile) shipped = true;
+  if (!shipped || profile == m_currentRoomsChoice) return;
+
+  // Validate the shipped profile before saving or retiring any existing panel.
+  // Existing per-user overrides continue to use Groundzero's normal loader.
+  const TFilePath directory =
+      ToonzFolder::getRoomsDir() + profile.toStdWString();
+  QFile list(toQString(directory + "layouts.txt"));
+  bool valid = list.open(QIODevice::ReadOnly | QIODevice::Text);
+  int rooms  = 0;
+  while (valid && !list.atEnd()) {
+    const QString name = QString::fromUtf8(list.readLine()).trimmed();
+    if (name.isEmpty()) continue;
+    QSettings room(toQString(directory + name.toStdWString()),
+                   QSettings::IniFormat);
+    valid = room.contains("room/name") &&
+            !room.value("room/name").toString().isEmpty();
+    ++rooms;
+  }
+  if (!valid || !rooms) {
+    DVGui::warning(
+        tr("The selected workflow's room templates are missing or invalid."));
+    return;
+  }
+  if (TApp::instance()->getCurrentFrame()->isPlaying()) {
+    DVGui::warning(tr("Stop playback before switching workflows."));
+    return;
+  }
+
+  const QScopedValueRollback<bool> switching(m_isSwitchingWorkflows, true);
+  QTabBar *tabs         = m_topBar->getRoomTabWidget();
+  StackedMenuBar *menus = m_topBar->getStackedMenuBar();
+  const QSignalBlocker tabBlocker(tabs), stackBlocker(m_stackedWidget),
+      menuBlocker(menus);
+  struct RestoreDisplay {
+    MainWindow *window;
+    QStackedWidget *stack;
+    bool updates, visible;
+    ~RestoreDisplay() {
+      stack->setVisible(visible);
+      window->setUpdatesEnabled(updates);
+      window->update();
+    }
+  } restore{this, m_stackedWidget, updatesEnabled(),
+            m_stackedWidget->isVisible()};
+  setUpdatesEnabled(false);
+#if defined(x64)
+  StopMotion *capture = StopMotion::instance();
+  if (capture->m_liveViewStatus > StopMotion::LiveViewClosed)
+    capture->toggleLiveView();
+#endif
+  // Preferences can still hold a room choice queued for the next startup.
+  // Save outgoing rooms under the profile that actually owns them.
+  Preferences::instance()->setValue(CurrentRoomChoice, m_currentRoomsChoice);
+  writeSettings();
+  const QString previous         = m_currentRoomsChoice;
+  const std::string previousList = layoutsFileName;
+  clearWorkflowRooms();
+  // A command-line layout belongs to the outgoing profile, not the new one.
+  layoutsFileName = "layouts.txt";
+  Preferences::instance()->setValue(CurrentRoomChoice, profile);
+  m_currentRoomsChoice = profile;
+  m_layoutName.clear();
+  try {
+    readSettings(QString());
+  } catch (...) {
+    clearWorkflowRooms();
+    layoutsFileName = previousList;
+    Preferences::instance()->setValue(CurrentRoomChoice, previous);
+    m_currentRoomsChoice = previous;
+    readSettings(QString());
+    DVGui::warning(tr(
+        "The workflow could not be loaded. The previous rooms were restored."));
+  }
+  // readSettings restores each profile's current room, or uses its first room.
+  const int index = qMax(0, m_stackedWidget->currentIndex());
+  tabs->setCurrentIndex(index);
+  m_stackedWidget->setCurrentIndex(index);
+  Room *room = getCurrentRoom();
+  if (room && room->notInitialized()) room->initialize();
+  m_oldRoomIndex = index;
+  menus->setCurrentIndex(index);
+  m_stackedWidget->setVisible(restore.visible);
+  updatePanelVisibility();
+  updateWorkflowChecks();
+  changeWindowTitle();
+}
+
 void MainWindow::resetRoomsLayout() {
   if (!m_saveSettingsOnQuit) return;
 
@@ -1315,7 +1471,19 @@ void MainWindow::seeThroughWindow() {
 
 //-----------------------------------------------------------------------------
 
+void MainWindow::onRoomTabChanged(int index) {
+  if (m_isSwitchingWorkflows || index < 0 || index >= getRoomCount()) return;
+  Room *room = getRoom(index);
+  if (room->notInitialized()) room->initialize();
+  m_stackedWidget->setCurrentIndex(index);
+}
+
 void MainWindow::onCurrentRoomChanged(int newRoomIndex) {
+  if (m_isSwitchingWorkflows || newRoomIndex < 0 ||
+      newRoomIndex >= getRoomCount())
+    return;
+  if (m_oldRoomIndex < 0 || m_oldRoomIndex >= getRoomCount())
+    m_oldRoomIndex = newRoomIndex;
   // Picking must never carry a gesture into another room or its canvas.
   for (QWidget *widget : QApplication::allWidgets())
     if (auto *inspector = qobject_cast<WidgetInspector *>(widget))
@@ -1891,8 +2059,10 @@ void MainWindow::onActiveViewerChanged() {
   // sync the command state to the button state of the activated viewer
   SceneViewer *activeViewer = TApp::instance()->getActiveViewer();
   if (!activeViewer) return;
-  BaseViewerPanel *bvp = qobject_cast<BaseViewerPanel *>(
-      activeViewer->parentWidget()->parentWidget());
+  QWidget *parent = activeViewer->parentWidget();
+  if (!parent || !parent->parentWidget()) return;
+  BaseViewerPanel *bvp =
+      qobject_cast<BaseViewerPanel *>(parent->parentWidget());
   if (!bvp) return;
   bool prev, subCamPrev;
   bvp->getPreviewButtonStates(prev, subCamPrev);
@@ -1908,7 +2078,8 @@ void MainWindow::onActiveViewerChanged() {
 //-----------------------------------------------------------------------------
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-  if (m_closeInProgress || IoCmd::isSceneTransitionInProgress()) {
+  if (m_closeInProgress || m_isSwitchingWorkflows ||
+      IoCmd::isSceneTransitionInProgress()) {
     event->ignore();
     return;
   }
@@ -3006,6 +3177,25 @@ void MainWindow::defineActions() {
                  "view_vector_as_raster");
   else
     RasterizePliToggleAction = 0;
+
+  // Workflow commands use the normal registry, so shortcuts and command bars
+  // invoke the same deferred switch as the room menus.
+  for (const auto &preset : WorkflowPresets::presets) {
+    QAction *action =
+        createMenuWindowsAction(preset.command, preset.label, "", "");
+    UiTranslations::bind(action, "text", "MainWindow",
+                         QString::fromLatin1(preset.label));
+    action->setCheckable(true);
+    CommandManager::instance()->setHandler(
+        preset.command, new CommandHandlerHelper2<MainWindow, QString>(
+                            this, &MainWindow::requestWorkflowSwitch,
+                            QString::fromLatin1(preset.profile)));
+#if !defined(x64)
+    if (QString::fromLatin1(preset.profile) == "StopMotion")
+      action->setEnabled(false);
+#endif
+  }
+  updateWorkflowChecks();
 
   // Menu - Windows
 

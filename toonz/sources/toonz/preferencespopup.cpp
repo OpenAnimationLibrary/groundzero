@@ -1327,7 +1327,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       //{ oldCameraUnits,                         tr("") },
       {linearUnits, tr("Unit:")},
       {cameraUnits, tr("Camera Unit:")},
-      {CurrentRoomChoice, tr("Rooms*:")},
+      {CurrentRoomChoice, tr("Room Set*:")},
       {functionEditorToggle, tr("Function Editor*:")},
       {moveCurrentFrameByClickCellArea,
        tr("Move Current Frame by Clicking on Xsheet / Numerical Columns Cell "
@@ -1447,7 +1447,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {cursorOutlineEnabled, tr("Show Cursor Size Outlines")},
       {levelBasedToolsDisplay, tr("Toolbar Display Behaviour:")},
       {useCtrlAltToResizeBrush,
-       UiTranslations::text(tr("Brush Tool: Use %1 to Resize")).arg(CtrlAltStr())},
+       UiTranslations::text(tr("Brush Tool: Use %1 to Resize"))
+           .arg(CtrlAltStr())},
       {useStrokeEndCursor, tr("Draw Cursor at End of Stroke")},
       {clickTwiceToCreateArcs,
        tr("Geometric Tool: Click Twice to Create Arcs")},
@@ -2021,6 +2022,10 @@ QWidget* PreferencesPopup::createInterfacePage() {
   int row = lay->rowCount();
   lay->addWidget(additionalStyleSheetBtn, row - 1, 2, Qt::AlignRight);
   insertUI(CurrentRoomChoice, lay, roomItemList);
+  UiTranslations::bind(
+      getUI<QComboBox*>(CurrentRoomChoice), "toolTip", "PreferencesPopup",
+      QStringLiteral("Room sets are collections of rooms. The Workflow menu "
+                     "switches these same sets immediately."));
   insertUI(interfaceFont, lay);  // creates QFontComboBox
   insertUI(interfaceFontStyle, lay, buildFontStyleList());
   qobject_cast<QComboBox*>(m_controlIdMap.key(interfaceFontStyle))

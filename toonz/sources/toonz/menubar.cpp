@@ -4,6 +4,7 @@
 #include "themeapplication.h"
 #include "toonzqt/uitranslations.h"
 #include "customhelplink.h"
+#include "workflowpresets.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -62,7 +63,37 @@ TEnv::IntVar LockRoomTabToggle("LockRoomTabToggle", 0);
 
 namespace {
 
+void installWorkflowMenu(QMenuBar *menuBar) {
+  QMenu *workflow = menuBar->findChild<QMenu *>(QStringLiteral("WorkflowMenu"),
+                                                Qt::FindDirectChildrenOnly);
+  if (!workflow) {
+    workflow = new QMenu(menuBar);
+    workflow->setObjectName("WorkflowMenu");
+    UiTranslations::bind(workflow, "title", "StackedMenuBar",
+                         QStringLiteral("Workflow"));
+    QAction *before = nullptr;
+    for (QAction *action : menuBar->actions()) {
+      QMenu *menu = menuOfAction(action);
+      if (menu && (menu->title() == StackedMenuBar::tr("Windows") ||
+                   menu->title() == StackedMenuBar::tr("Help"))) {
+        before = action;
+        break;
+      }
+    }
+    menuBar->insertMenu(before, workflow);
+  }
+  for (const auto &preset : WorkflowPresets::presets) {
+    QAction *action = CommandManager::instance()->getAction(preset.command);
+    if (!action || workflow->actions().contains(action)) continue;
+    if (QString::fromLatin1(preset.profile) == "Default" &&
+        !workflow->actions().isEmpty())
+      workflow->addSeparator();
+    workflow->addAction(action);
+  }
+}
+
 void installQuickThemeMenu(QMenuBar *menuBar) {
+  installWorkflowMenu(menuBar);
   if (menuBar->findChild<QMenu *>(QStringLiteral("QuickThemeMenu"),
                                 Qt::FindDirectChildrenOnly))
     return;
@@ -401,6 +432,15 @@ StackedMenuBar::StackedMenuBar(QWidget *parent) : QStackedWidget(parent) {
 
 //---------------------------------------------------------------------------------
 
+void StackedMenuBar::clear() {
+  while (count()) {
+    QWidget *menu = widget(0);
+    menu->hide();
+    removeWidget(menu);
+    delete menu;
+  }
+}
+
 void StackedMenuBar::createMenuBarByName(const QString &roomName) {
   std::cout << "create " << roomName.toStdString() << std::endl;
 #if defined(_WIN32) || defined(_CYGWIN_)
@@ -471,7 +511,9 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
           QString title = reader.attributes().value("title").toString();
           /*- Menu title will be translated if the title is registered in
            * translation file -*/
-          QMenu *menu = new QMenu(tr(title.toStdString().c_str()));
+          QMenu *menu = new QMenu(tr(title.toStdString().c_str()), menuBar);
+          if (title == QStringLiteral("Workflow"))
+            menu->setObjectName("WorkflowMenu");
           UiTranslations::bind(menu, "title", "StackedMenuBar", title);
           menu->setToolTipsVisible(true);
           if (readMenuRecursive(reader, menu)) {
@@ -528,7 +570,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
   while (reader.readNextStartElement()) {
     if (reader.name().toString() == "menu") {
       QString title  = reader.attributes().value("title").toString();
-      QMenu *subMenu = new QMenu(tr(title.toStdString().c_str()));
+      QMenu *subMenu = new QMenu(tr(title.toStdString().c_str()), menu);
       UiTranslations::bind(subMenu, "title", "StackedMenuBar", title);
 
       if (readMenuRecursive(reader, subMenu))

@@ -80,6 +80,8 @@ class MainWindow final : public QMainWindow {
 
   bool m_saveSettingsOnQuit;
   bool m_closeInProgress = false;
+  bool m_isSwitchingWorkflows = false;
+  QString m_pendingWorkflow;
   bool m_startupPopupShown = false;
   bool m_wasMaximized      = false;
   int m_oldRoomIndex;
@@ -164,6 +166,10 @@ protected:
 private:
   /*!Must be call before readSettings().*/
   void defineActions();
+  void requestWorkflowSwitch(QString profile);
+  void switchWorkflow(const QString &profile);
+  void updateWorkflowChecks();
+  void clearWorkflowRooms();
   /*
   Room *createPaintRoom();
   Room *createAnimationRoom();
@@ -254,6 +260,7 @@ private:
   void setCommandToWIP(QAction *);
 
 protected slots:
+  void onRoomTabChanged(int index);
   void onCurrentRoomChanged(int newRoomIndex);
   void onIndexSwapped(int firstIndex, int secondIndex);
   void insertNewRoom();

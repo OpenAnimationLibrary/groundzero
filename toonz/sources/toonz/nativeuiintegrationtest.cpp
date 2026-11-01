@@ -22,6 +22,8 @@
 #include "iocommand.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
+#include "menubar.h"
+#include "workflowpresets.h"
 #include "menubarcommandids.h"
 #include "pane.h"
 #include "tapp.h"
@@ -68,6 +70,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPixmap>
@@ -392,6 +396,128 @@ void exercisePanelTitleBarOwners() {
   require(host.dockLayout()->count() == 0,
           "native title bar left a stale item in its docking host");
   checkpoint("native title bar owner lifetimes passed");
+}
+
+void exerciseWorkflowSwitching(QMainWindow *window) {
+  checkpoint("checking workflow menus and panel lifetimes");
+  auto *main = qobject_cast<MainWindow *>(window);
+  require(main, "workflow fixture has no main window");
+  auto *menus = main->findChild<StackedMenuBar *>();
+  auto *tabs  = main->findChild<RoomTabWidget *>();
+  require(menus && tabs, "workflow room navigation is missing");
+  auto *preferences             = Preferences::instance();
+  const QString originalProfile = preferences->getCurrentRoomChoice();
+  const bool originalLazy       = preferences->isLazyLoadRoomsEnabled();
+  TApp *app                     = TApp::instance();
+  ToonzScene *scene             = app->getCurrentScene()->getScene();
+  TXsheet *xsheet               = app->getCurrentXsheet()->getXsheet();
+  const int frame               = app->getCurrentFrame()->getFrame();
+  const int column              = app->getCurrentColumn()->getColumnIndex();
+  const bool dirty              = app->getCurrentScene()->getDirtyFlag();
+  const int historyCount        = TUndoManager::manager()->getHistoryCount();
+  const int historyIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+
+  auto check = [&]() {
+    require(main->getRoomCount() > 0 && tabs->count() == main->getRoomCount() &&
+                menus->count() == main->getRoomCount(),
+            "workflow tabs, rooms and menus diverged");
+    require(tabs->currentIndex() == menus->currentIndex(),
+            "workflow selected the wrong room menu");
+    for (int i = 0; i < menus->count(); ++i) {
+      auto *bar = qobject_cast<QMenuBar *>(menus->widget(i));
+      require(bar, "workflow menu bar is missing");
+      const auto workflowMenus = bar->findChildren<QMenu *>(
+          "WorkflowMenu", Qt::FindDirectChildrenOnly);
+      require(workflowMenus.size() == 1,
+              "workflow menu is missing or duplicated in a room");
+      QMenu *workflow = workflowMenus.front();
+      for (const auto &preset : WorkflowPresets::presets) {
+        QAction *action = nativeAction(preset.command);
+        require(workflow->actions().count(action) == 1,
+                "workflow command is missing or duplicated");
+        require(action->isChecked() ==
+                    (preferences->getCurrentRoomChoice() == preset.profile),
+                "workflow checkmark does not match the active profile");
+      }
+    }
+    require(
+        app->getCurrentScene()->getScene() == scene &&
+            app->getCurrentXsheet()->getXsheet() == xsheet &&
+            app->getCurrentFrame()->getFrame() == frame &&
+            app->getCurrentColumn()->getColumnIndex() == column &&
+            app->getCurrentScene()->getDirtyFlag() == dirty &&
+            TUndoManager::manager()->getHistoryCount() == historyCount &&
+            TUndoManager::manager()->getCurrentHistoryIndex() == historyIndex,
+        "workspace switching changed scene, navigation or undo history");
+  };
+  check();
+
+  // Exercise real lazy/eager panels, including Function Editor and pooled
+  // floating Flipbooks, rather than testing a mock layout switch.
+  for (bool lazy : {true, false}) {
+    preferences->setValue(lazyLoadRooms, lazy);
+    for (const auto &preset : WorkflowPresets::presets) {
+#if !defined(x64)
+      if (QString::fromLatin1(preset.profile) == "StopMotion") continue;
+#endif
+      if (preferences->getCurrentRoomChoice() == preset.profile) continue;
+      trigger(MI_OpenFileViewer);
+      QPointer<Room> outgoing = main->getCurrentRoom();
+      std::vector<QPointer<QWidget>> retired;
+      for (int i = 0; i < main->getRoomCount(); ++i) {
+        Room *room = main->getRoom(i);
+        retired.emplace_back(room);
+        for (auto *panel : room->findChildren<TPanel *>())
+          retired.emplace_back(panel);
+        auto *bar = qobject_cast<QMenuBar *>(menus->widget(i));
+        retired.emplace_back(bar);
+        for (auto *menu : bar->findChildren<QMenu *>())
+          retired.emplace_back(menu);
+      }
+      QAction *action = nativeAction(preset.command);
+      action->trigger();
+      require(outgoing && main->getCurrentRoom() == outgoing.data(),
+              "workflow destroyed its caller during QAction dispatch");
+      settle();
+      require(preferences->getCurrentRoomChoice() == preset.profile,
+              "workflow command did not select its profile");
+      for (const auto &retiredWidget : retired)
+        require(retiredWidget.isNull(),
+                "workflow retained an outgoing room, panel or menu");
+      check();
+      // Reopening a pooled Flipbook after teardown must not reuse a dead
+      // widget.
+      trigger(MI_OpenFileViewer);
+      for (int i = 0; i < main->getRoomCount(); ++i) {
+        tabs->setCurrentIndex(i);
+        settle();
+        Room *room = main->getCurrentRoom();
+        require(room == main->getRoom(i) && !room->notInitialized(),
+                "workflow room did not initialize on tab activation");
+        for (auto *panel : room->findChildren<TPanel *>())
+          require(panel->widget(),
+                  "workflow template references an unavailable panel");
+        check();
+      }
+      // Selecting the active workflow is a no-op, including panel identities.
+      QPointer<Room> same = main->getCurrentRoom();
+      trigger(preset.command);
+      require(same && main->getCurrentRoom() == same.data(),
+              "selecting the active workflow rebuilt its panels");
+    }
+  }
+  // Requests arriving before dispatch are coalesced into one final selection.
+  nativeAction("MI_WorkflowCutout")->trigger();
+  nativeAction("MI_Workflow2D")->trigger();
+  settle();
+  require(preferences->getCurrentRoomChoice() == "Tradigital",
+          "queued workflow requests did not select the final choice");
+  check();
+  for (const auto &preset : WorkflowPresets::presets)
+    if (originalProfile == preset.profile) trigger(preset.command);
+  preferences->setValue(lazyLoadRooms, originalLazy);
+  check();
+  checkpoint("workflow menus and panel lifetimes passed");
 }
 
 void exerciseNativeUi(QMainWindow *window) {
@@ -951,6 +1077,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
                 << animationError.toStdString() << std::endl;
       return 1;
     }
+    exerciseWorkflowSwitching(window);
     exerciseNativeUi(window);
     checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");
     QString functionError;
