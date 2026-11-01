@@ -8,6 +8,7 @@
 
 #include "toonz/toonzscene.h"
 #include "trenderer.h"
+#include "toonz/activechecks.h"
 #include "toonz/scenefx.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/tcamera.h"
@@ -104,6 +105,7 @@ public:
       ToonzScene *scene, const std::vector<int> &rows) {
     TRenderSettings settings =
         scene->getProperties()->getOutputProperties()->getRenderSettings();
+    resolveActiveRenderChecks(scene, settings.m_activeChecks);
 
     QList<bool> oldColumnStates;
     enableColumns(scene, oldColumnStates);
@@ -112,7 +114,8 @@ public:
         new std::vector<TRenderer::RenderData>;
     for (int i = 0; i < (int)rows.size(); i++) {
       double frame = rows[i];
-      TFxP sceneFx = buildSceneFx(scene, frame, 1, false);
+      TFxP sceneFx =
+          buildSceneFx(scene, frame, 1, false, &settings.m_activeChecks);
       TFxPair fxPair;
       fxPair.m_frameA = sceneFx;
       rds->push_back(TRenderer::RenderData(frame, settings, fxPair));

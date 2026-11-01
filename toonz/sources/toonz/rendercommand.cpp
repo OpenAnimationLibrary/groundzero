@@ -11,6 +11,7 @@
 #include "previewfxmanager.h"
 #include "iocommand.h"
 #include "scenecheckpane.h"
+#include "activechecks.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -222,6 +223,7 @@ class RenderCommand {
   int m_numFrames;
   TPixel32 m_oldBgColor;
   static TPixel32 m_priorBgColor;
+  static bool m_bgColorChanged;
   TDimension m_oldCameraRes;
   double m_r, m_stepd;
   double m_timeStretchFactor;
@@ -537,8 +539,16 @@ void RenderCommand::rasterRender(bool isPreview) {
   }
 #endif
 
-  TPixel32 currBgColor = scene->getProperties()->getBgColor();
-  m_priorBgColor       = currBgColor;
+  TOutputProperties *prop = isPreview
+                                ? scene->getProperties()->getPreviewProperties()
+                                : scene->getProperties()->getOutputProperties();
+  captureActiveRenderChecks(scene, prop);
+  TRenderSettings rs = prop->getRenderSettings();
+  const bool blackBg =
+      rs.m_activeChecks.activeChecks() & TRenderCheckSettings::BlackBg;
+  m_priorBgColor       = scene->getProperties()->getBgColor();
+  m_bgColorChanged     = false;
+  TPixel32 currBgColor = blackBg ? TPixel32::Black : m_priorBgColor;
   // fixes background colors for non alpha-enabled movie types (eventually
   // transparent gif would be good)
   currBgColor.m = 255;
@@ -546,18 +556,14 @@ void RenderCommand::rasterRender(bool isPreview) {
   // depth). I tried to make OT to detect the mov settings and adaptively switch
   // the behavior, but ended in vain :-(
   // So I just omitted every mov from applying solid background as a quick fix.
-  if (isMovieTypeOpaque(ext)) {
+  if (isMovieTypeOpaque(ext) && !blackBg) {
     scene->getProperties()->setBgColor(currBgColor);
+    m_bgColorChanged = true;
   }
   // for non alpha-enabled images (like jpg), background color will be inserted
   // in  TImageWriter::save() (see timage_io.cpp)
   else
     TImageWriter::setBackgroundColor(currBgColor);
-
-  // Extract output properties
-  TOutputProperties *prop = isPreview
-                                ? scene->getProperties()->getPreviewProperties()
-                                : scene->getProperties()->getOutputProperties();
 
   // Build thread count
   /*-- Dedicated CPUs combo box (Single, Half, All) --*/
@@ -571,8 +577,6 @@ void RenderCommand::rasterRender(bool isPreview) {
   /*-- Create MovieRenderer. For Preview, the file path is empty --*/
   MovieRenderer movieRenderer(scene, isPreview ? TFilePath() : m_fp,
                               threadCount, isPreview);
-
-  TRenderSettings rs = prop->getRenderSettings();
 
   // Build raster granularity size
   index = prop->getMaxTileSizeIndex();
@@ -624,15 +628,16 @@ void RenderCommand::rasterRender(bool isPreview) {
 
     if (rs.m_stereoscopic) scene->shiftCameraX(-rs.m_stereoscopicShift / 2);
     TFxPair fx;
-    fx.m_frameA = buildSceneFx(scene, m_r, rs.m_shrinkX, isPreview);
+    fx.m_frameA =
+        buildSceneFx(scene, m_r, rs.m_shrinkX, isPreview, &rs.m_activeChecks);
 
     if (fieldRendering && !isPreview)
       fx.m_frameB = buildSceneFx(scene, m_r + 0.5 / m_timeStretchFactor,
-                                 rs.m_shrinkX, isPreview);
+                                 rs.m_shrinkX, isPreview, &rs.m_activeChecks);
     else if (rs.m_stereoscopic) {
       scene->shiftCameraX(rs.m_stereoscopicShift);
       fx.m_frameB = buildSceneFx(scene, m_r + 0.5 / m_timeStretchFactor,
-                                 rs.m_shrinkX, isPreview);
+                                 rs.m_shrinkX, isPreview, &rs.m_activeChecks);
       scene->shiftCameraX(-rs.m_stereoscopicShift / 2);
     } else
       fx.m_frameB = TRasterFxP();
@@ -649,10 +654,12 @@ void RenderCommand::rasterRender(bool isPreview) {
 }
 
 TPixel32 RenderCommand::m_priorBgColor;
+bool RenderCommand::m_bgColorChanged = false;
 
 void RenderCommand::resetBgColor() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
-  scene->getProperties()->setBgColor(m_priorBgColor);
+  if (m_bgColorChanged) scene->getProperties()->setBgColor(m_priorBgColor);
+  m_bgColorChanged = false;
 
   // revert background color settings
   TImageWriter::setBackgroundColor(
@@ -829,6 +836,7 @@ void RenderCommand::multimediaRender() {
 #endif
 
   TOutputProperties *prop = scene->getProperties()->getOutputProperties();
+  captureActiveRenderChecks(scene, prop);
 
   // Build thread count
   int index = prop->getThreadIndex();

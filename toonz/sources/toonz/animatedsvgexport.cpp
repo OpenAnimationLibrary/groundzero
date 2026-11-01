@@ -1,4 +1,5 @@
 #include "exportfidelity.h"
+#include "activechecks.h"
 #include "toonzqt/uitranslations.h"
 #include "ocaio.h"
 
@@ -304,6 +305,7 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
                  SvgExportData &data, DVGui::ProgressDialog *progress,
                  QString &failure) {
   TOutputProperties *properties = scene->getProperties()->getOutputProperties();
+  captureActiveRenderChecks(scene, properties);
   TRenderSettings settings      = properties->getRenderSettings();
   TDimension cameraRes          = scene->getCurrentCamera()->getRes();
   int shrink                    = qMax(1, settings.m_shrinkX);
@@ -359,8 +361,9 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
   auto renderData = std::make_unique<std::vector<TRenderer::RenderData>>();
   for (int frame = 0; frame < frameCount && !contextChanged; ++frame) {
     TFxPair fxPair;
-    fxPair.m_frameA = ::buildSceneFx(
-        scene, xsheet, frame, TOutputProperties::AllLevels, shrink, false);
+    fxPair.m_frameA =
+        ::buildSceneFx(scene, xsheet, frame, TOutputProperties::AllLevels,
+                       shrink, false, &settings.m_activeChecks);
     renderData->push_back(TRenderer::RenderData(frame, settings, fxPair));
   }
 

@@ -16,6 +16,7 @@ set(HEADERS ${MOC_HEADERS}
     ../common/tiio/bmp/filebmp.h
     ../include/movsettings.h
     ../include/tconst.h
+    ../include/tcheckrenderdata.h
     ../include/transparencycheck.h
     ../include/trastercm.h
     ../include/trasterfx.h

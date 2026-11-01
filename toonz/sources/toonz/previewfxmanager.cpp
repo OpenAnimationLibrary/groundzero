@@ -17,10 +17,12 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/tobjecthandle.h"
+#include "toonz/tcolumnhandle.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tcamera.h"
 #include "toonz/palettecontroller.h"
 #include "tapp.h"  //Toonz current objects
+#include "activechecks.h"
 
 // Images stuff
 #include "trasterimage.h"
@@ -287,10 +289,12 @@ inline TFxP PreviewFxInstance::buildSceneFx(int frame) {
 
   if (isFullPreview())
     return ::buildSceneFx(scene, m_xsheet.getPointer(), frame,
-                          m_renderSettings.m_shrinkX, true);
+                          m_renderSettings.m_shrinkX, true,
+                          &m_renderSettings.m_activeChecks);
   else
     return ::buildPartialSceneFx(scene, m_xsheet.getPointer(), frame, m_fx,
-                                 m_renderSettings.m_shrinkX, true);
+                                 m_renderSettings.m_shrinkX, true,
+                                 &m_renderSettings.m_activeChecks);
 }
 
 //------------------------------------------------------------------
@@ -713,6 +717,7 @@ void PreviewFxInstance::updateRenderSettings() {
   TOutputProperties *properties =
       scene->getProperties()->getPreviewProperties();
 
+  captureActiveRenderChecks(scene, properties);
   m_subcamera = properties->isSubcameraPreview();
 
   TRenderSettings renderSettings = properties->getRenderSettings();
@@ -1218,6 +1223,32 @@ PreviewFxManager::PreviewFxManager() : QObject() {
           SLOT(onXsheetChanged()));
   connect(app->getCurrentObject(), SIGNAL(objectChanged(bool)), this,
           SLOT(onObjectChanged(bool)));
+
+  auto refreshActiveChecks = [this]() {
+    ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+    bool enabled      = scene && scene->getProperties()
+                                ->getPreviewProperties()
+                                ->getRenderSettings()
+                                .m_activeChecks.m_enabled;
+    if (!enabled) {
+      for (auto it = m_previewInstances.begin(); it != m_previewInstances.end();
+           ++it)
+        enabled =
+            enabled || it.value()->m_renderSettings.m_activeChecks.m_enabled;
+    }
+    if (enabled) onXsheetChanged();
+  };
+  connect(app->getCurrentScene(), &TSceneHandle::sceneChanged, this,
+          refreshActiveChecks, Qt::QueuedConnection);
+  connect(app->getCurrentScene(), &TSceneHandle::preferenceChanged, this,
+          refreshActiveChecks, Qt::QueuedConnection);
+  connect(app->getCurrentColumn(), &TColumnHandle::columnIndexSwitched, this,
+          refreshActiveChecks, Qt::QueuedConnection);
+  connect(app->getPaletteController()->getCurrentLevelPalette(),
+          &TPaletteHandle::colorStyleSwitched, this, refreshActiveChecks,
+          Qt::QueuedConnection);
+  connect(Preferences::instance(), &Preferences::fillOnlySaveboxChanged, this,
+          refreshActiveChecks, Qt::QueuedConnection);
 
   /*-- 上記の on○○Changed() は、全て refreshViewRects をEmitしている。
           → これまでの計算を止め、新たにstartRenderをする。

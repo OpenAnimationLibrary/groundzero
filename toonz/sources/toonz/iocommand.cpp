@@ -4,6 +4,7 @@
 #include <exception>
 
 #include "iocommand.h"
+#include "activechecks.h"
 #include "importpdf.h"
 
 // Toonz includes
@@ -81,6 +82,7 @@
 #include "toonz/toonzimageutils.h"
 #include "toonz/imagestyles.h"
 #include "toutputproperties.h"
+#include "trasterfx.h"
 #include "toonz/studiopalette.h"
 #include "convert2tlv.h"
 
@@ -2137,14 +2139,42 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
     cp->assign(&CleanupParameters::GlobalParameters, false);
   }
 
+  TOutputProperties *checkProperties[] = {
+      scene->getProperties()->getOutputProperties(),
+      scene->getProperties()->getPreviewProperties()};
+  for (TOutputProperties *properties : checkProperties)
+    captureActiveRenderChecks(scene, properties);
+
+  // A saved sub-xsheet becomes a new root, so its selected column no longer
+  // needs the ancestor path. Preserve the live scene's full path afterwards.
+  const TRenderSettings originalCheckSettings[] = {
+      checkProperties[0]->getRenderSettings(),
+      checkProperties[1]->getRenderSettings()};
+  if (saveSubxsheet) {
+    for (TOutputProperties *properties : checkProperties) {
+      TRenderSettings settings     = properties->getRenderSettings();
+      std::vector<int> &columnPath = settings.m_activeChecks.m_columnPath;
+      if (!columnPath.empty()) columnPath = {columnPath.back()};
+      properties->setRenderSettings(settings);
+    }
+  }
+  auto restoreCheckPaths = [&] {
+    if (!saveSubxsheet) return;
+    for (int i = 0; i < 2; ++i)
+      checkProperties[i]->setRenderSettings(originalCheckSettings[i]);
+  };
+
   bool saveSucceeded = true;
   try {
     scene->save(scenePath, xsheet, !isAutosave);
+    restoreCheckPaths();
   } catch (const TSystemException &se) {
+    restoreCheckPaths();
     if (!isAutosave)
       DVGui::warning(QString::fromStdWString(se.getMessage()));
     saveSucceeded = false;
   } catch (...) {
+    restoreCheckPaths();
     if (!isAutosave)
       DVGui::error(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(scenePath)));
     saveSucceeded = false;

@@ -345,8 +345,7 @@ void tglDraw(const TVectorRenderData &rd, TRegion *r, bool pushAttribs) {
     colorStyle->setMainColor(rd.m_paintCheckColor);
     style = colorStyle;
   } else if (rd.m_tcheckEnabled) {
-    static TSolidColorStyle *color = new TSolidColorStyle();
-    color->addRef();
+    TSolidColorStyle *color = new TSolidColorStyle();
     color->setMainColor(rd.m_tCheckPaint);
     style = color;
   } else
@@ -1359,8 +1358,7 @@ void tglDraw(const TVectorRenderData &rd, const TStroke *s, bool pushAttribs) {
       colorStyle->setMainColor(rd.m_ink1CheckColor);
       style = colorStyle;
     } else if (rd.m_tcheckEnabled) {
-      static TSolidColorStyle *color = new TSolidColorStyle();
-      color->addRef();
+      TSolidColorStyle *color = new TSolidColorStyle();
       color->setMainColor(rd.m_tCheckInk);
       style = color;
     } else

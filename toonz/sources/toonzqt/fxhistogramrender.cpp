@@ -12,6 +12,7 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/toonzscene.h"
+#include "toonz/activechecks.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/scenefx.h"
 #include "toonz/tcamera.h"
@@ -91,11 +92,12 @@ void FxHistogramRender::computeHistogram(TFxP fx, int frame) {
   TOutputProperties *outputProperties = sceneProperties->getPreviewProperties();
   if (!outputProperties) return;
   TRenderSettings rs = outputProperties->getRenderSettings();
+  resolveActiveRenderChecks(m_scene, rs.m_activeChecks);
 
   TFxP buildedFx;
   if (m_isCameraViewMode)
-    buildedFx =
-        buildPartialSceneFx(m_scene, (double)frame, fx, rs.m_shrinkX, true);
+    buildedFx = buildPartialSceneFx(m_scene, (double)frame, fx, rs.m_shrinkX,
+                                    true, &rs.m_activeChecks);
   else
     buildedFx = buildSceneFx(m_scene, frame, fx, true);
   if (!buildedFx.getPointer()) return;
@@ -170,10 +172,11 @@ void FxHistogramRender::remakeRender() {
   m_renderPort->setRenderArea(area);
   TRenderSettings rs =
       m_scene->getProperties()->getPreviewProperties()->getRenderSettings();
+  resolveActiveRenderChecks(m_scene, rs.m_activeChecks);
 
-  TFxP buildedFx =
-      buildPartialSceneFx(m_scene, (double)m_lastFrameInfo.m_frame,
-                          m_lastFrameInfo.m_fx, rs.m_shrinkX, true);
+  TFxP buildedFx = buildPartialSceneFx(
+      m_scene, (double)m_lastFrameInfo.m_frame, m_lastFrameInfo.m_fx,
+      rs.m_shrinkX, true, m_isCameraViewMode ? &rs.m_activeChecks : nullptr);
   TRasterFxP rasterFx(buildedFx);
   if (!rasterFx) return;
   std::string alias = rasterFx->getAlias(m_lastFrameInfo.m_frame, rs);

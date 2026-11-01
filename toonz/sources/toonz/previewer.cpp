@@ -24,10 +24,12 @@
 
 // Toonz app (currents)
 #include "tapp.h"
+#include "activechecks.h"
 #include "toutputproperties.h"
 
 // Toonz stage structures
 #include "toonz/tobjecthandle.h"
+#include "toonz/tcolumnhandle.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/txshlevelhandle.h"
@@ -291,20 +293,20 @@ TFxPair Previewer::Imp::buildSceneFx(int frame) {
     fxPair.m_frameA = ::buildSceneFx(
         scene, xsh, frame, TOutputProperties::AllLevels,
         m_renderSettings.m_applyShrinkToViewer ? m_renderSettings.m_shrinkX : 1,
-        false);
+        false, &m_renderSettings.m_activeChecks);
 
     scene->shiftCameraX(m_renderSettings.m_stereoscopicShift);
     fxPair.m_frameB = ::buildSceneFx(
         scene, xsh, frame, TOutputProperties::AllLevels,
         m_renderSettings.m_applyShrinkToViewer ? m_renderSettings.m_shrinkX : 1,
-        false);
+        false, &m_renderSettings.m_activeChecks);
 
     scene->shiftCameraX(-m_renderSettings.m_stereoscopicShift / 2.0);
   } else
     fxPair.m_frameA = ::buildSceneFx(
         scene, xsh, frame, TOutputProperties::AllLevels,
         m_renderSettings.m_applyShrinkToViewer ? m_renderSettings.m_shrinkX : 1,
-        false);
+        false, &m_renderSettings.m_activeChecks);
 
   return fxPair;
 }
@@ -355,8 +357,10 @@ void Previewer::Imp::updateCamera() {
 
 void Previewer::Imp::updateRenderSettings() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
-  TRenderSettings renderSettings =
-      scene->getProperties()->getPreviewProperties()->getRenderSettings();
+  TOutputProperties *properties =
+      scene->getProperties()->getPreviewProperties();
+  captureActiveRenderChecks(scene, properties);
+  TRenderSettings renderSettings = properties->getRenderSettings();
 
   if (renderSettings.m_applyShrinkToViewer)
     renderSettings.m_shrinkY = renderSettings.m_shrinkX;
@@ -1083,6 +1087,29 @@ Previewer::Previewer(bool subcamera) : m_imp(std::make_unique<Imp>(this)) {
           &Previewer::onLevelChanged);
   connect(app->getPaletteController()->getCurrentLevelPalette(),
           &TPaletteHandle::paletteChanged, this, &Previewer::onLevelChanged);
+
+  // View checks and palette/column selection do not change the scene's FX
+  // graph. Refresh their snapshots after the GUI has finished updating them.
+  auto refreshActiveChecks = [this]() {
+    ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+    if (scene && (scene->getProperties()
+                      ->getPreviewProperties()
+                      ->getRenderSettings()
+                      .m_activeChecks.m_enabled ||
+                  m_imp->m_renderSettings.m_activeChecks.m_enabled))
+      update();
+  };
+  connect(app->getCurrentScene(), &TSceneHandle::sceneChanged, this,
+          refreshActiveChecks, Qt::QueuedConnection);
+  connect(app->getCurrentScene(), &TSceneHandle::preferenceChanged, this,
+          refreshActiveChecks, Qt::QueuedConnection);
+  connect(app->getCurrentColumn(), &TColumnHandle::columnIndexSwitched, this,
+          refreshActiveChecks, Qt::QueuedConnection);
+  connect(app->getPaletteController()->getCurrentLevelPalette(),
+          &TPaletteHandle::colorStyleSwitched, this, refreshActiveChecks,
+          Qt::QueuedConnection);
+  connect(Preferences::instance(), &Preferences::fillOnlySaveboxChanged, this,
+          refreshActiveChecks, Qt::QueuedConnection);
 
   levelChangedTimer.setInterval(notificationDelay);
   fxChangedTimer.setInterval(notificationDelay);

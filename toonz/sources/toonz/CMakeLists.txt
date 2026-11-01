@@ -195,6 +195,7 @@ if(WITH_PYTHON)
 endif()
 
 set(HEADERS
+    activechecks.h
     cadmiumtypes.h
     cadmiumsource.h
     cadmiumcolor.h
@@ -266,6 +267,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    activechecks.cpp
     languagemanager.cpp
     commandpalette.cpp
     commandpalettenative.cpp
@@ -1116,7 +1118,7 @@ if(BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)
     target_sources(OpenToonz PRIVATE castworkflowintegrationtest.cpp
         castinterruptionintegrationtest.cpp castinterruptionintegrationtest.h)
-    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test)
+    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test activechecks_test activecheckscolumn_test)
     target_sources(OpenToonz PRIVATE vectorworkflowintegrationtest.cpp vectorworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE opacityrenderintegrationtest.cpp opacityrenderintegrationtest.h)
     target_sources(OpenToonz PRIVATE nativeprocessmemory.cpp nativeprocessmemory.h)
