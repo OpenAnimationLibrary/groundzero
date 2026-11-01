@@ -4,26 +4,49 @@ Only the OpenAnimationLibrary/groundzero Windows CI workflow injects this
 feature. Normal source builds and upstream source files are unchanged. This is
 not an OpenToonz movie renderer or a desktop recorder.
 
-Every session starts with **Recording off**, without a startup prompt. Use
-**Start Recording** on the recording panel whenever recording is needed. The
-first start in each session asks for consent; **Do Not Record**, Escape or close
-leaves recording off. The panel has separate **Start Recording**, **Pause** /
-**Resume**, and **Stop Recording** buttons, in that order. After consent, recording
-can be restarted throughout the session without another prompt. Consent is not
-saved for future launches; old `[OtDevRecorder]` choices are ignored.
+Every session starts with recording off and **Ready** on the **Screen Recorder**
+panel, without a startup prompt. Click the round button with the red circle to
+start recording. The first start in each session asks for consent; **Do Not
+Record**, Escape or close leaves recording off. After consent, recording can be
+restarted throughout the session without another prompt. Consent is not saved
+for future launches; old `[OtDevRecorder]` choices are ignored.
 `OTDEV_RECORD=off` is no longer needed to suppress startup recording. There is no
 automatic or command-line start.
 
 After opt-in, continuous capture saves clips under
 `<OpenToonz executable directory>/portablestuff/recordings/`. The recording
-panel shows actual recording/paused/error state, stops/resumes capture, and
-opens the folder. Stopping finishes the current clip; Start is unavailable while
-the clip is prepared for playback. Starting again creates a separate clip.
+panel shows the current recording state and duration. Stopping finishes the
+current clip; Start is unavailable while the clip is prepared for playback.
+Starting again creates a separate clip. The gear opens **Recorder Settings**,
+which includes the action to open the recordings folder.
 Nothing is uploaded and no recordings are automatically deleted. The recorder
 stops with a visible error when free space falls below 1 GiB. Files have
 collision-resistant UTC names and are split every 10 minutes of encoded frames.
 
 ## Panel and shortcuts
+
+The compact panel has three icon buttons:
+
+- **Record / Stop**: the red circle starts recording and becomes a square that
+  stops the active recording, including a paused recording.
+- **Pause / Resume**: pause bars suspend capture; the play triangle resumes the
+  same recording. This button is unavailable while recording is off or a stopped
+  clip is saving.
+- **Recorder Settings**: the gear opens or closes a modeless settings window
+  containing the full recording status, current capture region, **Select
+  Region...**, **Clear Region**, and **Open Recordings Folder**. Opening settings
+  does not start recording. Settings close before region selection begins.
+
+The buttons retain descriptive tooltips and accessible names. Existing Start,
+Stop, and Pause/Resume actions remain available through shortcut commands.
+
+The `HH:MM:SS` display counts frames accepted for encoding at the recorder's
+nominal 12 fps. Paused and dropped time is omitted. Duration accumulates across
+the automatic ten-minute clip splits, remains visible after stopping, and resets
+when a new recording successfully begins. After Stop, **Saving...** disables the
+transport until finalization finishes; **Saved** leaves the Record button
+available for the next recording. Detailed pause reasons are available in
+Recorder Settings; recording failures retain the existing error dialog.
 
 **Preferences > Interface > Show Session Recording Panel** controls visibility and
 is on by default. The panel initially docks at the bottom. Drag its title bar to
@@ -42,6 +65,7 @@ under **Menu Commands > Windows**; these commands are under **Misc**:
 - Pause / Resume Session Recording; Pause Session Recording; Resume Session Recording.
 - Select Recording Region; Clear Recording Region; Cancel Recording Region Selection.
 - Open Session Recordings Folder.
+- Recorder Settings.
 
 No keys are assigned by default. Assignments use OpenToonz's existing shortcut
 storage and conflict handling, and work while the panel is hidden or floating.
@@ -55,10 +79,10 @@ application shortcuts remain suppressed until selection finishes.
   even while paused. Pause is also available before the first frame is captured.
 - The default on every launch is **All OpenToonz Windows**, using the same eligible
   application windows as before. Region selections are not saved between launches.
-- Choose **Select Region...**, then drag a rectangle inside the main window or an
-  eligible floating panel. Selection pauses an active recording and temporarily
-  intercepts application mouse/keyboard input. The recording panel remains
-  usable. **Escape**, right-click or **Cancel Selection** keeps the previous region;
+- Open **Recorder Settings** and choose **Select Region...**, then drag a rectangle
+  inside the main window or an eligible floating panel. Selection pauses an active
+  recording and temporarily intercepts application mouse/keyboard input. The panel
+  remains usable. **Escape**, right-click or **Cancel Selection** keeps the previous region;
   clicks and drags smaller than 8 x 8 logical pixels are ignored.
 - An active recording stays paused after selecting or cancelling. Press **Resume**
   when ready. The selection outline is removed before capture can resume.
@@ -99,8 +123,9 @@ application shortcuts remain suppressed until selection finishes.
   Working files end in `.recording.mp4`. FFmpeg's `hybrid_fragmented` mode keeps
   completed fragments readable during capture, then writes the normal MP4 index
   at EOF without re-encoding. Stop, clip rotation and orderly shutdown prepare
-  the video automatically, then rename it to `.mp4`. The panel shows
-  **Preparing recording for playback...** while finishing (up to 15 seconds).
+  the video automatically, then rename it to `.mp4`. The panel shows **Saving...**
+  and Recorder Settings shows **Preparing recording for playback...** while
+  finishing (up to 15 seconds).
   Interrupted or failed files retain the working suffix for recovery; the last
   fragment may be lost. Existing recordings are never overwritten.
 - This replaces MPEG-4 Part 2 in permanently fragmented MP4, which some players
@@ -117,17 +142,23 @@ application shortcuts remain suppressed until selection finishes.
 
 ## Validation
 
+Repository policy places builds and tests in CI; see `CLAUDE.md`. The Python
+injection test entry point is:
+
 `python -m unittest discover -s .github/ot-dev/recorder -p 'test_*.py' -v`
 
 The standalone CMake/QtTest target in this directory tests startup-off behavior
-(including legacy saved choices), on-demand consent, escape/opt-out, panel visibility
-and placement persistence, Interface checkbox synchronization, hidden/floating-panel
-shortcuts, repeated start/stop, manual pause/resume, region selection/cancellation, window-relative
-cropping and resize boundaries, capture ownership, and real encoder output. The
-pause test decodes a clip to verify that content displayed only while paused is
-absent. Set `OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
-FFmpeg decoder before running CTest. CI builds a test-only decoder from the same
-pinned sources with assembly disabled; it is never included in the application.
+(including legacy saved choices), on-demand consent, escape/opt-out through the
+compact Record button, modeless settings and their shortcut, panel visibility and
+placement persistence, Interface checkbox synchronization, hidden/floating-panel
+shortcuts, repeated start/stop, pause/resume, duration freeze/reset/finalization,
+region selection/cancellation, window-relative cropping and resize boundaries,
+capture ownership, and real encoder output. The pause test decodes a clip to
+verify that content displayed only while paused is absent. For CTest execution
+in CI, set `OTDEV_TEST_FFMPEG` to the packaged encoder
+and `OTDEV_TEST_DECODER` to a separate FFmpeg decoder. CI builds a test-only decoder
+from the same pinned sources with assembly disabled; it is never included in the
+application.
 The encoder test round-trips changing color bars and neutral tones at both 64x64
 and the actual 1920x1080 capture size, checking all 30 decoded frames across a
 keyframe boundary. The recorder explicitly uses `bicubic+accurate_rnd` scaling
@@ -143,11 +174,11 @@ hidden cursors, floating panels, selected-region transforms and clipping/exclusi
 They run at normal and 200% DPI with two video sizes. Region selection and resize
 tests also run at 200% DPI.
 
-Windows CI does not run these tests: it builds the encoder and the test-only
-decoder, and compiles the recorder into OpenToonz. Run CTest locally on Windows
-with the variables above before relying on a change. Interactive
-acceptance in the extracted artifact must additionally check the Viewer, Style
-Editor, Xsheet, FX Schematic, floating panels, popup menus, native file dialogs,
+The Windows application workflow does not currently run the standalone recorder
+tests: it builds the encoder and the test-only decoder, and compiles the recorder
+into OpenToonz. That build alone does not verify the recorder's behavior.
+Interactive acceptance in the extracted artifact must additionally check the
+Viewer, Style Editor, Xsheet, FX Schematic, floating panels, popup menus, native file dialogs,
 overlapping external windows, multi-monitor/high-DPI use, shutdown/cancelled quit,
 and several minutes of recording/playback. CI alone does not establish visual
 correctness or acceptable performance across Windows GPU drivers.
