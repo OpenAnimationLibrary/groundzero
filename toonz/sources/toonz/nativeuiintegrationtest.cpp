@@ -28,6 +28,7 @@
 #include "menubarcommandids.h"
 #include "pane.h"
 #include "tapp.h"
+#include "tasksviewer.h"
 #include "themeapplication.h"
 #include "toolbar.h"
 #include "widgetinspector.h"
@@ -511,6 +512,51 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   }
 
   checkpoint("workflow independent-toolbar checks passed");
+  // Batch data must survive panel retirement, while each view keeps its own
+  // selection/model and unregisters both model and observer before destruction.
+  {
+    auto *controller = BatchesController::instance();
+    const QString id = "workflow-panel-lifetime-task";
+    require(!controller->getTask(id),
+            "batch lifetime fixture task already exists");
+    auto *task   = new TFarmTaskGroup;
+    task->m_name = "Workflow panel lifetime";
+    controller->addTask(id, task, false);
+    auto first  = std::make_unique<TasksViewer>(window);
+    auto second = std::make_unique<TasksViewer>(window);
+    auto model  = [](TasksViewer *panel) {
+      auto *tree = panel->findChild<TaskTreeView *>();
+      require(tree, "Tasks panel has no task tree");
+      return qobject_cast<TaskTreeModel *>(tree->model());
+    };
+    QPointer<TaskTreeModel> firstModel  = model(first.get());
+    QPointer<TaskTreeModel> secondModel = model(second.get());
+    require(firstModel && secondModel && firstModel != secondModel,
+            "Tasks panels share a view-dependent model");
+    controller->update();
+    second->setSelected(task);
+    first.reset();
+    require(!firstModel && secondModel,
+            "Tasks panel retirement affected a surviving model");
+    controller->update();
+    second.reset();
+    require(!secondModel, "retired Tasks model stayed alive");
+    controller->update();
+    auto replacement = std::make_unique<TasksViewer>(window);
+    controller->update();
+    auto *replacementModel = model(replacement.get());
+    const QModelIndex list = replacementModel->index(0, 0);
+    bool retained          = false;
+    for (int row = 0; row < replacementModel->rowCount(list); ++row)
+      retained |= replacementModel->index(row, 0, list).data().toString() ==
+                  task->m_name;
+    require(controller->getTask(id) == task && retained,
+            "recreated Tasks panel lost the controller's batch data");
+    replacement->setSelected(task);
+    controller->removeTask(id);
+    controller->update();
+  }
+  checkpoint("workflow independent-task-panel checks passed");
   // Exercise real lazy/eager panels, including Function Editor and pooled
   // floating Flipbooks, rather than testing a mock layout switch.
   for (bool lazy : {true, false}) {

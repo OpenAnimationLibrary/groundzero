@@ -49,9 +49,12 @@ public:
   void loadTask(bool isRenderTask);
 
   void getTasks(const QString &parentId, std::vector<QString> &tasks) const;
-  void setTasksTree(TaskTreeModel *tree);
+  void registerTasksTree(TaskTreeModel *tree);
+  void unregisterTasksTree(TaskTreeModel *tree);
 
-  TaskTreeModel *getTasksTree() { return m_tasksTree; }
+  TaskTreeModel *getTasksTree() {
+    return m_tasksTrees.empty() ? nullptr : *m_tasksTrees.begin();
+  }
 
   void startAll();
   void start(const QString &taskId);
@@ -97,7 +100,7 @@ private:
   int m_localControllerPortNumber;
   TFarmController *m_controller;
   std::map<QString, QString> m_farmIdsTable;
-  TaskTreeModel *m_tasksTree;
+  std::set<TaskTreeModel *> m_tasksTrees;
   TThread::Executor m_localExecutor;
 
   static BatchesController *m_instance;
