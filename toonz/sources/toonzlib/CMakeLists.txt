@@ -777,4 +777,11 @@ if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
     add_executable(activecheckscolumn_test tests/activecheckscolumn_test.cpp)
     target_link_libraries(activecheckscolumn_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME ui_activechecks_column COMMAND activecheckscolumn_test)
+    # The linked shader manager needs an OpenGL-capable platform even for
+    # these CPU raster checks. Keep Linux's display backend inherited from CI.
+    if(APPLE)
+        set_tests_properties(ui_activechecks_column PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
+    elseif(WIN32)
+        set_tests_properties(ui_activechecks_column PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    endif()
 endif()
