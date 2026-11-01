@@ -269,9 +269,14 @@ jobs:
         if: ${{ failure() && steps.artist_benchmark.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/artist-workload-output.txt
 
+      # Retry transient artifact-service failures without rerunning the
+      # build or tests. Exhausting the retries still fails the job.
       - name: Upload artist workflow evidence
+        id: upload_artist_evidence
         if: always()
         uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           name: artist-workflow-macos
           path: |
@@ -279,6 +284,39 @@ jobs:
             toonz/build/ui-integration-output*.txt
             toonz/build/ui-tests-output.txt
           if-no-files-found: ignore
+          overwrite: true
+      - name: Wait before retrying artist workflow evidence upload
+        if: ${{ !cancelled() && steps.upload_artist_evidence.outcome == 'failure' }}
+        run: sleep 10
+      - name: Retry artist workflow evidence upload
+        id: upload_artist_evidence_retry
+        if: ${{ !cancelled() && steps.upload_artist_evidence.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: artist-workflow-macos
+          path: |
+            toonz/build/artist-workload-output.*
+            toonz/build/ui-integration-output*.txt
+            toonz/build/ui-tests-output.txt
+          if-no-files-found: ignore
+          overwrite: true
+      - name: Wait before final artist workflow evidence upload
+        if: ${{ !cancelled() && steps.upload_artist_evidence_retry.outcome == 'failure' }}
+        run: sleep 30
+      - name: Final artist workflow evidence upload attempt
+        if: ${{ !cancelled() && steps.upload_artist_evidence_retry.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        with:
+          name: artist-workflow-macos
+          path: |
+            toonz/build/artist-workload-output.*
+            toonz/build/ui-integration-output*.txt
+            toonz/build/ui-tests-output.txt
+          if-no-files-found: ignore
+          overwrite: true
 
       - name: Report SeExpr test failures
         if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
@@ -317,7 +355,7 @@ jobs:
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
-        if: failure()
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
         run: |
           log="$GITHUB_WORKSPACE/build.log"
           [ -f "$log" ] || exit 0
