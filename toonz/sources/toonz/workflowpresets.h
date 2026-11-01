@@ -15,16 +15,16 @@ struct Preset {
 // are deliberately independent of workspace selection in Groundzero.
 inline constexpr Preset presets[] = {
     {"MI_Workflow2D", "Tradigital",
-     QT_TRANSLATE_NOOP("MainWindow", "2D Tradigital Mode")},
+     QT_TRANSLATE_NOOP("MainWindow", "2D Tradigital")},
     {"MI_WorkflowCutout", "Cutout",
-     QT_TRANSLATE_NOOP("MainWindow", "Cutout Digital Mode")},
+     QT_TRANSLATE_NOOP("MainWindow", "Cutout Digital")},
     {"MI_WorkflowStopMotion", "StopMotion",
-     QT_TRANSLATE_NOOP("MainWindow", "Stop-Motion Mode")},
+     QT_TRANSLATE_NOOP("MainWindow", "Stop-Motion")},
     {"MI_WorkflowCharacter", "Character",
-     QT_TRANSLATE_NOOP("MainWindow", "Character Mode")},
+     QT_TRANSLATE_NOOP("MainWindow", "Characters")},
     {"MI_WorkflowDefault", "Default",
      QT_TRANSLATE_NOOP("MainWindow", "Default Rooms")},
     {"MI_WorkflowStudioGhibli", "StudioGhibli",
-     QT_TRANSLATE_NOOP("MainWindow", "Studio Ghibli Rooms")},
+     QT_TRANSLATE_NOOP("MainWindow", "Studio Ghibli Edition")},
 };
 }  // namespace WorkflowPresets
