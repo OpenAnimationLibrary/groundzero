@@ -591,6 +591,26 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
             "queued Style Editor retirement did not complete after refresh");
   }
   checkpoint("workflow Style Editor callback lifetime passed");
+  // Replacing a tree model must keep destroyed listeners installed by Qt's
+  // stylesheet engine and other observers, even after repeated replacement.
+  {
+    class FixtureTree final : public TreeView {
+    public:
+      FixtureTree() : TreeView(nullptr) {}
+      using TreeView::setModel;
+    };
+    QObject callbacks;
+    bool destroyed = false;
+    auto tree      = std::make_unique<FixtureTree>();
+    tree->ensurePolished();
+    QObject::connect(tree.get(), &QObject::destroyed, &callbacks,
+                     [&]() { destroyed = true; });
+    tree->setModel(new TreeModel(tree.get()));
+    tree->setModel(new TreeModel(tree.get()));
+    tree.reset();
+    require(destroyed, "tree model replacement removed a destroyed listener");
+  }
+  checkpoint("workflow tree destruction listeners passed");
   // Exercise real lazy/eager panels, including Function Editor and pooled
   // floating Flipbooks, rather than testing a mock layout switch.
   for (bool lazy : {true, false}) {

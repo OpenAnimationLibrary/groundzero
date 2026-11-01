@@ -358,24 +358,24 @@ void TreeView::resizeEvent(QResizeEvent *event) {
 //----------------------------------------------------------------------------------------------------------------
 
 void TreeView::setModel(TreeModel *model) {
+  // Keep unrelated observers, notably Qt's stylesheet-cache destroyed listener.
+  // Dropping it leaves retired room widgets in the next theme's repolish list.
+  if (auto *previous = qobject_cast<TreeModel *>(QTreeView::model())) {
+    disconnect(this, &QTreeView::expanded, previous, &TreeModel::onExpanded);
+    disconnect(this, &QTreeView::collapsed, previous, &TreeModel::onCollapsed);
+    disconnect(previous, &QAbstractItemModel::layoutChanged, this,
+               &TreeView::resizeToConts);
+  }
+  disconnect(this, &QTreeView::expanded, this, &TreeView::resizeToConts);
+  disconnect(this, &QTreeView::collapsed, this, &TreeView::resizeToConts);
   QTreeView::setModel(model);
-  disconnect();
-
-  connect(this, SIGNAL(expanded(const QModelIndex &)), model,
-          SLOT(onExpanded(const QModelIndex &)));
-  connect(this, SIGNAL(collapsed(const QModelIndex &)), model,
-          SLOT(onCollapsed(const QModelIndex &)));
-  // setItemDelegate(new Delegate(this));
-
-  // Connect all possible changes that can alter the
-  // bottom horizontal scrollbar to resize contents...
-  connect(this, SIGNAL(expanded(const QModelIndex &)), this,
-          SLOT(resizeToConts()));
-
-  connect(this, SIGNAL(collapsed(const QModelIndex &)), this,
-          SLOT(resizeToConts()));
-
-  connect(this->model(), SIGNAL(layoutChanged()), this, SLOT(resizeToConts()));
+  if (!model) return;
+  connect(this, &QTreeView::expanded, model, &TreeModel::onExpanded);
+  connect(this, &QTreeView::collapsed, model, &TreeModel::onCollapsed);
+  connect(this, &QTreeView::expanded, this, &TreeView::resizeToConts);
+  connect(this, &QTreeView::collapsed, this, &TreeView::resizeToConts);
+  connect(model, &QAbstractItemModel::layoutChanged, this,
+          &TreeView::resizeToConts);
 }
 
 //----------------------------------------------------------------------------------------------------------------

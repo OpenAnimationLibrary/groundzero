@@ -37,6 +37,8 @@ is reloaded before new panels process events. Tasks panels own separate view
 models and unregister their observers on close; batch task data stays in the
 controller across room changes. Style Editor refreshes return before queued
 room teardown runs; color-selector changes do not process unrelated UI events.
+Tree-model replacement and Flipbook playback preserve Qt's destruction listeners
+so later theme changes do not revisit retired widgets.
 Lazy and eager room loading use the same switching path.
 
 Workspace selection does not assign a scene role, convert a scene, restructure

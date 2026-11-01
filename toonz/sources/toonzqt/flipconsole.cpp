@@ -1670,8 +1670,8 @@ void FlipConsole::doButtonPressed(UINT button) {
     break;
   case ePlay:
   case eLoop:
-    m_editCurrFrame->disconnect();
-    m_currFrameSlider->disconnect();
+    m_editCurrFrame->disconnect(this);
+    m_currFrameSlider->disconnect(this);
 
     m_isPlay = (button == ePlay);
 
