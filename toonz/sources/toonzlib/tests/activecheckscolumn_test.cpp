@@ -185,9 +185,10 @@ void testIsolationAndSnapshot(Fixture &fixture) {
   fixture.requireUnchanged();
 }
 
-void testFillAcrossTiles(Fixture &fixture) {
+void testFillAcrossTiles(Fixture &fixture, bool fillOnlySavebox) {
   RenderScope render;
-  const TRenderSettings settings = fixture.settings(TRenderCheckSettings::Fill);
+  TRenderSettings settings = fixture.settings(TRenderCheckSettings::Fill);
+  settings.m_activeChecks.m_fillOnlySavebox = fillOnlySavebox;
   TRaster32P tiled(imageSize);
   tiled->clear();
   for (int y = 0; y < imageSize.ly; y += 6) {
@@ -277,7 +278,8 @@ int main(int argc, char *argv[]) {
     initStdFx();
     Fixture fixture(directory.path());
     testIsolationAndSnapshot(fixture);
-    testFillAcrossTiles(fixture);
+    testFillAcrossTiles(fixture, false);
+    testFillAcrossTiles(fixture, true);
     testBlackBackground(fixture);
     testAnimatedPaletteWithAntialias(fixture);
   } catch (const TException &error) {

@@ -360,9 +360,9 @@ static void prepareFillCheck(TToonzImageP &image,
 
   // Do this before extracting render tiles: a closed area can cross several
   // tiles. The temporary fill uses the same style and bounds as the Viewer.
-  TRasterCM32P raster = checks.m_fillOnlySavebox
-                            ? image->getRaster()->extract(savebox)
-                            : image->getRaster();
+  TRasterCM32P raster = image->getRaster();
+  if (checks.m_fillOnlySavebox)
+    raster = raster->extract(savebox.x0, savebox.y0, savebox.x1, savebox.y1);
   const TRect fillBounds =
       checks.m_fillOnlySavebox ? raster->getBounds() : savebox;
   AreaFiller(raster).rectFastFill(fillBounds, 1);

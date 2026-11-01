@@ -150,7 +150,7 @@ void testPixelMeaning() {
 void testViewerCombinationsAndStride() {
   TPaletteP plt = palette();
   TRasterCM32P storage(13, 5);
-  TRasterCM32P source       = storage->extract(TRect(2, 1, 10, 3));
+  TRasterCM32P source       = storage->extract(2, 1, 10, 3);
   const TPixelCM32 pixels[] = {
       TPixelCM32(0, 0, 255), TPixelCM32(1, 0, 0),   TPixelCM32(2, 0, 0),
       TPixelCM32(1, 1, 255), TPixelCM32(1, 2, 255), TPixelCM32(2, 1, 128),
@@ -159,7 +159,7 @@ void testViewerCombinationsAndStride() {
     for (int x = 0; x < source->getLx(); ++x) source->pixels(y)[x] = pixels[x];
 
   TRaster32P outputStorage(14, 5);
-  TRaster32P output = outputStorage->extract(TRect(3, 1, 11, 3));
+  TRaster32P output = outputStorage->extract(3, 1, 11, 3);
   TRaster32P expected(source->getSize());
   for (int selected : {1, 2}) {
     for (int mask = 0; mask < 256; ++mask) {
