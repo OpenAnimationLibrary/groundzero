@@ -91,18 +91,20 @@ int main(int argc, char **argv) {
         "freeze disabled policy for current process");
   check(manager.setEnabled("Blur.plugin", true, &error),
         "save a next-session enable");
+  write(root + "/Late.plugin", "installed after startup");
   QProcess child;
   child.start(QCoreApplication::applicationFilePath(),
               {"--inspect-policy", root, config, "0"});
   check(child.waitForFinished(10000) &&
             child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
-        "real child renderer inherits frozen parent policy");
+        "real child renderer inherits frozen policy and plugin inventory");
   qunsetenv("GROUNDZERO_FX_PLUGIN_POLICY");
   child.start(QCoreApplication::applicationFilePath(),
-              {"--inspect-policy", root, config, "1"});
+              {"--inspect-policy", root, config, "2"});
   check(child.waitForFinished(10000) &&
             child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
         "independent renderer reads next-session settings");
+  QFile::remove(root + "/Late.plugin");
 
   write(config,
         "\xef\xbb\xbf# manual comment\r\n./Blur.plugin\r\nMissing.plugin\r\n");

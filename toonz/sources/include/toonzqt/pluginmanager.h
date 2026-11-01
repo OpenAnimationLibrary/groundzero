@@ -63,6 +63,7 @@ private:
   Settings readSettings(QStringList *lines = nullptr) const;
   bool update(const QString &path, bool value, bool bypass, QString *error);
   QString m_directory, m_configurationPath;
+  QStringList m_startupFiles;
   mutable QMutex m_mutex;
   bool m_policyPrepared = false;
   Session m_session;

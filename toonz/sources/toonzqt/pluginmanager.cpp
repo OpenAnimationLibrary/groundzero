@@ -274,7 +274,8 @@ void PluginManager::prepareStartup() {
               .toString()
               .compare(m_directory, sensitivity) == 0 &&
       inherited.value("blocked").isArray() &&
-      inherited.value("bypass").isBool()) {
+      inherited.value("bypass").isBool() &&
+      inherited.value("files").isArray()) {
     m_session.settings.bypassAll = inherited.value("bypass").toBool();
     m_session.settings.error     = inherited.value("error").toString();
     m_session.settings.blocked.clear();
@@ -282,11 +283,23 @@ void PluginManager::prepareStartup() {
       const QString path = key(entry.toString());
       if (!path.isEmpty()) m_session.settings.blocked.insert(path);
     }
+    for (const auto &entry : inherited.value("files").toArray()) {
+      const QString path = normalizedPath(entry.toString());
+      if (!path.isEmpty()) m_startupFiles.append(path);
+    }
+  } else if (!m_session.launchBypass && !m_session.settings.bypassAll &&
+             m_session.settings.error.isEmpty()) {
+    // Freeze discovery too: plugins installed during this session belong to
+    // the next launch and must not appear early in a child renderer.
+    m_startupFiles = installedFiles();
   }
   QJsonArray blocked;
   for (const QString &path : m_session.settings.blocked) blocked.append(path);
+  QJsonArray files;
+  for (const QString &path : m_startupFiles) files.append(path);
   const QJsonObject policy{{"directory", m_directory},
                            {"blocked", blocked},
+                           {"files", files},
                            {"bypass", m_session.settings.bypassAll},
                            {"error", m_session.settings.error}};
   qputenv("GROUNDZERO_FX_PLUGIN_POLICY",
@@ -302,7 +315,8 @@ QStringList PluginManager::startupFiles() {
       !m_session.settings.error.isEmpty())
     return QStringList();
   QStringList result;
-  for (const QString &path : installedFiles())
+  for (const QString &path :
+       m_policyPrepared ? m_startupFiles : installedFiles())
     if (!m_session.settings.blocked.contains(key(path)))
       result.append(QDir(m_directory).filePath(path));
   return result;
