@@ -563,9 +563,13 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
                   "workflow template references an unavailable panel");
         check();
       }
+      std::cerr << "workflow-switch: room visits complete for "
+                << preset.profile << std::endl;
       // Selecting the active workflow is a no-op, including panel identities.
       QPointer<Room> same = main->getCurrentRoom();
       trigger(preset.command);
+      std::cerr << "workflow-switch: active-set selection complete for "
+                << preset.profile << std::endl;
       require(same && main->getCurrentRoom() == same.data(),
               "selecting the active workflow rebuilt its panels");
     }
@@ -1118,6 +1122,9 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
         runCastVectorIntegrationTest(window);
       } else if (diagnosticSuite == "combined-fidelity") {
         runCombinedFidelityIntegrationTest(window);
+      } else if (diagnosticSuite == "workflow-switch") {
+        exerciseWorkflowSwitching(window);
+        std::cout << "workflow-switch-native: PASS" << std::endl;
       } else if (diagnosticSuite == "vector-renderer") {
         runOpacityRenderNativeChecks();
         runOfflineGLWorkflowNativeChecks();
