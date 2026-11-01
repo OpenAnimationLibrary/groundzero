@@ -11,6 +11,7 @@ enum PreferencesItemId {
   sceneNumberingEnabled,
   checkSceneBeforeRendering,
   watchFileSystemEnabled,
+  fileBrowserFolderDoubleClick,
   projectRoot,
   customProjectRoot,
   pathAliasPriority,
