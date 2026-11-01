@@ -38,6 +38,7 @@
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/pluginloader.h"
+#include "toonzqt/pluginmanager.h"
 #include "toonzqt/qtcompat.h"
 
 // TnzStdfx includes
@@ -285,6 +286,7 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  PluginManager::takeLaunchArguments(argc, argv);
   bool nativeUiTest = false;
 #ifdef BUILD_UI_PORT_TESTS
   bool nativeIconClearOnly = false;
