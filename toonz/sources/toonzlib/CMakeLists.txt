@@ -775,6 +775,6 @@ endif()
 
 if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
     add_executable(activecheckscolumn_test tests/activecheckscolumn_test.cpp)
-    target_link_libraries(activecheckscolumn_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    target_link_libraries(activecheckscolumn_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME ui_activechecks_column COMMAND activecheckscolumn_test)
 endif()

@@ -1,5 +1,6 @@
 // Production level-column checks with two exposures of the same drawing.
-// No OpenGL is needed for these Toonz Raster fixtures.
+// The pixels use CPU raster checks, but the linked renderer's shader manager
+// creates an offscreen context and therefore needs a GUI application.
 #include "toonz/activechecks.h"
 #include "toonz/levelproperties.h"
 #include "toonz/sceneproperties.h"
@@ -24,8 +25,9 @@
 #include "tthread.h"
 #include "ttoonzimage.h"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
+#include <QObject>
 #include <QTemporaryDir>
 
 #include <iostream>
@@ -269,7 +271,9 @@ void testAnimatedPaletteWithAntialias(Fixture &fixture) {
 }  // namespace
 
 int main(int argc, char *argv[]) {
-  QCoreApplication application(argc, argv);
+  QGuiApplication application(argc, argv);
+  QObject mainScope(&application);
+  mainScope.setObjectName("mainScope");
   try {
     TThread::init();
     QTemporaryDir directory;
