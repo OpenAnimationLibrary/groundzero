@@ -42,6 +42,7 @@
 #include "toonz/levelproperties.h"
 #include "toonz/preferences.h"
 #include "toonz/levelset.h"
+#include "toonz/palettecontroller.h"
 #include "toonz/sceneresources.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
@@ -57,6 +58,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/selection.h"
+#include "toonzqt/styleeditor.h"
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/uitranslations.h"
 
@@ -558,6 +560,35 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
     controller->update();
   }
   checkpoint("workflow independent-task-panel checks passed");
+  // A style refresh must finish before unrelated queued room teardown runs.
+  // ColorParameterSelector::clear used to process that teardown reentrantly,
+  // allowing onStyleSwitched to continue through a destroyed editor.
+  {
+    PaletteController controller;
+    QObject callbacks;
+    auto host                    = std::make_unique<QWidget>();
+    QPointer<StyleEditor> editor = new StyleEditor(&controller, host.get());
+    editor->setLevelHandle(app->getCurrentLevel());
+    host->show();
+    editor->show();
+    auto *selector = editor->findChild<ColorParameterSelector *>();
+    require(selector, "Style Editor has no color parameter selector");
+    selector->show();
+    bool retired = false;
+    QTimer::singleShot(0, &callbacks, [&]() {
+      retired = true;
+      host.reset();
+    });
+    require(QMetaObject::invokeMethod(editor, "onStyleSwitched",
+                                      Qt::DirectConnection),
+            "Style Editor could not refresh its empty palette");
+    require(!retired && editor,
+            "style refresh dispatched queued panel destruction reentrantly");
+    settle();
+    require(retired && !editor,
+            "queued Style Editor retirement did not complete after refresh");
+  }
+  checkpoint("workflow Style Editor callback lifetime passed");
   // Exercise real lazy/eager panels, including Function Editor and pooled
   // floating Flipbooks, rather than testing a mock layout switch.
   for (bool lazy : {true, false}) {
