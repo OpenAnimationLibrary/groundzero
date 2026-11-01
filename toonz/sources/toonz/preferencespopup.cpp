@@ -1322,7 +1322,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       //{ oldCameraUnits,                         tr("") },
       {linearUnits, tr("Unit:")},
       {cameraUnits, tr("Camera Unit:")},
-      {CurrentRoomChoice, tr("Room Set:")},
+      {CurrentRoomChoice, tr("Room Sets / Workflows:")},
       {functionEditorToggle, tr("Function Editor*:")},
       {moveCurrentFrameByClickCellArea,
        tr("Move Current Frame by Clicking on Xsheet / Numerical Columns Cell "

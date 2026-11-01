@@ -12,7 +12,8 @@ four new sets arranged for particular tasks. The menu offers:
 - **Character Mode**: cutout rooms with Groundzero's Rig Library, Poses and Drawing Substitution panels in a dedicated Character room.
 - **Default Rooms** and **Studio Ghibli Rooms**: return to the existing shipped profiles.
 
-Preferences labels the selector **Room Set**, without a restart asterisk.
+Preferences labels the selector **Room Sets / Workflows**, without a restart
+asterisk.
 Both controls use the same deferred switch and update immediately. An open
 Preferences selector follows menu changes; an unavailable or rejected switch
 keeps the loaded set selected and does not save a different startup choice.
