@@ -16,12 +16,13 @@ import run_native_ui_test as runner
 
 
 SUITES = ("function-workflow", "cast-workflow", "combined-timing",
-          "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch")
+          "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch", "workflow-ui")
 MARKERS = dict(zip(SUITES, ("function-workflow-native: PASS", "cast-native-workflow: PASS",
                           "function-timing-native: PASS",
                           "cast-vector-native: PASS",
                           "combined-fidelity-native: PASS",
-                          "vector-renderer-native: PASS", "workflow-switch-native: PASS")))
+                          "vector-renderer-native: PASS", "workflow-switch-native: PASS",
+                          "workflow-ui-native: PASS")))
 ICON_LIFECYCLE_LINES = (
     "icon-lifecycle-native: terminal replacement PASS",
     "icon-lifecycle-native: PASS (actual workers and Qt TLS retired)",
@@ -176,7 +177,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
         self.assertIn("Missing isolated diagnostic checkpoints", output)
 
     def test_component_failure_does_not_hide_later_workflows(self):
-        for failed_suite in ("function-workflow", "cast-workflow", "vector-renderer", "workflow-switch"):
+        for failed_suite in ("function-workflow", "cast-workflow", "vector-renderer", "workflow-switch", "workflow-ui"):
             with self.subTest(failed_suite=failed_suite):
                 def response(suite, command, options):
                     if suite is None or suite == failed_suite:

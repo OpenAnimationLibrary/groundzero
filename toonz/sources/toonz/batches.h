@@ -31,6 +31,7 @@ public:
   static BatchesController *instance();
 
   void setDirtyFlag(bool state);
+  bool getDirtyFlag() const { return m_dirtyFlag; }
   QString getListName() const;
   void addComposerTask(const TFilePath &taskFilePath);
   void addCleanupTask(const TFilePath &taskFilePath);

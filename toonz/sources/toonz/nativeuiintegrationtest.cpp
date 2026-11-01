@@ -518,6 +518,7 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   // selection/model and unregisters both model and observer before destruction.
   {
     auto *controller = BatchesController::instance();
+    const bool taskListDirty = controller->getDirtyFlag();
     const QString id = "workflow-panel-lifetime-task";
     require(!controller->getTask(id),
             "batch lifetime fixture task already exists");
@@ -557,6 +558,7 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
             "recreated Tasks panel lost the controller's batch data");
     replacement->setSelected(task);
     controller->removeTask(id);
+    controller->setDirtyFlag(taskListDirty);
     controller->update();
   }
   checkpoint("workflow independent-task-panel checks passed");
@@ -1203,6 +1205,10 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       } else if (diagnosticSuite == "workflow-switch") {
         exerciseWorkflowSwitching(window);
         std::cout << "workflow-switch-native: PASS" << std::endl;
+      } else if (diagnosticSuite == "workflow-ui") {
+        exerciseWorkflowSwitching(window);
+        exerciseNativeUi(window);
+        std::cout << "workflow-ui-native: PASS" << std::endl;
       } else if (diagnosticSuite == "vector-renderer") {
         runOpacityRenderNativeChecks();
         runOfflineGLWorkflowNativeChecks();
