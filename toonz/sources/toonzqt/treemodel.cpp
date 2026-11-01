@@ -345,6 +345,15 @@ TreeView::TreeView(QWidget *parent) : QTreeView(parent), m_dragging(false) {
 
 //-----------------------------------------------------------------------------
 
+TreeView::~TreeView() {
+  // The model can be a child of this view. Detach it while QTreeView and its
+  // header are still intact, before QWidget destroys the header and model in
+  // child order. Qt 5's Windows header teardown otherwise retains model links.
+  setModel(nullptr);
+}
+
+//-----------------------------------------------------------------------------
+
 //! Resizes viewport to contents
 void TreeView::resizeToConts(void) { resizeColumnToContents(0); }
 

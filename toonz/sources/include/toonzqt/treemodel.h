@@ -149,6 +149,7 @@ class DVAPI TreeView : public QTreeView {
 
 public:
   TreeView(QWidget *parent);
+  ~TreeView() override;
 
 protected:
   /*
