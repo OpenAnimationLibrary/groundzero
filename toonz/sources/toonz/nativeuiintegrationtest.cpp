@@ -575,7 +575,14 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
     editor->setLevelHandle(app->getCurrentLevel());
     host->show();
     editor->show();
-    auto *selector = editor->findChild<ColorParameterSelector *>();
+    // This is an internal toonzqt widget; its staticMetaObject is not exported
+    // from the Windows DLL. Inspect runtime metadata through QWidget instead.
+    QWidget *selector = nullptr;
+    for (auto *child : editor->findChildren<QWidget *>())
+      if (child->inherits("StyleEditorGUI::ColorParameterSelector")) {
+        selector = child;
+        break;
+      }
     require(selector, "Style Editor has no color parameter selector");
     selector->show();
     bool retired = false;
