@@ -1,5 +1,6 @@
 #include "otdevrecorder.h"
 
+#include "toonzqt/gutil.h"
 #include "toonzqt/menubarcommand.h"
 
 namespace {
@@ -15,6 +16,18 @@ class RecordingCommand final : public CommandHandlerInterface {
 }  // namespace
 
 void OtDevRecorder::registerCommands() {
+  auto useIcon = [](QIcon &icon, const QString &name) {
+    const QIcon themed = createQIcon(name);
+    if (!themed.isNull()) icon = themed;
+  };
+  useIcon(m_recordIcon, "record");
+  useIcon(m_stopIcon, "stop");
+  useIcon(m_pauseIcon, "pause");
+  useIcon(m_resumeIcon, "play");
+  useIcon(m_settingsIcon, "gear");
+  m_start->setIcon(m_recordIcon);
+  m_stop->setIcon(m_stopIcon);
+  m_settingsAction->setIcon(m_settingsIcon);
   auto *manager = CommandManager::instance();
   for (auto *action : m_commands) {
     const QByteArray id = action->objectName().toUtf8();
