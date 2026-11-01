@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
         qt: [5, 6]
     steps:
@@ -33,7 +34,7 @@ jobs:
         run: |
           sudo apt-get update -o Acquire::Retries=3
           if [ '${{ matrix.qt }}' = '5' ]; then package=qtbase5-dev; else package=qt6-base-dev; fi
-          sudo apt-get install -y -o Acquire::Retries=3 "$package" ninja-build
+          sudo apt-get install -y -o Acquire::Retries=3 "$package" libgl-dev ninja-build
       - name: Build manager regressions
         run: |
           set -o pipefail

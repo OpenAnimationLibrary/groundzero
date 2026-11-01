@@ -1,21 +1,20 @@
 #pragma once
 
-#include "tcommon.h"
+#include <QtGlobal>
 #include <QMap>
 #include <QMutex>
 #include <QObject>
 #include <QSet>
 #include <QStringList>
 
-#undef DVAPI
 #ifdef TOONZQT_EXPORTS
-#define DVAPI DV_EXPORT_API
+#define TOONZ_PLUGIN_MANAGER_API Q_DECL_EXPORT
 #else
-#define DVAPI DV_IMPORT_API
+#define TOONZ_PLUGIN_MANAGER_API Q_DECL_IMPORT
 #endif
 
 // Manages third-party FX libraries only. No library is opened by this class.
-class DVAPI PluginManager final : public QObject {
+class TOONZ_PLUGIN_MANAGER_API PluginManager final : public QObject {
   Q_OBJECT
 public:
   struct Settings {
@@ -68,3 +67,5 @@ private:
   bool m_policyPrepared = false;
   Session m_session;
 };
+
+#undef TOONZ_PLUGIN_MANAGER_API
