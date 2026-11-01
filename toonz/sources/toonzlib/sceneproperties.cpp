@@ -282,6 +282,8 @@ void TSceneProperties::saveData(TOStream &os) const {
     const TRenderSettings &rs = out.getRenderSettings();
     std::map<std::string, std::string> attr;
     attr["name"] = i == 0 ? "main" : "preview";
+    if (rs.m_activeChecks.m_enabled)
+      attr["activeChecks"] = rs.m_activeChecks.serialize();
     os.openChild("output", attr);
 
     TFilePath outPath = out.getPath();
@@ -572,6 +574,8 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
             outPtr = m_outputProp;
           TOutputProperties &out = *outPtr;
           TRenderSettings renderSettings;
+          renderSettings.m_activeChecks.deserialize(
+              is.getTagAttribute("activeChecks"));
           if (globFrom != -1)
             out.setRange(globFrom, globTo, globStep);
           else if (globStep != 1) {

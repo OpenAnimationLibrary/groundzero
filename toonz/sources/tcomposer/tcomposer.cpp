@@ -22,6 +22,7 @@
 #include "toonz/txshsoundcolumn.h"
 #include "toonz/tcamera.h"
 #include "toonz/scenefx.h"
+#include "toonz/activechecks.h"
 #include "toonz/movierenderer.h"
 #include "toonz/multimediarenderer.h"
 #include "tseexpr.h"
@@ -470,6 +471,9 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
   assert(r1 >= r0);
   TSceneProperties *sprop          = scene->getProperties();
   TOutputProperties outputSettings = *sprop->getOutputProperties();
+  TRenderSettings capturedSettings = outputSettings.getRenderSettings();
+  resolveActiveRenderChecks(scene, capturedSettings.m_activeChecks);
+  outputSettings.setRenderSettings(capturedSettings);
 
   currentCameraSize = scene->getCurrentCamera()->getSize().lx;
 
@@ -577,17 +581,19 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
       TFxPair fx;
       if (rs.m_stereoscopic) scene->shiftCameraX(-rs.m_stereoscopicShift / 2);
 
-      fx.m_frameA = (TRasterFxP)buildSceneFx(scene, scene->getXsheet(), r,
-                                             which, shrink, false);
+      fx.m_frameA =
+          (TRasterFxP)buildSceneFx(scene, scene->getXsheet(), r, which, shrink,
+                                   false, &rs.m_activeChecks);
 
       if (rs.m_fieldPrevalence != TRenderSettings::NoField)
-        fx.m_frameB = (TRasterFxP)buildSceneFx(scene, scene->getXsheet(),
-                                               r + 0.5 * timeStretchFactor,
-                                               which, shrink, false);
+        fx.m_frameB = (TRasterFxP)buildSceneFx(
+            scene, scene->getXsheet(), r + 0.5 * timeStretchFactor, which,
+            shrink, false, &rs.m_activeChecks);
       else if (rs.m_stereoscopic) {
         scene->shiftCameraX(rs.m_stereoscopicShift);
-        fx.m_frameB = (TRasterFxP)buildSceneFx(scene, scene->getXsheet(), r,
-                                               which, shrink, false);
+        fx.m_frameB =
+            (TRasterFxP)buildSceneFx(scene, scene->getXsheet(), r, which,
+                                     shrink, false, &rs.m_activeChecks);
         scene->shiftCameraX(-rs.m_stereoscopicShift / 2);
       } else
         fx.m_frameB = TRasterFxP();

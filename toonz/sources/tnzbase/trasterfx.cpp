@@ -1328,6 +1328,8 @@ std::string TRenderSettings::toString() const {
       ss += "," + m_data[i]->toString();
   }
   ss += "}";
+  const std::string checksKey = m_activeChecks.cacheKey();
+  if (!checksKey.empty()) ss += ";activeChecks{" + checksKey + "}";
   return ss;
 }
 
@@ -1346,7 +1348,8 @@ bool TRenderSettings::operator==(const TRenderSettings &rhs) const {
       m_mark != rhs.m_mark || m_isSwatch != rhs.m_isSwatch ||
       m_userCachable != rhs.m_userCachable ||
       m_linearColorSpace != rhs.m_linearColorSpace ||
-      m_colorSpaceGamma != rhs.m_colorSpaceGamma)
+      m_colorSpaceGamma != rhs.m_colorSpaceGamma ||
+      m_activeChecks != rhs.m_activeChecks)
     return false;
 
   return m_data.size() == rhs.m_data.size() &&

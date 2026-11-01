@@ -35,6 +35,7 @@ set(MOC_HEADERS
 
 set(HEADERS
     ${MOC_HEADERS}
+    ../include/toonz/activechecks.h
     audioscrubplayer.h
     autoadjust.h
     autopos.h
@@ -196,6 +197,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    activechecks.cpp
     particlecache.cpp
     abrparser.cpp
     autoadjust.cpp
@@ -763,4 +765,23 @@ if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
     add_executable(castworkflow_test tests/castworkflow_test.cpp)
     target_link_libraries(castworkflow_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME castworkflow COMMAND castworkflow_test)
+endif()
+
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(activechecks_test tests/activechecks_test.cpp)
+    target_link_libraries(activechecks_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME ui_activechecks_render COMMAND activechecks_test)
+endif()
+
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(activecheckscolumn_test tests/activecheckscolumn_test.cpp)
+    target_link_libraries(activecheckscolumn_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME ui_activechecks_column COMMAND activecheckscolumn_test)
+    # The linked shader manager needs an OpenGL-capable platform even for
+    # these CPU raster checks. Keep Linux's display backend inherited from CI.
+    if(APPLE)
+        set_tests_properties(ui_activechecks_column PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
+    elseif(WIN32)
+        set_tests_properties(ui_activechecks_column PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    endif()
 endif()

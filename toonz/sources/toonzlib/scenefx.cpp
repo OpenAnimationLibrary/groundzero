@@ -2,6 +2,7 @@
 
 // TnzBase includes
 #include "tfxattributes.h"
+#include "tcheckrenderdata.h"
 #include "tfxutil.h"
 #include "tmacrofx.h"
 #include "toutputproperties.h"
@@ -1394,7 +1395,8 @@ PlacedFx FxBuilder::makePFfromGenericFx(TFx *fx) {
 //***************************************************************************************************
 
 TFxP buildSceneFx(ToonzScene *scene, TXsheet *xsh, double row, int whichLevels,
-                  int shrink, bool isPreview) {
+                  int shrink, bool isPreview,
+                  const TRenderCheckSettings *checks) {
   FxBuilder builder(scene, xsh, row, whichLevels, isPreview);
   TFxP fx = builder.buildFx();
   TStageObjectId cameraId;
@@ -1417,24 +1419,29 @@ TFxP buildSceneFx(ToonzScene *scene, TXsheet *xsh, double row, int whichLevels,
   fx = TFxUtil::makeAffine(fx, aff);
   if (fx) fx->setName(L"CameraDPI and Shrink NAffineFx");
 
-  fx = TFxUtil::makeOver(
-      TFxUtil::makeColorCard(scene->getProperties()->getBgColor()), fx);
+  const TPixel32 background =
+      checks && (checks->activeChecks() & TRenderCheckSettings::BlackBg)
+          ? TPixel32::Black
+          : scene->getProperties()->getBgColor();
+  fx = TFxUtil::makeOver(TFxUtil::makeColorCard(background), fx);
   return fx;
 }
 
 //===================================================================
 
 TFxP buildSceneFx(ToonzScene *scene, TXsheet *xsh, double row, int shrink,
-                  bool isPreview) {
+                  bool isPreview, const TRenderCheckSettings *checks) {
   int whichLevels =
       scene->getProperties()->getOutputProperties()->getWhichLevels();
-  return buildSceneFx(scene, xsh, row, whichLevels, shrink, isPreview);
+  return buildSceneFx(scene, xsh, row, whichLevels, shrink, isPreview, checks);
 }
 
 //===================================================================
 
-TFxP buildSceneFx(ToonzScene *scene, double row, int shrink, bool isPreview) {
-  return buildSceneFx(scene, scene->getXsheet(), row, shrink, isPreview);
+TFxP buildSceneFx(ToonzScene *scene, double row, int shrink, bool isPreview,
+                  const TRenderCheckSettings *checks) {
+  return buildSceneFx(scene, scene->getXsheet(), row, shrink, isPreview,
+                      checks);
 }
 
 //===================================================================
@@ -1460,7 +1467,8 @@ TFxP buildSceneFx(ToonzScene *scene, double row, const TFxP &root,
 //! bool isPreview) method, build the sceneFx
 //! adding also camera transformations. Used for Preview Fx function.
 DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, double row, const TFxP &root,
-                               int shrink, bool isPreview) {
+                               int shrink, bool isPreview,
+                               const TRenderCheckSettings *checks) {
   int whichLevels =
       scene->getProperties()->getOutputProperties()->getWhichLevels();
   FxBuilder builder(scene, scene->getXsheet(), row, whichLevels, isPreview);
@@ -1487,13 +1495,16 @@ DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, double row, const TFxP &root,
   }
 
   fx = TFxUtil::makeAffine(fx, aff);
+  if (checks && (checks->activeChecks() & TRenderCheckSettings::BlackBg))
+    fx = TFxUtil::makeOver(TFxUtil::makeColorCard(TPixel32::Black), fx);
   return fx;
 }
 
 //===================================================================
 
 DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, TXsheet *xsheet, double row,
-                               const TFxP &root, int shrink, bool isPreview) {
+                               const TFxP &root, int shrink, bool isPreview,
+                               const TRenderCheckSettings *checks) {
   int whichLevels =
       scene->getProperties()->getOutputProperties()->getWhichLevels();
   FxBuilder builder(scene, xsheet, row, whichLevels, isPreview);
@@ -1519,6 +1530,8 @@ DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, TXsheet *xsheet, double row,
   }
 
   fx = TFxUtil::makeAffine(fx, aff);
+  if (checks && (checks->activeChecks() & TRenderCheckSettings::BlackBg))
+    fx = TFxUtil::makeOver(TFxUtil::makeColorCard(TPixel32::Black), fx);
   return fx;
 }
 

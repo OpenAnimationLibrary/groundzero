@@ -6,6 +6,7 @@
 #include "quickputP.h"
 
 #ifndef TNZCORE_LIGHT
+#include "tcheckrenderdata.h"
 #include "tpalette.h"
 #include "tcolorstyles.h"
 #endif
@@ -5075,6 +5076,84 @@ void TRop::quickPut(const TRasterP &dn, const TRasterCM32P &upCM32,
                                   // paintIndex);
   else
     throw TRopException("raster type mismatch");
+}
+
+void TRop::convertWithChecks(const TRaster32P &dst, const TRasterCM32P &src,
+                             TPalette *palette,
+                             const TRenderCheckSettings &settings) {
+  if (!dst || !src || !palette || dst->getSize() != src->getSize())
+    throw TRopException("Invalid rasters for View check conversion");
+
+  const int checks        = settings.activeChecks();
+  const bool transparency = (checks & (TRenderCheckSettings::Transparency |
+                                       TRenderCheckSettings::Fill)) != 0;
+  const bool inksOnly     = (checks & TRenderCheckSettings::InksOnly) != 0;
+  const int styleCount    = palette->getStyleCount();
+  std::vector<TPixel32> inks(styleCount), paints(styleCount);
+  const TPixel32 checkInk =
+      ::premultiply((checks & TRenderCheckSettings::BlackBg)
+                        ? settings.m_transparencyInkOnBlack
+                        : settings.m_transparencyInkOnWhite);
+  const TPixel32 checkPaint = ::premultiply(settings.m_transparencyPaint);
+
+  // These are the Viewer's ink/paint rules, without viewport sampling or
+  // global state. Keep autopaint styles visible during Transparency/Fill.
+  for (int i = 0; i < styleCount; ++i) {
+    const TColorStyle *style = palette->getStyle(i);
+    if (transparency && style->getFlags() == 0) {
+      inks[i]   = checkInk;
+      paints[i] = checkPaint;
+    } else {
+      inks[i] = paints[i] = ::premultiply(style->getAverageColor());
+    }
+    if ((checks & TRenderCheckSettings::Ink) && i == settings.m_colorIndex)
+      inks[i] = ::premultiply(settings.m_inkColor);
+    else if ((checks & TRenderCheckSettings::Ink1) && i == 1)
+      inks[i] = ::premultiply(settings.m_ink1Color);
+    if ((checks & TRenderCheckSettings::Paint) && i == settings.m_colorIndex)
+      paints[i] = ::premultiply(settings.m_paintColor);
+  }
+
+  src->lock();
+  dst->lock();
+  for (int y = 0; y < src->getLy(); ++y) {
+    const TPixelCM32 *source = src->pixels(y);
+    TPixel32 *destination    = dst->pixels(y);
+    for (int x = 0; x < src->getLx(); ++x) {
+      const int ink = source[x].getInk(), paint = source[x].getPaint();
+      int tone = source[x].getTone();
+
+      // Match Stage::RasterPainter's high-tone empty-pixel correction,
+      // without changing or cloning the source raster.
+      if (transparency && !inksOnly && paint == 0 && tone >= 80) tone = 255;
+      if (paint == 0 && tone == 255) {
+        destination[x] = TPixel32::Transparent;
+        continue;
+      }
+
+      const TPixel32 inkColor =
+          ink < styleCount ? inks[ink] : TPixel32::Transparent;
+      if (inksOnly) {
+        if (paint == 0 && transparency && tone != 255) tone /= 2;
+        destination[x] = antialias(inkColor, 255 - tone);
+      } else if (tone == 0) {
+        destination[x] = inkColor;
+      } else {
+        const TPixel32 paintColor =
+            paint < styleCount && !(transparency && paint == 0)
+                ? paints[paint]
+                : TPixel32::Transparent;
+        if (tone == 255)
+          destination[x] = paintColor;
+        else {
+          if (transparency) tone /= 2;
+          destination[x] = blend(inkColor, paintColor, tone, 255);
+        }
+      }
+    }
+  }
+  dst->unlock();
+  src->unlock();
 }
 
 void TRop::quickResampleColorFilter(const TRasterP &dn, const TRasterP &up,

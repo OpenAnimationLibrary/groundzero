@@ -4,6 +4,7 @@
 #include "toonz/multimediarenderer.h"
 #include "toonz/movierenderer.h"
 #include "trenderer.h"
+#include "tfxutil.h"
 
 // Scene structures
 #include "toonz/toonzscene.h"
@@ -338,6 +339,18 @@ void MultimediaRenderer::Imp::start() {
       // Substitute with the post-process...
       if (fx.m_frameA) fx.m_frameA = addPostProcessing(fx.m_frameA, postFxs[j]);
       if (fx.m_frameB) fx.m_frameB = addPostProcessing(fx.m_frameB, postFxs[j]);
+
+      // Apply the backing once to each completed output, never to source
+      // columns: transparent drawings must continue to reveal lower layers.
+      if (m_renderSettings.m_activeChecks.activeChecks() &
+          TRenderCheckSettings::BlackBg) {
+        if (fx.m_frameA)
+          fx.m_frameA = TFxUtil::makeOver(
+              TFxUtil::makeColorCard(TPixel32::Black), fx.m_frameA);
+        if (fx.m_frameB)
+          fx.m_frameB = TFxUtil::makeOver(
+              TFxUtil::makeColorCard(TPixel32::Black), fx.m_frameB);
+      }
 
       if (fx.m_frameA)  // Could be 0, if the corresponding cell is void / not
                         // rendered

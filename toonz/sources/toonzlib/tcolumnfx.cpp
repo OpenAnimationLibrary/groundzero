@@ -316,6 +316,64 @@ static bool mustApplySandorFx(const std::vector<TRasterFxRenderDataP> &fxs) {
 
 //-------------------------------------------------------------------
 
+static bool hasPaletteColorFilter(
+    const std::vector<TRasterFxRenderDataP> &fxs) {
+  for (const TRasterFxRenderDataP &data : fxs) {
+    const PaletteFilterFxRenderData *filter =
+        dynamic_cast<const PaletteFilterFxRenderData *>(data.getPointer());
+    if (filter && filter->m_type == eApplyToInksAndPaints) return true;
+  }
+  return false;
+}
+
+//-------------------------------------------------------------------
+
+static void applyVectorChecks(TVectorRenderData &rd,
+                              const TRenderCheckSettings &checks) {
+  const int flags        = checks.activeChecks();
+  rd.m_drawRegions       = !(flags & TRenderCheckSettings::InksOnly);
+  rd.m_tcheckEnabled     = (flags & (TRenderCheckSettings::Transparency |
+                                 TRenderCheckSettings::Fill)) != 0;
+  rd.m_inkCheckEnabled   = (flags & TRenderCheckSettings::Ink) != 0;
+  rd.m_ink1CheckEnabled  = (flags & TRenderCheckSettings::Ink1) != 0;
+  rd.m_paintCheckEnabled = (flags & TRenderCheckSettings::Paint) != 0;
+  rd.m_blackBgEnabled    = (flags & TRenderCheckSettings::BlackBg) != 0;
+  rd.m_colorCheckIndex   = checks.m_colorIndex;
+  rd.m_paintIndex        = checks.m_colorIndex;
+  rd.m_inkCheckColor     = checks.m_inkColor;
+  rd.m_ink1CheckColor    = checks.m_ink1Color;
+  rd.m_paintCheckColor   = checks.m_paintColor;
+  rd.m_tCheckInk         = rd.m_blackBgEnabled ? checks.m_transparencyInkOnBlack
+                                               : checks.m_transparencyInkOnWhite;
+  rd.m_tCheckPaint       = checks.m_transparencyPaint;
+}
+
+//-------------------------------------------------------------------
+
+static void prepareFillCheck(TToonzImageP &image,
+                             const TRenderCheckSettings &checks,
+                             const TRect &sourceSavebox) {
+  if (!(checks.activeChecks() & TRenderCheckSettings::Fill)) return;
+
+  image = image->clone();
+  // LevelFxBuilder reconstructs the cached raster with full-image bounds.
+  // Restore the drawing's savebox only on this private Fill Check image.
+  const TRect savebox = sourceSavebox * image->getRaster()->getBounds();
+  image->setSavebox(savebox);
+  if (savebox.getLx() < 3 || savebox.getLy() < 3) return;
+
+  // Do this before extracting render tiles: a closed area can cross several
+  // tiles. The temporary fill uses the same style and bounds as the Viewer.
+  TRasterCM32P raster = image->getRaster();
+  if (checks.m_fillOnlySavebox)
+    raster = raster->extract(savebox.x0, savebox.y0, savebox.x1, savebox.y1);
+  const TRect fillBounds =
+      checks.m_fillOnlySavebox ? raster->getBounds() : savebox;
+  AreaFiller(raster).rectFastFill(fillBounds, 1);
+}
+
+//-------------------------------------------------------------------
+
 static int getEnlargement(const std::vector<TRasterFxRenderDataP> &fxs,
                           double scale) {
   int enlargement = 1;
@@ -1234,6 +1292,23 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
   if (!sl) return;
   if (sl->getType() == META_XSHLEVEL) return;
 
+  const TRenderCheckSettings &checks = info.m_activeChecks;
+  const bool checkImage =
+      checks.appliesTo(getIdentifier()) &&
+      (sl->getType() == PLI_XSHLEVEL || sl->getType() == TZP_XSHLEVEL);
+  if (checkImage && mustApplySandorFx(info.m_data))
+    throw TException(
+        "Active Checks Rendering is not supported with "
+        "palette-aware Toonz Raster effects (Blend, Calligraphic, "
+        "Out Border or Art at Contour) on the checked column. "
+        "Disable Active Checks Rendering to render these effects.");
+  if (checkImage && hasPaletteColorFilter(info.m_data))
+    throw TException(
+        "Active Checks Rendering is not supported with a "
+        "Palette Filter in Lines & Areas mode on the checked "
+        "column. Disable Active Checks Rendering to render "
+        "this effect.");
+
   TFrameId fid = cell.m_frameId;
 
   TImageP img;
@@ -1276,6 +1351,15 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
   if (TVectorImageP vectorImage = img) {
     // Vector case
 
+    if (checkImage) {
+      // Check drawing replaces stroke/region drawing properties. Keep those
+      // properties, as well as temporary Fill Check regions, off the source.
+      vectorImage = vectorImage->clone();
+      if (checks.activeChecks() & TRenderCheckSettings::Fill)
+        vectorImage->selectFill(vectorImage->getBBox(), 0, 1, true, true,
+                                false);
+    }
+
     if (vectorMustApplyCmappedFx(info.m_data)) {
       // Deal separately
       applyTzpFxsOnVector(vectorImage, tile, frame, info);
@@ -1296,6 +1380,7 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
 
       TVectorRenderData rd(TVectorRenderData::ProductionSettings(), aff,
                            TRect(size), vpalette);
+      if (checkImage) applyVectorChecks(rd, checks);
 
       // obtain jaggy image when the Closest Pixel is set
       if (info.m_quality == TRenderSettings::ClosestPixel_FilterResampleQuality)
@@ -1418,6 +1503,11 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
     } else if (ti) {
       // Colormap case
 
+      if (checkImage)
+        prepareFillCheck(ti, checks,
+                         TRect(imageInfo.m_x0, imageInfo.m_y0, imageInfo.m_x1,
+                               imageInfo.m_y1));
+
       // Use the imageInfo's dpi
       ti->setDpi(imageInfo.m_dpix, imageInfo.m_dpiy);
 
@@ -1435,7 +1525,10 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
         // convert colormap raster to fullcolor raster before applying antialias
         if (ti) {
           TRaster32P convRas(ras->getSize());
-          TRop::convert(convRas, ras, ti->getPalette(), TRect(), false, true);
+          if (checkImage)
+            TRop::convertWithChecks(convRas, ras, ti->getPalette(), checks);
+          else
+            TRop::convert(convRas, ras, ti->getPalette(), TRect(), false, true);
           ras = convRas;
         }
         TRasterP appRas = ras->create(ras->getLx(), ras->getLy());
@@ -1508,7 +1601,11 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
         palette->setFrame((int)frame);
 
         TTile auxtile(TRaster32P(inTile.getRaster()->getSize()), inTile.m_pos);
-        TRop::convert(auxtile, inTile, palette, false, true);
+        if (checkImage)
+          TRop::convertWithChecks(auxtile.getRaster(), inTile.getRaster(),
+                                  palette, checks);
+        else
+          TRop::convert(auxtile, inTile, palette, false, true);
         palette->setFrame(prevFrame);
 
         if (!m_isCachable) palette->mutex()->unlock();
@@ -1526,6 +1623,27 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
 TImageP TLevelColumnFx::applyTzpFxs(TToonzImageP &ti, double frame,
                                     const TRenderSettings &info) {
   double scale = sqrt(fabs(info.m_affine.det()));
+
+  if (info.m_activeChecks.appliesTo(getIdentifier())) {
+    TPaletteP palette;
+    {
+      QMutexLocker lock(ti->getPalette()->mutex());
+      m_isCachable = !ti->getPalette()->isAnimated();
+      palette      = ti->getPalette()->clone();
+    }
+    palette->setFrame((int)frame);
+    double dpiX, dpiY;
+    ti->getDpi(dpiX, dpiY);
+    TToonzImageP checked(ti->getRaster(), ti->getSavebox());
+    checked->setPalette(palette.getPointer());
+    checked->setDpi(dpiX, dpiY);
+    checked->setOffset(ti->getOffset());
+    checked->setSubsampling(ti->getSubsampling());
+    ti = checked;
+    // Keep the private palette at the rendered frame, including when level
+    // antialiasing converts the complete image before the normal tile path.
+    return applyCmappedFx(ti, info.m_data, (int)frame, scale);
+  }
 
   int prevFrame = ti->getPalette()->getFrame();
   m_isCachable  = !ti->getPalette()->isAnimated();
@@ -1606,7 +1724,11 @@ void TLevelColumnFx::applyTzpFxsOnVector(const TVectorImageP &vi, TTile &tile,
       TRaster32P tempRas(groupTiRas->getSize());
       groupRi = TRasterImageP(tempRas);
 
-      TRop::convert(tempRas, groupTiRas, groupTi->getPalette());
+      if (info.m_activeChecks.appliesTo(getIdentifier()))
+        TRop::convertWithChecks(tempRas, groupTiRas, groupTi->getPalette(),
+                                info.m_activeChecks);
+      else
+        TRop::convert(tempRas, groupTiRas, groupTi->getPalette());
     }
 
     // Over the group image on the output
@@ -1807,6 +1929,8 @@ std::string TLevelColumnFx::getAlias(double frame,
   }
 
   if (sl->getType() == PLI_XSHLEVEL || sl->getType() == TZP_XSHLEVEL) {
+    if (info.m_activeChecks.appliesTo(getIdentifier()))
+      rdata += "activeChecks{" + info.m_activeChecks.cacheKey() + "}";
     TPalette *palette = cell.getPalette();
     if (palette && palette->isAnimated())
       rdata += "animatedPlt" + std::to_string(frame);
