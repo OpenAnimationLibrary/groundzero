@@ -1440,11 +1440,13 @@ void Loader::doLoad(const QString &file) {
                hard, so tolerate to some extent. */
             throw std::domain_error("not found _toonz_plugin_init");
           }
+          // Setup callbacks may ask the temporary FX host for its declaration.
+          // Preserve the existing declaration-before-setup ordering.
+          pi->decl_ = new PluginDeclaration(pi);
           if (pi->handler_ && pi->handler_->setup) {
             PluginSetupMessage(pi).sendBlocking();
           }
 
-          pi->decl_ = new PluginDeclaration(pi);
           emit load_finished(pi);
           loaded    = true;
           auto prev = pi->library_;
