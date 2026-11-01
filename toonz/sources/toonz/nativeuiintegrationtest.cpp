@@ -412,6 +412,8 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   require(menus && tabs, "workflow room navigation is missing");
   auto *preferences             = Preferences::instance();
   const QString originalProfile = preferences->getCurrentRoomChoice();
+  const int originalRoomIndex    = tabs->currentIndex();
+  const QString originalRoomName = main->getCurrentRoom()->getName();
   const bool originalLazy       = preferences->isLazyLoadRoomsEnabled();
   QPointer<QWidget> settings    = preferencesPopup();
   QComboBox *roomSet            = comboWithValue(settings, "Tradigital");
@@ -684,6 +686,14 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   for (const auto &preset : WorkflowPresets::presets)
     if (originalProfile == preset.profile) trigger(preset.command);
   preferences->setValue(lazyLoadRooms, originalLazy);
+  // Visiting every tab changes the per-profile saved active room. Restore the
+  // caller's room as well as its set before subsequent drawing/UI fixtures.
+  require(originalRoomIndex >= 0 && originalRoomIndex < main->getRoomCount(),
+          "workflow fixture lost its original room");
+  tabs->setCurrentIndex(originalRoomIndex);
+  settle();
+  require(main->getCurrentRoom()->getName() == originalRoomName,
+          "workflow fixture did not restore its original active room");
   check();
   settings->hide();
   checkpoint("workflow menus and panel lifetimes passed");
