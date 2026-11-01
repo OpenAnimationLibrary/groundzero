@@ -21,6 +21,7 @@
 #include "tpalette.h"
 #include "trasterfx.h"
 #include "trenderer.h"
+#include "tthread.h"
 #include "ttoonzimage.h"
 
 #include <QCoreApplication>
@@ -270,6 +271,7 @@ void testAnimatedPaletteWithAntialias(Fixture &fixture) {
 int main(int argc, char *argv[]) {
   QCoreApplication application(argc, argv);
   try {
+    TThread::init();
     QTemporaryDir directory;
     require(directory.isValid(), "cannot create test directory");
     const QString stuff = QDir(directory.path()).filePath("stuff");
@@ -277,10 +279,15 @@ int main(int argc, char *argv[]) {
     TEnv::setStuffDir(TFilePath(stuff));
     initStdFx();
     Fixture fixture(directory.path());
+    std::cout << "active checks: column isolation" << std::endl;
     testIsolationAndSnapshot(fixture);
+    std::cout << "active checks: fill full image" << std::endl;
     testFillAcrossTiles(fixture, false);
+    std::cout << "active checks: fill savebox" << std::endl;
     testFillAcrossTiles(fixture, true);
+    std::cout << "active checks: black background" << std::endl;
     testBlackBackground(fixture);
+    std::cout << "active checks: animated palette" << std::endl;
     testAnimatedPaletteWithAntialias(fixture);
   } catch (const TException &error) {
     std::cerr << "activecheckscolumn_test: " << ::to_string(error.getMessage())
