@@ -519,8 +519,9 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
     const QString id = "workflow-panel-lifetime-task";
     require(!controller->getTask(id),
             "batch lifetime fixture task already exists");
-    auto *task   = new TFarmTaskGroup;
-    task->m_name = "Workflow panel lifetime";
+    auto *task = new TFarmTaskGroup(
+        id, "Workflow panel lifetime", QString(), QString(), 1, 50,
+        TFilePath(testRoot + "/workflow-lifetime.cln"), Overwrite_Off, false);
     controller->addTask(id, task, false);
     auto first  = std::make_unique<TasksViewer>(window);
     auto second = std::make_unique<TasksViewer>(window);
