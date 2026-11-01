@@ -59,6 +59,17 @@ using namespace DVGui;
 //    Preliminary stuff - local namespace
 //==========================================================================================
 namespace {
+class FlipConsoleToolBar final : public QToolBar {
+public:
+  explicit FlipConsoleToolBar(QWidget *parent) : QToolBar(parent) {}
+  ~FlipConsoleToolBar() override {
+    // QWidget normally deletes the toolbar layout after QToolBar has already
+    // been destroyed. Release custom widget actions while the toolbar is still
+    // intact: releaseWidget() reparents them and invokes stylesheet callbacks.
+    clear();
+  }
+};
+
 // Please refer to the "qss/standard/standard.qss" file for explanations of the
 // following properties.
 
@@ -1262,7 +1273,7 @@ void FlipConsole::createCustomizeMenu(bool withCustomWidget) {
 void FlipConsole::createPlayToolBar(QWidget *customWidget) {
   bool withCustomWidget = customWidget != nullptr;
 
-  m_playToolBar = new QToolBar(this);
+  m_playToolBar = new FlipConsoleToolBar(this);
   m_playToolBar->setMovable(false);
   m_playToolBar->setObjectName("FlipConsolePlayToolBar");
   m_playToolBar->setIconSize(QSize(20, 20));

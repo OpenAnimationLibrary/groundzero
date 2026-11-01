@@ -31,6 +31,7 @@
 #include "tasksviewer.h"
 #include "themeapplication.h"
 #include "toolbar.h"
+#include "viewerpane.h"
 #include "widgetinspector.h"
 #include "xsheetviewer.h"
 
@@ -84,6 +85,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QToolBar>
 #include <QTreeWidget>
 #include <QTranslator>
 
@@ -516,6 +518,47 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   }
 
   checkpoint("workflow independent-toolbar checks passed");
+  // QWidgetAction::releaseWidget reparents custom controls. This must happen
+  // before the playback toolbar loses its QToolBar type during destruction.
+  {
+    bool releasedFromToolbar = false;
+    int releases             = 0;
+    class ReleaseProbe final : public QWidget {
+      QPointer<QWidget> m_toolbar;
+      bool &m_releasedFromToolbar;
+      int &m_releases;
+
+    public:
+      bool armed = false;
+      ReleaseProbe(QToolBar *toolbar, bool &releasedFromToolbar, int &releases)
+          : m_toolbar(toolbar)
+          , m_releasedFromToolbar(releasedFromToolbar)
+          , m_releases(releases) {}
+
+    protected:
+      bool event(QEvent *event) override {
+        if (armed && event->type() == QEvent::ParentChange) {
+          ++m_releases;
+          m_releasedFromToolbar =
+              qobject_cast<QToolBar *>(m_toolbar.data()) != nullptr;
+        }
+        return QWidget::event(event);
+      }
+    };
+    auto viewer   = std::make_unique<SceneViewerPanel>(window);
+    auto *toolbar = viewer->findChild<QToolBar *>("FlipConsolePlayToolBar");
+    require(toolbar, "viewer has no playback toolbar");
+    QPointer<ReleaseProbe> probe =
+        new ReleaseProbe(toolbar, releasedFromToolbar, releases);
+    toolbar->addWidget(probe);
+    viewer->ensurePolished();
+    probe->ensurePolished();
+    probe->armed = true;
+    viewer.reset();
+    require(releases == 1 && releasedFromToolbar && probe.isNull(),
+            "playback toolbar released its controls after QToolBar teardown");
+  }
+  checkpoint("workflow playback-toolbar retirement passed");
   // Batch data must survive panel retirement, while each view keeps its own
   // selection/model and unregisters both model and observer before destruction.
   {
