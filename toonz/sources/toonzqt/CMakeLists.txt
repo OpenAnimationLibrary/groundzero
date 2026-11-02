@@ -1,6 +1,7 @@
 set(MOC_HEADERS
     palettesscanpopup.h
     pluginhost.h
+    ../include/toonzqt/pluginmanager.h
     stageobjectselection.h
     tdockwindows.h
     docktabstrip.h
@@ -213,6 +214,8 @@ set(SOURCES
     fxiconmanager.cpp
     insertfxpopup.cpp
     pluginhost.cpp
+    pluginmanager.cpp
+    pluginmanagerinstance.cpp
     plugin_tile_interface.cpp
     plugin_port_interface.cpp
     plugin_fxnode_interface.cpp

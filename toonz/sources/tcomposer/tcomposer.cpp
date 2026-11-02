@@ -71,6 +71,7 @@
 
 // TnzQt includes
 #include "toonzqt/pluginloader.h"
+#include "toonzqt/pluginmanager.h"
 
 // Qt includes
 #include <QApplication>
@@ -635,6 +636,7 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
 DV_IMPORT_API void initStdFx();
 DV_IMPORT_API void initColorFx();
 int main(int argc, char *argv[]) {
+  PluginManager::takeLaunchArguments(argc, argv);
   TCli::UsageLine usageLine;
   //  setCurrentModule("tcomposer");
   TCli::FilePathArgument srcName("srcName", "Source file");

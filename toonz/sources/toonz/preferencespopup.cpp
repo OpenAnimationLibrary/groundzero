@@ -3,6 +3,8 @@
 #include "preferencespopup.h"
 #include "cadmiumsettingswidget.h"
 #include "diagnosticssettingswidget.h"
+#include "pluginmanagerpopup.h"
+#include "toonzqt/pluginmanager.h"
 #include "themeapplication.h"
 #include "languagemanager.h"
 #include "externalapplications.h"
@@ -2910,6 +2912,8 @@ QWidget* PreferencesPopup::createAddonsPage() {
   setupLayout(lay);
   lay->addWidget(createExternalApplicationsSettings(
                      NativeExternalApplications::instance(), widget),
+                 lay->rowCount(), 0, 1, 4);
+  lay->addWidget(new PluginSettingsWidget(PluginManager::instance(), widget),
                  lay->rowCount(), 0, 1, 4);
 
 #ifdef _WIN32

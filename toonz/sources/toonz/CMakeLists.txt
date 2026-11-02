@@ -85,6 +85,7 @@ set(MOC_HEADERS
     overwritepopup.h
     pane.h
     pltgizmopopup.h
+    pluginmanagerpopup.h
     preferencespopup.h
     previewer.h
     previewfxmanager.h
@@ -379,6 +380,7 @@ set(SOURCES
     outputsettingspopup.cpp
     overwritepopup.cpp
     pltgizmopopup.cpp
+    pluginmanagerpopup.cpp
     preferencespopup.cpp
     projectpopup.cpp
     psdsettingspopup.cpp
