@@ -74,7 +74,7 @@ class TaskTreeView final : public TreeView {
 
 public:
   TasksViewer *m_mainViewer;
-  TaskTreeView(TasksViewer *parent, TaskTreeModel *treeModel);
+  TaskTreeView(TasksViewer *parent);
 
   QModelIndexList getSelectedIndexes() const { return selectedIndexes(); }
 

@@ -22,10 +22,16 @@
 #include "iocommand.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
+#include "menubar.h"
+#include "workflowpresets.h"
+#include "externalapplications.h"
 #include "menubarcommandids.h"
 #include "pane.h"
 #include "tapp.h"
+#include "tasksviewer.h"
 #include "themeapplication.h"
+#include "toolbar.h"
+#include "viewerpane.h"
 #include "widgetinspector.h"
 #include "xsheetviewer.h"
 
@@ -37,6 +43,7 @@
 #include "toonz/levelproperties.h"
 #include "toonz/preferences.h"
 #include "toonz/levelset.h"
+#include "toonz/palettecontroller.h"
 #include "toonz/sceneresources.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
@@ -52,6 +59,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/selection.h"
+#include "toonzqt/styleeditor.h"
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/uitranslations.h"
 
@@ -68,6 +76,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPixmap>
@@ -75,6 +85,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QToolBar>
 #include <QTreeWidget>
 #include <QTranslator>
 
@@ -392,6 +403,350 @@ void exercisePanelTitleBarOwners() {
   require(host.dockLayout()->count() == 0,
           "native title bar left a stale item in its docking host");
   checkpoint("native title bar owner lifetimes passed");
+}
+
+void exerciseWorkflowSwitching(QMainWindow *window) {
+  checkpoint("checking workflow menus and panel lifetimes");
+  auto *main = qobject_cast<MainWindow *>(window);
+  require(main, "workflow fixture has no main window");
+  auto *menus = main->findChild<StackedMenuBar *>();
+  auto *tabs  = main->findChild<RoomTabWidget *>();
+  require(menus && tabs, "workflow room navigation is missing");
+  auto *preferences             = Preferences::instance();
+  const QString originalProfile = preferences->getCurrentRoomChoice();
+  const int originalRoomIndex    = tabs->currentIndex();
+  const QString originalRoomName = main->getCurrentRoom()->getName();
+  const bool originalLazy       = preferences->isLazyLoadRoomsEnabled();
+  QPointer<QWidget> settings    = preferencesPopup();
+  QComboBox *roomSet            = comboWithValue(settings, "Tradigital");
+  checkpoint("workflow Preferences opened");
+  require(settings->findChild<QLineEdit *>("ztorycApplicationPath") &&
+              settings->findChild<QLineEdit *>("ot3dApplicationPath"),
+          "Addons is missing related application paths");
+  for (auto application :
+       {ExternalApplications::Ztoryc, ExternalApplications::OT3D})
+    require(
+        !nativeAction(ExternalApplications::command(application))->isEnabled(),
+        "unconfigured related application is enabled");
+  TApp *app                     = TApp::instance();
+  ToonzScene *scene             = app->getCurrentScene()->getScene();
+  TXsheet *xsheet               = app->getCurrentXsheet()->getXsheet();
+  const int frame               = app->getCurrentFrame()->getFrame();
+  const int column              = app->getCurrentColumn()->getColumnIndex();
+  const bool dirty              = app->getCurrentScene()->getDirtyFlag();
+  const int historyCount        = TUndoManager::manager()->getHistoryCount();
+  const int historyIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+
+  auto check = [&]() {
+    require(settings &&
+                roomSet->currentData().toString() == main->currentRoomSet() &&
+                preferences->getCurrentRoomChoice() == main->currentRoomSet(),
+            "Preferences and Workflow menu selected different room sets");
+    require(main->getRoomCount() > 0 && tabs->count() == main->getRoomCount() &&
+                menus->count() == main->getRoomCount(),
+            "workflow tabs, rooms and menus diverged");
+    require(tabs->currentIndex() == menus->currentIndex(),
+            "workflow selected the wrong room menu");
+    for (int i = 0; i < menus->count(); ++i) {
+      auto *bar = qobject_cast<QMenuBar *>(menus->widget(i));
+      require(bar, "workflow menu bar is missing");
+      const auto workflowMenus = bar->findChildren<QMenu *>(
+          "WorkflowMenu", Qt::FindDirectChildrenOnly);
+      require(workflowMenus.size() == 1,
+              "workflow menu is missing or duplicated in a room");
+      QMenu *workflow = workflowMenus.front();
+      for (auto application :
+           {ExternalApplications::Ztoryc, ExternalApplications::OT3D})
+        require(workflow->actions().count(nativeAction(
+                    ExternalApplications::command(application))) == 1,
+                "room menu lost or duplicated an external launcher");
+      for (const auto &preset : WorkflowPresets::presets) {
+        QAction *action = nativeAction(preset.command);
+        require(workflow->actions().count(action) == 1,
+                "workflow command is missing or duplicated");
+        require(action->isChecked() ==
+                    (preferences->getCurrentRoomChoice() == preset.profile),
+                "workflow checkmark does not match the active profile");
+      }
+    }
+    require(
+        app->getCurrentScene()->getScene() == scene &&
+            app->getCurrentXsheet()->getXsheet() == xsheet &&
+            app->getCurrentFrame()->getFrame() == frame &&
+            app->getCurrentColumn()->getColumnIndex() == column &&
+            app->getCurrentScene()->getDirtyFlag() == dirty &&
+            TUndoManager::manager()->getHistoryCount() == historyCount &&
+            TUndoManager::manager()->getCurrentHistoryIndex() == historyIndex,
+        "workspace switching changed scene, navigation or undo history");
+  };
+  check();
+  // A rejected Preferences request must neither change the live set nor queue
+  // a different saved choice for the next startup.
+  {
+    IoCmd::SceneTransitionGuard transition;
+    choose(roomSet, "Cutout");
+    require(main->currentRoomSet() == originalProfile,
+            "Preferences switched room sets during a scene transition");
+    check();
+  }
+  checkpoint("workflow rejected-request checks passed");
+  // Each native toolbar owns its separator actions. Creating a second toolbar
+  // must not borrow separators that die with the first one.
+  {
+    auto first  = std::make_unique<Toolbar>(window);
+    auto second = std::make_unique<Toolbar>(window);
+    QPointer<QAction> firstSeparator, secondSeparator;
+    for (QAction *action : first->actions())
+      if (action->isSeparator()) {
+        firstSeparator = action;
+        break;
+      }
+    for (QAction *action : second->actions())
+      if (action->isSeparator()) {
+        secondSeparator = action;
+        break;
+      }
+    require(
+        firstSeparator && secondSeparator && firstSeparator != secondSeparator,
+        "native toolbars share a separator action");
+    first.reset();
+    require(firstSeparator.isNull() && secondSeparator,
+            "destroying one toolbar retired another toolbar's separator");
+    require(QMetaObject::invokeMethod(second.get(), "updateToolbar",
+                                      Qt::DirectConnection),
+            "remaining native toolbar could not refresh");
+  }
+
+  checkpoint("workflow independent-toolbar checks passed");
+  // QWidgetAction::releaseWidget reparents custom controls. This must happen
+  // before the playback toolbar loses its QToolBar type during destruction.
+  {
+    bool releasedFromToolbar = false;
+    int releases             = 0;
+    class ReleaseProbe final : public QWidget {
+      QPointer<QWidget> m_toolbar;
+      bool &m_releasedFromToolbar;
+      int &m_releases;
+
+    public:
+      bool armed = false;
+      ReleaseProbe(QToolBar *toolbar, bool &releasedFromToolbar, int &releases)
+          : m_toolbar(toolbar)
+          , m_releasedFromToolbar(releasedFromToolbar)
+          , m_releases(releases) {}
+
+    protected:
+      bool event(QEvent *event) override {
+        if (armed && event->type() == QEvent::ParentChange) {
+          ++m_releases;
+          m_releasedFromToolbar =
+              qobject_cast<QToolBar *>(m_toolbar.data()) != nullptr;
+        }
+        return QWidget::event(event);
+      }
+    };
+    auto viewer   = std::make_unique<SceneViewerPanel>(window);
+    auto *toolbar = viewer->findChild<QToolBar *>("FlipConsolePlayToolBar");
+    require(toolbar, "viewer has no playback toolbar");
+    QPointer<ReleaseProbe> probe =
+        new ReleaseProbe(toolbar, releasedFromToolbar, releases);
+    toolbar->addWidget(probe);
+    viewer->ensurePolished();
+    probe->ensurePolished();
+    probe->armed = true;
+    viewer.reset();
+    require(releases == 1 && releasedFromToolbar && probe.isNull(),
+            "playback toolbar released its controls after QToolBar teardown");
+  }
+  checkpoint("workflow playback-toolbar retirement passed");
+  // Batch data must survive panel retirement, while each view keeps its own
+  // selection/model and unregisters both model and observer before destruction.
+  {
+    auto *controller = BatchesController::instance();
+    const bool taskListDirty = controller->getDirtyFlag();
+    const QString id = "workflow-panel-lifetime-task";
+    require(!controller->getTask(id),
+            "batch lifetime fixture task already exists");
+    auto *task = new TFarmTaskGroup(
+        id, "Workflow panel lifetime", QString(), QString(), 1, 50,
+        TFilePath(testRoot + "/workflow-lifetime.cln"), Overwrite_Off, false);
+    controller->addTask(id, task, false);
+    auto first  = std::make_unique<TasksViewer>(window);
+    auto second = std::make_unique<TasksViewer>(window);
+    auto model  = [](TasksViewer *panel) {
+      auto *tree = panel->findChild<TaskTreeView *>();
+      require(tree, "Tasks panel has no task tree");
+      return qobject_cast<TaskTreeModel *>(tree->model());
+    };
+    QPointer<TaskTreeModel> firstModel  = model(first.get());
+    QPointer<TaskTreeModel> secondModel = model(second.get());
+    require(firstModel && secondModel && firstModel != secondModel,
+            "Tasks panels share a view-dependent model");
+    controller->update();
+    second->setSelected(task);
+    first.reset();
+    require(!firstModel && secondModel,
+            "Tasks panel retirement affected a surviving model");
+    controller->update();
+    second.reset();
+    require(!secondModel, "retired Tasks model stayed alive");
+    controller->update();
+    auto replacement = std::make_unique<TasksViewer>(window);
+    controller->update();
+    auto *replacementModel = model(replacement.get());
+    const QModelIndex list = replacementModel->index(0, 0);
+    bool retained          = false;
+    for (int row = 0; row < replacementModel->rowCount(list); ++row)
+      retained |= replacementModel->index(row, 0, list).data().toString() ==
+                  task->m_name;
+    require(controller->getTask(id) == task && retained,
+            "recreated Tasks panel lost the controller's batch data");
+    replacement->setSelected(task);
+    controller->removeTask(id);
+    controller->setDirtyFlag(taskListDirty);
+    controller->update();
+  }
+  checkpoint("workflow independent-task-panel checks passed");
+  // A style refresh must finish before unrelated queued room teardown runs.
+  // ColorParameterSelector::clear used to process that teardown reentrantly,
+  // allowing onStyleSwitched to continue through a destroyed editor.
+  {
+    PaletteController controller;
+    QObject callbacks;
+    auto host                    = std::make_unique<QWidget>();
+    QPointer<StyleEditor> editor = new StyleEditor(&controller, host.get());
+    editor->setLevelHandle(app->getCurrentLevel());
+    host->show();
+    editor->show();
+    // This is an internal toonzqt widget; its staticMetaObject is not exported
+    // from the Windows DLL. Inspect runtime metadata through QWidget instead.
+    QWidget *selector = nullptr;
+    for (auto *child : editor->findChildren<QWidget *>())
+      if (child->inherits("StyleEditorGUI::ColorParameterSelector")) {
+        selector = child;
+        break;
+      }
+    require(selector, "Style Editor has no color parameter selector");
+    selector->show();
+    bool retired = false;
+    QTimer::singleShot(0, &callbacks, [&]() {
+      retired = true;
+      host.reset();
+    });
+    require(QMetaObject::invokeMethod(editor, "onStyleSwitched",
+                                      Qt::DirectConnection),
+            "Style Editor could not refresh its empty palette");
+    require(!retired && editor,
+            "style refresh dispatched queued panel destruction reentrantly");
+    settle();
+    require(retired && !editor,
+            "queued Style Editor retirement did not complete after refresh");
+  }
+  checkpoint("workflow Style Editor callback lifetime passed");
+  // Replacing a tree model must keep destroyed listeners installed by Qt's
+  // stylesheet engine and other observers, even after repeated replacement.
+  {
+    class FixtureTree final : public TreeView {
+    public:
+      FixtureTree() : TreeView(nullptr) {}
+      using TreeView::setModel;
+    };
+    QObject callbacks;
+    bool destroyed = false;
+    auto tree      = std::make_unique<FixtureTree>();
+    tree->ensurePolished();
+    QObject::connect(tree.get(), &QObject::destroyed, &callbacks,
+                     [&]() { destroyed = true; });
+    tree->setModel(new TreeModel(tree.get()));
+    tree->setModel(new TreeModel(tree.get()));
+    tree.reset();
+    require(destroyed, "tree model replacement removed a destroyed listener");
+  }
+  checkpoint("workflow tree destruction listeners passed");
+  // Exercise real lazy/eager panels, including Function Editor and pooled
+  // floating Flipbooks, rather than testing a mock layout switch.
+  for (bool lazy : {true, false}) {
+    preferences->setValue(lazyLoadRooms, lazy);
+    for (const auto &preset : WorkflowPresets::presets) {
+#if !defined(x64)
+      if (QString::fromLatin1(preset.profile) == "StopMotion") continue;
+#endif
+      if (preferences->getCurrentRoomChoice() == preset.profile) continue;
+      std::cerr << "workflow-switch: loading " << preset.profile
+                << " lazy=" << lazy << std::endl;
+      trigger(MI_OpenFileViewer);
+      QPointer<Room> outgoing = main->getCurrentRoom();
+      std::vector<QPointer<QWidget>> retired;
+      for (int i = 0; i < main->getRoomCount(); ++i) {
+        Room *room = main->getRoom(i);
+        retired.emplace_back(room);
+        for (auto *panel : room->findChildren<TPanel *>())
+          retired.emplace_back(panel);
+        auto *bar = qobject_cast<QMenuBar *>(menus->widget(i));
+        retired.emplace_back(bar);
+        for (auto *menu : bar->findChildren<QMenu *>())
+          retired.emplace_back(menu);
+      }
+      if (lazy)
+        nativeAction(preset.command)->trigger();
+      else
+        roomSet->setCurrentIndex(roomSet->findData(preset.profile));
+      require(outgoing && main->getCurrentRoom() == outgoing.data(),
+              "workflow destroyed its caller during QAction dispatch");
+      settle();
+      require(preferences->getCurrentRoomChoice() == preset.profile,
+              "workflow command did not select its profile");
+      for (const auto &retiredWidget : retired)
+        require(retiredWidget.isNull(),
+                "workflow retained an outgoing room, panel or menu");
+      check();
+      // Reopening a pooled Flipbook after teardown must not reuse a dead
+      // widget.
+      trigger(MI_OpenFileViewer);
+      for (int i = 0; i < main->getRoomCount(); ++i) {
+        std::cerr << "workflow-switch: activating room " << i << std::endl;
+        tabs->setCurrentIndex(i);
+        settle();
+        Room *room = main->getCurrentRoom();
+        require(room == main->getRoom(i) && !room->notInitialized(),
+                "workflow room did not initialize on tab activation");
+        for (auto *panel : room->findChildren<TPanel *>())
+          require(panel->widget(),
+                  "workflow template references an unavailable panel");
+        check();
+      }
+      std::cerr << "workflow-switch: room visits complete for "
+                << preset.profile << std::endl;
+      // Selecting the active workflow is a no-op, including panel identities.
+      QPointer<Room> same = main->getCurrentRoom();
+      trigger(preset.command);
+      std::cerr << "workflow-switch: active-set selection complete for "
+                << preset.profile << std::endl;
+      require(same && main->getCurrentRoom() == same.data(),
+              "selecting the active workflow rebuilt its panels");
+    }
+  }
+  // Requests arriving before dispatch are coalesced into one final selection.
+  nativeAction("MI_WorkflowCutout")->trigger();
+  nativeAction("MI_Workflow2D")->trigger();
+  settle();
+  require(preferences->getCurrentRoomChoice() == "Tradigital",
+          "queued workflow requests did not select the final choice");
+  check();
+  for (const auto &preset : WorkflowPresets::presets)
+    if (originalProfile == preset.profile) trigger(preset.command);
+  preferences->setValue(lazyLoadRooms, originalLazy);
+  // Visiting every tab changes the per-profile saved active room. Restore the
+  // caller's room as well as its set before subsequent drawing/UI fixtures.
+  require(originalRoomIndex >= 0 && originalRoomIndex < main->getRoomCount(),
+          "workflow fixture lost its original room");
+  tabs->setCurrentIndex(originalRoomIndex);
+  settle();
+  require(main->getCurrentRoom()->getName() == originalRoomName,
+          "workflow fixture did not restore its original active room");
+  check();
+  settings->hide();
+  checkpoint("workflow menus and panel lifetimes passed");
 }
 
 void exerciseNativeUi(QMainWindow *window) {
@@ -927,6 +1282,13 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
         runCastVectorIntegrationTest(window);
       } else if (diagnosticSuite == "combined-fidelity") {
         runCombinedFidelityIntegrationTest(window);
+      } else if (diagnosticSuite == "workflow-switch") {
+        exerciseWorkflowSwitching(window);
+        std::cout << "workflow-switch-native: PASS" << std::endl;
+      } else if (diagnosticSuite == "workflow-ui") {
+        exerciseWorkflowSwitching(window);
+        exerciseNativeUi(window);
+        std::cout << "workflow-ui-native: PASS" << std::endl;
       } else if (diagnosticSuite == "vector-renderer") {
         runOpacityRenderNativeChecks();
         runOfflineGLWorkflowNativeChecks();
@@ -951,6 +1313,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
                 << animationError.toStdString() << std::endl;
       return 1;
     }
+    exerciseWorkflowSwitching(window);
     exerciseNativeUi(window);
     checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");
     QString functionError;

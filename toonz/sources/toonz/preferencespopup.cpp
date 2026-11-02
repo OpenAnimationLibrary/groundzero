@@ -7,6 +7,7 @@
 #include "toonzqt/pluginmanager.h"
 #include "themeapplication.h"
 #include "languagemanager.h"
+#include "externalapplications.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -15,6 +16,7 @@
 #include "versioncontrolxmlwriter.h"
 #include "levelsettingspopup.h"
 #include "tapp.h"
+#include "mainwindow.h"
 #include "cleanupsettingsmodel.h"
 #include "formatsettingspopups.h"
 #include "columncommand.h"
@@ -656,12 +658,6 @@ void PreferencesPopup::onUnitChanged() {
        m_pref->getStringValue(cameraUnits) == "pixel")) {
     pixelsOnlyCB->setCheckState(Qt::Checked);
   }
-}
-
-//-----------------------------------------------------------------------------
-
-void PreferencesPopup::beforeRoomChoiceChanged() {
-  TApp::instance()->writeSettings();
 }
 
 //-----------------------------------------------------------------------------
@@ -1331,7 +1327,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       //{ oldCameraUnits,                         tr("") },
       {linearUnits, tr("Unit:")},
       {cameraUnits, tr("Camera Unit:")},
-      {CurrentRoomChoice, tr("Rooms*:")},
+      {CurrentRoomChoice, tr("Room Sets / Workflows:")},
       {functionEditorToggle, tr("Function Editor*:")},
       {moveCurrentFrameByClickCellArea,
        tr("Move Current Frame by Clicking on Xsheet / Numerical Columns Cell "
@@ -1451,7 +1447,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {cursorOutlineEnabled, tr("Show Cursor Size Outlines")},
       {levelBasedToolsDisplay, tr("Toolbar Display Behaviour:")},
       {useCtrlAltToResizeBrush,
-       UiTranslations::text(tr("Brush Tool: Use %1 to Resize")).arg(CtrlAltStr())},
+       UiTranslations::text(tr("Brush Tool: Use %1 to Resize"))
+           .arg(CtrlAltStr())},
       {useStrokeEndCursor, tr("Draw Cursor at End of Stroke")},
       {clickTwiceToCreateArcs,
        tr("Geometric Tool: Click Twice to Create Arcs")},
@@ -1768,10 +1765,11 @@ PreferencesPopup::PreferencesPopup()
     QStringList categories;
     categories << tr("General") << tr("Interface") << tr("Preview/Render")
                << tr("Load/Import") << tr("Saving") << tr("Decoder/Encoder")
-               << tr("Drawing") << tr("Tools") << tr("Xsheet") << tr("Onion Skin")
-               << tr("Animation") << tr("Auto Lip-Sync") << tr("Colors")
-               << tr("Vector Visualize") << tr("Version Control")
-               << tr("Touch/Tablet Settings") << tr("Cadmium") << tr("Diagnostics");
+               << tr("Drawing") << tr("Tools") << tr("Xsheet")
+               << tr("Onion Skin") << tr("Animation") << tr("Auto Lip-Sync")
+               << tr("Colors") << tr("Vector Visualize")
+               << tr("Version Control") << tr("Touch/Tablet Settings")
+               << tr("Cadmium") << tr("Diagnostics");
     categories << tr("Addons");
     return categories;
   };
@@ -2022,6 +2020,22 @@ QWidget* PreferencesPopup::createInterfacePage() {
   int row = lay->rowCount();
   lay->addWidget(additionalStyleSheetBtn, row - 1, 2, Qt::AlignRight);
   insertUI(CurrentRoomChoice, lay, roomItemList);
+  QComboBox* roomSetCombo = getUI<QComboBox*>(CurrentRoomChoice);
+  UiTranslations::bind(
+      roomSetCombo, "toolTip", "PreferencesPopup",
+      QStringLiteral("Switch room sets immediately. This selects the same "
+                     "room set as the Workflow menu."));
+  if (auto* main =
+          qobject_cast<MainWindow*>(TApp::instance()->getMainWindow())) {
+    const QSignalBlocker blocker(roomSetCombo);
+    roomSetCombo->setCurrentIndex(
+        roomSetCombo->findData(main->currentRoomSet()));
+    connect(main, &MainWindow::roomSetChanged, roomSetCombo,
+            [roomSetCombo](const QString& profile) {
+              const QSignalBlocker blocker(roomSetCombo);
+              roomSetCombo->setCurrentIndex(roomSetCombo->findData(profile));
+            });
+  }
   insertUI(interfaceFont, lay);  // creates QFontComboBox
   insertUI(interfaceFontStyle, lay, buildFontStyleList());
   qobject_cast<QComboBox*>(m_controlIdMap.key(interfaceFontStyle))
@@ -2069,8 +2083,6 @@ QWidget* PreferencesPopup::createInterfacePage() {
   m_onEditedFuncMap.insert(linearUnits, &PreferencesPopup::onUnitChanged);
   m_preEditedFuncMap.insert(cameraUnits, &PreferencesPopup::beforeUnitChanged);
   m_onEditedFuncMap.insert(cameraUnits, &PreferencesPopup::onUnitChanged);
-  m_preEditedFuncMap.insert(CurrentRoomChoice,
-                            &PreferencesPopup::beforeRoomChoiceChanged);
   m_onEditedFuncMap.insert(colorCalibrationEnabled,
                            &PreferencesPopup::onColorCalibrationChanged);
 
@@ -2897,6 +2909,10 @@ QWidget* PreferencesPopup::createAddonsPage() {
   QWidget* widget  = new QWidget(this);
   QGridLayout* lay = new QGridLayout();
 
+  setupLayout(lay);
+  lay->addWidget(createExternalApplicationsSettings(
+                     NativeExternalApplications::instance(), widget),
+                 lay->rowCount(), 0, 1, 4);
   lay->addWidget(new PluginSettingsWidget(PluginManager::instance(), widget),
                  lay->rowCount(), 0, 1, 4);
 
@@ -3007,6 +3023,14 @@ void PreferencesPopup::onChange() {
       combo->setCurrentIndex(combo->findData(UiLanguageManager::instance()->currentLanguage()));
       DVGui::warning(error);
     }
+    return;
+  }
+
+  if (id == CurrentRoomChoice) {
+    auto* combo = qobject_cast<QComboBox*>(senderWidget);
+    auto* main  = qobject_cast<MainWindow*>(TApp::instance()->getMainWindow());
+    if (combo && main)
+      main->requestRoomSetChange(combo->currentData().toString());
     return;
   }
 

@@ -281,6 +281,11 @@ endif()
 target_link_libraries(toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg ${EXTRA_LIBS} ${GL_LIB})
 
 if(BUILD_UI_PORT_TESTS)
+    # Preserve Style Editor and theme/icon source lines in native crash
+    # diagnostics, including optimized CI builds. Production flags are unchanged.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        set_property(SOURCE styleeditor.cpp gutil.cpp APPEND PROPERTY COMPILE_OPTIONS -g)
+    endif()
     add_executable(ui_functioncurveoperations_test tests/functioncurveoperations_test.cpp)
     target_link_libraries(ui_functioncurveoperations_test PRIVATE toonzqt toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Widgets)
     add_test(NAME ui_functioncurveoperations COMMAND ui_functioncurveoperations_test)

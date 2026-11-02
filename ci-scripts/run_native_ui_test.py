@@ -348,7 +348,7 @@ def select_diagnostic_suite(environment, suite):
     if suite is None:
         return
     if suite not in ("function-workflow", "cast-workflow", "combined-timing",
-                     "combined-cast-vector", "combined-fidelity", "vector-renderer"):
+                     "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch", "workflow-ui"):
         raise ValueError("Unknown native UI diagnostic suite")
     environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
 
@@ -431,7 +431,9 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
               ("combined-timing", "function-timing-native: PASS"),
               ("combined-cast-vector", "cast-vector-native: PASS"),
               ("combined-fidelity", "combined-fidelity-native: PASS"),
-              ("vector-renderer", "vector-renderer-native: PASS"))
+              ("vector-renderer", "vector-renderer-native: PASS"),
+              ("workflow-switch", "workflow-switch-native: PASS"),
+              ("workflow-ui", "workflow-ui-native: PASS"))
     timeout_seconds = 120
     reports, results = [], []
     for suite, marker in suites:

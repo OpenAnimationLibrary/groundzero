@@ -5,6 +5,7 @@ set(MOC_HEADERS
     commandpalette.h
     widgetinspector.h
     themeapplication.h
+    externalapplications.h
     nativediagnostics.h
     diagnosticssettingswidget.h
     cadmiumruntime.h
@@ -275,6 +276,8 @@ set(SOURCES
     widgetinspector.cpp
     themeapplication.cpp
     nativethemeapplication.cpp
+    externalapplications.cpp
+    nativeexternalapplications.cpp
     nativediagnosticswriter.cpp
     nativediagnostics.cpp
     diagnosticssettingswidget.cpp
@@ -1153,6 +1156,8 @@ if(BUILD_UI_PORT_TESTS)
         ${CMAKE_CURRENT_BINARY_DIR}/moc_widgetinspector.cpp)
     add_ui_port_test(themeapplication tests/themeapplication_test.cpp themeapplication.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/moc_themeapplication.cpp)
+    add_ui_port_test(externalapplications tests/externalapplications_test.cpp externalapplications.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_externalapplications.cpp)
     add_ui_port_test(themeproperties tests/themeproperties_test.cpp)
     add_ui_port_test(mediacache tests/mediacache_test.cpp)
     target_compile_definitions(ui_mediacache_test PRIVATE MEDIA_CACHE_TEST_HOOKS)
