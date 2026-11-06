@@ -979,6 +979,8 @@
   <item>"STD_autoPatchFx.jointPoint"	"Joint Point X"	</item>
   <item>"STD_autoPatchFx.jointRadius"	"Joint Radius"	</item>
   <item>"STD_autoPatchFx.softness"	"Softness"	</item>
+  <item>"STD_autoPatchFx.outlineOnly"	"Outline Only"	</item>
+  <item>"STD_autoPatchFx.outlineWidth"	"Outline Width"	</item>
 
 
 

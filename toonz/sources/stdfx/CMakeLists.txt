@@ -479,6 +479,14 @@ if(BUILD_AUTOMATTE_TESTS)
     add_test(NAME automatte COMMAND automatte_test)
 endif()
 
+# Optional regression target for the Outline Only helper of the Auto-Patch FX
+# (autopatchoutline.h, header-only).
+option(BUILD_AUTOPATCH_TESTS "Build the Auto-Patch FX outline helper test" ${BUILD_TESTS})
+if(BUILD_AUTOPATCH_TESTS)
+    add_executable(autopatchoutline_test tests/autopatchoutline_test.cpp)
+    add_test(NAME autopatchoutline COMMAND autopatchoutline_test)
+endif()
+
 option(BUILD_LIGHTSHADING_TESTS "Build the Light Shading FX helper test" ${BUILD_TESTS})
 if(BUILD_LIGHTSHADING_TESTS)
     add_executable(lightshading_test tests/lightshading_test.cpp)
