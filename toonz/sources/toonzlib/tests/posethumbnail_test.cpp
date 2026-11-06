@@ -3,6 +3,7 @@
 // before.
 
 #include "toonz/poselibrary.h"
+#include "tfilepath.h"
 #include "tstream.h"
 
 #include <QBuffer>
