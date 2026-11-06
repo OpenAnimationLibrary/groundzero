@@ -2,7 +2,7 @@
 import hashlib
 import json
 import math
-from xml.etree.ElementTree import fromstring
+from xml.etree.ElementTree import ParseError, fromstring
 
 WIDTH = HEIGHT = 2048
 MODELS = ("dry", "legacy-smear", "new-smear")
@@ -107,7 +107,10 @@ def controls(case, fields):
             observed = float(fields.get(key, "nan"))
             if not math.isfinite(observed) or observed != expected_value:
                 raise ValueError("Effective wet geometry scalar differs: " + key)
-    brush = fromstring(fields.get("brush_definition", ""))
+    try:
+        brush = fromstring(fields.get("brush_definition", ""))
+    except ParseError as error:
+        raise ValueError("Malformed effective wet geometry brush XML") from error
     generators = brush.findall("MaskGenerator")
     expected_brush = {"type": "auto_brush", "BrushVersion": "2", "useAutoSpacing": "0"}
     if (brush.tag != "Brush" or len(brush) != 1 or len(generators) != 1 or

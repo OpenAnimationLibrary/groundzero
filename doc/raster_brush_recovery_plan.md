@@ -177,3 +177,17 @@ The703b77b82 generated-tip source acquisition completed all32 cases. Comparison
 then exposed genuine missing Soft generator import/runtime behavior. Work is
 proceeding from those original captures; no silent native approximation replaces
 that required source-profile work.
+
+## Diagnostic corrections before application/source execution
+
+The a953850e9 Ubuntu Qt6 parser run passed, including all70 generated workflow
+matrices. The earlier810a4fd2b Linux application compile exposed a diagnostic-only
+raster type error: clone() was inferred as generic TRasterP while snapshot code
+needed pixels(). The fixture now retains an explicit TRaster32P. Stage logs also
+include monotonic elapsed milliseconds to distinguish actual workload cost from
+modal/timer stalls without changing holds or deadlines.
+
+The810a4fd2b source-cache job exposed a mismatch in the new geometry helper's
+malformed-XML error API. ParseError is now normalized to ValueError, with additional
+empty/truncated/mismatched XML controls. The malformed-input guard remains strict;
+no source comparison has been waived. These corrections require fresh CI.

@@ -142,7 +142,10 @@ TRaster32P raster(TXshSimpleLevel *level, int frame) {
   return raster(level, TFrameId(frame));
 }
 void checkpoint(const char *stage) {
-  std::cerr << "raster-brush-integration: " << stage << std::endl;
+  static QElapsedTimer elapsed;
+  if (!elapsed.isValid()) elapsed.start();
+  std::cerr << "raster-brush-integration: elapsed_ms=" << elapsed.elapsed()
+            << " " << stage << std::endl;
 }
 void tap(TTool *tool) {
   require(tool->preLeftButtonDown(), "brush refused tap");
@@ -2355,7 +2358,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         settle();
       };
       begin();
-      const auto initialDab = raster(level, 1)->clone();
+      const TRaster32P initialDab = raster(level, 1)->clone();
       const auto initialState =
           static_cast<FullColorBrushTool *>(tool)->nativeBrushTestState();
       pump(250);

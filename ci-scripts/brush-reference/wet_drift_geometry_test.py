@@ -103,6 +103,10 @@ class WetGeometryContract(unittest.TestCase):
             changed = dict(fields, brush_definition=fields["brush_definition"].replace(
                 original, replacement))
             with self.assertRaises(ValueError): controls(case, changed)
+        for malformed in ("", "<Brush>", "<Brush></Other>"):
+            changed = dict(fields, brush_definition=malformed)
+            with self.assertRaisesRegex(ValueError, "Malformed effective wet geometry brush XML"):
+                controls(case, changed)
 
 
 if __name__ == "__main__":
