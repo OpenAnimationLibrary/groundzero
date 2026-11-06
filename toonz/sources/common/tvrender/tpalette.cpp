@@ -618,6 +618,25 @@ public:
 TFilePath StyleWriter::m_rootDir = TFilePath();
 TFilePath StyleReader::m_rootDir = TFilePath();
 
+//-------------------------------------------------------------------
+
+// The extra settings of a style (TColorStyle::getExtraSettingNames()), as
+// attributes of its tag
+void saveExtraSettings(const TColorStyle *style,
+                       std::map<std::string, std::string> &attributes) {
+  for (const std::string &name : style->getExtraSettingNames()) {
+    const std::string value = style->getExtraSetting(name);
+    if (!value.empty()) attributes[name] = value;
+  }
+}
+
+void loadExtraSettings(TIStream &is, TColorStyle *style) {
+  for (const std::string &name : style->getExtraSettingNames()) {
+    std::string value;
+    if (is.getTagParam(name, value)) style->setExtraSetting(name, value);
+  }
+}
+
 }  // namespace
 
 //===================================================================
@@ -662,6 +681,7 @@ void TPalette::saveData(TOStream &os) {
       if (trailSize != 1.0)
         attr["trailSizeMultiplier"] =
             QString::number(trailSize, 'g', 17).toStdString();
+      saveExtraSettings(style.getPointer(), attr);
       os.openChild("style", attr);
       {
         StyleWriter w(os, i);
@@ -725,6 +745,7 @@ void TPalette::saveData(TOStream &os) {
             if (trailSize != 1.0)
               attributes["trailSizeMultiplier"] =
                   QString::number(trailSize, 'g', 17).toStdString();
+            saveExtraSettings(cs, attributes);
 
             /*os.openChild("keycolor", attributes);                       // Up
             to Toonz 7.0, animations saved os << cs->getMainColor(); // the main
@@ -801,6 +822,7 @@ void TPalette::loadData(TIStream &is) {
                 QString::fromStdString(trailSize).toDouble(&ok);
             if (ok) TrailStyles::setSizeMultiplier(cs, multiplier);
           }
+          loadExtraSettings(is, cs);
 
           std::string pickedPosStr;
           if (is.getTagParam("pickedpos", pickedPosStr))
@@ -896,6 +918,7 @@ void TPalette::loadData(TIStream &is) {
                     QString::fromStdString(trailSize).toDouble(&ok);
                 if (ok) TrailStyles::setSizeMultiplier(cs, multiplier);
               }
+              loadExtraSettings(is, cs);
             } else
               throw TException("palette, expected <keyframe> tag");
 

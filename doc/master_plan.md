@@ -109,7 +109,7 @@ was written). What each one delivered and what is still partial:
 | # | Delivered | Still partial |
 |---|---|---|
 | B1 | Underlay/Overlay art layers (classified by stacking order, no file format change), Art Layer Manager panel with per-layer show/hide, Create Colour Art from Line Art | Underlay/Overlay exist only when the drawing has a Colour Art stroke |
-| B2 | Per-stroke opacity (outline-options tag, written only when not 1), Pump "Opacity Brush", Selection "Opacity:" field (`doc/pencil_opacity.md`) | Not per point; ignored by pattern, vector-brush and MyPaint styles; no animated texture offset |
+| B2 | Per-stroke opacity (outline-options tag, written only when not 1), Pump "Opacity Brush", Selection "Opacity:" field (`doc/pencil_opacity.md`) | Ignored by pattern, vector-brush and MyPaint styles. The Opacity Brush's Along Stroke paints the opacity along a stroke, and Texture styles boil per frame (`doc/line_boil.md`) |
 | B3 | ABR parser (v1/v2, v6 to v10), File > Import > Photoshop Brushes, "Tip:" in the full-colour Brush (`doc/abr_brushes.md`) | Tips only: no dynamics or computed brushes; not on Toonz Raster or vector brushes |
 | B4 | Automatic stroke matching (Hungarian assignment), zone hints, custom ease curve in the In-Between dialog (`doc/morphing.md`) | Hints are in memory only; no vanishing-point hints |
 | B5 | Colour Override swatch picker, Replace/Multiply/Add modes, "Show Colour Override in the Viewer" preference | Viewer display skips the 3D view, sub-xsheet columns and multi-output columns |

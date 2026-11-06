@@ -93,4 +93,5 @@ only sets: it does not show the opacity of the current selection.
   later step.
 - The styles listed under Rendering ignore the opacity.
 - A fill region under a semi-transparent stroke is not changed.
-- The animated texture offset of B2 is not part of this change.
+- The animated texture offset of B2 came later, as the Line Boil of
+  Texture styles (`doc/line_boil.md`).

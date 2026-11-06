@@ -93,6 +93,12 @@ private:
   TTessellator *m_tessellator;
   TPixel32 m_averageColor;
 
+  // Boil: the texture of the lines moves to a new place every m_boilHold
+  // frames, by up to m_boil of its size, as hand-drawn pencil lines do. Saved
+  // as extra settings (TColorStyle::getExtraSettingNames()).
+  double m_boil  = 0.0;
+  int m_boilHold = 1;
+
 protected:
   void makeIcon(const TDimension &d) override;
 
@@ -114,6 +120,7 @@ public:
   double getParamValue(TColorStyle::double_tag, int index) const override;
 
   void getParamRange(int index, QStringList &enumItems) const override;
+  void getParamRange(int index, int &min, int &max) const override;
   bool getParamValue(TColorStyle::bool_tag, int index) const override;
   int getParamValue(TColorStyle::int_tag, int index) const override;
   TFilePath getParamValue(TColorStyle::TFilePath_tag, int index) const override;
@@ -151,6 +158,17 @@ public:
   // const;
   void drawStroke(const TColorFunction *cf, TStrokeOutline *outline,
                   const TStroke *stroke) const override;
+  void drawStrokeAtFrame(const TColorFunction *cf, TStrokeOutline *outline,
+                         const TStroke *stroke, int frame) const override;
+
+  //! The shift of the texture along and across the lines at frame, in
+  //! texture repeats: none for frame -1 or without Boil.
+  static TPointD boilShift(int frame, int hold, double amount);
+
+  std::vector<std::string> getExtraSettingNames() const override;
+  std::string getExtraSetting(const std::string &name) const override;
+  void setExtraSetting(const std::string &name,
+                       const std::string &value) override;
 
   TRasterStyleFx *getRasterStyleFx() override { return this; }
 

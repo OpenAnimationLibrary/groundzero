@@ -1385,6 +1385,7 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
 
       TVectorRenderData rd(TVectorRenderData::ProductionSettings(), aff,
                            TRect(size), vpalette);
+      rd.m_frame = (int)frame;
       if (checkImage) applyVectorChecks(rd, checks);
 
       // obtain jaggy image when the Closest Pixel is set
