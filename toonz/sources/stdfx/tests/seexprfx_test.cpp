@@ -706,6 +706,31 @@ void editWhileRendering() {
   worker.get();
   require(concurrent > 1, "the render did not run during the edits");
 }
+// Removed controls stay archived, but only active ones count against the
+// 128-control limit, so replacing controls never locks an effect.
+void checkControlLimit() {
+  SeExprGeneratorFx fx;
+  set(fx, "width", 2); set(fx, "height", 2);
+  for (int round = 0; round < 200; ++round) {
+    QJsonObject gain = scalar(QString("gain_%1").arg(round).toUtf8().constData(), .25);
+    gain["name"] = "gain";
+    document(fx, "[$gain,0,0]", "1", {gain});
+  }
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(-1, -1))->pixels(0)[0], .25, 0, 0, 1);
+  QJsonArray many;
+  for (int index = 0; index <= 128; ++index)
+    many.append(scalar(QString("c%1").arg(index).toUtf8().constData(), 0));
+  SeExprGeneratorFx crowded;
+  document(crowded, "[0,0,0]", "1", many);
+  bool rejected = false;
+  try {
+    rendered<TPixelF>(crowded, 1, 1);
+  } catch (const TException &failure) {
+    rejected = QString::fromStdWString(failure.getMessage()).toStdString().find("too many expression controls") != std::string::npos;
+  }
+  require(rejected, "129 active controls were accepted");
+}
+
 void checkConcurrentDocumentEdits() {
   // Each effect accepts about a hundred new controls; repeat to catch races.
   for (int round = 0; round < 8; ++round) editWhileRendering();
@@ -1052,6 +1077,7 @@ int main(int argc, char **argv) {
     checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
     checkDoubleUnderscoreIds(temporary.path());
     checkConcurrentDocumentEdits();
+    checkControlLimit();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
