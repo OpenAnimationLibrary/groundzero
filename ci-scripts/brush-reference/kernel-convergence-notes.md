@@ -219,36 +219,50 @@ match is numerical analysis of already acquired public observations, not a
 claim that the native brush comparison or all checks have passed.
 
 
-## Exact accumulation at source RGBA8 boundaries
+## Accumulation follows the declared surface storage
 
-The source candidate initially samples a quantized RGBA8 surface. Its retained
-wet field has a different storage contract: the first field contains its
-unquantized pickup mean, and later halos can preserve unchanged floating
-backdrop values. Repeated floating summation can move a uniform normalized byte value
-just below its exact U16 boundary, so flooring a floating cumulative mean alone
-is insufficient. An explicit `QuantizedRgba8` accumulation mode recovers rounded
-U16 straight RGB and U16 alpha codes from each sampled pixel and sums
-`RGBcode * alphaCode` and `alphaCode` in unsigned 64-bit integers. Lab input is
-the exact truncating integer quotient `sum(RGBcode * alphaCode) / sum(alphaCode)`.
-The returned premultiplied mean uses the same sums divided by accepted count
-and 65535 squared, with alpha divided by accepted count and 65535. This is
-algebraically the existing premultiplied mean for quantized RGBA8, including
-mixed alpha; it adds no alpha-specific convergence criterion or new alpha rule.
+`Surface::read()` always returns premultiplied Pixels. Its separate `storage()`
+declaration describes the underlying quantization, not the association of the
+returned channels. Generic surfaces and `BufferedSurface` report
+`FloatingPremultiplied`; the float cache can retain arbitrary sub-byte values
+regardless of its backing raster. `NativeRasterBrushSurface` declares its actual
+premultiplied RGBA8 byte storage. The reference comparator declares its initial
+straight RGBA8 image storage and switches to floating storage on its first write.
+Stroke age alone never establishes a quantization contract.
 
-At the one-million-attempt cap the largest product sum is
-4294836225000000, below 2^52, so all integer sums and their conversions to double
-are exact. No epsilon, nextafter adjustment or fixture-specific rounding is
-introduced. The renderer explicitly selects quantized storage only for the initial surface
-pickup and charges its channel-code recovery work. Every retained-field pickup
-uses floating accumulation, preserving an exactly uniform accepted Pixel
-without averaging or U16 storage rounding. Its nonuniform sums use compensated
-addition. Thus a retained .25 stays .25, and sub-U16 alpha stays nonzero; Lab
-checkpoint conversion does not impose a new storage quantization stage. Authored non-neutral uniform regressions repeat
-at three different minimum counts and three RGBA8 alpha codes; a repeated
-mixed-alpha red/blue case verifies the same premultiplied weighting and exact
-Lab input quotient. These regressions are written but have not been executed.
-This numerical repair does not expand the previously stated source alpha
-qualification scope.
+The first Dulling pickup uses the surface's explicit declaration:
+
+- `QuantizedStraightRgba8` recovers rounded U16 straight RGB and alpha codes
+  from each premultiplied sampled Pixel, then sums `RGBcode * alphaCode` and
+  `alphaCode` in unsigned 64-bit integers. Lab input is the exact truncating
+  quotient `sum(RGBcode * alphaCode) / sum(alphaCode)`. The returned
+  premultiplied mean divides the product sums by accepted count times 65535
+  squared, and alpha by accepted count times 65535.
+- `QuantizedPremultipliedRgba8` accumulates the stored associated channel codes
+  directly. Lab input is `sum(channelCode) * 65535 / sum(alphaCode)`, using
+  truncating integer division. The returned associated channels and alpha are
+  divided by accepted count times 65535. Unassociating and rounding stored
+  associated bytes first would introduce an extra quantization.
+- `FloatingPremultiplied` preserves an exactly uniform accepted Pixel, including
+  alpha below one U16 code. Nonuniform inputs use compensated floating sums.
+  Lab checkpoint conversion does not quantize the retained storage.
+
+Every retained-field pickup uses floating accumulation: the initial wet field
+can contain an unquantized pickup mean and later halos can preserve floating
+backdrop values. Neither initial nor retained floating values are rounded into
+byte storage because another surface happens to use RGBA8.
+
+At the one-million-attempt cap, the largest straight product sum and associated
+checkpoint numerator are bounded by 4294836225000000, below 2^52. Integer sums
+and their conversions to double remain exact. Channel-code recovery is charged
+to the existing input-work budget. No epsilon, nextafter adjustment or
+fixture-specific rounding is introduced.
+
+Authored regression sources cover explicit straight-byte convergence fixtures,
+partial-alpha associated-byte sums and exact Lab quotients, mixed-alpha
+weighting, initial floating pickup, float caches and sub-U16 retained alpha.
+They have not been executed. These storage invariants do not establish source
+partial-alpha parity or expand the source admission domain.
 
 
 ## Cold transform preparation and retained-field regression coverage
