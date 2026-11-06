@@ -268,8 +268,13 @@ void checkUnboundedSourceEdges() {
   document(fx, "sample_rgb(-3,0)", "sample_alpha(-3,0)");
   for (int edge = 1; edge <= 3; ++edge) {
     choice(fx, "edgeMode", edge);
+    TRectD box;
+    static_cast<TRasterFx *>(fx.getInputPort("Source")->getFx())->getBBox(0, box, TRenderSettings());
+    std::ostringstream where;
+    where << "unbounded Source with edge mode " << edge << ", its getBBox " << box.x0 << ','
+          << box.y0 << ',' << box.x1 << ',' << box.y1;
     expect(rendered<TPixel32>(fx, 2, 2, TPointD(100, 100))->pixels(0)[0], 0, 0, 1, 1,
-           "unbounded Source with an edge mode");
+           where.str().c_str());
   }
 }
 

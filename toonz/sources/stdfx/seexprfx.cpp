@@ -75,6 +75,16 @@ bool finiteBox(const TRectD &box) {
   return box != TConsts::infiniteRectD && std::isfinite(box.x0) &&
          std::isfinite(box.y0) && std::isfinite(box.x1) && std::isfinite(box.y1);
 }
+// Whether the Source has no bounds (a colour card, a gradient). Asked of its
+// doGetBBox: getBBox rounds the bounds to integers, which turns the infinite
+// box's +-DBL_MAX into an out-of-range int conversion.
+bool unboundedSource(const TFxPort &source, double frame,
+                     const TRenderSettings &settings) {
+  auto *fx = dynamic_cast<TRasterFx *>(source.getFx());
+  TRectD box;
+  return fx && fx->doGetBBox(frame, box, settings) &&
+         box == TConsts::infiniteRectD;
+}
 TRectD rasterBox(const TRectD &box) {
   demand(finiteBox(box), "input canvas must be finite");
   return TRectD(std::floor(box.x0), std::floor(box.y0),
@@ -1083,12 +1093,13 @@ protected:
   }
   TRectD inputRegion(const TRectD &requested, double frame, const TRenderSettings &settings) const {
     if (m_edge->getValue() == 0) return rasterBox(requested.enlarge(support(frame, settings)));
-    TRectD box;
-    if (!static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, settings) || box.isEmpty())
-      return TRectD();
     const TRectD reach = requested.enlarge(support(frame, settings));
     // An unbounded Source (a colour card, a gradient) has no edge to clamp or
     // wrap at: sample it as with transparent edges.
+    if (unboundedSource(m_source, frame, settings)) return rasterBox(reach);
+    TRectD box;
+    if (!static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, settings) || box.isEmpty())
+      return TRectD();
     if (!finiteBox(box)) return rasterBox(reach);
     // A clamped sample lands on the part of the Source nearest to it, so an
     // axis-aligned request needs only the request projected onto the Source,
@@ -1441,6 +1452,7 @@ public:
     if (m_generator) { box = localCanvas(frame, settings); return !box.isEmpty(); }
     if (!m_source.isConnected()) { box = TRectD(); return false; }
     TRenderSettings identity = settings; identity.m_affine = TAffine();
+    if (unboundedSource(m_source, frame, identity)) { box = TConsts::infiniteRectD; return true; }
     const bool found = m_source->getBBox(frame, box, identity);
     if (box.isEmpty() || box == TConsts::infiniteRectD) return found;
     // Clamp, Repeat and Mirror continue the Source past its canvas.
@@ -1539,11 +1551,14 @@ public:
         sampler.image = source.getRaster(); sampler.position = source.m_pos;
       }
       TRectD canvas;
-      if (m_source->getBBox(frame, canvas, settings) && finiteBox(canvas)) sampler.canvas = rasterBox(canvas);
+      if (!unboundedSource(m_source, frame, settings) && m_source->getBBox(frame, canvas, settings) &&
+          finiteBox(canvas))
+        sampler.canvas = rasterBox(canvas);
       if (settings.m_affine.a12 != 0 || settings.m_affine.a21 != 0) {
         TRenderSettings identity = settings; identity.m_affine = TAffine();
         TRectD local;
-        if (m_source->getBBox(frame, local, identity) && finiteBox(local) && !local.isEmpty()) {
+        if (!unboundedSource(m_source, frame, identity) && m_source->getBBox(frame, local, identity) &&
+            finiteBox(local) && !local.isEmpty()) {
           sampler.localEdges = true;
           sampler.inverse = settings.m_affine.inv();
           sampler.localCanvas = local;
