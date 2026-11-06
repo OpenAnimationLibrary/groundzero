@@ -86,9 +86,9 @@ this was written). What each one delivered and what is still partial:
 | A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice); Free-Form layers in the Deformer Stack FX (3x3) | No free cage |
 | A8 | `TBoneDeformer` and Bone Deformer FX (Joint Count 2 to 9, no mesh); Bone layers in the Deformer Stack FX (2-bone chain) | Raster warp unless Deform Strokes |
 | A9 | Spine mesh attachments and Plastic deform timelines; the faces' stacking order as triangle order | Unweighted meshes (the baked offsets are exact); the stacking order is the one of the first frame shown |
-| A10 | Substitution Slider panel; template thumbnails already existed | No separate template browser |
+| A10 | Substitution Slider panel; template thumbnails already existed | The slider is a panel, not a viewer gadget; templates are browsed with thumbnails in the Rig Library panel (A11) |
 | A11 | Rig Library panel (rigs and poses), with pose thumbnails | |
-| A12 | Auto-Patch joint region and Enable Patch switch | Circle only; no automatic joint detection |
+| A12 | Auto-Patch joint region and Enable Patch switch | No joint region from Plastic or the Kinematic Output vertex; Toonz Vector and Toonz Raster levels only. Outline Only finds the joint from Top's outline (`stdfx/autopatchoutline.h`) |
 
 Follow-ups that Tier 7 opened, both done on the tier12 branch: the Curve,
 Free-Form and Bone deformers (and the Shape-Aware deformer, C5) are Deformer
@@ -98,8 +98,9 @@ column's FX chain (Envelope, Envelope Plus, Curve, Free-Form, Bone, Shape
 Aware and Deformer Stack) to the strokes of the selected drawings, each at
 its frame, with one undo step, and can disable the baked FX. The FXs give
 their deformer through the `TDeformerSource` interface
-(`include/toonz/tdeformer.h`); see `doc/deformer_bake.md`. The FXs
-themselves still warp the raster: a live stroke deformation is not done.
+(`include/toonz/tdeformer.h`); see `doc/deformer_bake.md`. With Deform Strokes on, an FX whose Source is a Toonz Vector column
+deforms the strokes live (`doc/deform_strokes.md`); otherwise it warps the
+raster.
 
 ### Tier 8 status
 
@@ -143,7 +144,7 @@ was written):
 | C2 | "Filter ports" field in the FX Schematic toolbar (input ports) and in the Stage Schematic toolbar while the Rig view is on (published channel rows, packed again; `doc/rig_view.md`) | FX output ports and group/macro editors not filtered; hidden FX port rows leave a gap |
 | C3 | "Compress Scene Files" preference (LZ4, default off), save-safety check, hardened compressed reader, round-trip test (`doc/compact_scene.md`) | Whole-file compression, no separate binary format; older builds cannot open compressed scenes |
 | C4 | Convert Brush Strokes to Outline Shapes (`doc/contour_editor.md`) | One way; closed brush strokes skipped; no new stroke model |
-| C5 | `TShapeAwareDeformer` and Shape Aware Deformer FX (`doc/shape_aware_deformer.md`) | Raster warp only; fixed handle counts in the FX and in its Deformer Stack layer type |
+| C5 | `TShapeAwareDeformer` and Shape Aware Deformer FX (`doc/shape_aware_deformer.md`) | Raster warp, or live stroke deformation of a Toonz Vector Source with Deform Strokes (`doc/deform_strokes.md`); fixed handle counts in the FX and in its Deformer Stack layer type |
 
 Missing items that stay out: OpenFX, Cryptomatte and performance
 anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
@@ -191,7 +192,7 @@ Built, not yet confirmed by a CI build on Linux when this was written:
 | # | Delivered | Still open |
 |---|---|---|
 | D1 | Static Qt 6 audit: `menuOfAction`, `canConvert<T>`, Windows-only header and tablet code guarded, debug-only code (`doc/qt6_port_status.md`) | The compiler's findings from one run of the manual Qt 6 workflow; Windows Ink under Qt 6 untested |
-| D2 | Bounds and overflow fixes in the PSD, PLI and EXR readers, fuzz seeds, known-issues list (`doc/loader_known_issues.md`) | Fuzz harnesses never run; a few leaks and wrong-output cases listed in the doc |
+| D2 | Bounds and overflow fixes in the PSD, PLI and EXR readers, fuzz seeds, known-issues list (`doc/loader_known_issues.md`) | The fuzz harnesses run in Linux Tests (`BUILD_FUZZ_TESTS` follows `BUILD_TESTS`); the leaks and wrong-output cases listed in the doc remain |
 | D3 | Not done: needs reference images from a CI run | Take the PNGs from the first successful render-test run |
 | D4 | JS and Python: image pixels, level frames, scene columns, render a frame, current UI scene (`doc/script_api.md`); fixes `Renderer.onRenderFinished` never overriding the port | Pixel access on Raster images only |
 | D5 | 270 entries added to each of 11 languages' `.ts` files, marked unfinished (`doc/translations_status.md`) | FX names in `current.txt`; strings outside Tiers 2 to 6 |
@@ -215,7 +216,7 @@ Built on the `tier12` branch, which merges Tiers 8 to 11:
 | D3 | The workflow commits the FX render references that do not exist yet | Review the first images |
 | E6 | `scenebench` benchmark (`doc/scene_io_profile.md`); no flush per line when saving, the frame id expression compiled once when loading: plain saves now take as long as compressed ones, and loads take less than half the time | XML parsing is most of what is left |
 | A1/A5/A7/A8/C5 | Curve, Free-Form, Bone and Shape-Aware layers in the Deformer Stack FX (`doc/deformer_stack.md`) | Fixed point counts per layer type |
-| A6 | Bake Deformers into Vector Level for every deformer FX (`doc/deformer_bake.md`) | A bake, not a live stroke deformation |
+| A6 | Bake Deformers into Vector Level for every deformer FX (`doc/deformer_bake.md`) | The bake covers deformer FXs only; live stroke deformation is Deform Strokes (`doc/deform_strokes.md`) |
 | C2 | Port filter in the Stage Schematic Rig view | Matches published names only |
 
 ## Order at a glance
