@@ -30,7 +30,10 @@
 
 namespace {
 constexpr std::size_t maxDocumentBytes = 262144;
+// Active controls. Removed controls stay archived with their parameters, for
+// undo and their animation, so they count only against the larger total.
 constexpr std::size_t maxControls = 128;
+constexpr std::size_t maxStoredControls = 512;
 constexpr int maxAnimationKeys = 64;
 constexpr int maxStoredAnimationKeys = 512;
 constexpr double maxWorkingBytes = 256.0 * 1024 * 1024;
@@ -408,6 +411,7 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
   }
   std::map<QString, Control> table;
   std::set<QString> names;
+  std::size_t activeControls = 0;
   for (const QString group : {QString("controls"), QString("archive")}) {
     const auto value = result.json.value(group);
     demand(value.isUndefined() || value.isArray(), "control schema must be an array");
@@ -421,6 +425,7 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
       control.type = object.value("type").toString("scalar");
       control.definition = object;
       control.active = group == "controls";
+      if (control.active) ++activeControls;
       demand(identifier(control.id) && identifier(control.name), "control IDs and variables must be identifiers");
       demand(table.count(control.id) == 0, "duplicate control ID");
       demand(!control.active || (!reservedVariables.count(control.name) && names.insert(control.name).second),
@@ -464,7 +469,9 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
       table.emplace(control.id, control);
     }
   }
-  demand(table.size() <= maxControls, "too many expression controls");
+  demand(activeControls <= maxControls, "too many expression controls");
+  demand(table.size() <= maxStoredControls,
+         "too many controls have been removed from this effect; use a new effect");
   std::set<std::string> parameters;
   for (const auto &entry : table)
     for (const auto &name : parameterNames(entry.second))
