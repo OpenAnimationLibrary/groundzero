@@ -142,6 +142,11 @@ struct InputSampler {
   TPointD current;
   double radius = 0;
   int edge = 0, filter = 1;
+  // A rotating or shearing transform turns the Source canvas into a rotated
+  // shape, so the edge modes clamp and wrap in FX-local coordinates instead.
+  bool localEdges = false;
+  TAffine inverse;
+  TRectD localCanvas;
 
   static double wrapped(double x, double lower, double size, bool mirror) {
     const double period = size * (mirror ? 2 : 1);
@@ -150,8 +155,33 @@ struct InputSampler {
     if (mirror && p >= size) p = std::nextafter(period - p, 0.0);
     return lower + std::min(std::nextafter(size, 0.0), p);
   }
+  TPointD localEdge(const TPointD &global) const {
+    TPointD local = inverse * global;
+    if (edge == 1) {
+      local.x = std::max(localCanvas.x0 + .5, std::min(localCanvas.x1 - .5, local.x));
+      local.y = std::max(localCanvas.y0 + .5, std::min(localCanvas.y1 - .5, local.y));
+    } else {
+      local.x = wrapped(local.x, localCanvas.x0, localCanvas.getLx(), edge == 3);
+      local.y = wrapped(local.y, localCanvas.y0, localCanvas.getLy(), edge == 3);
+    }
+    return affine * local;
+  }
   TPixelD readAt(TPointD global) const {
     if (!image) return TPixelD(0, 0, 0, 0);
+    if (edge && localEdges) {
+      global = localEdge(global);
+      const double px = global.x - position.x, py = global.y - position.y;
+      if (filter == 0) return pixelAt(image, int(std::floor(px)), int(std::floor(py)));
+      const double x = px - .5, y = py - .5;
+      const int ix = int(std::floor(x)), iy = int(std::floor(y));
+      // Each bilinear tap is mapped onto the Source too, so a wrap has no seam.
+      auto tap = [&](int tx, int ty) {
+        const TPointD g = localEdge(position + TPointD(tx + .5, ty + .5));
+        return pixelAt(image, int(std::floor(g.x - position.x)), int(std::floor(g.y - position.y)));
+      };
+      return blendPixels(blendPixels(tap(ix, iy), tap(ix + 1, iy), x - ix),
+                         blendPixels(tap(ix, iy + 1), tap(ix + 1, iy + 1), x - ix), y - iy);
+    }
     if (edge && !canvas.isEmpty()) {
       if (edge == 1) {
         global.x = std::max(canvas.x0 + .5, std::min(canvas.x1 - .5, global.x));
@@ -1494,6 +1524,15 @@ public:
       }
       TRectD canvas;
       if (m_source->getBBox(frame, canvas, settings) && finiteBox(canvas)) sampler.canvas = rasterBox(canvas);
+      if (settings.m_affine.a12 != 0 || settings.m_affine.a21 != 0) {
+        TRenderSettings identity = settings; identity.m_affine = TAffine();
+        TRectD local;
+        if (m_source->getBBox(frame, local, identity) && finiteBox(local) && !local.isEmpty()) {
+          sampler.localEdges = true;
+          sampler.inverse = settings.m_affine.inv();
+          sampler.localCanvas = local;
+        }
+      }
       if (m_mask.isConnected()) {
         const double inputBytes = sampler.image ? double(sampler.image->getLx()) * sampler.image->getLy() * sampler.image->getPixelSize() : 0;
         demand(inputBytes + double(tile.getRaster()->getLx()) * tile.getRaster()->getLy() * tile.getRaster()->getPixelSize() <= maxWorkingBytes,

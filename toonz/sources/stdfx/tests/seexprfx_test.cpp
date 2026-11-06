@@ -180,6 +180,61 @@ void checkSampledBounds() {
           "Expression Color without a Source reported bounds");
 }
 
+// A Source that honours the render transform, as a level column does: each
+// output pixel shows the image pixel under its centre.
+class TransformedSource final : public TStandardRasterFx {
+  TRaster32P m_image;
+public:
+  explicit TransformedSource(const TRaster32P &image) : m_image(image) {}
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double, const TRenderSettings &) const override { return "seexpr-test-transformed-source"; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(0, 0, m_image->getLx(), m_image->getLy()); return true;
+  }
+  void compute(TTile &tile, double, const TRenderSettings &settings) override {
+    TRaster32P out = tile.getRaster();
+    out->clear();
+    const TAffine inverse = settings.m_affine.inv();
+    for (int y = 0; y < out->getLy(); ++y)
+      for (int x = 0; x < out->getLx(); ++x) {
+        const TPointD local = inverse * (tile.m_pos + TPointD(x + .5, y + .5));
+        const int ix = int(std::floor(local.x)), iy = int(std::floor(local.y));
+        if (ix >= 0 && iy >= 0 && ix < m_image->getLx() && iy < m_image->getLy())
+          out->pixels(y)[x] = m_image->pixels(iy)[ix];
+      }
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
+};
+
+// Under a rotation the Source canvas is a rotated rectangle. Repeating by
+// exactly the Source width must give back the same Source pixel; wrapping in
+// screen coordinates, as before, does not.
+void checkRotatedEdges() {
+  TRaster32P input(8, 4);
+  for (int y = 0; y < 4; ++y)
+    for (int x = 0; x < 8; ++x)
+      input->pixels(y)[x] = TPixel32(30 * x + 10, 60 * y + 10, 200, 255);
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new TransformedSource(input));
+  set(fx, "samplingRadius", 8);
+  choice(fx, "samplingFilter", 0);
+  choice(fx, "edgeMode", 2);
+  TRenderSettings rotated; rotated.m_affine = TRotation(30);
+  document(fx, "$src", "$a");
+  const auto direct = rendered<TPixel32>(fx, 12, 12, TPointD(-3, -1), 0, rotated);
+  document(fx, "sample_rgb(8,0)", "sample_alpha(8,0)");
+  const auto repeated = rendered<TPixel32>(fx, 12, 12, TPointD(-3, -1), 0, rotated);
+  int inside = 0;
+  for (int y = 0; y < 12; ++y)
+    for (int x = 0; x < 12; ++x) {
+      if (direct->pixels(y)[x].m != 255) continue;
+      ++inside;
+      require(repeated->pixels(y)[x] == direct->pixels(y)[x],
+              "Repeat under a rotation did not wrap by the Source width");
+    }
+  require(inside > 10, "the rotated Source was not rendered");
+}
+
 void checkControlRangeEdits() {
   SeExprGeneratorFx fx;
   auto amount = scalar("amount", 2.5);
@@ -1070,6 +1125,7 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary; require(temporary.isValid(), "temporary fixture directory is unavailable");
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
+    checkRotatedEdges();
     checkSampledBounds();
     checkControlRangeEdits(); checkAnimationCurveControls(temporary.path()); checkNamespacedRenderAttributes();
     checkSurfaceHostBoundary();
