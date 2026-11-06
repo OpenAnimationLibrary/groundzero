@@ -11,6 +11,7 @@ set(MOC_HEADERS
     viewtools.h
     selectiontool.h
     edittool.h
+    weightpainter.h
     controlpointeditortool.h
     geometrictool.h
     ../include/tools/imagegrouping.h
@@ -92,6 +93,7 @@ set(SOURCES
     controlpointeditortool.cpp
     cuttertool.cpp
     edittool.cpp
+    weightpainter.cpp
     edittoolgadgets.cpp
     filltool.cpp
     fullcolorbrushtool.cpp

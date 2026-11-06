@@ -417,6 +417,7 @@
   <item>"STD_deformerStackFx.a_center"	"A Falloff Center"	</item>
   <item>"STD_deformerStackFx.a_inner"	"A Inner Radius"	</item>
   <item>"STD_deformerStackFx.a_outer"	"A Outer Radius"	</item>
+  <item>"STD_deformerStackFx.a_paint"	"A Painted Weights"	</item>
   <item>"STD_deformerStackFx.a_point1"	"A Point 1"	</item>
   <item>"STD_deformerStackFx.a_point2"	"A Point 2"	</item>
   <item>"STD_deformerStackFx.a_point3"	"A Point 3"	</item>
@@ -438,6 +439,7 @@
   <item>"STD_deformerStackFx.b_center"	"B Falloff Center"	</item>
   <item>"STD_deformerStackFx.b_inner"	"B Inner Radius"	</item>
   <item>"STD_deformerStackFx.b_outer"	"B Outer Radius"	</item>
+  <item>"STD_deformerStackFx.b_paint"	"B Painted Weights"	</item>
   <item>"STD_deformerStackFx.b_point1"	"B Point 1"	</item>
   <item>"STD_deformerStackFx.b_point2"	"B Point 2"	</item>
   <item>"STD_deformerStackFx.b_point3"	"B Point 3"	</item>
@@ -459,6 +461,7 @@
   <item>"STD_deformerStackFx.c_center"	"C Falloff Center"	</item>
   <item>"STD_deformerStackFx.c_inner"	"C Inner Radius"	</item>
   <item>"STD_deformerStackFx.c_outer"	"C Outer Radius"	</item>
+  <item>"STD_deformerStackFx.c_paint"	"C Painted Weights"	</item>
   <item>"STD_deformerStackFx.c_point1"	"C Point 1"	</item>
   <item>"STD_deformerStackFx.c_point2"	"C Point 2"	</item>
   <item>"STD_deformerStackFx.c_point3"	"C Point 3"	</item>

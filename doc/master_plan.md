@@ -77,7 +77,7 @@ this was written). What each one delivered and what is still partial:
 
 | # | Delivered | Still partial |
 |---|---|---|
-| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX with 3 layers, each of type Envelope, Curve, Free-Form, Bone or Shape-Aware (`doc/deformer_stack.md`) | Raster warp, or live stroke deformation of a Toonz Vector Source with Deform Strokes (`doc/deform_strokes.md`); weights are not painted; not a per-column stack; fixed point counts per layer type |
+| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX with 3 layers, each of type Envelope, Curve, Free-Form, Bone or Shape-Aware (`doc/deformer_stack.md`) | Raster warp, or live stroke deformation of a Toonz Vector Source with Deform Strokes (`doc/deform_strokes.md`); weights painted with the Animate tool (`doc/deformer_stack.md`); not a per-column stack; fixed point counts per layer type |
 | A2 | Rig view in the Stage Schematic: badges, filter, published channels with ports, clickable badges | Deformers are not graph nodes; ports have no links |
 | A3 | Offset layers on stage objects, panel, Function Editor channels, Train from Keys, pose "apply as layer" | No Plastic / Path / sound channels; no Setup Mode |
 | A4 | 2D pad, pose blend through offset layers, drawing-swap bake in Master Controllers; the widgets are saved with the controller pegbars and drawn in the viewer by the Animate tool (`toonz/mastercontroller.h`) | No grid widget |

@@ -18,6 +18,24 @@ Each layer page in the FX Settings has:
 - **Type**: Envelope (the default), Curve, Free-Form, Bone or Shape-Aware.
   Only the parameters of the chosen type are shown, and only they are used.
 
+## Painted weights
+
+A layer's weights can also be painted, in the style of the Plastic rigidity
+brush. With the Deformer Stack FX current, turn on **Paint Weights** in the
+Animate tool's options, choose the **Weight Layer** (A, B or C) and the
+**Brush** size in screen pixels, and drag in the viewer: the weights rise
+toward 1 under the brush, or fall toward 0 with **Erase Weights**. The
+painted weights show in red, more opaque where higher, and a drag is one undo
+step. The Animate tool does not move objects while Paint Weights is on.
+
+Painted weights multiply the layer's Weight and Falloff, for every layer
+type, so a layer with painted weights deforms only where it is painted. The
+first stroke makes the painting over the Source's bounds with a margin, 64
+cells on its longer side (`TDeformerWeightPainting` in
+`toonz/tdeformerstack.h`); it is in the FX's space, so it follows the column.
+Erasing every cell leaves the layer without effect; the painting stays
+saved.
+
 | Type | Same deformer as | In a stack layer | Parameter names (layer A) |
 |---|---|---|---|
 | Envelope | Envelope Deformer FX | 8 points and their rest points | `a_point1`..`a_point8`, `a_rest1`..`a_rest8` (unchanged) |
@@ -68,6 +86,9 @@ again (or another one and back) to see the gadgets of the new type.
   Envelope, and the parameters of a type only for the layers of that type.
 - A layer's Envelope parameters, weight and falloff are always written, as
   before.
+- A layer's painted weights (`a_paint`, a text parameter not shown in the FX
+  Settings) are written only once painted. Older builds skip them and apply
+  the layer without them.
 - Older builds skip the unknown parameters of a scene that uses the new
   types, so they read every layer as an Envelope layer. The deformation of a
   Curve, Free-Form, Bone or Shape-Aware layer is lost there.
@@ -83,7 +104,7 @@ again (or another one and back) to see the gadgets of the new type.
   single Curve Deformer FX uses the curve's own conservative bounds instead,
   because a thin band of influence can fall between the samples; a Curve
   layer with a very small Width and Falloff may be clipped at tile borders.
-- Weights are uniform or distance based; there are no painted weights, and
+- Painted weights have a fixed resolution and area, set by the first stroke;
   the stack is an FX on the column's output, not a per-column stack.
 - The point counts of the stack layers are fixed (see the table).
 
@@ -93,5 +114,7 @@ again (or another one and back) to see the gadgets of the new type.
 weight 1 deforms, and inverts, as the two deformers applied in order
 (`testStackCurveAndBone`), and Curve, Free-Form, Bone (with a distance
 falloff) and Shape-Aware layers on their rest pose leave points unchanged at
-any weight (`testStackIdentityLayers`). The FX code itself is not unit
-tested.
+any weight (`testStackIdentityLayers`). `testWeightPainting` covers the
+painted weights: painting and erasing, their text form, and a painted layer
+in a stack, with its inverse. The FX code and the painting in the viewer are
+not unit tested.

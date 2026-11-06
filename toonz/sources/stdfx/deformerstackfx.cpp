@@ -119,6 +119,10 @@ class DeformerStackFx final : public TStandardRasterFx, public TDeformerSource {
     TBoolParamP m_falloff;
     TPointParamP m_center;
     TDoubleParamP m_inner, m_outer;
+    // The painted weights (TDeformerWeightPainting::toString()), in the fx's
+    // space; empty when none were painted. Painted with the Animate tool's
+    // Paint Weights, not shown in the fx settings.
+    TStringParamP m_paint;
 
     //! Returns the layer's type, a LayerType.
     int getType() const {
@@ -218,6 +222,9 @@ public:
       layer.m_outer->setMeasureName("fxLength");
       layer.m_outer->setValueRange(0.0, 1e6);
       bindParam(this, prefix + "outer", layer.m_outer);
+
+      layer.m_paint = TStringParamP(L"");
+      bindParam(this, prefix + "paint", layer.m_paint);
 
       // The type, and the parameters of the types other than Envelope
       layer.m_type = TIntEnumParamP(ENVELOPE_LAYER, c_typeLabels[0]);
@@ -324,6 +331,15 @@ int DeformerStackFx::buildStack(double frame, const TAffine &aff,
           weight, aff * layer.m_center->getValue(frame),
           layer.m_inner->getValue(frame) * radiusScale,
           layer.m_outer->getValue(frame) * radiusScale);
+
+    // Painted weights multiply the others; they are in the fx's space
+    const std::wstring paint = layer.m_paint->getValue();
+    if (!paint.empty()) {
+      std::shared_ptr<const TDeformerWeightPainting> painting(
+          new TDeformerWeightPainting(TDeformerWeightPainting::fromString(
+              std::string(paint.begin(), paint.end()))));
+      weights = weights.withPainting(painting, aff.inv());
+    }
 
     stack.addLayer(deformer, weights);
     rest.insert(rest.end(), layerRest.begin(), layerRest.end());
@@ -483,6 +499,9 @@ bool DeformerStackFx::isParamSaved(const TParamVar *paramVar) const {
     const int type = m_layers[i].getType();
     if (name == std::string(c_layerNames[i]) + "_type")
       return type != ENVELOPE_LAYER;
+    // The painted weights, once painted
+    if (name == std::string(c_layerNames[i]) + "_paint")
+      return !m_layers[i].m_paint->getValue().empty();
 
     for (int t = CURVE_LAYER; t < LAYER_TYPE_COUNT; ++t)
       if (startsWith(name, typePrefix(i, t))) return type == t;

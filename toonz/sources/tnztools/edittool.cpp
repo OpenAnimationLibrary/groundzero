@@ -28,8 +28,10 @@
 #include "toonz/tstageobjectcmd.h"
 
 #include "edittoolgadgets.h"
+#include "weightpainter.h"
 
 #include <algorithm>
+#include <cmath>
 
 // For Qt translation support
 #include <QCoreApplication>
@@ -695,7 +697,11 @@ EditTool::EditTool()
     , m_isAltPressed(false)
     , m_trajectoryKeyHighlighted(-1)
     , m_trajectoryKeyDragged(-1)
-    , m_trajectoryFrameHandle(nullptr) {
+    , m_trajectoryFrameHandle(nullptr)
+    , m_paintWeights("Paint Weights", false)
+    , m_weightLayer("Weight Layer:")
+    , m_weightBrush("Weight Brush:", 1.0, 500.0, 40.0)
+    , m_eraseWeights("Erase Weights", false) {
   bind(TTool::AllTargets);
   m_prop.bind(m_scaleConstraint);
   m_prop.bind(m_autoSelect);
@@ -746,6 +752,15 @@ EditTool::EditTool()
   m_activeAxis.setValue(L"Position");
 
   m_activeAxis.setId("EditToolActiveAxis");
+
+  m_prop.bind(m_paintWeights);
+  m_prop.bind(m_weightLayer);
+  m_prop.bind(m_weightBrush);
+  m_prop.bind(m_eraseWeights);
+  m_weightLayer.addValue(L"A");
+  m_weightLayer.addValue(L"B");
+  m_weightLayer.addValue(L"C");
+  m_weightLayer.setValue(L"A");
 }
 
 //-----------------------------------------------------------------------------
@@ -840,6 +855,13 @@ void EditTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
   /*-- return while left dragging --*/
   if (e.isLeftButtonPressed()) return;
 
+  /*-- Paint Weights: the brush follows the mouse --*/
+  if (weightPaintEnabled()) {
+    m_weightCursor = toWeightSpace(pos);
+    invalidate();
+    return;
+  }
+
   /*-- Keyframe markers of the trajectory have priority over the gadgets --*/
   int trajectoryKey = pickTrajectoryKey(pos);
   if (trajectoryKey != m_trajectoryKeyHighlighted) {
@@ -885,6 +907,17 @@ TPoint lastScreenPos;
 
 void EditTool::leftButtonDown(const TPointD &ppos, const TMouseEvent &e) {
   TPointD pos = ppos;
+
+  /*-- Paint Weights: paint the weights instead of moving objects --*/
+  if (weightPaintEnabled()) {
+    m_weightCursor = toWeightSpace(pos);
+    m_weightPainter.begin(weightPaintFx(), m_weightLayer.getIndex(),
+                          m_weightCursor, weightBrushRadius(),
+                          m_eraseWeights.getValue(), getFrame());
+    invalidate();
+    return;
+  }
+
   /*-- Do nothing for Sound column --*/
   if (!doesApply()) return;
 
@@ -1027,6 +1060,12 @@ void EditTool::onEditAllLeftButtonDown(TPointD &pos, const TMouseEvent &e) {
 //-----------------------------------------------------------------------------
 
 void EditTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
+  if (m_weightPainter.isActive()) {
+    m_weightCursor = toWeightSpace(pos);
+    m_weightPainter.drag(m_weightCursor);
+    invalidate();
+    return;
+  }
   if (!m_dragTool) return;
   if (m_trajectoryKeyDragged >= 0)
     m_dragTool->leftButtonDrag(m_trajectoryDragAff * pos, e);
@@ -1039,6 +1078,11 @@ void EditTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 //-----------------------------------------------------------------------------
 
 void EditTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
+  if (m_weightPainter.isActive()) {
+    m_weightPainter.end();
+    invalidate();
+    return;
+  }
   if (m_dragTool) {
     if (m_trajectoryKeyDragged >= 0)
       m_dragTool->leftButtonUp(m_trajectoryDragAff * pos, e);
@@ -1567,6 +1611,9 @@ void EditTool::draw() {
   /*-- Show nothing on Level Editing mode --*/
   if (TTool::getApplication()->getCurrentFrame()->isEditingLevel()) return;
 
+  /*-- Paint Weights: the weights of the layer and the brush --*/
+  if (weightPaintEnabled() && !isPicking()) drawWeights();
+
   // if the column and its children are all hidden, only draw fx gadgets
   if (!transformEnabled()) {
     m_fxGadgetController->draw(isPicking());
@@ -1774,6 +1821,7 @@ m_foo.setFxHandle(getApplication()->getCurrentFx());
 //=============================================================================
 
 void EditTool::onDeactivate() {
+  if (m_weightPainter.isActive()) m_weightPainter.end();
   if (m_dragTool) {
     m_dragTool->leftButtonUp();
     TUndoManager::manager()->endBlock();
@@ -1782,6 +1830,42 @@ void EditTool::onDeactivate() {
   }
   m_trajectoryKeyDragged     = -1;
   m_trajectoryKeyHighlighted = -1;
+}
+
+//-----------------------------------------------------------------------------
+
+//! The current fx, when its weights can be painted (a Deformer Stack FX).
+TFx *EditTool::weightPaintFx() const {
+  TFx *fx = TTool::getApplication()->getCurrentFx()->getFx();
+  return WeightPainter::accepts(fx) ? fx : nullptr;
+}
+
+bool EditTool::weightPaintEnabled() const {
+  return m_paintWeights.getValue() && weightPaintFx() &&
+         m_fxGadgetController;
+}
+
+//! The brush radius in the FX's space: Weight Brush screen pixels.
+double EditTool::weightBrushRadius() const {
+  const TAffine toFx = m_fxGadgetController->getMatrix().inv();
+  return m_weightBrush.getValue() * getPixelSize() *
+         std::sqrt(std::fabs(toFx.det()));
+}
+
+TPointD EditTool::toWeightSpace(const TPointD &pos) const {
+  return m_fxGadgetController->getMatrix().inv() * pos;
+}
+
+void EditTool::drawWeights() {
+  const int layer = m_weightLayer.getIndex();
+  glPushMatrix();
+  tglMultMatrix(m_fxGadgetController->getMatrix());
+  WeightPainter::draw(m_weightPainter.isActive()
+                          ? m_weightPainter.painting()
+                          : WeightPainter::getPainting(weightPaintFx(), layer),
+                      m_weightCursor, weightBrushRadius(),
+                      std::sqrt(tglGetPixelSize2()));
+  glPopMatrix();
 }
 
 //-----------------------------------------------------------------------------

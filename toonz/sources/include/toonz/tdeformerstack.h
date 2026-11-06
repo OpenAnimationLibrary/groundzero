@@ -6,6 +6,7 @@
 #include "toonz/tdeformer.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #undef DVAPI
@@ -17,6 +18,51 @@
 #define DVAPI DV_IMPORT_API
 #define DVVAR DV_IMPORT_VAR
 #endif
+
+//================================================================================================
+//
+// TDeformerWeightPainting
+//
+//================================================================================================
+
+//! Weights painted over a rect of the plane: a grid of lx x ly cells, each
+//! with a weight from 0 to 255 (meaning 0 to 1). The weight is interpolated
+//! between the cells' centers and is 0 outside the rect.
+/*!
+  The Deformer Stack FX keeps a painting for each layer, in the FX's space,
+  as a string parameter (toString()), and the Animate tool paints it
+  (paint()). Painted weights multiply the layer's own weight map.
+*/
+class DVAPI TDeformerWeightPainting {
+public:
+  int m_lx = 0, m_ly = 0;
+  TRectD m_rect;
+  std::vector<unsigned char> m_values;  //!< Row by row, from the rect's y0
+
+  //! Returns a painting of weight 0 over rect, of lx x ly cells.
+  static TDeformerWeightPainting make(const TRectD &rect, int lx, int ly);
+
+  //! Returns whether the painting has no cells.
+  bool isEmpty() const {
+    return m_lx <= 0 || m_ly <= 0 || (int)m_values.size() != m_lx * m_ly ||
+           !(m_rect.x1 > m_rect.x0) || !(m_rect.y1 > m_rect.y0);
+  }
+
+  //! Returns the weight at p, in [0, 1]: 0 outside the rect.
+  double weightAt(const TPointD &p) const;
+
+  //! Moves the cells within radius of center toward the target weight, by
+  //! strength (in [0, 1]) at the center, less toward the rim. Returns whether
+  //! any cell changed.
+  bool paint(const TPointD &center, double radius, double target,
+             double strength);
+
+  //! Returns the painting as text, or an empty string when it is empty.
+  std::string toString() const;
+  //! Returns the painting written by toString(), or an empty one if the text
+  //! is not one.
+  static TDeformerWeightPainting fromString(const std::string &text);
+};
 
 //================================================================================================
 //
@@ -42,6 +88,9 @@ private:
   TPointD m_center;
   double m_inner, m_outer;  //!< 0 <= inner <= outer
 
+  std::shared_ptr<const TDeformerWeightPainting> m_painting;
+  TAffine m_toPainting;  //!< From the plane to the painting's space
+
 public:
   //! Builds a uniform map of weight 1.
   TDeformerWeightMap()
@@ -58,8 +107,17 @@ public:
   static TDeformerWeightMap makeDistance(double weight, const TPointD &center,
                                          double inner, double outer);
 
+  //! Returns the map multiplied by the painted weights, whose space the
+  //! passed affine maps the plane to. An empty painting is ignored.
+  TDeformerWeightMap withPainting(
+      const std::shared_ptr<const TDeformerWeightPainting> &painting,
+      const TAffine &planeToPainting) const;
+
   Type getType() const { return m_type; }
-  bool isUniform() const { return m_type == Uniform; }
+  //! Returns whether the weight is the same everywhere: a uniform map
+  //! without painted weights.
+  bool isUniform() const { return m_type == Uniform && !m_painting; }
+  bool isPainted() const { return (bool)m_painting; }
   double getWeight() const { return m_weight; }
   const TPointD &getCenter() const { return m_center; }
   double getInnerRadius() const { return m_inner; }
