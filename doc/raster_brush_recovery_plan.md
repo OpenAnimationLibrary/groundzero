@@ -85,3 +85,30 @@ These diagnoses come from completed logs, not inferred sanitizer failures.
 
 No local builds or tests ran. Final qualification and the remaining feature
 contract remain open. See raster_brush_acceptance_audit.md.
+
+## Reconstruction and first CI observations
+
+The original unpublished work was in an old cloud session and is unavailable.
+The recovery branch reconstructs Distance length/repeat state in native
+conversions and enables Time/Distance interval editing. Source admission remains
+separate. New fixtures cover interval saturation/repeat, invalid metadata,
+portable persistence, editor acceptance/cancellation and preservation.
+
+The combined native-wet application fixture now edits HSV and texture depth,
+paints and checks undo/redo/cancellation, reopens scene pixels, exports a manifest,
+repairs its shared tip/texture resource and replays it through the worker/tool.
+This reconstructs required lifecycle coverage, not the unavailable commit itself.
+
+At c7a7d71cb, Linux/Windows Qt5/Qt6 engine suites passed, along with the new
+fixture matrix checks. The reference cache validation and native metrics passed.
+The preset suite progressed to a stale assertion that still excluded wet V2
+identity-pressure HSV, despite the published importer/runtime explicitly admitting
+it. The test now covers that supported candidate and keeps nonidentity/rotation
+negative controls. Generated-tip acquisition exposed a missing explicit source
+engine declaration; those original dry fixtures now declare paintbrush and retain
+effective-engine validation. A separate new-smear 10000-dab drift gate failed;
+its diagnostics are under investigation without changing thresholds.
+
+These observations qualify only the named c7a7d71cb checks. Later reconstruction
+and correction commits require their own CI. Broad source behavior and external
+reference/device evidence are still incomplete.

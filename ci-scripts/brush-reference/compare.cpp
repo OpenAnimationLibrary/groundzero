@@ -257,6 +257,8 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
             "Duplicate or mismatched fixture preset identity");
     names.append(name);
   }
+  if (fixtures["group"].toString() == "generatedtips")
+    require(expected.size() == 32, "Incomplete generated tip fixture matrix");
   if (fixtures["group"].toString() == "tabletsensors")
     require(expected.size() == 188,
             "Incomplete tablet sensor fixture matrix");

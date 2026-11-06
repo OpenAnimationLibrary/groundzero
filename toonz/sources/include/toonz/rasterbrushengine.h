@@ -54,7 +54,7 @@ struct Mapping {
   double scale                = 1;
   Interpolation interpolation = Interpolation::Linear;
   bool periodic =
-      false;  // Explicit Time cycle; other sensors reject this flag.
+      false;  // Explicit Time/Distance cycle; other sensors reject this flag.
 };
 struct Dynamic {
   double value = 1, minimum = 0;

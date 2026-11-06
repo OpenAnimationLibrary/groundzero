@@ -205,6 +205,37 @@ void testPeriodicTimeMapping() {
   require(!validate(invalid).empty(),
           "Non-Time sensor admitted a periodic flag");
 }
+void testPeriodicDistanceMapping() {
+  auto render = [](bool periodic, bool dense) {
+    Canvas canvas;
+    Preset preset;
+    preset.size.value = 4;
+    preset.spacing = 4;
+    Mapping distance;
+    distance.sensor = Sensor::Distance;
+    distance.scale = 64;
+    distance.periodic = periodic;
+    distance.curve = {{0, .25}, {1, 1}};
+    preset.opacity.mappings = {distance};
+    Stroke stroke(canvas, preset);
+    require(stroke.add(sample(10.5, 10.5, 0)), stroke.error().c_str());
+    if (dense) {
+      for (int i = 1; i <= 80; ++i)
+        require(stroke.add(sample(10.5 + i, 10.5, i / 80.)),
+                stroke.error().c_str());
+    } else
+      require(stroke.add(sample(90.5, 10.5, 1)), stroke.error().c_str());
+    finishStroke(stroke);
+    return canvas;
+  };
+  const auto cycling = render(true, false), clamped = render(false, false);
+  require(same(cycling, render(true, true)) &&
+              same(clamped, render(false, true)),
+          "Distance mapping depends on straight-path delivery partition");
+  require(cycling.read(10, 10).a == .25 &&
+              cycling.read(74, 10).a == .25 && clamped.read(74, 10).a == 1,
+          "Distance interval did not wrap or nonperiodic distance did not saturate");
+}
 void testSourceFixedBitmapCaptures() {
   for (const auto &capture : RasterBrushBitmapReference::captures()) {
     auto image    = std::make_shared<Image>();
@@ -4165,6 +4196,7 @@ int main() {
       {"testColorDynamics", testColorDynamics},
       {"testCubicCurves", testCubicCurves},
       {"testPeriodicTimeMapping", testPeriodicTimeMapping},
+      {"testPeriodicDistanceMapping", testPeriodicDistanceMapping},
       {"testSourceAirbrushDispatch", testSourceAirbrushDispatch},
       {"testSourceDefaultCircle", testSourceDefaultCircle},
       {"testSourceDullingRadiusImpulses", testSourceDullingRadiusImpulses},

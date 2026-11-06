@@ -108,3 +108,15 @@ Interactive scratchpad strokes use the same policy; the automatic sample uses
 the saved seed so editing comparisons remain repeatable. Portable packages retain
 the policy and base seed, not transient session counters. Source profiles reject
 this native-only policy until a separate source input contract is qualified.
+
+## Native Time and Distance intervals
+
+The dynamics editor can repeat Time and Distance curves after the selected scale
+interval. Time is in elapsed seconds; native Distance is accumulated document
+pixels. Other sensor types cannot enable repeating intervals. Changing to another
+sensor clears the repeat setting. Portable presets preserve interval/scale.
+
+KPP Size Distance conversions retain an explicit finite positive length and
+periodic flag. Missing, malformed or unknown declarations remain unmapped with
+conversion diagnostics. This native conversion preserves editable intent;
+source Distance sampling and equivalence still require reference qualification.

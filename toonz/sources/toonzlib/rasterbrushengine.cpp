@@ -649,7 +649,8 @@ std::string validate(const Preset &p) {
     for (const auto &m : d.mappings) {
       if (int(m.sensor) < 0 || int(m.sensor) > int(Sensor::DabIndex) ||
           !range(m.scale, 1e-9, 1e9) ||
-          (m.periodic && m.sensor != Sensor::Time) || m.curve.empty() ||
+          (m.periodic && m.sensor != Sensor::Time &&
+           m.sensor != Sensor::Distance) || m.curve.empty() ||
           m.curve.size() > 1024 || int(m.interpolation) < 0 ||
           int(m.interpolation) > int(Interpolation::NaturalCubic))
         return false;

@@ -17,6 +17,7 @@ class GeneratedTipContract(unittest.TestCase):
             self.assertEqual(len(cases),32)
             self.assertEqual({c['generatedTipProbe']['id'] for c in cases},{'default','gauss','soft'})
             for case in cases:
+                self.assertEqual(case['sourceEngine'],'paintbrush')
                 definition=case['overrides']['brush_definition']
                 result=probe.controls(case,definition)
                 self.assertEqual(result['effectiveMask']['id'],case['generatedTipProbe']['id'])

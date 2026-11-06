@@ -320,6 +320,7 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
   QXmlStreamReader xml(fields.value(prefix + "Sensor"));
   QString sensor, curve;
   bool periodic = false;
+  double scale = 1;
   while (!xml.atEnd()) {
     xml.readNext();
     if (xml.isEntityReference()) return false;
@@ -343,6 +344,22 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
               a.name() != QStringLiteral("duration") &&
               a.name() != QStringLiteral("periodic"))
             return false;
+      } else if (sensor == "distance") {
+        // Preserve the serialized path-length interval in a native conversion.
+        // This does not admit a source profile or assert source sampling parity.
+        bool ok = false;
+        scale = xml.attributes().value("length").toString().toDouble(&ok);
+        if (prefix != "Size" || !ok || !std::isfinite(scale) ||
+            scale < 1e-9 || scale > 1e9 ||
+            (xml.attributes().value("periodic") != QStringLiteral("0") &&
+             xml.attributes().value("periodic") != QStringLiteral("1")))
+          return false;
+        periodic = xml.attributes().value("periodic") == QStringLiteral("1");
+        for (auto a : xml.attributes())
+          if (a.name() != QStringLiteral("id") &&
+              a.name() != QStringLiteral("length") &&
+              a.name() != QStringLiteral("periodic"))
+            return false;
       } else {
         for (auto a : xml.attributes())
           if (a.name() != QStringLiteral("id")) return false;
@@ -354,6 +371,7 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
   }
   if (xml.hasError()) return false;
   const QMap<QString, Sensor> names = {{"time", Sensor::Time},
+                                       {"distance", Sensor::Distance},
                                        {"pressure", Sensor::Pressure},
                                        {"xtilt", Sensor::TiltX},
                                        {"ytilt", Sensor::TiltY},
@@ -369,6 +387,7 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
   Mapping mapping;
   mapping.sensor = names[sensor];
   mapping.periodic = periodic;
+  mapping.scale = scale;
   mapping.curve.clear();
   double previous = -1;
   for (auto point : points) {

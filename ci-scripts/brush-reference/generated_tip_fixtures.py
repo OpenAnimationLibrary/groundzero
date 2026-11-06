@@ -25,7 +25,7 @@ def prepare(root, resources, writer):
         SubElement(brush,'MaskGenerator',attributes)
         overrides={'brush_definition':tostring(brush,encoding='unicode'),'Spacing/Isotropic':'false'}
         (resources/'paintoppresets'/(name+'.kpp')).write_bytes(writer(name,'dry',False,overrides,diameter,1,1))
-        cases.append({'preset':name,'variant':'baseline','diameter':diameter,'spacing':1,'pressure':[1,1],'opacity':1,'flow':1,
+        cases.append({'preset':name,'sourceEngine':'paintbrush','variant':'baseline','diameter':diameter,'spacing':1,'pressure':[1,1],'opacity':1,'flow':1,
             'foregroundRGBA8':[173,91,47,255],'start':[1024,1024],'end':[1025,1024],
             'background':'transparent','overrides':overrides,'delivery':'Node.paintLine','canvasCenter':[1024,1024],
             'generatedTipProbe':attributes,'changeExpectation':'Distinct source mask acquisition; no source generator admission'})

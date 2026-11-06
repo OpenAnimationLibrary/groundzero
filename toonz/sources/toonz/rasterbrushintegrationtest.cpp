@@ -357,12 +357,15 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
               "cancelled native editor scratchpad changed document or undo");
     }
-    checkpoint("qualifying periodic Time dynamics editor persistence");
-    {
+    checkpoint("qualifying periodic Time/Distance dynamics editor persistence");
+    for (const auto repeatSensor : {RasterBrush::Sensor::Time,
+                                    RasterBrush::Sensor::Distance}) {
       RasterBrush::Record fixture;
-      fixture.preset.name = "Original periodic Time editor fixture";
+      fixture.preset.name = repeatSensor == RasterBrush::Sensor::Time
+                                ? "Original periodic Time editor fixture"
+                                : "Original periodic Distance editor fixture";
       RasterBrush::Mapping clock;
-      clock.sensor   = RasterBrush::Sensor::Time;
+      clock.sensor   = repeatSensor;
       clock.periodic = true;
       fixture.preset.size.mappings.push_back(clock);
       const QString folder =
@@ -383,7 +386,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         property->setValue(originalSelection);
         require(tool->onPropertyChanged("Native Brush:"),
                 "cannot select periodic editor fixture");
-        bool periodicSeen = false, timeOnly = false;
+        bool periodicSeen = false, repeatRestricted = false;
         QTimer::singleShot(0, [&] {
           auto editor =
               qobject_cast<QDialog *>(QApplication::activeModalWidget());
@@ -406,25 +409,25 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               if (sensor && repeat) {
                 periodicSeen =
                     repeat->isEnabled() && repeat->isChecked() &&
-                    sensor->currentIndex() == int(RasterBrush::Sensor::Time);
+                    sensor->currentIndex() == int(repeatSensor);
                 sensor->setCurrentIndex(int(RasterBrush::Sensor::Pressure));
-                timeOnly = !repeat->isEnabled() && !repeat->isChecked();
-                sensor->setCurrentIndex(int(RasterBrush::Sensor::Time));
-                timeOnly =
-                    timeOnly && repeat->isEnabled() && !repeat->isChecked();
+                repeatRestricted = !repeat->isEnabled() && !repeat->isChecked();
+                sensor->setCurrentIndex(int(repeatSensor));
+                repeatRestricted =
+                    repeatRestricted && repeat->isEnabled() && !repeat->isChecked();
                 repeat->setChecked(true);
                 table->item(0, 1)->setText("2");
               }
             }
             auto buttons = dynamics->findChild<QDialogButtonBox *>();
-            if (buttons && periodicSeen && timeOnly)
+            if (buttons && periodicSeen && repeatRestricted)
               buttons->button(QDialogButtonBox::Ok)->click();
             else
               dynamics->reject();
           });
           button->click();
           auto buttons = editor->findChild<QDialogButtonBox *>();
-          if (!accept || !periodicSeen || !timeOnly || !buttons) {
+          if (!accept || !periodicSeen || !repeatRestricted || !buttons) {
             editor->reject();
             return;
           }
@@ -437,9 +440,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         });
         property->setValue(L"<edit>");
         require(tool->onPropertyChanged("Native Brush:") && periodicSeen &&
-                    timeOnly,
-                "periodic Time editor lost its repeat setting or admitted "
-                "another repeating sensor");
+                    repeatRestricted,
+                "periodic Time/Distance editor lost its repeat setting or admitted "
+                "a noninterval repeating sensor");
         require(RasterBrush::readBoundedRegularFile(
                     original, 64 * 1024 * 1024, importError) == originalBytes &&
                     importError.isEmpty() && same(baseline, raster(level, 1)) &&
@@ -459,9 +462,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 "cannot reopen saved periodic editor preset");
         const auto &mappings = saved.records.front().preset.size.mappings;
         require(mappings.size() == 1 &&
-                    mappings.front().sensor == RasterBrush::Sensor::Time &&
+                    mappings.front().sensor == repeatSensor &&
                     mappings.front().periodic && mappings.front().scale == 2,
-                "editing and saving discarded periodic Time semantics");
+                "editing and saving discarded periodic Time/Distance semantics");
         const QString portable =
             QDir::current().filePath("periodic-time-editor.gzbrush");
         require(RasterBrush::savePortable(
@@ -1683,6 +1686,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       p.wash                = !wet;
       if (wet) {
         p.wet = RasterBrush::Wet::Dulling;
+        p.hue.value = 25;
+        p.saturation.value = .8;
+        p.brightness.value = 1.1;
         p.pickupControl.mappings.push_back(
             {RasterBrush::Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
       } else {
@@ -1925,7 +1931,18 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             if (opacity && buttons && buttons->button(QDialogButtonBox::Ok)) {
               opacity->setValue(.333);
               edited = true;
-              buttons->button(QDialogButtonBox::Ok)->click();
+              if (wet) {
+                const std::pair<const char *, double> controls[] = {
+                    {"nativeBrushHue", 37.5}, {"nativeBrushSaturation", .7},
+                    {"nativeBrushBrightness", 1.2}, {"nativeBrushTextureDepth", .4}};
+                for (const auto &control : controls) {
+                  auto spin = modal->findChild<QDoubleSpinBox *>(control.first);
+                  if (spin) spin->setValue(control.second);
+                  else edited = false;
+                }
+              }
+              if (edited) buttons->button(QDialogButtonBox::Ok)->click();
+              else qobject_cast<QDialog *>(modal)->reject();
             } else
               qobject_cast<QDialog *>(modal)->reject();
           } else if (auto name = qobject_cast<QInputDialog *>(modal)) {
@@ -1957,6 +1974,80 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 saved.records.front().preset.opacity.value == .333 &&
                 saved.records.front().preset.name == fixture.preset.name,
             "same-name preset copy did not preserve edited settings on reopen");
+        if (wet) {
+          const auto &editedPreset = saved.records.front().preset;
+          require(editedPreset.wet == RasterBrush::Wet::Dulling &&
+                      editedPreset.hue.value == 37.5 &&
+                      editedPreset.saturation.value == .7 &&
+                      editedPreset.brightness.value == 1.2 &&
+                      editedPreset.texture.depth == .4 &&
+                      editedPreset.texture.image &&
+                      editedPreset.pickupControl.mappings.size() == 1,
+                  "native wet editor lost HSV, texture or pickup dynamics");
+          if (saveIndex == 0) {
+            draw(tool, false, .8, .8, 1.5707963267948966);
+            const TRaster32P editedPaint = raster(level, 1)->clone();
+            require(!same(baseline, editedPaint) && !same(high, editedPaint) &&
+                        undo->getHistoryCount() == 1 && undo->undo() &&
+                        same(baseline, raster(level, 1)) && undo->redo() &&
+                        same(editedPaint, raster(level, 1)),
+                    "edited wet HSV/texture paint undo/redo failed");
+            verifyScenePersistence(editedPaint, "edited-native-wet-hsv-texture");
+            require(undo->undo() && same(baseline, raster(level, 1)),
+                    "edited wet persistence restore failed");
+            undo->reset();
+            draw(tool, true, .8, .8, 1.5707963267948966);
+            require(same(baseline, raster(level, 1)) &&
+                        undo->getHistoryCount() == 0,
+                    "edited wet cancellation retained state or pixels");
+            const auto manifest = RasterBrush::encodePortable(
+                saved.records.front(), RasterBrush::ResourcePackaging::ManifestOnly,
+                importError);
+            require(importError.isEmpty(), "edited wet manifest export failed");
+            QStringList repairedHashes;
+            const auto repaired = RasterBrush::relinkPortable(
+                manifest, saved.records, repairedHashes, importError);
+            require(importError.isEmpty() && repairedHashes.size() == 1,
+                    "edited wet shared tip/texture resource repair failed");
+            const QString repairedPath =
+                QDir::current().filePath("edited-native-wet-repaired.gzbrush");
+            QFile repairedFile(repairedPath);
+            require(repairedFile.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                        repairedFile.write(repaired) == repaired.size(),
+                    "cannot stage repaired edited wet portable preset");
+            repairedFile.close();
+            const auto repairedPreset = RasterBrush::importBrushProcess(
+                QCoreApplication::applicationFilePath(), repairedPath, importError);
+            require(importError.isEmpty() && repairedPreset.complete &&
+                        repairedPreset.records.size() == 1 &&
+                        repairedPreset.records.front().preset.hue.value == 37.5 &&
+                        repairedPreset.records.front().preset.saturation.value == .7 &&
+                        repairedPreset.records.front().preset.brightness.value == 1.2 &&
+                        repairedPreset.records.front().preset.texture.depth == .4 &&
+                        repairedPreset.records.front().preset.tip.images.size() == 1 &&
+                        repairedPreset.records.front().preset.tip.images.front() ==
+                            repairedPreset.records.front().preset.texture.image,
+                    "edited wet portable repair lost settings or shared resource");
+            const QString repairedInstalled = RasterBrush::install(
+                folder, repairedPreset.records.front(), importError);
+            require(importError.isEmpty() && !repairedInstalled.isEmpty(),
+                    "cannot install repaired edited wet portable preset");
+            tool->onActivate();
+            property->setValue(QDir(folder).relativeFilePath(
+                repairedInstalled).toStdWString());
+            require(tool->onPropertyChanged("Native Brush:"),
+                    "cannot select repaired edited wet preset");
+            draw(tool, false, .8, .8, 1.5707963267948966);
+            requireSame(editedPaint, raster(level, 1),
+                        "repaired edited wet brush repaint");
+            require(undo->undo() && same(baseline, raster(level, 1)),
+                    "repaired edited wet repaint undo failed");
+            undo->reset();
+            property->setValue(editedSelection);
+            require(tool->onPropertyChanged("Native Brush:"),
+                    "cannot restore edited wet selection");
+          }
+        }
         const auto unchanged = RasterBrush::readBoundedRegularFile(
             originalPath, 64 * 1024 * 1024, importError);
         require(importError.isEmpty() && unchanged == originalBytes &&

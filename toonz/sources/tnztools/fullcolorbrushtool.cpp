@@ -611,7 +611,7 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
   table->setObjectName("nativeBrushDynamicsTable");
   table->setHorizontalHeaderLabels(
       {QObject::tr("Sensor"), QObject::tr("Scale"), QObject::tr("Curve points"),
-       QObject::tr("Interpolation"), QObject::tr("Repeat time")});
+       QObject::tr("Interpolation"), QObject::tr("Repeat interval")});
   table->horizontalHeader()->setStretchLastSection(true);
   layout->addWidget(table);
   const QStringList sensors = {QObject::tr("Pressure"),
@@ -649,16 +649,18 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
     table->setCellWidget(row, 3, interpolation);
     auto repeat = new QCheckBox(table);
     repeat->setChecked(mapping.periodic);
-    repeat->setEnabled(mapping.sensor == RasterBrush::Sensor::Time);
+    repeat->setEnabled(mapping.sensor == RasterBrush::Sensor::Time ||
+                       mapping.sensor == RasterBrush::Sensor::Distance);
     repeat->setToolTip(
-        QObject::tr("Repeat the Time curve after each scale interval."));
+        QObject::tr("Repeat the Time or Distance curve after each scale interval."));
     table->setCellWidget(row, 4, repeat);
     QObject::connect(sensor, qOverload<int>(&QComboBox::currentIndexChanged),
                                       repeat, [repeat](int index) {
-                       const bool time =
-                           index == int(RasterBrush::Sensor::Time);
-                       if (!time) repeat->setChecked(false);
-                       repeat->setEnabled(time);
+                       const bool cyclic =
+                           index == int(RasterBrush::Sensor::Time) ||
+                           index == int(RasterBrush::Sensor::Distance);
+                       if (!cyclic) repeat->setChecked(false);
+                       repeat->setEnabled(cyclic);
                      });
   };
   for (const auto &mapping : dynamic.mappings) add(mapping);
@@ -690,7 +692,8 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
           static_cast<QComboBox *>(table->cellWidget(row, 3))->currentIndex());
       m.periodic =
           static_cast<QCheckBox *>(table->cellWidget(row, 4))->isChecked();
-      valid &= !m.periodic || m.sensor == RasterBrush::Sensor::Time;
+      valid &= !m.periodic || m.sensor == RasterBrush::Sensor::Time ||
+               m.sensor == RasterBrush::Sensor::Distance;
       bool ok = false;
       m.scale = table->item(row, 1)->text().toDouble(&ok);
       valid &=
@@ -1057,9 +1060,12 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Smudge sampling radius"), p.smudgeRadius, 0, 3)
       ->setObjectName("nativeBrushSmudgeRadius");
   spin(QObject::tr("Background color mix"), p.backgroundMix.value, 0, 1);
-  spin(QObject::tr("Hue rotation"), p.hue.value, -360, 360);
-  spin(QObject::tr("Saturation multiplier"), p.saturation.value, 0, 2);
-  spin(QObject::tr("Brightness multiplier"), p.brightness.value, 0, 2);
+  spin(QObject::tr("Hue rotation"), p.hue.value, -360, 360)
+      ->setObjectName("nativeBrushHue");
+  spin(QObject::tr("Saturation multiplier"), p.saturation.value, 0, 2)
+      ->setObjectName("nativeBrushSaturation");
+  spin(QObject::tr("Brightness multiplier"), p.brightness.value, 0, 2)
+      ->setObjectName("nativeBrushBrightness");
   auto background =
       new QPushButton(QObject::tr("Choose background color…"), &dialog);
   form->addRow(QObject::tr("Color dynamics"), background);
@@ -1347,7 +1353,8 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Texture angle"), p.texture.angle, -360, 360);
   spin(QObject::tr("Texture offset X"), p.texture.offsetX, -1e9, 1e9);
   spin(QObject::tr("Texture offset Y"), p.texture.offsetY, -1e9, 1e9);
-  spin(QObject::tr("Texture depth"), p.texture.depth, 0, 1);
+  spin(QObject::tr("Texture depth"), p.texture.depth, 0, 1)
+      ->setObjectName("nativeBrushTextureDepth");
   spin(QObject::tr("Texture contrast"), p.texture.contrast, 0, 10);
   spin(QObject::tr("Texture brightness"), p.texture.brightness, -1, 1);
   check(QObject::tr("Invert texture"), p.texture.invert);

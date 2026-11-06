@@ -1237,8 +1237,12 @@ void testImports() {
              "-candidate-1")
                 .toStdString();
         require(
-            candidate == (variant < 2 || (hsvModel.isEmpty() && variant == 4)),
-            "source HSV eligibility admitted unsupported controls");
+            candidate == (variant < 2 || variant == 4),
+            qPrintable(QString("source HSV eligibility mismatch: model=%1 channel=%2 "
+                               "variant=%3 profile=%4")
+                           .arg(hsvModel.isEmpty() ? "hard-pixel" : hsvModel)
+                           .arg(target).arg(variant)
+                           .arg(QString::fromStdString(record.preset.profile))));
         if (candidate) {
           const auto expected = (variant == 1 || variant == 4)
                                     ? SourceHsvChannel::Off
@@ -1454,6 +1458,48 @@ void testImports() {
               reopened.preset.size.mappings[0].scale == 1 &&
               reopened.preset.size.mappings[0].periodic == periodic,
           "Native time cycle/unit conversion did not survive preset reopen");
+    }
+  }
+  for (const QString attributes : {
+           "length=\"64\" periodic=\"0\"", "length=\"64\" periodic=\"1\"",
+           "length=\"128\" periodic=\"1\"", "length=\"0\" periodic=\"1\"",
+           "length=\"-1\" periodic=\"0\"", "length=\"nan\" periodic=\"0\"",
+           "length=\"1000000001\" periodic=\"1\"", "periodic=\"1\"",
+           "length=\"64\" periodic=\"2\"",
+           "length=\"64\" periodic=\"1\" unknown=\"1\""}) {
+    QImage image = QImage::fromData(hardPixelKpp("pressure"), "PNG");
+    QString xml = image.text("preset");
+    const QString original = QString("id=\"pressure\"").toHtmlEscaped();
+    require(xml.count(original) == 1, "Distance fixture lacks unique sensor");
+    xml.replace(original, (QString("id=\"distance\" ") + attributes).toHtmlEscaped());
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+            "Cannot author original Distance fixture");
+    const auto imported = importBrush(bytes, "kpp", error);
+    require(error.isEmpty() && imported.complete && imported.records.size() == 1 &&
+                imported.records.front().preset.profile == "groundzero-native-1" &&
+                !imported.records.front().referenceVerified,
+            "Distance conversion incorrectly admitted a source profile");
+    const bool supported = attributes == "length=\"64\" periodic=\"0\"" ||
+                           attributes == "length=\"64\" periodic=\"1\"" ||
+                           attributes == "length=\"128\" periodic=\"1\"";
+    const auto &maps = imported.records.front().preset.size.mappings;
+    require(supported ? maps.size() == 1 && maps[0].sensor == Sensor::Distance &&
+                            maps[0].scale == (attributes.startsWith("length=\"128\"") ? 128 : 64) &&
+                            maps[0].periodic == attributes.endsWith("periodic=\"1\"")
+                      : maps.empty(),
+            "Distance conversion lost its interval or guessed invalid metadata");
+    if (supported) {
+      const auto portable = encodePortable(imported.records.front(),
+          ResourcePackaging::PrivateCopy, error);
+      const auto restored = decode(portable, error);
+      require(error.isEmpty() && restored.preset.size.mappings.size() == 1 &&
+                  restored.preset.size.mappings[0].sensor == Sensor::Distance &&
+                  restored.preset.size.mappings[0].periodic == maps[0].periodic &&
+                  restored.preset.size.mappings[0].scale == maps[0].scale,
+              "Portable Distance conversion lost interval semantics");
     }
   }
   // Unknown source curve declarations must not be qualified merely because
