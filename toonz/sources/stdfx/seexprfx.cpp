@@ -1095,9 +1095,12 @@ protected:
     // plus a pixel for the bilinear taps, not the whole Source for every tile.
     if (m_edge->getValue() == 1 && settings.m_affine.a12 == 0 && settings.m_affine.a21 == 0) {
       auto project = [](double value, double low, double high) { return std::max(low, std::min(high, value)); };
-      const TRectD nearest(project(reach.x0, box.x0, box.x1), project(reach.y0, box.y0, box.y1),
-                           project(reach.x1, box.x0, box.x1), project(reach.y1, box.y0, box.y1));
-      return rasterBox(nearest.enlarge(1) * box);
+      // A request wholly to one side of the Source projects onto its edge, an
+      // empty rect, which TRectD::enlarge would leave empty: add the margin
+      // by hand.
+      const TRectD nearest(project(reach.x0, box.x0, box.x1) - 1, project(reach.y0, box.y0, box.y1) - 1,
+                           project(reach.x1, box.x0, box.x1) + 1, project(reach.y1, box.y0, box.y1) + 1);
+      return rasterBox(nearest * box);
     }
     // Repeat and Mirror can read anywhere on the Source.
     return rasterBox(box);
