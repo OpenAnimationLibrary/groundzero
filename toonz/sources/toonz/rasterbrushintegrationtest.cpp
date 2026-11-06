@@ -20,6 +20,7 @@
 #include "toonz/txshcell.h"
 #include "toonz/preferences.h"
 #include "toonz/rasterbrushimport.h"
+#include "toonz/mypaintbrushstyle.h"
 #include "toonz/toonzfolders.h"
 #include "tpalette.h"
 #include "tcolorstyles.h"
@@ -63,6 +64,7 @@
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -250,10 +252,75 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         tool->getProperties(0)->getProperty("Native Brush:"));
     require(property && property->isValue(L"<round>"),
             "native brush selector missing");
+    auto undo = TUndoManager::manager();
+    checkpoint("qualifying legacy MyPaint before and after native selection");
+    {
+      const auto baseline = raster(level, 1)->clone();
+      const auto previousSelection = property->getValue();
+      const int previousStyle = app->getCurrentPalette()->getStyleIndex();
+      std::unique_ptr<TColorStyle> originalStyle(palette->getStyle(1)->clone());
+      auto legacyStyle = new TMyPaintBrushStyle;
+      legacyStyle->setMainColor(TPixel32(25, 100, 200, 255));
+      legacyStyle->setBaseValue(MYPAINT_BRUSH_SETTING_RADIUS_LOGARITHMIC, 0.f);
+      legacyStyle->setBaseValue(MYPAINT_BRUSH_SETTING_HARDNESS, 1.f);
+      legacyStyle->setBaseValue(MYPAINT_BRUSH_SETTING_OPAQUE, 1.f);
+      undo->reset();
+      palette->setStyle(1, legacyStyle);
+      app->getCurrentPalette()->setStyleIndex(1, true);
+      settle();
+      const auto select = [&](const std::wstring &id) {
+        property->setValue(id);
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot switch legacy/native brush fixture");
+        require(property->getValue() == id,
+                "legacy/native selector did not retain the requested brush");
+      };
+      const auto paintAndRestore = [&]() {
+        require(app->getCurrentPalette()->getStyle() == legacyStyle &&
+                    legacyStyle->getTagId() == 4001,
+                "real MyPaint style is not selected");
+        draw(tool, false, 1, 0, 0);
+        const auto painted = raster(level, 1)->clone();
+        require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+                "legacy/native switch fixture did not paint one visible stroke");
+        require(undo->undo(), "cannot undo legacy/native switch fixture");
+        requireSame(baseline, raster(level, 1),
+                    "legacy/native switch undo changed the baseline");
+        require(undo->redo(), "cannot redo legacy/native switch fixture");
+        requireSame(painted, raster(level, 1),
+                    "legacy/native switch redo changed the painted pixels");
+        require(undo->undo(), "cannot restore legacy/native switch fixture");
+        requireSame(baseline, raster(level, 1),
+                    "legacy/native switch cleanup changed the baseline");
+        undo->reset();
+        return painted;
+      };
+      select(L"<legacy>");
+      const auto beforeNative = paintAndRestore();
+      select(L"<round>");
+      const auto nativePaint = paintAndRestore();
+      require(!same(beforeNative, nativePaint),
+              "native selection retained the legacy MyPaint rendering route");
+      // Escape rollback is the native contract; legacy strokes use completion.
+      draw(tool, true, 1, 0, 0);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "native cancellation failed between legacy strokes");
+      select(L"<legacy>");
+      const auto afterNative = paintAndRestore();
+      require(!same(afterNative, nativePaint),
+              "returning to legacy retained the native rendering route");
+      // Retire history before the style it was painted with is replaced.
+      undo->reset();
+      palette->setStyle(1, originalStyle.release());
+      app->getCurrentPalette()->setStyleIndex(previousStyle, true);
+      select(previousSelection);
+      settle();
+      requireSame(baseline, raster(level, 1),
+                  "legacy regression left pixels for later native fixtures");
+    }
     property->setValue(L"<round>");
     require(tool->onPropertyChanged("Native Brush:"),
             "native brush selection failed");
-    auto undo = TUndoManager::manager();
     undo->reset();
     auto verifyScenePersistence = [&](const TRaster32P &expected,
                                       const QString &label) {
