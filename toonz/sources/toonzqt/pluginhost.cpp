@@ -20,6 +20,7 @@
 #include <toonzqt/addfxcontextmenu.h>  // as receiver
 #include <toonzqt/fxsettings.h>
 #include <toonzqt/pluginloader.h>
+#include <toonzqt/pluginmanager.h>
 
 #include "tenv.h"
 #include "toonz/tcolumnfx.h"
@@ -64,6 +65,8 @@ extern std::map<std::string, PluginInformation *> plugin_dict_;
 bool PluginLoader::load_entries(const std::string &basepath) {
   static PluginLoadController *aw = NULL; /* called only once from main() */
   if (!aw) {
+    // Construct the service on the main thread before the loader worker starts.
+    PluginManager::instance()->prepareStartup();
     aw = new PluginLoadController(basepath, NULL);
   }
   bool ret = aw->wait(16 /* ms */);
@@ -1267,7 +1270,9 @@ static void release_interface(void *interf) {
 Loader::Loader() {}
 
 void Loader::walkDirectory(const QString &path) {
-  walkDirectory_(path);
+  Q_UNUSED(path);
+  for (const QString &file : PluginManager::instance()->startupFiles())
+    doLoad(file);
   emit fixup();
 }
 
@@ -1277,20 +1282,6 @@ void Loader::walkDictionary(const QString &path) {
   emit fixup();
 }
 
-void Loader::walkDirectory_(const QString &path) {
-  printf("walkDirectory_: %s\n", path.toLocal8Bit().data());
-  QDir dir(path, QString::fromStdString("*.plugin"), QDir::Name,
-           QDir::AllDirs | QDir::Files | QDir::NoDot | QDir::NoDotDot);
-  auto lst = dir.entryInfoList();
-  for (auto &e : lst) {
-    if (e.isDir()) {
-      walkDirectory_(e.filePath());
-    } else if (e.isFile()) {  // file or symlink-to-file
-      doLoad(e.filePath());
-    }
-  }
-}
-
 #if defined(_WIN32) || defined(_CYGWIN_)
 static void end_library(HMODULE mod) { FreeLibrary(mod); }
 #else
@@ -1298,11 +1289,31 @@ static void end_library(void *mod) { dlclose(mod); }
 #endif
 
 void Loader::doLoad(const QString &file) {
+  bool loaded = false;
+  QString error;
 #if defined(_WIN32) || defined(_CYGWIN_)
-  HMODULE handle = LoadLibraryA(file.toLocal8Bit().data());
+  HMODULE handle = LoadLibraryW(file.toStdWString().c_str());
+  if (!handle) {
+    const DWORD code = GetLastError();
+    wchar_t *message = nullptr;
+    FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+                       FORMAT_MESSAGE_IGNORE_INSERTS,
+                   nullptr, code, 0, reinterpret_cast<wchar_t *>(&message), 0,
+                   nullptr);
+    error = tr("Windows loader error %1: %2")
+                .arg(code)
+                .arg(message ? QString::fromWCharArray(message).trimmed()
+                             : tr("Unknown error"));
+    if (message) LocalFree(message);
+  }
   printf("doLoad handle:%p path:%s\n", handle, file.toLocal8Bit().data());
 #else
-  void *handle = dlopen(file.toUtf8().data(), RTLD_LOCAL);
+  void *handle = dlopen(file.toUtf8().data(), RTLD_NOW | RTLD_LOCAL);
+  if (!handle) {
+    const char *message = dlerror();
+    error               = message ? QString::fromLocal8Bit(message)
+                                  : tr("Could not load library.");
+  }
   printf("doLoad handle:%p path:%s\n", handle, file.toUtf8().data());
 #endif
   PluginInformation *pi = new PluginInformation;
@@ -1405,43 +1416,47 @@ void Loader::doLoad(const QString &file) {
           // unknown version : gracefully end
         }
 
-        emit load_finished(pi);
+        if (!pi->handler_)
+          throw std::domain_error("unsupported plugin effect interface");
 
         if (pi) {
-          try {
-            if (pi->ini_) {
-              /* interface is allocated per plugin instance to avoid affecting
-                 others if destroyed inside plugin. */
-              host_interface_t *host  = new host_interface_t;
-              host->ver.major         = 1;
-              host->ver.minor         = 0;
-              host->query_interface   = query_interface;
-              host->release_interface = release_interface;
-              int ret                 = pi->ini_(host);
-              if (ret) {
-                delete host;
-                std::domain_error(
-                    "failed initialized: error on _toonz_plugin_init");
-              }
-              pi->host_ = host;
-              pi->decl_ = new PluginDeclaration(pi);
-            } else {
-              /* Could exit earlier, but being too sensitive makes debugging
-                 hard, so tolerate to some extent. */
-              throw std::domain_error("not found _toonz_plugin_init");
+          if (pi->ini_) {
+            /* interface is allocated per plugin instance to avoid affecting
+               others if destroyed inside plugin. */
+            host_interface_t *host  = new host_interface_t;
+            host->ver.major         = 1;
+            host->ver.minor         = 0;
+            host->query_interface   = query_interface;
+            host->release_interface = release_interface;
+            int ret                 = pi->ini_(host);
+            if (ret) {
+              delete host;
+              throw std::domain_error(
+                  "initialization failed: error from toonz_plugin_init");
             }
-          } catch (const std::exception &e) {
-            printf("Exception occurred after plugin loading: %s\n", e.what());
+            pi->host_ = host;
+          } else {
+            /* Could exit earlier, but being too sensitive makes debugging
+               hard, so tolerate to some extent. */
+            throw std::domain_error("not found _toonz_plugin_init");
           }
-
+          // Setup callbacks may ask the temporary FX host for its declaration.
+          // Preserve the existing declaration-before-setup ordering.
+          pi->decl_ = new PluginDeclaration(pi);
           if (pi->handler_ && pi->handler_->setup) {
             PluginSetupMessage(pi).sendBlocking();
           }
 
+          emit load_finished(pi);
+          loaded    = true;
+          auto prev = pi->library_;
+          // Ownership now belongs to the registered effect. A later allocation
+          // failure must not delete an already published plugin.
+          pi = nullptr;
+
           if (probinfo + 1 < probinfo_end) {
             /* for a next plugin on the library */
-            auto prev = pi->library_;
-            pi        = new PluginInformation;
+            pi = new PluginInformation;
             /* instance‑independent unique resources need to be carried over */
             pi->library_ = prev;
             pi->ini_     = ini;
@@ -1451,6 +1466,7 @@ void Loader::doLoad(const QString &file) {
       }
     } catch (const std::exception &e) {
       printf("Exception occurred while plugin loading: %s\n", e.what());
+      error = QString::fromLocal8Bit(e.what());
       delete pi;
       pi = NULL;
     }
@@ -1458,6 +1474,7 @@ void Loader::doLoad(const QString &file) {
     // handle is null – plugin load failed, delete pi to avoid leak
     delete pi;
   }
+  PluginManager::instance()->recordLoadResult(file, loaded, error);
 }
 
 void RasterFxPluginHost::createPortsByDesc() {

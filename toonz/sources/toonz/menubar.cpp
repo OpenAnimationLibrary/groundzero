@@ -4,6 +4,8 @@
 #include "themeapplication.h"
 #include "toonzqt/uitranslations.h"
 #include "customhelplink.h"
+#include "workflowpresets.h"
+#include "externalapplications.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -62,7 +64,58 @@ TEnv::IntVar LockRoomTabToggle("LockRoomTabToggle", 0);
 
 namespace {
 
+void installWorkflowMenu(QMenuBar *menuBar) {
+  QMenu *workflow = menuBar->findChild<QMenu *>(QStringLiteral("WorkflowMenu"),
+                                                Qt::FindDirectChildrenOnly);
+  if (!workflow) {
+    workflow = new QMenu(menuBar);
+    workflow->setObjectName("WorkflowMenu");
+    UiTranslations::bind(workflow, "title", "StackedMenuBar",
+                         QStringLiteral("Workflow"));
+    QAction *before = nullptr;
+    for (QAction *action : menuBar->actions()) {
+      QMenu *menu = menuOfAction(action);
+      if (menu && (menu->title() == StackedMenuBar::tr("Windows") ||
+                   menu->title() == StackedMenuBar::tr("Help"))) {
+        before = action;
+        break;
+      }
+    }
+    menuBar->insertMenu(before, workflow);
+  }
+  for (const auto &preset : WorkflowPresets::presets) {
+    QAction *action = CommandManager::instance()->getAction(preset.command);
+    if (!action || workflow->actions().contains(action)) continue;
+    if (QString::fromLatin1(preset.profile) == "Default" &&
+        !workflow->actions().isEmpty())
+      workflow->addSeparator();
+    workflow->addAction(action);
+  }
+  workflow->setToolTipsVisible(true);
+  bool separatorAdded = false;
+  for (auto application :
+       {ExternalApplications::Ztoryc, ExternalApplications::OT3D}) {
+    QAction *action = CommandManager::instance()->getAction(
+        ExternalApplications::command(application));
+    if (!action || workflow->actions().contains(action)) continue;
+    if (!separatorAdded) {
+      workflow->addSeparator();
+      separatorAdded = true;
+    }
+    workflow->addAction(action);
+  }
+  if (!workflow->property("externalApplicationsConnected").toBool()) {
+    workflow->setProperty("externalApplicationsConnected", true);
+    QObject::connect(workflow, &QMenu::aboutToShow, workflow, []() {
+      // Recheck only the two supplied paths when the menu is opened. No scans,
+      // timer or watcher; empty settings never probe the filesystem.
+      NativeExternalApplications::instance().refresh();
+    });
+  }
+}
+
 void installQuickThemeMenu(QMenuBar *menuBar) {
+  installWorkflowMenu(menuBar);
   if (menuBar->findChild<QMenu *>(QStringLiteral("QuickThemeMenu"),
                                 Qt::FindDirectChildrenOnly))
     return;
@@ -185,6 +238,10 @@ bool menuContainsAction(QMenu *menu, QAction *target) {
 }
 
 void ensureParticleCacheActions(QMenu *fileMenu) {
+  QAction *media = CommandManager::instance()->getAction(MI_ManageMediaCache);
+  if (media && !menuContainsAction(fileMenu, media)) fileMenu->addAction(media);
+  QAction *recovery = CommandManager::instance()->getAction(MI_RecoveryStatus);
+  if (recovery && !menuContainsAction(fileMenu, recovery)) fileMenu->addAction(recovery);
   QMenu *menu = nullptr;
   const QString title = QCoreApplication::translate("MainWindow", "Particle Caches");
   for (QAction *action : fileMenu->actions()) {
@@ -397,6 +454,15 @@ StackedMenuBar::StackedMenuBar(QWidget *parent) : QStackedWidget(parent) {
 
 //---------------------------------------------------------------------------------
 
+void StackedMenuBar::clear() {
+  while (count()) {
+    QWidget *menu = widget(0);
+    menu->hide();
+    removeWidget(menu);
+    delete menu;
+  }
+}
+
 void StackedMenuBar::createMenuBarByName(const QString &roomName) {
   std::cout << "create " << roomName.toStdString() << std::endl;
 #if defined(_WIN32) || defined(_CYGWIN_)
@@ -467,7 +533,9 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
           QString title = reader.attributes().value("title").toString();
           /*- Menu title will be translated if the title is registered in
            * translation file -*/
-          QMenu *menu = new QMenu(tr(title.toStdString().c_str()));
+          QMenu *menu = new QMenu(tr(title.toStdString().c_str()), menuBar);
+          if (title == QStringLiteral("Workflow"))
+            menu->setObjectName("WorkflowMenu");
           UiTranslations::bind(menu, "title", "StackedMenuBar", title);
           menu->setToolTipsVisible(true);
           if (readMenuRecursive(reader, menu)) {
@@ -524,7 +592,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
   while (reader.readNextStartElement()) {
     if (reader.name().toString() == "menu") {
       QString title  = reader.attributes().value("title").toString();
-      QMenu *subMenu = new QMenu(tr(title.toStdString().c_str()));
+      QMenu *subMenu = new QMenu(tr(title.toStdString().c_str()), menu);
       UiTranslations::bind(subMenu, "title", "StackedMenuBar", title);
 
       if (readMenuRecursive(reader, subMenu))
@@ -597,6 +665,7 @@ QMenuBar *StackedMenuBar::createCleanupMenuBar() {
   filesMenu->addSeparator();
   addMenuItem(filesMenu, MI_LoadScene);
   addMenuItem(filesMenu, MI_SaveAll);
+  addMenuItem(filesMenu, MI_RecoveryStatus);
   addMenuItem(filesMenu, MI_OpenRecentScene);
   addMenuItem(filesMenu, MI_SaveScene);
   addMenuItem(filesMenu, MI_SaveSceneAs);
@@ -764,6 +833,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
   filesMenu->addSeparator();
   addMenuItem(filesMenu, MI_LoadScene);
   addMenuItem(filesMenu, MI_SaveAll);
+  addMenuItem(filesMenu, MI_RecoveryStatus);
   addMenuItem(filesMenu, MI_OpenRecentScene);
   addMenuItem(filesMenu, MI_SaveScene);
   addMenuItem(filesMenu, MI_SaveSceneAs);
@@ -977,6 +1047,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
   filesMenu->addSeparator();
   addMenuItem(filesMenu, MI_LoadScene);
   addMenuItem(filesMenu, MI_SaveAll);
+  addMenuItem(filesMenu, MI_RecoveryStatus);
   addMenuItem(filesMenu, MI_OpenRecentScene);
   addMenuItem(filesMenu, MI_SaveScene);
   addMenuItem(filesMenu, MI_SaveSceneAs);
@@ -1167,6 +1238,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
                        QStringLiteral("Xsheet"));
   addMenuItem(xsheetMenu, MI_LoadScene);
   addMenuItem(xsheetMenu, MI_SaveAll);
+  addMenuItem(xsheetMenu, MI_RecoveryStatus);
   addMenuItem(xsheetMenu, MI_OpenRecentScene);
   addMenuItem(xsheetMenu, MI_SaveScene);
   addMenuItem(xsheetMenu, MI_SaveSceneAs);
@@ -1513,6 +1585,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(fileMenu, MI_NewScene);
   addMenuItem(fileMenu, MI_LoadScene);
   addMenuItem(fileMenu, MI_SaveAll);
+  addMenuItem(fileMenu, MI_RecoveryStatus);
   addMenuItem(fileMenu, MI_OpenRecentScene);
   addMenuItem(fileMenu, MI_SaveScene);
   addMenuItem(fileMenu, MI_SaveSceneAs);
@@ -1588,6 +1661,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(fileMenu, MI_ShortcutPopup);
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_ClearCacheFolder);
+  addMenuItem(fileMenu, MI_ManageMediaCache);
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_Quit);
 
@@ -1701,6 +1775,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(adjustMenu, MI_Binarize);
     addMenuItem(adjustMenu, MI_LinesFade);
   }
+  addMenuItem(levelMenu, MI_EditStrokeOpacityProfile);
   QMenu *widthProfileMenu = levelMenu->addMenu(tr("Width Profile"));
   UiTranslations::bind(widthProfileMenu, "title", "StackedMenuBar",
                        QStringLiteral("Width Profile"));

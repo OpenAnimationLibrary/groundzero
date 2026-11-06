@@ -35,6 +35,7 @@ set(MOC_HEADERS
 
 set(HEADERS
     ${MOC_HEADERS}
+    ../include/toonz/activechecks.h
     audioscrubplayer.h
     autoadjust.h
     autopos.h
@@ -199,6 +200,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    activechecks.cpp
     particlecache.cpp
     abrparser.cpp
     rasterbrushengine.cpp
@@ -260,6 +262,7 @@ set(SOURCES
     preferences.cpp
     rasterbrush.cpp
     rasterstrokegenerator.cpp
+    scenecompatibility.cpp
     scenechecker.cpp
     scenefx.cpp
     sceneproperties.cpp
@@ -652,10 +655,10 @@ endif()
 # Optional regression target for the brush stroke to outline shape conversion
 # (contouroutline.h).
 option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})
-if(BUILD_CONTOUR_TESTS)
+if(BUILD_CONTOUR_TESTS OR BUILD_UI_PORT_TESTS)
     add_executable(contour_outline_test tests/contour_outline_test.cpp)
     target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
-    add_test(NAME contour_outline COMMAND contour_outline_test)
+    add_test(NAME ui_vector_contour_outline COMMAND contour_outline_test)
 endif()
 
 # Optional regression target for the Lottie export maths (lottiemath.h,
@@ -787,5 +790,39 @@ if(APPLE OR WIN32)
         target_compile_definitions(rasterbrushworker_test PRIVATE RASTERBRUSH_SANDBOX_TESTING)
         target_compile_definitions(rasterbrushpreset_test PRIVATE RASTERBRUSH_SEPARATE_WORKER_TEST)
         add_dependencies(rasterbrushpreset_test rasterbrushworker_test)
+    endif()
+endif()
+
+# Real vector tween/persistence regressions for the artist morphing workflow.
+option(BUILD_MORPHWORKFLOW_TESTS "Build native vector morph workflow tests" ${BUILD_TESTS})
+if(BUILD_MORPHWORKFLOW_TESTS OR BUILD_UI_PORT_TESTS)
+    add_executable(morphworkflow_test tests/morphworkflow_test.cpp)
+    target_link_libraries(morphworkflow_test PRIVATE toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME ui_vector_morphworkflow COMMAND morphworkflow_test)
+endif()
+
+# Native Cast indexing/persistence tests share the UI qualification gate.
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(castworkflow_test tests/castworkflow_test.cpp)
+    target_link_libraries(castworkflow_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME castworkflow COMMAND castworkflow_test)
+endif()
+
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(activechecks_test tests/activechecks_test.cpp)
+    target_link_libraries(activechecks_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME ui_activechecks_render COMMAND activechecks_test)
+endif()
+
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(activecheckscolumn_test tests/activecheckscolumn_test.cpp)
+    target_link_libraries(activecheckscolumn_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME ui_activechecks_column COMMAND activecheckscolumn_test)
+    # The linked shader manager needs an OpenGL-capable platform even for
+    # these CPU raster checks. Keep Linux's display backend inherited from CI.
+    if(APPLE)
+        set_tests_properties(ui_activechecks_column PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
+    elseif(WIN32)
+        set_tests_properties(ui_activechecks_column PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
     endif()
 endif()

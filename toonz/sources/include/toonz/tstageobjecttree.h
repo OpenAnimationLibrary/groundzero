@@ -121,6 +121,9 @@ public:
 \sa removeColumn() and insertStageObject()
 */
   void insertColumn(int index);
+  // Reinsert a detached column from this tree without replacing its curves.
+  // A null object creates a new default column, as the original overload does.
+  void insertColumn(int index, TStageObject *object);
   /*!
           Removes from the current stage object tree the stage object column
 (TStageObjectId::ColumnId),

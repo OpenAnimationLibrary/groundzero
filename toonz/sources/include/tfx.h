@@ -516,7 +516,8 @@ public:
   virtual void onObsoleteParamLoaded(const std::string &paramName) {}
 
   // This function is called in TFx::saveData for each parameter: a parameter
-  // for which it returns false is not written. Used by the fxs that add
+  // for which it returns false is not written unless it contains an optional
+  // Function Editor workspace identity. Used by the fxs that add
   // parameters which must leave the saved file unchanged while they are unused
   // (e.g. the time remap of the level column fx). All parameters are saved by
   // default.

@@ -18,10 +18,14 @@
 #include "cadmiumruntime.h"
 #include "nativediagnostics.h"
 #include "themeapplication.h"
+#include "texception.h"
 #include <QDir>
+#include <exception>
+#include <iostream>
 #ifdef BUILD_UI_PORT_TESTS
 #include "nativeuiintegrationtest.h"
 #include "rasterbrushintegrationtest.h"
+#include "iconlifecycleintegrationtest.h"
 #endif
 
 // TnzTools includes
@@ -35,6 +39,7 @@
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/pluginloader.h"
+#include "toonzqt/pluginmanager.h"
 #include "toonzqt/qtcompat.h"
 
 // TnzStdfx includes
@@ -291,16 +296,20 @@ int main(int argc, char *argv[]) {
     const QStringList arguments = worker.arguments();
     return RasterBrush::runImportWorker(arguments.at(2), arguments.at(3));
   }
+  PluginManager::takeLaunchArguments(argc, argv);
   bool nativeUiTest = false;
   bool rasterBrushTest = false;
 #ifdef BUILD_UI_PORT_TESTS
+  bool nativeIconClearOnly = false;
   for (int index = 1; index < argc; ++index) {
-    if (QString::fromLocal8Bit(argv[index]) == "--test-native-ui") {
+    const QString argument = QString::fromLocal8Bit(argv[index]);
+    if (argument == "--test-native-ui" || argument == "--test-native-icon-clear") {
       if (argc != 2) {
         std::cerr << "Native UI test mode accepts no other arguments.\n";
         return 2;
       }
       nativeUiTest = true;
+      nativeIconClearOnly = argument == "--test-native-icon-clear";
       argc = 1;
       break;
     }
@@ -1004,8 +1013,10 @@ int main(int argc, char *argv[]) {
 
 #ifdef BUILD_UI_PORT_TESTS
   if (nativeUiTest)
-    QTimer::singleShot(0, &a, [&a, &w] {
-      a.exit(runNativeUiIntegrationTest(&w));
+    QTimer::singleShot(0, &a, [&a, &w, nativeIconClearOnly] {
+      // The required clear scenario has its own fresh terminal process. It
+      // shares native preparation/startup but does not repeat artist suites.
+      a.exit(nativeIconClearOnly ? 0 : runNativeUiIntegrationTest(&w));
     });
   if (rasterBrushTest)
     QTimer::singleShot(0, &a,
@@ -1020,6 +1031,39 @@ int main(int argc, char *argv[]) {
 #endif
   int ret = a.exec();
   nativeUiCheckpoint("native application event loop returned");
+
+#ifdef BUILD_UI_PORT_TESTS
+  if (nativeUiTest &&
+      (nativeIconClearOnly || !qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"))) {
+    try {
+      runIconLifecycleNativeChecks(nativeIconClearOnly
+          ? NativeIconQuitScenario::ClearReviewedScene
+          : NativeIconQuitScenario::PreserveReplacement);
+    } catch (const TException &error) {
+      const QString detail = QString::fromStdWString(error.getMessage()).left(1024)
+                                 .replace('\n', ' ').replace('\r', ' ');
+      std::cerr << "native-ui-integration: FAIL: icon lifecycle Toonz exception: "
+                << detail.toStdString() << std::endl;
+      ret = 1;
+    } catch (const std::exception &error) {
+      std::cerr << "native-ui-integration: FAIL: icon lifecycle: "
+                << error.what() << std::endl;
+      ret = 1;
+    } catch (...) {
+      std::cerr << "native-ui-integration: FAIL: unexpected icon lifecycle exception"
+                << std::endl;
+      ret = 1;
+    }
+  }
+#endif
+  // QCoreApplication::exit(), scripting and the native runner can leave the
+  // event loop without entering MainWindow::closeEvent(). Retire thumbnail
+  // workers while their scenes, GUI services and actions are still alive.
+  {
+    IoCmd::SceneTransitionGuard shutdown;
+    IconGenerator::instance()->shutdown();
+  }
+  nativeUiCheckpoint("native icon workers drained");
 
   if (!nativeIntegrationTest) AutosaveRecovery::endSession();
 

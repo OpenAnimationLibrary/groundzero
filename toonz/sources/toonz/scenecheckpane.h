@@ -33,6 +33,7 @@ class SceneCheckPane final : public QFrame {
 
   QLabel *m_statistics;
   QCheckBox *m_unusedStyles;
+  QCheckBox *m_compatibility;
   QComboBox *m_severityFilter;
   QLineEdit *m_textFilter;
   QTreeWidget *m_tree;

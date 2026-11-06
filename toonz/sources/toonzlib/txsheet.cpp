@@ -1339,10 +1339,15 @@ void TXsheet::insertColumn(int col, TXshColumn::ColumnType type) {
 //-----------------------------------------------------------------------------
 
 void TXsheet::insertColumn(int col, TXshColumn *column) {
+  insertColumn(col, column, nullptr);
+}
+
+void TXsheet::insertColumn(int col, TXshColumn *column,
+                          TStageObject *stageObject) {
   if (col < 0) col = 0;
   column->setXsheet(this);
   m_imp->m_columnSet.insertColumn(col, column);
-  m_imp->m_pegTree->insertColumn(col);
+  m_imp->m_pegTree->insertColumn(col, stageObject);
   if (PoseLibrary *poses = topPoseLibrary(this)) poses->insertColumn(col);
   if (column->getPaletteColumn() ==
       nullptr)  // palette column are not connected to the xsheet fx node

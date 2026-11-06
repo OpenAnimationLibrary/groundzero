@@ -50,6 +50,7 @@
 #include <QPainterPath>
 #include <QFont>
 #include <QFontMetrics>
+#include <limits>
 
 //****************************************************************************************
 //    Local namespace
@@ -1339,11 +1340,17 @@ int ToolUtils::UndoPath::getSize() const { return sizeof(*this) + 500; }
 ToolUtils::UndoControlPointEditor::UndoControlPointEditor(
     TXshSimpleLevel *level, const TFrameId &frameId, bool clearSelection)
     : TToolUndo(level, frameId)
+    , m_oldStroke(-1, nullptr)
+    , m_newStroke(-1, nullptr)
     , m_isStrokeDelete(false)
     , m_clearSelection(clearSelection) {
   TVectorImageP image = level->getFrame(frameId, true);
   assert(image);
   if (!image) return;
+
+  if (!image->getBBox().isEmpty())
+    ImageUtils::getFillingInformationOverlappingArea(image, m_beforeFills,
+                                                     image->getBBox());
 
   TTool::Application *app = TTool::getApplication();
   if (!app) return;
@@ -1362,6 +1369,10 @@ void ToolUtils::UndoControlPointEditor::onAdd() {
   assert(image);
   if (!image) return;
   QMutexLocker lock(image->getMutex());
+  m_afterFills.clear();
+  if (!image->getBBox().isEmpty())
+    ImageUtils::getFillingInformationOverlappingArea(image, m_afterFills,
+                                                     image->getBBox());
   if (m_isStrokeDelete) return;
   addNewStroke(m_oldStroke.first, image->getVIStroke(m_oldStroke.first));
 }
@@ -1372,6 +1383,7 @@ void ToolUtils::UndoControlPointEditor::addOldStroke(int index, VIStroke *vs) {
 }
 
 void ToolUtils::UndoControlPointEditor::addNewStroke(int index, VIStroke *vs) {
+  deleteVIStroke(m_newStroke.second);
   VIStroke *s = cloneVIStroke(vs);
   m_newStroke = std::make_pair(index, s);
 }
@@ -1403,6 +1415,8 @@ void ToolUtils::UndoControlPointEditor::undo() const {
     image->findRegions();  // in futuro togliere. Serve perche' la
                            // removeStrokes, se gli si dice
   // di non calcolare le regioni, e' piu' veloce ma poi chrash tutto
+
+  ImageUtils::assignFillingInformation(*image, m_beforeFills);
 
   app->getCurrentXsheet()->notifyXsheetChanged();
   notifyImageChanged();
@@ -1436,8 +1450,26 @@ void ToolUtils::UndoControlPointEditor::redo() const {
                            // removeStrokes, se gli si dice
   // di non calcolare le regioni, e' piu' veloce ma poi chrash tutto
 
+  ImageUtils::assignFillingInformation(*image, m_afterFills);
+
   app->getCurrentXsheet()->notifyXsheetChanged();
   notifyImageChanged();
+}
+
+void ToolUtils::UndoControlPointEditor::restoreBefore() const {
+  TVectorImageP image = m_level->getFrame(m_frameId, false);
+  if (!image || !m_oldStroke.second) return;
+  QMutexLocker lock(image->getMutex());
+  if (!m_isStrokeDelete) image->removeStroke(m_oldStroke.first, false);
+  image->insertStrokeAt(cloneVIStroke(m_oldStroke.second), m_oldStroke.first);
+  image->findRegions();
+  ImageUtils::assignFillingInformation(*image, m_beforeFills);
+}
+
+int ToolUtils::UndoControlPointEditor::getSize() const {
+  const size_t size = sizeof(*this) + 500 +
+      (m_beforeFills.capacity() + m_afterFills.capacity()) * sizeof(TFilledRegionInf);
+  return int(std::min<size_t>(size, std::numeric_limits<int>::max()));
 }
 
 //=============================================================================================

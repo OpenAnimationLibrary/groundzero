@@ -830,12 +830,16 @@ QSize TPanelTitleBar::minimumSizeHint() const { return QSize(20, 18); }
 //-----------------------------------------------------------------------------
 
 void TPanelTitleBar::paintEvent(QPaintEvent *) {
+  // The public title bar can be unparented/reparented, and Qt can still
+  // deliver child events after a panel has entered its QWidget base teardown.
+  // Resolve the live owner before starting any panel-specific painting.
+  auto *dw = qobject_cast<TPanel *>(parentWidget());
+  if (!dw) return;
+
   QPainter painter(this);
   const QRect rect = this->rect();
 
   bool isPanelActive;
-  auto *dw = qobject_cast<TPanel *>(parentWidget());
-  Q_ASSERT(dw != nullptr);
 
   if (!dw->isFloating()) {  // docked panel
     isPanelActive = dw->widgetInThisPanelIsFocused();
@@ -909,7 +913,7 @@ QColor TPanelTitleBar::getCloseOverColor() const { return m_closeOverColor; }
 
 void TPanelTitleBar::leaveEvent(QEvent *) {
   auto *dw = qobject_cast<TPanel *>(parentWidget());
-  Q_ASSERT(dw != nullptr);
+  if (!dw) return;
 
   // Mouse left the widget, reset the highlighted flag
   if (dw->isFloating()) {
@@ -921,7 +925,11 @@ void TPanelTitleBar::leaveEvent(QEvent *) {
 //-----------------------------------------------------------------------------
 
 void TPanelTitleBar::mousePressEvent(QMouseEvent *event) {
-  auto *dw = static_cast<TDockWidget *>(parentWidget());
+  auto *dw = qobject_cast<TPanel *>(parentWidget());
+  if (!dw) {
+    event->ignore();
+    return;
+  }
 
   const QPoint pos = event->pos();
 
@@ -942,7 +950,11 @@ void TPanelTitleBar::mousePressEvent(QMouseEvent *event) {
 //-----------------------------------------------------------------------------
 
 void TPanelTitleBar::mouseMoveEvent(QMouseEvent *event) {
-  auto *dw = static_cast<TDockWidget *>(parentWidget());
+  auto *dw = qobject_cast<TPanel *>(parentWidget());
+  if (!dw) {
+    event->ignore();
+    return;
+  }
 
   if (dw->isFloating()) {
     const QPoint pos = event->pos();

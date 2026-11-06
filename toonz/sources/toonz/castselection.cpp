@@ -94,7 +94,9 @@ QPixmap LevelCastItem::getPixmap(bool isSelected) const {
   if (Preferences::instance()->getColumnIconLoadingPolicy() ==
       Preferences::LoadOnDemand)
     onDemand = !isSelected;
-  QPixmap icon = IconGenerator::instance()->getIcon(sl, sl->getFirstFid(),
+  const TFrameId cover = sl->hasCastCover() && sl->isFid(sl->getCastCover())
+                             ? sl->getCastCover() : sl->getFirstFid();
+  QPixmap icon = IconGenerator::instance()->getIcon(sl, cover,
                                                     false, onDemand);
   return scalePixmapKeepingAspectRatio(icon, m_itemPixmapSize, Qt::transparent);
 }
@@ -123,6 +125,7 @@ TXshSimpleLevel *LevelCastItem::getSimpleLevel() const {
 QString SoundCastItem::getName() const {
   return QString::fromStdWString(m_soundLevel->getName());
 }
+TXshLevel *SoundCastItem::getLevel() const { return m_soundLevel; }
 
 //-----------------------------------------------------------------------------
 
@@ -161,6 +164,7 @@ bool SoundCastItem::exists() const {
 QString PaletteCastItem::getName() const {
   return QString::fromStdWString(m_paletteLevel->getName());
 }
+TXshLevel *PaletteCastItem::getLevel() const { return m_paletteLevel; }
 //-----------------------------------------------------------------------------
 
 QString PaletteCastItem::getToolTip() const {
@@ -205,6 +209,31 @@ void CastItems::clear() { clearPointerContainer(m_items); }
 //-----------------------------------------------------------------------------
 
 void CastItems::addItem(CastItem *item) { m_items.push_back(item); }
+
+void CastItems::reconcile(const std::vector<TXshLevel *> &levels,
+                          const QSize &iconSize) {
+  std::set<TXshLevel *> wanted(levels.begin(), levels.end());
+  std::vector<CastItem *> retained;
+  retained.reserve(levels.size());
+  for (auto *item : m_items) {
+    if (wanted.erase(item->getLevel())) {
+      item->setIconSize(iconSize);
+      retained.push_back(item);
+    } else {
+      delete item;
+    }
+  }
+  for (auto *level : levels) {
+    if (!wanted.erase(level)) continue;
+    if (level->getSimpleLevel())
+      retained.push_back(new LevelCastItem(level, iconSize));
+    else if (auto *palette = level->getPaletteLevel())
+      retained.push_back(new PaletteCastItem(palette, iconSize));
+    else if (auto *sound = level->getSoundLevel())
+      retained.push_back(new SoundCastItem(sound, iconSize));
+  }
+  m_items.swap(retained);
+}
 
 //-----------------------------------------------------------------------------
 

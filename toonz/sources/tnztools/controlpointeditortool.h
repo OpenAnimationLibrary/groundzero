@@ -45,6 +45,7 @@ class ControlPointEditorTool final : public TTool {
       m_autoSelectDrawing;  // Consente di scegliere se swichare tra i livelli.
 
   TBoolProperty m_snap;
+  TBoolProperty m_reviewFills;
   TEnumProperty m_snapSensitivity;
   double m_snapMinDistance;
   bool m_foundSnap;
@@ -69,6 +70,10 @@ class ControlPointEditorTool final : public TTool {
   CursorType m_cursorType;
 
   TUndo* m_undo;
+  TVectorImageP m_beforeReview;
+
+  void commitUndo();
+  void cancelUndo();
 
   void selectRegion(TStroke* stroke);
   void startFreehand(const TPointD& pos);

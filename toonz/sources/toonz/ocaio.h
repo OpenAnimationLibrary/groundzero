@@ -4,6 +4,7 @@
 
 #include "toonzqt/dvdialog.h"
 #include "tfilepath.h"
+#include "toonz/tcamera.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonzqt/menubarcommand.h"
 
@@ -39,6 +40,7 @@ protected:
   QString m_name;
   double m_framerate;
   int m_width, m_height;
+  TCamera m_camera;
   int m_startTime, m_endTime;
   double m_bgRed, m_bgGreen, m_bgBlue, m_bgAlpha;
   QJsonArray m_layers;
@@ -46,7 +48,7 @@ protected:
   QMap<QString, OCAAsset> m_assets;
   bool m_raEXR, m_veSVG;
 
-  DVGui::ProgressDialog *m_progressDialog;
+  DVGui::ProgressDialog *m_progressDialog = nullptr;
 
 public:
   void write(QJsonObject &json) const;

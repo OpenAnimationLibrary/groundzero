@@ -22,6 +22,7 @@
 
 class TPalette;
 typedef TSmartPointerT<TPalette> TPaletteP;
+struct TRenderCheckSettings;
 
 extern "C" {
 struct _RASTER;
@@ -212,6 +213,12 @@ public:
 DVAPI void quickPut(const TRasterP &dn, const TRasterCM32P &upCM32,
                     const TPaletteP &plt, const TAffine &aff,
                     const CmappedQuickputSettings &settings);
+
+// Converts at source resolution; the caller retains production resampling.
+// Fill Check requires a temporary, filled source prepared by the caller.
+DVAPI void convertWithChecks(const TRaster32P &dst, const TRasterCM32P &src,
+                             TPalette *palette,
+                             const TRenderCheckSettings &checks);
 
 DVAPI void quickResampleColorFilter(const TRasterP &dn, const TRasterP &up,
                                     const TAffine &aff, const TPaletteP &plt,

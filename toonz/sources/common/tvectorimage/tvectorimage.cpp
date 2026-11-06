@@ -1211,6 +1211,15 @@ TVectorImageP TVectorImage::clone() const {
 
 //-----------------------------------------------------------------------------
 
+TVectorImageP TVectorImage::cloneWithGroupContext() const {
+  QMutexLocker lock(m_imp->m_mutex);
+  TVectorImageP copy = clone();
+  copy->m_imp->m_insideGroup = m_imp->m_insideGroup;
+  return copy;
+}
+
+//-----------------------------------------------------------------------------
+
 TImage *TVectorImage::cloneImage() const {
   TVectorImage *out = new TVectorImage;
 
@@ -1796,6 +1805,79 @@ bool TVectorImage::isComputedRegionAlmostOnce() const {
 
 //-----------------------------------------------------------------------------
 
+namespace {
+struct PreparedStrokeSplit {
+  std::vector<std::unique_ptr<TStroke>> pieces;
+  std::unique_ptr<TStroke> joined;
+};
+
+PreparedStrokeSplit prepareStrokeSplit(const TStroke &source,
+                                      const std::vector<DoublePair> &ranges) {
+  PreparedStrokeSplit result;
+  double previous = 0.;
+  for (const auto &range : ranges) {
+    if (!std::isfinite(range.first) || !std::isfinite(range.second) ||
+        range.first < previous || range.first < 0. || range.second > 1. ||
+        range.first >= range.second)
+      throw std::invalid_argument("Invalid stroke split interval");
+    previous = range.second;
+    TStroke tail, discarded;
+    if (range.first == 0.) tail = source;
+    else source.split(range.first, discarded, tail);
+    auto piece = std::unique_ptr<TStroke>(new TStroke);
+    if (range.second == 1.) *piece = tail;
+    else {
+      const double length = source.getLength(range.second) - source.getLength(range.first);
+      tail.split(tail.getParameterAtLength(length), *piece, discarded);
+    }
+    if (!StrokeOpacity::valid(piece->getOpacityProfile()))
+      throw std::length_error("The split opacity envelope exceeds the supported knot limit");
+    result.pieces.push_back(std::move(piece));
+  }
+  if (source.isSelfLoop() && !ranges.empty() && ranges.front().first == 0. &&
+      ranges.back().second == 1.)
+    result.joined.reset(joinStrokes(result.pieces.back().get(), result.pieces.front().get()));
+  return result;
+}
+
+StrokeOpacity::Span opacitySpan(const TStroke &stroke, bool reverse,
+                               double length = -1.) {
+  return {reverse ? StrokeOpacity::reversed(stroke.getOpacityProfile()) : stroke.getOpacityProfile(),
+          length < 0. ? stroke.getLength() : length, stroke.getOpacity()};
+}
+
+StrokeOpacity::Span opacityBridge(const StrokeOpacity::Span &first,
+                                 const StrokeOpacity::Span &last, double length) {
+  const double a = StrokeOpacity::evaluate(first.profile, 1.) * first.opacity;
+  const double b = StrokeOpacity::evaluate(last.profile, 0.) * last.opacity;
+  return a == b ? StrokeOpacity::Span{{}, length, a}
+                : StrokeOpacity::Span{{{0., a}, {1., b}}, length, 1.};
+}
+
+void applyCombinedOpacity(TStroke &stroke, const std::vector<StrokeOpacity::Span> &spans) {
+  if (spans.empty()) return;
+  bool uniform = true;
+  for (const auto &span : spans)
+    uniform = uniform && span.profile.empty() && span.opacity == spans.front().opacity;
+  if (uniform) {
+    stroke.setOpacity(spans.front().opacity);
+    stroke.setOpacityProfile({});
+  } else {
+    const auto profile = StrokeOpacity::concatenate(spans);
+    if (!stroke.setOpacityProfile(profile))
+      throw std::length_error("The joined opacity envelope exceeds the supported knot limit");
+    stroke.setOpacity(1.);
+  }
+}
+}  // namespace
+
+void TVectorImage::validateStrokeSplit(int strokeIndex,
+                                       const std::vector<DoublePair> &ranges) const {
+  if (strokeIndex < 0 || strokeIndex >= getStrokeCount())
+    throw std::out_of_range("Invalid stroke index");
+  prepareStrokeSplit(*getStroke(strokeIndex), ranges);
+}
+
 void TVectorImage::splitStroke(int strokeIndex,
                                const std::vector<DoublePair> &sortedWRanges) {
   m_imp->splitStroke(strokeIndex, sortedWRanges);
@@ -1806,10 +1888,13 @@ void TVectorImage::Imp::splitStroke(
   int i;
   VIStroke *subV = 0;
 
-  if (strokeIndex >= (int)m_strokes.size() || sortedWRanges.empty()) return;
+  if (strokeIndex < 0 || strokeIndex >= (int)m_strokes.size() || sortedWRanges.empty()) return;
 
   VIStroke *vs     = m_strokes[strokeIndex];
   TGroupId groupId = vs->m_groupId;
+  // All envelope slicing, concatenation and bounds checks precede the first
+  // live change. A rejected closed-curve cut must leave the drawing intact.
+  PreparedStrokeSplit prepared = prepareStrokeSplit(*vs->m_s, sortedWRanges);
 
   // se e' un self loop, alla fine non lo sara', e deve stare insieme
   // alle stroke non loopate. sposto lo stroke se serve
@@ -1846,7 +1931,6 @@ strokeIndex = up-1;
        sortedWRanges.back().second == 1.0);
 
   int styleId = vs->m_s->getStyle();
-  TStroke::OutlineOptions oOptions(vs->m_s->outlineOptions());
 
   m_regions.clear();
 
@@ -1871,22 +1955,7 @@ strokeIndex = up-1;
     assert(sortedWRanges[i].first >= 0 && sortedWRanges[i].first <= 1);
     assert(sortedWRanges[i].second >= 0 && sortedWRanges[i].second <= 1);
 
-    subV = new VIStroke(new TStroke(), groupId);
-    TStroke s, dummy;
-
-    if (areAlmostEqual(sortedWRanges[i].first, 0, 1e-4))
-      s = *vs->m_s;
-    else
-      vs->m_s->split(sortedWRanges[i].first, dummy, s);
-
-    double lenAtW0 = vs->m_s->getLength(sortedWRanges[i].first);
-    double lenAtW1 = vs->m_s->getLength(sortedWRanges[i].second);
-    double newW1   = s.getParameterAtLength(lenAtW1 - lenAtW0);
-
-    if (areAlmostEqual(newW1, 1.0, 1e-4))
-      *(subV->m_s) = s;
-    else
-      s.split(newW1, *(subV->m_s), dummy);
+    subV = new VIStroke(prepared.pieces[i].release(), groupId);
 
     strokeIndex++;
     /*assert(m_strokes[strokeIndex]->m_edgeList.empty());
@@ -1926,7 +1995,6 @@ assert(m_strokes[strokeIndex-wSize+1]->m_edgeList.empty());*/
     subV->m_edgeList.clear();
     insertStrokeAt(subV, strokeIndex);
     subV->m_s->setStyle(styleId);
-    subV->m_s->outlineOptions() = oOptions;
   }
 
   clearPointerContainer(origEdgeList);
@@ -1946,7 +2014,7 @@ assert(m_strokes[strokeIndex-wSize+1]->m_edgeList.empty());*/
     strokeIndex--;
     removeStroke(strokeIndex, false);
 
-    VIStroke *s = new VIStroke(joinStrokes(s0->m_s, s1->m_s), groupId);
+    VIStroke *s = new VIStroke(prepared.joined.release(), groupId);
     insertStrokeAt(s, strokeIndex);
 
     std::list<TEdge *>::iterator it = l0.begin(), it_e = l0.end();
@@ -2104,7 +2172,8 @@ void TVectorImage::restoreEndpoints(int index, TStroke *oldStroke, double offset
 VIStroke *TVectorImage::Imp::extendStrokeSmoothly(int index,
                                                   const TThickPoint &pos,
                                                   int cpIndex) {
-  TStroke *stroke  = m_strokes[index]->m_s;
+  TStroke preparedSource(*m_strokes[index]->m_s);
+  TStroke *stroke  = &preparedSource;
   TGroupId groupId = m_strokes[index]->m_groupId;
 
   int cpCount = stroke->getControlPointCount();
@@ -2181,6 +2250,15 @@ VIStroke *TVectorImage::Imp::extendStroke(int index, const TThickPoint &p,
   TStroke *newStroke = new TStroke(points);
   newStroke->setStyle(stroke->getStyle());
   newStroke->outlineOptions() = stroke->outlineOptions();
+  const auto original = opacitySpan(*stroke, false);
+  const double extra = std::max(0., newStroke->getLength() - stroke->getLength());
+  const double endpoint = StrokeOpacity::evaluate(original.profile, cpIndex == 0 ? 0. : 1.) * original.opacity;
+  const StrokeOpacity::Span extension{{}, extra, endpoint};
+  try {
+    applyCombinedOpacity(*newStroke, cpIndex == 0
+        ? std::vector<StrokeOpacity::Span>{extension, original}
+        : std::vector<StrokeOpacity::Span>{original, extension});
+  } catch (...) { delete newStroke; throw; }
   ret                         = newStroke;
   std::list<TEdge *> oldEdgeList, emptyList;
 
@@ -2249,6 +2327,15 @@ VIStroke *TVectorImage::Imp::joinStroke(int index1, int index2, int cpIndex1,
   TStroke *newStroke = new TStroke(points);
   newStroke->setStyle(styleId);
   newStroke->outlineOptions() = stroke1->outlineOptions();
+  const auto first = opacitySpan(*stroke1, cpIndex1 == 0);
+  const auto last = opacitySpan(*stroke2, cpIndex2 != 0);
+  std::vector<StrokeOpacity::Span> spans{first};
+  const double gap = std::max(0., newStroke->getLength() - first.length -
+                                    (index1 == index2 ? 0. : last.length));
+  if (gap > 0.) spans.push_back(opacityBridge(first, index1 == index2 ? first : last, gap));
+  if (index1 != index2) spans.push_back(last);
+  try { applyCombinedOpacity(*newStroke, spans); }
+  catch (...) { delete newStroke; throw; }
   // ret = newStroke;
   if (index1 == index2) newStroke->setSelfLoop();
   std::list<TEdge *> oldEdgeList, emptyList;
@@ -2277,8 +2364,12 @@ VIStroke *TVectorImage::Imp::joinStrokeSmoothly(int index1, int index2,
 
   TGroupId groupId = m_strokes[index1]->m_groupId;
 
-  TStroke *stroke1 = m_strokes[index1]->m_s;
-  TStroke *stroke2 = m_strokes[index2]->m_s;
+  // Smoothing moves endpoints. Work on detached copies until the complete
+  // joined envelope has passed its representability checks.
+  TStroke preparedFirst(*m_strokes[index1]->m_s);
+  TStroke preparedLast(*m_strokes[index2]->m_s);
+  TStroke *stroke1 = &preparedFirst;
+  TStroke *stroke2 = index1 == index2 ? stroke1 : &preparedLast;
   TStroke *ret;
   int cpCount1 = stroke1->getControlPointCount();
   int cpCount2 = stroke2->getControlPointCount();
@@ -2341,6 +2432,9 @@ VIStroke *TVectorImage::Imp::joinStrokeSmoothly(int index1, int index2,
     std::list<TEdge *> oldEdgeList, emptyList;
     computeEdgeList(stroke1, m_strokes[index1]->m_edgeList, cpIndex1 == 0,
                     cpIndex1 == 0, emptyList, false, oldEdgeList);
+    m_strokes[index1]->m_s->swapGeometry(*stroke1);
+    stroke1 = m_strokes[index1]->m_s;
+    for (TEdge *edge : oldEdgeList) edge->m_s = stroke1;
     eraseIntersection(index1);
     m_strokes[index1]->m_isNewForFill = true;
     stroke1->setSelfLoop();
@@ -2372,6 +2466,10 @@ VIStroke *TVectorImage::Imp::joinStrokeSmoothly(int index1, int index2,
   TStroke *newStroke = new TStroke(points);
   newStroke->setStyle(styleId);
   newStroke->outlineOptions() = stroke1->outlineOptions();
+  try {
+    applyCombinedOpacity(*newStroke, {opacitySpan(*stroke1, cpIndex1 == 0),
+                                     opacitySpan(*stroke2, cpIndex2 != 0)});
+  } catch (...) { delete newStroke; throw; }
   ret                         = newStroke;
   // nundo->m_newStroke=new TStroke(*newStroke);
   // nundo->m_newStrokeId=newStroke->getId();

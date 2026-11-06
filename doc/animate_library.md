@@ -2,9 +2,10 @@
 
 Rigs, symbols and pose sets stored outside any scene, shown in one panel and
 inserted into any scene, like the Library that Adobe Animate shares between
-documents. This is the first version: what an item becomes in a scene is a
-copy, and scenes do not follow later changes of the library item (see "Not in
-this version" at the end).
+documents. Inserting a rig or symbol takes a snapshot of its structure; its
+level files can be copied or linked. Scenes retain recorded Library origin,
+but do not automatically follow later structural changes to the item (see
+"Not in this version" at the end).
 
 ## The Library panel
 
@@ -74,8 +75,9 @@ The `.tnz` of a template refers to its level files as
 A `.tposes` file holds the poses in the format the scene uses for them,
 inside a `<poseSet version="1">` tag.
 
-The `.libinfo` file next to each item gives the item an identity, to be used
-by a later version that updates the scenes using an item:
+The `.libinfo` file next to each item records its identity and revision. When
+a rig or symbol is inserted from the registered Library templates folder,
+valid metadata from this file supplies its recorded origin in the scene:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -95,9 +97,12 @@ by a later version that updates the scenes using an item:
   (empty for an untitled scene): never a path or a user name.
 - `levelFolder` (templates only) is the folder of its level files.
 
-Templates saved before this version have no `.libinfo`; they get one the
-next time they are overwritten or renamed. Nothing is written into the
-scenes: scene files are saved exactly as before.
+Older templates without `.libinfo` get one the next time they are overwritten
+or renamed. An insertion without valid Library metadata does not infer an
+origin from the file's location. Scene files now preserve the recorded item
+identity, revision and ownership relationship on inserted assets, along with
+their own distinct Cast identities. Existing scenes are not retroactively
+attributed to a Library item.
 
 ## Inserting a rig or a symbol
 
@@ -117,6 +122,14 @@ Sub-xsheet** does:
     or misses them.
 - A level already in the scene with the same name and file is reused; the
   other levels are added to the cast, renamed if their name is taken.
+
+Scene Cast distinguishes the inserted **Library snapshot** from its
+**Library-linked file** or **Local copy from Library** assets. A reused level
+keeps its existing attribution. A linked-file label means its current path
+still matches the recorded source; missing-file status is separate. Relinking
+to another source retains the origin but reports **Library origin; source
+replaced**. See [Library ownership in Scene Cast](scene_cast_workflows.md#understand-library-ownership)
+for inspecting these relationships and making local copies.
 
 The insertion is **one undo step**: Undo removes the new column (or the cells
 put in an empty column), the levels added to the cast and the cast folder
@@ -143,9 +156,12 @@ adds the poses of the set to the poses of the scene:
 - Poses refer to the columns and pegbars by their position (Col1, Peg2...),
   so a set applies to scenes where the rig has the same layout.
 
-The pose library of a scene has no undo (adding and deleting poses cannot be
-undone either), so loading a pose set cannot be undone; the question before
-replacing poses says so.
+Loading a pose set is **one undo step** when it changes the scene library.
+Undo restores the complete previous pose order, values and base pose; Redo
+restores the imported result. **Cancel** leaves the library and undo history
+unchanged, and an identical import does not add an undo step. **Set Base**,
+**Add Pose** and deleting a scene pose are also undoable. These operations
+change the scene's pose library, not the saved `.tposes` file.
 
 ## Renaming and deleting
 
@@ -161,14 +177,14 @@ replacing poses says so.
 
 ## Not in this version
 
-- **Update Uses / live links**: a scene does not remember which library item
-  a sub-xsheet came from, and changing an item in the Library does not
-  update the scenes using it. The id and revision of the `.libinfo` files are
-  written to prepare this.
+- **Update Uses / live structural synchronization**: recorded origin and
+  revision identify the inserted snapshot; changing a Library item's rig or
+  symbol structure does not update existing scenes. **Load** still references
+  the Library's level files, so replacing or deleting those files can affect
+  scenes that use them. Recorded origin is not a live synchronization system.
 - **No Levels or Palettes tabs**: levels are found in the File Browser, and
   palettes stay in the Studio Palette, which already shares them between
   scenes.
-- Loading a pose set cannot be undone (see above).
 - Renaming a template does not rename the folder of its level files.
 
 ## Code
@@ -180,7 +196,9 @@ replacing poses says so.
   part of Save Selection as Template that copies the level files, recodes
   their paths, saves and restores them; it is used by both commands.
 - `toonz/iocommand.cpp`: `LoadSubSceneUndo`, recorded around
-  `loadChildLevel()` in `IoCmd::loadResources()`.
+  `loadChildLevel()` in `IoCmd::loadResources()`, and import ownership recording.
+- `toonz/poselibrarycommand.cpp`: complete scene pose-library undo transactions.
+- `toonzlib/txshlevel.cpp`: Cast identity and Library-origin persistence.
 - `toonz/riglibrarypane.h/.cpp`: the Library panel.
 - `include/toonz/libraryitems.h`: the file name rules and the pose set
   merge, tested by `toonzlib/tests/libraryitems_test.cpp`.

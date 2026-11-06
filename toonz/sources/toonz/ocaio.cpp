@@ -40,6 +40,11 @@
 #include <QJsonDocument>
 #include <QDesktopServices>
 #include <QCoreApplication>
+#include <QDomDocument>
+#include <QFile>
+#include <QSaveFile>
+#include <cmath>
+#include <stdexcept>
 
 #include <QWidget>
 #include <QLabel>
@@ -48,6 +53,52 @@
 #include <QVBoxLayout>
 
 using namespace OCAIo;
+
+namespace {
+// Native drawing SVGs are cropped to their artwork, while OCA assets occupy
+// the camera viewport. Preserve the original level origin instead of stretching
+// that crop to the camera dimensions (which also moved off-center drawings).
+void placeVectorAssetInCamera(const TFilePath &path, const TCamera &camera,
+                              bool blankDrawing) {
+  QDomDocument document;
+  QDomElement svg;
+  if (blankDrawing) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    document.appendChild(svg);
+  } else {
+    QFile input(path.getQString());
+    if (!input.open(QIODevice::ReadOnly) || !document.setContent(input.readAll()))
+      throw std::runtime_error("Unable to read the exported vector asset.");
+    svg = document.documentElement();
+    bool xOk = false, yOk = false;
+    const double originX = svg.attribute("data-groundzero-level-x").toDouble(&xOk);
+    const double originY = svg.attribute("data-groundzero-level-y").toDouble(&yOk);
+    if (!xOk || !yOk || !std::isfinite(originX) || !std::isfinite(originY))
+      throw std::runtime_error("The vector asset does not identify its level origin.");
+    const TAffine transform = camera.getStageToCameraRef();
+    const TPointD topLeft = transform * TPointD(originX, originY);
+    auto number = [](double value) { return QString::number(value, 'g', 17); };
+    QDomElement group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.setAttribute("transform", QString("matrix(%1 %2 %3 %4 %5 %6)")
+        .arg(number(transform.a11), number(-transform.a21), number(-transform.a12),
+             number(transform.a22), number(topLeft.x), number(camera.getRes().ly - topLeft.y)));
+    while (!svg.firstChild().isNull()) group.appendChild(svg.firstChild());
+    svg.appendChild(group);
+    svg.removeAttribute("data-groundzero-level-x");
+    svg.removeAttribute("data-groundzero-level-y");
+  }
+  const auto resolution = camera.getRes();
+  svg.setAttribute("width", resolution.lx);
+  svg.setAttribute("height", resolution.ly);
+  svg.setAttribute("viewBox", QString("0 0 %1 %2").arg(resolution.lx).arg(resolution.ly));
+  svg.setAttribute("data-groundzero-camera-viewport", "1");
+  QSaveFile output(path.getQString());
+  output.setDirectWriteFallback(false);
+  const QByteArray bytes = document.toByteArray(-1);
+  if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+    throw std::runtime_error("Unable to place the exported vector asset in its camera viewport.");
+}
+}
 
 void OCAData::write(QJsonObject &json) const {
   // Header
@@ -123,7 +174,9 @@ bool OCAData::saveCell(TXshCellColumn *column, int row, const QString &cellname,
   std::string format = m_raEXR ? "exr" : "png";
 
   // Rasterize cell
-  TImageP image = IoCmd::exportedImage(format, *sl, cell.getFrameId());
+  IoCmd::ExportLevelOptions options;
+  options.m_camera = m_camera;
+  TImageP image = IoCmd::exportedImage(format, *sl, cell.getFrameId(), options);
   if (!image) return false;
 
   if (TRasterImageP ri = (TRasterImageP)(image)) {
@@ -157,6 +210,12 @@ bool OCAData::saveCell(TXshCellColumn *column, int row, const QString &cellname,
   TImageWriterP iw = lw->getFrameWriter(cell.getFrameId());
   iw->setFilePath(fpa);  // Added to aid my own sanity!
   iw->save(image);
+  if (out.fileExt == "svg") {
+    const TVectorImageP vectorImage = image;
+    placeVectorAssetInCamera(fpa, m_camera, vectorImage->getStrokeCount() == 0);
+    out.width = m_camera.getRes().lx;
+    out.height = m_camera.getRes().ly;
+  }
 
   return true;
 }
@@ -323,6 +382,7 @@ void OCAData::setProgressDialog(DVGui::ProgressDialog *dialog) {
 void OCAData::build(ToonzScene *scene, TXsheet *xsheet, QString name,
                     QString path, bool useEXR, bool vectorAsSVG,
                     bool exportReferences) {
+  m_camera = *scene->getCurrentCamera();
   m_name  = name;
   m_path  = path;
   m_subId = 0;

@@ -1,0 +1,61 @@
+name: Plugin Manager
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/plugin_manager.yml'
+      - 'toonz/sources/include/toonzqt/pluginmanager.h'
+      - 'toonz/sources/toonzqt/pluginmanager*.cpp'
+      - 'toonz/sources/toonzqt/pluginhost.*'
+      - 'toonz/sources/toonz/pluginmanagerpopup.*'
+      - 'toonz/sources/toonz/tests/pluginmanager*'
+      - 'toonz/sources/toonz/tests/pluginmanager/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-manager-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Qt ${{ matrix.qt }} regression
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        qt: [5, 6]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Qt
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          if [ '${{ matrix.qt }}' = '5' ]; then package=qtbase5-dev; else package=qt6-base-dev; fi
+          sudo apt-get install -y -o Acquire::Retries=3 "$package" libgl-dev ninja-build
+      - name: Build manager regressions
+        run: |
+          set -o pipefail
+          cmake -S toonz/sources/toonz/tests/pluginmanager -B plugin-manager-build -G Ninja -DPLUGIN_MANAGER_QT_MAJOR=${{ matrix.qt }} 2>&1 | tee plugin-manager-build.log
+          cmake --build plugin-manager-build 2>&1 | tee -a plugin-manager-build.log
+      - name: Test manager
+        run: ctest --test-dir plugin-manager-build --output-on-failure --no-tests=error --output-junit results.xml
+      - name: Report errors
+        if: failure()
+        run: |
+          if [ -f plugin-manager-build.log ]; then
+            while IFS= read -r line; do echo "::error title=Plugin Manager build::$line"; done < <(grep -E 'error:|CMake Error' plugin-manager-build.log || true)
+          fi
+          if [ -f plugin-manager-build/Testing/Temporary/LastTest.log ]; then
+            while IFS= read -r line; do echo "::error title=Plugin Manager regression::$line"; done < <(grep -E 'FAIL:|failure|Error|exception' plugin-manager-build/Testing/Temporary/LastTest.log || true)
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: Plugin-Manager-Qt${{ matrix.qt }}-results
+          path: |
+            plugin-manager-build.log
+            plugin-manager-build/results.xml
+            plugin-manager-build/Testing/Temporary/LastTest.log

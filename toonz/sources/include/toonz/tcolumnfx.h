@@ -65,7 +65,7 @@ public:
 //    TLevelColumnFx  declaration
 //*******************************************************************************************
 
-class TLevelColumnFx : public TColumnFx {
+class DVAPI TLevelColumnFx : public TColumnFx {
   TXshLevelColumn *m_levelColumn;
   bool m_isCachable;
 
@@ -107,7 +107,7 @@ public:
   //! True if the column is shown with a retimed cell lookup.
   bool isTimeRemapActive() const;
   //! True if the remap has been used: it is enabled, or its curve has keys or
-  //! is cycled. Only then the remap parameters are saved.
+  //! is cycled. Unused remap parameters are saved only for editor metadata.
   bool isTimeRemapUsed() const;
   //! The row of the xsheet whose cell is shown at the row \b row of the output;
   //! \b row itself if the remap is not active.
@@ -118,7 +118,7 @@ public:
   //! The tint color of the Color Effect (its alpha is not used).
   TPixelParam *getTintColorParam() const { return m_tintColor.getPointer(); }
   //! True if a parameter of the Color Effect is not at its default (it has
-  //! keys, or another value). Only such parameters are saved.
+  //! keys, or another value). Unused parameters are saved only for editor metadata.
   bool isColorEffectUsed() const;
   //! The values of the Color Effect parameters at \b frame.
   ColumnColorEffect::Values getColorEffectValues(double frame) const;

@@ -9,6 +9,7 @@
 
 // TnzQt includes
 #include "toonzqt/imageutils.h"
+#include "toonzqt/dvdialog.h"
 
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
@@ -351,6 +352,8 @@ private:
   void eraseRegion(const TVectorImageP vi, TStroke *stroke);
 
   void eraseSegments(const TVectorImageP vi, TStroke *eraseStroke);
+  bool m_validateOnly = false;
+  bool m_editRejected = false;
 
   void multiEraseRect(TFrameId firstFrameId, TFrameId lastFrameId,
                       TRectD firstRect, TRectD lastRect, bool invert);
@@ -561,228 +564,78 @@ void EraserTool::startErase(TVectorImageP vi, const TPointD &pos) {
 //-----------------------------------------------------------------------------
 
 void EraserTool::erase(TVectorImageP vi, const TPointD &pos) {
-  std::vector<int>::iterator it = m_indexes.begin();
   m_distance2 += tdistance2(m_oldMousePos, pos);
-
   if (m_distance2 < minDistance2 * getPixelSize() * getPixelSize()) return;
-
-  m_distance2   = 0;
+  m_distance2 = 0;
   m_oldMousePos = pos;
-
-  // Square circumscribing the circle
-  TRectD circumscribedSquare(pos.x - m_pointSize, pos.y - m_pointSize,
-                             pos.x + m_pointSize, pos.y + m_pointSize);
-  if (!circumscribedSquare.overlaps(vi->getBBox())) {
-    invalidate();
-    return;
-  }
-
-  std::vector<double> intersections;
-  std::vector<DoublePair> sortedWRanges;
-
-  std::vector<TStroke *> splitStrokes;
-  double rectEdge_2 = m_pointSize * M_SQRT1_2;
-
-  // Square inscribed in the circle
-  TRectD inscribedSquare(pos.x - rectEdge_2, pos.y - rectEdge_2,
-                         pos.x + rectEdge_2, pos.y + rectEdge_2);
-
-  UINT i            = 0;
-  double pointSize2 = sq(m_pointSize);
-
-  std::vector<int> oneStrokeIndex(1);
-  int index = TTool::getApplication()->getCurrentLevelStyleIndex();
+  const TRectD outer(pos.x - m_pointSize, pos.y - m_pointSize,
+                     pos.x + m_pointSize, pos.y + m_pointSize);
+  if (!outer.overlaps(vi->getBBox())) { invalidate(); return; }
+  const double innerRadius = m_pointSize * M_SQRT1_2;
+  const TRectD inner(pos.x - innerRadius, pos.y - innerRadius,
+                     pos.x + innerRadius, pos.y + innerRadius);
+  const double radius2 = sq(m_pointSize);
+  const int style = TTool::getApplication()->getCurrentLevelStyleIndex();
+  struct Edit { int index; std::vector<DoublePair> ranges; };
+  std::vector<Edit> edits;
   QMutexLocker lock(vi->getMutex());
-  while (i < vi->getStrokeCount()) {
-    assert(it != m_indexes.end());
-
-    TStroke *oldStroke = vi->getStroke(i);
-    if (!vi->inCurrentGroup(i) ||
-        (m_selective.getValue() && oldStroke->getStyle() != index) ||
-        !ArtLayer::Filter(*vi).isEditable(i)) {  // Strokes shift as they split
-      i++;
-      it++;
-      continue;
-    }
-
-    TRectD strokeBBox = oldStroke->getBBox();
-
-    if (!circumscribedSquare.overlaps(
-            strokeBBox)) {  // Stroke outside the square circumscribing the
-                            // circle
-      i++;
-      it++;
-      continue;
-    }
-
-    if (inscribedSquare.contains(
-            strokeBBox)) {  // Stroke entirely contained within the square
-                            // inscribed in the circle
-      if (*it != -1) m_undo->addOldStroke(*it, vi->getVIStroke(i));
-      oneStrokeIndex[0] = i;
-      vi->removeStrokes(oneStrokeIndex, true, true);
-
-      it = m_indexes.erase(it);
-      continue;
-    }
-
-    splitStrokes.clear();
-    intersections.clear();
-    /*int intersNum=*/intersect(*oldStroke, pos, m_pointSize, intersections);
-
-    /*
-#ifdef _DEBUG
-if(intersections.size()==2 && intersections[0]==intersections[1])
-{
-intersections.clear();
-intersect( *oldStroke, pos, m_pointSize, intersections );
-}
-#endif
-*/
-
-    if (intersections.empty()) {
-      // WE SHOULD ONLY CHECK ONE POINT BECAUSE IF THE STROKE DOES NOT
-      // INTERSECT THE CIRCLE AND CONTAINS AT LEAST ONE POINT, IT CONTAINS ALL.
-      // BUT SINCE I DON'T TRUST THE INTERSECT, I CHECK A COUPLE AND FAVOR (WITH
-      // AND) NON-CONTAINMENT, AS IT'S BETTER TO DELETE ONE LESS THING THAN ONE
-      // MORE
-      if (tdistance2(oldStroke->getPoint(0), pos) < pointSize2 &&
-          tdistance2(oldStroke->getPoint(1), pos) <
-              pointSize2) {  // Stroke entirely contained within the circle
-        if (*it != -1) m_undo->addOldStroke(*it, vi->getVIStroke(i));
-        oneStrokeIndex[0] = i;
-        vi->removeStrokes(oneStrokeIndex, true, true);
-        it = m_indexes.erase(it);
-      } else {  // Not hit
-        i++;
-        it++;
-      }
-      continue;
-    }
-
-    // At least one intersection
-
-    if (intersections.size() == 1) {
-      if (oldStroke->isSelfLoop()) {  // Only one intersection of a closed
-                                      // stroke with a circle should only happen
-        // in case of grazing, so pretend nothing happened
-        i++;
-        it++;
+  const ArtLayer::Filter filter(*vi);
+  // Plan the whole sample before deleting even a fully covered stroke. A
+  // later closed-stroke split may exceed the native opacity-envelope limit.
+  try {
+    for (int i = 0; i < vi->getStrokeCount(); ++i) {
+      const TStroke *stroke = vi->getStroke(i);
+      if (!vi->inCurrentGroup(i) || !filter.isEditable(i) ||
+          (m_selective.getValue() && stroke->getStyle() != style) ||
+          !outer.overlaps(stroke->getBBox())) continue;
+      if (inner.contains(stroke->getBBox())) { edits.push_back({i, {}}); continue; }
+      std::vector<double> intersections;
+      intersect(*stroke, pos, m_pointSize, intersections);
+      if (intersections.empty()) {
+        if (tdistance2(stroke->getPoint(0), pos) < radius2 &&
+            tdistance2(stroke->getPoint(1), pos) < radius2)
+          edits.push_back({i, {}});
         continue;
       }
-
-      if (*it != -1) m_undo->addOldStroke(*it, vi->getVIStroke(i));
-
-      double w0            = intersections[0];
-      TThickPoint hitPoint = oldStroke->getThickPoint(w0);
-      int chunck;
-      double t;
-      oldStroke->getChunkAndT(w0, chunck, t);
-
-      int chunckIndex;
-      double w1;
-      if (tdistance2(oldStroke->getPoint(0), pos) < pointSize2) {
-        chunckIndex = oldStroke->getChunkCount() - 1;
-        w1          = 1;
+      if ((stroke->isSelfLoop() && (intersections.size() & 1)) ||
+          (intersections.size() == 2 && intersections[0] == intersections[1])) continue;
+      std::vector<DoublePair> ranges;
+      if (intersections.size() == 1) {
+        const double cut = intersections.front();
+        if (tdistance2(stroke->getPoint(0), pos) < radius2) {
+          if (cut < 1.) ranges.emplace_back(cut, 1.);
+        } else if (cut > 0.) ranges.emplace_back(0., cut);
       } else {
-        chunckIndex = 0;
-        w1          = 0;
-      }
-
-      UINT cI;
-      std::vector<TThickPoint> points;
-      if (w1 == 0) {
-        for (cI = chunckIndex; cI < (UINT)chunck; cI++) {
-          points.push_back(oldStroke->getChunk(cI)->getThickP0());
-          points.push_back(oldStroke->getChunk(cI)->getThickP1());
+        if (tdistance2(stroke->getPoint(0), pos) > radius2) {
+          if (intersections.front() == 0.) intersections.erase(intersections.begin());
+          else intersections.insert(intersections.begin(), 0.);
         }
-
-        TThickQuadratic t1, t2;
-        oldStroke->getChunk(chunck)->split(t, t1, t2);
-        points.push_back(t1.getThickP0());
-        points.push_back(t1.getThickP1());
-        points.push_back(hitPoint);
-      } else {
-        TThickQuadratic t1, t2;
-        oldStroke->getChunk(chunck)->split(t, t1, t2);
-        points.push_back(hitPoint);
-        points.push_back(t2.getThickP1());
-        points.push_back(t2.getThickP2());
-
-        for (cI = chunck + 1; cI <= (UINT)chunckIndex; cI++) {
-          points.push_back(oldStroke->getChunk(cI)->getThickP1());
-          points.push_back(oldStroke->getChunk(cI)->getThickP2());
-        }
+        if (!intersections.empty() && intersections.back() != 1.) intersections.push_back(1.);
+        for (size_t j = 0; j + 1 < intersections.size(); j += 2)
+          if (intersections[j] < intersections[j + 1])
+            ranges.emplace_back(intersections[j], intersections[j + 1]);
       }
-
-      oldStroke->reshape(&(points[0]), points.size());
-
-      vi->notifyChangedStrokes(i);  // For now like this, but it's slow
-
-      *it = -1;
-      i++;
-      it++;
-      continue;
+      if (!ranges.empty()) vi->validateStrokeSplit(i, ranges);
+      edits.push_back({i, std::move(ranges)});
     }
-
-    // Multiple intersections
-
-    if (intersections.size() & 1 &&
-        oldStroke->isSelfLoop()) {  // Should never happen
-      assert(0);
-      i++;
-      it++;
-      continue;
+  } catch (const std::exception &error) {
+    DVGui::warning(QString::fromUtf8(error.what()));
+    return;
+  }
+  // Descending indices keep the original index map valid throughout commit.
+  for (auto edit = edits.rbegin(); edit != edits.rend(); ++edit) {
+    const int i = edit->index;
+    if (m_indexes[i] != -1) m_undo->addOldStroke(m_indexes[i], vi->getVIStroke(i));
+    if (edit->ranges.empty()) {
+      vi->removeStrokes(std::vector<int>{i}, true, true);
+      m_indexes.erase(m_indexes.begin() + i);
+    } else {
+      const int oldCount = vi->getStrokeCount();
+      vi->splitStroke(i, edit->ranges);
+      const int added = vi->getStrokeCount() - oldCount + 1;
+      m_indexes[i] = -1;
+      m_indexes.insert(m_indexes.begin() + i, added - 1, -1);
     }
-
-    if (intersections.size() == 2 &&
-        intersections[0] == intersections[1]) {  // Only grazed
-      i++;
-      it++;
-      continue;
-    }
-
-    UINT oldStrokeSize = vi->getStrokeCount();
-
-    if (*it != -1) m_undo->addOldStroke(*it, vi->getVIStroke(i));
-
-    sortedWRanges.clear();
-
-    if (tdistance2(vi->getStroke(i)->getPoint(0), pos) > pointSize2) {
-      if (intersections[0] == 0.0)
-        intersections.erase(intersections.begin());
-      else
-        intersections.insert(intersections.begin(), 0.0);
-    }
-
-    if (intersections[0] != 1.0) intersections.push_back(1.0);
-
-    sortedWRanges.reserve(intersections.size() / 2);
-
-    for (UINT j = 0; j < intersections.size() - 1; j += 2)
-      sortedWRanges.push_back(
-          std::make_pair(intersections[j], intersections[j + 1]));
-
-#ifdef _DEBUG
-
-    for (UINT kkk = 0; kkk < sortedWRanges.size() - 1; kkk++) {
-      assert(sortedWRanges[kkk].first < sortedWRanges[kkk].second);
-      assert(sortedWRanges[kkk].second <= sortedWRanges[kkk + 1].first);
-    }
-    assert(sortedWRanges.back().first < sortedWRanges.back().second);
-
-#endif
-
-    vi->splitStroke(i, sortedWRanges);
-
-    UINT addedStroke =
-        vi->getStrokeCount() - (oldStrokeSize - 1);  // -1 for the removed one
-
-    i += addedStroke;
-
-    *it = -1;
-    m_indexes.insert(it, addedStroke - 1, -1);
-    it = m_indexes.begin() + i;
   }
 
   invalidate();
@@ -836,6 +689,14 @@ void EraserTool::erase(TVectorImageP vi, TRectD &rect) {
 void EraserTool::stopErase(TVectorImageP vi) {
   assert(m_undo != nullptr);
 
+  if (m_undo->m_originalStrokes.empty()) {
+    delete m_undo;
+    m_undo = nullptr;
+    m_active = false;
+    invalidate();
+    return;
+  }
+
   UINT size = m_indexes.size();
 
   assert(size == vi->getStrokeCount());
@@ -853,6 +714,7 @@ void EraserTool::stopErase(TVectorImageP vi) {
 //-----------------------------------------------------------------------------
 
 void EraserTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
+  m_editRejected = false;
   m_brushPos = m_mousePos = pos;
 
   m_active = true;
@@ -1062,7 +924,7 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
     } else {
       eraseSegments(vi, m_stroke);
       invalidate();
-      notifyImageChanged();
+      if (!m_editRejected) notifyImageChanged();
     }
     m_track.clear();
   }
@@ -1287,6 +1149,7 @@ static bool doublePairCompare(DoublePair p1, DoublePair p2) {
 }
 
 void EraserTool::eraseSegments(const TVectorImageP vi, TStroke *eraseStroke) {
+  m_editRejected = false;
   if (!vi || !eraseStroke) return;
 
   int strokeNumber = vi->getStrokeCount();
@@ -1440,7 +1303,8 @@ void EraserTool::eraseSegments(const TVectorImageP vi, TStroke *eraseStroke) {
   // strokes
   int added = 0;
   for (int i = touchedStrokeIndex.size() - 1; i >= 0; --i) {
-    bool willbeJoined = vi->getStroke(touchedStrokeIndex[i])->isSelfLoop() &&
+    bool willbeJoined = !touchedStrokeRanges[i].empty() &&
+                        vi->getStroke(touchedStrokeIndex[i])->isSelfLoop() &&
                         touchedStrokeRanges[i][0].first == 0.0 &&
                         touchedStrokeRanges[i].back().second == 1.0;
 
@@ -1451,6 +1315,16 @@ void EraserTool::eraseSegments(const TVectorImageP vi, TStroke *eraseStroke) {
   }
 
   // do the erasing and construct the undo action
+  try {
+    for (size_t i = 0; i < touchedStrokeIndex.size(); ++i)
+      if (!touchedStrokeRanges[i].empty())
+        vi->validateStrokeSplit(touchedStrokeIndex[i], touchedStrokeRanges[i]);
+  } catch (const std::exception &error) {
+    m_editRejected = true;
+    DVGui::warning(QString::fromUtf8(error.what()));
+    return;
+  }
+  if (m_validateOnly) return;
   TXshSimpleLevel *level =
       TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
   // Release the previous stroke if it exists
@@ -1626,6 +1500,22 @@ void EraserTool::doMultiErase(TFrameId &firstFrameId, TFrameId &lastFrameId,
     algorithm = TInbetween::EaseInOutInterpolation;
   }
 
+  if (eraseFunction == &EraserTool::eraseSegments) {
+    // Validate every drawing before changing the current frame or starting an
+    // undo block. A dense envelope on the last drawing cannot leave earlier
+    // drawings erased after the operation is rejected.
+    m_validateOnly = true;
+    struct ResetValidation { bool &flag; ~ResetValidation() { flag = false; } } reset{m_validateOnly};
+    for (int i = 0; i < m; ++i) {
+      double t = m > 1 ? double(i) / double(m - 1) : .5;
+      t = TInbetween::interpolation(t, algorithm);
+      doErase(backward ? 1. - t : t, sl, fids[i], firstImage, lastImage, eraseFunction);
+      if (m_editRejected) {
+        if (backward) std::swap(firstFrameId, lastFrameId);
+        return;
+      }
+    }
+  }
   TUndoManager::manager()->beginBlock();
   for (int i = 0; i < m; ++i) {
     TFrameId fid = fids[i];
@@ -1659,7 +1549,12 @@ void EraserTool::doErase(double t, const TXshSimpleLevelP &sl,
                          const TFrameId &fid, const TVectorImageP &firstImage,
                          const TVectorImageP &lastImage,
                          EraserTool::EraseFunction eraseFunction) {
-  TVectorImageP img = sl->getFrame(fid, true);
+  TVectorImageP img = sl->getFrame(fid, !m_validateOnly);
+  if (!img) {
+    m_editRejected = true;
+    DVGui::warning(tr("A drawing in the erase range could not be loaded. The erase was canceled."));
+    return;
+  }
   if (t == 0)
     (this->*eraseFunction)(img, firstImage->getStroke(0));
   else if (t == 1)
@@ -1688,6 +1583,7 @@ void EraserTool::multiErase(TStroke *stroke, const TMouseEvent &e,
       TFrameId tmpFrameId = getCurrentFid();
       doMultiErase(m_firstFrameId, tmpFrameId, m_firstStroke, stroke,
                    eraseFunction);
+      if (m_editRejected) return;
     }
     if (e.isShiftPressed()) {
       // Release the previous stroke if it exists

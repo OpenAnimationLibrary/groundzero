@@ -587,6 +587,10 @@ std::vector<Issue> check(ToonzScene *scene, const Options &options) {
   std::vector<Issue> issues;
   if (!scene) return issues;
   Checker(scene, options, issues).run();
+  if (options.compatibility) {
+    const auto compatibility = compatibilityReport(scene);
+    issues.insert(issues.end(), compatibility.begin(), compatibility.end());
+  }
   std::stable_sort(issues.begin(), issues.end(),
                    [](const Issue &a, const Issue &b) {
                      if (a.severity != b.severity)
@@ -613,7 +617,7 @@ QString kindName(Kind kind) {
   static const char *names[KindCount] = {
       "missingDrawing", "missingFile", "unsavedLevel",   "emptyColumn",
       "unusedLevel",    "unusedStyle", "duplicateStyle", "levelDpi",
-      "frameRate",      "resolution"};
+      "frameRate",      "resolution", "compatibility"};
   return kind >= 0 && kind < KindCount ? names[kind] : "";
 }
 
@@ -639,6 +643,8 @@ QString kindTitle(Kind kind) {
     return QObject::tr("Frame Rates");
   case Resolution:
     return QObject::tr("Resolution");
+  case Compatibility:
+    return QObject::tr("Older-build Compatibility");
   default:
     return QString();
   }

@@ -330,13 +330,19 @@ void testBindings(const TFilePath &path) {
 
 void testRetainedBuilder(const TFilePath &path) {
   TXshExrLevel level(L"EXR Normal Builder");
+  require(!level.sourceExpectedOnDisk(),
+          "Fresh EXR binding incorrectly expects a saved source");
   level.setPath(path, true);
+  require(!level.sourceExpectedOnDisk(),
+          "Assigning an EXR path claimed a successful source load");
   TXshExrLevel::Selection selection;
   selection.part  = "name:beauty";
   selection.layer = "normal";
   selection.raw   = true;
   level.setSelection(selection, true);
   level.load();
+  require(level.sourceExpectedOnDisk(),
+          "Loaded EXR binding did not establish its expected source");
 
   std::vector<TFrameId> fids;
   level.getFids(fids);
@@ -399,6 +405,8 @@ void testSequenceLoadingRange(const QString &sourcePath,
 
   setLoadingLevelRange(TFrameId(2), TFrameId(3));
   level.load(availableFids);
+  require(level.sourceExpectedOnDisk(),
+          "Selected-frame EXR load did not establish its expected source");
 
   std::vector<TFrameId> fids;
   level.getFids(fids);
@@ -494,6 +502,27 @@ void testSequenceLoadingRange(const QString &sourcePath,
           "Later matching base layer was lost during canonicalization");
 }
 
+void testMissingSourceState(const QString &sourcePath,
+                            const QTemporaryDir &directory) {
+  const QString copy = directory.filePath("expected-source.exr");
+  require(QFile::copy(sourcePath, copy), "Cannot create expected-source EXR");
+  TXshExrLevel loaded(L"Previously Loaded EXR");
+  loaded.setPath(TFilePath(copy.toStdWString()), true);
+  loaded.load();
+  require(loaded.sourceExpectedOnDisk() && loaded.getFrameCount() > 0,
+          "Expected-source fixture did not load its EXR content");
+  require(QFile::remove(copy), "Cannot remove expected-source EXR");
+  loaded.load();
+  require(loaded.sourceExpectedOnDisk() && loaded.getFrameCount() == 0,
+          "Missing EXR source became new/unsaved after reload");
+
+  TXshExrLevel neverLoaded(L"Unloaded EXR");
+  neverLoaded.setPath(TFilePath(copy.toStdWString()), true);
+  neverLoaded.load();
+  require(!neverLoaded.sourceExpectedOnDisk() && neverLoaded.getFrameCount() == 0,
+          "Absent EXR source was recorded as successfully loaded");
+}
+
 void testLevelPersistence(const TFilePath &sourcePath,
                           const TFilePath &scenePath) {
   TXshExrLevel original(L"EXR Normal");
@@ -532,6 +561,8 @@ void testLevelPersistence(const TFilePath &sourcePath,
           "EXR level name did not round-trip");
   require(restored->getPath() == sourcePath,
           "EXR source path did not round-trip");
+  require(!restored->sourceExpectedOnDisk(),
+          "EXR metadata reload overwrote the unsaved source state");
   require(restored->getSelection() == selection,
           "EXR part/layer/raw selection did not round-trip");
   require(!restored->isPrimaryBinding(),
@@ -563,6 +594,7 @@ int main(int argc, char *argv[]) {
     testBindings(filePath);
     testRetainedBuilder(filePath);
     testSequenceLoadingRange(path, directory);
+    testMissingSourceState(path, directory);
     testLevelPersistence(
         filePath,
         TFilePath(directory.filePath("exr-level.tnz").toStdWString()));

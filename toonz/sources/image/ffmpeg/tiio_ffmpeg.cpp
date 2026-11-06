@@ -2,6 +2,7 @@
 
 #include "toonz/preferences.h"
 #include "toonz/toonzfolders.h"
+#include "toonz/mediacache.h"
 
 #include "tiio_ffmpeg.h"
 #include "tsystem.h"
@@ -65,6 +66,16 @@ Ffmpeg::~Ffmpeg() {
   } catch (...) {
     qWarning() << "FFmpeg temporary-file cleanup failed";
   }
+  // Release this reader before enforcing the opt-in budget. Other readers keep
+  // independent leases, including readers in another application process.
+  m_importLease.reset();
+  try {
+    if (!m_importCacheBase.isEmpty()) {
+      MediaCache::scheduleBudget(QFileInfo(m_importCacheBase).absolutePath());
+    }
+  } catch (...) {
+    qWarning() << "Media cache budget cleanup failed";
+  }
 }
 
 bool Ffmpeg::checkFormat(std::string format) {
@@ -119,6 +130,7 @@ void Ffmpeg::setPath(const TFilePath &path) {
   }
   m_path = path;
   m_tempBaseName = "export_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+  m_importLease.reset();
   m_importCacheBase.clear();
 }
 
@@ -822,8 +834,16 @@ QString Ffmpeg::importCacheBase() const {
   hash.addData("\0", 1);
   if (!hash.addData(&source))
     throw TImageException(m_path, "Cannot fingerprint video source");
-  m_importCacheBase = getFfmpegCache().getQString() + "/import-v2-" +
-                      QString::fromLatin1(hash.result().toHex());
+  const QString base = getFfmpegCache().getQString() + "/import-v2-" +
+                       QString::fromLatin1(hash.result().toHex());
+  // Protect metadata, validation, extraction and every subsequent PNG load.
+  // Register before returning the path, so retirement cannot race a first read.
+  try {
+    m_importLease.reset(new MediaCache::Lease(base));
+  } catch (const std::exception &) {
+    throw TImageException(m_path, "Cannot protect the video cache reader");
+  }
+  m_importCacheBase = base;
   return m_importCacheBase;
 }
 
@@ -931,6 +951,7 @@ ffmpegFileInfo Ffmpeg::getInfo() const {
   if (currentSource.importCacheBase() != m_importCacheBase) {
     m_lx = m_ly = m_frameCount = 0;
     m_frameRate = 0.0;
+    m_importLease.reset();
     m_importCacheBase.clear();
     throw TImageException(m_path, "Video source changed while reading metadata");
   }

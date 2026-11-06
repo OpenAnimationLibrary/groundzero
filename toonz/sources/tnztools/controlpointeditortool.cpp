@@ -8,6 +8,7 @@
 
 #include "tools/tool.h"
 #include "tools/toolutils.h"
+#include "tools/vectorfillreview.h"
 #include "tools/cursors.h"
 #include "tools/toolhandle.h"
 
@@ -30,6 +31,7 @@ TEnv::StringVar CPSelectionType("ControlPointEditorToolSelectionType",
 TEnv::IntVar AutoSelectDrawing("ControlPointEditorToolAutoSelectDrawing", 1);
 TEnv::IntVar Snap("ControlPointEditorToolSnap", 0);
 TEnv::IntVar SnapSensitivity("ControlPointEditorToolSnapSensitivity", 0);
+TEnv::IntVar ReviewFills("ControlPointEditorToolReviewFills", 0);
 
 //-----------------------------------------------------------------------------
 
@@ -186,6 +188,7 @@ ControlPointEditorTool::ControlPointEditorTool()
     , m_selectingRect(TRectD())
     , m_autoSelectDrawing("Auto Select Drawing", true)
     , m_snap("snap", false)
+    , m_reviewFills("Review Fills", false)
     , m_snapSensitivity("Sensitivity:")
     , m_selectType("Type:")
     , m_action(NONE)
@@ -198,6 +201,7 @@ ControlPointEditorTool::ControlPointEditorTool()
   m_prop.bind(m_selectType);
   m_prop.bind(m_autoSelectDrawing);
   m_prop.bind(m_snap);
+  m_prop.bind(m_reviewFills);
   m_prop.bind(m_snapSensitivity);
   m_selection.setControlPointEditorStroke(&m_controlPointEditorStroke);
 
@@ -207,6 +211,7 @@ ControlPointEditorTool::ControlPointEditorTool()
 
   m_autoSelectDrawing.setId("AutoSelectDrawing");
   m_snap.setId("Snap");
+  m_reviewFills.setId("ReviewFills");
   m_snapSensitivity.addValue(LOW_WSTR);
   m_snapSensitivity.addValue(MEDIUM_WSTR);
   m_snapSensitivity.addValue(HIGH_WSTR);
@@ -218,6 +223,7 @@ ControlPointEditorTool::ControlPointEditorTool()
 void ControlPointEditorTool::updateTranslation() {
   m_autoSelectDrawing.setQStringName(tr("Auto Select Drawing"));
   m_snap.setQStringName(tr("Snap"));
+  m_reviewFills.setQStringName(tr("Review Fills"));
   m_selectType.setQStringName(tr("Type:"));
   m_selectType.setItemUIName(RECTANGULAR_WSTR, tr("Rectangular"));
   m_selectType.setItemUIName(FREEHAND_WSTR, tr("Freehand"));
@@ -231,6 +237,9 @@ void ControlPointEditorTool::updateTranslation() {
 //---------------------------------------------------------------------------
 
 void ControlPointEditorTool::initUndo() {
+  // Discarding a pending drag must never strand unrecorded geometry.
+  if (m_undo) cancelUndo();
+  m_beforeReview = TVectorImageP();
   if (TTool::getApplication()->getCurrentObject()->isSpline()) {
     m_undo =
         new UndoPath(getXsheet()->getStageObject(getObjectId())->getSpline());
@@ -238,6 +247,7 @@ void ControlPointEditorTool::initUndo() {
   }
   TVectorImageP vi(getImage(false));
   if (!vi) return;
+  if (m_reviewFills.getValue()) m_beforeReview = vi->clone();
   TXshSimpleLevel *level =
       TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
   UndoControlPointEditor *undo =
@@ -245,6 +255,50 @@ void ControlPointEditorTool::initUndo() {
   int index = m_controlPointEditorStroke.getStrokeIndex();
   if (index > -1) undo->addOldStroke(index, vi->getVIStroke(index));
   m_undo = undo;
+}
+
+void ControlPointEditorTool::cancelUndo() {
+  if (auto *undo = dynamic_cast<UndoControlPointEditor *>(m_undo)) {
+    undo->restoreBefore();
+    TVectorImageP image(getImage(false));
+    const int index = m_controlPointEditorStroke.getStrokeIndex();
+    m_controlPointEditorStroke.setStroke(image,
+        image && index < int(image->getStrokeCount()) ? index : -1);
+    m_selection.selectNone();
+  } else if (m_undo) {
+    m_undo->undo();  // Preserve the existing spline editor's recovery path.
+  }
+  delete m_undo;
+  m_undo = nullptr;
+  m_beforeReview = TVectorImageP();
+  m_moveControlPointEditorStroke.setStroke((TVectorImage *)nullptr, -1);
+  m_action = NONE;
+  m_isImageChanged = false;
+  invalidate();
+}
+
+void ControlPointEditorTool::commitUndo() {
+  if (!m_undo) return;
+  TVectorImageP image(getImage(false));
+  if (m_beforeReview && image) {
+    // Rebuild only the detached candidate for review. The live edit retains
+    // its fill assignments until the user accepts or restores the original.
+    TVectorImageP proposed = image->clone();
+    proposed->findRegions();
+    if (!VectorFillReview::review({VectorFillReview::Entry(
+            QString::fromStdString(getCurrentFid().expand()), m_beforeReview,
+            proposed)})) {
+      cancelUndo();
+      return;
+    }
+  }
+  // Tool/context changes can cancel the pending edit while the review runs.
+  if (!m_undo) return;
+  TUndoManager::manager()->add(m_undo);
+  m_undo = nullptr;
+  m_beforeReview = TVectorImageP();
+  notifyImageChanged();
+  invalidate();
 }
 
 //---------------------------------------------------------------------------
@@ -522,8 +576,7 @@ void ControlPointEditorTool::leftButtonDown(const TPointD &pos,
         linkSpeedInOut(pointIndex);
       else
         unlinkSpeedInOut(pointIndex);
-      TUndoManager::manager()->add(m_undo);
-      m_undo = 0;
+      commitUndo();
     }
     m_selection.makeCurrent();
   } else if (pointType == ControlPointEditorStroke::CONTROL_POINT) {
@@ -536,8 +589,7 @@ void ControlPointEditorTool::leftButtonDown(const TPointD &pos,
       bool isSpeedOut = m_controlPointEditorStroke.isSpeedOutLinear(pointIndex);
       m_controlPointEditorStroke.setLinear(pointIndex,
                                            !isSpeedIn && !isSpeedOut);
-      TUndoManager::manager()->add(m_undo);
-      m_undo = 0;
+      commitUndo();
       return;
     }
     if (e.isCtrlPressed()) {
@@ -561,9 +613,8 @@ void ControlPointEditorTool::leftButtonDown(const TPointD &pos,
       pointIndex = m_controlPointEditorStroke.addControlPoint(pos);
       m_selection.select(pointIndex);
       m_action = CP_MOVEMENT;
-      TUndoManager::manager()->add(m_undo);
+      commitUndo();
       m_lastPointSelected = -1;
-      notifyImageChanged();
     } else {
       // Inizio a muovere la curva
       int precPointIndex, nextPointIndex;
@@ -585,11 +636,9 @@ void ControlPointEditorTool::leftButtonDown(const TPointD &pos,
       // delimitano il segmento.
       if (e.isShiftPressed()) {
         if (!m_controlPointEditorStroke.isCusp(precPointIndex)) {
-          m_controlPointEditorStroke.setCusp(precPointIndex, true, false);
           m_moveControlPointEditorStroke.setCusp(precPointIndex, true, false);
         }
         if (!m_controlPointEditorStroke.isCusp(nextPointIndex)) {
-          m_controlPointEditorStroke.setCusp(nextPointIndex, true, true);
           m_moveControlPointEditorStroke.setCusp(nextPointIndex, true, true);
         }
       }
@@ -769,7 +818,7 @@ void ControlPointEditorTool::leftButtonUp(const TPointD &realPos,
   pos = getSnap(realPos);
   resetSnap();
 
-  if (m_action == SEGMENT_MOVEMENT) {
+  if (m_action == SEGMENT_MOVEMENT && m_isImageChanged) {
     m_moveControlPointEditorStroke.setStroke((TVectorImage *)0, -1);
     TPointD delta = pos - m_pos;
     moveSegment(delta, false, e.isShiftPressed());
@@ -798,19 +847,16 @@ void ControlPointEditorTool::leftButtonUp(const TPointD &realPos,
   }
 
   if (m_action == NONE || !m_isImageChanged) {
+    delete m_undo;
     m_undo = 0;
+    m_beforeReview = TVectorImageP();
     invalidate();
     return;
   }
 
-  notifyImageChanged();
-  invalidate();
-
-  // Registro l'UNDO
-  if (m_undo) {
-    TUndoManager::manager()->add(m_undo);
-    m_undo = 0;
-  }
+  // The modal preview renders immutable clones, never a mutex-locked drawing.
+  lock.unlock();
+  commitUndo();
 }
 
 //---------------------------------------------------------------------------
@@ -843,6 +889,10 @@ void ControlPointEditorTool::unlinkSpeedInOut(int pointIndex) {
 //---------------------------------------------------------------------------
 
 bool ControlPointEditorTool::keyDown(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Escape && m_undo) {
+    cancelUndo();
+    return true;
+  }
   TVectorImageP vi(getImage(true));
   if (!vi || (vi && m_selection.isEmpty())) return false;
 
@@ -871,7 +921,7 @@ bool ControlPointEditorTool::keyDown(QKeyEvent *event) {
 
   invalidate();
   // Registro l'UNDO
-  TUndoManager::manager()->add(m_undo);
+  commitUndo();
 
   return true;
 }
@@ -908,6 +958,7 @@ bool ControlPointEditorTool::onPropertyChanged(std::string propertyName) {
   CPSelectionType   = ::to_string(m_selectType.getValue());
   AutoSelectDrawing = (int)(m_autoSelectDrawing.getValue());
   Snap              = (int)(m_snap.getValue());
+  ReviewFills       = (int)(m_reviewFills.getValue());
   SnapSensitivity   = (int)(m_snapSensitivity.getIndex());
   switch (SnapSensitivity) {
   case 0:
@@ -930,6 +981,7 @@ void ControlPointEditorTool::onActivate() {
   m_selectType.setValue(::to_wstring(CPSelectionType.getValue()));
   m_autoSelectDrawing.setValue(AutoSelectDrawing ? 1 : 0);
   m_snap.setValue(Snap ? 1 : 0);
+  m_reviewFills.setValue(ReviewFills ? 1 : 0);
   m_snapSensitivity.setIndex(SnapSensitivity);
   switch (SnapSensitivity) {
   case 0:
@@ -952,6 +1004,7 @@ void ControlPointEditorTool::onActivate() {
 //---------------------------------------------------------------------------
 
 void ControlPointEditorTool::onDeactivate() {
+  if (m_undo) cancelUndo();
   m_draw = false;
   if (TTool::getApplication()->getCurrentSelection()->getSelection() ==
       &m_selection)
@@ -1004,6 +1057,7 @@ int ControlPointEditorTool::getCursorId() const {
 // instead of triggering the shortcut command.
 bool ControlPointEditorTool::isEventAcceptable(QEvent *e) {
   if (!isEnabled()) return false;
+  if (m_undo && static_cast<QKeyEvent *>(e)->key() == Qt::Key_Escape) return true;
   TVectorImageP vi(getImage(false));
   if (!vi || (vi && m_selection.isEmpty())) return false;
   // arrow keys will be used for moving the selected points

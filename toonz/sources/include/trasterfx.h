@@ -9,6 +9,7 @@
 // TnzBase includes
 #include "tfx.h"
 #include "trasterfxrenderdata.h"
+#include "tcheckrenderdata.h"
 #include <QOffscreenSurface>
 
 #undef DVAPI
@@ -166,6 +167,8 @@ public:
   std::shared_ptr<QOffscreenSurface> m_offScreenSurface;
 
   double m_colorSpaceGamma;
+
+  TRenderCheckSettings m_activeChecks;
 
 public:
   TRenderSettings();

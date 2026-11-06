@@ -10,6 +10,7 @@
 #include "filebrowserpopup.h"
 #include "filebrowser.h"
 #include "tundo.h"
+#include <memory>
 
 //=============================================================================
 
@@ -97,7 +98,8 @@ bool SaveCurvePopup::execute() {
   try {
     TSystem::touchParentDir(fp);
     TOStream os(fp);
-    getCurve()->saveData(os);
+    TDoubleParamP exported = new TDoubleParam(*getCurve());
+    exported->saveData(os);
     return true;
   } catch (...) {
     DVGui::warning(QObject::tr("It is not possible to save the curve."));
@@ -121,6 +123,7 @@ public:
 //-----------------------------------------------------------------------------
 
 bool LoadCurvePopup::execute() {
+  if (getCurve()->isEditorLocked()) return false;
   if (m_selectedPaths.empty()) return false;
 
   TFilePath fp(*m_selectedPaths.begin());
@@ -134,10 +137,14 @@ bool LoadCurvePopup::execute() {
     // default value must be kept the same!!!
     TDoubleParam *curve = getCurve();
     double defaultValue = curve->getDefaultValue();
-    LoadCurveUndo *undo = new LoadCurveUndo(curve);
-    curve->loadData(is);
-    curve->setDefaultValue(defaultValue);
-    TUndoManager::manager()->add(undo);
+    TDoubleParamP imported = new TDoubleParam(*curve);
+    imported->loadData(is);
+    imported->setDefaultValue(defaultValue);
+    // Copy animation into its existing owner. Workspace identity and the
+    // session edit lock belong to that owner, never to an imported curve file.
+    std::unique_ptr<LoadCurveUndo> undo(new LoadCurveUndo(curve));
+    curve->copy(imported.getPointer());
+    TUndoManager::manager()->add(undo.release());
   } catch (...) {
     DVGui::warning(QObject::tr("It is not possible to load the curve."));
     return false;
@@ -223,6 +230,7 @@ void saveCurve(TDoubleParam *curve) {
 //------------------------------------------
 
 void loadCurve(TDoubleParam *curve) {
+  if (!curve || curve->isEditorLocked()) return;
   TFilePath folderPath =
       TProjectManager::instance()->getCurrentProject()->getScenesPath();
   LoadCurvePopup popup(folderPath, curve);

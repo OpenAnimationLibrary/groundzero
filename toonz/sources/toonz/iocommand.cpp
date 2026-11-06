@@ -4,6 +4,7 @@
 #include <exception>
 
 #include "iocommand.h"
+#include "activechecks.h"
 #include "importpdf.h"
 
 // Toonz includes
@@ -59,6 +60,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/sceneproperties.h"
+#include "librarycommand.h"
 #include "toonz/levelproperties.h"
 #include "toonz/stage2.h"
 #include "toonz/imagemanager.h"
@@ -80,6 +82,7 @@
 #include "toonz/toonzimageutils.h"
 #include "toonz/imagestyles.h"
 #include "toutputproperties.h"
+#include "trasterfx.h"
 #include "toonz/studiopalette.h"
 #include "convert2tlv.h"
 
@@ -720,6 +723,21 @@ class ChildLevelResourceImporter final : public ResourceProcessor {
 
   ResourceImportStrategy &m_importStrategy;
   TFilePath m_levelSetFolder;
+  TXshLevel::LibraryProvenance m_libraryOrigin;
+
+  void recordSource(TXshLevel *level, const TFilePath &original, const TFilePath &destination) {
+    level->renewCastId();  // Loading a scene as a sub-xsheet creates distinct Cast entries.
+    auto provenance = m_libraryOrigin;
+    if (provenance.relationship != TXshLevel::LibraryProvenance::NotRecorded) {
+      provenance.sourceAssetPath = original.getQString();
+      provenance.relationship = original == m_parentScene->decodeFilePath(destination)
+                                    ? TXshLevel::LibraryProvenance::Linked
+                                    : TXshLevel::LibraryProvenance::LocalCopy;
+      level->setLibraryProvenance(provenance);
+    } else if (original != m_parentScene->decodeFilePath(destination)) {
+      level->detachLibrarySource(TXshLevel::LibraryProvenance::LocalCopy);
+    }
+  }
 
 public:
   ChildLevelResourceImporter(ToonzScene *parentScene, ToonzScene *childScene,
@@ -728,6 +746,7 @@ public:
   void setLevelSetFolder(const TFilePath &levelSetFolder) {
     m_levelSetFolder = levelSetFolder;
   }
+  void setLibraryOrigin(const TXshLevel::LibraryProvenance &origin) { m_libraryOrigin = origin; }
 
   void process(TXshSimpleLevel *sl) override;
   void process(TXshPaletteLevel *sl) override;
@@ -749,7 +768,7 @@ ChildLevelResourceImporter::ChildLevelResourceImporter(
 
 void ChildLevelResourceImporter::process(TXshSimpleLevel *sl) {
   TLevelSet *parentLevelSet = m_parentScene->getLevelSet();
-  if (parentLevelSet->hasLevel(sl->getName())) {
+  if (!m_importStrategy.importsFxResources() && parentLevelSet->hasLevel(sl->getName())) {
     TXshSimpleLevel *other =
         parentLevelSet->getLevel(sl->getName())->getSimpleLevel();
     if (other)  // in case that the retrieved level from scene cast is
@@ -773,12 +792,16 @@ void ChildLevelResourceImporter::process(TXshSimpleLevel *sl) {
     }
   }
 
+  const TFilePath original = m_childScene->decodeFilePath(sl->getPath());
   TFilePath slPath   = sl->getPath();
   std::string suffix = ResourceImporter::extractPsdSuffix(slPath);
 
   TFilePath path = m_importStrategy.process(m_parentScene, m_childScene,
                                             slPath);  // actualPath);
+  if (m_importStrategy.aborted()) return;
   if (suffix != "") path = ResourceImporter::buildPsd(path, suffix);
+
+  recordSource(sl, original, path);
 
   sl->setPath(path, false);  // m_parentScene->codeFilePath(actualPath), false);
   NameModifier nm(sl->getName());
@@ -822,7 +845,9 @@ void ChildLevelResourceImporter::process(TXshPaletteLevel *pl) {
 
   TFilePath path =
       m_importStrategy.process(m_parentScene, m_childScene, plPath);
+  if (m_importStrategy.aborted()) return;
 
+  recordSource(pl, m_childScene->decodeFilePath(plPath), path);
   pl->setPath(path);
   NameModifier nm(pl->getName());
   std::wstring levelName;
@@ -850,6 +875,8 @@ void ChildLevelResourceImporter::process(TXshSoundLevel *sl) {
   TLevelSet *parentLevelSet = m_parentScene->getLevelSet();
   TFilePath path =
       m_importStrategy.process(m_parentScene, m_childScene, sl->getPath());
+  if (m_importStrategy.aborted()) return;
+  recordSource(sl, m_childScene->decodeFilePath(sl->getPath()), path);
   sl->setPath(path);
   NameModifier nm(sl->getName());
   std::wstring levelName;
@@ -926,6 +953,8 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
 
   ChildLevelResourceImporter childLevelResourceImporter(parentScene, &scene,
                                                         importStrategy);
+  const auto libraryOrigin = LibraryCmd::templateProvenance(actualPath);
+  childLevelResourceImporter.setLibraryOrigin(libraryOrigin);
   TFilePath dstFolder = importStrategy.getDstFolder();
   if (dstFolder != TFilePath()) {
     TLevelSet *levelSet      = parentScene->getLevelSet();
@@ -937,6 +966,7 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
 
   SceneResources resources(&scene, childXsh);
   resources.accept(&childLevelResourceImporter);
+  if (importStrategy.aborted()) return nullptr;
 
   scene.setProject(parentScene->getProject());
   std::vector<TXshChildLevel *> childLevels;
@@ -945,13 +975,22 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
       childLevels.push_back(cl);
   for (int i = 0; i < (int)childLevels.size(); i++) {
     TXshChildLevel *cl = childLevels[i];
+    cl->renewCastId();
+    NameModifier name(cl->getName());
+    std::wstring uniqueName;
+    do { uniqueName = name.getNext(); }
+    while (parentScene->getLevelSet()->hasLevel(uniqueName));
+    cl->addRef();
+    scene.getLevelSet()->removeLevel(cl);
+    cl->setName(uniqueName);
     parentScene->getLevelSet()->insertLevel(cl);
-    // scene.getLevelSet()->removeLevel(cl);
+    cl->release();
   }
 
   TXshChildLevel *childLevel =
       parentScene->createNewLevel(CHILD_XSHLEVEL, subSceneName)
           ->getChildLevel();
+  childLevel->setLibraryProvenance(libraryOrigin);
 
   int frameCount = scene.getXsheet()->getFrameCount();
   childXsh->setScene(parentScene);
@@ -1225,7 +1264,7 @@ public:
   }
 
   //! Registers the undo of what the load added.
-  void addUndo(TXshLevel *childLevel) {
+  void addUndo(TXshLevel *childLevel, bool rollback = false) {
     if (m_scene->getXsheet() != m_xsh.getPointer()) return;
     TXsheet *xsh = m_xsh.getPointer();
     std::unique_ptr<LoadSubSceneUndo> undo(new LoadSubSceneUndo(
@@ -1288,13 +1327,18 @@ public:
       entry.m_newName = getColumnName(xsh, c);
       undo->m_cells.push_back(entry);
     }
-    if (undo->isEmpty()) return;
+    if (undo->isEmpty()) {
+      if (rollback && !m_castFolderExisted && hasCastFolder())
+        m_scene->getLevelSet()->removeFolder(m_castFolderParent + m_castFolderName);
+      return;
+    }
 
     if (!m_castFolderExisted && hasCastFolder()) {
       undo->m_castFolderParent = m_castFolderParent;
       undo->m_castFolderName   = m_castFolderName;
     }
-    TUndoManager::manager()->add(undo.release());
+    if (rollback) undo->undo();
+    else TUndoManager::manager()->add(undo.release());
   }
 };
 
@@ -1719,8 +1763,42 @@ inline TPaletteP dirtyWhite(const TPaletteP &plt) {
 // IoCmd::saveSceneIfNeeded(message)
 //---------------------------------------------------------------------------
 
-bool IoCmd::saveSceneIfNeeded(QString msg) {
+namespace {
+IoCmd::SceneTransitionGuard *activeSceneTransition = nullptr;
+}
+
+IoCmd::SceneTransitionGuard::SceneTransitionGuard() {
+  if (activeSceneTransition) return;
+  m_scene = TApp::instance()->getCurrentScene()->retainScene();
+  m_admitted = true;
+  activeSceneTransition = this;
+}
+
+IoCmd::SceneTransitionGuard::~SceneTransitionGuard() {
+  if (!m_admitted) return;
+  if (m_iconsPaused) IconGenerator::instance()->resumeAfterSceneChange();
+  m_scene.reset();
+  activeSceneTransition = nullptr;
+}
+
+bool IoCmd::SceneTransitionGuard::pauseIcons() {
+  if (!m_admitted) return false;
+  if (m_iconsPaused) return true;
+  m_iconsPaused = IconGenerator::instance()->pauseForSceneChange();
+  if (!m_iconsPaused)
+    DVGui::error(QObject::tr("Unable to prepare thumbnail rendering for the scene change."));
+  return m_iconsPaused;
+}
+
+bool IoCmd::isSceneTransitionInProgress() { return activeSceneTransition != nullptr; }
+
+static bool saveSceneIfNeededImpl(QString msg,
+                                 const std::function<void()> &beforeClear,
+                                 IoCmd::SceneTransitionGuard &transition) {
+  if (!transition.isAdmitted()) return false;
   TApp *app = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  const auto scenePin = app->getCurrentScene()->retainScene();
 
   if (app->getCurrentScene()->getDirtyFlag()) {
     QString question;
@@ -1731,6 +1809,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
     int ret = DVGui::MsgBox(
         question, QObject::tr("Save All"), QObject::tr("Save Scene Only"),
         QObject::tr("Discard Changes"), QObject::tr("Cancel"), 0);
+    if (app->getCurrentScene()->getScene() != scene) return false;
     if (ret == 0 || ret == 4) {
       // cancel (or closed message box window)
       return false;
@@ -1744,7 +1823,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
     }
   }
 
-  ToonzScene *scene = app->getCurrentScene()->getScene();
+  if (app->getCurrentScene()->getScene() != scene) return false;
   if (scene) {
     QStringList dirtyResources;
     {
@@ -1777,6 +1856,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
       int ret =
           DVGui::MsgBox(question, QObject::tr("Save Changes"),
                         msg + QObject::tr(" Anyway"), QObject::tr("Cancel"), 0);
+      if (app->getCurrentScene()->getScene() != scene) return false;
       if (ret == 0 || ret == 3) {
         // cancel (or closed message box window)
         return false;
@@ -1786,6 +1866,19 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
       } else if (ret == 2) {
         // do nothing and continue
       }
+    }
+
+    // A resource prompt can dispatch another scene command. Never clear a
+    // replacement that the user did not review in this operation.
+    if (app->getCurrentScene()->getScene() != scene) return false;
+    if (beforeClear) {
+      beforeClear();
+      // Shutdown is terminal once accepted. A direct low-level replacement is
+      // retained safely, but the unreviewed replacement must remain untouched.
+      if (app->getCurrentScene()->getScene() != scene) return true;
+    } else {
+      if (!transition.pauseIcons()) return false;
+      if (app->getCurrentScene()->getScene() != scene) return false;
     }
 
     RenderingSuspender suspender;
@@ -1801,16 +1894,24 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
   return true;
 }
 
+bool IoCmd::saveSceneIfNeeded(QString msg,
+                             const std::function<void()> &beforeClear) {
+  SceneTransitionGuard transition;
+  if (!transition.isAdmitted()) return false;
+  return saveSceneIfNeededImpl(msg, beforeClear, transition);
+}
+
 //===========================================================================
 // IoCmd::newScene()
 //---------------------------------------------------------------------------
 
-void IoCmd::newScene() {
+static void newSceneImpl(IoCmd::SceneTransitionGuard &transition) {
   RenderingSuspender suspender;
   TApp *app        = TApp::instance();
   double cameraDpi = 120;  // used to be 64 and 53.33333
 
-  if (!saveSceneIfNeeded(QApplication::tr("New Scene"))) return;
+  if (!saveSceneIfNeededImpl(QApplication::tr("New Scene"), {}, transition)) return;
+  if (!transition.pauseIcons()) return;
 
   // temporary clear the current level to prevent UI to access deleted level
   // while switching scenes
@@ -1905,6 +2006,12 @@ void IoCmd::newScene() {
       scene->decodeFilePath(scene->getScenePath()));
   QAction *act = CommandManager::instance()->getAction(MI_RevertScene);
   if (act) act->setEnabled(exist);
+}
+
+void IoCmd::newScene() {
+  SceneTransitionGuard transition;
+  if (!transition.isAdmitted()) return;
+  newSceneImpl(transition);
 }
 
 //===========================================================================
@@ -2032,14 +2139,42 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
     cp->assign(&CleanupParameters::GlobalParameters, false);
   }
 
+  TOutputProperties *checkProperties[] = {
+      scene->getProperties()->getOutputProperties(),
+      scene->getProperties()->getPreviewProperties()};
+  for (TOutputProperties *properties : checkProperties)
+    captureActiveRenderChecks(scene, properties);
+
+  // A saved sub-xsheet becomes a new root, so its selected column no longer
+  // needs the ancestor path. Preserve the live scene's full path afterwards.
+  const TRenderSettings originalCheckSettings[] = {
+      checkProperties[0]->getRenderSettings(),
+      checkProperties[1]->getRenderSettings()};
+  if (saveSubxsheet) {
+    for (TOutputProperties *properties : checkProperties) {
+      TRenderSettings settings     = properties->getRenderSettings();
+      std::vector<int> &columnPath = settings.m_activeChecks.m_columnPath;
+      if (!columnPath.empty()) columnPath = {columnPath.back()};
+      properties->setRenderSettings(settings);
+    }
+  }
+  auto restoreCheckPaths = [&] {
+    if (!saveSubxsheet) return;
+    for (int i = 0; i < 2; ++i)
+      checkProperties[i]->setRenderSettings(originalCheckSettings[i]);
+  };
+
   bool saveSucceeded = true;
   try {
     scene->save(scenePath, xsheet, !isAutosave);
+    restoreCheckPaths();
   } catch (const TSystemException &se) {
+    restoreCheckPaths();
     if (!isAutosave)
       DVGui::warning(QString::fromStdWString(se.getMessage()));
     saveSucceeded = false;
   } catch (...) {
+    restoreCheckPaths();
     if (!isAutosave)
       DVGui::error(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(scenePath)));
     saveSucceeded = false;
@@ -2410,11 +2545,13 @@ bool IoCmd::loadScene(ToonzScene &scene, const TFilePath &scenePath,
 
 bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
                       bool checkSaveOldScene) {
+  SceneTransitionGuard transition;
+  if (!transition.isAdmitted()) return false;
   RenderingSuspender suspender;
 
   // - Check if old Scene saved
   if (checkSaveOldScene)
-    if (!saveSceneIfNeeded(QApplication::tr("Load Scene"))) return false;
+    if (!saveSceneIfNeededImpl(QApplication::tr("Load Scene"), {}, transition)) return false;
 
   // - Check if the scenePath is valid
   assert(!path.isEmpty());
@@ -2481,7 +2618,7 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
     int ret = DVGui::MsgBox(question, importAnswer, switchProjectAnswer,
                             cancelAnswer, 0);
     if (ret == 3 || ret == 0) {
-      newScene();
+      newSceneImpl(transition);
       return false;
     }
     if (ret == 2) pm->setCurrentProjectPath(sceneProject->getProjectPath());
@@ -2489,6 +2626,10 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
     // Import Scene Later because of difference of currentProject and
     // sceneProject
   }
+
+  // Keep admission closed through unchecked loads and all subsequent scene,
+  // cache and selection updates, including progress-dialog event service.
+  if (!transition.pauseIcons()) return false;
 
   // - Start to load scene
   QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2703,6 +2844,7 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
 //---------------------------------------------------------------------------
 
 bool IoCmd::loadScene() {
+  if (isSceneTransitionInProgress()) return false;
   TSelection *oldSelection =
       TApp::instance()->getCurrentSelection()->getSelection();
   FileSelection *fileSelection =
@@ -3125,19 +3267,29 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
           castFolderName = dstFolder.getWideName();
         }
         SubSceneLoadRecorder recorder(scene, castFolderParent, castFolderName);
-        auto xl = loadChildLevel(scene, path, row0, col0, importDialog);
-        if (xl) recorder.addUndo(xl);
-        if (dstFolder != TFilePath())
-          app->getCurrentScene()->notifyCastFolderAdded(
-              scene->getLevelSet()->getDefaultFolder() + dstFolder);
-        // increment the number of resources actually loaded
-        ++loadedCount;
-        // move the column to the right
-        ++col0;
-        // register the loaded level to args
-        args.loadedLevels.push_back(xl);
-        app->getCurrentXsheet()->notifyXsheetSoundChanged();
+        TXshLevel *xl = nullptr;
+        try {
+          xl = loadChildLevel(scene, path, row0, col0, importDialog);
+        } catch (...) {
+          // Explicit rollback may allocate while reconstructing the actual
+          // added resources. Keep it out of a noexcept destructor/unwind.
+          recorder.addUndo(nullptr, true);
+          throw;
+        }
+        if (xl) {
+          recorder.addUndo(xl);
+          if (dstFolder != TFilePath())
+            app->getCurrentScene()->notifyCastFolderAdded(
+                scene->getLevelSet()->getDefaultFolder() + dstFolder);
+          ++loadedCount;
+          ++col0;
+          args.loadedLevels.push_back(xl);
+          app->getCurrentXsheet()->notifyXsheetSoundChanged();
+        } else recorder.addUndo(nullptr, true);
+      } catch (const TException &failure) {
+        error(QObject::tr("Unable to load the sub-xsheet: %1").arg(QString::fromStdWString(failure.getMessage())));
       } catch (...) {
+        error(QObject::tr("Unable to finish loading the sub-xsheet. Review the Scene Cast before continuing."));
       }
 
       importDialog.setIsLastResource(isLastResource);

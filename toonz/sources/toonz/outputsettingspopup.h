@@ -71,6 +71,7 @@ class OutputSettingsPopup : public DVGui::Dialog {
   DVGui::DoubleLineEdit *m_stereoShift;
   QComboBox *m_rasterGranularityOm;
   QComboBox *m_threadsComboOm;
+  DVGui::CheckBox *m_renderActiveChecksChk;
   bool m_allowMT;
 
   DVGui::DoubleLineEdit *m_frameRateFld;
@@ -136,6 +137,7 @@ protected slots:
   void onMultimediaChanged(int mode);
   void onThreadsComboChanged(int type);
   void onRasterGranularityChanged(int type);
+  void onRenderActiveChecksClicked(bool checked);
   void onStereoChecked(int);
   void onStereoChanged();
   void onSyncColorSettingsChecked(int state);

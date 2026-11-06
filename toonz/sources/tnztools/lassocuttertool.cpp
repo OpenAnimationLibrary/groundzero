@@ -6,6 +6,7 @@
 
 // TnzQt includes
 #include "toonzqt/imageutils.h"
+#include "toonzqt/dvdialog.h"
 #include "toonzqt/strokesdata.h"
 
 // TnzLib includes
@@ -388,7 +389,8 @@ void makeClosingStrokes(TVectorImage *original, const TStroke &lasso,
 */
 void splitByLasso(TVectorImage *vi, const LassoArea &lasso,
                   std::vector<char> &isInside, std::vector<char> &isNew,
-                  LassoCutUndo *undo, std::vector<CutPoint> &cutPoints) {
+                  LassoCutUndo *undo, std::vector<CutPoint> &cutPoints,
+                  bool validateOnly = false) {
   int count = (int)vi->getStrokeCount();
   isInside.assign(count, 0);
   isNew.assign(count, 0);
@@ -433,6 +435,10 @@ void splitByLasso(TVectorImage *vi, const LassoArea &lasso,
       continue;
     }
 
+    if (validateOnly) {
+      vi->validateStrokeSplit(i, ranges);
+      continue;
+    }
     if (undo) undo->addOldStroke(i, vi->getVIStroke(i));
 
     for (double lassoW : lassoWs)
@@ -816,6 +822,17 @@ public:
     if (!lasso.isValid()) return;
 
     bool cut = (m_mode.getValue() == CUT_MODE);
+    // Validate every crossing while the image, undo stack and clipboard are
+    // still untouched. The current group is evaluated on the original image.
+    try {
+      QMutexLocker lock(vi->getMutex());
+      std::vector<char> inside, fresh;
+      std::vector<CutPoint> points;
+      splitByLasso(vi.getPointer(), lasso, inside, fresh, nullptr, points, true);
+    } catch (const std::exception &error) {
+      DVGui::warning(QString::fromUtf8(error.what()));
+      return;
+    }
 
     // "Paste To" works on the Toonz Vector levels
     TXshSimpleLevel *level =

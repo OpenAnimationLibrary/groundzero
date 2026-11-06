@@ -29,14 +29,14 @@
 #include "tvectorrenderdata.h"
 #include "tofflinegl.h"
 
-#if defined(LINUX) || defined(FREEBSD)
 #include <QGuiApplication>
-#elif !defined(_WIN32) && !defined(MACOSX)
 #include <QCoreApplication>
-#endif
 
 // Add memory header for smart pointers
 #include <memory>
+#include <cstring>
+#include "shellthumbnail.h"
+#include "toonz/shellthumbnail.h"
 
 using TCli::ArgumentT;
 using TCli::QualifierT;
@@ -206,6 +206,10 @@ void convertFromVI(const TLevelReaderP &lr, const TPaletteP &plt,
     try {
       TImageReaderP ir  = lr->getFrameReader(frames[i]);
       TVectorImageP img = ir->load();
+      // PLI frame readers return geometry separately from the level palette.
+      // Bounds depend on each stroke's style; without this palette every
+      // stroke is skipped and the empty bounds produce a one-pixel output.
+      img->setPalette(plt.getPointer());
       images.push_back(img);
       maxBbox += img->getBBox();
     } catch (...) {
@@ -387,10 +391,15 @@ void convert(const TFilePath &source, const TFilePath &dest,
   msg = "Conversion in progress: wait please...";
   std::cout << msg << std::endl;
 
+  const std::string ext = source.getType();
   TAffine aff;
-  if (width.isSelected()) {
-    // Calculate affine for resampling
-    int imgLx = lr->getImageInfo()->m_lx;
+  if (width.isSelected() && ext != "pli") {
+    // Raster readers expose pixel dimensions. PLI has no raster image info;
+    // convertFromVI computes its width from the palette-aware drawing bounds.
+    const TImageInfo *imageInfo = lr->getImageInfo();
+    if (!imageInfo || imageInfo->m_lx <= 0)
+      throw TImageException(source, "Cannot determine source width for resampling");
+    const int imgLx = imageInfo->m_lx;
     aff       = TScale(static_cast<double>(width.getValue()) /
                        static_cast<double>(imgLx));
   }
@@ -435,7 +444,6 @@ void convert(const TFilePath &source, const TFilePath &dest,
     resType = TRop::Bilinear;
   }
 
-  std::string ext = source.getType();
   TLevelWriterP lw(dest, prop);
 
   if (ext != "tlv" && ext != "pli") {
@@ -457,20 +465,8 @@ void convert(const TFilePath &source, const TFilePath &dest,
 //------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
-#if defined(LINUX) || defined(FREEBSD)
-  QGuiApplication app(argc, argv);
-#elif !defined(_WIN32) && !defined(MACOSX)
-  // initUserStuffDir() needs applicationDirPath(), so an instance must exist.
-  // QCoreApplication needs no display, unlike QGuiApplication.
-  QCoreApplication app(argc, argv);
-#endif
-
-  TEnv::setRootVarName(rootVarName);
-  TEnv::setSystemVarPrefix(systemVarPrefix);
-  TEnv::setApplicationFileName(argv[0]);
-
-  TEnv::initUserStuffDir();
-
+  if (argc > 1 && std::strcmp(argv[1], ShellThumbnail::Command) == 0)
+    return runShellThumbnail(argc, argv);
   std::string msg;
 
   // Initialize qualifiers
@@ -486,6 +482,20 @@ int main(int argc, char *argv[]) {
   if (!usage.parse(argc, argv)) {
     exit(1);
   }
+
+  // Native vector conversion uses the Qt offscreen OpenGL backend on every
+  // desktop platform. Scene loading can also instantiate vector pattern
+  // styles. Raster-only conversion retains a display-independent application.
+  std::unique_ptr<QCoreApplication> application;
+  if (srcName.getValue().getType() == "pli" || tnzName.isSelected())
+    application.reset(new QGuiApplication(argc, argv));
+  else
+    application.reset(new QCoreApplication(argc, argv));
+
+  TEnv::setRootVarName(rootVarName);
+  TEnv::setSystemVarPrefix(systemVarPrefix);
+  TEnv::setApplicationFileName(argv[0]);
+  TEnv::initUserStuffDir();
 
   try {
     Tiio::defineStd();

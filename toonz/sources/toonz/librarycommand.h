@@ -4,6 +4,7 @@
 #define LIBRARYCOMMAND_H
 
 #include "tfilepath.h"
+#include "toonz/txshlevel.h"
 
 #include <QString>
 
@@ -24,7 +25,8 @@ class PoseLibrary;
 //  - pose sets: "poses/<name>.tposes", the poses of a scene.
 // Each item has a "<name>.libinfo" file next to it with its identity: a
 // random id, a revision counted from 1, its kind and the name of the scene
-// it comes from. Nothing about the Library is written into the scenes.
+// it comes from. Inserted assets retain this attribution in the scene; the
+// embedded rig itself is a snapshot, not a live synchronized Library scene.
 //-----------------------------------------------------------------------------
 
 namespace LibraryCmd {
@@ -58,6 +60,9 @@ TFilePath getItemInfoPath(const TFilePath &itemPath);
 //! Reads the .libinfo file of the item. Returns false if there is none or it
 //! cannot be read.
 bool readItemInfo(const TFilePath &itemPath, ItemInfo &info);
+//! Only a real Library template with valid sidecar identity establishes origin.
+//! Arbitrary external scenes (even with a copied sidecar) do not establish links.
+TXshLevel::LibraryProvenance templateProvenance(const TFilePath &itemPath);
 //! Writes the .libinfo file of an item that has just been saved: a new id
 //! and revision 1, or, if an existing item was overwritten, its id and the
 //! next revision. Failures are ignored: the item works without it.

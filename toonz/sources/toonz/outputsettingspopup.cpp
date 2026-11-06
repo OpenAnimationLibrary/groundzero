@@ -10,6 +10,7 @@
 #include "camerasettingspopup.h"
 #include "pane.h"
 #include "boardsettingspopup.h"
+#include "activechecks.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -230,7 +231,7 @@ OutputSettingsPopup::OutputSettingsPopup(bool isPreview)
       tr("Save current output settings.\nThe parameters to be saved are:\n- "
          "Camera settings\n- Project folder to be saved in\n- File format\n- "
          "File options\n- Resample Balance\n- Channel width\n- Linear Color "
-         "Space\n- Color Space Gamma");
+         "Space\n- Color Space Gamma\n- Render Active Checks");
   addPresetButton->setToolTip(tooltip);
   /*-- プリセットフォルダを調べ、コンボボックスにアイテムを格納する --*/
   updatePresetComboItems();
@@ -618,6 +619,17 @@ QFrame *OutputSettingsPopup::createFileSettingsBox(bool isPreview) {
   // Granularity
   m_rasterGranularityOm = new QComboBox();
   UiTranslations::watchCombo(m_rasterGranularityOm);
+  m_renderActiveChecksChk = new DVGui::CheckBox(tr("Render Active Checks"));
+  m_renderActiveChecksChk->setToolTip(
+      tr("Render active Ink, Ink#1, Paint, Transparency, Fill, Inks Only and "
+         "Black BG checks.\n"
+         "The current column, style and check colors are captured when "
+         "rendering begins.\n"
+         "Gap Check, viewer guides, rulers and Shift and Trace are not "
+         "included."));
+  QLabel *checksScope = new QLabel(
+      tr("Current column; excludes Gap Check and viewer guides."), this);
+  checksScope->setWordWrap(true);
 
   // Resample Balance
   translateResampleOptions();
@@ -712,6 +724,8 @@ QFrame *OutputSettingsPopup::createFileSettingsBox(bool isPreview) {
       if (m_subcameraChk) {
         bottomGridLay->addWidget(m_subcameraChk, 3, 1, 1, 2);
       }
+      bottomGridLay->addWidget(m_renderActiveChecksChk, 4, 1, 1, 2);
+      bottomGridLay->addWidget(checksScope, 5, 0, 1, 3);
     }
     bottomGridLay->setColumnStretch(2, 1);
 
@@ -742,6 +756,8 @@ QFrame *OutputSettingsPopup::createFileSettingsBox(bool isPreview) {
                        SLOT(onThreadsComboChanged(int)));
   ret = ret && connect(m_rasterGranularityOm, SIGNAL(currentIndexChanged(int)),
                        SLOT(onRasterGranularityChanged(int)));
+  ret = ret && connect(m_renderActiveChecksChk, SIGNAL(clicked(bool)), this,
+                       SLOT(onRenderActiveChecksClicked(bool)));
 
   if (m_subcameraChk)
     ret = ret && connect(m_subcameraChk, SIGNAL(stateChanged(int)),
@@ -1032,6 +1048,7 @@ void OutputSettingsPopup::updateField() {
     m_channelWidthOm->setCurrentIndex(c_8bit);
     m_threadsComboOm->setCurrentIndex(0);
     m_rasterGranularityOm->setCurrentIndex(0);
+    m_renderActiveChecksChk->setChecked(false);
 
     if (m_subcameraChk) m_subcameraChk->setCheckState(Qt::Unchecked);
     m_linearColorSpaceChk->setCheckState(Qt::Unchecked);
@@ -1148,6 +1165,11 @@ void OutputSettingsPopup::updateField() {
 
   // Raster granularity
   m_rasterGranularityOm->setCurrentIndex(prop->getMaxTileSizeIndex());
+  {
+    QSignalBlocker blocker(m_renderActiveChecksChk);
+    m_renderActiveChecksChk->setChecked(
+        renderSettings.m_activeChecks.m_enabled);
+  }
 
   if (m_isPreviewSettings) return;
 
@@ -1750,6 +1772,21 @@ void OutputSettingsPopup::onRasterGranularityChanged(int type) {
 }
 
 //-----------------------------------------------------------------------------
+void OutputSettingsPopup::onRenderActiveChecksClicked(bool checked) {
+  ToonzScene *scene       = getCurrentScene();
+  TOutputProperties *prop = getProperties();
+  if (!scene || !prop) return;
+
+  TRenderSettings rs = prop->getRenderSettings();
+  if (rs.m_activeChecks.m_enabled == checked) return;
+  rs.m_activeChecks.m_enabled = checked;
+  prop->setRenderSettings(rs);
+  if (checked) captureActiveRenderChecks(scene, prop);
+  if (m_presetCombo) m_presetCombo->setCurrentIndex(0);
+  TApp::instance()->getCurrentScene()->notifySceneChanged();
+}
+
+//-----------------------------------------------------------------------------
 /*! OutputSettingsのPreset登録
  */
 void OutputSettingsPopup::onAddPresetButtonPressed() {
@@ -1779,7 +1816,10 @@ void OutputSettingsPopup::onAddPresetButtonPressed() {
   TOStream os(fp, false);
   if (!os.checkStatus()) return;
 
-  os.openChild("outputsettingspreset");
+  std::map<std::string, std::string> attr;
+  if (getProperties()->getRenderSettings().m_activeChecks.m_enabled)
+    attr["renderActiveChecks"] = "1";
+  os.openChild("outputsettingspreset", attr);
 
   /*-- カメラ設定 --*/
   os.openChild("camera");
@@ -1951,6 +1991,10 @@ void OutputSettingsPopup::onPresetSelected(const QString &str) {
   TOutputProperties *prop = getProperties();
   TRenderSettings rs      = prop->getRenderSettings();
 
+  // Presets carry the option, while each scene captures its own View state.
+  rs.m_activeChecks           = TRenderCheckSettings();
+  rs.m_activeChecks.m_enabled = is.getTagAttribute("renderActiveChecks") == "1";
+
   // set back the linear settings to default
   // in order to make old presets properly reproduce the settings before the
   // implementation of linear rendering
@@ -2099,6 +2143,8 @@ void OutputSettingsPopup::onPresetSelected(const QString &str) {
 
   /*-- renderSettingsを戻す --*/
   prop->setRenderSettings(rs);
+  if (rs.m_activeChecks.m_enabled)
+    captureActiveRenderChecks(getCurrentScene(), prop);
 
   TApp::instance()->getCurrentScene()->notifySceneChanged();
 

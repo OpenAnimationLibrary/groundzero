@@ -68,6 +68,13 @@ public:
   TParam *clone() const override { return new TDoubleParam(*this); }
   void copy(TParam *src) override;
 
+  // Opt-in workspace identity for named Function Editor channel sets. Animation
+  // copies keep the destination identity; a newly cloned curve has none.
+  std::string getWorkspaceId() const;
+  void setWorkspaceId(const std::string &id);
+  bool isEditorLocked() const;
+  void setEditorLocked(bool locked);
+
   std::string getMeasureName() const;
   void setMeasureName(std::string name);
   TMeasure *getMeasure() const;
@@ -95,6 +102,15 @@ public:
   // note: if frame is a keyframe separating two segments of different types
   // (e.g. expression and linear) then getValue(frame,true) can be !=
   // getValue(frame,false)
+
+  // Batch sampling uses the native evaluator, including referenced channels,
+  // but rejects preview fallbacks and nonfinite results. Does not change value
+  // on failure. Nested checks retain their enclosing failure state; ordinary
+  // unscoped getValue() keeps its existing interactive preview behavior.
+  // File curves reject read/parse/field failures but retain their intentional
+  // parameter-default values outside a valid data table's frame range.
+  bool getValueChecked(double frame, double &value, std::string &error,
+                       bool leftmost = false) const;
 
   bool setValue(double frame, double value);
 
@@ -162,6 +178,10 @@ public:
 
   //! no keyframes, default value not changed
   bool isDefault() const;
+
+  //! Serialization must retain optional editor identity even at a default value.
+  //! This does not change animation/default-value semantics or persist locks.
+  bool hasDataToSave() const;
 
   void loadData(TIStream &is) override;
   void saveData(TOStream &os) override;

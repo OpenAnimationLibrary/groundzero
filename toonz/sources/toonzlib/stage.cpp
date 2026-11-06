@@ -213,6 +213,7 @@ public:
   bool m_showShiftOrigin;
 
   bool m_camera3d;
+  bool m_cameraTest;
   OnionSkinMask m_onionSkinMask;
 
   int m_currentColumnIndex;   // application's current column index
@@ -305,6 +306,7 @@ public:
 StageBuilder::StageBuilder()
     : m_onionSkinDistance(c_noOnionSkin)
     , m_camera3d(false)
+    , m_cameraTest(false)
     , m_currentColumnIndex(-1)
     , m_ancestorColumnIndex(-1)
     , m_onionSkinOpacity(-1.0)
@@ -780,7 +782,7 @@ void StageBuilder::addFrame(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
 
   for (int i = 0; i < columnCount; i++) {
     int c = shuffle[i].second;
-    if (CameraTestCheck::instance()->isEnabled() && c != m_currentColumnIndex)
+    if (m_cameraTest && c != m_currentColumnIndex)
       continue;
     if (level == 0) {
       // m_isCurrentColumn = (c == m_currentColumnIndex);
@@ -1037,6 +1039,7 @@ void Stage::visit(Visitor &visitor, const VisitArgs &args) {
   double z                    = camera->getZ(row);
   sb.m_cameraPlacement        = ZPlacement(cameraAff, z);
   sb.m_camera3d               = camera3d;
+  sb.m_cameraTest             = args.m_cameraTest;
   sb.m_currentColumnIndex     = col;
   sb.m_xsheetLevel            = xsheetLevel;
   sb.m_onionSkinMask          = *osm;

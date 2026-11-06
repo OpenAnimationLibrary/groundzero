@@ -86,20 +86,24 @@ void TOptimizedStrokePropT<T>::draw(
       !convert(rd.m_aff * m_stroke->getBBox()).overlaps(rd.m_clippingRect))
     return;
 
+  if (m_stroke->getOpacity() <= 0.0) return;
+  TStrokeOpacityFunction opacity(rd.m_cf, m_stroke->getOpacity());
+  const TColorFunction *cf = m_stroke->getOpacity() < 1.0 ? &opacity : rd.m_cf;
+
   glPushMatrix();
   tglMultMatrix(rd.m_aff);
 
   double pixelSize = sqrt(tglGetPixelSize2());
-  if (m_strokeChanged ||
+  if (m_strokeChanged || m_stroke->getOpacity() < 1.0 ||
       m_styleVersionNumber != m_colorStyle->getVersionNumber() ||
       !isAlmostZero(pixelSize - m_pixelSize, 1e-5)) {
     m_strokeChanged      = false;
     m_pixelSize          = pixelSize;
     m_styleVersionNumber = m_colorStyle->getVersionNumber();
-    m_colorStyle->computeData(m_data, m_stroke, rd.m_cf);
+    m_colorStyle->computeData(m_data, m_stroke, cf);
   }
 
-  m_colorStyle->drawStroke(rd.m_cf, m_data, m_stroke);
+  m_colorStyle->drawStroke(cf, m_data, m_stroke);
 
   glPopMatrix();
 }

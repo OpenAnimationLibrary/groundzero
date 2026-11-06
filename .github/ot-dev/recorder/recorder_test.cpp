@@ -22,7 +22,6 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
-#include <QToolBar>
 #include <QtEndian>
 
 #ifdef Q_OS_WIN
@@ -212,15 +211,28 @@ private slots:
     QTest::qWait(100);
     QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar);
-    QVERIFY(bar->isVisible());
-    QVERIFY(bar->actions().first()->isEnabled());
-    QVERIFY(!bar->actions().at(2)->isEnabled());
-    QCOMPARE(bar->actions().at(0)->text(), QString("Start Recording"));
-    QCOMPARE(bar->actions().at(1)->text(), QString("Pause"));
-    QCOMPARE(bar->actions().at(2)->text(), QString("Stop Recording"));
-    QVERIFY(!bar->actions().at(1)->isEnabled());
+    auto *body   = window.findChild<QWidget *>("OtDevSessionRecorder");
+    auto *record = window.findChild<QToolButton *>("OtDevRecordButton");
+    auto *pause  = window.findChild<QToolButton *>("OtDevRecordPauseButton");
+    auto *startAction = window.findChild<QAction *>("OtDevRecordStart");
+    auto *stopAction  = window.findChild<QAction *>("OtDevRecordStop");
+    QVERIFY(body);
+    QVERIFY(body->isVisible());
+    QVERIFY(record);
+    QVERIFY(pause);
+    QVERIFY(startAction);
+    QVERIFY(stopAction);
+    QVERIFY(record->isEnabled());
+    QVERIFY(!pause->isEnabled());
+    QVERIFY(!stopAction->isEnabled());
+    QCOMPARE(record->defaultAction(), startAction);
+    QCOMPARE(startAction->text(), QString("Start Recording"));
+    QCOMPARE(pause->defaultAction()->text(), QString("Pause"));
+    QCOMPARE(stopAction->text(), QString("Stop Recording"));
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordDuration")->text(),
+             QString("00:00:00"));
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordCompactStatus")->text(),
+             QString("Ready"));
     QCOMPARE(window.findChild<QLabel *>("OtDevRecordRegionStatus")->text(),
              QString("All OpenToonz Windows"));
     QCOMPARE(window.findChild<QLabel *>("OtDevRecordStatus")->text(),
@@ -305,13 +317,77 @@ private slots:
           "MI_ToggleSessionRecordingPause", "MI_PauseSessionRecording",
           "MI_ResumeSessionRecording", "MI_SelectRecordingRegion",
           "MI_ClearRecordingRegion", "MI_CancelRecordingRegion",
-          "MI_OpenSessionRecordingsFolder"}) {
+          "MI_OpenSessionRecordingsFolder", "MI_SessionRecordingSettings"}) {
       auto *command = window.findChild<QAction *>(id);
       QVERIFY(command);
       QVERIFY(window.actions().contains(command));
       QCOMPARE(command->shortcutContext(), Qt::ApplicationShortcut);
       QVERIFY(command->shortcut().isEmpty());
     }
+  }
+
+  void settingsDoNotStartRecording() {
+    QTemporaryDir dir;
+    QMainWindow window;
+    window.resize(600, 400);
+    OtDevRecorder recorder(&window, dir.filePath("preferences.ini"), dir.path(),
+                           "missing");
+    window.show();
+    window.activateWindow();
+    QTest::qWait(100);
+    auto *gear   = window.findChild<QToolButton *>("OtDevRecordSettingsButton");
+    auto *dialog = window.findChild<QDialog *>("OtDevRecorderSettings");
+    auto *action = window.findChild<QAction *>("OtDevRecordSettings");
+    auto *command = window.findChild<QAction *>("MI_SessionRecordingSettings");
+    auto *record  = window.findChild<QToolButton *>("OtDevRecordButton");
+    QVERIFY(gear);
+    QVERIFY(dialog);
+    QVERIFY(action);
+    QVERIFY(command);
+    QVERIFY(record);
+    QVERIFY(!dialog->isVisible());
+    QVERIFY(!dialog->isModal());
+    QCOMPARE(gear->defaultAction(), action);
+    QVERIFY(dialog->findChild<QLabel *>("OtDevRecordStatus"));
+    QVERIFY(dialog->findChild<QLabel *>("OtDevRecordRegionStatus"));
+
+    gear->click();
+    QVERIFY(dialog->isVisible());
+    QVERIFY(action->isChecked());
+    QVERIFY(!QApplication::activeModalWidget());
+    QCOMPARE(record->defaultAction(),
+             window.findChild<QAction *>("OtDevRecordStart"));
+    QVERIFY(record->isEnabled());
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+
+    gear->click();
+    QVERIFY(dialog->isHidden());
+    QVERIFY(!action->isChecked());
+    command->setShortcut(QKeySequence("Ctrl+Alt+F12"));
+    window.activateWindow();
+    QTest::keyClick(&window, Qt::Key_F12,
+                    Qt::ControlModifier | Qt::AltModifier);
+    QTRY_VERIFY(dialog->isVisible());
+    QVERIFY(!gear->icon().isNull());
+    QVERIFY(gear->toolTip().contains(
+        command->shortcut().toString(QKeySequence::NativeText)));
+    dialog->close();
+    QVERIFY(!action->isChecked());
+    QVERIFY(!command->isChecked());
+    QVERIFY(!gear->icon().isNull());
+
+    gear->click();
+    window.findChild<QAction *>("OtDevRecordSelectRegion")->trigger();
+    QVERIFY(dialog->isHidden());
+    QVERIFY(!action->isChecked());
+    QVERIFY(window.findChild<QLabel *>("OtDevRecordStatus")
+                ->text()
+                .contains("Drag a region"));
+    window.findChild<QAction *>("MI_CancelRecordingRegion")->trigger();
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordCompactStatus")->text(),
+             QString("Ready"));
+    QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
   }
 
   void escapeIsOptOut() {
@@ -323,8 +399,12 @@ private slots:
     QMainWindow window;
     window.show();
     OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar);
+    auto *record = window.findChild<QToolButton *>("OtDevRecordButton");
+    auto *start  = window.findChild<QAction *>("OtDevRecordStart");
+    auto *stop   = window.findChild<QAction *>("OtDevRecordStop");
+    QVERIFY(record);
+    QVERIFY(start);
+    QVERIFY(stop);
     QTimer::singleShot(50, [] {
       auto *dialog =
           qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
@@ -332,10 +412,15 @@ private slots:
       QVERIFY(!dialog->checkBox());
       QTest::keyClick(dialog, Qt::Key_Escape);
     });
-    bar->actions().first()->trigger();
+    record->click();
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    QVERIFY(!bar->actions().at(2)->isEnabled());
-    QVERIFY(bar->actions().first()->isEnabled());
+    QVERIFY(!stop->isEnabled());
+    QVERIFY(record->isEnabled());
+    QCOMPARE(record->defaultAction(), start);
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordDuration")->text(),
+             QString("00:00:00"));
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordCompactStatus")->text(),
+             QString("Ready"));
     QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
   }
 
@@ -349,11 +434,17 @@ private slots:
     window.show();
     OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
     acceptRecordingPrompt();
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar);
-    bar->actions().first()->trigger();
+    auto *record = window.findChild<QToolButton *>("OtDevRecordButton");
+    auto *stop   = window.findChild<QAction *>("OtDevRecordStop");
+    QVERIFY(record);
+    QVERIFY(stop);
+    record->click();
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QVERIFY(!stop->isEnabled());
+    QCOMPARE(record->defaultAction(),
+             window.findChild<QAction *>("OtDevRecordStart"));
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordCompactStatus")->text(),
+             QString("Error"));
     auto *error = window.findChild<QMessageBox *>();
     QVERIFY(error);
     QVERIFY(error->text().contains("FFmpeg not found"));
@@ -373,32 +464,57 @@ private slots:
     QTest::qWait(100);
     OtDevRecorder recorder(&window, prefs, dir.path(),
                            qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar);
+    auto *record   = window.findChild<QToolButton *>("OtDevRecordButton");
+    auto *pause    = window.findChild<QToolButton *>("OtDevRecordPauseButton");
+    auto *start    = window.findChild<QAction *>("OtDevRecordStart");
+    auto *stop     = window.findChild<QAction *>("OtDevRecordStop");
+    auto *duration = window.findChild<QLabel *>("OtDevRecordDuration");
+    auto *compactStatus =
+        window.findChild<QLabel *>("OtDevRecordCompactStatus");
+    QVERIFY(record);
+    QVERIFY(pause);
+    QVERIFY(start);
+    QVERIFY(stop);
+    QVERIFY(duration);
+    QVERIFY(compactStatus);
     acceptRecordingPrompt();
-    bar->actions().first()->trigger();
+    record->click();
+    QCOMPARE(record->defaultAction(), stop);
     // Pause before the first capture tick, then stop and start again.
-    bar->actions().at(1)->trigger();
+    pause->click();
     QTest::qWait(150);
-    bar->actions().at(2)->trigger();
-    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QCOMPARE(duration->text(), QString("00:00:00"));
+    QCOMPARE(compactStatus->text(), QString("Paused"));
+    record->click();
+    QVERIFY(!stop->isEnabled());
+    QCOMPARE(record->defaultAction(), start);
     QVERIFY(QDir(dir.filePath("recordings"))
                 .entryList({"*.mp4"}, QDir::Files)
                 .isEmpty());
-    bar->actions().first()->trigger();
+    record->click();
     QTRY_VERIFY_WITH_TIMEOUT(!QDir(dir.filePath("recordings"))
                                   .entryList({"*.mp4"}, QDir::Files)
                                   .isEmpty(),
                              10000);
-    QTest::qWait(500);
+    QTRY_VERIFY_WITH_TIMEOUT(duration->text() != QString("00:00:00"), 10000);
+    pause->click();
+    QCOMPARE(compactStatus->text(), QString("Paused"));
+    QCOMPARE(pause->defaultAction()->text(), QString("Resume"));
+    const QString recordedTime = duration->text();
+    QTest::qWait(1100);
+    QCOMPARE(duration->text(), recordedTime);
     QCOMPARE(QDir(dir.filePath("recordings"))
                  .entryList({"*.recording.mp4"}, QDir::Files)
                  .size(),
              1);
-    QVERIFY(bar->actions().at(2)->isEnabled());
-    bar->actions().at(2)->trigger();
-    QVERIFY(!bar->actions().first()->isEnabled());
-    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QVERIFY(record->isEnabled());
+    QCOMPARE(record->defaultAction(), stop);
+    record->click();
+    QVERIFY(!record->isEnabled());
+    QVERIFY(!pause->isEnabled());
+    QVERIFY(!start->isEnabled());
+    QVERIFY(!stop->isEnabled());
+    QCOMPARE(compactStatus->text(), QString("Saving..."));
     QTRY_COMPARE_WITH_TIMEOUT(
         window.findChild<QLabel *>("OtDevRecordStatus")->text(),
         QString("Recording off"), 10000);
@@ -407,7 +523,10 @@ private slots:
     QCOMPARE(files.size(), 1);
     QVERIFY(!files.first().endsWith(".recording.mp4"));
     verifyPlaybackFile(dir.filePath("recordings/" + files.first()));
-    QVERIFY(bar->actions().first()->isEnabled());
+    QVERIFY(record->isEnabled());
+    QCOMPARE(record->defaultAction(), start);
+    QCOMPARE(compactStatus->text(), QString("Saved"));
+    QCOMPARE(duration->text(), recordedTime);
 
     QTimer::singleShot(50, [] {
       auto *dialog =
@@ -417,13 +536,15 @@ private slots:
         QFAIL("Consent was repeated within one session");
       }
     });
-    bar->actions().first()->trigger();
+    record->click();
     QVERIFY(!QApplication::activeModalWidget());
+    QCOMPARE(duration->text(), QString("00:00:00"));
+    QCOMPARE(record->defaultAction(), stop);
     QTRY_COMPARE_WITH_TIMEOUT(
         window.findChild<QLabel *>("OtDevRecordStatus")->text(),
         QString("RECORDING"), 10000);
     QTest::qWait(500);
-    bar->actions().at(2)->trigger();
+    record->click();
     QTRY_COMPARE_WITH_TIMEOUT(
         window.findChild<QLabel *>("OtDevRecordStatus")->text(),
         QString("Recording off"), 10000);
@@ -454,7 +575,6 @@ private slots:
                              qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
       acceptRecordingPrompt();
       recorder.requestRecording();
-      auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
       QTRY_COMPARE_WITH_TIMEOUT(
           window.findChild<QLabel *>("OtDevRecordStatus")->text(),
           QString("RECORDING"), 10000);
@@ -507,6 +627,10 @@ private slots:
     panel->close();
     QCOMPARE(status->text(), QString("Recording paused"));
     QVERIFY(panel->isHidden());
+    window.findChild<QAction *>("MI_ToggleSessionRecordingPanel")->trigger();
+    QVERIFY(panel->isVisible());
+    QCOMPARE(status->text(), QString("Recording paused"));
+    panel->close();
     auto *resume = window.findChild<QAction *>("MI_ResumeSessionRecording");
     resume->setShortcut(QKeySequence("Ctrl+Alt+F8"));
     window.activateWindow();

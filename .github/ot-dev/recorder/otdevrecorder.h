@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QIcon>
 #include <QImage>
 #include <QObject>
 #include <QPointer>
@@ -9,11 +10,13 @@
 #include <QTimer>
 
 class QAction;
+class QDialog;
 class QDockWidget;
 class QGridLayout;
 class QLabel;
 class QMainWindow;
 class QRubberBand;
+class QToolButton;
 class QWidget;
 
 // Built and installed only by the OT-Dev Windows CI injection step.
@@ -36,12 +39,16 @@ public:
   static QStringList encoderArguments(const QSize &size, const QString &output);
 
 private:
+  enum class CaptureStatus { Starting, Recording, Paused, Busy };
   void begin();
   void tick();
   void finishClip();
   bool publishClip();
   void fail(const QString &message);
-  void updateStatus(const QString &text);
+  void updateStatus(const QString &text,
+                    CaptureStatus captureStatus = CaptureStatus::Starting);
+  void updateControls();
+  void createSettings();
   bool captureAllowed() const;
   bool regionAvailable() const;
   void selectRegion();
@@ -54,9 +61,12 @@ private:
   QString m_preferencesPath, m_portableRoot, m_encoderPath;
   QString m_outputDir, m_outputFile, m_encoderError;
   QAction *m_start, *m_pause, *m_stop, *m_selectRegion, *m_clearRegion;
-  QLabel *m_status, *m_regionStatus;
+  QLabel *m_status, *m_regionStatus, *m_duration, *m_compactStatus;
+  QToolButton *m_recordButton, *m_pauseButton, *m_settingsButton;
+  QIcon m_recordIcon, m_stopIcon, m_pauseIcon, m_resumeIcon, m_settingsIcon;
   QPointer<QDockWidget> m_panel;
-  QAction *m_togglePanel, *m_openFolder;
+  QPointer<QDialog> m_settingsDialog;
+  QAction *m_togglePanel, *m_openFolder, *m_settingsAction;
   QList<QAction *> m_commands;
   QPointer<QWidget> m_regionWindow, m_selectionWindow;
   QPointer<QRubberBand> m_selectionBand;
@@ -71,4 +81,5 @@ private:
   bool m_consented     = false;
   bool m_errorReported = false;
   int m_frames         = 0;
+  qint64 m_recordedFrames = 0;
 };

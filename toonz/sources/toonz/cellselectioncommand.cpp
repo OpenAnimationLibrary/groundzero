@@ -1534,6 +1534,7 @@ TXshSimpleLevel *CloneLevelUndo::cloneLevel(
     dstSl->setFrame(*ft, img->cloneImage());
   }
 
+  dstSl->copyAuthoringMetadataFrom(srcSl);
   dstSl->setDirtyFlag(true);
 
   return dstSl;

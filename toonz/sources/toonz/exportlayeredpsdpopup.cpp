@@ -2,6 +2,7 @@
 #include "exportlayeredpsdpopup.h"
 
 // Tnz6 includes
+#include "activechecks.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 
@@ -463,6 +464,7 @@ void ExportLayeredPsdPopup::onExport() {
   // Render settings: the camera and options of the output settings, at full
   // size and without fields
   TOutputProperties *oprop = scene->getProperties()->getOutputProperties();
+  captureActiveRenderChecks(scene, oprop);
   TRenderSettings settings = oprop->getRenderSettings();
   settings.m_shrinkX = settings.m_shrinkY = 1;
   settings.m_bpp                          = settings.m_bpp >= 64 ? 64 : 32;
@@ -506,8 +508,9 @@ void ExportLayeredPsdPopup::onExport() {
     {
       ColumnVisibilityGuard guard(xsh);
       for (int i = 0; i < n; ++i)
-        fxs[0][i] = ::buildSceneFx(scene, xsh, c0 + i,
-                                   TOutputProperties::AllLevels, 1, false);
+        fxs[0][i] =
+            ::buildSceneFx(scene, xsh, c0 + i, TOutputProperties::AllLevels, 1,
+                           false, &settings.m_activeChecks);
       std::vector<TFxP> postFxs(n);
       for (int i = 0; i < n; ++i)
         postFxs[i] = ::buildPostSceneFx(scene, xsh, c0 + i, 1, false);

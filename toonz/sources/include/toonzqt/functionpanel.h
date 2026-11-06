@@ -10,6 +10,9 @@
 #include <QDialog>
 #include <set>
 #include <cmath>
+#include <QMap>
+#include <QVector>
+#include "tdoubleparam.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -30,7 +33,7 @@ class FunctionSelection;
 //-----------------------------------------------------------------------------
 
 //! Channel edit panel (numcols + graph popup)
-class FunctionPanel final : public QDialog {
+class DVAPI FunctionPanel final : public QDialog {
   Q_OBJECT
 
   QColor m_bgColor;
@@ -70,8 +73,28 @@ public:
     EaseOutPercentage
   };
 
+  struct FrozenComparisonCurve {
+    TDoubleParamP owner;
+    QVector<QPointF> samples;  // frame/native value, evaluated only at capture
+  };
+  struct ComparisonState {
+    std::vector<std::pair<TDoubleParamP, TDoubleParamP>> curves;
+    std::vector<FrozenComparisonCurve> frozen;
+    double first = 0, last = 0;
+    int intervals = 0;
+  };
+
 private:
   QTransform m_viewTransform;  // world -> window
+  bool m_normalized = false;
+  QMap<TDoubleParam *, QPointF> m_normalization;
+  ComparisonState m_comparison;
+  int m_snapFrames = 1;
+  bool m_snapKeys = false;
+  bool m_snapMarkers = false;
+  int m_markerDistance = 0, m_markerOffset = 0, m_secondaryMarkerDistance = 0;
+  int m_hitRadius = 10;
+  double m_valueNudge = 1;
   int m_valueAxisX, m_frameAxisY, m_graphViewportY;
   QPoint m_origin;              // axes origin (window coords)
   QPoint m_startPos, m_oldPos;  // mouse click position, last mouse click/drag
@@ -156,6 +179,23 @@ public:
   void fitCurve();
   void fitGraphToWindow(bool currentCurveOnly = false);
   void fitRegion(double f0, double v0, double f1, double v1);
+  QRectF selectionBounds() const;
+  void setNormalized(bool enabled);
+  bool isNormalized() const { return m_normalized; }
+  void refreshNormalization();
+  const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &comparison() const { return m_comparison.curves; }
+  ComparisonState comparisonState() const { return m_comparison; }
+  void setComparisonState(const ComparisonState &state) { m_comparison = state; update(); }
+  bool freezeComparison(QString &error);
+  void setComparison(const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &curves) {
+    m_comparison = ComparisonState(); m_comparison.curves = curves; update();
+  }
+  void setSceneMarkers(int distance, int offset, int secondary) { m_markerDistance = distance; m_markerOffset = offset; m_secondaryMarkerDistance = secondary; }
+  void setSnapMarkers(bool enabled) { m_snapMarkers = enabled; }
+  void setSnap(int frames, bool keys) { m_snapFrames = std::max(1, frames); m_snapKeys = keys; }
+  double snapFrameDelta(double delta, double anchor, bool bypass) const;
+  void setHitRadius(int radius) { m_hitRadius = std::max(6, std::min(24, radius)); update(); }
+  void setValueNudge(double value) { m_valueNudge = value; }
 
   QPointF getWinPos(TDoubleParam *curve, double frame, double value) const;
   QPointF getWinPos(TDoubleParam *curve, const TPointD &frameValuePos) const {

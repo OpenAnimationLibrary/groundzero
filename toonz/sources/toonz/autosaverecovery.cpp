@@ -4,6 +4,8 @@
 #include "tapp.h"
 #include "iocommand.h"
 #include "crashhandler.h"
+#include "menubarcommandids.h"
+#include "toonzqt/menubarcommand.h"
 
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
@@ -52,6 +54,7 @@
 #include <QSignalBlocker>
 #include <QScrollBar>
 #include <QTreeWidget>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -83,6 +86,7 @@ const char *SessionLockFileName = "session.lock";
 bool s_initialized = false;
 // Whether the scene may have changed since the last recovery copy
 bool s_changed = true;
+AutosaveRecovery::Status s_status;
 // Whether the previous session did not exit normally, and when it started
 bool s_previousSessionInterrupted = false;
 qint64 s_previousSessionStart     = 0;  // ms since epoch
@@ -253,7 +257,6 @@ void removeExpiredSnapshots() {
 
 bool acquireSessionLock() {
   if (s_sessionLock) return true;
-  if (s_lockedByOtherInstance) return false;
 
   const QString root = recoveryRoot();
   if (!QDir().mkpath(root)) return false;
@@ -268,6 +271,7 @@ bool acquireSessionLock() {
       s_lockedByOtherInstance = true;
     return false;
   }
+  s_lockedByOtherInstance = false;
   s_sessionLock = std::move(lock);
   return true;
 }
@@ -388,17 +392,20 @@ bool savePaletteCopy(TPalette *palette, const TFilePath &copyPath) {
 
 // Link the copy to the project of the scene, so that it opens in that project
 // and the project folder aliases of the scene settings resolve as before
-void writeProjectLink(const TFilePath &folder, ToonzScene *scene) {
+bool writeProjectLink(const TFilePath &folder, ToonzScene *scene) {
   std::shared_ptr<TProject> project = scene->getProject();
-  if (!project) return;
+  if (!project) return true;
   try {
     TOStream os(folder + "scenes.xml");
+    if (!os.checkStatus()) return false;
     std::map<std::string, std::string> attr;
     attr["type"] = "projectFolder";
     os.openChild("parentProject", attr);
     os << project->getProjectFolder();
     os.closeChild();
+    return os.checkStatus();
   } catch (...) {
+    return false;
   }
 }
 
@@ -457,7 +464,7 @@ void AutosaveRecovery::initSession() {
   QObject::connect(TUndoManager::manager(), &TUndoManager::historyChanged,
                    setChanged);
   QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched,
-                   setChanged);
+                   []() { s_changed = true; s_status = AutosaveRecovery::Status(); });
   QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneChanged,
                    setChanged);
   QObject::connect(app->getCurrentScene(), &TSceneHandle::castChanged,
@@ -500,18 +507,34 @@ void AutosaveRecovery::endSession() { s_sessionLock.reset(); }
 //-----------------------------------------------------------------------------
 
 bool AutosaveRecovery::saveRecoveryCopy() {
-  if (!s_initialized || !s_changed) return false;
+  if (!s_initialized || !isRecoveryModeEnabled() || !s_changed) return false;
+  auto fail = [](const QString &message) {
+    s_status.state = State::Failed;
+    s_status.error = message;
+    s_changed = true;
+    return false;
+  };
 
   TApp *app         = TApp::instance();
   ToonzScene *scene = app->getCurrentScene()->getScene();
   if (!scene || app->isSaveInProgress()) return false;
 
-  // The recovery mode may have been enabled after the launch
-  acquireSessionLock();
+  s_status.attemptedAt = QDateTime::currentDateTimeUtc();
+  s_status.sceneName = QString::fromStdWString(scene->getSceneName());
+  s_status.state = State::Saving;
+  s_status.error.clear();
+  s_status.missingResources.clear();
+  try {
+  // The recovery mode may have been enabled after the launch.
+  if (!acquireSessionLock())
+    return fail(s_lockedByOtherInstance
+        ? QObject::tr("Another running instance owns this recovery folder. Close it, then retry.")
+        : QObject::tr("Cannot create the recovery session marker. Check folder permissions and free space."));
 
   const QString root = recoveryRoot();
   QDir rootDir(root);
-  if (!QDir().mkpath(root)) return false;
+  if (!QDir().mkpath(root))
+    return fail(QObject::tr("Cannot create the recovery folder: %1").arg(root));
 
   const QDateTime savedAt = QDateTime::currentDateTimeUtc();
   QString sceneName       = QString::fromStdWString(scene->getSceneName());
@@ -526,10 +549,11 @@ bool AutosaveRecovery::saveRecoveryCopy() {
   QString folderName = baseName;
   for (int i = 2; rootDir.exists(folderName); i++)
     folderName = baseName + "_" + QString::number(i);
-  if (!rootDir.mkdir(folderName)) return false;
+  if (!rootDir.mkdir(folderName))
+    return fail(QObject::tr("Cannot create a recovery version in %1. Check permissions and free space.").arg(root));
   const QString folder = rootDir.filePath(folderName);
   const TFilePath folderFp(folder);
-  const QString sceneFile = sceneName + ".tnz";
+  const QString sceneFile = safeFolderName(sceneName) + ".tnz";
 
   RecoverySaveGuard saveGuard;
 
@@ -549,7 +573,11 @@ bool AutosaveRecovery::saveRecoveryCopy() {
       if (!sl && !pl && !level->getSoundLevel()) continue;
 
       const TFilePath path = level->getPath();
-      if (path.isEmpty()) continue;
+      if (path.isEmpty()) {
+        uncopiedLevels.append(QObject::tr("%1 (no source path)")
+                                 .arg(QString::fromStdWString(level->getName())));
+        continue;
+      }
 
       // The copy refers to the saved files with absolute paths...
       const TFilePath decodedPath = scene->decodeFilePath(path);
@@ -572,10 +600,18 @@ bool AutosaveRecovery::saveRecoveryCopy() {
           uncopiedLevels.append(decodedPath.getQString());
       }
 
+      // Clean external assets remain dependencies of the recovery scene.
+      if (!sl && newPath == decodedPath && !TSystem::doesExistFileOrLevel(decodedPath))
+        uncopiedLevels.append(decodedPath.getQString());
+      if (sl && (sl->getType() & FULLCOLOR_TYPE) && sl->getPalette() &&
+          sl->getPalette()->getDirtyFlag())
+        uncopiedLevels.append(QObject::tr("%1 (full-color palette changes are not stored in the image file)")
+                                 .arg(QString::fromStdWString(level->getName())));
       if (newPath != path) levelPaths.setPath(level, newPath);
     }
 
-    writeProjectLink(folderFp, scene);
+    if (!writeProjectLink(folderFp, scene))
+      uncopiedLevels.append(QObject::tr("Project link (scenes.xml)"));
 
     try {
       scene->saveCopy(folderFp + sceneFile.toStdWString());
@@ -591,16 +627,106 @@ bool AutosaveRecovery::saveRecoveryCopy() {
           project ? project->getProjectPath().getQString() : QString(), savedAt,
           copiedLevels, uncopiedLevels)) {
     removeSnapshotFolder(folder);
-    return false;
+    return fail(sceneSaved
+        ? QObject::tr("The recovery manifest could not be written. Check free space and folder permissions, then retry.")
+        : QObject::tr("The recovery scene could not be written. Check free space and folder permissions, then retry."));
   }
 
   // A partial snapshot is useful, but its missing drawings still need a retry
   // even if the artist makes no further edits.
   const bool complete = uncopiedLevels.isEmpty();
   s_changed           = !complete;
+  s_status.state = complete ? State::Complete : State::Partial;
+  s_status.savedAt = savedAt;
+  s_status.folder = folder;
+  s_status.missingResources = uncopiedLevels;
   removeOldVersions(groupKey(originalScene, sceneName));
   return complete;
+  } catch (...) {
+    return fail(QObject::tr("Recovery encountered an unexpected resource or filesystem error. The scene remains open; retry after saving affected assets."));
+  }
 }
+
+AutosaveRecovery::Status AutosaveRecovery::status() {
+  Status result = s_status;
+  if (!isRecoveryModeEnabled()) result.state = State::Disabled;
+  else if (s_changed && result.state == State::Complete) result.state = State::Pending;
+  return result;
+}
+
+bool AutosaveRecovery::retryRecoveryCopy() {
+  if (!isRecoveryModeEnabled() || TApp::instance()->isSaveInProgress()) return false;
+  if (!s_initialized) initSession();
+  s_changed = true;
+  return saveRecoveryCopy();
+}
+
+void AutosaveRecovery::showStatusDialog() {
+  QDialog dialog(TApp::instance()->getMainWindow());
+  dialog.setObjectName("recoveryStatusDialog");
+  dialog.setWindowTitle(QObject::tr("Recovery Status"));
+  dialog.setMinimumWidth(540);
+  auto *layout = new QVBoxLayout(&dialog);
+  auto *details = new QLabel(&dialog);
+  details->setObjectName("recoveryStatusDetails");
+  details->setTextFormat(Qt::PlainText);
+  details->setWordWrap(true);
+  details->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+  layout->addWidget(details);
+  auto *buttons = new QHBoxLayout;
+  auto *retry = new QPushButton(QObject::tr("Retry Recovery Now"), &dialog);
+  retry->setObjectName("retryRecovery");
+  auto *folder = new QPushButton(QObject::tr("Show Last Recovery Folder"), &dialog);
+  auto *close = new QPushButton(QObject::tr("Close"), &dialog);
+  buttons->addWidget(retry);
+  buttons->addWidget(folder);
+  buttons->addStretch();
+  buttons->addWidget(close);
+  layout->addLayout(buttons);
+  auto refresh = [&]() {
+    const Status current = status();
+    QStringList lines;
+    switch (current.state) {
+    case State::Disabled: lines << QObject::tr("Recovery mode is off. Enable autosave and Save to a Recovery Folder in Preferences > Saving."); break;
+    case State::Pending: lines << QObject::tr("Changes are waiting for a recovery copy."); break;
+    case State::Saving: lines << QObject::tr("Writing recovery copy…"); break;
+    case State::Complete: lines << QObject::tr("Complete: the scene and unsaved supported assets were copied. Unchanged assets still use their original files."); break;
+    case State::Partial: lines << QObject::tr("Incomplete: the scene was copied, but resources below are missing. Automatic recovery will retry even without new edits."); break;
+    case State::Failed: lines << QObject::tr("Recovery failed. Your current scene remains open."); break;
+    }
+    if (current.attemptedAt.isValid())
+      lines << QObject::tr("Last attempt: %1").arg(QLocale().toString(current.attemptedAt.toLocalTime(), QLocale::ShortFormat));
+    if (current.savedAt.isValid())
+      lines << QObject::tr("Last written copy: %1").arg(QLocale().toString(current.savedAt.toLocalTime(), QLocale::ShortFormat));
+    if (!current.error.isEmpty()) lines << current.error;
+    if (!current.missingResources.isEmpty()) lines << current.missingResources.join("\n");
+    if (!current.folder.isEmpty()) lines << QDir::toNativeSeparators(current.folder);
+    details->setText(lines.join("\n\n"));
+    retry->setEnabled(current.state != State::Disabled && current.state != State::Saving && !TApp::instance()->isSaveInProgress());
+    folder->setEnabled(!current.folder.isEmpty() && QFileInfo(current.folder).isDir());
+  };
+  QObject::connect(retry, &QPushButton::clicked, &dialog, [&]() {
+    retry->setEnabled(false);
+    details->setText(QObject::tr("Writing recovery copy…"));
+    retryRecoveryCopy();
+    refresh();
+  });
+  QObject::connect(folder, &QPushButton::clicked, &dialog, []() {
+    QDesktopServices::openUrl(QUrl::fromLocalFile(status().folder));
+  });
+  QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::reject);
+  QTimer timer(&dialog);
+  QObject::connect(&timer, &QTimer::timeout, &dialog, refresh);
+  timer.start(500);
+  refresh();
+  dialog.exec();
+}
+
+class RecoveryStatusCommand final : public MenuItemHandler {
+public:
+  RecoveryStatusCommand() : MenuItemHandler(MI_RecoveryStatus) {}
+  void execute() override { AutosaveRecovery::showStatusDialog(); }
+} recoveryStatusCommand;
 
 //-----------------------------------------------------------------------------
 

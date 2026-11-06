@@ -118,11 +118,11 @@ TasksViewer::TasksViewer(QWidget *parent, Qt::WindowFlags flags)
 
   //-------begin left side (the tree + the toolbar)
 
-  // If there is another TasksViewer instance already, share the same TasksTree
-  TaskTreeModel *treeModel = BatchesController::instance()->getTasksTree();
-  m_treeView               = new TaskTreeView(this, treeModel);
-  BatchesController::instance()->setTasksTree(
-      (TaskTreeModel *)m_treeView->model());
+  // Task data belongs to the controller. Each panel owns its model, which
+  // holds that panel's selection and view pointer. Rooms can retire separately.
+  m_treeView = new TaskTreeView(this);
+  BatchesController::instance()->registerTasksTree(
+      static_cast<TaskTreeModel *>(m_treeView->model()));
 
   m_treeView->setSelectionMode(QAbstractItemView::ExtendedSelection);
 
@@ -156,11 +156,20 @@ TasksViewer::TasksViewer(QWidget *parent, Qt::WindowFlags flags)
 //-----------------------------------------------------------------------------
 
 void TasksViewer::update() {
-  //	((TaskTreeModel*)m_treeView->model())->update();
-  m_taskSheet->update(m_taskSheet->getCurrentTask());
+  TFarmTask *selected = m_taskSheet->getCurrentTask();
+  bool exists         = false;
+  auto *controller    = BatchesController::instance();
+  for (int i = 0; selected && i < controller->getTaskCount(); ++i)
+    exists |= controller->getTask(i) == selected;
+  // Another panel may have removed this task before notifying observers.
+  m_taskSheet->update(exists ? selected : nullptr);
 }
 
-TasksViewer::~TasksViewer() {}
+TasksViewer::~TasksViewer() {
+  BatchesController::instance()->detach(this);
+  BatchesController::instance()->unregisterTasksTree(
+      static_cast<TaskTreeModel *>(m_treeView->model()));
+}
 
 //-----------------------------------------------------------------------------
 
@@ -391,8 +400,7 @@ void TaskSheet::updateChunks(TFarmTask *task) {
       BatchesController::instance()->addTask(t->getTask(i)->m_id,
                                              t->getTask(i));
 
-    ((TaskTreeModel *)m_viewer->m_treeView->model())->setupModelData();
-    ((TaskTreeModel *)m_viewer->m_treeView->model())->update();
+    BatchesController::instance()->notify();
   }
 }
 
@@ -1004,10 +1012,9 @@ OpenFloatingPanel openTasksCommand(MI_OpenTasks, "Tasks", QObject::tr("Tasks"));
 //=============================================================================
 //=============================================================================
 
-TaskTreeView::TaskTreeView(TasksViewer *parent, TaskTreeModel *treeModel)
+TaskTreeView::TaskTreeView(TasksViewer *parent)
     : TreeView(parent), m_mainViewer(parent) {
-  if (!treeModel) treeModel = new TaskTreeModel(this);
-  setModel(treeModel);
+  setModel(new TaskTreeModel(this));
   setObjectName("taskeditortree");
   setIconSize(QSize(35, 18));
 
@@ -1046,39 +1053,25 @@ void TaskTreeView::openContextMenu(TreeModel::Item *gItem,
   TaskTreeModel::Item *item = static_cast<TaskTreeModel::Item *>(gItem);
   TaskTreeModel *m          = static_cast<TaskTreeModel *>(model());
   // m->setSelected(item->createIndex());
+  // Menus borrow actions from this panel only for the duration of the popup.
+  // Static menus would retain actions and receivers from a retired room.
+  QMenu menu(this);
   if (item->getDepth() == 1) {
-    static QMenu globalMenu;
-    if (globalMenu.isEmpty()) {
-      const std::vector<QAction *> &actions = m_mainViewer->getActions();
-      assert(!actions.empty());
-      int i;
-      for (i = 0; i < actions.size(); i++) {
-        globalMenu.addAction(actions[i]);
-        if (i == 1 || i == 3 || i == 6) globalMenu.addSeparator();
-      }
+    const std::vector<QAction *> &actions = m_mainViewer->getActions();
+    assert(!actions.empty());
+    for (int i = 0; i < actions.size(); ++i) {
+      menu.addAction(actions[i]);
+      if (i == 1 || i == 3 || i == 6) menu.addSeparator();
     }
-    globalMenu.exec(globalPos);
   } else if (item->getDepth() > 1) {
-    static QMenu menu;
-    if (menu.isEmpty()) {
-      bool ret = true;
-      QAction *action;
-      action = new QAction(tr("Start"), this);
-      ret =
-          ret && connect(action, SIGNAL(triggered(bool)), m, SLOT(start(bool)));
-      menu.addAction(action);
-      action = new QAction(tr("Stop"), this);
-      ret =
-          ret && connect(action, SIGNAL(triggered(bool)), m, SLOT(stop(bool)));
-      menu.addAction(action);
-      action = new QAction(tr("Remove"), this);
-      menu.addAction(action);
-      ret = ret &&
-            connect(action, SIGNAL(triggered(bool)), m, SLOT(remove(bool)));
-      assert(ret);
-    }
-    menu.exec(globalPos);
+    QAction *start = menu.addAction(tr("Start"));
+    connect(start, &QAction::triggered, m, &TaskTreeModel::start);
+    QAction *stop = menu.addAction(tr("Stop"));
+    connect(stop, &QAction::triggered, m, &TaskTreeModel::stop);
+    QAction *remove = menu.addAction(tr("Remove"));
+    connect(remove, &QAction::triggered, m, &TaskTreeModel::remove);
   }
+  if (!menu.isEmpty()) menu.exec(globalPos);
 }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -1285,8 +1278,7 @@ void TaskTreeModel::remove(bool) {
     p->m_mainViewer->setSelected(0);
   }
 
-  setupModelData();
-  emit layoutChanged();
+  BatchesController::instance()->notify();
 }
 
 //------------------------------------------------------------------------------------------------------------------

@@ -7,9 +7,11 @@ import plistlib
 import re
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 import venv
 import zipfile
@@ -55,19 +57,46 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def open_download(request):
+    # Retry only connection/response-header failures. Once any payload is read,
+    # never restart the transfer: retries must not multiply the download budget.
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(request, timeout=60)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            if isinstance(error, urllib.error.HTTPError):
+                transient = error.code in (408, 429, 500, 502, 503, 504)
+                error.close()
+            elif isinstance(error, urllib.error.URLError):
+                transient = isinstance(error.reason, (TimeoutError, ConnectionError)) or (
+                    isinstance(error.reason, socket.gaierror) and error.reason.errno == socket.EAI_AGAIN)
+            else:
+                transient = True
+            if not transient or attempt == 2:
+                raise
+            print("::warning title=Publisher connection::Transient failure before "
+                  f"body transfer; retry {attempt + 1}/2", flush=True)
+            time.sleep(2 * (attempt + 1))
+
+
 def download(url, target, limit):
     request = urllib.request.Request(url, headers={"User-Agent": "Groundzero model qualification"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        if response.headers.get("Content-Length") and int(response.headers["Content-Length"]) > limit:
-            raise RuntimeError("Publisher artifact exceeds download bound")
-        with target.open("wb") as output:
-            count = 0
-            while block := response.read(65536):
-                count += len(block)
-                if count > limit:
-                    raise RuntimeError("Publisher artifact exceeds download bound")
-                output.write(block)
-    return count
+    partial = target.with_name(target.name + ".part")
+    try:
+        with open_download(request) as response:
+            if response.headers.get("Content-Length") and int(response.headers["Content-Length"]) > limit:
+                raise RuntimeError("Publisher artifact exceeds download bound")
+            with partial.open("wb") as output:
+                count = 0
+                while block := response.read(65536):
+                    count += len(block)
+                    if count > limit:
+                        raise RuntimeError("Publisher artifact exceeds download bound")
+                    output.write(block)
+        partial.replace(target)
+        return count
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def main():

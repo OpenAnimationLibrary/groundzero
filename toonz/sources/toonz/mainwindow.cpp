@@ -1,12 +1,18 @@
 
 
 #include "mainwindow.h"
+#include "mediacachepopup.h"
 #include "widgetinspector.h"
 #include "themeapplication.h"
 #include "convertlinestoareascommand.h"
 #include "distributecommand.h"
 #include "rigeasecommand.h"
 #include "customhelplink.h"
+#include "workflowpresets.h"
+#include "externalapplications.h"
+#if defined(x64)
+#include "../stopmotion/stopmotion.h"
+#endif
 
 // Tnz6 includes
 #include "menubar.h"
@@ -17,6 +23,7 @@
 #include "flipbook.h"
 #include "messagepanel.h"
 #include "iocommand.h"
+#include <QScopedValueRollback>
 #include "tapp.h"
 #include "comboviewerpane.h"
 #include "startuppopup.h"
@@ -51,6 +58,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/tproject.h"
+#include "toonz/tframehandle.h"
 
 // TnzBase includes
 #include "tenv.h"
@@ -76,6 +84,9 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
+#include <QSignalBlocker>
+#include <QEventLoop>
+#include <QFile>
 #include <QActionGroup>
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 // Qt 6 has no QtPlatformHeaders
@@ -232,6 +243,11 @@ void makePrivate(Room *room) {
     else {
       TFilePath templateFullMBPath =
           ToonzFolder::getTemplateRoomsDir() + "menubar_template.xml";
+      // Workflow templates share Groundzero's complete standard menu. Their
+      // own room/menu overrides still take precedence as before.
+      if (!TFileStatus(templateFullMBPath).doesExist())
+        templateFullMBPath =
+            ToonzFolder::getRoomsDir() + "Default/menubar_template.xml";
       if (TFileStatus(templateFullMBPath).doesExist())
         TSystem::copyFile(myMBPath, templateFullMBPath);
       else
@@ -455,7 +471,7 @@ void Room::load(const TFilePath &fp, RoomLoadParams &params) {
   }
 
   // resolve resize events here to avoid unwanted minimize of floating viewer
-  qApp->processEvents();
+  qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 
   DockLayout::State state(geometries,
                           m_settings->value("hierarchy").toString());
@@ -545,11 +561,8 @@ centralWidget->setLayout(centralWidgetLayout);*/
   connect(m_stackedWidget, SIGNAL(currentChanged(int)),
           SLOT(onCurrentRoomChanged(int)));
 
-  QObject::connect(roomTabWidget, &QTabBar::currentChanged, [this](int index) {
-    Room *dstRoom = getRoom(index);
-    if (dstRoom->notInitialized()) dstRoom->initialize();
-    this->m_stackedWidget->setCurrentIndex(index);
-  });
+  connect(roomTabWidget, &QTabBar::currentChanged, this,
+          &MainWindow::onRoomTabChanged);
 
   /*-- タイトルバーにScene名を表示する --*/
   connect(TApp::instance()->getCurrentScene(), SIGNAL(nameSceneChanged()), this,
@@ -595,14 +608,11 @@ centralWidget->setLayout(centralWidgetLayout);*/
   setCommandHandler("MI_NewRasterLevel", this,
                     &MainWindow::onNewRasterLevelButtonPressed);
   setCommandHandler(MI_ClearCacheFolder, this, &MainWindow::clearCacheFolder);
+  setCommandHandler(MI_ManageMediaCache, this, &MainWindow::manageMediaCache);
   setCommandHandler("MI_NewMetaLevel", this,
                     &MainWindow::onNewMetaLevelButtonPressed);
-  // remove ffmpegCache if still exists from crashed exit
-  QString ffmpegCachePath =
-      ToonzFolder::getCacheRootFolder().getQString() + "//ffmpeg";
-  if (TSystem::doesExistFileOrLevel(TFilePath(ffmpegCachePath))) {
-    TSystem::rmDirTree(TFilePath(ffmpegCachePath));
-  }
+  // Media generations are shared by readers in other application processes.
+  // Their budget/lease manager, not startup, owns retirement.
 
   connect(TApp::instance(), SIGNAL(activeViewerChanged()), this,
           SLOT(onActiveViewerChanged()));
@@ -612,12 +622,6 @@ centralWidget->setLayout(centralWidgetLayout);*/
 
 MainWindow::~MainWindow() {
   TEnv::saveAllEnvVariables();
-  // cleanup ffmpeg cache
-  QString ffmpegCachePath =
-      ToonzFolder::getCacheRootFolder().getQString() + "//ffmpeg";
-  if (TSystem::doesExistFileOrLevel(TFilePath(ffmpegCachePath))) {
-    TSystem::rmDirTree(TFilePath(ffmpegCachePath));
-  }
 }
 
 //-----------------------------------------------------------------------------
@@ -831,6 +835,7 @@ void MainWindow::readSettings(const QString &argumentLayoutFileName) {
 //-----------------------------------------------------------------------------
 
 void MainWindow::writeSettings() {
+  if (!getCurrentRoom()) return;
   std::vector<Room *> rooms;
   int i;
 
@@ -1091,7 +1096,8 @@ Room *MainWindow::createBrowserRoom() {
 //-----------------------------------------------------------------------------
 
 Room *MainWindow::getCurrentRoom() const {
-  return getRoom(m_stackedWidget->currentIndex());
+  const int index = m_stackedWidget->currentIndex();
+  return index >= 0 && index < getRoomCount() ? getRoom(index) : nullptr;
 }
 
 //-----------------------------------------------------------------------------
@@ -1237,6 +1243,165 @@ void MainWindow::autofillToggle() {
   h->toggleAutopaint();
 }
 
+// The switch is deferred out of QAction/menu dispatch. Rebuilding a room must
+// never destroy the menu, command palette or panel still dispatching its click.
+void MainWindow::requestRoomSetChange(QString profile) {
+  updateWorkflowChecks();
+  // Keep both controls on the loaded set until the deferred request succeeds.
+  // Rejected requests must not save a different choice for the next startup.
+  emit roomSetChanged(m_currentRoomsChoice);
+  if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
+      IoCmd::isSceneTransitionInProgress())
+    return;
+  const bool scheduled = !m_pendingWorkflow.isEmpty();
+  m_pendingWorkflow    = profile;
+  if (scheduled) return;
+  QTimer::singleShot(0, this, [this]() {
+    const QString profile = m_pendingWorkflow;
+    m_pendingWorkflow.clear();
+    switchWorkflow(profile);
+  });
+}
+
+void MainWindow::updateWorkflowChecks() {
+  for (const auto &preset : WorkflowPresets::presets) {
+    QAction *action = CommandManager::instance()->getAction(preset.command);
+    if (action) action->setChecked(m_currentRoomsChoice == preset.profile);
+  }
+}
+
+void MainWindow::clearWorkflowRooms() {
+  // Hiding the whole stack prevents removeWidget() from showing the next room
+  // while it is being destroyed (notably Function Editor model callbacks).
+  // Tab, stack and menu signals are blocked by switchWorkflow().
+  m_stackedWidget->hide();
+  TSelection::setCurrent(nullptr);
+  for (QWidget *widget : QApplication::allWidgets())
+    if (auto *inspector = qobject_cast<WidgetInspector *>(widget))
+      inspector->cancelPicking();
+  QTabBar *tabs = m_topBar->getRoomTabWidget();
+  while (tabs->count()) tabs->removeTab(0);
+  while (m_stackedWidget->count()) {
+    QWidget *room = m_stackedWidget->widget(0);
+    room->hide();
+    m_stackedWidget->removeWidget(room);
+    delete room;
+  }
+  m_topBar->getStackedMenuBar()->clear();
+  // writeSettings() returned floating Flipbooks to their pool. Its raw widget
+  // entries are no longer alive; reload the saved geometry before Room::load()
+  // can process events or another command can pop one of them.
+  FlipBookPool::instance()->load(ToonzFolder::getMyModuleDir() +
+                                 TFilePath("fliphistory.ini"));
+  m_oldRoomIndex = 0;
+}
+
+void MainWindow::switchWorkflow(const QString &profile) {
+  if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
+      IoCmd::isSceneTransitionInProgress())
+    return;
+  if (!Preferences::instance()->getRoomMap().values().contains(profile) ||
+      profile == m_currentRoomsChoice)
+    return;
+#if !defined(x64)
+  if (profile == "StopMotion") return;
+#endif
+
+  // Validate the installed profile before saving or retiring any existing
+  // panel. Existing per-user overrides continue to use Groundzero's normal
+  // loader.
+  const TFilePath directory =
+      ToonzFolder::getRoomsDir() + profile.toStdWString();
+  QFile list(toQString(directory + "layouts.txt"));
+  bool valid = list.open(QIODevice::ReadOnly | QIODevice::Text);
+  int rooms  = 0;
+  while (valid && !list.atEnd()) {
+    const QString name = QString::fromUtf8(list.readLine()).trimmed();
+    if (name.isEmpty()) continue;
+    QSettings room(toQString(directory + name.toStdWString()),
+                   QSettings::IniFormat);
+    valid = room.contains("room/name") &&
+            !room.value("room/name").toString().isEmpty();
+    ++rooms;
+  }
+  if (!valid || !rooms) {
+    DVGui::warning(
+        tr("The selected workflow's room templates are missing or invalid."));
+    return;
+  }
+  if (TApp::instance()->getCurrentFrame()->isPlaying()) {
+    DVGui::warning(tr("Stop playback before switching workflows."));
+    return;
+  }
+
+  const QScopedValueRollback<bool> switching(m_isSwitchingWorkflows, true);
+  QTabBar *tabs         = m_topBar->getRoomTabWidget();
+  StackedMenuBar *menus = m_topBar->getStackedMenuBar();
+  const QSignalBlocker tabBlocker(tabs), stackBlocker(m_stackedWidget),
+      menuBlocker(menus);
+  struct RestoreDisplay {
+    MainWindow *window;
+    QStackedWidget *stack;
+    bool updates, visible;
+    ~RestoreDisplay() {
+      stack->setVisible(visible);
+      window->setUpdatesEnabled(updates);
+      window->update();
+    }
+  } restore{this, m_stackedWidget, updatesEnabled(),
+            m_stackedWidget->isVisible()};
+  setUpdatesEnabled(false);
+#if defined(x64)
+  StopMotion *capture = StopMotion::instance();
+  if (capture->m_liveViewStatus > StopMotion::LiveViewClosed)
+    capture->toggleLiveView();
+#endif
+  // Save outgoing rooms under the profile that actually owns them.
+  Preferences::instance()->setValue(CurrentRoomChoice, m_currentRoomsChoice);
+  writeSettings();
+  const QString previous         = m_currentRoomsChoice;
+  const std::string previousList = layoutsFileName;
+  clearWorkflowRooms();
+  // A command-line layout belongs to the outgoing profile, not the new one.
+  layoutsFileName = "layouts.txt";
+  Preferences::instance()->setValue(CurrentRoomChoice, profile);
+  m_currentRoomsChoice = profile;
+  m_layoutName.clear();
+  try {
+    readSettings(QString());
+  } catch (...) {
+    clearWorkflowRooms();
+    layoutsFileName = previousList;
+    Preferences::instance()->setValue(CurrentRoomChoice, previous);
+    m_currentRoomsChoice = previous;
+    readSettings(QString());
+    DVGui::warning(tr(
+        "The workflow could not be loaded. The previous rooms were restored."));
+  }
+  // readSettings restores each profile's current room, or uses its first room.
+  const int index = qMax(0, m_stackedWidget->currentIndex());
+  tabs->setCurrentIndex(index);
+  m_stackedWidget->setCurrentIndex(index);
+  Room *room = getCurrentRoom();
+  if (room && room->notInitialized()) room->initialize();
+  m_oldRoomIndex = index;
+  menus->setCurrentIndex(index);
+  m_stackedWidget->setVisible(restore.visible);
+  updatePanelVisibility();
+  updateWorkflowChecks();
+  emit roomSetChanged(m_currentRoomsChoice);
+  changeWindowTitle();
+}
+
+void MainWindow::launchRelatedApplication(int application) {
+  const auto target =
+      static_cast<ExternalApplications::Application>(application);
+  QString error;
+  if (!NativeExternalApplications::instance().launch(target, &error))
+    DVGui::warning(tr("Unable to launch %1.\n%2")
+                       .arg(ExternalApplications::name(target), error));
+}
+
 void MainWindow::resetRoomsLayout() {
   if (!m_saveSettingsOnQuit) return;
 
@@ -1322,7 +1487,19 @@ void MainWindow::seeThroughWindow() {
 
 //-----------------------------------------------------------------------------
 
+void MainWindow::onRoomTabChanged(int index) {
+  if (m_isSwitchingWorkflows || index < 0 || index >= getRoomCount()) return;
+  Room *room = getRoom(index);
+  if (room->notInitialized()) room->initialize();
+  m_stackedWidget->setCurrentIndex(index);
+}
+
 void MainWindow::onCurrentRoomChanged(int newRoomIndex) {
+  if (m_isSwitchingWorkflows || newRoomIndex < 0 ||
+      newRoomIndex >= getRoomCount())
+    return;
+  if (m_oldRoomIndex < 0 || m_oldRoomIndex >= getRoomCount())
+    m_oldRoomIndex = newRoomIndex;
   // Picking must never carry a gesture into another room or its canvas.
   for (QWidget *widget : QApplication::allWidgets())
     if (auto *inspector = qobject_cast<WidgetInspector *>(widget))
@@ -1898,8 +2075,10 @@ void MainWindow::onActiveViewerChanged() {
   // sync the command state to the button state of the activated viewer
   SceneViewer *activeViewer = TApp::instance()->getActiveViewer();
   if (!activeViewer) return;
-  BaseViewerPanel *bvp = qobject_cast<BaseViewerPanel *>(
-      activeViewer->parentWidget()->parentWidget());
+  QWidget *parent = activeViewer->parentWidget();
+  if (!parent || !parent->parentWidget()) return;
+  BaseViewerPanel *bvp =
+      qobject_cast<BaseViewerPanel *>(parent->parentWidget());
   if (!bvp) return;
   bool prev, subCamPrev;
   bvp->getPreviewButtonStates(prev, subCamPrev);
@@ -1915,6 +2094,12 @@ void MainWindow::onActiveViewerChanged() {
 //-----------------------------------------------------------------------------
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+  if (m_closeInProgress || m_isSwitchingWorkflows ||
+      IoCmd::isSceneTransitionInProgress()) {
+    event->ignore();
+    return;
+  }
+  const QScopedValueRollback<bool> closing(m_closeInProgress, true);
   // il riferimento alla variabile booleana doExit viene passato a tutti gli
   // slot che catturano l'emissione
   // del segnale. Impostando a false tale variabile, l'applicazione non viene
@@ -1926,13 +2111,22 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     return;
   }
 
-  if (!IoCmd::saveSceneIfNeeded(QApplication::tr("Quit"))) {
+  if (!IoCmd::saveSceneIfNeeded(QApplication::tr("Quit"), []() {
+        // Accepted Quit clears scene resources inside saveSceneIfNeeded.
+        // Retire active readers only after every save/cancel decision succeeds.
+        IconGenerator::instance()->shutdown();
+      })) {
     event->ignore();
     return;
   }
 
-  // sto facendo quit. interrompo (il prima possibile) le threads
-  IconGenerator::instance()->clearRequests();
+  // A cancellation request alone does not stop an active thumbnail render.
+  // Finish its worker and thread-local GL cleanup before clearing image data
+  // or allowing the window and its actions to be destroyed.
+  {
+    IoCmd::SceneTransitionGuard shutdown;
+    IconGenerator::instance()->shutdown();
+  }
 
   if (m_saveSettingsOnQuit) writeSettings();
 
@@ -2287,6 +2481,7 @@ void MainWindow::defineActions() {
                        "load_scene");
   createMenuFileAction(MI_SaveAll, QT_TR_NOOP("&Save All"), "Ctrl+S",
                        "saveall");
+  createMenuFileAction(MI_RecoveryStatus, QT_TR_NOOP("Recovery Status..."), "", "");
   createMenuFileAction(MI_SaveScene, QT_TR_NOOP("&Save Scene Only"),
                        "Ctrl+Shift+S", "save_scene");
   createMenuFileAction(MI_SaveSceneAs, QT_TR_NOOP("&Save Scene As..."), "",
@@ -2386,6 +2581,8 @@ void MainWindow::defineActions() {
   createMenuFileAction(MI_ClearRecentImage,
                        QT_TR_NOOP("&Clear Recent Flipbook Image List"), "");
   createMenuFileAction(MI_ClearCacheFolder, QT_TR_NOOP("&Clear Cache Folder"),
+                       "", "clear_cache");
+  createMenuFileAction(MI_ManageMediaCache, QT_TR_NOOP("Manage &Media Cache..."),
                        "", "clear_cache");
   createMenuFileAction(MI_ExportCurrentScene,
                        QT_TR_NOOP("&Export Current Scene"), "");
@@ -2558,6 +2755,8 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_WidthProfileTaperBoth,
                         QT_TR_NOOP("Taper &Both Ends"), "");
   createMenuLevelAction(MI_WidthProfilePulse, QT_TR_NOOP("&Pulse"), "");
+  createMenuLevelAction(MI_EditStrokeOpacityProfile,
+                        QT_TR_NOOP("Edit Stroke Opacity Envelope..."), "");
   createMenuLevelAction(MI_ApplySavedWidthProfile,
                         QT_TR_NOOP("Apply S&aved Width Profile..."), "");
   createMenuLevelAction(
@@ -2994,6 +3193,40 @@ void MainWindow::defineActions() {
                  "view_vector_as_raster");
   else
     RasterizePliToggleAction = 0;
+
+  // Workflow commands use the normal registry, so shortcuts and command bars
+  // invoke the same deferred switch as the room menus.
+  for (const auto &preset : WorkflowPresets::presets) {
+    QAction *action =
+        createMenuWindowsAction(preset.command, preset.label, "", "");
+    UiTranslations::bind(action, "text", "MainWindow",
+                         QString::fromLatin1(preset.label));
+    action->setCheckable(true);
+    CommandManager::instance()->setHandler(
+        preset.command, new CommandHandlerHelper2<MainWindow, QString>(
+                            this, &MainWindow::requestRoomSetChange,
+                            QString::fromLatin1(preset.profile)));
+#if !defined(x64)
+    if (QString::fromLatin1(preset.profile) == "StopMotion")
+      action->setEnabled(false);
+#endif
+  }
+  updateWorkflowChecks();
+  for (auto application :
+       {ExternalApplications::Ztoryc, ExternalApplications::OT3D}) {
+    const char *id    = ExternalApplications::command(application);
+    const char *label = application == ExternalApplications::Ztoryc
+                            ? QT_TR_NOOP("Launch Ztoryc")
+                            : QT_TR_NOOP("Launch OT3D");
+    QAction *action   = createMenuWindowsAction(id, label, "", "");
+    UiTranslations::bind(action, "text", "MainWindow",
+                         QString::fromLatin1(label));
+    CommandManager::instance()->setHandler(
+        id, new CommandHandlerHelper2<MainWindow, int>(
+                this, &MainWindow::launchRelatedApplication,
+                static_cast<int>(application)));
+    NativeExternalApplications::instance().bindAction(application, action);
+  }
 
   // Menu - Windows
 
@@ -4015,12 +4248,13 @@ void MainWindow::onNewRasterLevelButtonPressed() {
 
 //-----------------------------------------------------------------------------
 // delete unused files / folders in the cache
+void MainWindow::manageMediaCache() { showMediaCacheManager(this); }
+
 void MainWindow::clearCacheFolder() {
   // currently cache folder is used for following purposes
   // 1. $CACHE/[ProcessID] : for disk swap of image cache.
   //    To be deleted on exit. Remains on crash.
-  // 2. $CACHE/ffmpeg : ffmpeg cache.
-  //    To be cleared on the end of rendering, on exist and on launch.
+  // 2. $CACHE/ffmpeg : shared media generations managed separately by leases.
   // 3. $CACHE/temp : untitled scene data.
   //    To be deleted on switching or exiting scenes. Remains on crash.
 
@@ -4028,6 +4262,7 @@ void MainWindow::clearCacheFolder() {
   // except the following items:
   // 1. $CACHE/[Current ProcessID]
   // 2. $CACHE/temp/[Current scene folder] if the current scene is untitled
+  // 3. $CACHE/ffmpeg, whose manager respects active media reader leases
 
   TFilePath cacheRoot = ToonzFolder::getCacheRootFolder();
   if (cacheRoot.isEmpty()) cacheRoot = TEnv::getStuffDir() + "cache";
@@ -4035,6 +4270,8 @@ void MainWindow::clearCacheFolder() {
   TFilePathSet filesToBeRemoved;
 
   TSystem::readDirectory(filesToBeRemoved, cacheRoot, false);
+  // Never bypass the media reader leases, even in this legacy cleanup command.
+  filesToBeRemoved.remove(cacheRoot + "ffmpeg");
 
   // keep the imagecache folder
   filesToBeRemoved.remove(cacheRoot + std::to_string(TSystem::getProcessId()));
@@ -4056,7 +4293,8 @@ void MainWindow::clearCacheFolder() {
   if (filesToBeRemoved.size() == 0) {
     QMessageBox::information(
         this, tr("Clear Cache Folder"),
-        tr("There are no unused items in the cache folder."));
+        tr("There are no unused items in the cache folder. Use Manage Media "
+           "Cache to inspect or clean cached video frames."));
     return;
   }
 

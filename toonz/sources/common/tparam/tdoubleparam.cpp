@@ -14,15 +14,38 @@
 #include "tgrammar.h"
 #include "tparser.h"
 #include "tunit.h"
+#include "texception.h"
 
 // STD includes
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <set>
 
 #include "tdoubleparam.h"
 
 using namespace std;
+
+namespace {
+// Errors must survive a referenced expression's GUI-safe fallback, even when
+// another expression catches an exception or a reentrant caller performs its
+// own checked sample. Each active scope records the first error on this thread.
+struct CheckedEvaluation;
+thread_local CheckedEvaluation *checkedEvaluation = nullptr;
+struct CheckedEvaluation {
+  CheckedEvaluation *previous = checkedEvaluation;
+  std::string error;
+  CheckedEvaluation() { checkedEvaluation = this; }
+  ~CheckedEvaluation() { checkedEvaluation = previous; }
+  CheckedEvaluation(const CheckedEvaluation &) = delete;
+  CheckedEvaluation &operator=(const CheckedEvaluation &) = delete;
+};
+void recordEvaluationFailure(const std::string &message) {
+  for (auto *scope = checkedEvaluation; scope; scope = scope->previous)
+    if (scope->error.empty())
+      scope->error = message.empty() ? "Animation sample evaluation failed" : message;
+}
+}  // namespace
 
 //===============================
 
@@ -76,9 +99,22 @@ public:
   }
 
   double convertFrom(TMeasure *measure, double value) const {
+    if (checkedEvaluation) {
+      const TUnit *unit = evaluationUnit(measure);
+      return unit ? unit->convertFrom(value) : value;
+    }
     if (!m_unit) const_cast<TActualDoubleKeyframe *>(this)->updateUnit(measure);
     if (m_unit) value = m_unit->convertFrom(value);
     return value;
+  }
+
+  // Resolving units for read-only batch sampling must not write m_unitName in
+  // a referenced live keyframe merely because its unit cache was still cold.
+  const TUnit *evaluationUnit(const TMeasure *measure) const {
+    if (!measure) return nullptr;
+    const TUnit *unit = m_unitName.empty()
+                            ? nullptr : measure->getUnit(::to_wstring(m_unitName));
+    return unit ? unit : measure->getCurrentUnit();
   }
 
 private:
@@ -264,6 +300,16 @@ inline double getExpressionValue(const TActualDoubleKeyframe &k0,
                                  const TMeasure *measure) {
   double t = 0, rframe = frame - k0.m_frame;
   if (k1.m_frame > k0.m_frame) t = rframe / (k1.m_frame - k0.m_frame);
+  if (checkedEvaluation) {
+    double value = 0;
+    if (!k0.m_expression.evaluate(t, frame + 1, rframe + 1,
+                                  k0.evaluationUnit(measure), value)) {
+      const std::string detail = k0.m_expression.getError();
+      recordEvaluationFailure(detail.empty() ? "Animation expression evaluation failed" : detail);
+    } else if (!std::isfinite(value))
+      recordEvaluationFailure("Animation expression result is not finite");
+    return value;
+  }
   if (TExpression::isSeExprText(k0.m_expressionText)) {
     const TUnit *unit =
         (const_cast<TActualDoubleKeyframe &>(k0)).updateUnit(measure);
@@ -283,6 +329,20 @@ inline double getExpressionValue(const TActualDoubleKeyframe &k0,
     return measure->getDefaultValue();
   else
     return 0;
+}
+
+//---------------------------------------------------------
+
+inline double getFileValue(const TActualDoubleKeyframe &key, double frame,
+                           double defaultValue) {
+  if (checkedEvaluation) {
+    std::string error;
+    double value = defaultValue;
+    if (!key.m_fileData.getValueChecked(frame, defaultValue, value, error))
+      recordEvaluationFailure(error);
+    return value;
+  }
+  return key.m_fileData.getValue(frame, defaultValue);
 }
 
 //---------------------------------------------------------
@@ -314,6 +374,8 @@ public:
   double m_defaultValue, m_minValue, m_maxValue;
   DoubleKeyframeVector m_keyframes;
   bool m_cycleEnabled;
+  std::string m_workspaceId;
+  bool m_editorLocked = false;
   std::vector<std::string> m_uiChoices;
   bool m_uiCheckbox = false;
   bool m_hasUISliderRange = false;
@@ -393,7 +455,7 @@ double TDoubleParam::Imp::getValue(int segmentIndex, double frame) {
     convertUnit = true;
     break;
   case TDoubleKeyframe::File:
-    value       = k0.m_fileData.getValue(frame, m_defaultValue);
+    value       = getFileValue(k0, frame, m_defaultValue);
     convertUnit = true;
     break;
   case TDoubleKeyframe::SimilarShape:
@@ -486,6 +548,14 @@ TDoubleParam::TDoubleParam(const TDoubleParam &src)
 //---------------------------------------------------------
 
 TDoubleParam::~TDoubleParam() {}
+
+std::string TDoubleParam::getWorkspaceId() const { return m_imp->m_workspaceId; }
+void TDoubleParam::setWorkspaceId(const std::string &id) {
+  if (id.size() > 64) throw TException("Invalid Function Editor channel identity");
+  m_imp->m_workspaceId = id;
+}
+bool TDoubleParam::isEditorLocked() const { return m_imp->m_editorLocked; }
+void TDoubleParam::setEditorLocked(bool locked) { m_imp->m_editorLocked = locked; }
 
 //---------------------------------------------------------
 
@@ -587,6 +657,10 @@ bool TDoubleParam::isCycleEnabled() const { return m_imp->m_cycleEnabled; }
 //=========================================================
 
 double TDoubleParam::getValue(double frame, bool leftmost) const {
+  if (checkedEvaluation && !std::isfinite(frame)) {
+    recordEvaluationFailure("Animation sample frame is not finite");
+    return m_imp->m_defaultValue;
+  }
   double value = 0;
   assert(m_imp);
   const DoubleKeyframeVector &keyframes = m_imp->m_keyframes;
@@ -710,7 +784,7 @@ double TDoubleParam::getValue(double frame, bool leftmost) const {
       convertUnit = true;
       break;
     case TDoubleKeyframe::File:
-      value       = a->m_fileData.getValue(frame, m_imp->m_defaultValue);
+      value       = getFileValue(*a, frame, m_imp->m_defaultValue);
       convertUnit = true;
       break;
     case TDoubleKeyframe::SimilarShape:
@@ -727,7 +801,30 @@ double TDoubleParam::getValue(double frame, bool leftmost) const {
 
   // if (cropped)
   //  value = tcrop(value, m_imp->m_minValue, m_imp->m_maxValue);
+  if (checkedEvaluation && !std::isfinite(value))
+    recordEvaluationFailure("Animation sample result is not finite");
   return value;
+}
+
+//---------------------------------------------------------
+
+bool TDoubleParam::getValueChecked(double frame, double &value,
+                                  std::string &error, bool leftmost) const {
+  CheckedEvaluation scope;
+  double sample = 0;
+  try {
+    sample = getValue(frame, leftmost);
+  } catch (const TException &failure) {
+    recordEvaluationFailure(QString::fromStdWString(failure.getMessage()).toStdString());
+  } catch (const std::exception &failure) {
+    recordEvaluationFailure(failure.what());
+  } catch (...) {
+    recordEvaluationFailure("Animation sample evaluation failed");
+  }
+  error = scope.error;
+  if (!error.empty()) return false;
+  value = sample;
+  return true;
 }
 
 //---------------------------------------------------------
@@ -927,6 +1024,12 @@ bool TDoubleParam::isDefault() const {
 
 //---------------------------------------------------------
 
+bool TDoubleParam::hasDataToSave() const {
+  return !isDefault() || !m_imp->m_workspaceId.empty();
+}
+
+//---------------------------------------------------------
+
 int TDoubleParam::getKeyframeCount() const { return m_imp->m_keyframes.size(); }
 
 //---------------------------------------------------------
@@ -1088,6 +1191,8 @@ const std::set<TParamObserver *> &TDoubleParam::observers() const {
 
 void TDoubleParam::loadData(TIStream &is) {
   string tagName;
+  m_imp->m_workspaceId.clear();
+  m_imp->m_editorLocked = false;
   /*
 if(is.matchTag(tagName))
 {
@@ -1122,6 +1227,8 @@ is >> m_imp->m_defaultValue;
       // (old) format 5.2. Since 6.0 param type is no used anymore
       is >> oldType;
     } else if (tagName == "default") {
+      std::string id;
+      if (is.getTagParam("workspaceId", id)) setWorkspaceId(id);
       is >> m_imp->m_defaultValue;
     } else if (tagName == "cycle") {
       string dummy;
@@ -1252,8 +1359,24 @@ is >> m_imp->m_defaultValue;
 //---------------------------------------------------------
 
 void TDoubleParam::saveData(TOStream &os) {
+  // Fractional retiming and sampled values must survive scene/preset reload.
+  // Keep this local to native curve data and restore the caller's stream mode,
+  // including when serializing a child throws.
+  struct PrecisionScope {
+    TOStream &stream;
+    bool previous;
+    explicit PrecisionScope(TOStream &value)
+        : stream(value), previous(value.setFullPrecision(true)) {}
+    ~PrecisionScope() { stream.setFullPrecision(previous); }
+  } precision(os);
   // os.child("type") << (int)m_imp->m_type;
-  os.child("default") << m_imp->m_defaultValue;
+  if (m_imp->m_workspaceId.empty())
+    os.child("default") << m_imp->m_defaultValue;
+  else {
+    os.openChild("default", {{"workspaceId", m_imp->m_workspaceId}});
+    os << m_imp->m_defaultValue;
+    os.closeChild();
+  }
   if (isCycleEnabled()) os.child("cycle") << std::string("enabled");
   // if(getExtrapolationAfter() == Loop)
   //  os.child("cycle") << string("loop");

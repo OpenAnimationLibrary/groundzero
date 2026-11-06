@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <memory>
+#include <cstdint>
+#include <cstring>
 
 #include "tmachine.h"
 #include "pli_io.h"
@@ -31,7 +33,7 @@ TNZ_LITTLE_ENDIAN undefined !!
 #endif
 
     static const int c_majorVersionNumber = 150;
-static const int c_minorVersionNumber     = 0;
+static const int c_minorVersionNumber     = 1;
 
 /*=====================================================================*/
 /*=====================================================================*/
@@ -612,6 +614,10 @@ ParsedPliImp::ParsedPliImp(const TFilePath &filename, bool readInfo)
        m_minorVersionNumber > c_minorVersionNumber))
     throw TImageVersionException(filename, m_majorVersionNumber,
                                  m_minorVersionNumber);
+
+  // A parsed level may be written after editing only an ordinary drawing;
+  // retain capability versions required by its other stored drawings.
+  m_versionLocked = m_majorVersionNumber >= 120;
 
   if (m_majorVersionNumber > 5 ||
       (m_majorVersionNumber == 5 && m_minorVersionNumber >= 8))
@@ -1555,6 +1561,39 @@ PliTag *ParsedPliImp::readOutlineOptionsTag() {
       readDynamicData(opacity, bufOffs);
       options.m_opacity = std::min(1000, std::max(0, (int)opacity)) / 1000.0;
     }
+  }
+
+  const bool hasProfileFormat = m_majorVersionNumber > 150 ||
+      (m_majorVersionNumber == 150 && m_minorVersionNumber >= 1);
+  if (hasProfileFormat) {
+    // 150.1 always stores all five legacy dynamic fields followed by a
+    // bounded count and exact binary64 (x, alpha) knots. No quantization can
+    // collapse two nearby positions or a deliberately discontinuous join.
+    const TUINT32 fixedLength = baseLength + 3 * m_currDynamicTypeBytesNum;
+    requireTagLength(static_cast<unsigned long long>(fixedLength) + 4);
+    if (bufOffs != fixedLength)
+      throw TImageException(m_filePath, "Truncated PLI opacity envelope header");
+    TUINT32 count;
+    readTUINT32Data(count, bufOffs);
+    if (count > StrokeOpacity::MaxKnots ||
+        static_cast<unsigned long long>(bufOffs) + 16ULL * count != m_tagLength)
+      throw TImageException(m_filePath, "Invalid PLI opacity envelope length");
+    auto readDouble = [&]() {
+      TUINT32 hi, lo;
+      readTUINT32Data(hi, bufOffs); readTUINT32Data(lo, bufOffs);
+      const std::uint64_t bits = (std::uint64_t(hi) << 32) | lo;
+      double value;
+      static_assert(sizeof(value) == sizeof(bits), "PLI requires binary64 doubles");
+      std::memcpy(&value, &bits, sizeof(value));
+      return value;
+    };
+    options.m_opacityProfile.reserve(count);
+    for (TUINT32 i = 0; i < count; ++i) {
+      const double x = readDouble(), y = readDouble();
+      options.m_opacityProfile.emplace_back(x, y);
+    }
+    if (!StrokeOpacity::valid(options.m_opacityProfile))
+      throw TImageException(m_filePath, "Invalid PLI opacity envelope knots");
   }
 
   return new StrokeOutlineOptionsTag(options);
@@ -2605,14 +2644,19 @@ TUINT32 ParsedPliImp::writeOutlineOptionsTag(StrokeOutlineOptionsTag *tag) {
                 1000, std::max(0, (int)tround(scale * tag->m_options.m_opacity)));
   const bool hasOpacityData      = opacity != 1000;
   const bool hasPatternFrameData = frameOffset != 0 || frameStep != 1;
+  const bool hasProfileFormat = m_majorVersionNumber > 150 ||
+      (m_majorVersionNumber == 150 && m_minorVersionNumber >= 1);
+  const auto &profile = tag->m_options.m_opacityProfile;
+  if (!StrokeOpacity::valid(profile) || (!hasProfileFormat && !profile.empty()))
+    throw TImageException(m_filePath, "Cannot write opacity envelope in this PLI version");
 
   int minValue = std::min(miterLower, miterUpper);
   int maxValue = std::max(miterLower, miterUpper);
-  if (hasPatternFrameData) {
+  if (hasPatternFrameData || hasProfileFormat) {
     minValue = std::min({minValue, (int)frameOffset, (int)frameStep});
     maxValue = std::max({maxValue, (int)frameOffset, (int)frameStep});
   }
-  if (hasOpacityData) {
+  if (hasOpacityData || hasProfileFormat) {
     minValue = std::min(minValue, (int)opacity);
     maxValue = std::max(maxValue, (int)opacity);
   }
@@ -2620,8 +2664,9 @@ TUINT32 ParsedPliImp::writeOutlineOptionsTag(StrokeOutlineOptionsTag *tag) {
 
   // The pattern fields and then the opacity are optional trailing fields that
   // older readers ignore. The opacity needs the pattern fields before it.
-  const int fieldCount = hasOpacityData ? 5 : (hasPatternFrameData ? 4 : 2);
+  const int fieldCount = (hasOpacityData || hasProfileFormat) ? 5 : (hasPatternFrameData ? 4 : 2);
   int tagLength        = 2 + fieldCount * m_currDynamicTypeBytesNum;
+  if (hasProfileFormat) tagLength += 4 + int(16 * profile.size());
   int offset =
       (int)writeTagHeader((UCHAR)PliTag::OUTLINE_OPTIONS_GOBJ, tagLength);
 
@@ -2629,11 +2674,20 @@ TUINT32 ParsedPliImp::writeOutlineOptionsTag(StrokeOutlineOptionsTag *tag) {
   *m_oChan << (UCHAR)tag->m_options.m_joinStyle;
   writeDynamicData(miterLower);
   writeDynamicData(miterUpper);
-  if (hasPatternFrameData || hasOpacityData) {
+  if (hasPatternFrameData || hasOpacityData || hasProfileFormat) {
     writeDynamicData(frameOffset);
     writeDynamicData(frameStep);
   }
-  if (hasOpacityData) writeDynamicData(opacity);
+  if (hasOpacityData || hasProfileFormat) writeDynamicData(opacity);
+  if (hasProfileFormat) {
+    *m_oChan << static_cast<TUINT32>(profile.size());
+    auto writeDouble = [&](double value) {
+      std::uint64_t bits;
+      std::memcpy(&bits, &value, sizeof(bits));
+      *m_oChan << static_cast<TUINT32>(bits >> 32) << static_cast<TUINT32>(bits);
+    };
+    for (const auto &knot : profile) { writeDouble(knot.x); writeDouble(knot.y); }
+  }
 
   return offset;
 }

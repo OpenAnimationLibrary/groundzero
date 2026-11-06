@@ -1208,7 +1208,12 @@ FunctionSegmentViewer::FunctionSegmentViewer(QWidget *parent,
 }
 
 FunctionSegmentViewer::~FunctionSegmentViewer() {
-  if (m_curve) m_curve->release();
+  if (m_curve) {
+    // The curve can outlive a closed panel and still receive direct edits or
+    // propagated expression changes. Detach before releasing our ownership.
+    m_curve->removeObserver(this);
+    m_curve->release();
+  }
   m_curve = 0;
 }
 

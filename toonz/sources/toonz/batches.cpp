@@ -276,7 +276,7 @@ commandline += " -id " + task->m_id;*/
 //------------------------------------------------------------------------------
 
 BatchesController::BatchesController()
-    : m_controller(0), m_tasksTree(0), m_filepath(), m_dirtyFlag(false) {}
+    : m_controller(0), m_filepath(), m_dirtyFlag(false) {}
 
 //------------------------------------------------------------------------------
 
@@ -284,8 +284,14 @@ BatchesController::~BatchesController() {}
 
 //------------------------------------------------------------------------------
 
-void BatchesController::setTasksTree(TaskTreeModel *tree) {
-  m_tasksTree = tree;
+void BatchesController::registerTasksTree(TaskTreeModel *tree) {
+  m_tasksTrees.insert(tree);
+}
+
+//------------------------------------------------------------------------------
+
+void BatchesController::unregisterTasksTree(TaskTreeModel *tree) {
+  m_tasksTrees.erase(tree);
 }
 
 //------------------------------------------------------------------------------
@@ -936,6 +942,7 @@ void notifyObserver(BatchesController::Observer *obs) { obs->update(); }
 }  // namespace
 
 void BatchesController::notify() {
+  for (TaskTreeModel *tree : m_tasksTrees) tree->setupModelData();
   std::for_each(m_observers.begin(), m_observers.end(), notifyObserver);
 }
 
@@ -1006,9 +1013,6 @@ void BatchesController::update() {
     assert(task);
     if (task->m_status == Completed) m_farmIdsTable.erase(task->m_id);
   }
-
-  assert(m_tasksTree);
-  m_tasksTree->setupModelData();
 
   notify();
 }

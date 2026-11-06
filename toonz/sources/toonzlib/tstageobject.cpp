@@ -2107,21 +2107,21 @@ void TStageObject::saveData(TOStream &os) {
 
   if (m_spline) os.child("splinep") << m_spline;
 
-  if (!m_x->isDefault()) os.child("x") << *m_x;
-  if (!m_y->isDefault()) os.child("y") << *m_y;
-  if (!m_z->isDefault()) os.child("z") << *m_z;
-  if (!m_so->isDefault()) os.child("so") << *m_so;
-  if (!m_scalex->isDefault()) os.child("sx") << *m_scalex;
-  if (!m_scaley->isDefault()) os.child("sy") << *m_scaley;
-  if (!m_scale->isDefault()) os.child("sc") << *m_scale;
-  if (!m_rot->isDefault()) os.child("rot") << *m_rot;
-  if (!m_posPath->isDefault()) os.child("pos") << *m_posPath;
-  if (!m_shearx->isDefault()) os.child("shx") << *m_shearx;
-  if (!m_sheary->isDefault()) os.child("shy") << *m_sheary;
-  if (!m_rotx->isDefault()) os.child("rotx") << *m_rotx;
-  if (!m_roty->isDefault()) os.child("roty") << *m_roty;
-  if (!m_focusz->isDefault()) os.child("focus") << *m_focusz;
-  if (!m_aperture->isDefault()) os.child("aperture") << *m_aperture;
+  if (m_x->hasDataToSave()) os.child("x") << *m_x;
+  if (m_y->hasDataToSave()) os.child("y") << *m_y;
+  if (m_z->hasDataToSave()) os.child("z") << *m_z;
+  if (m_so->hasDataToSave()) os.child("so") << *m_so;
+  if (m_scalex->hasDataToSave()) os.child("sx") << *m_scalex;
+  if (m_scaley->hasDataToSave()) os.child("sy") << *m_scaley;
+  if (m_scale->hasDataToSave()) os.child("sc") << *m_scale;
+  if (m_rot->hasDataToSave()) os.child("rot") << *m_rot;
+  if (m_posPath->hasDataToSave()) os.child("pos") << *m_posPath;
+  if (m_shearx->hasDataToSave()) os.child("shx") << *m_shearx;
+  if (m_sheary->hasDataToSave()) os.child("shy") << *m_sheary;
+  if (m_rotx->hasDataToSave()) os.child("rotx") << *m_rotx;
+  if (m_roty->hasDataToSave()) os.child("roty") << *m_roty;
+  if (m_focusz->hasDataToSave()) os.child("focus") << *m_focusz;
+  if (m_aperture->hasDataToSave()) os.child("aperture") << *m_aperture;
   if (m_cycleEnabled) os.child("cycle") << 1;
 
   if (m_skeletonDeformation) os.child("plasticSD") << *m_skeletonDeformation;
@@ -2138,7 +2138,7 @@ void TStageObject::saveData(TOStream &os) {
       os.child("weight") << *layer.m_weight;
       for (const auto &info : offsetChannels) {
         const TDoubleParamP &param = layer.m_channels[info.m_channel];
-        if (param && !param->isDefault()) os.child(info.m_tag) << *param;
+        if (param && param->hasDataToSave()) os.child(info.m_tag) << *param;
       }
       os.closeChild();
     }

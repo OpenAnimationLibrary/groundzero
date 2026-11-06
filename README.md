@@ -21,6 +21,13 @@ The default integration branch is `edition`. Features under review are separate
 proposals; check each PR's tests and application-testing notes before using it.
 Upstream submission is an explicit step after review through OT-Dev.
 
+## Artist workflow guides
+
+See the [artist workflow guide](doc/artist_workflows.md) for Function Editor,
+vector editing, Scene Cast, recovery and media-cache workflows. The
+[acceptance ledger](doc/artist_workflow_acceptance.md) records the implementation
+and platform-validation status of changes under review.
+
 ## Builds
 
 [Groundzero Actions](https://github.com/OpenAnimationLibrary/groundzero/actions)

@@ -82,6 +82,8 @@ public:
       , m_oldStroke2(0)
       , m_pos1(pos1)
       , m_pos2(pos2)
+      , m_newStroke(nullptr)
+      , m_newStrokeId(-1)
       , m_newStrokePos(-1)
       , m_fillInformation(fillInformation)
       , m_changedStrokes(changedStrokes) {
@@ -631,54 +633,60 @@ public:
         joinsExistingStrokes = true;
     // Ask once, before any connection, writable image request, or undo block.
     if (!confirmTape(vi, joinsExistingStrokes)) return false;
+    std::vector<TPointD> startP(startPoints.size()), endP(startPoints.size());
+    for (size_t i = 0; i < startPoints.size(); ++i) {
+      startP[i] = vi->getStroke(startPoints[i].first)->getPoint(startPoints[i].second);
+      endP[i] = vi->getStroke(endPoints[i].first)->getPoint(endPoints[i].second);
+    }
+    try {
+      // The complete rectangle is rehearsed on a detached native image. Later
+      // joins depend on earlier geometry and can exceed the envelope limit.
+      applyTapeConnections(vi->cloneWithGroupContext(), startPoints, endPoints, startP, endP, nullptr, true);
+    } catch (const std::exception &error) {
+      DVGui::warning(QString::fromUtf8(error.what()));
+      return false;
+    }
     vi = TVectorImageP(getImage(true));
     if (!vi) return false;
     QMutexLocker lock(vi->getMutex());
-    std::vector<TFilledRegionInf> *fillInformation =
-        new std::vector<TFilledRegionInf>;
-    ImageUtils::getFillingInformationOverlappingArea(vi, *fillInformation,
-                                                     rect);
+    auto *fillInformation = new std::vector<TFilledRegionInf>;
+    ImageUtils::getFillingInformationOverlappingArea(vi, *fillInformation, rect);
+    TUndoManager::manager()->beginBlock();
+    applyTapeConnections(vi, startPoints, endPoints, startP, endP, fillInformation, false);
+    TUndoManager::manager()->endBlock();
+    return true;
+  }
 
-    std::vector<TPointD> startP(startPoints.size()), endP(startPoints.size());
-
-    if (!startPoints.empty()) {
-      TUndoManager::manager()->beginBlock();
-      for (UINT i = 0; i < startPoints.size(); i++) {
-        startP[i] = vi->getStroke(startPoints[i].first)
-                        ->getPoint(startPoints[i].second);
-        endP[i] =
-            vi->getStroke(endPoints[i].first)->getPoint(endPoints[i].second);
-      }
-    }
-
-    for (UINT i = 0; i < startPoints.size(); i++) {
+  void applyTapeConnections(const TVectorImageP &vi,
+      std::vector<std::pair<int, double>> startPoints,
+      std::vector<std::pair<int, double>> endPoints,
+      const std::vector<TPointD> &startP, const std::vector<TPointD> &endP,
+      std::vector<TFilledRegionInf> *fillInformation, bool preview) {
+    for (size_t i = 0; i < startPoints.size(); ++i) {
       m_strokeIndex1 = startPoints[i].first;
       m_strokeIndex2 = endPoints[i].first;
-      m_w1           = startPoints[i].second;
-      m_w2           = endPoints[i].second;
-      int type       = doTape(vi, fillInformation, m_joinStrokes.getValue());
+      m_w1 = startPoints[i].second;
+      m_w2 = endPoints[i].second;
+      const int type = doTape(vi, fillInformation, m_joinStrokes.getValue(), preview);
       if (type == p2p && m_strokeIndex1 != m_strokeIndex2) {
-        for (UINT j = i + 1; j < startPoints.size(); j++) {
+        for (size_t j = i + 1; j < startPoints.size(); ++j) {
           rearrangeClosingPoints(vi, startPoints[j], startP[j]);
           rearrangeClosingPoints(vi, endPoints[j], endP[j]);
         }
-      } else if (type == p2l ||
-                 (type == p2p && m_strokeIndex1 == m_strokeIndex2)) {
-        for (UINT j = i + 1; j < startPoints.size(); j++) {
+      } else if (type == p2l || (type == p2p && m_strokeIndex1 == m_strokeIndex2)) {
+        for (size_t j = i + 1; j < startPoints.size(); ++j) {
           if (startPoints[j].first == m_strokeIndex1)
-            startPoints[j].second =
-                vi->getStroke(m_strokeIndex1)->getW(startP[j]);
+            startPoints[j].second = vi->getStroke(m_strokeIndex1)->getW(startP[j]);
           if (endPoints[j].first == m_strokeIndex1)
             endPoints[j].second = vi->getStroke(m_strokeIndex1)->getW(endP[j]);
         }
       }
     }
-    if (!startPoints.empty()) TUndoManager::manager()->endBlock();
-    return true;
   }
 
   int doTape(const TVectorImageP &vi,
-             std::vector<TFilledRegionInf> *fillInformation, bool joinStrokes) {
+             std::vector<TFilledRegionInf> *fillInformation, bool joinStrokes,
+             bool preview = false) {
     int type;
     if (!joinStrokes)
       type = l2l;
@@ -691,6 +699,27 @@ public:
         std::swap(m_w1, m_w2);
         type = p2l;
       }
+    }
+
+    if (preview) {
+      if (type == p2p) {
+        vi->joinStroke(m_strokeIndex1, m_strokeIndex2,
+            m_w1 == 0. ? 0 : vi->getStroke(m_strokeIndex1)->getControlPointCount() - 1,
+            m_w2 == 0. ? 0 : vi->getStroke(m_strokeIndex2)->getControlPointCount() - 1,
+            m_smooth.getValue());
+      } else if (type == p2l) {
+        vi->extendStroke(m_strokeIndex1, vi->getStroke(m_strokeIndex2)->getThickPoint(m_w2),
+            m_w1 == 0. ? 0 : vi->getStroke(m_strokeIndex1)->getControlPointCount() - 1,
+            m_smooth.getValue());
+      } else {
+        const auto p1 = vi->getStroke(m_strokeIndex1)->getThickPoint(m_w1);
+        const auto p2 = vi->getStroke(m_strokeIndex2)->getThickPoint(m_w2);
+        auto *bridge = new TStroke(std::vector<TThickPoint>{p1, .5 * (p1 + p2), p2});
+        bridge->outlineOptions() = vi->getStroke(m_strokeIndex1)->outlineOptions();
+        bridge->setStyle(TTool::getApplication()->getCurrentLevelStyleIndex());
+        vi->addStrokeToGroup(bridge, m_strokeIndex1);
+      }
+      return type;
     }
 
     switch (type) {
@@ -777,6 +806,13 @@ public:
         m_strokeIndex1 >= int(vi->getStrokeCount()) ||
         m_strokeIndex2 >= int(vi->getStrokeCount()) ||
         !confirmTape(vi, isEndpoint(m_w1) || isEndpoint(m_w2))) {
+      resetGesture();
+      return;
+    }
+    try {
+      doTape(vi->cloneWithGroupContext(), nullptr, m_joinStrokes.getValue(), true);
+    } catch (const std::exception &error) {
+      DVGui::warning(QString::fromUtf8(error.what()));
       resetGesture();
       return;
     }

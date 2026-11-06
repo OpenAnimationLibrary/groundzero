@@ -74,6 +74,7 @@
 #include "tpalette.h"
 #include "tropcm.h"
 #include "tgl.h"
+#include "tvectorgl.h"
 #include "tofflinegl.h"
 #include "tstopwatch.h"
 #include "trop.h"
@@ -898,6 +899,11 @@ void SceneViewer::setVisual(const ImagePainter::VisualSettings &settings) {
 //-----------------------------------------------------------------------------
 
 SceneViewer::~SceneViewer() {
+  TApp *app = TApp::instance();
+  if (app->getActiveViewer() == this) app->setActiveViewer(nullptr);
+  TTool *tool = app->getCurrentTool()->getTool();
+  if (tool && tool->getViewer() == this) tool->setViewer(nullptr);
+
   // notify FilmStripFrames and safely disconnect with this
   emit aboutToBeDestroyed();
 
@@ -2181,7 +2187,7 @@ void SceneViewer::paintGL() {
   drawViewerIndicators();
 
   // Freeze is active and in 'update' state: grab the viewer.
-  if (m_freezedStatus == UPDATE_FREEZED) {
+  if (m_freezedStatus == UPDATE_FREEZED && !TViewerOpacityErrorScope::currentFailed()) {
     m_viewGrabImage = rasterFromQImage(grabFramebuffer());
     m_freezedStatus = NORMAL_FREEZED;
   }
@@ -2247,6 +2253,7 @@ void SceneViewer::drawScene() {
     OnionSkinMask osm  = app->getCurrentOnionSkin()->getOnionSkinMask();
     args.m_osm         = &osm;
     args.m_camera3d    = true;
+    args.m_cameraTest  = m_drawCameraTest;
     args.m_xsheetLevel = xsheetLevel;
     args.m_currentFrameId =
         app->getCurrentXsheet()
@@ -2323,6 +2330,7 @@ void SceneViewer::drawScene() {
       args.m_osm         = &osm;
       args.m_xsheetLevel = xsheetLevel;
       args.m_isPlaying   = frameHandle->isPlaying();
+      args.m_cameraTest  = m_drawCameraTest;
       // the light table is for drawing; playback shows the scene as it is
       args.m_lightTable = lightTableToggle.getStatus() && !args.m_isPlaying;
       args.m_lightTableOpacity =
@@ -3416,6 +3424,7 @@ void SceneViewer::posToColumnIndexes(const TPointD &p,
   args.m_col         = currentColumnIndex;
   args.m_osm         = &osm;
   args.m_onlyVisible = includeInvisible;
+  args.m_cameraTest  = CameraTestCheck::instance()->isEnabled();
 
   Stage::visit(picker, args); /*
 picker,
@@ -3474,6 +3483,7 @@ int SceneViewer::posToRow(const TPointD &p, double distance,
     args.m_col         = currentColumnIndex;
     args.m_osm         = &osm;
     args.m_onlyVisible = includeInvisible;
+    args.m_cameraTest  = CameraTestCheck::instance()->isEnabled();
 
     if (currentColumnOnly) picker.setCurrentColumnIndex(currentColumnIndex);
 

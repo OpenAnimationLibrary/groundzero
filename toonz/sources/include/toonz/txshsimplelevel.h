@@ -127,6 +127,9 @@ public:
   // Properties management
   LevelProperties *getProperties() const { return m_properties.get(); }
   void clonePropertiesFrom(const TXshSimpleLevel *oldSl);
+  // Call after cloning frames: keep only authoring references that resolve in
+  // the destination, which may contain a subset of the source drawings.
+  void copyAuthoringMetadataFrom(const TXshSimpleLevel *source);
 
   // Palette management
   TPalette *getPalette() const;
@@ -208,11 +211,16 @@ public:
     else m_cadmiumReferences.erase(fid);
   }
   void clearCadmiumReferences() { m_cadmiumReferences.clear(); }
+  const std::string &getMorphHints() const { return m_morphHints; }
+  void setMorphHints(const std::string &hints) { m_morphHints = hints; }
   QString cadmiumLevelId();
   QString cadmiumSourceLevelId() const { return m_cadmiumSourceLevelId; }
   void setCadmiumSourceLevelId(const QString &id) { m_cadmiumSourceLevelId = id; }
   void clearFrames();
   void invalidateFrames();
+  // Recreate source builders after a path change without clearing drawing IDs,
+  // animation metadata, hooks, or frame status. Retained-source levels override.
+  virtual void rebindFrameSources();
   void invalidateFrame(const TFrameId &fid);
 
   // Editable range management
@@ -376,6 +384,7 @@ private:
 
   FramesSet m_frames;
   std::set<TFrameId> m_cadmiumReferences;
+  std::string m_morphHints;
   QString m_cadmiumLevelId;
   QString m_cadmiumSourceLevelId;
   int m_renumberCount = 0;

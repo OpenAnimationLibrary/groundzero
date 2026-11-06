@@ -22,6 +22,7 @@
 #include "toonz/stage2.h"
 #include "toonz/txshlevel.h"
 #include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
 #include "toonz/tcamera.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tobjecthandle.h"
@@ -114,6 +115,13 @@ BaseViewerPanel::BaseViewerPanel(QWidget *parent, Qt::WindowFlags flags)
   m_mainLayout = new QVBoxLayout();
   m_mainLayout->setContentsMargins(0, 0, 0, 0);
   m_mainLayout->setSpacing(0);
+  m_timeRemapStatus = new QLabel(this);
+  m_timeRemapStatus->setObjectName("viewerTimeRemapStatus");
+  m_timeRemapStatus->setAccessibleName(tr("Source and playback timing"));
+  m_timeRemapStatus->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+  m_timeRemapStatus->setWordWrap(true);
+  m_timeRemapStatus->hide();
+  m_mainLayout->addWidget(m_timeRemapStatus);
 
   // Viewer
   m_fsWidget = new ImageUtils::FullScreenWidget(this);
@@ -351,6 +359,12 @@ void BaseViewerPanel::showEvent(QShowEvent *event) {
                        SLOT(changeWindowTitle()));
   ret = ret && connect(frameHandle, SIGNAL(frameSwitched()), this,
                        SLOT(changeWindowTitle()));
+  // Two columns/sheets may show the same level, so a levelSwitched signal is
+  // not guaranteed when their remap/editing context changes.
+  ret = ret && connect(app->getCurrentColumn(), SIGNAL(columnIndexSwitched()),
+                       this, SLOT(changeWindowTitle()));
+  ret = ret && connect(xshHandle, SIGNAL(xsheetSwitched()), this,
+                       SLOT(changeWindowTitle()));
 
   // updateFrameRange(): update the frame slider's range
   ret = ret && connect(levelHandle, SIGNAL(xshLevelChanged()), this,
@@ -398,6 +412,7 @@ void BaseViewerPanel::hideEvent(QHideEvent *event) {
   disconnect(app->getCurrentFrame(), nullptr, this, nullptr);
   disconnect(app->getCurrentScene(), nullptr, this, nullptr);
   disconnect(app->getCurrentLevel(), nullptr, this, nullptr);
+  disconnect(app->getCurrentColumn(), nullptr, this, nullptr);
   disconnect(app->getCurrentXsheet(), nullptr, this, nullptr);
 
   m_flipConsole->setActive(false);
@@ -524,6 +539,7 @@ void BaseViewerPanel::enableFullPreview(bool enabled) {
   m_flipConsole->setProgressBarStatus(
       &Previewer::instance(false)->getProgressBarStatus());
   enableFlipConsoleForCamerastand(enabled);
+  changeWindowTitle();
 }
 
 //-----------------------------------------------------------------------------
@@ -547,6 +563,7 @@ void BaseViewerPanel::enableSubCameraPreview(bool enabled) {
   m_flipConsole->setProgressBarStatus(
       &Previewer::instance(true)->getProgressBarStatus());
   enableFlipConsoleForCamerastand(enabled);
+  changeWindowTitle();
 }
 
 //-----------------------------------------------------------------------------
@@ -632,9 +649,36 @@ void BaseViewerPanel::onPlayingStatusChanged(bool playing) {
 void BaseViewerPanel::changeWindowTitle() {  // �v�m�F
   TApp *app         = TApp::instance();
   ToonzScene *scene = app->getCurrentScene()->getScene();
+  m_timeRemapStatus->hide();
   if (!scene) return;
   if (!parentWidget()) return;
   int frame = app->getCurrentFrame()->getFrame();
+  if (app->getCurrentFrame()->isEditingScene()) {
+    TXsheet *sheet = app->getCurrentXsheet()->getXsheet();
+    const int column = app->getCurrentColumn()->getColumnIndex();
+    TXshColumn *track = sheet && column >= 0 ? sheet->getColumn(column) : nullptr;
+    TXshLevelColumn *level = track ? track->getLevelColumn() : nullptr;
+    if (level && level->isTimeRemapActive()) {
+      const int source = level->getRemappedRow(frame);
+      auto drawing = [](const TXshCell &cell) {
+        return cell.isEmpty() ? QObject::tr("empty")
+            : QString::fromStdWString(cell.m_level->getName()) + ":" +
+              QString::fromStdString(cell.getFrameId().expand());
+      };
+      const QString mode = m_sceneViewer->getPreviewMode() == SceneViewer::NO_PREVIEW
+          ? tr("Editing original timing") : tr("Previewing remapped timing");
+      UiTranslations::setCaption(m_timeRemapStatus, "text",
+          tr("%1 — Output frame %2: source row %3 (%4). Editable row %2: %5.")
+              .arg(mode).arg(frame + 1)
+              .arg(source >= 0 ? QString::number(source + 1) : tr("none"))
+              .arg(drawing(level->getRemappedCell(frame)))
+              .arg(drawing(level->getCell(frame))));
+      m_timeRemapStatus->setToolTip(tr("The current column edits its original Xsheet cells. "
+          "Preview and final render use the remapped source. Select another column to see "
+          "this column remapped in the camera stand. Exposure cells determine scene length."));
+      m_timeRemapStatus->show();
+    }
+  }
 
   // put the titlebar texts in this string
   QString name;

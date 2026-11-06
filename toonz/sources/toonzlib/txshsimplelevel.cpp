@@ -1,6 +1,7 @@
 
 
 #include "toonz/txshsimplelevel.h"
+#include "toonz/morphhints.h"
 #include "imagebuilders.h"
 
 // TnzLib includes
@@ -397,6 +398,53 @@ void TXshSimpleLevel::clonePropertiesFrom(const TXshSimpleLevel* oldSl) {
   m_properties->setImageRes(oldSl->m_properties->getImageRes());
   m_properties->setBpp(oldSl->m_properties->getBpp());
   m_properties->setSubsampling(oldSl->m_properties->getSubsampling());
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshSimpleLevel::copyAuthoringMetadataFrom(const TXshSimpleLevel* source) {
+  if (!source) return;
+  copyCastMetadataFrom(source);
+  // This helper follows drawing duplication into a distinct level. Retain its
+  // source attribution without claiming the new drawing still edits that file.
+  if (source != this) detachLibrarySource(LibraryProvenance::LocalCopy);
+  if (hasCastCover() && !isFid(getCastCover())) clearCastCover();
+
+  // Scene-owned hints are not part of cloned PLI geometry. Validate them only
+  // after every selected drawing has been copied; unresolved/ambiguous anchors
+  // and references to absent drawings must not become active in a new level.
+  QJsonArray records, retained;
+  if (getType() == PLI_XSHLEVEL &&
+      MorphHints::decode(source->getMorphHints(), records)) {
+    std::map<TFrameId, TVectorImageP> images;
+    for (const auto& value : records) {
+      const auto record = value.toObject();
+      bool valid = true;
+      for (const char* side : {"first", "last"}) {
+        const QString prefix = QString::fromLatin1(side);
+        const TFrameId fid =
+            MorphHints::frame(record.value(prefix + "Frame").toObject());
+        if (!isFid(fid)) { valid = false; break; }
+        auto found = images.find(fid);
+        if (found == images.end())
+          found = images.emplace(fid, TVectorImageP(getFrame(fid, false))).first;
+        const auto& image = found->second;
+        if (MorphHints::resolve(record.value(prefix).toObject(), image) < 0) {
+          valid = false;
+          break;
+        }
+        for (const auto& member : record.value(prefix + "Members").toArray()) {
+          if (MorphHints::resolve(member.toObject(), image) < 0) {
+            valid = false;
+            break;
+          }
+        }
+        if (!valid) break;
+      }
+      if (valid) retained.append(record);
+    }
+  }
+  m_morphHints = MorphHints::encode(retained);
 }
 
 //-----------------------------------------------------------------------------
@@ -899,6 +947,9 @@ void TXshSimpleLevel::clearFrames() {
 
   m_frames.clear();
   m_cadmiumReferences.clear();
+  // Morph hints are scene authoring metadata, not cached image state. Keep
+  // them through relink/reload; frame/geometry validation makes stale hints
+  // inactive, and loading another scene resets them in loadData().
   m_editableRange.clear();
   m_editableRangeUserInfo.clear();
   m_renumberTable.clear();
@@ -969,6 +1020,7 @@ void TXshSimpleLevel::saveCadmiumInfo(
 
 void TXshSimpleLevel::loadData(TIStream& is) {
   resetCadmiumInfo();
+  m_morphHints.clear();
   std::string tagName;
   bool flag = false;
 
@@ -977,6 +1029,7 @@ void TXshSimpleLevel::loadData(TIStream& is) {
   for (;;) {
     if (is.matchTag(tagName)) {
       if (tagName == "path") {
+        loadCastTags(is);
         is >> m_path;
         is.matchEndTag();
       } else if (tagName == "scannedPath") {
@@ -984,6 +1037,7 @@ void TXshSimpleLevel::loadData(TIStream& is) {
         is.matchEndTag();
       } else if (tagName == "info") {
         std::string v;
+        is.getTagParam("morphHintsV1", m_morphHints);
         loadCadmiumInfo(is);
         double xdpi = 0, ydpi = 0;
         int subsampling        = 1;
@@ -1345,6 +1399,8 @@ void TXshSimpleLevel::load() {
     }
   }
   updateReadOnly();
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1418,6 +1474,7 @@ void TXshSimpleLevel::load(const std::vector<TFrameId>& fIds) {
     }
     setRenumberTable();
   }
+  if (TSystem::doesExistFileOrLevel(path)) setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1465,10 +1522,11 @@ void TXshSimpleLevel::saveData(TOStream& os) {
 
   if (m_type == TZI_XSHLEVEL) attr["type"] = "s";
   saveCadmiumInfo(attr);
+  if (!m_morphHints.empty()) attr["morphHintsV1"] = m_morphHints;
 
   os.openCloseChild("info", attr);
 
-  os.child("path") << m_path;
+  saveCastPath(os, m_path);
   if (m_scannedPath != TFilePath()) os.child("scannedPath") << m_scannedPath;
 }
 
@@ -1482,8 +1540,10 @@ void TXshSimpleLevel::save() {
 
   if (getProperties()->getDirtyFlag() == false &&
       getPalette()->getDirtyFlag() == false &&
-      TSystem::doesExistFileOrLevel(path))
+      TSystem::doesExistFileOrLevel(path)) {
+    setSourceExpectedOnDisk(true);
     return;
+  }
 
   if (!TFileStatus(path.getParentDir()).doesExist()) {
     try {
@@ -1630,6 +1690,8 @@ void TXshSimpleLevel::save(const TFilePath& fp, const TFilePath& oldFp,
   }
 
   saveSimpleLevel(dDstPath, overwritePalette);
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1946,6 +2008,26 @@ void TXshSimpleLevel::invalidateFrames() {
   }
 }
 
+void TXshSimpleLevel::rebindFrameSources() {
+  for (const auto& fid : m_frames) {
+    auto *manager = ImageManager::instance();
+    // Inactive status builders must follow the new path too: Undo may restore
+    // a scanned frame before a later cleanup switches it back to Normal.
+    manager->bind(getImageId(fid, Normal),
+        new ImageLoader(getScene()->decodeFilePath(m_path), fid));
+    if (m_scannedPath.isEmpty()) manager->unbind(getImageId(fid, Scanned));
+    else manager->bind(getImageId(fid, Scanned),
+        new ImageLoader(getScene()->decodeFilePath(m_scannedPath), fid));
+    manager->unbind(getImageId(fid, CleanupPreview));
+    for (int status : {Normal, Scanned, CleanupPreview}) {
+      const std::string id = getImageId(fid, status);
+      if (manager->isBound(rasterized(id))) manager->invalidate(rasterized(id));
+      if (manager->isBound(filled(id))) manager->invalidate(filled(id));
+    }
+    texture_utils::invalidateTexture(this, fid);
+  }
+}
+
 //-----------------------------------------------------------------------------
 
 void TXshSimpleLevel::invalidateFrame(const TFrameId& fid) {
@@ -2011,6 +2093,10 @@ void TXshSimpleLevel::initializePalette() {
   default:
     break;
   }
+
+  // no palette file found: use a default palette instead of none
+  if (!palette && (type == TZP_XSHLEVEL || type == PLI_XSHLEVEL))
+    palette = new TPalette();
 
   if (palette) {
     if (type != OVL_XSHLEVEL) {
@@ -2178,12 +2264,18 @@ void TXshSimpleLevel::renumber(const std::vector<TFrameId>& fids) {
     m_renumberTable[renumber.first] = renumber.second;
   }
 
+  if (hasCastCover()) {
+    const auto cover = table.find(getCastCover());
+    if (cover != table.end()) setCastCover(cover->second);
+  }
+
   std::set<TFrameId> references;
   for (const TFrameId &fid : m_cadmiumReferences) {
     const auto found = table.find(fid);
     if (found != table.end()) references.insert(found->second);
   }
   m_cadmiumReferences.swap(references);
+  m_morphHints = MorphHints::renumber(m_morphHints, table);
 
   m_frames.clear();
   for (int i = 0; i < n; ++i) {

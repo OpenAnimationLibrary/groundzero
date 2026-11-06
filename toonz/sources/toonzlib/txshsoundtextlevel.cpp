@@ -23,6 +23,7 @@ TXshSoundTextLevel::~TXshSoundTextLevel() {}
 
 TXshSoundTextLevel *TXshSoundTextLevel::clone() const {
   TXshSoundTextLevel *sound = new TXshSoundTextLevel(m_name);
+  sound->copyCastMetadataFrom(this);
   return sound;
 }
 
@@ -51,6 +52,7 @@ void TXshSoundTextLevel::loadData(TIStream &is) {
   int type = UNKNOWN_XSHLEVEL;
   while (is.matchTag(tagName)) {
     if (tagName == "type") {
+      loadCastTags(is);
       std::string v;
       is >> v;
       if (v == "textSound") type = SND_TXT_XSHLEVEL;
@@ -76,5 +78,7 @@ void TXshSoundTextLevel::saveData(TOStream &os) {
     os << m_framesText[i];
     os.closeChild();
   }
-  os.child("type") << L"textSound";
+  os.openChild("type", getCastAttributes());
+  os << L"textSound";
+  os.closeChild();
 }

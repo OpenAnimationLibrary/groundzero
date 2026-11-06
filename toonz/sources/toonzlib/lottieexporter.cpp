@@ -260,6 +260,11 @@ int lottieJoin(int joinStyle) {
 // not handle), else its outline (ContourOutline) filled.
 void addStroke(const TStroke *stroke, ShapeContext &context) {
   if (!stroke || stroke->getChunkCount() <= 0) return;
+  if (!stroke->getOpacityProfile().empty())
+    context.note(QObject::tr(
+        "Along-stroke opacity envelopes are exported with uniform stroke opacity. "
+        "Use Animated SVG with Render Scene for the rendered appearance; "
+        "keep PLI 150.1 drawings to edit the envelopes."));
 
   TPixel32 color;
   if (!context.styleColor(stroke->getStyle(), color)) return;

@@ -53,6 +53,7 @@ enum Kind {
   LevelDpi,            //!< a raster level's DPI differs from the camera's
   FrameRate,           //!< a sound or movie runs at another frame rate
   Resolution,          //!< output or preview size against the camera
+  Compatibility,       //!< known Groundzero extensions absent from legacy readers
   KindCount
 };
 
@@ -73,6 +74,9 @@ struct Options {
   //! Look for palette styles that no drawing uses. It loads every drawing of
   //! the levels in the xsheets, so it is slow on large scenes.
   bool unusedStyles = false;
+  //! Audit known Groundzero extensions against readers without these extensions.
+  //! A report is advisory: it is not a certification for a particular release.
+  bool compatibility = false;
 
   //! The frame rate of a movie file, 0 when unknown. The default reads it
   //! from the file; tests replace it.
@@ -82,6 +86,7 @@ struct Options {
 //! Everything found, sorted by severity (errors first), then kind.
 DVAPI std::vector<Issue> check(ToonzScene *scene,
                                const Options &options = Options());
+DVAPI std::vector<Issue> compatibilityReport(ToonzScene *scene);
 
 //! Stable names, used by the scripts: "error", "warning", "info" and
 //! "missingDrawing", "missingFile", ...

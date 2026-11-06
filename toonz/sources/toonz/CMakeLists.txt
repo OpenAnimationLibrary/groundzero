@@ -5,6 +5,7 @@ set(MOC_HEADERS
     commandpalette.h
     widgetinspector.h
     themeapplication.h
+    externalapplications.h
     nativediagnostics.h
     diagnosticssettingswidget.h
     cadmiumruntime.h
@@ -84,6 +85,7 @@ set(MOC_HEADERS
     overwritepopup.h
     pane.h
     pltgizmopopup.h
+    pluginmanagerpopup.h
     preferencespopup.h
     previewer.h
     previewfxmanager.h
@@ -195,6 +197,7 @@ if(WITH_PYTHON)
 endif()
 
 set(HEADERS
+    activechecks.h
     cadmiumtypes.h
     cadmiumsource.h
     cadmiumcolor.h
@@ -266,12 +269,15 @@ set(HEADERS
 )
 
 set(SOURCES
+    activechecks.cpp
     languagemanager.cpp
     commandpalette.cpp
     commandpalettenative.cpp
     widgetinspector.cpp
     themeapplication.cpp
     nativethemeapplication.cpp
+    externalapplications.cpp
+    nativeexternalapplications.cpp
     nativediagnosticswriter.cpp
     nativediagnostics.cpp
     diagnosticssettingswidget.cpp
@@ -311,6 +317,9 @@ set(SOURCES
     tapp.cpp
     toolbar.cpp
     batchserversviewer.cpp
+    castassetops.cpp
+    castbrowseractions.cpp
+    castinspector.cpp
     castviewer.cpp
     exportlevelpopup.cpp
     exportalllevelspopup.cpp
@@ -371,6 +380,7 @@ set(SOURCES
     outputsettingspopup.cpp
     overwritepopup.cpp
     pltgizmopopup.cpp
+    pluginmanagerpopup.cpp
     preferencespopup.cpp
     projectpopup.cpp
     psdsettingspopup.cpp
@@ -394,12 +404,14 @@ set(SOURCES
     timestretchpopup.cpp
     trackerpopup.cpp
     alignmentpane.cpp
+    poselibrarycommand.cpp
     posespane.cpp
     referencepanel.cpp
     purerefboard.cpp
     drawingsubstitutionpane.cpp
     drawingsubstitutionundo.cpp
     substitutionsliderpane.cpp
+    storyboardtiming.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
@@ -496,6 +508,7 @@ set(SOURCES
     importpdf.cpp
     importpdf.h
     animatedsvgexport.cpp
+    exportfidelity.cpp
     lottieexport.cpp
     xdtsimportpopup.cpp
     expressionreferencemanager.cpp
@@ -959,11 +972,16 @@ if(BUILD_CADMIUM_TESTS)
     target_include_directories(cadmium_codec_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_codec_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui tnzcore)
     add_test(NAME cadmium_codec COMMAND cadmium_codec_test)
+    # Each test owns its MOC output. Reusing OpenToonz's generated sources
+    # lets independent MSBuild projects race to write the same file.
+    # The application's manual Qt wrapper disables AUTOMOC on these headers.
+    # Re-enable their scan for the tests; OpenToonz still uses manual MOC.
+    set_source_files_properties(cadmiumruntime.h cadmiumsettingswidget.h cadmiuminstaller.h
+        PROPERTIES SKIP_AUTOMOC OFF)
     add_executable(cadmium_settings_test tests/cadmiumsettings_test.cpp
         cadmiumruntime.cpp cadmiumsettingswidget.cpp cadmiuminstaller.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumsettingswidget.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+        cadmiumruntime.h cadmiumsettingswidget.h cadmiuminstaller.h)
+    set_target_properties(cadmium_settings_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_settings_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_settings_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
     add_test(NAME cadmium_settings COMMAND cadmium_settings_test)
@@ -973,7 +991,8 @@ endif()
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_pipeline_test tests/cadmiumpipeline_test.cpp
         cadmiumruntime.cpp cadmiumtoonzraster.cpp cadmiumvector.cpp cadmiumfullcolor.cpp cadmiumconsensus.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp)
+        cadmiumruntime.h)
+    set_target_properties(cadmium_pipeline_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_pipeline_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_pipeline_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
@@ -996,7 +1015,8 @@ endif()
 
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_installer_test tests/cadmiuminstaller_test.cpp cadmiuminstaller.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+        cadmiuminstaller.h)
+    set_target_properties(cadmium_installer_test PROPERTIES AUTOMOC ON)
     target_include_directories(cadmium_installer_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_installer_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
     add_test(NAME cadmium_installer COMMAND cadmium_installer_test)
@@ -1077,6 +1097,7 @@ if(BUILD_CADMIUM_TESTS)
 endif()
 
 # Shared native UI ports; use the same objects and behavior in CI as in the app.
+target_sources(OpenToonz PRIVATE mediacachepopup.cpp mediacachepopup.h)
 target_link_libraries(OpenToonz spdlog::spdlog_header_only Threads::Threads)
 if(WIN32)
     target_compile_definitions(OpenToonz PRIVATE SPDLOG_WCHAR_FILENAMES)
@@ -1084,7 +1105,6 @@ endif()
 
 if(BUILD_UI_PORT_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h)
     target_sources(OpenToonz PRIVATE rasterbrushintegrationtest.cpp rasterbrushintegrationtest.h)
     add_test(NAME rasterbrush_application
         COMMAND "${Python3_EXECUTABLE}"
@@ -1092,9 +1112,39 @@ if(BUILD_UI_PORT_TESTS)
             "$<TARGET_FILE:OpenToonz>" "${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff"
             --output "${CMAKE_BINARY_DIR}/rasterbrush-application-output.txt")
     set_tests_properties(rasterbrush_application PROPERTIES TIMEOUT 240)
+    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
+        animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
+    target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
+    target_sources(OpenToonz PRIVATE functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE functiontimingintegrationtest.cpp functiontimingintegrationtest.h
+        castvectorintegrationtest.cpp castvectorintegrationtest.h
+        combinedfidelityintegrationtest.cpp combinedfidelityintegrationtest.h)
+    target_sources(OpenToonz PRIVATE libraryprovenanceintegrationtest.cpp)
+    target_sources(OpenToonz PRIVATE functionrigbenchmarkintegrationtest.cpp functionrigbenchmarkintegrationtest.h)
+    target_sources(OpenToonz PRIVATE offlineglworkflowintegrationtest.cpp offlineglworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE iconlifecycleintegrationtest.cpp iconlifecycleintegrationtest.h)
+    add_dependencies(OpenToonz tconverter)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
+    target_compile_definitions(toonzqt PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)
+    target_sources(OpenToonz PRIVATE castworkflowintegrationtest.cpp
+        castinterruptionintegrationtest.cpp castinterruptionintegrationtest.h)
+    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test activechecks_test activecheckscolumn_test)
+    target_sources(OpenToonz PRIVATE vectorworkflowintegrationtest.cpp vectorworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE opacityrenderintegrationtest.cpp opacityrenderintegrationtest.h)
+    target_sources(OpenToonz PRIVATE nativeprocessmemory.cpp nativeprocessmemory.h)
+    if(WIN32)
+        target_link_libraries(OpenToonz psapi)
+    endif()
+    target_sources(OpenToonz PRIVATE strokeopacityeditintegrationtest.cpp strokeopacityeditintegrationtest.h)
+    target_sources(OpenToonz PRIVATE fillworkflowintegrationtest.cpp fillworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE contourworkflowintegrationtest.cpp contourworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE brushworkflowintegrationtest.cpp brushworkflowintegrationtest.h)
+    add_dependencies(ui_port_tests contour_outline_test)
+    add_dependencies(ui_port_tests pli_opacityprofile_test morphworkflow_test)
+    add_dependencies(ui_port_tests widthprofilemanager_test selectionopacity_test styleanimationcopy_test svg_opacity_test)
     function(add_ui_port_test name)
         add_executable(ui_${name}_test ${ARGN})
         target_include_directories(ui_${name}_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -1114,7 +1164,12 @@ if(BUILD_UI_PORT_TESTS)
         ${CMAKE_CURRENT_BINARY_DIR}/moc_widgetinspector.cpp)
     add_ui_port_test(themeapplication tests/themeapplication_test.cpp themeapplication.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/moc_themeapplication.cpp)
+    add_ui_port_test(externalapplications tests/externalapplications_test.cpp externalapplications.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_externalapplications.cpp)
     add_ui_port_test(themeproperties tests/themeproperties_test.cpp)
+    add_ui_port_test(mediacache tests/mediacache_test.cpp)
+    target_compile_definitions(ui_mediacache_test PRIVATE MEDIA_CACHE_TEST_HOOKS)
+    target_link_libraries(ui_mediacache_test PRIVATE Threads::Threads)
     target_link_libraries(ui_themeproperties_test PRIVATE toonzqt)
     add_ui_port_test(uitranslations tests/uitranslations_test.cpp)
     target_link_libraries(ui_uitranslations_test PRIVATE toonzqt)

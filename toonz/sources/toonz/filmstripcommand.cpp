@@ -2478,7 +2478,7 @@ public:
   }
 
   void undo() const override {
-    for (size_t count = 1; count < m_fids.size(); ++count) {
+    for (size_t count = 1; count + 1 < m_fids.size(); ++count) {
       TVectorImageP vImage = m_images[count];
       m_level->setFrame(m_fids[count], vImage);
       IconGenerator::instance()->invalidate(m_level.getPointer(),
@@ -2552,7 +2552,6 @@ void FilmstripCmd::inbetweenWithoutUndo(
   if (it1 == fids.end()) return;
   int ib = int(std::distance(fids.begin(), it1));
   if (ib - ia < 2) return;
-
   TVectorImageP img0 = sl->getFrame(fid0, false);
   TVectorImageP img1 = sl->getFrame(fid1, false);
   if (!img0 || !img1) return;
@@ -2578,19 +2577,27 @@ void FilmstripCmd::inbetweenWithoutUndo(
 
   TInbetween::MatchOptions matchOptions;
   matchOptions.m_autoMatch = options.m_autoMatch;
+  matchOptions.m_unmatchedPolicy = static_cast<TInbetween::UnmatchedPolicy>(
+      options.m_unmatchedPolicy);
   for (const std::pair<TRectD, TRectD> &zone : options.m_zoneHints)
     matchOptions.m_zoneHints.push_back(
         TInbetween::ZoneHint(zone.first, zone.second));
 
   TInbetween inbetween(img0, img1, strokePairs, matchOptions);
+  std::vector<TVectorImageP> generated;
+  generated.reserve(ib - ia - 1);
   for (int i = ia + 1; i < ib; ++i) {
     double t         = double(i - ia) / double(ib - ia);
     double s         = algorithm == TInbetween::CustomEaseInterpolation
                            ? TInbetween::customEaseInterpolation(t, options.m_slowStart,
                                                                  options.m_slowEnd)
                            : TInbetween::interpolation(t, algorithm);
-    TVectorImageP vi = inbetween.tween(s);
-    sl->setFrame(fids[i], vi);
+    generated.push_back(inbetween.tween(s));
+  }
+  // Matching/interpolation can reject an unrepresentable opacity envelope.
+  // Finish every generated drawing before replacing any live frame.
+  for (int i = ia + 1; i < ib; ++i) {
+    sl->setFrame(fids[i], generated[i - ia - 1]);
     IconGenerator::instance()->invalidate(sl, fids[i]);
   }
   sl->setDirtyFlag(true);
@@ -2604,19 +2611,21 @@ void FilmstripCmd::inbetween(
     FilmstripCmd::InbetweenInterpolation interpolation,
     const std::vector<std::pair<int, int>> &strokePairs,
     const FilmstripCmd::InbetweenOptions &options) {
-  std::vector<TFrameId> fids;
+  if (!sl || sl->isReadOnly()) return;
   std::vector<TFrameId> levelFids;
   sl->getFids(levelFids);
-  for (const TFrameId &fid : levelFids) {
-    int curFid = fid.getNumber();
-    if (fid0.getNumber() <= curFid && curFid <= fid1.getNumber())
-      fids.push_back(fid);
-  }
-
-  TUndoManager::manager()->add(
+  const auto first = std::find(levelFids.begin(), levelFids.end(), fid0);
+  const auto last = std::find(levelFids.begin(), levelFids.end(), fid1);
+  if (first == levelFids.end() || last == levelFids.end() || last - first < 2 ||
+      !TVectorImageP(sl->getFrame(fid0, false)) ||
+      !TVectorImageP(sl->getFrame(fid1, false))) return;
+  for (auto it = first + 1; it != last; ++it)
+    if (sl->isFrameReadOnly(*it)) return;
+  std::vector<TFrameId> fids(first, last + 1);
+  std::unique_ptr<UndoInbetween> undo(
       new UndoInbetween(sl, fids, interpolation, strokePairs, options));
-
   inbetweenWithoutUndo(sl, fid0, fid1, interpolation, strokePairs, options);
+  TUndoManager::manager()->add(undo.release());
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
 }
 

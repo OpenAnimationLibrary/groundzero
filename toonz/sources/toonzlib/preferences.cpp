@@ -392,6 +392,8 @@ void Preferences::definePreferenceItems() {
          QMetaType::Bool, false);
   define(watchFileSystemEnabled, "watchFileSystemEnabled", QMetaType::Bool,
          true);
+  define(fileBrowserFolderDoubleClick, "fileBrowserFolderDoubleClick",
+         QMetaType::Bool, false);
   define(projectRoot, "projectRoot", QMetaType::Int, 0x08);
   define(customProjectRoot, "customProjectRoot", QMetaType::QString, "");
   define(pathAliasPriority, "pathAliasPriority", QMetaType::Int,
@@ -523,6 +525,10 @@ void Preferences::definePreferenceItems() {
   setCallBack(rasterBackgroundColor, &Preferences::setRasterBackgroundColor);
   setCallBack(autosaveEnabled, &Preferences::enableAutosave);
   setCallBack(autosavePeriod, &Preferences::setAutosavePeriod);
+
+  // Related applications: explicit paths only, disabled by default.
+  define(ztorycExecutablePath, "ztorycExecutablePath", QMetaType::QString, "");
+  define(ot3dExecutablePath, "ot3dExecutablePath", QMetaType::QString, "");
 
   // Import / Export
   define(ffmpegPath, "ffmpegPath", QMetaType::QString, "");

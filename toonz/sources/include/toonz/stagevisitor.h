@@ -132,6 +132,9 @@ struct DVAPI VisitArgs {
   int m_xsheetLevel;
   TFrameId m_currentFrameId;
   bool m_camera3d;
+  // GUI callers snapshot Camera Test before visiting. Background renders
+  // leave it disabled and never consult a QAction or other viewer object.
+  bool m_cameraTest;
   bool m_isPlaying;
   bool m_onlyVisible;
   bool m_checkPreviewVisibility;
@@ -158,6 +161,7 @@ public:
       , m_osm(0)
       , m_xsheetLevel(0)
       , m_camera3d(false)
+      , m_cameraTest(false)
       , m_isPlaying(false)
       , m_onlyVisible(false)
       , m_checkPreviewVisibility(false)

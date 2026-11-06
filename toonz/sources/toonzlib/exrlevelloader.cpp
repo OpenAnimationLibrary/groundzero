@@ -586,6 +586,24 @@ void restoreRetainedLevel(TXshExrLevel *level,
   restore(level, &fids);
 }
 
+void rebindRetainedFrames(TXshExrLevel *level) {
+  if (!level) return;
+  const TFilePath path = level->getScene()
+                            ? level->getScene()->decodeFilePath(level->getPath())
+                            : level->getPath();
+  std::map<TFrameId, TFilePath> sources;
+  for (const SourceFrame &source : collectSourceFrames(path)) sources[source.fid] = source.path;
+  std::vector<TFrameId> fids;
+  level->getFids(fids);
+  for (const TFrameId &fid : fids) {
+    const auto found = sources.find(fid);
+    const TFilePath frame = found != sources.end() ? found->second
+                            : path.isLevelName() ? path.withFrame(fid) : path;
+    ImageManager::instance()->bind(level->getImageId(fid),
+        new ExrLevelImageBuilder(frame, level->getSelection()));
+  }
+}
+
 bool saveRetainedCopy(TXshExrLevel *level, const TFilePath &path,
                       const TFilePath &oldPath, bool overwrite) {
   if (!level) return false;

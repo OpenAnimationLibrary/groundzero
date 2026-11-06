@@ -7,13 +7,23 @@
 
 #include <QSplitter>
 #include <QTreeWidget>
+#include <QJsonObject>
 
 #include "dvitemview.h"
 #include "tfilepath.h"
+#include "toonz/txshlevel.h"
+#include <set>
+#include <map>
+#include <vector>
 
 class QLabel;
 class TLevelSet;
 class CastItems;
+class QLineEdit;
+class QComboBox;
+class QTimer;
+class QPushButton;
+class CastInspector;
 
 //-----------------------------------------------------------------------------
 
@@ -26,6 +36,7 @@ class CastTreeViewer final : public QTreeWidget, public TSelection {
 
 public:
   CastTreeViewer(QWidget *parent = 0);
+  ~CastTreeViewer() override;
   QSize sizeHint() const override;
 
   TFilePath getCurrentFolder() const;
@@ -76,12 +87,37 @@ class CastBrowser final : public QSplitter, public DvItemListModel {
   DvItemViewer *m_itemViewer;
 
   std::unique_ptr<CastItems> m_castItems;
+  QLineEdit *m_search;
+  QComboBox *m_scope, *m_type, *m_status;
+  QComboBox *m_collection;
+  QPushButton *m_collectionActions;
+  CastInspector *m_inspector = nullptr;
+  QLabel *m_resultCount;
+  QTimer *m_filterTimer;
+  QPushButton *m_actions;
+  std::vector<TXshLevelP> m_rememberedSelection;
+  std::vector<TXshLevelP> m_displayedLevels;
+  std::map<TXshLevel *, QString> m_assetStatus;
+  std::map<TXshLevel *, QChar> m_statusBadge;
+  QJsonObject m_refreshMeasurements;
+  bool m_rebuilding = false;
+  void rememberSelection();
+  void restoreSelection();
+  std::vector<TXshLevel *> selectedLevels() const;
+  void showActions();
+  void showCollectionActions();
+  void refreshCollections();
 
 public:
   CastBrowser(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
   ~CastBrowser();
 
   CastItems const &getCastItems() const { return *m_castItems; }
+
+  // Cumulative completed refresh work across native Cast instances. CI records
+  // differences around real edit signals; these are not paint-latency timings.
+  static QJsonObject refreshMeasurements();
+  QJsonObject instanceRefreshMeasurements() const { return m_refreshMeasurements; }
 
   void sortByDataModel(DataType dataType, bool isDiscendent) override;
 
@@ -99,8 +135,10 @@ public:
   void showFolderContents();
   void viewFile();
   void viewFileInfo();
+  void showInspector(const std::vector<TXshLevel *> &levels);
 
 protected:
+  void showEvent(QShowEvent *event) override;
   bool dropMimeData(QTreeWidgetItem *parent, int index, const QMimeData *data,
                     Qt::DropAction action);
   Qt::DropActions supportedDropActions() const;

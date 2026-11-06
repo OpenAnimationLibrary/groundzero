@@ -1,30 +1,20 @@
-﻿// toonzpreview.cpp
+// toonzpreview.cpp
 #include "toonzpreview.h"
-#include "tiio.h"
-#include "tiio_std.h"
-#include "tnzimage.h"
-
-#include "toonzqt/icongenerator.h"
-#include "timagecache.h"
-#include "tfilepath.h"
-#include "traster.h"
-#include "tpixel.h"
-
-// Qt Includes
-#include <QCoreApplication>
-#include <QDebug>
-#include <QDir>
+#include "thumbnailprocess.h"
 
 #include <shlwapi.h>
 #include <propkey.h>
+#include <propsys.h>
+#include <propvarutil.h>
+#include <algorithm>
+#include <cctype>
+#include <cwctype>
 #include <string>
 #include <vector>
 #include <memory>
 #include <fstream>
 #include <codecvt>
 #include <locale>
-#include <mutex>
-#include "tenv.h"
 
 #pragma comment(lib, "shlwapi.lib")
 // Ensure we link against the standard UUIDs
@@ -72,8 +62,29 @@ void DebugLog(const std::string &message) {
 }
 #endif  // TOONZPREVIW_DEBUG
 
-TFilePath getPaletteIconPath() {
-  return TEnv::getConfigDir() + "icon" + "paletteIcon.ico";
+std::wstring getPaletteIconPath() {
+  // Match TEnv's Windows configuration contract without loading Qt/Toonz
+  // into Explorer merely to register the palette's static icon.
+  const auto renderer = ThumbnailProcess::siblingRenderer(g_hInst);
+  const auto separator = renderer.find_last_of(L"\\/");
+  const std::wstring portable = separator == std::wstring::npos ? L""
+      : renderer.substr(0, separator + 1) + L"portablestuff\\config\\icon\\paletteIcon.ico";
+  if (!portable.empty() && GetFileAttributesW(portable.c_str()) != INVALID_FILE_ATTRIBUTES)
+    return portable;
+  auto systemValue = [](const wchar_t *name) {
+    std::vector<wchar_t> value(32768);
+    DWORD size = DWORD(value.size() * sizeof(wchar_t));
+    const LSTATUS status = RegGetValueW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\OpenToonz\\OpenToonz", name, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ,
+        nullptr, value.data(), &size);
+    return status == ERROR_SUCCESS ? std::wstring(value.data()) : std::wstring();
+  };
+  std::wstring config = systemValue(L"TOONZCONFIG");
+  if (config.empty()) {
+    config = systemValue(L"TOONZROOT");
+    if (!config.empty()) config += L"\\config";
+  }
+  return config.empty() ? std::wstring() : config + L"\\icon\\paletteIcon.ico";
 }
 
 std::string WideToNarrow(const std::wstring &wideStr) {
@@ -156,180 +167,17 @@ bool ClearDisableProcessIsolation() {
   return true;
 }
 
-void EnsureQtApplication() {
-  static std::once_flag qtInitFlag;
-  std::call_once(qtInitFlag, []() {
-    if (QCoreApplication::instance()) {
-      DebugLog("Qt application already exists");
-    } else {
-      DebugLog("Starting Qt application initialization...");
-
-      // Get the path of our DLL
-      WCHAR dllPath[MAX_PATH];
-      if (GetModuleFileNameW(g_hInst, dllPath, MAX_PATH)) {
-        DebugLog("DLL path: " + WideToNarrow(dllPath));
-
-        // Get the DLL's directory (e.g., E:\)
-        WCHAR dllDir[MAX_PATH];
-        wcscpy_s(dllDir, MAX_PATH, dllPath);
-        PathRemoveFileSpecW(dllDir);
-        std::string dllDirNarrow = WideToNarrow(dllDir);
-        DebugLog("DLL directory: " + dllDirNarrow);
-
-        QCoreApplication::setAttribute(Qt::AA_DisableHighDpiScaling);
-        QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
-
-        DebugLog("Creating QCoreApplication...");
-
-        try {
-          static int argc     = 1;
-          static char *argv[] = {(char *)"toonzpreview_host", nullptr};
-          static QCoreApplication app(argc, argv);
-
-          QCoreApplication::setApplicationName("ToonzPreview");
-          QCoreApplication::setOrganizationName("OpenToonz");
-
-          DebugLog("QCoreApplication created successfully");
-
-          QString baseDir = QString::fromStdWString(dllDir);
-
-          QCoreApplication::addLibraryPath(baseDir);
-          DebugLog("Added base directory to library paths: " +
-                   baseDir.toStdString());
-
-          QStringList pluginSubdirs = {
-              "audio",            // qtaudio_windows.dll
-              "bearer",           // qgenericbearer.dll
-              "iconengines",      // qsvgicon.dll
-              "imageformats",     // qjpeg.dll, qsvg.dll..
-              "mediaservice",     // dsengine.dll..
-              "platforms",        // qwindows.dll
-              "playlistformats",  // qtmultimedia_m3u.dll
-              "printsupport",     // windowsprintersupport.dll
-              "styles"            // qwindowsvistastyle.dll
-          };
-
-          for (const QString &subdir : pluginSubdirs) {
-            QString fullPath = baseDir + "/" + subdir;
-            if (QDir(fullPath).exists()) {
-              QCoreApplication::addLibraryPath(fullPath);
-              DebugLog("Added plugin directory: " + fullPath.toStdString());
-            } else {
-              DebugLog("WARNING: Plugin directory not found: " +
-                       fullPath.toStdString());
-            }
-          }
-
-          QStringList libraryPaths = QCoreApplication::libraryPaths();
-          DebugLog("Final Qt library paths (" +
-                   QString::number(libraryPaths.size()).toStdString() + "):");
-          for (const QString &path : libraryPaths) {
-            DebugLog("  " + path.toStdString());
-          }
-
-        } catch (const std::exception &e) {
-          DebugLog("Exception during QCoreApplication creation: " +
-                   std::string(e.what()));
-          return;
-        } catch (...) {
-          DebugLog("Unknown exception during QCoreApplication creation");
-          return;
-        }
-
-      } else {
-        DebugLog("Error: Could not get DLL path.");
-      }
-      DebugLog(
-          "Qt application initialization completed successfully without "
-          "environment variables");
-    }
-  });
-}
-HBITMAP RasterToHBITMAP(const TRaster32P &ras) {
-  if (!ras || !ras->getRawData()) {
-    DebugLog("RasterToHBITMAP: Invalid raster data");
-    return NULL;
-  }
-
-  int w = ras->getLx();
-  int h = ras->getLy();
-
-  if (w <= 0 || h <= 0) return NULL;
-
-  BITMAPINFO bmi              = {0};
-  bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-  bmi.bmiHeader.biWidth       = w;
-  bmi.bmiHeader.biHeight      = h;
-  bmi.bmiHeader.biPlanes      = 1;
-  bmi.bmiHeader.biBitCount    = 32;
-  bmi.bmiHeader.biCompression = BI_RGB;
-  bmi.bmiHeader.biSizeImage   = w * h * 4;
-
-  void *pBits  = NULL;
-  HDC hdc      = GetDC(NULL);
-  HBITMAP hBmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
-  ReleaseDC(NULL, hdc);
-
-  if (!hBmp || !pBits) return NULL;
-
-  ras->lock();
-  const unsigned char *srcPixels = ras->getRawData();
-  if (srcPixels) {
-    memcpy(pBits, srcPixels, w * h * 4);
-  } else {
-    DeleteObject(hBmp);
-    hBmp = NULL;
-  }
-  ras->unlock();
-  return hBmp;
-}
-
-void SetupDependencyPath(HMODULE hModule) {
-  WCHAR dllPath[MAX_PATH];
-  if (GetModuleFileNameW(hModule, dllPath, MAX_PATH)) {
-    PathRemoveFileSpecW(dllPath);
-    SetDllDirectoryW(dllPath);
-  }
-}
-void LoadDependencies() {
-  static HMODULE hToonzQt = NULL;
-  static HMODULE hTnzCore = NULL;
-  static HMODULE hImage   = NULL;
-
-  // Keep these DLLs resident in memory
-  WCHAR dllDir[MAX_PATH];
-  GetModuleFileNameW(g_hInst, dllDir, MAX_PATH);
-  PathRemoveFileSpecW(dllDir);
-
-  auto LoadDep = [&](const wchar_t *name) -> HMODULE {
-    WCHAR path[MAX_PATH];
-    wcscpy_s(path, dllDir);
-    wcscat_s(path, L"\\");
-    wcscat_s(path, name);
-    return LoadLibraryW(path);
-  };
-
-  hToonzQt = LoadDep(L"toonzqt.dll");
-  hTnzCore = LoadDep(L"tnzcore.dll");
-  hImage   = LoadDep(L"image.dll");
-}
 // ---------------------------------------------------------------------------
 // DLL Entry Point
 // ---------------------------------------------------------------------------
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call,
                       LPVOID lpReserved) {
-  static HMODULE hToonzQt = NULL;
-  static HMODULE hTnzCore = NULL;
-  static HMODULE hImage   = NULL;
-
   switch (ul_reason_for_call) {
   case DLL_PROCESS_ATTACH: {
     g_hInst = hModule;
 
-    SetupDependencyPath(hModule);
-
     DisableThreadLibraryCalls(hModule);
-    DebugLog("DLL_PROCESS_ATTACH - Path Set & ToonzPreview loaded");
+    DebugLog("DLL_PROCESS_ATTACH - ToonzPreview loaded");
     break;
   }
   case DLL_PROCESS_DETACH:
@@ -458,11 +306,11 @@ HRESULT RegisterRegistryKeys() {
   if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, tplIconKey.c_str(), 0, NULL,
                       REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey,
                       NULL) == ERROR_SUCCESS) {
-    TFilePath paletteIconPath = getPaletteIconPath();
-    std::wstring iconPathW    = paletteIconPath.getWideString();
+    const std::wstring iconPathW = getPaletteIconPath();
 
-    RegSetValueExW(hKey, NULL, 0, REG_SZ, (BYTE *)iconPathW.c_str(),
-                   (iconPathW.length() + 1) * sizeof(WCHAR));
+    if (!iconPathW.empty())
+      RegSetValueExW(hKey, NULL, 0, REG_SZ, (BYTE *)iconPathW.c_str(),
+                     (iconPathW.length() + 1) * sizeof(WCHAR));
 
     RegCloseKey(hKey);
     DebugLog("Registered DefaultIcon for .tpl: " + WideToNarrow(iconPathW));
@@ -749,9 +597,7 @@ IFACEMETHODIMP CToonzThumbnailProvider::Initialize(IStream *pStream,
     return E_INVALIDARG;
   }
 
-  // Method 1: Try to get the full path from STATSTG
-  STATSTG stat;
-  HRESULT hr = pStream->Stat(&stat, STATFLAG_DEFAULT);
+  // GetFullPathFromStream owns and frees its STATSTG name allocation.
   m_filePath = GetFullPathFromStream(pStream);
 
   // If still no full path, log a warning
@@ -767,118 +613,26 @@ IFACEMETHODIMP CToonzThumbnailProvider::Initialize(IStream *pStream,
            std::to_string(grfMode));
   return S_OK;
 }
-static int g_requestCount         = 0;
-static const int CLEANUP_INTERVAL = 10;  // Clean up every 10 requests
 IFACEMETHODIMP CToonzThumbnailProvider::GetThumbnail(UINT cx, HBITMAP *phbmp,
                                                      WTS_ALPHATYPE *pdwAlpha) {
-  DebugLog("GetThumbnail called size=" + std::to_string(cx));
-
-  g_requestCount++;
-  if (g_requestCount >= CLEANUP_INTERVAL) {
-    DebugLog("Performing periodic cache cleanup - request count: " +
-             std::to_string(g_requestCount));
-    TImageCache::instance()->clear();
-    g_requestCount = 0;  // Reset count
-  }
-
-  if (!phbmp || !pdwAlpha) {
-    DebugLog("GetThumbnail: Invalid arguments");
-    return E_INVALIDARG;
-  }
-
-  *phbmp    = NULL;
-  *pdwAlpha = WTSAT_UNKNOWN;
-
-  if (m_filePath.empty()) {
-    DebugLog("GetThumbnail: No file path set");
+  if (!phbmp || !pdwAlpha) return E_INVALIDARG;
+  *phbmp = nullptr; *pdwAlpha = WTSAT_UNKNOWN;
+  if (!cx || m_filePath.empty()) return E_INVALIDARG;
+  try {
+    std::wstring type = PathFindExtensionW(m_filePath.c_str());
+    std::transform(type.begin(), type.end(), type.begin(),
+                   [](wchar_t c) { return wchar_t(std::towlower(c)); });
+    if (type != L".pli" && type != L".tnz" && type != L".tlv" && type != L".tga") return E_FAIL;
+    // Explorer/COM worker threads never create a Qt GUI or own an OpenGL
+    // context. The installed helper renders once and exits; the provider
+    // validates the bounded bitmap payload before exposing it to the Shell.
+    const HRESULT result = ThumbnailProcess::render(
+        ThumbnailProcess::siblingRenderer(g_hInst), m_filePath, cx, phbmp);
+    if (SUCCEEDED(result)) *pdwAlpha = WTSAT_ARGB;
+    return result;
+  } catch (...) {
     return E_FAIL;
   }
-
-  DebugLog("GetThumbnail: Processing file: " + WideToNarrow(m_filePath));
-
-  try {
-    // 1. Initialize Qt Environment (Required for TOfflineGL used by
-    // IconGenerator)
-    EnsureQtApplication();
-
-    static std::once_flag ioInitFlag;
-    std::call_once(ioInitFlag, []() {
-      LoadDependencies();
-      Tiio::defineStd();
-      initImageIo();
-      TThread::init();
-      DebugLog("Tiio and ImageIo initialized successfully.");
-    });
-
-    TFilePath path(m_filePath);
-    TDimension size(cx, cx);
-
-    // 2. Normalize extension to lowercase for comparison
-    std::string type = path.getType();
-    std::transform(type.begin(), type.end(), type.begin(), ::tolower);
-
-    DebugLog("GetThumbnail: File type: " + type);
-
-    TRaster32P ras;
-    static TDimension oldSize(0, 0);
-    if (size.lx > oldSize.lx || size.ly > oldSize.ly) {
-      IconGenerator::setFilmstripIconSize(size);
-      oldSize = size;
-    }
-
-    // 3. Route to the specific static generator based on file type
-    if (type == "tnz") {
-      DebugLog("GetThumbnail: Generating Scene (TNZ) icon");
-      ras = IconGenerator::generateSceneFileIcon(path, size, -5);
-    } else if (type == "pli") {
-      DebugLog("GetThumbnail: Generating Vector Level (PLI) icon");
-      // NO_FRAME lets the reader pick the first frame in the level
-      ras =
-          IconGenerator::generateVectorFileIcon(path, size, TFrameId::NO_FRAME);
-    } else if (type == "tlv" || type == "tga") {
-      DebugLog("GetThumbnail: Generating Raster Level (TLV/TGA) icon");
-      if (type == "tlv")
-        ras = IconGenerator::generateRasterFileIcon(path, size,
-                                                    TFrameId::NO_FRAME);
-      else
-        ras = IconGenerator::generateRasterFileIcon(path, size,
-                                                    path.analyzePath().fId);
-    } else if (type == "tpl") {
-      DebugLog(
-          "GetThumbnail: TPL generation not fully implemented for Shell "
-          "Preview.");
-    } else {
-      DebugLog("GetThumbnail: Unsupported file type: " + type);
-    }
-
-    // 4. Validate Result
-    if (!ras.getPointer() || !ras->getRawData()) {
-      // TODO : return image broken notify infomation
-      DebugLog("GetThumbnail: No raster generated or raster is empty");
-      return E_FAIL;
-    }
-
-    DebugLog(
-        "GetThumbnail: Raster generated successfully, converting to HBITMAP");
-
-    // 5. Convert Toonz Raster to Windows HBITMAP
-    *phbmp = RasterToHBITMAP(ras);
-
-    if (*phbmp) {
-      *pdwAlpha = WTSAT_ARGB;  // Indicate the bitmap has an alpha channel
-      DebugLog("GetThumbnail: Success - HBITMAP created");
-      return S_OK;
-    } else {
-      DebugLog("GetThumbnail: Failed to create HBITMAP from Raster");
-    }
-
-  } catch (const std::exception &e) {
-    DebugLog("GetThumbnail: Exception: " + std::string(e.what()));
-  } catch (...) {
-    DebugLog("GetThumbnail: Unknown exception");
-  }
-
-  return E_FAIL;
 }
 
 IFACEMETHODIMP CToonzThumbnailProvider::GetClassID(CLSID *pClassID) {

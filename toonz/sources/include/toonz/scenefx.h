@@ -17,6 +17,7 @@
 
 class TXsheet;
 class ToonzScene;
+struct TRenderCheckSettings;
 
 /*
   NOTE:  The following functions are DEPRECATED, but still in use throughout
@@ -25,19 +26,24 @@ class ToonzScene;
 */
 
 DVAPI TFxP buildSceneFx(ToonzScene *scene, TXsheet *xsh, double row,
-                        int whichLevels, int shrink, bool isPreview);
+                        int whichLevels, int shrink, bool isPreview,
+                        const TRenderCheckSettings *checks = nullptr);
 DVAPI TFxP buildSceneFx(ToonzScene *scene, double row, int shrink,
-                        bool isPreview);
+                        bool isPreview,
+                        const TRenderCheckSettings *checks = nullptr);
 DVAPI TFxP buildSceneFx(ToonzScene *scene, TXsheet *xsh, double row, int shrink,
-                        bool isPreview);
+                        bool isPreview,
+                        const TRenderCheckSettings *checks = nullptr);
 DVAPI TFxP buildSceneFx(ToonzScene *scene, double row, const TFxP &root,
                         bool isPreview);
 DVAPI TFxP buildSceneFx(ToonzScene *scene, TXsheet *xsh, double row,
                         const TFxP &root, bool isPreview);
 DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, double row, const TFxP &root,
-                               int shrink, bool isPreview);
+                               int shrink, bool isPreview,
+                               const TRenderCheckSettings *checks = nullptr);
 DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, TXsheet *xsh, double row,
-                               const TFxP &root, int shrink, bool isPreview);
+                               const TFxP &root, int shrink, bool isPreview,
+                               const TRenderCheckSettings *checks = nullptr);
 DVAPI TFxP buildPostSceneFx(ToonzScene *scene, double row, int shrink,
                             bool isPreview);
 //! As above, for the given xsheet instead of the scene's top xsheet

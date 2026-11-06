@@ -18,6 +18,7 @@
 #include "toonz/toonzscene.h"
 
 #include "tstrokeprop.h"
+#include "tcolorfunctions.h"
 #include "tvectorrenderdata.h"
 #include "tgl.h"
 #include "tmathutil.h"
@@ -63,6 +64,10 @@ void MyPaintBrushStrokeProp::draw(const TVectorRenderData &rd) {
       !convert(rd.m_aff * m_stroke->getBBox()).overlaps(rd.m_clippingRect))
     return;
 
+  if (m_stroke->getOpacity() <= 0.0) return;
+  TStrokeOpacityFunction opacity(rd.m_cf, m_stroke->getOpacity());
+  const TColorFunction *cf = m_stroke->getOpacity() < 1.0 ? &opacity : rd.m_cf;
+
   glPushMatrix();
   tglMultMatrix(rd.m_aff);
 
@@ -71,7 +76,7 @@ void MyPaintBrushStrokeProp::draw(const TVectorRenderData &rd) {
   if (m_stroke->isCenterLine()) {
     TCenterLineStrokeStyle *appStyle =
         new TCenterLineStrokeStyle(m_colorStyle->getAverageColor(), 0, 0);
-    appStyle->drawStroke(rd.m_cf, m_stroke);
+    appStyle->drawStroke(cf, m_stroke);
     delete appStyle;
   } else {
     if (!isAlmostZero(pixelSize - m_outlinePixelSize, 1e-5) ||
@@ -87,9 +92,9 @@ void MyPaintBrushStrokeProp::draw(const TVectorRenderData &rd) {
     }
 
     if (rd.m_antiAliasing)
-      m_altStyle.drawStroke(rd.m_cf, &m_outline, m_stroke);
+      m_altStyle.drawStroke(cf, &m_outline, m_stroke);
     else
-      m_altStyle.drawAliasedStroke(rd.m_cf, &m_outline, m_stroke);
+      m_altStyle.drawAliasedStroke(cf, &m_outline, m_stroke);
   }
 
   glPopMatrix();

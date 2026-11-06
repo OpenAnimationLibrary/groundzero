@@ -12,13 +12,16 @@
 #include <QGLPixelBuffer>
 #endif
 #include <QOpenGLFramebufferObject>
+#include <QPointer>
 
 #include "tofflinegl.h"
 
 class QtOfflineGL final : public TOfflineGL::Imp {
 public:
   std::shared_ptr<QOpenGLContext> m_context;
-  std::shared_ptr<QOpenGLContext> m_oldContext;
+  QPointer<QOpenGLContext> m_oldContext;
+  QSurface *m_oldSurface = nullptr;
+  QPointer<QObject> m_oldSurfaceObject;
   std::shared_ptr<QOffscreenSurface> m_surface;
   std::shared_ptr<QOpenGLFramebufferObject> m_fbo;
 

@@ -204,6 +204,14 @@ void buildPalette(ParsedPli *pli, const TImageP img) {
   if (!pli->m_palette_tags.empty()) return;
   TVectorImageP tempVecImg = img;
   TPalette *vPalette       = tempVecImg->getPalette();
+  // Writing animation visits every keyframe. Evaluate a detached palette so
+  // saving cannot change the live drawing's current styles or palette frame,
+  // including when serialization exits with an exception.
+  TPaletteP serializedPalette;
+  if (vPalette->isAnimated()) {
+    serializedPalette = vPalette->clone();
+    vPalette = serializedPalette.getPointer();
+  }
   unsigned int i;
   // if (pli->m_idWrittenColorsArray.empty())
   //  {
@@ -561,11 +569,13 @@ static void putStroke(TStroke *stroke, int &currStyleId,
 
   // If the outline options are non-standard, add the outline infos.
   TStroke::OutlineOptions &options = stroke->outlineOptions();
+  if (!StrokeOpacity::valid(options.m_opacityProfile))
+    throw TException("Cannot save an invalid stroke opacity envelope");
   if (options.m_capStyle != TStroke::OutlineOptions::ROUND_CAP ||
       options.m_joinStyle != TStroke::OutlineOptions::ROUND_JOIN ||
       options.m_miterLower != 0.0 || options.m_miterUpper != 4.0 ||
       options.m_patternFrameOffset != 0 || options.m_patternFrameStep != 1 ||
-      options.m_opacity != 1.0) {
+      options.m_opacity != 1.0 || !options.m_opacityProfile.empty()) {
     StrokeOutlineOptionsTag *outlineOptionsTag =
         new StrokeOutlineOptionsTag(options);
     tags.push_back((PliObjectTag *)outlineOptionsTag);
@@ -667,6 +677,14 @@ solo nel costruttore)
   }
   // recupero il numero di stroke dall'immagine
   int numStrokes = tempVecImg->getStrokeCount();
+
+  // Upgrade only levels that actually contain along-stroke opacity. Older
+  // readers reject 150.1 at the file header rather than discard the envelope.
+  for (int s = 0; s < numStrokes; ++s)
+    if (!tempVecImg->getStroke(s)->getOpacityProfile().empty()) {
+      pli->setVersion(150, 1);
+      break;
+    }
 
   int i = 0;
   while (i < (UINT)numStrokes) {

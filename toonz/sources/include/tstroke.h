@@ -8,6 +8,7 @@
 #include "tsmartpointer.h"
 #include "tgeometry.h"
 #include "tthreadmessage.h"
+#include "tstrokeopacity.h"
 
 #include <QMutex>
 
@@ -388,6 +389,11 @@ Take from \b curves the control points used to create the stroke
   //! saved in the stroke outline options only when it is not 1.
   double getOpacity() const;
   void setOpacity(double opacity);
+
+  const StrokeOpacity::Profile &getOpacityProfile() const;
+  //! Rejects malformed envelopes without changing this stroke.
+  bool setOpacityProfile(const StrokeOpacity::Profile &profile);
+  double getOpacityAtLength(double length) const;
 };
 
 //-----------------------------------------------------------------------------
@@ -456,6 +462,7 @@ struct DVAPI TStroke::OutlineOptions {
   // Opacity of the stroke, 0 to 1. Pencil lines with a faded look use it; the
   // PLI writer stores it only when it is not 1 (see doc/pencil_opacity.md).
   double m_opacity;
+  StrokeOpacity::Profile m_opacityProfile;
 
 public:
   OutlineOptions();

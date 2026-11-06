@@ -3,10 +3,23 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdexcept>
+#include <cmath>
+#include <algorithm>
+#include "tstrokeopacitybounds.h"
 
 #include <QApplication>
 #include <QTextStream>
 #include <QFile>
+#include <QSaveFile>
+#include <QBuffer>
+#include <QImage>
+#include <QOpenGLContext>
+#include <QXmlStreamReader>
+#include "tofflinegl.h"
+#include "tvectorrenderdata.h"
+#include "tcolorstyles.h"
+#include "timage_io.h"
 
 #include "tiio_svg.h"
 #include "tvectorimage.h"
@@ -1970,6 +1983,101 @@ static void writeRegion(TRegion *r, TPalette *plt, QTextStream &out,
 
 //--------------------------------------------------------------------------------------
 
+static void rejectRasterizedOpacityVectorImport(const TFilePath &path) {
+  QFile file(path.getQString());
+  if (!file.open(QIODevice::ReadOnly)) return;
+  QXmlStreamReader xml(&file);
+  while (!xml.atEnd()) {
+    if (!xml.readNextStartElement()) break;
+    if (xml.name() != QStringLiteral("svg")) break;
+    if (xml.attributes().value("data-groundzero-opacity-raster") == QStringLiteral("1"))
+      throw TImageException(path,
+          "This SVG contains embedded raster strokes for opacity envelopes. "
+          "It preserves their rendered appearance, but cannot be imported as editable vectors. "
+          "Open the original PLI 150.1 drawing to edit the envelopes.");
+    break;
+  }
+}
+
+// SVG has no portable along-path opacity primitive. Bake only profiled
+// strokes through the native renderer and retain surrounding paths as vectors.
+// PLI retains the editable envelope; this explicit image fallback also keeps
+// procedural and pattern styles intact instead of replacing them by a color.
+struct ProfiledSvgBounds {
+  TRectD box;
+  double scale;
+};
+static ProfiledSvgBounds profiledSvgBounds(const TStroke &stroke,
+    const TColorStyle &style, int rasterScale) {
+  TRectD box;
+  if (!StrokeOpacity::renderBounds(style, stroke, box))
+    throw std::runtime_error("This profiled stroke style has no verified SVG render bounds. Use Render Scene SVG for the full camera canvas, or save PLI 150.1 for editing.");
+  if (box.isEmpty()) return {box, double(rasterScale)};
+  // Reserve output pixels for antialiasing and Circlets' minimum screen-space
+  // radius, even when a long drawing hits the 8192-pixel resolution limit.
+  const double pad = 2. + (style.getTagId() == 106
+      ? std::abs(style.getParamValue(TColorStyle::double_tag(), 2)) : 0.);
+  if (!std::isfinite(pad) || pad * 2. >= 8190.)
+    throw std::runtime_error("This profiled stroke exceeds SVG raster bounds. Use Render Scene SVG or save PLI 150.1.");
+  const double scale = std::min(double(rasterScale),
+      (8190. - pad * 2.) / std::max(box.getLx(), box.getLy()));
+  return {box.enlarge(pad / scale), scale};
+}
+
+static void writeProfiledStroke(const TStroke &stroke, TPalette *palette,
+                               QTextStream &out, double ly, int rasterScale) {
+  const TColorStyle *style = palette->getStyle(stroke.getStyle());
+  if (!style || !style->isStrokeStyle()) return;
+  const auto bounds = profiledSvgBounds(stroke, *style, rasterScale);
+  const TRectD box = bounds.box;
+  if (box.isEmpty()) return;
+  const double scale = bounds.scale;
+  const int width = std::max(1, int(std::ceil(box.getLx() * scale)));
+  const int height = std::max(1, int(std::ceil(box.getLy() * scale)));
+  struct RestoreContext {
+    QOpenGLContext *context = QOpenGLContext::currentContext();
+    QSurface *surface = context ? context->surface() : nullptr;
+#ifdef _WIN32
+    HDC dc = wglGetCurrentDC();
+    HGLRC native = wglGetCurrentContext();
+#endif
+    ~RestoreContext() {
+      if (context && surface) context->makeCurrent(surface);
+#ifdef _WIN32
+      else wglMakeCurrent(dc, native);
+#else
+      else if (auto *current = QOpenGLContext::currentContext()) current->doneCurrent();
+#endif
+    }
+  } restoreContext;
+  TVectorImageP image = new TVectorImage;
+  image->setPalette(palette);
+  image->addStroke(new TStroke(stroke), false);
+  TOfflineGL renderer(TDimension(width, height));
+  renderer.clear(TPixel32::Transparent);
+  const TAffine transform = TScale(scale) * TTranslation(-box.x0, -box.y0);
+  TVectorRenderData data(TVectorRenderData::ProductionSettings(), transform,
+      TRect(0, 0, width - 1, height - 1), palette);
+  data.m_drawRegions = false;
+  renderer.draw(image, data, true);
+  TRaster32P raster = renderer.getRaster();
+  renderer.doneCurrent();
+  QImage pixels(width, height, QImage::Format_ARGB32_Premultiplied);
+  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+    const auto &pixel = raster->pixels(y)[x];
+    pixels.setPixel(x, height - 1 - y, qRgba(pixel.r, pixel.g, pixel.b, pixel.m));
+  }
+  QByteArray png;
+  QBuffer encoded(&png); encoded.open(QIODevice::WriteOnly);
+  if (!pixels.save(&encoded, "PNG")) throw std::runtime_error("Cannot encode profiled SVG stroke");
+  auto number = [](double value) { return QString::number(value, 'g', 17); };
+  out << "<image x=\"" << number(box.x0) << "\" y=\"" << number(ly - box.y0 - height / scale)
+      << "\" width=\"" << number(width / scale) << "\" height=\"" << number(height / scale)
+      << "\" xlink:href=\"data:image/png;base64," << png.toBase64()
+      << "\"><desc>Opacity envelope rendered at " << number(scale)
+      << " pixels per drawing unit; editable envelope remains in the PLI drawing.</desc></image>\n";
+}
+
 static void writeOutlineStroke(TStroke *s, TPalette *plt, QTextStream &out,
                                double ly, double quality) {
   if (s->getChunkCount() == 0) return;
@@ -1983,7 +2091,7 @@ static void writeOutlineStroke(TStroke *s, TPalette *plt, QTextStream &out,
   TPixel32 col = plt->getStyle(s->getStyle())->getMainColor();
 
   out << "style=\"fill:rgb(" << col.r << "," << col.g << "," << col.b
-      << ");fill-opacity:" << (col.m / 255.0) << "\" \n";
+      << ");fill-opacity:" << QString::number(col.m / 255.0 * s->getOpacity(), 'g', 17) << "\" \n";
   out << "d=\"M " << quadsOutline[0]->getP0().x << " "
       << ly - quadsOutline[0]->getP0().y << "\n";
 
@@ -2055,7 +2163,7 @@ static void writeCenterlineStroke(TStroke *s, TPalette *plt, QTextStream &out,
       << ");stroke-width:" << thick << ";stroke-linecap:" << lineCap
       << ";stroke-linejoin:" << lineJoin
       << ";stroke-miterlimit:" << s->outlineOptions().m_miterUpper
-      << ";stroke-opacity:" << (col.m / 255.0) << "\"  \n";
+      << ";stroke-opacity:" << QString::number(col.m / 255.0 * s->getOpacity(), 'g', 17) << "\"  \n";
   out << "d=\"M " << s->getChunk(0)->getP0().x << " "
       << ly - s->getChunk(0)->getP0().y << "\n";
 
@@ -2072,7 +2180,8 @@ static void writeCenterlineStroke(TStroke *s, TPalette *plt, QTextStream &out,
 //----------------------------------------------------------
 
 Tiio::SvgWriterProperties::SvgWriterProperties()
-    : m_strokeMode("Stroke Mode"), m_outlineQuality("Outline Quality") {
+    : m_strokeMode("Stroke Mode"), m_outlineQuality("Outline Quality"),
+      m_opacityRasterScale("Opacity Raster Scale", 1, 16, 4) {
   m_strokeMode.addValue(L"Centerline");
   m_strokeMode.addValue(L"Outline");
   m_outlineQuality.addValue(L"High");
@@ -2080,11 +2189,13 @@ Tiio::SvgWriterProperties::SvgWriterProperties()
   m_outlineQuality.addValue(L"Low");
   bind(m_strokeMode);
   bind(m_outlineQuality);
+  bind(m_opacityRasterScale);
 }
 
 void Tiio::SvgWriterProperties::updateTranslation() {
   m_strokeMode.setQStringName(tr("Stroke Mode"));
   m_outlineQuality.setQStringName(tr("Outline Quality"));
+  m_opacityRasterScale.setQStringName(tr("Opacity envelope raster scale"));
   m_strokeMode.setItemUIName(L"Centerline", tr("Centerline"));
   m_strokeMode.setItemUIName(L"Outline", tr("Outline"));
   m_outlineQuality.setItemUIName(L"High", tr("High"));
@@ -2101,11 +2212,29 @@ void TImageWriterSvg::save(const TImageP &img) {
 
   TPalette *plt = v->getPalette();
 
-  TRectD r  = v->getBBox();
+  int opacityRasterScale = 4;
+  if (auto *scale = dynamic_cast<TIntProperty *>(m_properties->getProperty("Opacity Raster Scale")))
+    opacityRasterScale = scale->getValue();
+  TRectD r = v->getBBox();
+  int profiledStrokes = 0;
+  for (UINT i = 0; i < v->getStrokeCount(); ++i)
+    if (!v->getStroke(i)->getOpacityProfile().empty()) {
+      ++profiledStrokes;
+      TRectD bounds;
+      const auto *style = plt->getStyle(v->getStroke(i)->getStyle());
+      if (style && style->isStrokeStyle() && !StrokeOpacity::renderBounds(*style, *v->getStroke(i), bounds))
+        throw TImageException(this->getFilePath(),
+            "A stroke with an opacity envelope uses a style without verified SVG render bounds. "
+            "Use Render Scene SVG for the full camera canvas, or save PLI 150.1 for editing.");
+      if (style && style->isStrokeStyle())
+        r += profiledSvgBounds(*v->getStroke(i), *style, opacityRasterScale).box;
+    }
   double ly = r.getP00().y + r.getP11().y;
 
-  QFile file(this->getFilePath().getQString());
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+  QSaveFile file(this->getFilePath().getQString());
+  file.setDirectWriteFallback(false);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    throw TImageException(this->getFilePath(), file.errorString().toStdString());
 
   QTextStream out(&file);
   out.setRealNumberPrecision(1);
@@ -2114,9 +2243,22 @@ void TImageWriterSvg::save(const TImageP &img) {
   out << "<?xml version=\"1.0\"?>\n";
   out << "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" "
          "\"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n";
-  out << "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\">\n";
+  out << "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" version=\"1.1\""
+      << " width=\"" << QString::number(r.getLx(), 'g', 17)
+      << "\" height=\"" << QString::number(r.getLy(), 'g', 17)
+      << "\" viewBox=\"0 0 " << QString::number(r.getLx(), 'g', 17)
+      << " " << QString::number(r.getLy(), 'g', 17) << "\""
+      // SVG's downward Y axis starts at the drawing's upper-left corner.
+      // Scene exporters use this origin to place a cropped asset without
+      // stretching its drawing bounds across the camera canvas.
+      << " data-groundzero-level-x=\"" << QString::number(r.x0, 'g', 17)
+      << "\" data-groundzero-level-y=\"" << QString::number(r.y1, 'g', 17) << "\"";
+  if (profiledStrokes)
+    out << " data-groundzero-opacity-raster=\"1\" data-groundzero-opacity-strokes=\"" << profiledStrokes << "\"";
+  out << ">\n";
 
-  out << "<g transform=\"translate(" << -r.getP00().x << "," << -r.getP00().y
+  out << "<g transform=\"translate(" << QString::number(-r.x0, 'g', 17)
+      << "," << QString::number(-r.y0, 'g', 17)
       << ")\" stroke-width=\"0\" fill=\"none\" >\n";
 
   bool isCenterline =
@@ -2136,13 +2278,18 @@ void TImageWriterSvg::save(const TImageP &img) {
   for (int j = 0; j < (int)v->getRegionCount(); j++)
     writeRegion(v->getRegion(j), plt, out, ly);
   for (int j = 0; j < (int)v->getStrokeCount(); j++)
-    if (isCenterline)
+    if (!v->getStroke(j)->getOpacityProfile().empty())
+      writeProfiledStroke(*v->getStroke(j), plt, out, ly, opacityRasterScale);
+    else if (isCenterline)
       writeCenterlineStroke(v->getStroke(j), plt, out, ly);
     else
       writeOutlineStroke(v->getStroke(j), plt, out, ly, quality);
   out << "</g> \n";
 
   out << "</svg> \n";
+  out.flush();
+  if (out.status() != QTextStream::Ok || !file.commit())
+    throw TImageException(this->getFilePath(), "Cannot finish SVG export");
 }
 
 //-----------------------------------------------------------------------------
@@ -2247,6 +2394,7 @@ TStroke *buildStroke(NSVGpath *path, float *xform, float width, int lineCap,
 //-----------------------------------------------------------------------------
 
 TImageP TImageReaderSvg::load() {
+  rejectRasterizedOpacityVectorImport(m_path);
   NSVGimage *svgImg =
       nsvgParseFromFile(m_path.getQString().toStdString().c_str());
   if (!svgImg) return TImageP();
@@ -2363,6 +2511,8 @@ TImageReaderP TLevelReaderSvg::getFrameReader(TFrameId fid) {
 
 TLevelP TLevelReaderSvg::loadInfo() {
   m_level             = TLevelReader::loadInfo();
+  for (auto it = m_level->begin(); it != m_level->end(); ++it)
+    rejectRasterizedOpacityVectorImport(m_path.withFrame(it->first));
   TPalette *plt       = new TPalette();
   TLevel::Iterator it = m_level->begin();
 

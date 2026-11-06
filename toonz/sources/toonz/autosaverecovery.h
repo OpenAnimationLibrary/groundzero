@@ -4,6 +4,7 @@
 #define AUTOSAVERECOVERY_H
 
 #include <QDialog>
+#include <QDateTime>
 #include <QString>
 #include <QStringList>
 
@@ -36,6 +37,19 @@ class QLabel;
 //-----------------------------------------------------------------------------
 
 namespace AutosaveRecovery {
+
+enum class State { Disabled, Pending, Saving, Complete, Partial, Failed };
+struct Status {
+  State state = State::Pending;
+  QDateTime attemptedAt, savedAt;
+  QString sceneName, folder, error;
+  QStringList missingResources;
+};
+// Current-scene status; viewing never writes files or changes preferences.
+Status status();
+// Explicit retry is available only while recovery mode is enabled.
+bool retryRecoveryCopy();
+void showStatusDialog();
 
 // Call once at startup, after the Toonz environment is initialized. Checks
 // whether the previous session exited normally, starts the session marker if

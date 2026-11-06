@@ -6,12 +6,18 @@
 #include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontDatabase>
+#include <QFontMetrics>
 #include <QGridLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QKeyEvent>
 #include <QMainWindow>
@@ -24,8 +30,10 @@
 #include <QSettings>
 #include <QScreen>
 #include <QStorageInfo>
+#include <QStyle>
+#include <QStyleOptionFocusRect>
 #include <QTemporaryFile>
-#include <QToolBar>
+#include <QToolButton>
 #include <QUrl>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -43,6 +51,53 @@ constexpr int frameRate      = 12;
 constexpr int clipFrames     = frameRate * 60 * 10;
 constexpr int finishTimeout  = 15000;
 constexpr qint64 diskReserve = 1024LL * 1024 * 1024;
+
+// The application adapter supplies existing theme-aware icons. Keep the
+// transport itself independent of application classes for the Qt-only tests.
+class RecordButton final : public QToolButton {
+public:
+  explicit RecordButton(QWidget *parent) : QToolButton(parent) {
+    setToolButtonStyle(Qt::ToolButtonIconOnly);
+    setIconSize(QSize(16, 16));
+    setFixedSize(36, 36);
+    setFocusPolicy(Qt::StrongFocus);
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const auto group = isEnabled() ? QPalette::Active : QPalette::Disabled;
+    painter.setPen(palette().color(group, QPalette::Mid));
+    painter.setBrush(palette().color(group, isDown() ? QPalette::Midlight
+                                            : underMouse() && isEnabled()
+                                                ? QPalette::Light
+                                                : QPalette::Button));
+    painter.drawEllipse(QRectF(rect()).adjusted(1, 1, -1, -1));
+    const QRect iconRect((width() - iconSize().width()) / 2,
+                         (height() - iconSize().height()) / 2,
+                         iconSize().width(), iconSize().height());
+    icon().paint(&painter, iconRect, Qt::AlignCenter,
+                 isEnabled() ? QIcon::Normal : QIcon::Disabled);
+    if (hasFocus()) {
+      QStyleOptionFocusRect focus;
+      focus.initFrom(this);
+      focus.rect = rect().adjusted(5, 5, -5, -5);
+      style()->drawPrimitive(QStyle::PE_FrameFocusRect, &focus, &painter, this);
+    }
+  }
+};
+
+QIcon recordIcon() {
+  QPixmap pixmap(64, 64);
+  pixmap.fill(Qt::transparent);
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor(226, 0, 0));
+  painter.drawEllipse(QRectF(8, 8, 48, 48));
+  return QIcon(pixmap);
+}
 
 bool excluded(QWidget *widget) {
   return widget->property("otdevNoCapture").toBool() ||
@@ -304,41 +359,106 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
     , m_portableRoot(portableRoot)
     , m_encoderPath(encoder) {
   m_outputDir = QDir(portableRoot).filePath("recordings");
-  m_panel     = new QDockWidget(tr("Session Recording"), window);
+  m_panel     = new QDockWidget(tr("Screen Recorder"), window);
   m_panel->setObjectName("OtDevRecordingPanel");
   m_panel->setFeatures(QDockWidget::DockWidgetClosable |
                        QDockWidget::DockWidgetMovable |
                        QDockWidget::DockWidgetFloatable);
   m_panel->installEventFilter(this);
-  auto *body   = new QWidget(m_panel);
-  auto *layout = new QVBoxLayout(body);
-  layout->setContentsMargins(4, 4, 4, 4);
-  auto *bar = new QToolBar(body);
-  bar->setObjectName("OtDevSessionRecorder");
-  bar->setMovable(false);
-  layout->addWidget(bar);
-  m_start = bar->addAction(tr("Start Recording"));
+  auto *body = new QWidget(m_panel);
+  body->setObjectName("OtDevSessionRecorder");
+  auto *layout = new QHBoxLayout(body);
+  layout->setContentsMargins(8, 6, 8, 6);
+  layout->setSpacing(8);
+  m_start = new QAction(tr("Start Recording"), body);
   m_start->setObjectName("OtDevRecordStart");
-  m_pause = bar->addAction(tr("Pause"));
+  m_pause = new QAction(tr("Pause"), body);
   m_pause->setObjectName("OtDevRecordPause");
-  m_pause->setToolTip(tr("Pause capture without ending the current clip."));
-  m_stop = bar->addAction(tr("Stop Recording"));
+  m_stop = new QAction(tr("Stop Recording"), body);
   m_stop->setObjectName("OtDevRecordStop");
-  auto *regionBar = new QToolBar(body);
-  regionBar->setMovable(false);
-  layout->addWidget(regionBar);
-  m_selectRegion = regionBar->addAction(tr("Select Region..."));
+  m_selectRegion = new QAction(tr("Select Region..."), body);
   m_selectRegion->setObjectName("OtDevRecordSelectRegion");
-  m_clearRegion = regionBar->addAction(tr("Clear Region"));
+  m_clearRegion = new QAction(tr("Clear Region"), body);
   m_clearRegion->setObjectName("OtDevRecordClearRegion");
-  m_regionStatus = new QLabel(body);
-  m_regionStatus->setObjectName("OtDevRecordRegionStatus");
-  layout->addWidget(m_regionStatus);
-  m_status = new QLabel(tr("Recording off"), body);
-  m_status->setWordWrap(true);
-  m_status->setObjectName("OtDevRecordStatus");
-  layout->addWidget(m_status);
-  m_openFolder = regionBar->addAction(tr("Open Recordings Folder"));
+  m_openFolder = new QAction(tr("Open Recordings Folder"), body);
+  m_openFolder->setObjectName("OtDevRecordOpenFolder");
+  m_settingsAction = new QAction(tr("Recorder Settings"), body);
+  m_settingsAction->setObjectName("OtDevRecordSettings");
+  m_settingsAction->setCheckable(true);
+
+  m_recordIcon = recordIcon();
+  m_stopIcon   = body->style()->standardIcon(QStyle::SP_MediaStop);
+  m_pauseIcon  = body->style()->standardIcon(QStyle::SP_MediaPause);
+  m_resumeIcon = body->style()->standardIcon(QStyle::SP_MediaPlay);
+  m_settingsIcon =
+      body->style()->standardIcon(QStyle::SP_FileDialogDetailedView);
+  m_start->setIcon(m_recordIcon);
+  m_stop->setIcon(m_stopIcon);
+  m_pause->setIcon(m_pauseIcon);
+  m_settingsAction->setIcon(m_settingsIcon);
+
+  m_recordButton = new RecordButton(body);
+  m_recordButton->setObjectName("OtDevRecordButton");
+  layout->addWidget(m_recordButton);
+  m_pauseButton = new QToolButton(body);
+  m_pauseButton->setObjectName("OtDevRecordPauseButton");
+  m_pauseButton->setDefaultAction(m_pause);
+  m_pauseButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  m_pauseButton->setIconSize(QSize(16, 16));
+  m_pauseButton->setFixedSize(32, 32);
+  m_pauseButton->setFocusPolicy(Qt::StrongFocus);
+  layout->addWidget(m_pauseButton);
+
+  auto *readout = new QWidget(body);
+  readout->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+  auto *readoutLayout = new QVBoxLayout(readout);
+  readoutLayout->setContentsMargins(0, 0, 0, 0);
+  readoutLayout->setSpacing(0);
+  readoutLayout->setAlignment(Qt::AlignVCenter);
+  m_duration = new QLabel("00:00:00", readout);
+  m_duration->setObjectName("OtDevRecordDuration");
+  m_duration->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  m_duration->setMinimumWidth(
+      m_duration->fontMetrics().horizontalAdvance("00:00:00"));
+  m_duration->setAccessibleName(tr("Recorded duration"));
+  m_duration->setToolTip(
+      tr("Duration of captured video. Paused and dropped time is omitted."));
+  readoutLayout->addWidget(m_duration);
+  m_compactStatus = new QLabel(readout);
+  m_compactStatus->setObjectName("OtDevRecordCompactStatus");
+  m_compactStatus->setAccessibleName(tr("Recording status"));
+  int statusWidth = 0;
+  for (const auto &status : {tr("Ready"), tr("Starting..."), tr("Recording"),
+                             tr("Paused"), tr("Busy"), tr("Saving..."),
+                             tr("Saved"), tr("Error"), tr("Select region...")})
+    statusWidth = qMax(
+        statusWidth, m_compactStatus->fontMetrics().horizontalAdvance(status));
+  m_compactStatus->setMinimumWidth(statusWidth);
+  readoutLayout->addWidget(m_compactStatus);
+  layout->addWidget(readout);
+
+  m_settingsButton = new QToolButton(body);
+  m_settingsButton->setObjectName("OtDevRecordSettingsButton");
+  m_settingsButton->setDefaultAction(m_settingsAction);
+  m_settingsButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  m_settingsButton->setIconSize(QSize(16, 16));
+  m_settingsButton->setFixedSize(32, 32);
+  m_settingsButton->setFocusPolicy(Qt::StrongFocus);
+  m_settingsButton->setAutoRaise(true);
+  layout->addWidget(m_settingsButton);
+  layout->addStretch();
+  createSettings();
+
+  connect(m_settingsAction, &QAction::toggled, this, [this](bool visible) {
+    m_settingsDialog->setVisible(visible);
+    if (visible) {
+      m_settingsDialog->raise();
+      m_settingsDialog->activateWindow();
+    }
+    updateControls();
+  });
+  connect(m_settingsDialog, &QDialog::finished, this,
+          [this] { m_settingsAction->setChecked(false); });
   connect(m_openFolder, &QAction::triggered, this, [this] {
     if (!QFileInfo(m_outputDir).isDir()) {
       fail(
@@ -418,7 +538,7 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
   window->addDockWidget(Qt::DockWidgetArea(area), m_panel);
   if (settings.value("PanelFloating", false).toBool()) {
     m_panel->setFloating(true);
-    m_panel->resize(500, 170);
+    m_panel->resize(m_panel->sizeHint());
     m_panel->restoreGeometry(settings.value("PanelGeometry").toByteArray());
     bool onScreen = false;
     for (auto *screen : QGuiApplication::screens())
@@ -477,23 +597,145 @@ bool OtDevRecorder::publishClip() {
   return true;
 }
 
-void OtDevRecorder::updateStatus(const QString &text) {
+void OtDevRecorder::createSettings() {
+  m_settingsDialog = new QDialog(m_window, Qt::Tool);
+  m_settingsDialog->setObjectName("OtDevRecorderSettings");
+  m_settingsDialog->setWindowTitle(tr("Recorder Settings"));
+  m_settingsDialog->setModal(false);
+  auto *layout        = new QVBoxLayout(m_settingsDialog);
+  auto *capture       = new QGroupBox(tr("Capture"), m_settingsDialog);
+  auto *captureLayout = new QVBoxLayout(capture);
+  m_regionStatus      = new QLabel(capture);
+  m_regionStatus->setObjectName("OtDevRecordRegionStatus");
+  m_regionStatus->setWordWrap(true);
+  captureLayout->addWidget(m_regionStatus);
+  auto *regionControls = new QHBoxLayout;
+  auto button          = [](QAction *action, QWidget *parent) {
+    auto *control = new QToolButton(parent);
+    control->setDefaultAction(action);
+    control->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    return control;
+  };
+  regionControls->addWidget(button(m_selectRegion, capture));
+  regionControls->addWidget(button(m_clearRegion, capture));
+  regionControls->addStretch();
+  captureLayout->addLayout(regionControls);
+  layout->addWidget(capture);
+
+  auto *output       = new QGroupBox(tr("Recordings"), m_settingsDialog);
+  auto *outputLayout = new QVBoxLayout(output);
+  auto *location = new QLabel(QDir::toNativeSeparators(m_outputDir), output);
+  location->setWordWrap(true);
+  location->setTextFormat(Qt::PlainText);
+  location->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  location->setAccessibleName(tr("Recording location"));
+  outputLayout->addWidget(location);
+  outputLayout->addWidget(button(m_openFolder, output), 0, Qt::AlignLeft);
+  layout->addWidget(output);
+
+  m_status = new QLabel(tr("Recording off"), m_settingsDialog);
+  m_status->setObjectName("OtDevRecordStatus");
+  m_status->setWordWrap(true);
+  layout->addWidget(m_status);
+  auto *close = new QDialogButtonBox(QDialogButtonBox::Close, m_settingsDialog);
+  connect(close, &QDialogButtonBox::rejected, m_settingsDialog,
+          &QDialog::reject);
+  layout->addWidget(close);
+  m_settingsDialog->resize(380, m_settingsDialog->sizeHint().height());
+}
+
+void OtDevRecorder::updateControls() {
+  QAction *recordAction = m_enabled || m_finishing ? m_stop : m_start;
+  if (m_recordButton->defaultAction() != recordAction)
+    m_recordButton->setDefaultAction(recordAction);
+  m_recordButton->setIcon(m_enabled || m_finishing ? m_stopIcon : m_recordIcon);
+  m_pauseButton->setIcon(m_paused ? m_resumeIcon : m_pauseIcon);
+  m_settingsButton->setIcon(m_settingsIcon);
+
+  auto describe = [this](QToolButton *button, QAction *action) {
+    QStringList description{action->text()};
+    if (action->toolTip() != action->text())
+      description.append(action->toolTip());
+    for (auto *command : m_commands) {
+      const bool target =
+          command->property("recorderTarget").value<QAction *>() == action;
+      const bool pause =
+          action == m_pause &&
+          command->objectName() == (m_paused ? "MI_ResumeSessionRecording"
+                                             : "MI_PauseSessionRecording");
+      if (!target && !pause) continue;
+      for (const auto &shortcut : command->shortcuts())
+        if (!shortcut.isEmpty())
+          description.append(shortcut.toString(QKeySequence::NativeText));
+    }
+    description.removeDuplicates();
+    button->setAccessibleName(action->text());
+    button->setToolTip(description.join('\n'));
+  };
+  describe(m_recordButton, recordAction);
+  describe(m_pauseButton, m_pause);
+  describe(m_settingsButton, m_settingsAction);
+}
+
+void OtDevRecorder::updateStatus(const QString &text,
+                                 CaptureStatus captureStatus) {
   QString status = text;
-  if (m_selecting)
+  QString compact;
+  if (m_errorReported) {
+    status  = tr("Recording off - error");
+    compact = tr("Error");
+  } else if (m_selecting) {
     status = tr("Drag a region in an OpenToonz window; Esc cancels");
-  else if (m_enabled && !m_finishing) {
-    if (m_paused)
+    compact = tr("Select region...");
+  } else if (m_finishing) {
+    compact = tr("Saving...");
+  } else if (m_enabled) {
+    if (m_paused) {
       status = tr("Recording paused");
-    else if (!regionAvailable())
+      captureStatus = CaptureStatus::Paused;
+    } else if (!regionAvailable()) {
       status = tr("Recording paused (selected window unavailable)");
+      captureStatus = CaptureStatus::Paused;
+    }
+    switch (captureStatus) {
+    case CaptureStatus::Starting:
+      compact = tr("Starting...");
+      break;
+    case CaptureStatus::Recording:
+      compact = tr("Recording");
+      break;
+    case CaptureStatus::Paused:
+      compact = tr("Paused");
+      break;
+    case CaptureStatus::Busy:
+      compact = tr("Busy");
+      break;
+    }
+  } else {
+    const bool saved = m_recordedFrames > 0 && m_outputFile.endsWith(".mp4") &&
+                       !m_outputFile.endsWith(".recording.mp4");
+    compact = saved ? tr("Saved") : tr("Ready");
   }
   m_status->setText(status);
   m_status->setToolTip(m_outputFile.isEmpty() ? m_outputDir : m_outputFile);
+  m_compactStatus->setText(compact);
+  const qint64 seconds = m_recordedFrames / frameRate;
+  m_duration->setText(QString("%1:%2:%3")
+                          .arg(seconds / 3600, 2, 10, QChar('0'))
+                          .arg((seconds / 60) % 60, 2, 10, QChar('0'))
+                          .arg(seconds % 60, 2, 10, QChar('0')));
   m_start->setEnabled(!m_enabled && !m_finishing && !m_prompting &&
                       !m_selecting);
   m_pause->setEnabled(m_enabled && !m_prompting && !m_selecting);
   m_pause->setText(m_paused ? tr("Resume") : tr("Pause"));
+  const QIcon pauseIcon = m_paused ? m_resumeIcon : m_pauseIcon;
+  if (m_pause->icon().cacheKey() != pauseIcon.cacheKey())
+    m_pause->setIcon(pauseIcon);
+  m_pause->setToolTip(
+      m_paused ? tr("Continue the current recording.")
+               : tr("Pause capture without ending the current clip."));
   m_stop->setEnabled(m_enabled);
+  m_settingsAction->setEnabled(!m_prompting && !m_selecting);
   m_selectRegion->setEnabled(!m_prompting);
   m_selectRegion->setText(m_selecting ? tr("Cancel Selection")
                                       : tr("Select Region..."));
@@ -517,6 +759,9 @@ void OtDevRecorder::updateStatus(const QString &text) {
                                     : tr("Selected window is unavailable. "
                                          "Select another region or clear it."))
                   : tr("Capture all eligible OpenToonz windows."));
+  m_compactStatus->setToolTip(status + "\n" + m_regionStatus->text() + "\n" +
+                              m_status->toolTip());
+  updateControls();
 }
 
 void OtDevRecorder::requestRecording() {
@@ -603,6 +848,7 @@ void OtDevRecorder::begin() {
   }
   m_enabled = true;
   m_paused  = false;
+  m_recordedFrames = 0;
   m_diskCheck.invalidate();
   m_timer.start();
   updateStatus(tr("Recording armed"));
@@ -647,10 +893,15 @@ void OtDevRecorder::createCommands() {
           &QAction::triggered, this, [this] { finishSelection(false); });
   proxy("MI_OpenSessionRecordingsFolder", tr("Open Session Recordings Folder"),
         m_openFolder);
+  auto *settings = proxy("MI_SessionRecordingSettings", tr("Recorder Settings"),
+                         m_settingsAction);
+  settings->setCheckable(true);
+  connect(m_settingsAction, &QAction::toggled, settings, &QAction::setChecked);
   // Root association keeps shortcuts active when the panel is hidden/floating.
   for (auto *command : m_commands) {
     command->setShortcutContext(Qt::ApplicationShortcut);
     m_window->addAction(command);
+    connect(command, &QAction::changed, this, &OtDevRecorder::updateControls);
   }
 }
 
@@ -675,6 +926,7 @@ void OtDevRecorder::setPanelVisible(bool visible) {
   if (!visible) {
     if (m_selecting) finishSelection(false);
     if (m_enabled) setPaused(true);
+    m_settingsAction->setChecked(false);
   }
   const bool changed = m_panelVisible != visible;
   m_panelVisible     = visible;
@@ -719,6 +971,7 @@ void OtDevRecorder::selectRegion() {
   }
   if (m_prompting) return;
   setPanelVisible(true);
+  m_settingsAction->setChecked(false);
   if (m_enabled) setPaused(true);
   m_selecting = true;
   qApp->installEventFilter(this);
@@ -853,11 +1106,13 @@ bool OtDevRecorder::captureAllowed() const {
 void OtDevRecorder::tick() {
   if (!m_enabled || m_finishing || m_paused || m_selecting) return;
   if (!regionAvailable()) {
-    updateStatus(tr("Recording paused (selected window unavailable)"));
+    updateStatus(tr("Recording paused (selected window unavailable)"),
+                 CaptureStatus::Paused);
     return;
   }
   if (!captureAllowed()) {
-    updateStatus(tr("Recording paused (inactive or native dialog)"));
+    updateStatus(tr("Recording paused (inactive or native dialog)"),
+                 CaptureStatus::Paused);
     return;
   }
   if (!m_diskCheck.isValid() || m_diskCheck.elapsed() > 2000) {
@@ -890,7 +1145,7 @@ void OtDevRecorder::tick() {
     if (m_backpressure.elapsed() > 5000)
       fail(tr("Recording stopped: FFmpeg cannot keep up with capture."));
     else
-      updateStatus(tr("Recording busy (dropping frames)"));
+      updateStatus(tr("Recording busy (dropping frames)"), CaptureStatus::Busy);
     return;
   }
   m_backpressure.invalidate();
@@ -906,7 +1161,8 @@ void OtDevRecorder::tick() {
     fail(tr("Unable to send video frame to FFmpeg."));
     return;
   }
-  updateStatus(tr("RECORDING"));
+  ++m_recordedFrames;
+  updateStatus(tr("RECORDING"), CaptureStatus::Recording);
   if (++m_frames >= clipFrames) finishClip();
 }
 
@@ -928,10 +1184,11 @@ void OtDevRecorder::stop() {
 }
 
 void OtDevRecorder::fail(const QString &message) {
+  const bool reported = m_errorReported;
+  m_errorReported     = true;
   stop();
   updateStatus(tr("Recording off - error"));
-  if (m_errorReported) return;
-  m_errorReported = true;
+  if (reported) return;
   // Non-blocking error window, excluded from subsequent capture.
   auto *dialog =
       new QMessageBox(QMessageBox::Warning, tr("Groundzero Session Recording"),

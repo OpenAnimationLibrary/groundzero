@@ -125,7 +125,6 @@ public:
 
 protected:
   void doLoad(const QString &file);
-  void walkDirectory_(const QString &file);
 public slots:
   void walkDirectory(const QString &file);
   void walkDictionary(const QString &file);

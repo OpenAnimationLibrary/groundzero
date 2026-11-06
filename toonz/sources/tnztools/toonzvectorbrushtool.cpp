@@ -9,6 +9,7 @@
 #include "tools/tooloptions.h"
 #include "tools/replicator.h"
 #include "tools/artlayer.h"
+#include "tools/vectorpaintclip.h"
 #include "bluredbrush.h"
 
 // TnzQt includes
@@ -27,6 +28,7 @@
 #include "toonz/tframehandle.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshcolumn.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjectspline.h"
 #include "toonz/rasterstrokegenerator.h"
@@ -60,7 +62,9 @@
 
 // Qt includes
 #include <QPainter>
+#include <QStringList>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <memory>
 
@@ -366,6 +370,35 @@ namespace {
 
 enum DrawOrder { OverAll = 0, UnderAll, PaletteOrder };
 
+// A stroke may generate many frames while holding recursive image locks.
+// Report each failure once, after the outer gesture has released its locks.
+int paintWarningDepth = 0;
+QStringList paintWarnings;
+class PaintWarningScope {
+public:
+  PaintWarningScope() { ++paintWarningDepth; }
+  ~PaintWarningScope() {
+    if (--paintWarningDepth || paintWarnings.isEmpty()) return;
+    const QString message = paintWarnings.join("\n\n");
+    paintWarnings.clear();
+    DVGui::warning(message);
+  }
+};
+void paintWarning(const QString &message) {
+  if (!paintWarnings.contains(message)) paintWarnings.append(message);
+}
+bool writableDrawing(TTool::Application *app, TXshSimpleLevel *level) {
+  if (!app || !level || level->isReadOnly() || level->isSubsequence()) return false;
+  if (app->getCurrentFrame()->isEditingScene()) {
+    const int index = app->getCurrentColumn()->getColumnIndex();
+    if (index < 0) return false;
+    auto *column = app->getCurrentXsheet()->getXsheet()->getColumn(
+        index);
+    if (column && column->isLocked()) return false;
+  }
+  return true;
+}
+
 void getAboveStyleIdSet(int styleId, TPaletteP palette,
                         QSet<int> &aboveStyles) {
   if (!palette) return;
@@ -415,17 +448,8 @@ static void closeOpenStroke(TStroke *stroke) {
   stroke->setSelfLoop(true);
 }
 
-// TVectorImage::clone() does not copy the currently entered group.
 static TVectorImageP cloneWithEnteredGroup(const TVectorImageP &image) {
-  QMutexLocker lock(image->getMutex());
-  TVectorImageP copy = image->clone();
-  std::vector<int> groups;
-  while (image->isInsideGroup() > 0) groups.push_back(image->exitGroup());
-  for (auto i = groups.rbegin(); i != groups.rend(); ++i) {
-    image->enterGroup(*i);
-    copy->enterGroup(*i);
-  }
-  return copy;
+  return image->cloneWithGroupContext();
 }
 
 // Snapshot the opt-in operation so split strokes, group membership, fills and
@@ -535,7 +559,7 @@ static void addStrokeWithAutoOptions(TTool::Application *application,
   TUndoManager::manager()->add(
       new UndoVectorAutoOptions(level, fid, frameCreated, levelCreated, before,
                                 cloneWithEnteredGroup(vi)));
-  application->getCurrentTool()->getTool()->notifyImageChanged();
+  application->getCurrentTool()->getTool()->notifyImageChanged(fid, level);
 }
 
 //-------------------------------------------------------------------
@@ -666,20 +690,114 @@ static int placePaintShape(TVectorImage &vi, TStroke *shape,
 // follows the width of every control point), filled with its style and placed
 // below the Line Art or at the bottom of the drawing. One undo step, like the
 // Auto Group option.
-// Returns false when there is nothing to paint the shape with: no width (Size
-// 0, or the Colour Art target) or a style that cannot fill a region; the
-// caller then adds the stroke as in Normal mode. A stroke of zero length, or
-// one whose outline cannot be made, is dropped.
+// Unsupported paint never falls back to an unrestricted Normal stroke.
+static QString paintShapeProblem(const TVectorImageP &image,
+                                 const TStroke &stroke) {
+  if (!(strokeThickness(stroke) > 1e-6))
+    return QObject::tr("This Paint mode requires a brush with nonzero width.");
+  auto *palette = image ? image->getPalette() : nullptr;
+  auto *style = palette && stroke.getStyle() >= 0 &&
+      stroke.getStyle() < palette->getStyleCount()
+          ? palette->getStyle(stroke.getStyle()) : nullptr;
+  if (!style || !style->isRegionStyle())
+    return QObject::tr("The current style cannot fill a vector paint shape. Select a fill-capable style.");
+  if (stroke.getOpacity() != 1.0 || !stroke.getOpacityProfile().empty())
+    return QObject::tr("A paint guide must have full stroke opacity. Its palette color may be transparent. Choose a guide without a stroke opacity envelope.");
+  return {};
+}
+
+static QPainterPath currentSelectionArea(TXshSimpleLevel *level,
+    const TVectorImageP &image, bool sameAreaOnAllDrawings) {
+  if (sameAreaOnAllDrawings) {
+    // An undo or a drawing replacement can keep the cached image alive while
+    // removing it from the level. Do not paint using that abandoned snapshot.
+    bool found = false;
+    std::vector<TFrameId> fids;
+    if (level) level->getFids(fids);
+    for (const auto &fid : fids)
+      if (TVectorImageP(level->getFrame(fid, false)) ==
+          VectorPaintClip::selectionMask().image) { found = true; break; }
+    if (!found) return {};
+  }
+  return VectorPaintClip::selectionArea(image, sameAreaOnAllDrawings);
+}
+
 static bool addPaintModeShape(TTool::Application *application,
                               const TVectorImageP &vi, const TStroke &stroke,
                               BrushPaintMode::Mode mode, bool frameCreated,
                               bool levelCreated, TXshSimpleLevel *level,
-                              const TFrameId &fid) {
+                              const TFrameId &fid,
+                              const QPainterPath *selectionArea = nullptr) {
   if (!BrushPaintMode::makesShape(mode)) return false;
-  if (!(strokeThickness(stroke) > 1e-6)) return false;
-  TPalette *palette  = vi->getPalette();
-  TColorStyle *style = palette ? palette->getStyle(stroke.getStyle()) : 0;
-  if (!style || !style->isRegionStyle()) return false;
+  const QString problem = paintShapeProblem(vi, stroke);
+  if (!problem.isEmpty()) { paintWarning(problem); return true; }
+
+  if (mode == BrushPaintMode::MODE_PAINT_INSIDE ||
+      mode == BrushPaintMode::MODE_PAINT_SELECTION) {
+    const QPainterPath mask = selectionArea ? *selectionArea
+        : mode == BrushPaintMode::MODE_PAINT_INSIDE
+        ? VectorPaintClip::inside(vi, stroke.getPoint(0))
+        : VectorPaintClip::selectionArea(vi);
+    if (mask.isEmpty()) {
+      paintWarning(mode == BrushPaintMode::MODE_PAINT_INSIDE
+          ? QObject::tr("Start Paint Inside in an editable filled region.")
+          : QObject::tr("Select strokes or closed shapes with the Selection tool, then return to Brush to use Paint Selection."));
+      return true; // an empty constraint never paints freely
+    }
+    const QPainterPath clipped = VectorPaintClip::outline(stroke).intersected(mask);
+    if (clipped.isEmpty()) return true;
+    const auto polygons = clipped.toSubpathPolygons();
+    // Build an independent paint object before inserting it. Grouping newly
+    // added strokes in the live image wraps their inherited ancestors in a
+    // new outer group, moving them out of the group the artist is editing.
+    TVectorImageP paint = new TVectorImage;
+    paint->setPalette(vi->getPalette());
+    int firstIndex = -1, count = 0;
+    for (const QPolygonF &polygon : polygons) {
+      if (polygon.size() < 3) continue;
+      std::vector<TThickPoint> points;
+      for (const QPointF &point : polygon) {
+        TThickPoint p(point.x(), point.y(), 0);
+        if (!points.empty()) points.push_back((points.back() + p) * .5);
+        points.push_back(p);
+      }
+      if (points.back() != points.front()) {
+        points.push_back((points.back() + points.front()) * .5);
+        points.push_back(points.front());
+      }
+      auto *contour = new TStroke(points);
+      contour->setStyle(stroke.getStyle()); contour->setSelfLoop(true);
+      const int id = contour->getId();
+      paint->addStroke(contour, false);
+      if (firstIndex < 0) firstIndex = paint->getStrokeIndexById(id);
+      ++count;
+    }
+    if (!count) return true;
+    // All clipping contours form one independent paint object, so holes do
+    // not fill and intersections do not recolor pre-existing regions.
+    paint->group(firstIndex, count);
+    paint->findRegions();
+    std::vector<TRegion *> regions;
+    for (UINT i = 0; i < paint->getRegionCount(); ++i) regions.push_back(paint->getRegion(i));
+    while (!regions.empty()) {
+      auto *region = regions.back(); regions.pop_back();
+      for (UINT i = 0; i < region->getSubregionCount(); ++i) regions.push_back(region->getSubregion(i));
+      const int index = regionStrokeIndex(*paint, *region);
+      if (index < 0 || !paint->sameGroup(index, firstIndex)) continue;
+      TPointD point;
+      region->setStyle(region->getInternalPoint(point) && clipped.contains(QPointF(point.x, point.y))
+                           ? stroke.getStyle() : 0);
+    }
+    TVectorImageP before = cloneWithEnteredGroup(vi);
+    // This overload uses the entered group itself, even when its last object
+    // is a more deeply nested sibling. It retains the prepared region fills
+    // and inserts above that group's artwork without crossing outer layers.
+    vi->mergeImage(std::vector<const TVectorImage *>{paint.getPointer()});
+    TUndoManager::manager()->add(new UndoVectorAutoOptions(level, fid, frameCreated,
+        levelCreated, before, cloneWithEnteredGroup(vi)));
+    application->getCurrentTool()->getTool()->notifyImageChanged(fid, level);
+    return true;
+  }
 
   std::unique_ptr<TStroke> shape;
   if (stroke.getLength() > 0.0) {
@@ -706,7 +824,7 @@ static bool addPaintModeShape(TTool::Application *application,
   TUndoManager::manager()->add(
       new UndoVectorAutoOptions(level, fid, frameCreated, levelCreated, before,
                                 cloneWithEnteredGroup(vi)));
-  application->getCurrentTool()->getTool()->notifyImageChanged();
+  application->getCurrentTool()->getTool()->notifyImageChanged(fid, level);
   return true;
 }
 
@@ -715,7 +833,8 @@ static void addStroke(TTool::Application *application, const TVectorImageP &vi,
                       BrushPaintMode::Mode paintMode, bool breakAngles,
                       bool autoGroup, bool autoFill, bool frameCreated,
                       bool levelCreated, TXshSimpleLevel *sLevel = NULL,
-                      TFrameId fid = TFrameId::NO_FRAME) {
+                      TFrameId fid = TFrameId::NO_FRAME,
+                      const QPainterPath *selectionArea = nullptr) {
   QMutexLocker lock(vi->getMutex());
 
   if (application->getCurrentObject()->isSpline()) {
@@ -739,13 +858,14 @@ static void addStroke(TTool::Application *application, const TVectorImageP &vi,
   } else {
     sl = sLevel;
   }
-  TFrameId id = application->getCurrentTool()->getTool()->getCurrentFid();
-  if (id == TFrameId::NO_FRAME && fid != TFrameId::NO_FRAME) id = fid;
+  if (!writableDrawing(application, sl)) return;
+  const TFrameId id = fid != TFrameId::NO_FRAME ? fid
+      : application->getCurrentTool()->getTool()->getCurrentFid();
   // Paint Fills and Paint Behind replace the stroke with its filled shape,
   // whatever the Draw Order, Break, Auto Group and Auto Fill options say
   if (BrushPaintMode::makesShape(paintMode) &&
       addPaintModeShape(application, vi, *stroke, paintMode, frameCreated,
-                        levelCreated, sl, id))
+                        levelCreated, sl, id, selectionArea))
     return;
   if (autoGroup) {
     addStrokeWithAutoOptions(application, vi, stroke, drawOrder, breakAngles,
@@ -837,7 +957,7 @@ static void addStroke(TTool::Application *application, const TVectorImageP &vi,
   for (int k = 0; k < (int)strokes.size(); k++) delete strokes[k];
   strokes.clear();
 
-  application->getCurrentTool()->getTool()->notifyImageChanged();
+  application->getCurrentTool()->getTool()->notifyImageChanged(id, sl);
 }
 
 //-------------------------------------------------------------------
@@ -856,18 +976,22 @@ namespace {
 
 //-------------------------------------------------------------------
 
-void addStrokeToImage(TTool::Application *application, const TVectorImageP &vi,
+bool addStrokeToImage(TTool::Application *application, const TVectorImageP &vi,
                       TStroke *stroke, DrawOrder drawOrder,
                       BrushPaintMode::Mode paintMode, bool breakAngles,
                       bool autoGroup, bool autoFill, bool frameCreated,
                       bool levelCreated, TXshSimpleLevel *sLevel = NULL,
-                      TFrameId id = TFrameId::NO_FRAME) {
+                      TFrameId id = TFrameId::NO_FRAME,
+                      const QPainterPath *selectionArea = nullptr) {
+  if (!vi || !stroke) return false;
   QMutexLocker lock(vi->getMutex());
+  const int before = vi->getStrokeCount();
   addStroke(application, vi.getPointer(), stroke, drawOrder, paintMode,
             breakAngles, autoGroup, autoFill, frameCreated, levelCreated,
-            sLevel, id);
+            sLevel, id, selectionArea);
   // la notifica viene gia fatta da addStroke!
   // getApplication()->getCurrentTool()->getTool()->notifyImageChanged();
+  return int(vi->getStrokeCount()) > before;
 }
 
 //=========================================================================================================
@@ -899,6 +1023,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
     , m_smooth("Smooth:", 0, 50, 0)
     , m_drawOrder("Draw Order")
     , m_paintMode("Paint:")
+    , m_selectionMask("Selection Mask:")
     , m_preset("Preset:")
     , m_breakAngles("Break", true)
     , m_pressure("Pressure", true)
@@ -941,6 +1066,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_prop[0].bind(m_smooth);
   m_prop[0].bind(m_drawOrder);
   m_prop[0].bind(m_paintMode);
+  m_prop[0].bind(m_selectionMask);
   m_prop[0].bind(m_breakAngles);
   m_prop[0].bind(m_pressure);
   m_prop[0].bind(m_fluidWidth);
@@ -953,6 +1079,10 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_paintMode.addValue(L"Normal");
   m_paintMode.addValue(L"Paint Fills");
   m_paintMode.addValue(L"Paint Behind");
+  m_paintMode.addValue(L"Paint Inside");
+  m_paintMode.addValue(L"Paint Selection");
+  m_selectionMask.addValue(L"Current Drawing");
+  m_selectionMask.addValue(L"Same Area on All Drawings");
 
   m_prop[0].bind(m_frameRange);
   m_frameRange.addValue(L"Off");
@@ -1057,6 +1187,11 @@ void ToonzVectorBrushTool::updateTranslation() {
   m_paintMode.setItemUIName(L"Normal", tr("Normal"));
   m_paintMode.setItemUIName(L"Paint Fills", tr("Paint Fills"));
   m_paintMode.setItemUIName(L"Paint Behind", tr("Paint Behind"));
+  m_paintMode.setItemUIName(L"Paint Inside", tr("Paint Inside"));
+  m_paintMode.setItemUIName(L"Paint Selection", tr("Paint Selection"));
+  m_selectionMask.setQStringName(tr("Selection Mask:"));
+  m_selectionMask.setItemUIName(L"Current Drawing", tr("Current Drawing"));
+  m_selectionMask.setItemUIName(L"Same Area on All Drawings", tr("Same Area on All Drawings"));
   m_preset.setQStringName(tr("Preset:"));
   m_preset.setItemUIName(CUSTOM_WSTR, tr("<custom>"));
   m_breakAngles.setQStringName(tr("Break"));
@@ -1223,6 +1358,7 @@ void ToonzVectorBrushTool::copyStrokes(StrokeList &dst, const StrokeList &src) {
 //--------------------------------------------------------------------------------------------------
 
 void ToonzVectorBrushTool::inputSetBusy(bool busy) {
+  PaintWarningScope warningScope;
   if (m_active == busy) return;
   
   if (busy) {
@@ -1260,7 +1396,9 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
     // oppure il colore di un colorfield
     if (TColorStyle *cs = app->getCurrentLevelStyle()) {
       TRasterStyleFx *rfx = cs->getRasterStyleFx();
-      if (!cs->isStrokeStyle() && (!rfx || !rfx->isInkStyle()))
+      if (BrushPaintMode::makesShape(currentPaintMode())
+              ? !cs->isRegionStyle()
+              : (!cs->isStrokeStyle() && (!rfx || !rfx->isInkStyle())))
         return;
       m_styleId = app->getCurrentLevelStyleIndex();
       m_currentColor = cs->getAverageColor();
@@ -1452,8 +1590,14 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
       int curFrame = app ? app->getCurrentFrame()->getFrame()        : 0;
       
       if (size_t count = std::min(m_firstStrokes.size(), strokes.size())) {
+        bool valid = true;
+        for (size_t i = 0; i < count && valid; ++i)
+          valid = doFrameRangeStrokes(m_firstFrameId, m_firstStrokes[i], getFrameId(),
+              strokes[i], m_frameRange.getIndex(), m_breakAngles.getValue(),
+              m_autoGroup.getValue(), m_autoFill.getValue() && !m_bypassAutoClose,
+              m_firstFrameRange, true, false, currentPaintMode(), true);
         TUndoManager::manager()->beginBlock();
-        for(size_t i = 0; i < count; ++i)
+        for(size_t i = 0; valid && i < count; ++i)
           doFrameRangeStrokes(m_firstFrameId, m_firstStrokes[i], getFrameId(),
                               strokes[i], m_frameRange.getIndex(),
                               m_breakAngles.getValue(), m_autoGroup.getValue(),
@@ -1492,34 +1636,35 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
     }
   } else {
     // regular paint strokes
-    // Guided auto inbetween pairs the new stroke with the brush strokes of the
-    // neighbouring drawings, so the Paint modes act as Normal with it.
-    const bool guidedInbetween =
-        (Preferences::instance()->getGuidedDrawingType() == 1 ||
-         Preferences::instance()->getGuidedDrawingType() == 2) &&
-        Preferences::instance()->getGuidedAutoInbetween();
-    const BrushPaintMode::Mode paintMode =
-        guidedInbetween ? BrushPaintMode::MODE_NORMAL : currentPaintMode();
+    // Tween centerlines first, then apply the chosen paint operation in every
+    // destination drawing. Guided Drawing never silently changes Paint mode.
+    const BrushPaintMode::Mode paintMode = currentPaintMode();
     TUndoManager::manager()->beginBlock();
     bool strokeCommitted = false;
     for(StrokeList::iterator i = strokes.begin(); i != strokes.end(); ++i) {
       TStroke *stroke = *i;
       const int previousCount = vi->getStrokeCount();
-      addStrokeToImage(app, vi, stroke, (DrawOrder)m_drawOrder.getIndex(),
+      const QPainterPath mask = paintMode == BrushPaintMode::MODE_PAINT_SELECTION
+          ? currentSelectionArea(app->getCurrentLevel()->getSimpleLevel(), vi,
+                                 m_selectionMask.getIndex() == 1) : QPainterPath();
+      const bool committed = addStrokeToImage(app, vi, stroke, (DrawOrder)m_drawOrder.getIndex(),
                        paintMode, m_breakAngles.getValue(),
                        m_autoGroup.getValue(),
                        m_autoFill.getValue() && !m_bypassAutoClose,
-                       m_isFrameCreated, m_isLevelCreated);
-      strokeCommitted = strokeCommitted || vi->getStrokeCount() > previousCount;
+                       m_isFrameCreated, m_isLevelCreated, nullptr,
+                       TFrameId::NO_FRAME,
+                       paintMode == BrushPaintMode::MODE_PAINT_SELECTION ? &mask : nullptr);
+      strokeCommitted = strokeCommitted || committed;
 
-      if ((Preferences::instance()->getGuidedDrawingType() == 1 ||
+      if (committed && (Preferences::instance()->getGuidedDrawingType() == 1 ||
           Preferences::instance()->getGuidedDrawingType() == 2) &&
           Preferences::instance()->getGuidedAutoInbetween())
       {
         TFrameId fId = getFrameId();
         doGuidedAutoInbetween(
             fId, vi, stroke, m_breakAngles.getValue(), m_autoGroup.getValue(),
-            m_autoFill.getValue() && !m_bypassAutoClose, false);
+            m_autoFill.getValue() && !m_bypassAutoClose, false, paintMode,
+            previousCount);
         if (app->getCurrentFrame()->isEditingScene())
           app->getCurrentFrame()->setFrame( app->getCurrentFrame()->getFrameIndex() );
         else
@@ -1637,7 +1782,33 @@ void ToonzVectorBrushTool::updateModifiers() {
 //--------------------------------------------------------------------------------------------------
 
 bool ToonzVectorBrushTool::preLeftButtonDown() {
+  PaintWarningScope warningScope;
   if (getViewer() && getViewer()->getGuidedStrokePickerMode()) return false;
+  auto *app = getApplication();
+  auto *level = app ? app->getCurrentLevel()->getSimpleLevel() : nullptr;
+  if (level && !writableDrawing(app, level)) return false;
+  const auto mode = currentPaintMode();
+  if (BrushPaintMode::makesShape(mode)) {
+    auto *style = app ? app->getCurrentLevelStyle() : nullptr;
+    if (!style || !style->isRegionStyle()) {
+      paintWarning(tr("This Paint mode requires a fill-capable palette style."));
+      return false;
+    }
+    if (m_thickness.getValue().second <= 0 ||
+        ArtLayer::target() == ArtLayer::TARGET_COLOUR_ART) {
+      paintWarning(tr("This Paint mode requires a brush with nonzero width. Choose a Line Art brush target."));
+      return false;
+    }
+  }
+  if (mode == BrushPaintMode::MODE_PAINT_INSIDE ||
+      mode == BrushPaintMode::MODE_PAINT_SELECTION) {
+    TVectorImageP image = getImage(false);
+    if (!image || (mode == BrushPaintMode::MODE_PAINT_SELECTION &&
+        currentSelectionArea(level, image, m_selectionMask.getIndex() == 1).isEmpty())) {
+      paintWarning(tr("Choose an existing drawing and an editable filled region or a current Selection-tool mask before painting. No drawing was created."));
+      return false;
+    }
+  }
   updateModifiers();
   touchImage();
   if (m_isFrameCreated) {
@@ -1751,204 +1922,178 @@ bool ToonzVectorBrushTool::doFrameRangeStrokes(
     TFrameId firstFrameId, TStroke *firstStroke, TFrameId lastFrameId,
     TStroke *lastStroke, int interpolationType, bool breakAngles,
     bool autoGroup, bool autoFill, bool drawFirstStroke, bool drawLastStroke,
-    bool withUndo, BrushPaintMode::Mode paintMode) {
-  TXshSimpleLevel *sl =
-      TTool::getApplication()->getCurrentLevel()->getLevel()->getSimpleLevel();
-  TStroke *first           = new TStroke();
-  TStroke *last            = new TStroke();
-  TVectorImageP firstImage = new TVectorImage();
-  TVectorImageP lastImage  = new TVectorImage();
-
-  bool swapped = firstFrameId > lastFrameId;
-  if (swapped) {
+    bool withUndo, BrushPaintMode::Mode paintMode, bool validateOnly) {
+  PaintWarningScope warningScope;
+  auto *app = getApplication();
+  auto *sl = app ? app->getCurrentLevel()->getSimpleLevel() : nullptr;
+  if (!writableDrawing(app, sl) || !firstStroke || !lastStroke) return false;
+  if (firstFrameId.isNoFrame() || lastFrameId.isNoFrame() ||
+      firstFrameId.isEmptyFrame() || lastFrameId.isEmptyFrame()) return false;
+  if (firstFrameId > lastFrameId) {
     std::swap(firstFrameId, lastFrameId);
-    *first = *lastStroke;
-    *last  = *firstStroke;
-  } else {
-    *first = *firstStroke;
-    *last  = *lastStroke;
+    std::swap(firstStroke, lastStroke);
+    std::swap(drawFirstStroke, drawLastStroke);
   }
-
+  TVectorImageP firstImage = new TVectorImage, lastImage = new TVectorImage;
+  firstImage->addStroke(new TStroke(*firstStroke), false);
+  lastImage->addStroke(new TStroke(*lastStroke), false);
   if (autoCloseEnabled()) {
-    closeOpenStroke(first);
-    closeOpenStroke(last);
+    closeOpenStroke(firstImage->getStroke(0));
+    closeOpenStroke(lastImage->getStroke(0));
   }
-  firstImage->addStroke(first, false);
-  lastImage->addStroke(last, false);
-  assert(firstFrameId <= lastFrameId);
-
   std::vector<TFrameId> allFids;
   sl->getFids(allFids);
-  std::vector<TFrameId>::iterator i0 = allFids.begin();
-  while (i0 != allFids.end() && *i0 < firstFrameId) i0++;
-  if (i0 == allFids.end()) return false;
-  std::vector<TFrameId>::iterator i1 = i0;
-  while (i1 != allFids.end() && *i1 <= lastFrameId) i1++;
-  assert(i0 < i1);
-  std::vector<TFrameId> fids(i0, i1);
-  int m = fids.size();
-  assert(m > 0);
-
-  if (withUndo) TUndoManager::manager()->beginBlock();
-  int row       = getApplication()->getCurrentFrame()->isEditingScene()
-                      ? getApplication()->getCurrentFrame()->getFrameIndex()
-                      : -1;
-  TFrameId cFid = getApplication()->getCurrentFrame()->getFid();
-  for (int i = 0; i < m; ++i) {
-    TFrameId fid = fids[i];
-    assert(firstFrameId <= fid && fid <= lastFrameId);
-
-    // This is an attempt to divide the tween evenly
-    double t = m > 1 ? (double)i / (double)(m - 1) : 0.5;
-    double s = t;
-    switch (interpolationType) {
-    case 1:  // LINEAR_WSTR
-      break;
-    case 2:  // EASEIN_WSTR
-      s = t * (2 - t);
-      break;  // s'(1) = 0
-    case 3:   // EASEOUT_WSTR
-      s = t * t;
-      break;  // s'(0) = 0
-    case 4:   // EASEINOUT_WSTR:
-      s = t * t * (3 - 2 * t);
-      break;  // s'(0) = s'(1) = 0
+  auto begin = std::lower_bound(allFids.begin(), allFids.end(), firstFrameId);
+  auto end = std::upper_bound(begin, allFids.end(), lastFrameId);
+  if (begin == end || *begin != firstFrameId || *(end - 1) != lastFrameId)
+    return false;
+  const int count = int(end - begin);
+  struct PlannedStroke {
+    TFrameId fid;
+    TVectorImageP image;
+    std::shared_ptr<TStroke> stroke;
+    QPainterPath constraint;
+  };
+  std::vector<PlannedStroke> plan;
+  // Resolve every destination before editing any of them. No scene frame
+  // switching is needed: explicit level/frame IDs also keep undo correct
+  // when an exposure row differs from its drawing number.
+  try {
+    for (int i = 0; i < count; ++i) {
+      const auto fid = *(begin + i);
+      if ((fid == firstFrameId && !drawFirstStroke) ||
+          (fid == lastFrameId && !drawLastStroke)) continue;
+      const double t = count > 1 ? double(i) / (count - 1) : 0.;
+      double amount = t;
+      switch (interpolationType) {
+      case 2: amount = t * (2 - t); break;
+      case 3: amount = t * t; break;
+      case 4: amount = t * t * (3 - 2 * t); break;
+      }
+      TVectorImageP tween = t == 0 ? firstImage : t == 1 ? lastImage
+                                    : TInbetween(firstImage, lastImage).tween(amount);
+      TVectorImageP image = sl->getFrame(fid, true);
+      if (!image || !tween || tween->getStrokeCount() != 1) return false;
+      PlannedStroke entry{fid, image,
+          std::shared_ptr<TStroke>(new TStroke(*tween->getStroke(0))), {}};
+      if (autoCloseEnabled()) closeOpenStroke(entry.stroke.get());
+      if (BrushPaintMode::makesShape(paintMode)) {
+        const QString problem = paintShapeProblem(image, *entry.stroke);
+        if (!problem.isEmpty()) { paintWarning(problem); return false; }
+      }
+      if (paintMode == BrushPaintMode::MODE_PAINT_INSIDE) {
+        entry.constraint = VectorPaintClip::inside(image,
+                                                   entry.stroke->getPoint(0));
+        if (entry.constraint.isEmpty()) {
+          paintWarning(tr("Paint Inside range canceled: every generated stroke must start in an editable filled region. No range drawings were changed."));
+          return false;
+        }
+      } else if (paintMode == BrushPaintMode::MODE_PAINT_SELECTION) {
+        entry.constraint = currentSelectionArea(sl, image, m_selectionMask.getIndex() == 1);
+        if (entry.constraint.isEmpty()) {
+          paintWarning(tr("Paint Selection range canceled: a destination has no current selection mask. Select Same Area on All Drawings to deliberately reuse the selected area in drawing coordinates. No range drawings were changed."));
+          return false;
+        }
+      }
+      plan.push_back(std::move(entry));
     }
-
-    TTool::Application *app = TTool::getApplication();
-    if (app) app->getCurrentFrame()->setFid(fid);
-
-    TVectorImageP img = sl->getFrame(fid, true);
-    if (t == 0) {
-      if (!swapped && !drawFirstStroke) {
-      } else
-        addStrokeToImage(getApplication(), img, firstImage->getStroke(0),
-                         (DrawOrder)m_drawOrder.getIndex(), paintMode,
-                         breakAngles, autoGroup, autoFill, m_isFrameCreated,
-                         m_isLevelCreated, sl, fid);
-    } else if (t == 1) {
-      if (swapped && !drawFirstStroke) {
-      } else if (drawLastStroke)
-        addStrokeToImage(getApplication(), img, lastImage->getStroke(0),
-                         (DrawOrder)m_drawOrder.getIndex(), paintMode,
-                         breakAngles, autoGroup, autoFill, m_isFrameCreated,
-                         m_isLevelCreated, sl, fid);
-    } else {
-      assert(firstImage->getStrokeCount() == 1);
-      assert(lastImage->getStrokeCount() == 1);
-      TVectorImageP vi = TInbetween(firstImage, lastImage).tween(s);
-      assert(vi->getStrokeCount() == 1);
-      if (autoCloseEnabled()) closeOpenStroke(vi->getStroke(0));
-      addStrokeToImage(getApplication(), img, vi->getStroke(0),
-                       (DrawOrder)m_drawOrder.getIndex(), paintMode,
-                       breakAngles, autoGroup, autoFill, m_isFrameCreated,
-                       m_isLevelCreated, sl, fid);
-    }
+  } catch (const std::exception &error) {
+    paintWarning(tr("The range could not be generated: %1. No range drawings were changed.")
+                     .arg(QString::fromUtf8(error.what())));
+    return false;
   }
-  if (row != -1)
-    getApplication()->getCurrentFrame()->setFrame(row);
-  else
-    getApplication()->getCurrentFrame()->setFid(cFid);
-
+  if (validateOnly) return true;
+  if (withUndo) TUndoManager::manager()->beginBlock();
+  bool changed = false;
+  const TFrameId currentFid = getCurrentFid();
+  for (const auto &entry : plan) {
+    const bool constrained = paintMode == BrushPaintMode::MODE_PAINT_INSIDE ||
+                             paintMode == BrushPaintMode::MODE_PAINT_SELECTION;
+    changed = addStrokeToImage(app, entry.image, entry.stroke.get(),
+        (DrawOrder)m_drawOrder.getIndex(), paintMode, breakAngles, autoGroup,
+        autoFill, withUndo && entry.fid == currentFid && m_isFrameCreated,
+        withUndo && entry.fid == currentFid && m_isLevelCreated, sl, entry.fid,
+        constrained ? &entry.constraint : nullptr) || changed;
+  }
   if (withUndo) TUndoManager::manager()->endBlock();
-  notifyImageChanged();
-  return true;
+  return changed;
 }
 
 //--------------------------------------------------------------------------------------------------
 bool ToonzVectorBrushTool::doGuidedAutoInbetween(
     TFrameId cFid, const TVectorImageP &cvi, TStroke *cStroke, bool breakAngles,
-    bool autoGroup, bool autoFill, bool drawStroke) {
-  TApplication *app = TTool::getApplication();
-
-  if (cFid.isEmptyFrame() || cFid.isNoFrame() || !cvi || !cStroke) return false;
-
-  TXshSimpleLevel *sl = app->getCurrentLevel()->getLevel()->getSimpleLevel();
-  if (!sl) return false;
-
-  int osBack  = -1;
-  int osFront = -1;
-
-  getViewer()->getGuidedFrameIdx(&osBack, &osFront);
-
-  TFrameHandle *currentFrame = getApplication()->getCurrentFrame();
-  bool resultBack            = false;
-  bool resultFront           = false;
-  TFrameId oFid;
-  int cStrokeIdx = cvi->getStrokeCount();
-  if (!drawStroke) cStrokeIdx--;
-
+    bool autoGroup, bool autoFill, bool drawStroke,
+    BrushPaintMode::Mode paintMode, int correspondenceIndex) {
+  PaintWarningScope warningScope;
+  auto *app = getApplication();
+  auto *sl = app ? app->getCurrentLevel()->getSimpleLevel() : nullptr;
+  if (!writableDrawing(app, sl) || !getViewer() || !cvi || !cStroke ||
+      cFid.isEmptyFrame() || cFid.isNoFrame()) return false;
+  int backRow = -1, frontRow = -1;
+  getViewer()->getGuidedFrameIdx(&backRow, &frontRow);
+  const bool painted = BrushPaintMode::makesShape(paintMode);
+  const int fallback = correspondenceIndex >= 0 ? correspondenceIndex
+      : int(cvi->getStrokeCount()) - (drawStroke ? 0 : 1);
+  struct Guide {
+    TFrameId fid = TFrameId::NO_FRAME;
+    TVectorImageP image;
+    TStroke *stroke = nullptr;
+  } back, front;
+  auto resolve = [&](int row, int picked, Guide &guide) {
+    if (row < 0) return true;
+    if (painted && picked < 0) {
+      paintWarning(tr("Guided painting requires explicitly picked brush centerlines with nonzero width in each guide drawing. No inbetweens were generated."));
+      return false;
+    }
+    if (app->getCurrentFrame()->isEditingScene()) {
+      const int column = app->getCurrentColumn()->getColumnIndex();
+      const auto cell = app->getCurrentXsheet()->getXsheet()->getCell(row, column);
+      if (cell.isEmpty() || cell.getSimpleLevel() != sl) {
+        if (painted) paintWarning(tr("A painted guide must belong to the current vector level. No inbetweens were generated."));
+        return !painted;
+      }
+      guide.fid = cell.getFrameId();
+    } else {
+      if (row >= sl->getFrameCount()) return !painted;
+      guide.fid = sl->getFrameId(row);
+    }
+    if (guide.fid == cFid) return true;
+    guide.image = sl->getFrame(guide.fid, false);
+    const int index = picked >= 0 ? picked : fallback;
+    if (!guide.image || index < 0 || index >= int(guide.image->getStrokeCount())) {
+      if (painted) paintWarning(tr("The picked guide stroke is no longer available. Pick the guide again. No inbetweens were generated."));
+      return !painted;
+    }
+    guide.stroke = guide.image->getStroke(index);
+    if (painted) {
+      const QString problem = paintShapeProblem(guide.image, *guide.stroke);
+      if (!problem.isEmpty()) { paintWarning(problem); return false; }
+    }
+    return true;
+  };
+  if (!resolve(backRow, getViewer()->getGuidedBackStroke(), back) ||
+      !resolve(frontRow, getViewer()->getGuidedFrontStroke(), front)) return false;
+  const int interpolation = Preferences::instance()->getGuidedInterpolation();
+  // Validate both directions together, so a bad front mask cannot leave a
+  // completed back half. Guide endpoints themselves are never repainted.
+  if (back.stroke && !doFrameRangeStrokes(back.fid, back.stroke, cFid, cStroke,
+          interpolation, breakAngles, autoGroup, autoFill, false, drawStroke,
+          false, paintMode, true)) return false;
+  if (front.stroke && !doFrameRangeStrokes(cFid, cStroke, front.fid, front.stroke,
+          interpolation, breakAngles, autoGroup, autoFill, drawStroke && !back.stroke,
+          false, false, paintMode, true)) return false;
   TUndoManager::manager()->beginBlock();
-  if (osBack != -1) {
-    if (currentFrame->isEditingScene()) {
-      TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
-      int col      = app->getCurrentColumn()->getColumnIndex();
-      if (xsh && col >= 0) {
-        TXshCell cell = xsh->getCell(osBack, col);
-        if (!cell.isEmpty()) oFid = cell.getFrameId();
-      }
-    } else
-      oFid = sl->getFrameId(osBack);
-
-    TVectorImageP fvi = sl->getFrame(oFid, false);
-    int fStrokeCount  = fvi ? fvi->getStrokeCount() : 0;
-
-    int strokeIdx = getViewer()->getGuidedBackStroke() != -1
-                        ? getViewer()->getGuidedBackStroke()
-                        : cStrokeIdx;
-
-    if (!oFid.isEmptyFrame() && oFid != cFid && fvi && fStrokeCount &&
-        strokeIdx < fStrokeCount) {
-      TStroke *fStroke = fvi->getStroke(strokeIdx);
-
-      bool frameCreated = m_isFrameCreated;
-      m_isFrameCreated  = false;
-      touchImage();
-      resultBack = doFrameRangeStrokes(
-          oFid, fStroke, cFid, cStroke,
-          Preferences::instance()->getGuidedInterpolation(), breakAngles,
-          autoGroup, autoFill, false, drawStroke, false);
-      m_isFrameCreated = frameCreated;
-    }
-  }
-
-  if (osFront != -1) {
-    bool drawFirstStroke = (osBack != -1 && resultBack) ? false : true;
-
-    if (currentFrame->isEditingScene()) {
-      TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
-      int col      = app->getCurrentColumn()->getColumnIndex();
-      if (xsh && col >= 0) {
-        TXshCell cell = xsh->getCell(osFront, col);
-        if (!cell.isEmpty()) oFid = cell.getFrameId();
-      }
-    } else
-      oFid = sl->getFrameId(osFront);
-
-    TVectorImageP fvi = sl->getFrame(oFid, false);
-    int fStrokeCount  = fvi ? fvi->getStrokeCount() : 0;
-
-    int strokeIdx = getViewer()->getGuidedFrontStroke() != -1
-                        ? getViewer()->getGuidedFrontStroke()
-                        : cStrokeIdx;
-
-    if (!oFid.isEmptyFrame() && oFid != cFid && fvi && fStrokeCount &&
-        strokeIdx < fStrokeCount) {
-      TStroke *fStroke = fvi->getStroke(strokeIdx);
-
-      bool frameCreated = m_isFrameCreated;
-      m_isFrameCreated  = false;
-      touchImage();
-      resultFront = doFrameRangeStrokes(
-          cFid, cStroke, oFid, fStroke,
-          Preferences::instance()->getGuidedInterpolation(), breakAngles,
-          autoGroup, autoFill, drawFirstStroke, false, false);
-      m_isFrameCreated = frameCreated;
-    }
-  }
+  bool changed = false;
+  if (back.stroke)
+    changed = doFrameRangeStrokes(back.fid, back.stroke, cFid, cStroke,
+        interpolation, breakAngles, autoGroup, autoFill, false, drawStroke,
+        false, paintMode) || changed;
+  if (front.stroke)
+    changed = doFrameRangeStrokes(cFid, cStroke, front.fid, front.stroke,
+        interpolation, breakAngles, autoGroup, autoFill, drawStroke && !back.stroke,
+        false, false, paintMode) || changed;
   TUndoManager::manager()->endBlock();
-
-  return resultBack || resultFront;
+  return changed;
 }
 
 //--------------------------------------------------------------------------------------------------

@@ -110,6 +110,22 @@ SceneCheckPane::SceneCheckPane(QWidget *parent, Qt::WindowFlags flags)
       tr("Also look for palette styles no drawing uses. It loads every "
          "drawing, so it is slow on large scenes."));
 
+  m_compatibility = new QCheckBox(tr("Older-build Compatibility"), this);
+  m_compatibility->setObjectName("sceneCompatibilityCheck");
+  m_compatibility->setToolTip(tr("Read-only inventory of known Groundzero extensions: "
+      "pose libraries, storyboard notes, published channels, offset layers, 3D controls, "
+      "time remapping, color effects, SeExpr animation and selected native effects. This is not a certification "
+      "for an arbitrary older build; compressed scene format and all third-party "
+      "plugins require separate verification."));
+  auto *compatibilityScope = new QLabel(tr(
+      "Known-extension inventory: no historical version is selected or certified. "
+      "An empty report does not guarantee that an older build can open this scene. "
+      "Keep the original scene and assets before saving from another build."), this);
+  compatibilityScope->setObjectName("sceneCompatibilityScope");
+  compatibilityScope->setWordWrap(true);
+  compatibilityScope->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  compatibilityScope->hide();
+  connect(m_compatibility, &QCheckBox::toggled, compatibilityScope, &QLabel::setVisible);
   m_severityFilter = new QComboBox(this);
   m_severityFilter->addItem(tr("All"), SceneChecker::Info);
   m_severityFilter->addItem(tr("Warnings and Errors"), SceneChecker::Warning);
@@ -132,6 +148,7 @@ SceneCheckPane::SceneCheckPane(QWidget *parent, Qt::WindowFlags flags)
   checkLayout->setSpacing(5);
   checkLayout->addWidget(checkButton);
   checkLayout->addWidget(m_unusedStyles);
+  checkLayout->addWidget(m_compatibility);
   checkLayout->addStretch(1);
 
   QHBoxLayout *filterLayout = new QHBoxLayout();
@@ -145,12 +162,14 @@ SceneCheckPane::SceneCheckPane(QWidget *parent, Qt::WindowFlags flags)
   mainLayout->setSpacing(5);
   mainLayout->addWidget(m_statistics);
   mainLayout->addLayout(checkLayout);
+  mainLayout->addWidget(compatibilityScope);
   mainLayout->addLayout(filterLayout);
   mainLayout->addWidget(m_tree, 1);
   setLayout(mainLayout);
 
   connect(checkButton, SIGNAL(clicked()), this, SLOT(check()));
   connect(m_unusedStyles, SIGNAL(toggled(bool)), this, SLOT(check()));
+  connect(m_compatibility, SIGNAL(toggled(bool)), this, SLOT(check()));
   connect(m_severityFilter, SIGNAL(currentIndexChanged(int)), this,
           SLOT(updateTree()));
   connect(m_textFilter, SIGNAL(textChanged(const QString &)), this,
@@ -192,6 +211,7 @@ void SceneCheckPane::check() {
   if (!scene) return;
   SceneChecker::Options options;
   options.unusedStyles = m_unusedStyles->isChecked();
+  options.compatibility = m_compatibility->isChecked();
   QApplication::setOverrideCursor(Qt::WaitCursor);
   std::vector<SceneChecker::Issue> issues = SceneChecker::check(scene, options);
   QApplication::restoreOverrideCursor();

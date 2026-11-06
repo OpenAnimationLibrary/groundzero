@@ -16,6 +16,7 @@
 #define MI_SaveScene "MI_SaveScene"
 #define MI_SaveSceneAs "MI_SaveSceneAs"
 #define MI_SaveAll "MI_SaveAll"
+#define MI_RecoveryStatus "MI_RecoveryStatus"
 #define MI_SaveAllLevels "MI_SaveAllLevels"
 #define MI_RevertScene "MI_RevertScene"
 #define MI_LoadSubSceneFile "MI_LoadSubSceneFile"
@@ -540,6 +541,7 @@
 #define MI_OpenReportABug "MI_OpenReportABug"
 
 #define MI_ClearCacheFolder "MI_ClearCacheFolder"
+#define MI_ManageMediaCache "MI_ManageMediaCache"
 #define MI_ClearViewerContent "MI_ClearViewerContent"
 
 #define MI_VectorGuidedDrawing "MI_VectorGuidedDrawing"

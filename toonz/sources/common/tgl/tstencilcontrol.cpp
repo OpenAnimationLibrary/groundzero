@@ -4,12 +4,14 @@
 #include "tgl.h"
 #include "tthreadmessage.h"
 #include <stack>
+#include <vector>
 
 #include <QThreadStorage>
 
 //-----------------------------------------------------------------------------------------
 
 namespace {
+thread_local std::vector<TStencilControl *> framebufferStencilControls;
 
 // singleton
 class StencilControlManager {
@@ -122,11 +124,21 @@ TStencilControl::Imp::Imp()
 //---------------------------------------------------------
 
 TStencilControl *TStencilControl::instance() {
+  if (!framebufferStencilControls.empty()) return framebufferStencilControls.back();
   StencilControlManager *instance = StencilControlManager::instance();
   return instance->getCurrentStencilControl();
 }
 
 //---------------------------------------------------------
+
+TStencilControl::FramebufferScope::FramebufferScope()
+    : m_control(new TStencilControl) {
+  framebufferStencilControls.push_back(m_control.get());
+}
+TStencilControl::FramebufferScope::~FramebufferScope() {
+  assert(!framebufferStencilControls.empty() && framebufferStencilControls.back() == m_control.get());
+  framebufferStencilControls.pop_back();
+}
 
 TStencilControl::TStencilControl() : m_imp(new Imp) {}
 

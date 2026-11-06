@@ -47,6 +47,7 @@
 #define MI_WidthProfilePulse "MI_WidthProfilePulse"
 #define MI_ApplySavedWidthProfile "MI_ApplySavedWidthProfile"
 #define MI_SaveWidthProfile "MI_SaveWidthProfile"
+#define MI_EditStrokeOpacityProfile "MI_EditStrokeOpacityProfile"
 #define MI_SaveAsCustomVectorBrush "MI_SaveAsCustomVectorBrush"
 
 #define MI_OpenChild "MI_OpenChild"

@@ -40,6 +40,7 @@ class SvgWriterProperties final : public TPropertyGroup {
 public:
   TEnumProperty m_strokeMode;
   TEnumProperty m_outlineQuality;
+  TIntProperty m_opacityRasterScale;
   SvgWriterProperties();
   void updateTranslation() override;
 };

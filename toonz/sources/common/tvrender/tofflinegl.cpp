@@ -9,6 +9,7 @@
 #include "tthreadmessage.h"
 #include "tsystem.h"
 #include "trop.h"
+#include "qtofflinegl.h"
 
 // Platform-specific includes
 #if defined(LINUX) || defined(FREEBSD)
@@ -310,7 +311,10 @@ public:
 // default imp generator
 static std::shared_ptr<TOfflineGL::Imp> defaultOfflineGLGenerator(
     const TDimension &dim, std::shared_ptr<TOfflineGL::Imp> shared) {
-  return std::make_shared<WIN32Implementation>(dim, shared);
+  // Use the same framebuffer-backed production context as the other desktop
+  // platforms. GDI bitmap contexts expose only legacy OpenGL on many Windows
+  // drivers and cannot composite native stroke opacity envelopes.
+  return std::make_shared<QtOfflineGL>(dim, shared);
 }
 
 //=============================================================================
@@ -550,16 +554,10 @@ public:
 //--------------------------------------------------
 
 TOfflineGL::TOfflineGL(TDimension dim, const TOfflineGL *shared) : m_imp(0) {
-#if defined(LINUX) || defined(FREEBSD)
-  QMutexLocker locker(&linuxImpMutex);
-#endif
-
-  /*
- The original code did some incomprehensible things like creating an offline
- renderer (to be called from another thread) and dispatching it to the main
- thread, but Q*GLContext can't go beyond the  thread context, so it is created
- directly and closed in this context. It does not dispatch to another thread.
-*/
+  // Each Qt implementation owns its render-thread context. Its native surface
+  // is created on the GUI thread: do not hold the legacy GLX mutex while that
+  // request is delivered, since the GUI may itself be creating a palette icon
+  // context. Explicit GLX activation retains its own internal mutex.
   m_imp = currentImpGenerator(dim, shared ? shared->m_imp : 0);
 
   initMatrix();
@@ -568,13 +566,7 @@ TOfflineGL::TOfflineGL(TDimension dim, const TOfflineGL *shared) : m_imp(0) {
 //-----------------------------------------------------------------------------
 
 TOfflineGL::TOfflineGL(const TRaster32P &raster, const TOfflineGL *shared) {
-#if defined(LINUX) || defined(FREEBSD)
-  QMutexLocker locker(&linuxImpMutex);
-#endif
-
-  // m_imp = new Imp(raster->getSize());
-
-  m_imp = currentImpGenerator(raster->getSize(), shared->m_imp);
+  m_imp = currentImpGenerator(raster->getSize(), shared ? shared->m_imp : nullptr);
 
   initMatrix();
 

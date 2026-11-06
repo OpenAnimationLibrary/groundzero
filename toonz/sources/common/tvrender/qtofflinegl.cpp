@@ -4,6 +4,36 @@
 #include "qtofflinegl.h"
 #include <traster.h>
 #include <tconvert.h>
+#include <QCoreApplication>
+#include <QGuiApplication>
+#include <QThread>
+#include <QOpenGLFunctions>
+#include <QDebug>
+
+namespace {
+void diagnoseOffscreenContext(const char *phase, QOpenGLContext *context,
+                              QOpenGLFramebufferObject *framebuffer = nullptr) {
+  if (!qEnvironmentVariableIsSet("GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS")) return;
+  const bool current = context && QOpenGLContext::currentContext() == context;
+  const auto nativeVersion = glGetString(GL_VERSION);
+  const auto nativeRenderer = glGetString(GL_RENDERER);
+  const auto qtVersion =
+      current ? context->functions()->glGetString(GL_VERSION) : nullptr;
+  const auto qtRenderer =
+      current ? context->functions()->glGetString(GL_RENDERER) : nullptr;
+  const auto string = [](const GLubyte *value) {
+    return value ? QString::fromLatin1(reinterpret_cast<const char *>(value))
+                 : QString("unavailable");
+  };
+  qWarning().noquote()
+      << "offscreen-gl:" << phase << "current=" << current << "gles="
+      << (context && context->isOpenGLES()) << "native-version="
+      << string(nativeVersion) << "native-renderer=" << string(nativeRenderer)
+      << "qt-version=" << string(qtVersion) << "qt-renderer=" << string(qtRenderer)
+      << "fbo-valid=" << (framebuffer && framebuffer->isValid()) << "fbo-size="
+      << (framebuffer ? framebuffer->size() : QSize());
+}
+}  // namespace
 
 //-----------------------------------------------------------------------------
 
@@ -98,7 +128,21 @@ doneCurrent();
 
 //-----------------------------------------------------------------------------
 
-QtOfflineGL::~QtOfflineGL() {}
+QtOfflineGL::~QtOfflineGL() {
+  if (!m_context) return;
+  // Framebuffer resources must be released in their owning context; leave the
+  // caller's context current after destruction, including nested exports.
+  try {
+    makeCurrent();
+    m_fbo.reset();
+    doneCurrent();
+  } catch (...) {
+    // Qt defers framebuffer cleanup to the share group if activation failed.
+    m_fbo.reset();
+    restoreCurrentContext();
+  }
+  m_context.reset();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -128,22 +172,47 @@ void QtOfflineGL::createContext(TDimension rasterSize,
 
   // A QGLFormat used to be set up here, but it was never used: the context
   // only gets the QSurfaceFormat below.
+  auto *application = qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+  if (!application)
+    throw TException("Offscreen OpenGL rendering requires a QGuiApplication");
+  saveCurrentContext();
   QSurfaceFormat format;
+  format.setRenderableType(QSurfaceFormat::OpenGL);
   format.setProfile(QSurfaceFormat::CompatibilityProfile);
+  format.setVersion(2, 1);
+  format.setDepthBufferSize(24);
+  format.setStencilBufferSize(8);
 
-  m_surface = std::make_shared<QOffscreenSurface>();
-  m_surface->setFormat(format);
-  m_surface->create();
+  // Some platforms implement offscreen surfaces with native windows. Create
+  // and destroy that surface on the GUI thread, while the render context and
+  // all GL work remain on the calling render thread.
+  auto createSurface = [&] {
+    m_surface = std::shared_ptr<QOffscreenSurface>(new QOffscreenSurface,
+        [](QOffscreenSurface *surface) {
+          if (surface->thread() == QThread::currentThread()) delete surface;
+          else surface->deleteLater();
+        });
+    m_surface->setFormat(format);
+    m_surface->create();
+  };
+  if (application->thread() != QThread::currentThread()) {
+    if (!QMetaObject::invokeMethod(application, createSurface, Qt::BlockingQueuedConnection))
+      throw TException("Cannot create the offscreen surface on the GUI thread");
+  } else createSurface();
 
   m_context = std::make_shared<QOpenGLContext>();
   m_context->setFormat(format);
+  if (auto source = std::dynamic_pointer_cast<QtOfflineGL>(shared))
+    if (source->m_context) m_context->setShareContext(source->m_context.get());
   // Without OpenGL (the offscreen platform on a headless machine) the
   // context is not created, and the framebuffer below crashed on the missing
   // current context. Fail here instead, where callers can report it.
   if (!m_surface->isValid() || !m_context->create() ||
       !m_context->makeCurrent(m_surface.get())) {
+    diagnoseOffscreenContext("context-creation-failed", m_context.get());
     m_context.reset();
     m_surface.reset();
+    restoreCurrentContext();
     throw TException("OpenGL is not available: no offscreen context");
   }
 
@@ -151,10 +220,16 @@ void QtOfflineGL::createContext(TDimension rasterSize,
   fbo_format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
   m_fbo = std::make_shared<QOpenGLFramebufferObject>(rasterSize.lx,
                                                      rasterSize.ly, fbo_format);
-  m_fbo->bind();
-
-  printf("create context:%p [thread:0x%x]\n", m_context.get(),
-         (unsigned int)(size_t)QThread::currentThreadId());
+  if (!m_fbo->isValid() || !m_fbo->bind()) {
+    diagnoseOffscreenContext("framebuffer-creation-failed", m_context.get(),
+                             m_fbo.get());
+    m_fbo.reset();
+    m_context->doneCurrent();
+    m_context.reset();
+    restoreCurrentContext();
+    throw TException("OpenGL is not available: no framebuffer support");
+  }
+  diagnoseOffscreenContext("created", m_context.get(), m_fbo.get());
 
   // Creo il contesto OpenGL - assicurandomi che sia effettivamente creato
   // NOTA: Se il contesto non viene creato, di solito basta ritentare qualche
@@ -163,32 +238,33 @@ void QtOfflineGL::createContext(TDimension rasterSize,
 //-----------------------------------------------------------------------------
 
 void QtOfflineGL::makeCurrent() {
-  if (m_context) {
-    m_context->moveToThread(QThread::currentThread());
-    m_context->makeCurrent(m_surface.get());
-  }
+  if (!m_context) return;
+  saveCurrentContext();
+  if (!m_context->thread()) m_context->moveToThread(QThread::currentThread());
+  if (m_context->thread() != QThread::currentThread() ||
+      !m_context->makeCurrent(m_surface.get()))
+    throw TException("Cannot activate the offscreen OpenGL context on this thread");
+  if (m_fbo && !m_fbo->bind()) throw TException("Cannot bind offscreen framebuffer");
 }
-
-//-----------------------------------------------------------------------------
 
 void QtOfflineGL::doneCurrent() {
-  if (m_context) {
-    m_context->moveToThread(0);
-    m_context->doneCurrent();
-  }
+  if (!m_context) return;
+  if (QOpenGLContext::currentContext() == m_context.get()) m_context->doneCurrent();
+  if (m_context->thread() == QThread::currentThread()) m_context->moveToThread(nullptr);
+  restoreCurrentContext();
 }
-
-//-----------------------------------------------------------------------------
 
 void QtOfflineGL::saveCurrentContext() {
-  //  m_oldContext = const_cast<QGLContext*>(QGLContext::currentContext());
+  auto *current = QOpenGLContext::currentContext();
+  if (current == m_context.get()) return;
+  m_oldContext = current;
+  m_oldSurface = current ? current->surface() : nullptr;
+  m_oldSurfaceObject = dynamic_cast<QObject *>(m_oldSurface);
 }
 
-//-----------------------------------------------------------------------------
-
 void QtOfflineGL::restoreCurrentContext() {
-  //  if(m_oldContext) m_oldContext->makeCurrent();
-  //  m_oldContext = 0;
+  if (m_oldContext && m_oldSurface && m_oldSurfaceObject)
+    m_oldContext->makeCurrent(m_oldSurface);
 }
 
 //-----------------------------------------------------------------------------
@@ -199,10 +275,27 @@ void QtOfflineGL::getRaster(TRaster32P raster) {
 
   int lx = raster->getLx();
   int ly = raster->getLy();
+  QImage pixels = m_fbo->toImage(false);
+  if (qEnvironmentVariableIsSet("GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS")) {
+    diagnoseOffscreenContext("readback", m_context.get(), m_fbo.get());
+    int visible = 0, dark = 0;
+    for (int y = 0; y < pixels.height(); ++y)
+      for (int x = 0; x < pixels.width(); ++x) {
+        const QRgb value = pixels.pixel(x, y);
+        if (qAlpha(value)) ++visible;
+        if (qAlpha(value) && qRed(value) < 200 && qGreen(value) < 200 &&
+            qBlue(value) < 200)
+          ++dark;
+      }
+    qWarning() << "offscreen-gl: pixels" << pixels.size()
+               << "format=" << int(pixels.format())
+               << "requested=" << QSize(lx, ly) << "visible=" << visible
+               << "dark=" << dark;
+  }
 
   raster->lock();
   raster->copy(TRaster32P(lx, ly, m_fbo->width(),
-                          (TPixelRGBM32 *)m_fbo->toImage(false).bits(), false));
+                          (TPixelRGBM32 *)pixels.bits(), false));
   raster->unlock();
 }
 

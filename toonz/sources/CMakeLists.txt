@@ -345,6 +345,15 @@ if(Qt${QT_VERSION_MAJOR}Core_VERSION VERSION_LESS QT_MINIMUM_VERSION)
 endif()
 unset(QT_MINIMUM_VERSION)
 
+# Qt 5's headers use stdext array iterators removed by current MSVC STL.
+# Apply the portable Qt fallback before any container header, consistently in
+# libraries, the application, and tests. Qt 6 and C translation units are
+# unaffected. The imported Core target propagates this to every Qt consumer.
+if(BUILD_ENV_MSVC AND QT_VERSION_MAJOR EQUAL 5)
+    target_compile_options(Qt5::Core INTERFACE
+        "$<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_CURRENT_SOURCE_DIR}/include/qt5msvccompat.h>")
+endif()
+
 # Libraries that only Qt 6 needs, empty with Qt 5. Qt 6's OpenGL module no
 # longer has QOpenGLWidget nor depends on Widgets as Qt 5's does, so every
 # target linking Qt${QT_VERSION_MAJOR}::OpenGL also links

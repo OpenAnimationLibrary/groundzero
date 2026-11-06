@@ -79,6 +79,7 @@ class MovePointDragTool final : public FunctionPanel::DragTool {
   FunctionPanel *m_panel;
   QPoint m_startPos, m_oldPos;
   double m_deltaFrame;
+  double m_anchorFrame;
   // length and kIndex of speedinout handles which can change because of point
   // moving
   double m_speed0Length;

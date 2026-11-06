@@ -726,6 +726,17 @@ DvItemViewerPanel::DvItemViewerPanel(DvItemViewer *viewer, bool noContextMenu,
 
 //-----------------------------------------------------------------------------
 
+DvItemViewerPanel::~DvItemViewerPanel() {
+  // The panel owns the selection. Parent models may already be tearing down,
+  // so detach commands without delivering item-selection callbacks to them.
+  m_selection->blockSignals(true);
+  m_selection->setView(nullptr);
+  m_selection->makeNotCurrent();
+  delete m_selection;
+}
+
+//-----------------------------------------------------------------------------
+
 void DvItemViewerPanel::setItemViewPlayDelegate(
     DVItemViewPlayDelegate *playDelegate) {
   m_isPlayDelegateDisable = false;
@@ -840,8 +851,13 @@ DvItemListModel *DvItemViewerPanel::getModel() const {
 
 void DvItemViewerPanel::setSelection(DvItemSelection *selection) {
   if (m_selection == selection) return;
+  assert(selection);
+  m_selection->blockSignals(true);
+  m_selection->setView(nullptr);
+  m_selection->makeNotCurrent();
   delete m_selection;
   m_selection = selection;
+  m_selection->setView(this);
   m_selection->setModel(getModel());
 }
 

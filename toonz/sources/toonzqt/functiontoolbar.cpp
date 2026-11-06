@@ -118,6 +118,8 @@ bool FunctionToolbar::anyWidgetHasFocus() {
 //-------------------------------------------------------------------
 
 void FunctionToolbar::setCurve(TDoubleParam *curve) {
+  m_valueFld->setEnabled((!curve || !curve->isEditorLocked()) &&
+                        (!m_selection || m_selection->getSelectedKeyframeCount() <= 1));
   if (curve == m_curve) return;
   bool curveDefined = curve != 0;
   m_valueFldAction->setVisible(curveDefined);
@@ -164,7 +166,7 @@ void FunctionToolbar::onPrevKeyframe(QWidget *panel) {
 //-------------------------------------------------------------------
 
 void FunctionToolbar::onValueFieldChanged() {
-  if (!m_curve) return;
+  if (!m_curve || m_curve->isEditorLocked()) return;
   int frame     = m_frameNavigator->getFrame();
   double value  = m_valueFld->getValue();
   double fValue = m_curve->getValue(frame);
@@ -185,6 +187,8 @@ void FunctionToolbar::onNavFrameSwitched() {
 //-------------------------------------------------------------------
 
 void FunctionToolbar::onSelectionChanged() {
+  m_valueFld->setEnabled(!m_curve || !m_curve->isEditorLocked());
+  m_valueFld->setPlaceholderText(QString());
   if (m_selection) {
     if (m_selection->getSelectedKeyframeCount() == 1) {
       QPair<TDoubleParam *, int> k = m_selection->getSelectedKeyframe(0);
@@ -196,9 +200,14 @@ void FunctionToolbar::onSelectionChanged() {
     } else if (m_selection->getSelectedKeyframeCount() > 1) {
       setFrame(m_frameHandle->getFrame());
       m_valueFld->setText("");
+      m_valueFld->setPlaceholderText(tr("Multiple keys — Edit Keys…"));
+      m_valueFld->setEnabled(false);
       return;
     }
   }
+
+  m_valueFld->setEnabled(!m_curve || !m_curve->isEditorLocked());
+  m_valueFld->setPlaceholderText(QString());
 
   if (m_frameHandle && m_curve)
     setFrame(m_frameHandle->getFrame());

@@ -5,6 +5,8 @@
 
 #include "dvitemview.h"
 #include <QMimeData>
+#include <algorithm>
+#include <functional>
 
 class CastBrowser;
 class TXshPaletteLevel;
@@ -58,6 +60,8 @@ public:
   virtual TXshChildLevel *getChildLevel() const { return 0; }
   virtual CastItem *clone() const = 0;
   virtual bool exists() const     = 0;
+  virtual TXshLevel *getLevel() const { return nullptr; }
+  virtual void setIconSize(const QSize &) {}
 };
 //-----------------------------------------------------------------------------
 
@@ -68,7 +72,8 @@ class LevelCastItem final : public CastItem {
 public:
   LevelCastItem(TXshLevel *level, QSize itemPixmapSize)
       : m_level(level), m_itemPixmapSize(itemPixmapSize) {}
-  TXshLevel *getLevel() const { return m_level; }
+  TXshLevel *getLevel() const override { return m_level; }
+  void setIconSize(const QSize &size) override { m_itemPixmapSize = size; }
   QString getName() const override;
   QString getToolTip() const override;
   int getFrameCount() const override;
@@ -89,6 +94,8 @@ public:
   SoundCastItem(TXshSoundLevel *soundLevel, QSize itemPixmapSize)
       : m_soundLevel(soundLevel), m_itemPixmapSize(itemPixmapSize) {}
   TXshSoundLevel *getSoundLevel() const override { return m_soundLevel; }
+  void setIconSize(const QSize &size) override { m_itemPixmapSize = size; }
+  TXshLevel *getLevel() const override;
   QString getName() const override;
   QString getToolTip() const override;
   int getFrameCount() const override;
@@ -109,6 +116,8 @@ public:
   PaletteCastItem(TXshPaletteLevel *paletteLevel, QSize itemPixmapSize)
       : m_paletteLevel(paletteLevel), m_itemPixmapSize(itemPixmapSize) {}
   TXshPaletteLevel *getPaletteLevel() const override { return m_paletteLevel; }
+  void setIconSize(const QSize &size) override { m_itemPixmapSize = size; }
+  TXshLevel *getLevel() const override;
   QString getName() const override;
   QString getToolTip() const override;
   int getFrameCount() const override;
@@ -129,12 +138,18 @@ public:
 
   void clear();
   void addItem(CastItem *item);
+  // The caller retains the old and new levels until reconciliation completes.
+  // Surviving identities keep their item even when their name/order changes.
+  void reconcile(const std::vector<TXshLevel *> &levels, const QSize &iconSize);
 
   int getItemCount() const { return m_items.size(); }
   CastItem *getItem(int index) const;
 
   void swapItem(int index1, int index2) {
     std::swap(m_items[index1], m_items[index2]);
+  }
+  void sort(const std::function<bool(const CastItem *, const CastItem *)> &less) {
+    std::stable_sort(m_items.begin(), m_items.end(), less);
   }
 
   QStringList formats() const override;

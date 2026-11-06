@@ -409,6 +409,7 @@ public:
 class UndoControlPointEditor final : public TToolUndo {
   std::pair<int, VIStroke *> m_oldStroke;
   std::pair<int, VIStroke *> m_newStroke;
+  std::vector<TFilledRegionInf> m_beforeFills, m_afterFills;
   bool m_isStrokeDelete;
 
   int m_row;
@@ -430,12 +431,10 @@ public:
   void undo() const override;
   void redo() const override;
 
-  int getSize() const override {
-    return sizeof(*this) +
-           /*(m_oldFillInformation.capacity()+m_newFillInformation.capacity())*sizeof(TFilledRegionInf)
-              +*/
-           500;
-  }
+  // Restore an uncommitted drag without dirtying the scene or moving history.
+  void restoreBefore() const;
+
+  int getSize() const override;
 
   QString getToolName() override { return QString("Control Point Editor"); }
   int getHistoryType() override { return HistoryType::ControlPointEditorTool; }

@@ -10,6 +10,7 @@
 #include "cornerdetector.h"
 
 #include <limits>
+#include <stdexcept>
 
 #include "tstroke.h"
 
@@ -2239,6 +2240,10 @@ void TStroke::split(double w, TStroke &f, TStroke &s) const {
     f.setStyle(getStyle());
     s.setStyle(getStyle());
     f.outlineOptions() = s.outlineOptions() = outlineOptions();
+    const double totalLength = getLength();
+    const double division = totalLength > 0. ? getLength(w) / totalLength : w;
+    f.outlineOptions().m_opacityProfile = StrokeOpacity::slice(getOpacityProfile(), 0., division);
+    s.outlineOptions().m_opacityProfile = StrokeOpacity::slice(getOpacityProfile(), division, 1.);
 
     delete ts2;
     delete ts1;
@@ -2383,6 +2388,7 @@ m_imp->m_prop = 0;
 //-----------------------------------------------------------------------------
 
 TStroke &TStroke::changeDirection() {
+  m_imp->m_outlineOptions.m_opacityProfile = StrokeOpacity::reversed(getOpacityProfile());
   UINT chunkCount = getChunkCount();
   UINT to         = tfloor(chunkCount * 0.5);
   UINT i;
@@ -2519,6 +2525,22 @@ void TStroke::setOpacity(double opacity) {
   m_imp->m_outlineOptions.m_opacity = std::min(1.0, std::max(0.0, opacity));
 }
 
+const StrokeOpacity::Profile &TStroke::getOpacityProfile() const {
+  return m_imp->m_outlineOptions.m_opacityProfile;
+}
+
+bool TStroke::setOpacityProfile(const StrokeOpacity::Profile &profile) {
+  if (!StrokeOpacity::valid(profile)) return false;
+  m_imp->m_outlineOptions.m_opacityProfile = profile;
+  if (m_imp->m_prop) m_imp->m_prop->notifyStrokeChange();
+  return true;
+}
+
+double TStroke::getOpacityAtLength(double length) const {
+  const double total = getLength();
+  return getOpacity() * StrokeOpacity::evaluate(getOpacityProfile(), total > 0. ? length / total : 0.);
+}
+
 //-----------------------------------------------------------------------------
 //  End Of File
 //-----------------------------------------------------------------------------
@@ -2551,6 +2573,22 @@ TStroke *joinStrokes(const TStroke *s0, const TStroke *s1) {
   newStroke = new TStroke(v);
   newStroke->setStyle(s0->getStyle());
   newStroke->outlineOptions() = s0->outlineOptions();
+  const bool reversed = !areAlmostEqual(s0->getControlPoint(s0->getControlPointCount() - 1),
+                                        s1->getControlPoint(0), 1e-3);
+  if (!s0->getOpacityProfile().empty() || !s1->getOpacityProfile().empty() ||
+      s0->getOpacity() != s1->getOpacity()) {
+    try {
+      auto profile = StrokeOpacity::concatenate({
+          {s0->getOpacityProfile(), s0->getLength(), s0->getOpacity()},
+          {reversed ? StrokeOpacity::reversed(s1->getOpacityProfile()) : s1->getOpacityProfile(),
+           s1->getLength(), s1->getOpacity()}});
+      newStroke->setOpacity(1.);
+      newStroke->outlineOptions().m_opacityProfile = std::move(profile);
+    } catch (...) {
+      delete newStroke;
+      throw;
+    }
+  }
 
   return newStroke;
 

@@ -706,6 +706,7 @@ private:
   tcg::invalidable<LazyData> m_lazyData;
 
   TStageObjectId m_id;
+  friend class TStageObjectTree;
   TStageObjectTree *m_tree;
   TStageObject *m_parent;
   std::list<TStageObject *> m_children;

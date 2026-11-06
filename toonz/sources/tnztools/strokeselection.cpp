@@ -14,6 +14,9 @@
 #include "tools/tool.h"
 #include "tools/toolutils.h"
 #include "tools/artlayer.h"
+#include "tools/strokeopacityeditor.h"
+#include "tools/vectoralignmentpreview.h"
+#include "tools/vectorimagesnapshot.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -41,6 +44,8 @@
 #include "toonz/customvectorbrushexporter.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/txshlevel.h"
+#include "toonz/txshsimplelevel.h"
+#include "toonz/morphhints.h"
 
 // TnzCore includes
 #include "tthreadmessage.h"
@@ -59,6 +64,8 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMutexLocker>
+#include <limits>
+#include <map>
 
 //=============================================================================
 namespace {
@@ -481,160 +488,54 @@ public:
 // ConvertToOutlineShapesUndo
 //-----------------------------------------------------------------------------
 
-// The strokes are changed in place (same index, id, style and group): only
-// their control points and the self loop flag differ.
+// Full image/palette snapshots preserve the original groups and every fill;
+// conversion can introduce several editable boundary strokes per brush stroke.
 class ConvertToOutlineShapesUndo final : public TUndo {
-public:
-  struct Item {
-    int m_index;
-    std::vector<TThickPoint> m_before, m_after;
-    bool m_selfLoopBefore;
-
-    Item() : m_index(-1), m_selfLoopBefore(false) {}
-  };
-
-private:
   TXshSimpleLevelP m_level;
   TFrameId m_frameId;
-  std::vector<Item> m_items;
-  TRectD m_area;  // where the fills are saved
-  std::vector<TFilledRegionInf> m_fillBefore, m_fillAfter;
+  TVectorImageP m_before, m_after;
+  TPaletteP m_beforePalette, m_afterPalette;
 
-  // Sets the control points of the strokes, before or after the conversion
-  void reshapeStrokes(const TVectorImageP &vi, bool after) const {
-    std::vector<int> indexes;
-    std::vector<TStroke *> oldStrokes;
-    for (const Item &item : m_items) {
-      if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
-        continue;
-      TStroke *stroke = vi->getStroke(item.m_index);
-      oldStrokes.push_back(new TStroke(*stroke));
-      indexes.push_back(item.m_index);
-
-      const std::vector<TThickPoint> &points =
-          after ? item.m_after : item.m_before;
-      stroke->reshape(&points[0], (int)points.size());
-      stroke->setSelfLoop(after ? true : item.m_selfLoopBefore);
-    }
-    vi->notifyChangedStrokes(indexes, oldStrokes);
-    for (TStroke *oldStroke : oldStrokes) delete oldStroke;
-    vi->findRegions();
-  }
-
-  void applyFills(const TVectorImageP &vi,
-                  const std::vector<TFilledRegionInf> &fills) const {
-    for (const TFilledRegionInf &fill : fills) {
-      TRegion *region = vi->getRegion(fill.m_regionId);
-      if (region) region->setStyle(fill.m_styleId);
-    }
-  }
-
-  void notify() const {
-    TTool::Application *app    = TTool::getApplication();
-    StrokeSelection *selection = dynamic_cast<StrokeSelection *>(
-        app->getCurrentSelection()->getSelection());
+  void restore(const TVectorImageP &snapshot, const TPaletteP &palette) const {
+    // Keep the level palette identity shared by all its drawings. Only the
+    // changed drawing is replaced; alpha styles and palette history restore
+    // atomically with its native group/fill snapshot.
+    const int paletteFrame = m_level->getPalette()->getFrame();
+    m_level->getPalette()->assign(palette.getPointer());
+    m_level->getPalette()->setFrame(paletteFrame);
+    m_level->getPalette()->setDirtyFlag(true);
+    TVectorImageP image = snapshot->clone();
+    image->setPalette(m_level->getPalette());
+    m_level->setFrame(m_frameId, image);
+    TTool::Application *app = TTool::getApplication();
+    TSelection *selection = app->getCurrentSelection()->getSelection();
     if (selection) selection->selectNone();
+    app->getPaletteController()->getCurrentLevelPalette()->notifyPaletteChanged();
     app->getCurrentXsheet()->notifyXsheetChanged();
-    app->getCurrentTool()->getTool()->notifyImageChanged();
+    app->getCurrentTool()->getTool()->notifyImageChanged(m_frameId, m_level.getPointer());
   }
 
 public:
   ConvertToOutlineShapesUndo(TXshSimpleLevel *level, const TFrameId &frameId,
-                             const std::vector<Item> &items, const TRectD &area,
-                             const std::vector<TFilledRegionInf> &fillBefore)
-      : m_level(level)
-      , m_frameId(frameId)
-      , m_items(items)
-      , m_area(area)
-      , m_fillBefore(fillBefore) {}
-
-  // Fills, with style, the unfilled regions whose inside lies within the
-  // closed outline stroke. Each region is tested at one of its internal points
-  // against a polygon sampled along the stroke: testing the regions against
-  // a copy of the stroke itself (selectFill) compares points that lie on the
-  // outline, where the answer depends on rounding.
-  static void fillInside(const TVectorImageP &vi, const TStroke &outline,
-                         int style) {
-    const int samples = std::max(64, 8 * outline.getChunkCount());
-    std::vector<TPointD> polygon;
-    polygon.reserve(samples);
-    for (int i = 0; i < samples; i++)
-      polygon.push_back(outline.getPoint((double)i / samples));
-
-    auto inside = [&polygon](const TPointD &p) {
-      bool in = false;
-      for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
-        const TPointD &a = polygon[i], &b = polygon[j];
-        if ((a.y > p.y) != (b.y > p.y) &&
-            p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
-          in = !in;
-      }
-      return in;
-    };
-
-    const TRectD bbox = outline.getBBox();
-    std::vector<TRegion *> regions;
-    for (UINT i = 0; i < vi->getRegionCount(); i++)
-      regions.push_back(vi->getRegion(i));
-    while (!regions.empty()) {
-      TRegion *region = regions.back();
-      regions.pop_back();
-      if (!region || !bbox.overlaps(region->getBBox())) continue;
-      for (UINT i = 0; i < region->getSubregionCount(); i++)
-        regions.push_back(region->getSubregion(i));
-      TPointD p;
-      if (region->getStyle() == 0 && region->getInternalPoint(p) && inside(p))
-        region->setStyle(style);
-    }
+                             const TVectorImageP &before,
+                             const TVectorImageP &after)
+      : m_level(level), m_frameId(frameId), m_before(before->clone()),
+        m_after(after->clone()), m_beforePalette(before->getPalette()->clone()),
+        m_afterPalette(after->getPalette()->clone()) {
+    m_before->setPalette(m_beforePalette.getPointer());
+    m_after->setPalette(m_afterPalette.getPointer());
   }
 
-  // Does the conversion the first time. The new shapes are filled with the
-  // style of their stroke, as a brush stroke has no fill of its own.
-  void convert() {
-    TVectorImageP vi = m_level->getFrame(m_frameId, true);
-    if (!vi) return;
-    QMutexLocker lock(vi->getMutex());
-    reshapeStrokes(vi, true);
-    for (const Item &item : m_items) {
-      if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
-        continue;
-      TStroke *stroke = vi->getStroke(item.m_index);
-      fillInside(vi, *stroke, stroke->getStyle());
-    }
-    ImageUtils::getFillingInformationOverlappingArea(vi, m_fillAfter, m_area);
-  }
-
-  void undo() const override {
-    TVectorImageP vi = m_level->getFrame(m_frameId, true);
-    if (!vi) return;
-    {
-      QMutexLocker lock(vi->getMutex());
-      reshapeStrokes(vi, false);
-      applyFills(vi, m_fillBefore);
-    }
-    notify();
-  }
-
-  void redo() const override {
-    TVectorImageP vi = m_level->getFrame(m_frameId, true);
-    if (!vi) return;
-    {
-      QMutexLocker lock(vi->getMutex());
-      reshapeStrokes(vi, true);
-      applyFills(vi, m_fillAfter);
-    }
-    notify();
-  }
+  void undo() const override { restore(m_before, m_beforePalette); }
+  void redo() const override { restore(m_after, m_afterPalette); }
 
   int getSize() const override {
-    int points = 0;
-    for (const Item &item : m_items)
-      points += (int)(item.m_before.size() + item.m_after.size());
-    return sizeof(*this) + points * sizeof(TThickPoint) +
-           (m_fillBefore.size() + m_fillAfter.size()) *
-               sizeof(TFilledRegionInf);
+    int bytes = sizeof(*this);
+    for (const auto &image : {m_before, m_after})
+      for (UINT i = 0; i < image->getStrokeCount(); ++i)
+        bytes += sizeof(TStroke) + image->getStroke(i)->getControlPointCount() * sizeof(TThickPoint);
+    return bytes;
   }
-
   QString getHistoryString() override {
     return QObject::tr("Convert Brush Strokes to Outline Shapes");
   }
@@ -868,50 +769,131 @@ void StrokeSelection::convertToOutlineShapes() {
       TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
   if (!tool || !level) return;
 
-  // Compute all the outlines first: nothing is changed if none can be
-  std::vector<ConvertToOutlineShapesUndo::Item> items;
-  TRectD area;
-  for (int index : m_indexes) {
-    TStroke *stroke = m_vi->getStroke(index);
-
-    ConvertToOutlineShapesUndo::Item item;
-    if (!ContourOutline::makeOutlineControlPoints(*stroke, item.m_after))
-      continue;
-
-    item.m_index = index;
-    for (int i = 0; i < stroke->getControlPointCount(); i++)
-      item.m_before.push_back(stroke->getControlPoint(i));
-    item.m_selfLoopBefore = stroke->isSelfLoop();
-    items.push_back(item);
-
-    area += stroke->getBBox();
-    TRectD shapeBox(item.m_after[0].x, item.m_after[0].y,
-                    item.m_after[0].x + 1e-3, item.m_after[0].y + 1e-3);
-    for (const TThickPoint &p : item.m_after)
-      shapeBox += TRectD(p.x, p.y, p.x + 1e-3, p.y + 1e-3);
-    area += shapeBox;
-  }
-
-  if (items.empty()) {
-    DVGui::warning(
-        QObject::tr("No selected stroke can be converted. Only open strokes "
-                    "with some thickness can be converted to outline "
-                    "shapes."));
+  TVectorImageP converted;
+  try {
+    converted = ContourOutline::convertImage(
+        m_vi, std::vector<int>(m_indexes.begin(), m_indexes.end()));
+  } catch (const std::exception &error) {
+    DVGui::warning(QString::fromUtf8(error.what()));
     return;
   }
-
-  area = area.enlarge(1.0);
-  std::vector<TFilledRegionInf> fillBefore;
-  ImageUtils::getFillingInformationOverlappingArea(m_vi, fillBefore, area);
-
-  ConvertToOutlineShapesUndo *undo = new ConvertToOutlineShapesUndo(
-      level, tool->getCurrentFid(), items, area, fillBefore);
-  undo->convert();
+  if (!converted) {
+    DVGui::warning(QObject::tr(
+        "No selected stroke has thickness to convert to outline shapes."));
+    return;
+  }
+  auto *undo = new ConvertToOutlineShapesUndo(
+      level, tool->getCurrentFid(), m_vi, converted);
+  undo->redo();
   TUndoManager::manager()->add(undo);
+}
 
-  m_updateSelectionBBox = true;
-  tool->notifyImageChanged();
-  m_updateSelectionBBox = false;
+namespace {
+class StrokeOpacityProfileUndo final : public ToolUtils::TToolUndo {
+  std::vector<int> m_indices;
+  std::vector<StrokeOpacity::Profile> m_before;
+  StrokeOpacity::Profile m_after;
+  void restore(bool after) const {
+    TVectorImageP image = m_level->getFrame(m_frameId, true);
+    if (!image) return;
+    for (size_t i = 0; i < m_indices.size(); ++i) {
+      if (m_indices[i] < 0 || m_indices[i] >= int(image->getStrokeCount())) return;
+    }
+    for (size_t i = 0; i < m_indices.size(); ++i)
+      image->getStroke(m_indices[i])->setOpacityProfile(after ? m_after : m_before[i]);
+    m_level->setDirtyFlag(true);
+    TTool::getApplication()->getCurrentScene()->setDirtyFlag(true);
+    notifyImageChanged();
+  }
+public:
+  StrokeOpacityProfileUndo(TXshSimpleLevel *level, const TFrameId &fid,
+                           const TVectorImageP &image, const std::set<int> &selection,
+                           const StrokeOpacity::Profile &after)
+      : TToolUndo(level, fid), m_indices(selection.begin(), selection.end()), m_after(after) {
+    for (int index : m_indices) m_before.push_back(image->getStroke(index)->getOpacityProfile());
+  }
+  void undo() const override { restore(false); }
+  void redo() const override { restore(true); }
+  int getSize() const override {
+    size_t knots = m_after.size();
+    for (const auto &profile : m_before) knots += profile.size();
+    const size_t size = sizeof(*this) + knots * sizeof(TPointD) + m_indices.size()*sizeof(int);
+    return int(std::min<size_t>(size, std::numeric_limits<int>::max()));
+  }
+  QString getToolName() override { return QObject::tr("Edit Stroke Opacity Envelope"); }
+};
+}  // namespace
+
+void StrokeSelection::editOpacityProfile() {
+  if (!m_vi || m_indexes.empty() || !isEditable()) return;
+  auto *app = TTool::getApplication();
+  TXshSimpleLevelP level = app->getCurrentLevel()->getSimpleLevel();
+  auto *tool = app->getCurrentTool()->getTool();
+  if (!level || !tool) return;
+  const TFrameId fid = tool->getCurrentFid();
+  const TVectorImageP image = m_vi;
+  const std::set<int> selected = m_indexes;
+  for (int index : selected) {
+    if (index < 0 || index >= int(image->getStrokeCount())) return;
+  }
+  TVectorImageP before;
+  {
+    QMutexLocker lock(image->getMutex());
+    before = image->cloneWithGroupContext();
+    if (auto *palette = image->getPalette()) {
+      TPaletteP frozenPalette = palette->clone();
+      before->setPalette(frozenPalette.getPointer());
+    }
+    before->findRegions();
+  }
+  const auto *scene = app->getCurrentScene()->getScene();
+  const auto *xsheet = app->getCurrentXsheet()->getXsheet();
+  const auto frameType = app->getCurrentFrame()->getFrameType();
+  const int frame = app->getCurrentFrame()->getFrame();
+  const int column = app->getCurrentColumn()->getColumnIndex();
+  const auto object = app->getCurrentObject()->getObjectId();
+  bool invalidated = false;
+  StrokeOpacityEditor::Dialog editor(before, selected, QApplication::activeWindow());
+  // Reject is not a latch: an already queued Apply can accept a closed dialog
+  // after leaving and returning to the original drawing in the same event turn.
+  auto invalidate = [&]() { invalidated = true; editor.reject(); };
+  QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentXsheet(), &TXsheetHandle::xsheetSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentFrame(), &TFrameHandle::frameSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentColumn(), &TColumnHandle::columnIndexSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentObject(), &TObjectHandle::objectSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentTool(), &ToolHandle::toolSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionChanged, &editor, invalidate);
+  if (!editor.reviewValid() || editor.exec() != QDialog::Accepted ||
+      invalidated || !editor.reviewValid()) return;
+  if (app->getCurrentScene()->getScene() != scene ||
+      app->getCurrentXsheet()->getXsheet() != xsheet ||
+      app->getCurrentLevel()->getSimpleLevel() != level.getPointer() ||
+      app->getCurrentTool()->getTool() != tool || !tool->isEnabled() ||
+      app->getCurrentFrame()->getFrameType() != frameType ||
+      app->getCurrentFrame()->getFrame() != frame ||
+      app->getCurrentColumn()->getColumnIndex() != column ||
+      app->getCurrentObject()->getObjectId() != object ||
+      app->getCurrentObject()->isSpline() ||
+      app->getCurrentSelection()->getSelection() != this ||
+      tool->getCurrentFid() != fid || m_vi != image || m_indexes != selected ||
+      TVectorImageP(level->getFrame(fid, false)) != image ||
+      TVectorImageP(tool->getImage(false)) != image ||
+      !isEditable() || !StrokeOpacity::valid(editor.profile())) return;
+  {
+    QMutexLocker lock(image->getMutex());
+    if (!VectorImageSnapshot::sameContent(image, before)) return;
+  }
+  bool changed = false;
+  for (int index : selected) {
+    changed |= image->getStroke(index)->getOpacityProfile() != editor.profile();
+  }
+  if (!changed) return;
+  auto *undo = new StrokeOpacityProfileUndo(level.getPointer(), fid, image, selected, editor.profile());
+  undo->redo();
+  TUndoManager::manager()->add(undo);
 }
 
 //=============================================================================
@@ -921,214 +903,208 @@ void StrokeSelection::convertToOutlineShapes() {
 //-----------------------------------------------------------------------------
 
 namespace {
-
-// Strokes are identified by id, which is unique in the session, so the hints
-// silently stop applying when the paired strokes no longer exist.
-struct InbetweenStrokePairs {
-  const TVectorImage *m_markedImage = nullptr;  // only compared
-  std::vector<int> m_markedIds;
-  std::vector<std::pair<int, int>> m_pairs;
+struct MarkedMorphHint {
+  TXshSimpleLevelP level;
+  TFrameId fid;
+  QJsonArray anchors;
+  TRectD bounds;
+  bool zone = false;
 };
-
-InbetweenStrokePairs &inbetweenStrokePairs() {
-  static InbetweenStrokePairs pairs;
-  return pairs;
+MarkedMorphHint &markedMorphHint() {
+  static MarkedMorphHint mark;
+  return mark;
 }
 
-// Zone hints for the Inbetween command. A hint is a pair of zones, one on each
-// key drawing. As for the stroke pairs, the drawings are identified through the
-// id of a stroke they contain (the first selected one), so a hint stops
-// applying when that stroke is gone.
-// The drawings are also remembered by pointer, because a key drawing
-// duplicated from the other one holds the same stroke ids.
-struct InbetweenZoneHints {
-  struct Hint {
-    int m_idA, m_idB;
-    TRectD m_rectA, m_rectB;
-    const TVectorImage *m_imageA, *m_imageB;  // only compared
-  };
-
-  int m_markedId                    = -1;       // -1: nothing marked yet
-  const TVectorImage *m_markedImage = nullptr;  // only compared
-  TRectD m_markedRect;
-  std::vector<Hint> m_hints;
+class MorphHintsUndo final : public TUndo {
+  TXshSimpleLevelP m_level;
+  std::string m_before, m_after;
+  void restore(const std::string &value) const {
+    m_level->setMorphHints(value);
+    TTool::getApplication()->getCurrentScene()->setDirtyFlag(true);
+    TTool::getApplication()->getCurrentLevel()->notifyLevelChange();
+  }
+public:
+  MorphHintsUndo(TXshSimpleLevel *level, const std::string &after)
+      : m_level(level), m_before(level->getMorphHints()), m_after(after) {}
+  void undo() const override { restore(m_before); }
+  void redo() const override { restore(m_after); }
+  int getSize() const override {
+    return sizeof(*this) + int(m_before.size() + m_after.size());
+  }
+  QString getHistoryString() override { return QObject::tr("Edit Inbetween Hints"); }
 };
 
-InbetweenZoneHints &inbetweenZoneHints() {
-  static InbetweenZoneHints hints;
-  return hints;
+bool storeMorphHints(TXshSimpleLevel *level, const QJsonArray &records) {
+  const std::string value = MorphHints::encode(records);
+  if (records.size() > MorphHints::MaxRecords || value.size() > MorphHints::MaxBytes) {
+    DVGui::warning(QObject::tr("Too many Inbetween hints. Clear unused hints first."));
+    return false;
+  }
+  if (level->getMorphHints() == value) return true;
+  auto undo = new MorphHintsUndo(level, value);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+  return true;
 }
 
-}  // namespace
+void markMorphHint(const TVectorImageP &image, const std::vector<int> &order,
+                   bool zone) {
+  if (!image || order.empty()) return;
+  TTool *tool = TTool::getApplication()->getCurrentTool()->getTool();
+  TXshSimpleLevel *level = TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  if (!tool || !level) return;
+  const TFrameId fid = tool->getCurrentFid();
+  QJsonArray anchors;
+  TRectD bounds;
+  for (int index : order) {
+    if (index < 0 || index >= int(image->getStrokeCount())) return;
+    anchors.append(MorphHints::anchor(image, index));
+    bounds += image->getStroke(index)->getBBox();
+  }
+  auto &mark = markedMorphHint();
+  if (!mark.level || mark.level.getPointer() != level || mark.fid == fid || mark.zone != zone) {
+    mark.level = level;
+    mark.fid = fid;
+    mark.anchors = anchors;
+    mark.bounds = bounds;
+    mark.zone = zone;
+    DVGui::info(zone ? QObject::tr("Zone marked. Select the matching zone in another drawing of this level and add the hint again.")
+                    : QObject::tr("Strokes marked. Select matching strokes in another drawing of this level, in the same order, and pair again."));
+    return;
+  }
+  if (!zone && mark.anchors.size() != anchors.size()) {
+    DVGui::warning(QObject::tr("Select the same number of strokes as in the marked drawing."));
+    return;
+  }
+  QJsonArray records;
+  if (!MorphHints::decode(level->getMorphHints(), records)) {
+    DVGui::warning(QObject::tr("This level contains unsupported or damaged Inbetween hints. Clear them explicitly before replacing them."));
+    return;
+  }
+  TVectorImageP markedImage = level->getFrame(mark.fid, false);
+  for (const auto &anchor : mark.anchors)
+    if (MorphHints::resolve(anchor.toObject(), markedImage) < 0) {
+      DVGui::warning(QObject::tr("The marked strokes changed or are ambiguous. Mark them again."));
+      mark = MarkedMorphHint();
+      return;
+    }
+  for (const auto &anchor : anchors)
+    if (MorphHints::resolve(anchor.toObject(), image) < 0) {
+      DVGui::warning(QObject::tr("The matching strokes are ambiguous. Select distinct strokes before pairing."));
+      return;
+    }
+  const int count = zone ? 1 : anchors.size();
+  for (int i = 0; i < count; ++i) {
+    QJsonObject record{{"kind", zone ? "zone" : "pair"},
+                       {"firstFrame", MorphHints::frame(mark.fid)},
+                       {"lastFrame", MorphHints::frame(fid)},
+                       {"first", mark.anchors[i]}, {"last", anchors[i]}};
+    if (zone) {
+      record["firstRect"] = MorphHints::rect(mark.bounds);
+      record["lastRect"] = MorphHints::rect(bounds);
+      record["firstMembers"] = mark.anchors;
+      record["lastMembers"] = anchors;
+    }
+    // Re-pairing a stroke replaces its previous choice for these drawings.
+    QJsonArray kept;
+    for (const auto &old : records) {
+      const auto o = old.toObject();
+      const bool forward = MorphHints::frame(o["firstFrame"].toObject()) == mark.fid &&
+                           MorphHints::frame(o["lastFrame"].toObject()) == fid;
+      const bool reverse = MorphHints::frame(o["firstFrame"].toObject()) == fid &&
+                           MorphHints::frame(o["lastFrame"].toObject()) == mark.fid;
+      const bool conflicts = o["kind"] == record["kind"] &&
+          ((forward && (o["first"] == record["first"] || o["last"] == record["last"])) ||
+           (reverse && (o["last"] == record["first"] || o["first"] == record["last"])));
+      if (!conflicts) kept.append(old);
+    }
+    records = kept;
+    records.append(record);
+  }
+  if (storeMorphHints(level, records)) {
+    mark = MarkedMorphHint();
+    DVGui::info(QObject::tr("Inbetween hints recorded. Save the scene to retain them."));
+  }
+}
 
-//-----------------------------------------------------------------------------
+QJsonArray resolvedHintRecords(TXshSimpleLevel *level, const TFrameId &first,
+                               const TFrameId &last) {
+  QJsonArray records, result;
+  if (!level || !MorphHints::decode(level->getMorphHints(), records)) return result;
+  for (const auto &value : records) {
+    auto record = value.toObject();
+    const auto a = MorphHints::frame(record["firstFrame"].toObject());
+    const auto b = MorphHints::frame(record["lastFrame"].toObject());
+    if (a == first && b == last) result.append(record);
+    else if (a == last && b == first) {
+      const auto anchor = record["first"].toObject();
+      record["first"] = record["last"];
+      record["last"] = anchor;
+      const auto rect = record["firstRect"].toArray();
+      record["firstRect"] = record["lastRect"];
+      record["lastRect"] = rect;
+      if (record.contains("firstMembers") && record.contains("lastMembers")) {
+        const auto members = record["firstMembers"].toArray();
+        record["firstMembers"] = record["lastMembers"];
+        record["lastMembers"] = members;
+      }
+      result.append(record);
+    }
+  }
+  return result;
+}
+} // namespace
 
 void StrokeSelection::pairStrokesForInbetween() {
-  if (!m_vi || m_indexes.empty()) return;
-
-  std::vector<int> ids;
-  for (int index : selectionOrder())
-    ids.push_back(m_vi->getStroke(index)->getId());
-
-  InbetweenStrokePairs &data = inbetweenStrokePairs();
-
-  // first step: remember the strokes selected in the first key drawing
-  if (data.m_markedIds.empty() || data.m_markedImage == m_vi.getPointer()) {
-    data.m_markedImage = m_vi.getPointer();
-    data.m_markedIds   = ids;
-    DVGui::info(
-        UiTranslations::text(QObject::tr("%1 stroke(s) marked for Inbetween. Select the matching "
-                    "strokes in the other key drawing, in the same order, "
-                    "and use Pair Strokes for Inbetween again."))
-            .arg((int)ids.size()));
-    return;
-  }
-
-  // second step: pair them with the strokes selected in this key drawing
-  if (ids.size() != data.m_markedIds.size()) {
-    DVGui::warning(
-        UiTranslations::text(QObject::tr("The number of selected strokes (%1) does not match the "
-                    "number of marked strokes (%2)."))
-            .arg((int)ids.size())
-            .arg((int)data.m_markedIds.size()));
-    return;
-  }
-
-  for (int i = 0; i < (int)ids.size(); i++) {
-    int id0 = data.m_markedIds[i], id1 = ids[i];
-    // a new pair replaces the previous pairs of the same strokes
-    data.m_pairs.erase(
-        std::remove_if(data.m_pairs.begin(), data.m_pairs.end(),
-                       [id0, id1](const std::pair<int, int> &pair) {
-                         return pair.first == id0 || pair.second == id0 ||
-                                pair.first == id1 || pair.second == id1;
-                       }),
-        data.m_pairs.end());
-    data.m_pairs.push_back(std::make_pair(id0, id1));
-  }
-  data.m_markedImage = nullptr;
-  data.m_markedIds.clear();
-
-  DVGui::info(
-      UiTranslations::text(QObject::tr("%1 stroke pair(s) set for Inbetween.")).arg((int)ids.size()));
+  markMorphHint(m_vi, selectionOrder(), false);
 }
-
-//-----------------------------------------------------------------------------
-
-void StrokeSelection::clearInbetweenStrokePairs() {
-  InbetweenStrokePairs &data = inbetweenStrokePairs();
-  data.m_markedImage         = nullptr;
-  data.m_markedIds.clear();
-  data.m_pairs.clear();
-
-  InbetweenZoneHints &zones = inbetweenZoneHints();
-  zones.m_markedId          = -1;
-  zones.m_markedImage       = nullptr;
-  zones.m_markedRect        = TRectD();
-  zones.m_hints.clear();
-}
-
-//-----------------------------------------------------------------------------
-
-bool StrokeSelection::hasInbetweenStrokePairs() {
-  const InbetweenStrokePairs &data = inbetweenStrokePairs();
-  const InbetweenZoneHints &zones  = inbetweenZoneHints();
-  return !data.m_pairs.empty() || !data.m_markedIds.empty() ||
-         !zones.m_hints.empty() || zones.m_markedId >= 0;
-}
-
-//-----------------------------------------------------------------------------
-
-std::vector<std::pair<int, int>> StrokeSelection::getInbetweenStrokePairs(
-    const TVectorImageP &firstImage, const TVectorImageP &lastImage) {
-  std::vector<std::pair<int, int>> indexPairs;
-  if (!firstImage || !lastImage) return indexPairs;
-
-  for (const std::pair<int, int> &pair : inbetweenStrokePairs().m_pairs) {
-    // pairs can be set from either key drawing
-    int index0 = firstImage->getStrokeIndexById(pair.first);
-    int index1 = lastImage->getStrokeIndexById(pair.second);
-    if (index0 < 0 || index1 < 0) {
-      index0 = firstImage->getStrokeIndexById(pair.second);
-      index1 = lastImage->getStrokeIndexById(pair.first);
-    }
-    if (index0 >= 0 && index1 >= 0)
-      indexPairs.push_back(std::make_pair(index0, index1));
-  }
-  return indexPairs;
-}
-
-//=============================================================================
-//
-// Inbetween zone hints
-//
-//-----------------------------------------------------------------------------
-
 void StrokeSelection::addInbetweenZoneHint() {
-  if (!m_vi || m_indexes.empty()) return;
-
-  std::vector<int> order = selectionOrder();
-  if (order.empty()) return;
-  TRectD box;
-  for (int index : order) box += m_vi->getStroke(index)->getBBox();
-  int anchorId = m_vi->getStroke(order.front())->getId();
-
-  InbetweenZoneHints &data = inbetweenZoneHints();
-
-  // first step: remember the zone in the first key drawing (the call is
-  // repeated on the same drawing: replace the zone)
-  if (data.m_markedId < 0 || data.m_markedImage == m_vi.getPointer()) {
-    data.m_markedId    = anchorId;
-    data.m_markedImage = m_vi.getPointer();
-    data.m_markedRect  = box;
-    DVGui::info(QObject::tr(
-        "Zone marked for Inbetween. Select the strokes of the "
-        "matching zone in the other key drawing and use Add Inbetween "
-        "Zone Hint from Selection again."));
-    return;
-  }
-
-  // second step: the zone of this key drawing is the target
-  InbetweenZoneHints::Hint hint;
-  hint.m_idA    = data.m_markedId;
-  hint.m_idB    = anchorId;
-  hint.m_rectA  = data.m_markedRect;
-  hint.m_rectB  = box;
-  hint.m_imageA = data.m_markedImage;
-  hint.m_imageB = m_vi.getPointer();
-  data.m_hints.push_back(hint);
-  data.m_markedId    = -1;
-  data.m_markedImage = nullptr;
-  data.m_markedRect  = TRectD();
-
-  DVGui::info(UiTranslations::text(QObject::tr("%1 zone hint(s) set for Inbetween."))
-                  .arg((int)data.m_hints.size()));
+  markMorphHint(m_vi, selectionOrder(), true);
 }
-
-//-----------------------------------------------------------------------------
-
-std::vector<std::pair<TRectD, TRectD>> StrokeSelection::getInbetweenZoneHints(
-    const TVectorImageP &firstImage, const TVectorImageP &lastImage) {
-  std::vector<std::pair<TRectD, TRectD>> rects;
-  if (!firstImage || !lastImage) return rects;
-
-  for (const InbetweenZoneHints::Hint &hint : inbetweenZoneHints().m_hints) {
-    // hints can be set from either key drawing
-    bool idsAB = firstImage->getStrokeIndexById(hint.m_idA) >= 0 &&
-                 lastImage->getStrokeIndexById(hint.m_idB) >= 0;
-    bool idsBA = firstImage->getStrokeIndexById(hint.m_idB) >= 0 &&
-                 lastImage->getStrokeIndexById(hint.m_idA) >= 0;
-    // a key drawing duplicated from the other holds the same stroke ids: the
-    // drawings the hint was set on decide then
-    if (idsAB && idsBA && hint.m_imageA == lastImage.getPointer() &&
-        hint.m_imageB == firstImage.getPointer())
-      idsAB = false;
-    if (idsAB)
-      rects.push_back(std::make_pair(hint.m_rectA, hint.m_rectB));
-    else if (idsBA)
-      rects.push_back(std::make_pair(hint.m_rectB, hint.m_rectA));
+void StrokeSelection::clearInbetweenStrokePairs() {
+  markedMorphHint() = MarkedMorphHint();
+  auto level = TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  if (level) storeMorphHints(level, {});
+}
+bool StrokeSelection::hasInbetweenStrokePairs() {
+  auto level = TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  return level && (!level->getMorphHints().empty() ||
+                  markedMorphHint().level.getPointer() == level);
+}
+std::vector<std::pair<int, int>> StrokeSelection::getInbetweenStrokePairs(
+    TXshSimpleLevel *level, const TFrameId &first, const TFrameId &last) {
+  std::vector<std::pair<int, int>> result;
+  if (!level) return result;
+  TVectorImageP firstImage = level->getFrame(first, false), lastImage = level->getFrame(last, false);
+  for (const auto &value : resolvedHintRecords(level, first, last)) {
+    const auto record = value.toObject();
+    if (record["kind"].toString() != "pair") continue;
+    int a = MorphHints::resolve(record["first"].toObject(), firstImage);
+    int b = MorphHints::resolve(record["last"].toObject(), lastImage);
+    if (a >= 0 && b >= 0) result.emplace_back(a, b);
   }
-  return rects;
+  return result;
+}
+std::vector<std::pair<TRectD, TRectD>> StrokeSelection::getInbetweenZoneHints(
+    TXshSimpleLevel *level, const TFrameId &first, const TFrameId &last) {
+  std::vector<std::pair<TRectD, TRectD>> result;
+  if (!level) return result;
+  TVectorImageP firstImage = level->getFrame(first, false), lastImage = level->getFrame(last, false);
+  for (const auto &value : resolvedHintRecords(level, first, last)) {
+    const auto record = value.toObject();
+    if (record["kind"].toString() != "zone") continue;
+    if (MorphHints::resolve(record["first"].toObject(), firstImage) < 0 ||
+        MorphHints::resolve(record["last"].toObject(), lastImage) < 0) continue;
+    bool valid = true;
+    for (const auto &anchor : record["firstMembers"].toArray())
+      if (MorphHints::resolve(anchor.toObject(), firstImage) < 0) valid = false;
+    for (const auto &anchor : record["lastMembers"].toArray())
+      if (MorphHints::resolve(anchor.toObject(), lastImage) < 0) valid = false;
+    if (!valid) continue;
+    result.emplace_back(MorphHints::rect(record["firstRect"].toArray()),
+                        MorphHints::rect(record["lastRect"].toArray()));
+  }
+  return result;
 }
 
 //=============================================================================
@@ -1494,6 +1470,8 @@ void StrokeSelection::enableCommands() {
   enableCommand(this, MI_ConvertToOutlineShapes,
                 &StrokeSelection::convertToOutlineShapes);
   enableWidthProfileCommands();
+  enableCommand(this, MI_EditStrokeOpacityProfile,
+                &StrokeSelection::editOpacityProfile);
   enableCommand(this, MI_PairInbetweenStrokes,
                 &StrokeSelection::pairStrokesForInbetween);
   enableCommand(this, MI_AddInbetweenZoneHint,
@@ -1750,6 +1728,7 @@ public:
     return QObject::tr("Align and Distribute Vector Strokes");
   }
 };
+
 }  // namespace
 
 std::vector<int> StrokeSelection::selectionOrder() const {
@@ -1773,27 +1752,32 @@ void StrokeSelection::notifyAlignmentChanged() {
 void StrokeSelection::alignStrokes(VectorAlignment::Type type) {
   using namespace VectorAlignment;
   TTool::Application *app = TTool::getApplication();
-  TTool *tool             = app->getCurrentTool()->getTool();
-  TXshSimpleLevel *level  = app->getCurrentLevel()->getSimpleLevel();
-  if (!m_vi || isEmpty() || !tool || !tool->isEnabled() || !level ||
-      app->getCurrentObject()->isSpline() || tool->isDragging())
-    return;
+  TTool *tool = app->getCurrentTool()->getTool();
+  TXshSimpleLevel *level = app->getCurrentLevel()->getSimpleLevel();
+  auto *selectionTool = dynamic_cast<VectorSelectionTool *>(tool);
+  if (!m_vi || !selectionTool || !tool->isEnabled() || !level ||
+      app->getCurrentObject()->isSpline() || tool->isDragging()) return;
   if (TVectorImageP(tool->getImage(false)) != m_vi) return;
-  // These commands operate on the displayed drawing only. Multi-frame/level
-  // selection has different semantics and is deliberately left to its tool.
-  VectorSelectionTool *selectionTool =
-      dynamic_cast<VectorSelectionTool *>(tool);
-  if (!selectionTool || selectionTool->isLevelType() ||
-      selectionTool->isSelectedFramesType())
-    return;
   if (!isEditable()) {
     DVGui::error(QObject::tr("The selection is not editable."));
     return;
   }
-  QMutexLocker lock(m_vi->getMutex());
-  auto objects = alignmentObjects(m_vi, selectionOrder());
-  std::vector<TRectD> boxes;
-  for (const auto &object : objects) boxes.push_back(object.box);
+  const bool acrossFrames = selectionTool->isLevelType() ||
+                            selectionTool->isSelectedFramesType();
+  if (!acrossFrames && isEmpty()) return;
+  std::vector<TFrameId> frames;
+  if (acrossFrames) {
+    level->getFids(frames);
+    if (selectionTool->isSelectedFramesType()) {
+      const auto &selected = selectionTool->getTargetFrames();
+      frames.erase(std::remove_if(frames.begin(), frames.end(),
+          [&](const TFrameId &fid) { return !selected.count(fid); }), frames.end());
+    }
+  } else frames.push_back(tool->getCurrentFid());
+
+  // The camera reference is the active scene time for every selected drawing.
+  // Other reference methods are evaluated independently inside each drawing;
+  // first/last refer to stacking order outside the active manual selection.
   Method method = tool->getAlignMethod();
   TRectD camera;
   if (method == CAMERA_AREA) {
@@ -1801,44 +1785,141 @@ void StrokeSelection::alignStrokes(VectorAlignment::Type type) {
     if (!scene || !scene->getCurrentCamera()) return;
     camera = scene->getCurrentCamera()->getStageRect();
     if (!app->getCurrentFrame()->isEditingLevel()) {
-      int col      = app->getCurrentColumn()->getColumnIndex();
+      int col = app->getCurrentColumn()->getColumnIndex();
       TXsheet *xsh = tool->getXsheet();
       if (!xsh || col < 0) return;
       int frame = app->getCurrentFrame()->getFrameIndex();
-      TAffine levelAff =
-          xsh->getPlacement(TStageObjectId::ColumnId(col), frame);
+      TAffine levelAff = xsh->getPlacement(TStageObjectId::ColumnId(col), frame);
       if (std::abs(levelAff.det()) < 1e-12) return;
       TAffine cameraAff = xsh->getPlacement(
           TStageObjectId::CameraId(xsh->getCameraColumnIndex()), frame);
-      // Align to the camera's axis-aligned bounds in drawing coordinates.
       camera = (levelAff.inv() * cameraAff) * camera;
     }
   }
-  auto deltas = offsets(boxes, type, method, camera);
-  std::vector<int> indexes;
-  for (size_t i = 0; i < objects.size(); ++i)
-    if (deltas[i] != TPointD())
-      indexes.insert(indexes.end(), objects[i].strokes.begin(),
-                     objects[i].strokes.end());
-  if (indexes.empty()) return;
-  m_vi->findRegions();
-  auto undo = std::make_unique<AlignStrokesUndo>(level, tool->getCurrentFid(),
-                                                 m_vi, indexes);
-  std::vector<std::unique_ptr<TStroke>> previous;
-  std::vector<TStroke *> previousPtrs;
-  for (size_t i = 0; i < objects.size(); ++i) {
-    if (deltas[i] == TPointD()) continue;
-    for (int index : objects[i].strokes) {
-      TStroke *stroke = m_vi->getStroke(index);
-      previous.emplace_back(new TStroke(*stroke));
-      previousPtrs.push_back(previous.back().get());
-      stroke->transform(TTranslation(deltas[i]));
+  // Prepare all results before changing any drawing. A locked drawing rejects
+  // the operation as a whole, and repeated exposures are processed once.
+  std::vector<std::unique_ptr<AlignStrokesUndo>> edits;
+  std::vector<VectorAlignmentPreview::Entry> previews;
+  std::vector<std::pair<TFrameId, TVectorImageP>> sources;
+  const auto selectedIndexes = selectionOrder();
+  const auto targetFrames = selectionTool->getTargetFrames();
+  const auto reviewFramesMode = selectionTool->levelSelection().framesMode();
+  const auto reviewFilter = selectionTool->levelSelection().filter();
+  const auto reviewStyles = selectionTool->levelSelection().styles();
+  ToonzScene *const reviewScene = app->getCurrentScene()->getScene();
+  const auto reviewFrameType = app->getCurrentFrame()->getFrameType();
+  const int reviewFrame = app->getCurrentFrame()->getFrame();
+  const TFrameId reviewFid = app->getCurrentFrame()->getFid();
+  const int reviewColumn = app->getCurrentColumn()->getColumnIndex();
+  const auto reviewObject = app->getCurrentObject()->getObjectId();
+  const TVectorImageP reviewImage = m_vi;
+  const bool levelScope = selectionTool->isLevelType();
+  const bool selectedScope = selectionTool->isSelectedFramesType();
+  for (const TFrameId &fid : frames) {
+    if (level->isFrameReadOnly(fid)) {
+      DVGui::warning(QObject::tr("A selected drawing is read-only. No drawings were aligned."));
+      return;
     }
+    TVectorImageP image = level->getFrame(fid, false);
+    if (!image) continue;
+    QMutexLocker lock(image->getMutex());
+    TVectorImageP proposed = image->cloneWithGroupContext();
+    auto order = acrossFrames
+        ? getSelectedStrokes(*proposed, selectionTool->levelSelection())
+        : selectionOrder();
+    ArtLayer::Filter filter(*proposed);
+    order.erase(std::remove_if(order.begin(), order.end(),
+        [&](int index) { return !filter.isEditable(index); }), order.end());
+    auto objects = alignmentObjects(proposed, order);
+    // A group is indivisible. Never move a hidden or locked art role merely
+    // because another member of its group is selected.
+    objects.erase(std::remove_if(objects.begin(), objects.end(),
+        [&](const AlignmentObject &object) {
+          return std::any_of(object.strokes.begin(), object.strokes.end(),
+              [&](int index) { return !filter.isEditable(index); });
+        }), objects.end());
+    std::vector<TRectD> boxes;
+    for (const auto &object : objects) boxes.push_back(object.box);
+    auto deltas = offsets(boxes, type, method, camera);
+    std::vector<int> indexes;
+    for (size_t i = 0; i < objects.size(); ++i)
+      if (deltas[i] != TPointD())
+        indexes.insert(indexes.end(), objects[i].strokes.begin(), objects[i].strokes.end());
+    if (indexes.empty()) continue;
+    proposed->findRegions();
+    TVectorImageP before = proposed->cloneWithGroupContext();
+    // Freeze palette appearance as well as geometry in the review snapshots.
+    if (auto *palette = proposed->getPalette()) {
+      TPaletteP frozenPalette = palette->clone();
+      before->setPalette(frozenPalette.getPointer());
+      proposed->setPalette(frozenPalette.getPointer());
+    }
+    auto undo = std::make_unique<AlignStrokesUndo>(level, fid, proposed, indexes);
+    std::vector<std::unique_ptr<TStroke>> previous;
+    std::vector<TStroke *> previousPtrs;
+    for (size_t i = 0; i < objects.size(); ++i) {
+      if (deltas[i] == TPointD()) continue;
+      for (int index : objects[i].strokes) {
+        TStroke *stroke = proposed->getStroke(index);
+        previous.emplace_back(new TStroke(*stroke));
+        previousPtrs.push_back(previous.back().get());
+        stroke->transform(TTranslation(deltas[i]));
+      }
+    }
+    proposed->notifyChangedStrokes(indexes, previousPtrs);
+    undo->captureAfter(proposed);
+    previews.push_back({QString::fromStdString(fid.expand()), before, proposed});
+    sources.emplace_back(fid, image);
+    edits.push_back(std::move(undo));
   }
-  m_vi->notifyChangedStrokes(indexes, previousPtrs);
-  undo->captureAfter(m_vi);
-  lock.unlock();
-  TUndoManager::manager()->add(undo.release());
+  if (edits.empty()) return;
+  const QString scope = levelScope ? VectorAlignmentPreview::tr("Whole Level") :
+      selectionTool->isOnionSkinFramesType() ? VectorAlignmentPreview::tr("Onion Skin Drawings") :
+      selectedScope ? VectorAlignmentPreview::tr("Selected Drawings") :
+                      VectorAlignmentPreview::tr("Current Stroke Selection");
+  if (!VectorAlignmentPreview::review(previews, type, method, scope)) return;
+  bool valid = app->getCurrentScene()->getScene() == reviewScene &&
+      app->getCurrentFrame()->getFrameType() == reviewFrameType &&
+      app->getCurrentFrame()->getFrame() == reviewFrame &&
+      app->getCurrentFrame()->getFid() == reviewFid &&
+      app->getCurrentColumn()->getColumnIndex() == reviewColumn &&
+      app->getCurrentObject()->getObjectId() == reviewObject && m_vi == reviewImage &&
+      app->getCurrentLevel()->getSimpleLevel() == level &&
+      app->getCurrentTool()->getTool() == tool && tool->isEnabled() && isEditable() &&
+      TVectorImageP(tool->getImage(false)) == m_vi && !tool->isDragging() &&
+      !app->getCurrentObject()->isSpline() && tool->getAlignMethod() == method &&
+      levelScope == selectionTool->isLevelType() &&
+      selectedScope == selectionTool->isSelectedFramesType() &&
+      reviewFramesMode == selectionTool->levelSelection().framesMode() &&
+      reviewFilter == selectionTool->levelSelection().filter() &&
+      reviewStyles == selectionTool->levelSelection().styles() &&
+      targetFrames == selectionTool->getTargetFrames() && selectedIndexes == selectionOrder();
+  if (valid && levelScope) {
+    std::vector<TFrameId> currentFrames;
+    level->getFids(currentFrames);
+    valid = currentFrames == frames;
+  }
+  for (size_t i = 0; valid && i < sources.size(); ++i) {
+    const auto &source = sources[i];
+    TVectorImageP live = level->getFrame(source.first, false);
+    if (live != source.second || level->isFrameReadOnly(source.first)) {
+      valid = false;
+      break;
+    }
+    QMutexLocker lock(live->getMutex());
+    valid = VectorImageSnapshot::sameContent(live, previews[i].before);
+  }
+  if (!valid) {
+    DVGui::warning(QObject::tr("A reviewed drawing or selection changed. No drawings were aligned. "
+                              "Run the command again to review the updated drawings."));
+    return;
+  }
+  TUndoManager::manager()->beginBlock();
+  for (auto &undo : edits) {
+    undo->redo();
+    TUndoManager::manager()->add(undo.release());
+  }
+  TUndoManager::manager()->endBlock();
   notifyAlignmentChanged();
   app->getCurrentXsheet()->notifyXsheetChanged();
 }

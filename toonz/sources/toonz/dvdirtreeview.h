@@ -134,7 +134,7 @@ public:
   DvDirTreeView(DvDirTreeView &&)            = delete;
   DvDirTreeView &operator=(DvDirTreeView &&) = delete;
 
-  ~DvDirTreeView() override = default;
+  ~DvDirTreeView() override;
 
   // Path operations
   TFilePath getCurrentPath()

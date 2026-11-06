@@ -68,6 +68,10 @@ CommandManager::CommandManager()
 //---------------------------------------------------------
 
 CommandManager::~CommandManager() {
+  // Actions can outlive the registry. Disconnect every callback before any
+  // handler/node destructor runs, since a handler can itself own an action.
+  for (const auto &entry : m_idTable)
+    QObject::disconnect(entry.second->m_actionDestroyedConnection);
   std::map<std::string, Node *>::iterator it;
   for (it = m_idTable.begin(); it != m_idTable.end(); ++it) delete it->second;
 }
@@ -120,13 +124,22 @@ void CommandManager::define(CommandId id, CommandType type,
   assert(type != UndefinedCommandType);
   assert(qaction != 0);
   assert(m_qactionTable.count(qaction) == 0);
+  if (type == UndefinedCommandType || !qaction || m_qactionTable.count(qaction))
+    return;
 
   Node *node = getNode(id);
-  if (node->m_type != UndefinedCommandType) {
+  if (node->m_qaction) {
     assert(!"Duplicate command id");
+    return;
   }
+  // Keep the command's handler and enabled state when a window recreates its
+  // action. Replacing a still-live action remains a programming error.
   node->m_type    = type;
   node->m_qaction = qaction;
+  m_qactionTable[qaction] = node;
+  node->m_actionDestroyedConnection = QObject::connect(
+      qaction, &QObject::destroyed, qaction,
+      [this, qaction]() { unregisterAction(qaction); }, Qt::DirectConnection);
   node->m_qaction->setEnabled(
       (node->m_enabled &&
        (node->m_handler || node->m_qaction->actionGroup() != 0)) ||
@@ -135,7 +148,6 @@ void CommandManager::define(CommandId id, CommandType type,
       node->m_type == CellMarkCommandType);
   node->m_iconSVGName = iconSVGName;
 
-  m_qactionTable[qaction] = node;
   qaction->setShortcutContext(Qt::ApplicationShortcut);
   // user defined shortcuts will be loaded afterwards in loadShortcuts()
   QString defaultShortcutQString =
@@ -146,6 +158,25 @@ void CommandManager::define(CommandId id, CommandType type,
   }
 
   if (type == ToolCommandType) updateToolTip(qaction);
+}
+
+//---------------------------------------------------------
+
+void CommandManager::unregisterAction(QAction *action) {
+  auto registered = m_qactionTable.find(action);
+  if (registered == m_qactionTable.end()) return;
+  Node *node = registered->second;
+  m_qactionTable.erase(registered);
+  if (node->m_qaction != action) return;
+  node->m_qaction = nullptr;
+  node->m_actionDestroyedConnection = QMetaObject::Connection();
+  for (auto it = m_shortcutTable.begin(); it != m_shortcutTable.end();) {
+    if (it->second == node)
+      it = m_shortcutTable.erase(it);
+    else
+      ++it;
+  }
+  if (m_pendingShortcutAction == action) m_pendingShortcutAction = nullptr;
 }
 
 //---------------------------------------------------------

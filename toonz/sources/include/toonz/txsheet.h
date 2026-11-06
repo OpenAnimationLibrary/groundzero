@@ -470,6 +470,8 @@ frame duplication.
           \sa removeColumn()
   */
   void insertColumn(int index, TXshColumn *column);  // becomes owner
+  // Undo may retain the original detached stage object and its curve identities.
+  void insertColumn(int index, TXshColumn *column, TStageObject *stageObject);
   /*! Removes column identified by \b \e index from xsheet column. If column in
 \b \e index
 is not empty and it has a \b TFx fx, removes column from fx dag, calls

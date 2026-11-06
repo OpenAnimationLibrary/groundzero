@@ -1,6 +1,7 @@
 
 
 #include "tstroke.h"
+#include "tcolorfunctions.h"
 #include "tvectorrenderdata.h"
 #include "tgl.h"
 #include "tstrokeoutline.h"
@@ -74,6 +75,10 @@ void VectorBrushProp::draw(const TVectorRenderData &rd) {
       !convert(rd.m_aff * m_stroke->getBBox()).overlaps(rd.m_clippingRect))
     return;
 
+  if (m_stroke->getOpacity() <= 0.0) return;
+  TStrokeOpacityFunction opacity(rd.m_cf, m_stroke->getOpacity());
+  const TColorFunction *cf = m_stroke->getOpacity() < 1.0 ? &opacity : rd.m_cf;
+
   TPaletteP palette(m_brush->getPalette());
   if (!palette) return;
 
@@ -141,7 +146,7 @@ void VectorBrushProp::draw(const TVectorRenderData &rd) {
 
         // Draw the outline
         colorStyle.setMainColor(brushStyle->getMainColor());
-        colorStyle.drawRegion(0, false, m_regionOutlines[r]);
+        colorStyle.drawRegion(cf, false, m_regionOutlines[r]);
       }
     }
 
@@ -153,7 +158,7 @@ void VectorBrushProp::draw(const TVectorRenderData &rd) {
       if (!brushStyle) continue;
 
       colorStyle.setMainColor(brushStyle->getMainColor());
-      colorStyle.drawStroke(0, &m_strokeOutlines[t],
+      colorStyle.drawStroke(cf, &m_strokeOutlines[t],
                             brushStroke);  // brushStroke unused but requested
     }
   }

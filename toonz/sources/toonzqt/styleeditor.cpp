@@ -1530,7 +1530,8 @@ void ColorParameterSelector::clear() {
   if (isVisible()) {
     hide();
     update();
-    qApp->processEvents();
+    // Let Qt deliver the repaint after the caller returns. Processing unrelated
+    // events here can retire the owning room during a Style Editor callback.
   }
 }
 
@@ -4239,7 +4240,6 @@ void StyleEditor::onSearchVisible(bool on) {
 void StyleEditor::onSpecialButtonToggled(bool on) {
   m_specialStylePage->setVisible(on);
   m_vectorsArea->widget()->resize(m_vectorsArea->widget()->sizeHint());
-  qApp->processEvents();
 }
 
 //-----------------------------------------------------------------------------
@@ -4247,7 +4247,6 @@ void StyleEditor::onSpecialButtonToggled(bool on) {
 void StyleEditor::onCustomButtonToggled(bool on) {
   m_customStylePage->setVisible(on);
   m_vectorsArea->widget()->resize(m_vectorsArea->widget()->sizeHint());
-  qApp->processEvents();
 }
 
 //-----------------------------------------------------------------------------
@@ -4255,7 +4254,6 @@ void StyleEditor::onCustomButtonToggled(bool on) {
 void StyleEditor::onVectorBrushButtonToggled(bool on) {
   m_vectorBrushesStylePage->setVisible(on);
   m_vectorsArea->widget()->resize(m_vectorsArea->widget()->sizeHint());
-  qApp->processEvents();
 }
 
 //-----------------------------------------------------------------------------

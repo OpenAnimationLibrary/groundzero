@@ -341,6 +341,24 @@ inline std::vector<double> mapToThickness(const Profile &profile,
 // Width mode: the thickness at the dragged point and its fade to the sides
 //-----------------------------------------------------------------------------
 
+//! Blend a profile with the original pressure widths. A zero strength is an
+//! exact identity; Multiply retains the original pressure variation.
+inline std::vector<double> applyBlended(const Profile &profile,
+    const std::vector<double> &lengths, const std::vector<double> &original,
+    double strength, bool multiply) {
+  if (original.size() != lengths.size() || original.empty()) return original;
+  strength = clampValue(strength, 0.0, 1.0);
+  if (strength == 0.0) return original;
+  const double maximum = *std::max_element(original.begin(), original.end());
+  auto target = mapToThickness(profile, lengths, maximum);
+  const auto positions = normalizedPositions(lengths);
+  for (size_t i = 0; i < target.size(); ++i) {
+    if (multiply) target[i] = original[i] * evaluate(profile, positions[i]);
+    target[i] = original[i] + strength * (target[i] - original[i]);
+  }
+  return target;
+}
+
 //! The thickness set at the dragged point: the distance between the pointer
 //! and the center of the stroke at that point, kept within the limits.
 inline double thicknessFromDistance(double distance,
@@ -448,7 +466,10 @@ inline bool fromText(const std::string &line, Profile &out) {
     b.imbue(std::locale::classic());
     double pos = 0.0, ratio = 0.0;
     if (!(a >> pos) || !(b >> ratio)) return false;
-    if (!(pos == pos) || !(ratio == ratio)) return false;  // NaN
+    if (!std::isfinite(pos) || !std::isfinite(ratio)) return false;
+    a >> std::ws;
+    b >> std::ws;
+    if (!a.eof() || !b.eof()) return false;
     profile.points.push_back(Point(pos, ratio));
   }
   if (profile.points.empty()) return false;
