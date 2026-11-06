@@ -15,6 +15,15 @@ branch). The Qt 5 build and its 25 tests are unchanged. The fixes came from a
 static audit first, then from about ten CI rounds; the rounds are listed under
 "Fixed from the CI build" below.
 
+## Running it
+
+The Qt 6 job of `.github/workflows/tests_linux.yml` also builds the tests
+(`BUILD_TESTS=ON`) and runs them with ctest under Xvfb, as the Qt 5 Tests job
+does. Each failing test is an annotation with the end of its output, and a
+notice gives the totals. This is the first step of running the application
+with Qt 6 (roadmap F1): the tests load scenes, render FXs and drive widgets
+offscreen. Windows and macOS have no Qt 6 build yet.
+
 ## How the code stays valid for both versions
 
 - `toonzqt/qtcompat.h` holds the spellings that differ: `TEnterEvent`

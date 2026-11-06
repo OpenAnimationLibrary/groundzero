@@ -1,0 +1,6 @@
+<fxlayout help_file="AutoMatte.html">
+  <page name="Auto Matte">
+    <control>threshold</control>
+    <control>color</control>
+  </page>
+</fxlayout>

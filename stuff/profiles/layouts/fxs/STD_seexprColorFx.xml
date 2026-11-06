@@ -8,5 +8,7 @@
     <control>edgeMode</control>
     <control>samplingFilter</control>
     <control>maskChannel</control>
+    <control>width</control>
+    <control>height</control>
   </page>
 </fxlayout>

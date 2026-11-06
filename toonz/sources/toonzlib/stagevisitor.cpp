@@ -1841,6 +1841,7 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
   TVectorRenderData rd(m_viewAff * player.m_placement, TRect(), vPalette, cf,
                        true  // alpha enabled
   );
+  rd.m_frame = player.m_frame;
 
   rd.m_drawRegions           = !inksOnly && !player.m_outlineView;
   rd.m_inkCheckEnabled       = tc & ToonzCheck::eInk;
@@ -2179,6 +2180,7 @@ void OpenGlPainter::onVectorImage(TVectorImage *vi,
 
   rd.m_alphaChannel = m_alphaEnabled;
   rd.m_is3dView     = m_camera3d;
+  rd.m_frame        = player.m_frame;
 
   if (m_maskLevel > 0)
     tglDrawMask(rd, vi);

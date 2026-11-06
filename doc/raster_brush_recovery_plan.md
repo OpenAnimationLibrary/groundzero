@@ -47,7 +47,10 @@ moves backwards; its paired-counter regression is authored. The preview/editor,
 collection workflow and opt-in boundary received a focused source review with no
 additional concrete defects found. The native zero-weight and alpha-lock cases
 needed no production renderer changes. No builds/tests have run for this batch.
-Integration of the refreshed edition branch is the remaining pre-CI step.
+The refreshed edition revision `2e52fb78b` merges without conflicts. Source review
+confirmed the native routing, application test entry and build registration are
+preserved. The scoped implementation and integration review are complete; final
+CI/runtime qualification is the next milestone and remains unproven.
 
 These are the six known items. The first four are confirmed source-review defects;
 the last two are focused proof questions, not established production mismatches.

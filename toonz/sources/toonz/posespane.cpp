@@ -3,6 +3,7 @@
 
 // Tnz6 includes
 #include "tapp.h"
+#include "sceneviewer.h"
 #include "columnselection.h"
 #include "librarycommand.h"
 
@@ -33,7 +34,9 @@
 #include "historytypes.h"
 
 // Qt includes
+#include <QBuffer>
 #include <QCheckBox>
+#include <QImage>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -424,6 +427,18 @@ void PosesPane::onAddPose() {
   if (pose.m_entries.empty()) {
     DVGui::warning(tr("The current pose does not differ from the base pose."));
     return;
+  }
+  // The viewer shows the pose now: keep a small picture of it for the Library
+  if (SceneViewer *viewer = app->getActiveViewer()) {
+    if (viewer->isVisible()) {
+      const QImage image = viewer->grabFramebuffer();
+      if (!image.isNull()) {
+        QBuffer buffer(&pose.m_thumbnail);
+        buffer.open(QIODevice::WriteOnly);
+        image.scaled(QSize(96, 64), Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            .save(&buffer, "PNG");
+      }
+    }
   }
 
   QString defaultName = tr("Pose %1").arg(library.getPoseCount() + 1);

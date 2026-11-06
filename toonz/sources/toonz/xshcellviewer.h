@@ -114,6 +114,9 @@ class CellArea final : public QWidget {
   void drawSoundTextCell(QPainter &p, int row, int col);
   void drawSoundTextColumn(QPainter &p, int r0, int r1, int col);
   void drawSoundCell(QPainter &p, int row, int col, bool isReference = false);
+  //! A column with a time remap renders another cell than the one shown:
+  //! marks the frame that renders in the cell's corner.
+  void drawTimeRemapHint(QPainter &p, int row, int col);
   void drawPaletteCell(QPainter &p, int row, int col, bool isReference = false);
 
   void drawKeyframe(QPainter &p, const QRect toBeUpdated);

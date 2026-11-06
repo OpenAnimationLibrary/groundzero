@@ -26,6 +26,7 @@
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tstageobjectcmd.h"
 #include "toonz/doubleparamcmd.h"
+#include "toonz/mastercontroller.h"
 
 // TnzBase includes
 #include "tdoubleparam.h"
@@ -436,9 +437,7 @@ MasterControllersPane::~MasterControllersPane() {
 //-----------------------------------------------------------------------------
 
 bool MasterControllersPane::isMasterController(TStageObject *obj) {
-  return obj && obj->getId().isPegbar() &&
-         QString::fromStdString(obj->getName())
-             .startsWith(controllerPrefix, Qt::CaseInsensitive);
+  return MasterController::isController(obj);
 }
 
 //-----------------------------------------------------------------------------
@@ -510,12 +509,7 @@ void MasterControllersPane::hideEvent(QHideEvent *) {
 
 //-----------------------------------------------------------------------------
 
-void MasterControllersPane::onSceneSwitched() {
-  // The widget modes belong to the controllers of the previous scene.
-  m_modes.clear();
-  m_padY.clear();
-  refresh();
-}
+void MasterControllersPane::onSceneSwitched() { refresh(); }
 
 //-----------------------------------------------------------------------------
 
@@ -550,9 +544,6 @@ void MasterControllersPane::rebuild() {
     QString shortName = name.mid(controllerPrefix.length());
     if (shortName.isEmpty()) shortName = name;
 
-    if (!m_modes.count(id))
-      m_modes[id] = hasPoseBlendLayers(id) ? PoseBlendMode : SliderMode;
-
     QWidget *row           = new QWidget(this);
     QLabel *nameLabel      = new QLabel(shortName, row);
     QComboBox *modeCombo         = new QComboBox(row);
@@ -571,7 +562,7 @@ void MasterControllersPane::rebuild() {
     modeCombo->addItem(tr("Slider"));
     modeCombo->addItem(tr("2D Pad"));
     modeCombo->addItem(tr("Pose Blend"));
-    modeCombo->setCurrentIndex(m_modes[id]);
+    modeCombo->setCurrentIndex(getMode(id));
     modeCombo->setToolTip(
         tr("Widget of the controller: a slider, a 2D pad also setting a "
            "second controller, or a slider blending two poses"));
@@ -638,11 +629,11 @@ void MasterControllersPane::rebuild() {
     Row rowData = {id,        modeCombo,       slider, pad,      padYBox,
                    padYCombo, bindPosesButton, field,  keyButton};
     m_rows.push_back(rowData);
-    applyMode(rowData, m_modes[id]);
+    applyMode(rowData, getMode(id));
 
     connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this, id](int index) {
-              m_modes[id] = index;
+              setWidget(id, index, getPadY(id));
               for (const Row &r : m_rows)
                 if (r.m_id == id) applyMode(r, index);
               updateValues();
@@ -651,7 +642,7 @@ void MasterControllersPane::rebuild() {
             this, [this, id, padYCombo](int) {
               int index = padYCombo->currentData().toInt();
               if (index < 0 || index >= (int)m_controllers.size()) return;
-              m_padY[id] = m_controllers[index].first;
+              setWidget(id, getMode(id), m_controllers[index].first);
               updateValues();
             });
     connect(bindPosesButton, &QPushButton::clicked, this,
@@ -810,8 +801,28 @@ void MasterControllersPane::endDrag() {
 //-----------------------------------------------------------------------------
 
 int MasterControllersPane::getMode(const TStageObjectId &id) const {
-  auto it = m_modes.find(id);
-  return it == m_modes.end() ? (int)SliderMode : it->second;
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+  if (!xsh) return SliderMode;
+  return MasterController::widget(
+      xsh, xsh->getStageObjectTree()->getStageObject(id, false));
+}
+
+//-----------------------------------------------------------------------------
+
+//! Sets the widget of the controller, saved with the scene, and lets the
+//! viewer draw it.
+void MasterControllersPane::setWidget(const TStageObjectId &id, int mode,
+                                      const TStageObjectId &padY) {
+  TApp *app    = TApp::instance();
+  TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
+  if (!xsh) return;
+  TStageObject *obj = xsh->getStageObjectTree()->getStageObject(id, false);
+  if (!MasterController::isController(obj)) return;
+  if (obj->getControllerWidget() == mode && obj->getControllerPadY() == padY)
+    return;
+  obj->setControllerWidget(mode, padY);
+  app->getCurrentScene()->setDirtyFlag(true);
+  app->getCurrentXsheet()->notifyXsheetChanged();
 }
 
 //-----------------------------------------------------------------------------
@@ -819,14 +830,10 @@ int MasterControllersPane::getMode(const TStageObjectId &id) const {
 //! Returns the controller giving the Y of the pad of the controller: the one
 //! chosen if it still exists, and the first other one otherwise.
 TStageObjectId MasterControllersPane::getPadY(const TStageObjectId &id) const {
-  auto it = m_padY.find(id);
-  if (it != m_padY.end() && it->second != id) {
-    for (const Controllers::value_type &controller : m_controllers)
-      if (controller.first == it->second) return it->second;
-  }
-  for (const Controllers::value_type &controller : m_controllers)
-    if (controller.first != id) return controller.first;
-  return TStageObjectId::NoneId;
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+  if (!xsh) return TStageObjectId::NoneId;
+  return MasterController::padY(
+      xsh, xsh->getStageObjectTree()->getStageObject(id, false));
 }
 
 //-----------------------------------------------------------------------------
@@ -845,17 +852,8 @@ void MasterControllersPane::applyMode(const Row &row, int mode) const {
 bool MasterControllersPane::hasPoseBlendLayers(const TStageObjectId &id) const {
   TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
   if (!xsh) return false;
-  TStageObjectTree *tree   = xsh->getStageObjectTree();
-  TStageObject *controller = tree->getStageObject(id, false);
-  if (!controller) return false;
-  std::wstring name = ::to_wstring(controller->getName());
-  for (int i = 0; i < tree->getStageObjectCount(); ++i) {
-    TStageObject *obj = tree->getStageObject(i);
-    if (obj->findOffsetLayer(name + L"_A") >= 0 &&
-        obj->findOffsetLayer(name + L"_B") >= 0)
-      return true;
-  }
-  return false;
+  return MasterController::hasPoseBlendLayers(
+      xsh, xsh->getStageObjectTree()->getStageObject(id, false));
 }
 
 //-----------------------------------------------------------------------------
@@ -1177,7 +1175,9 @@ void MasterControllersPane::bindPoses(const TStageObjectId &preselected) {
   }
   endUndoBlock(undoName);
 
-  m_modes[controllerId] = PoseBlendMode;
+  // The controller is now bound to poses: unless chosen otherwise, it shows
+  // as a pose blend
+  setWidget(controllerId, -1, getPadY(controllerId));
   rebuild();
 }
 

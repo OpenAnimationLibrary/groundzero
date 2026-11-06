@@ -362,6 +362,7 @@ int main(int argc, char *argv[]) {
 
   // Install signal handlers to catch crashes
   CrashHandler::install();
+  CrashHandler::setUnattended(nativeIntegrationTest);
 
   // parsing arguments and qualifiers
   TFilePath loadFilePath;

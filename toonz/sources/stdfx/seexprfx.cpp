@@ -30,7 +30,10 @@
 
 namespace {
 constexpr std::size_t maxDocumentBytes = 262144;
+// Active controls. Removed controls stay archived with their parameters, for
+// undo and their animation, so they count only against the larger total.
 constexpr std::size_t maxControls = 128;
+constexpr std::size_t maxStoredControls = 512;
 constexpr int maxAnimationKeys = 64;
 constexpr int maxStoredAnimationKeys = 512;
 constexpr double maxWorkingBytes = 256.0 * 1024 * 1024;
@@ -71,6 +74,16 @@ std::array<double, 3> triple(const QJsonValue &value) {
 bool finiteBox(const TRectD &box) {
   return box != TConsts::infiniteRectD && std::isfinite(box.x0) &&
          std::isfinite(box.y0) && std::isfinite(box.x1) && std::isfinite(box.y1);
+}
+// Whether the Source has no bounds (a colour card, a gradient). Asked of its
+// doGetBBox: getBBox rounds the bounds to integers, which turns the infinite
+// box's +-DBL_MAX into an out-of-range int conversion.
+bool unboundedSource(const TFxPort &source, double frame,
+                     const TRenderSettings &settings) {
+  auto *fx = dynamic_cast<TRasterFx *>(source.getFx());
+  TRectD box;
+  return fx && fx->doGetBBox(frame, box, settings) &&
+         box == TConsts::infiniteRectD;
 }
 TRectD rasterBox(const TRectD &box) {
   demand(finiteBox(box), "input canvas must be finite");
@@ -139,6 +152,11 @@ struct InputSampler {
   TPointD current;
   double radius = 0;
   int edge = 0, filter = 1;
+  // A rotating or shearing transform turns the Source canvas into a rotated
+  // shape, so the edge modes clamp and wrap in FX-local coordinates instead.
+  bool localEdges = false;
+  TAffine inverse;
+  TRectD localCanvas;
 
   static double wrapped(double x, double lower, double size, bool mirror) {
     const double period = size * (mirror ? 2 : 1);
@@ -147,8 +165,33 @@ struct InputSampler {
     if (mirror && p >= size) p = std::nextafter(period - p, 0.0);
     return lower + std::min(std::nextafter(size, 0.0), p);
   }
+  TPointD localEdge(const TPointD &global) const {
+    TPointD local = inverse * global;
+    if (edge == 1) {
+      local.x = std::max(localCanvas.x0 + .5, std::min(localCanvas.x1 - .5, local.x));
+      local.y = std::max(localCanvas.y0 + .5, std::min(localCanvas.y1 - .5, local.y));
+    } else {
+      local.x = wrapped(local.x, localCanvas.x0, localCanvas.getLx(), edge == 3);
+      local.y = wrapped(local.y, localCanvas.y0, localCanvas.getLy(), edge == 3);
+    }
+    return affine * local;
+  }
   TPixelD readAt(TPointD global) const {
     if (!image) return TPixelD(0, 0, 0, 0);
+    if (edge && localEdges) {
+      global = localEdge(global);
+      const double px = global.x - position.x, py = global.y - position.y;
+      if (filter == 0) return pixelAt(image, int(std::floor(px)), int(std::floor(py)));
+      const double x = px - .5, y = py - .5;
+      const int ix = int(std::floor(x)), iy = int(std::floor(y));
+      // Each bilinear tap is mapped onto the Source too, so a wrap has no seam.
+      auto tap = [&](int tx, int ty) {
+        const TPointD g = localEdge(position + TPointD(tx + .5, ty + .5));
+        return pixelAt(image, int(std::floor(g.x - position.x)), int(std::floor(g.y - position.y)));
+      };
+      return blendPixels(blendPixels(tap(ix, iy), tap(ix + 1, iy), x - ix),
+                         blendPixels(tap(ix, iy + 1), tap(ix + 1, iy + 1), x - ix), y - iy);
+    }
     if (edge && !canvas.isEmpty()) {
       if (edge == 1) {
         global.x = std::max(canvas.x0 + .5, std::min(canvas.x1 - .5, global.x));
@@ -163,7 +206,8 @@ struct InputSampler {
     const double x = px - .5, y = py - .5;
     const int ix = int(std::floor(x)), iy = int(std::floor(y));
     auto tap = [&](int tx, int ty) {
-      if (edge > 1) {
+      // Without a canvas (an unbounded Source) there is no period to wrap by
+      if (edge > 1 && !canvas.isEmpty()) {
         const double gx = wrapped(position.x + tx + .5, canvas.x0, canvas.getLx(), edge == 3);
         const double gy = wrapped(position.y + ty + .5, canvas.y0, canvas.getLy(), edge == 3);
         tx = int(std::floor(gx - position.x)); ty = int(std::floor(gy - position.y));
@@ -408,6 +452,7 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
   }
   std::map<QString, Control> table;
   std::set<QString> names;
+  std::size_t activeControls = 0;
   for (const QString group : {QString("controls"), QString("archive")}) {
     const auto value = result.json.value(group);
     demand(value.isUndefined() || value.isArray(), "control schema must be an array");
@@ -421,6 +466,7 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
       control.type = object.value("type").toString("scalar");
       control.definition = object;
       control.active = group == "controls";
+      if (control.active) ++activeControls;
       demand(identifier(control.id) && identifier(control.name), "control IDs and variables must be identifiers");
       demand(table.count(control.id) == 0, "duplicate control ID");
       demand(!control.active || (!reservedVariables.count(control.name) && names.insert(control.name).second),
@@ -464,7 +510,9 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
       table.emplace(control.id, control);
     }
   }
-  demand(table.size() <= maxControls, "too many expression controls");
+  demand(activeControls <= maxControls, "too many expression controls");
+  demand(table.size() <= maxStoredControls,
+         "too many controls have been removed from this effect; use a new effect");
   std::set<std::string> parameters;
   for (const auto &entry : table)
     for (const auto &name : parameterNames(entry.second))
@@ -1028,7 +1076,9 @@ protected:
     demand(width >= 1 && height >= 1 && width <= 65536 && height <= 65536, "canvas dimensions must be within one to 65536 pixels");
     return TRectD(-width * .5, -height * .5, width * .5, height * .5);
   }
-  double support(double frame, const TRenderSettings &settings) const {
+  // How far the expression reads around each pixel, in FX-local pixels: the
+  // Sampling Radius when it calls a sampler, otherwise zero.
+  double samplingReach(double frame) const {
     const double radius = finite(m_radius->getValue(frame), "sampling radius must be finite");
     demand(radius >= 0 && radius <= 4096, "sampling radius must be within zero to 4096 pixels");
     const auto document = SeExprFx::parseDocument(documentText());
@@ -1036,15 +1086,35 @@ protected:
     // not shrink its required halo. Mentions in comments may over-request.
     static const QRegularExpression calls(QStringLiteral("\\bsample_(rgb|alpha)\\b"));
     const bool sampling = calls.match(document.rgb).hasMatch() || calls.match(document.alpha).hasMatch();
-    return (sampling ? radius : 0) * std::max(std::abs(settings.m_affine.a11) + std::abs(settings.m_affine.a12),
-                              std::abs(settings.m_affine.a21) + std::abs(settings.m_affine.a22)) + 2;
+    return sampling ? radius : 0;
+  }
+  double support(double frame, const TRenderSettings &settings) const {
+    return samplingReach(frame) * std::max(std::abs(settings.m_affine.a11) + std::abs(settings.m_affine.a12),
+                                           std::abs(settings.m_affine.a21) + std::abs(settings.m_affine.a22)) + 2;
   }
   TRectD inputRegion(const TRectD &requested, double frame, const TRenderSettings &settings) const {
     if (m_edge->getValue() == 0) return rasterBox(requested.enlarge(support(frame, settings)));
+    const TRectD reach = requested.enlarge(support(frame, settings));
+    // An unbounded Source (a colour card, a gradient) has no edge to clamp or
+    // wrap at: sample it as with transparent edges.
+    if (unboundedSource(m_source, frame, settings)) return rasterBox(reach);
     TRectD box;
     if (!static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, settings) || box.isEmpty())
       return TRectD();
-    demand(finiteBox(box), "clamp/repeat/mirror sampling needs a finite Source canvas");
+    if (!finiteBox(box)) return rasterBox(reach);
+    // A clamped sample lands on the part of the Source nearest to it, so an
+    // axis-aligned request needs only the request projected onto the Source,
+    // plus a pixel for the bilinear taps, not the whole Source for every tile.
+    if (m_edge->getValue() == 1 && settings.m_affine.a12 == 0 && settings.m_affine.a21 == 0) {
+      auto project = [](double value, double low, double high) { return std::max(low, std::min(high, value)); };
+      // A request wholly to one side of the Source projects onto its edge, an
+      // empty rect, which TRectD::enlarge would leave empty: add the margin
+      // by hand.
+      const TRectD nearest(project(reach.x0, box.x0, box.x1) - 1, project(reach.y0, box.y0, box.y1) - 1,
+                           project(reach.x1, box.x0, box.x1) + 1, project(reach.y1, box.y0, box.y1) + 1);
+      return rasterBox(nearest * box);
+    }
+    // Repeat and Mirror can read anywhere on the Source.
     return rasterBox(box);
   }
 
@@ -1383,7 +1453,19 @@ public:
     if (m_generator) { box = localCanvas(frame, settings); return !box.isEmpty(); }
     if (!m_source.isConnected()) { box = TRectD(); return false; }
     TRenderSettings identity = settings; identity.m_affine = TAffine();
-    return m_source->getBBox(frame, box, identity);
+    if (unboundedSource(m_source, frame, identity)) { box = TConsts::infiniteRectD; return true; }
+    const bool found = m_source->getBBox(frame, box, identity);
+    if (box.isEmpty() || box == TConsts::infiniteRectD) return found;
+    // Clamp, Repeat and Mirror continue the Source past its canvas.
+    if (m_edge->getValue() != 0) { box = TConsts::infiniteRectD; return found; }
+    // A sampler reads Source pixels up to its reach away, so a pixel outside
+    // the Source can take their colour (a drop shadow or an outline). The
+    // extra pixel covers the bilinear filter. Bounds queries come from the
+    // viewer and the schematic too: an invalid document fails at render.
+    double reach = 0;
+    try { reach = samplingReach(frame); } catch (...) {}
+    if (reach > 0) box = box.enlarge(reach + 1);
+    return found;
   }
   void transform(double frame, int port, const TRectD &rect, const TRenderSettings &settings,
                   TRectD &input, TRenderSettings &inputSettings) override {
@@ -1470,7 +1552,19 @@ public:
         sampler.image = source.getRaster(); sampler.position = source.m_pos;
       }
       TRectD canvas;
-      if (m_source->getBBox(frame, canvas, settings) && finiteBox(canvas)) sampler.canvas = rasterBox(canvas);
+      if (!unboundedSource(m_source, frame, settings) && m_source->getBBox(frame, canvas, settings) &&
+          finiteBox(canvas))
+        sampler.canvas = rasterBox(canvas);
+      if (settings.m_affine.a12 != 0 || settings.m_affine.a21 != 0) {
+        TRenderSettings identity = settings; identity.m_affine = TAffine();
+        TRectD local;
+        if (!unboundedSource(m_source, frame, identity) && m_source->getBBox(frame, local, identity) &&
+            finiteBox(local) && !local.isEmpty()) {
+          sampler.localEdges = true;
+          sampler.inverse = settings.m_affine.inv();
+          sampler.localCanvas = local;
+        }
+      }
       if (m_mask.isConnected()) {
         const double inputBytes = sampler.image ? double(sampler.image->getLx()) * sampler.image->getLy() * sampler.image->getPixelSize() : 0;
         demand(inputBytes + double(tile.getRaster()->getLx()) * tile.getRaster()->getLy() * tile.getRaster()->getPixelSize() <= maxWorkingBytes,

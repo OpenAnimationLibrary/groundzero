@@ -167,6 +167,7 @@
     STD_edgeExtendFx
     STD_erodeDilateFx
     STD_matteChokeFx
+    STD_autoMatteFx
     STD_hsvKeyFx
     inFx
     outFx

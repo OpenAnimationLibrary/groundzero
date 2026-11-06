@@ -6,6 +6,7 @@
 #include "tool.h"
 #include "tproperty.h"
 #include "edittoolgadgets.h"
+#include "weightpainter.h"
 
 // For Qt translation support
 #include <QCoreApplication>
@@ -85,6 +86,15 @@ class EditTool final : public QObject, public TTool {
 
   TEnumProperty m_activeAxis;
 
+  // Paint Weights: paints the layer weights of the current Deformer Stack FX
+  // (see WeightPainter) instead of moving objects
+  TBoolProperty m_paintWeights;
+  TEnumProperty m_weightLayer;
+  TDoubleProperty m_weightBrush;  //!< Brush radius, in screen pixels
+  TBoolProperty m_eraseWeights;
+  WeightPainter m_weightPainter;
+  TPointD m_weightCursor;  //!< In the FX's space
+
   TPropertyGroup m_prop;
 
   // Trajectory ("Show Trajectory" option): frames of the hovered and of the
@@ -108,6 +118,12 @@ class EditTool final : public QObject, public TTool {
   int pickTrajectoryKey(const TPointD& pos);
   bool startTrajectoryKeyDrag(int keyFrame, const TPointD& pos,
                               const TMouseEvent& e);
+
+  TFx* weightPaintFx() const;
+  bool weightPaintEnabled() const;
+  double weightBrushRadius() const;
+  TPointD toWeightSpace(const TPointD& pos) const;
+  void drawWeights();
 
 public:
   EditTool();

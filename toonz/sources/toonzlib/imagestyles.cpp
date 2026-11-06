@@ -15,6 +15,9 @@
 #include "toonz/toonzscene.h"
 #include "toonz/imagestyles.h"
 
+#include <algorithm>
+#include <cmath>
+
 //*************************************************************************************
 //    TTextureStyle  implementation
 //*************************************************************************************
@@ -98,7 +101,9 @@ TTextureStyle::TTextureStyle(const TTextureStyle &other)
     , m_texturePath(other.m_texturePath)
     , m_texturePathLoaded(other.m_texturePathLoaded)
     , m_params(other.m_params)
-    , m_tessellator(new TglTessellator) {
+    , m_tessellator(new TglTessellator)
+    , m_boil(other.m_boil)
+    , m_boilHold(other.m_boilHold) {
   setAverageColor();
 }
 
@@ -212,6 +217,30 @@ void TTextureStyle::computeOutline(const TStroke *stroke,
 }
 
 //-----------------------------------------------------------------------------
+void TTextureStyle::drawStrokeAtFrame(const TColorFunction *cf,
+                                      TStrokeOutline *outline,
+                                      const TStroke *stroke, int frame) const {
+  const TPointD shift = boilShift(frame, m_boilHold, m_boil);
+  if (shift == TPointD()) {
+    drawStroke(cf, outline, stroke);
+    return;
+  }
+
+  // The texture coordinates of the outline, moved
+  glMatrixMode(GL_TEXTURE);
+  glPushMatrix();
+  glTranslated(shift.x, shift.y, 0.0);
+  glMatrixMode(GL_MODELVIEW);
+
+  drawStroke(cf, outline, stroke);
+
+  glMatrixMode(GL_TEXTURE);
+  glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);
+}
+
+//-----------------------------------------------------------------------------
+
 void TTextureStyle::drawStroke(const TColorFunction *cf,
                                TStrokeOutline *outline,
                                const TStroke *stroke) const {
@@ -530,7 +559,7 @@ TPoint computeCentroid(const TRaster32P &r);
 
 //-----------------------------------------------------------------------------
 
-int TTextureStyle::getParamCount() const { return 8; }
+int TTextureStyle::getParamCount() const { return 10; }
 
 //-------------------------------------------------------------------
 
@@ -552,6 +581,10 @@ QString TTextureStyle::getParamNames(int index) const {
     return "Contrast";
   case 7:
     return "Load From File";
+  case 8:
+    return "Line Boil";
+  case 9:
+    return "Boil Hold";
   default:
     assert(false);
   }
@@ -584,9 +617,21 @@ void TTextureStyle::getParamRange(int index, double &min, double &max) const {
     min = 0.01;
     max = 10;
     break;
+  case 8:
+    min = 0;
+    max = 1;
+    break;
   default:
     assert(false);
   }
+}
+
+//-------------------------------------------------------------------
+
+void TTextureStyle::getParamRange(int index, int &min, int &max) const {
+  assert(index == 9);
+  min = 1;
+  max = 24;
 }
 
 //-------------------------------------------------------------------
@@ -599,6 +644,8 @@ TColorStyle::ParamType TTextureStyle::getParamType(int index) const {
     return TColorStyle::ENUM;
   else if (index == 7)
     return TColorStyle::FILEPATH;
+  else if (index == 9)
+    return TColorStyle::INT;
   return TColorStyle::DOUBLE;
 }
 
@@ -641,6 +688,8 @@ double TTextureStyle::getParamValue(TColorStyle::double_tag, int index) const {
     return m_params.m_displacement.y;
   case 6:
     return m_params.m_contrast;
+  case 8:
+    return m_boil;
   default:
     assert(false);
   }
@@ -656,7 +705,8 @@ TFilePath TTextureStyle::getParamValue(TColorStyle::TFilePath_tag,
 //-------------------------------------------------------------------
 
 int TTextureStyle::getParamValue(TColorStyle::int_tag, int index) const {
-  assert(index == 1);
+  assert(index == 1 || index == 9);
+  if (index == 9) return m_boilHold;
 
   return m_params.m_type;
 }
@@ -672,7 +722,11 @@ void TTextureStyle::setParamValue(int index, const TFilePath &value) {
 //-----------------------------------------------------------------
 
 void TTextureStyle::setParamValue(int index, int value) {
-  assert(index == 1);
+  assert(index == 1 || index == 9);
+  if (index == 9) {
+    m_boilHold = std::max(1, std::min(24, value));
+    return;
+  }
 
   m_params.m_type = (TTextureParams::TYPE)value;
 }
@@ -713,8 +767,54 @@ void TTextureStyle::setParamValue(int index, double value) {
   case 6:
     m_params.m_contrast = value;
     break;
+  case 8:
+    m_boil = std::max(0.0, std::min(1.0, value));
+    break;
   default:
     assert(false);
+  }
+}
+
+//-------------------------------------------------------------------
+
+TPointD TTextureStyle::boilShift(int frame, int hold, double amount) {
+  if (frame < 0 || !(amount > 0.0)) return TPointD();
+
+  // A hash of the held frame: each step lands somewhere else, the same in
+  // every render
+  unsigned int h = (unsigned int)(frame / std::max(1, hold)) + 0x9e3779b9u;
+  h ^= h >> 16;
+  h *= 0x7feb352du;
+  h ^= h >> 15;
+  h *= 0x846ca68bu;
+  h ^= h >> 16;
+  const double a = (h & 0xffffu) / 65535.0, b = (h >> 16) / 65535.0;
+  return TPointD((a - 0.5) * amount, (b - 0.5) * amount);
+}
+
+//-------------------------------------------------------------------
+
+std::vector<std::string> TTextureStyle::getExtraSettingNames() const {
+  return {"textureBoil", "textureBoilHold"};
+}
+
+std::string TTextureStyle::getExtraSetting(const std::string &name) const {
+  if (name == "textureBoil" && m_boil > 0.0)
+    return QString::number(m_boil, 'g', 17).toStdString();
+  if (name == "textureBoilHold" && m_boilHold != 1)
+    return std::to_string(m_boilHold);
+  return std::string();
+}
+
+void TTextureStyle::setExtraSetting(const std::string &name,
+                                    const std::string &value) {
+  bool ok = false;
+  if (name == "textureBoil") {
+    const double boil = QString::fromStdString(value).toDouble(&ok);
+    if (ok && std::isfinite(boil)) m_boil = std::max(0.0, std::min(1.0, boil));
+  } else if (name == "textureBoilHold") {
+    const int hold = QString::fromStdString(value).toInt(&ok);
+    if (ok) m_boilHold = std::max(1, std::min(24, hold));
   }
 }
 

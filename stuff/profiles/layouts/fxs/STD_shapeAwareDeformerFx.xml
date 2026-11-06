@@ -1,6 +1,8 @@
 
 <fxlayout>
   <page name="Shape Aware Deformer">
+   <separator label="Vector Art"/>
+    <control>deformStrokes</control>
    <separator label="Weights"/>
     <control>resolution</control>
     <control>margin</control>

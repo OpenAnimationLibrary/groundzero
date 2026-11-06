@@ -12,6 +12,7 @@
 #include "ruler.h"
 
 #include "tgl.h"
+#include "tglbatch.h"
 #include "trop.h"
 #include "toonz/txsheet.h"
 #include "toonz/toonzscene.h"
@@ -309,42 +310,32 @@ void ViewerDraw::drawGridAndGuides(SceneViewer *viewer, double sc, Ruler *vr,
   if (gridEnabled) {
     glColor3d(0.7, 0.7, 0.7);
 
-    glBegin(GL_LINES);
-    glVertex2d(0, y0);
-    glVertex2d(0, y1);
-    glVertex2d(x0, 0);
-    glVertex2d(x1, 0);
-    glEnd();
+    tgl::Batch axes;
+    axes.line(TPointD(0, y0), TPointD(0, y1));
+    axes.line(TPointD(x0, 0), TPointD(x1, 0));
+    axes.draw();
 
     glEnable(GL_LINE_STIPPLE);
 
     glLineStipple(1, 0xAAAA);
 
-    glBegin(GL_LINES);
+    // Every tenth line darker
+    const TPixelD major(0.8, 0.8, 0.8), minor(0.9, 0.9, 0.9);
+    tgl::Batch grid;
     int i;
     for (i = i0; i <= i1; i++) {
       double x = i * step;
-      if (i == 0)
-        continue;
-      else if ((abs(i) % 10) == 0)
-        glColor3d(0.8, 0.8, 0.8);
-      else
-        glColor3d(0.9, 0.9, 0.9);
-      glVertex2d(x, y0);
-      glVertex2d(x, y1);
+      if (i == 0) continue;
+      grid.color((abs(i) % 10) == 0 ? major : minor);
+      grid.line(TPointD(x, y0), TPointD(x, y1));
     }
     for (i = j0; i <= j1; i++) {
       double y = i * step;
-      if (i == 0)
-        continue;
-      else if ((abs(i) % 10) == 0)
-        glColor3d(0.8, 0.8, 0.8);
-      else
-        glColor3d(0.9, 0.9, 0.9);
-      glVertex2d(x0, y);
-      glVertex2d(x1, y);
+      if (i == 0) continue;
+      grid.color((abs(i) % 10) == 0 ? major : minor);
+      grid.line(TPointD(x0, y), TPointD(x1, y));
     }
-    glEnd();
+    grid.draw();
 
     glDisable(GL_LINE_STIPPLE);
   }
@@ -354,18 +345,16 @@ void ViewerDraw::drawGridAndGuides(SceneViewer *viewer, double sc, Ruler *vr,
   glEnable(GL_LINE_STIPPLE);
 
   int i;
-  glBegin(GL_LINES);
+  tgl::Batch guides;
   for (i = 0; i < hGuideCount; i++) {
     double x = hr->getGuide(i);
-    glVertex2d(x, y0);
-    glVertex2d(x, y1);
+    guides.line(TPointD(x, y0), TPointD(x, y1));
   }
   for (i = 0; i < vGuideCount; i++) {
     double y = vr->getGuide(i);
-    glVertex2d(x0, y);
-    glVertex2d(x1, y);
+    guides.line(TPointD(x0, y), TPointD(x1, y));
   }
-  glEnd();
+  guides.draw();
   glDisable(GL_LINE_STIPPLE);
 }
 
@@ -600,13 +589,13 @@ void ViewerDraw::drawCamera(unsigned long flags, double pixelSize) {
   glEnable(GL_LINE_STIPPLE);
 
   // bordo
-  glBegin(GL_LINE_STRIP);
-  glVertex2d(rect.x0, rect.y0);
-  glVertex2d(rect.x0, rect.y1 - pixelSize);
-  glVertex2d(rect.x1 - pixelSize, rect.y1 - pixelSize);
-  glVertex2d(rect.x1 - pixelSize, rect.y0);
-  glVertex2d(rect.x0, rect.y0);
-  glEnd();
+  tgl::Batch border;
+  border.lineStrip({TPointD(rect.x0, rect.y0),
+                    TPointD(rect.x0, rect.y1 - pixelSize),
+                    TPointD(rect.x1 - pixelSize, rect.y1 - pixelSize),
+                    TPointD(rect.x1 - pixelSize, rect.y0),
+                    TPointD(rect.x0, rect.y0)});
+  border.draw();
 
   // croce al centro
   double dx = 0.05 * rect.getP00().x;
@@ -642,14 +631,14 @@ void ViewerDraw::drawCamera(unsigned long flags, double pixelSize) {
       glEnable(GL_LINE_STIPPLE);
 
       glColor3d(1.0, 0.0, 1.0);
-      glBegin(GL_LINE_STRIP);
-      glVertex2d(stagePreviewSubRect.x0, stagePreviewSubRect.y0);
-      glVertex2d(stagePreviewSubRect.x0, stagePreviewSubRect.y1 - pixelSize);
-      glVertex2d(stagePreviewSubRect.x1 - pixelSize,
-                 stagePreviewSubRect.y1 - pixelSize);
-      glVertex2d(stagePreviewSubRect.x1 - pixelSize, stagePreviewSubRect.y0);
-      glVertex2d(stagePreviewSubRect.x0, stagePreviewSubRect.y0);
-      glEnd();
+      const TRectD &sub = stagePreviewSubRect;
+      tgl::Batch subBorder;
+      subBorder.lineStrip({TPointD(sub.x0, sub.y0),
+                           TPointD(sub.x0, sub.y1 - pixelSize),
+                           TPointD(sub.x1 - pixelSize, sub.y1 - pixelSize),
+                           TPointD(sub.x1 - pixelSize, sub.y0),
+                           TPointD(sub.x0, sub.y0)});
+      subBorder.draw();
 
       glDisable(GL_LINE_STIPPLE);
     }
@@ -715,19 +704,15 @@ void ViewerDraw::drawFieldGuide() {
   double ux = lx / n;
   double uy = ly / n;
   glColor3d(.4, .4, .4);
-  glBegin(GL_LINES);
+  tgl::Batch field;
   int i;
   for (i = -n; i <= n; i++) {
-    glVertex2d(i * ux, -n * uy);
-    glVertex2d(i * ux, n * uy);
-    glVertex2d(-n * ux, i * uy);
-    glVertex2d(n * ux, i * uy);
+    field.line(TPointD(i * ux, -n * uy), TPointD(i * ux, n * uy));
+    field.line(TPointD(-n * ux, i * uy), TPointD(n * ux, i * uy));
   }
-  glVertex2d(-n * ux, -n * uy);
-  glVertex2d(n * ux, n * uy);
-  glVertex2d(-n * ux, n * uy);
-  glVertex2d(n * ux, -n * uy);
-  glEnd();
+  field.line(TPointD(-n * ux, -n * uy), TPointD(n * ux, n * uy));
+  field.line(TPointD(-n * ux, n * uy), TPointD(n * ux, -n * uy));
+  field.draw();
   for (i = 1; i <= n; i++) {
     TPointD delta = 0.03 * TPointD(ux, uy);
     std::string s = std::to_string(i);

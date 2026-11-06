@@ -622,6 +622,31 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
           ? new ToolOptionCheckbox(m_tool, showTrajectoryProp, toolHandle, this)
           : nullptr;
 
+  // Paint Weights of the Deformer Stack FX
+  TBoolProperty *paintWeightsProp =
+      dynamic_cast<TBoolProperty *>(m_pg->getProperty("Paint Weights"));
+  m_paintWeights =
+      paintWeightsProp
+          ? new ToolOptionCheckbox(m_tool, paintWeightsProp, toolHandle, this)
+          : nullptr;
+  TEnumProperty *weightLayerProp =
+      dynamic_cast<TEnumProperty *>(m_pg->getProperty("Weight Layer:"));
+  m_weightLayerCombo =
+      weightLayerProp
+          ? new ToolOptionCombo(m_tool, weightLayerProp, toolHandle)
+          : nullptr;
+  TDoubleProperty *weightBrushProp =
+      dynamic_cast<TDoubleProperty *>(m_pg->getProperty("Weight Brush:"));
+  m_weightBrushField =
+      weightBrushProp ? new ToolOptionSlider(m_tool, weightBrushProp, toolHandle)
+                      : nullptr;
+  TBoolProperty *eraseWeightsProp =
+      dynamic_cast<TBoolProperty *>(m_pg->getProperty("Erase Weights"));
+  m_eraseWeights =
+      eraseWeightsProp
+          ? new ToolOptionCheckbox(m_tool, eraseWeightsProp, toolHandle, this)
+          : nullptr;
+
   m_lockEWPosCheckbox->setObjectName("EditToolLockButton");
   m_lockNSPosCheckbox->setObjectName("EditToolLockButton");
   m_lockEWCenterCheckbox->setObjectName("EditToolLockButton");
@@ -898,6 +923,16 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
       mainLay->addSpacing(ITEM_SPACING);
       mainLay->addWidget(m_showTrajectory, 0);
     }
+    if (m_paintWeights) {
+      mainLay->addSpacing(ITEM_SPACING);
+      mainLay->addWidget(m_paintWeights, 0);
+      if (m_weightLayerCombo) mainLay->addWidget(m_weightLayerCombo, 0);
+      if (m_weightBrushField) {
+        mainLay->addWidget(new ClickableLabel(tr("Brush:"), this), 0);
+        mainLay->addWidget(m_weightBrushField, 0);
+      }
+      if (m_eraseWeights) mainLay->addWidget(m_eraseWeights, 0);
+    }
 
     mainLay->addSpacing(ITEM_SPACING);
   }
@@ -1068,6 +1103,10 @@ void ArrowToolOptionsBox::updateStatus() {
 
   m_globalKey->updateStatus();
   if (m_showTrajectory) m_showTrajectory->updateStatus();
+  if (m_paintWeights) m_paintWeights->updateStatus();
+  if (m_weightLayerCombo) m_weightLayerCombo->updateStatus();
+  if (m_weightBrushField) m_weightBrushField->updateStatus();
+  if (m_eraseWeights) m_eraseWeights->updateStatus();
 
   bool splined = isCurrentObjectSplined();
   if (splined != m_splined) setSplined(splined);

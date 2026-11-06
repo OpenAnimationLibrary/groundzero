@@ -44,7 +44,10 @@ Implementation resumed after the scope decision. FIX-01 through FIX-04 and both
 native proof questions below are now implemented and independently source-reviewed.
 The benchmark review additionally closed failed-finish counter monotonicity with
 a paired-zero negative case. These findings are retained as the audit trail, not
-another open implementation list. Current runtime qualification remains pending.
+another open implementation list. The target edition revision `2e52fb78b`
+merges without conflicts and retains native routing, test entry and build
+registration. Scoped source implementation/review is complete; current runtime
+qualification remains pending.
 
 These are source findings; no test failure was inferred or reproduced locally.
 
