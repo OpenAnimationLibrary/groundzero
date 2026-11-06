@@ -408,6 +408,8 @@ class OracleCacheTest(unittest.TestCase):
         self.expected["group"] = "wetkernelcount"
         precision = cache.canonical({"status": "complete", "records": []})
         convergence = cache.canonical({"status": "complete", "kernelPrecisionSha256": cache.digest(precision)})
+        single_mark = cache.canonical({"status": "complete", "records": []})
+        (self.output / "kernel-single-mark.json").write_bytes(single_mark)
         (self.output / "kernel-precision.json").write_bytes(precision)
         (self.output / "kernel-convergence.json").write_bytes(convergence)
         (self.output / "managed-lab.json").write_bytes(cache.canonical({"status": "complete"}))
@@ -422,10 +424,20 @@ class OracleCacheTest(unittest.TestCase):
         with mock.patch("runpy.run_path", side_effect=modules):
             files = cache.acquisition(self.output, self.fixtures)
             self.assertEqual(files["kernel-convergence.json"], convergence)
-            self.assertEqual(set(validators), {"kernel_precision_probe.py", "kernel_convergence_probe.py", "managed_lab_probe.py"})
+            self.assertEqual(files["kernel-single-mark.json"], single_mark)
+            self.assertEqual(set(validators), {"kernel_precision_probe.py", "kernel_convergence_probe.py", "kernel_single_mark_probe.py", "managed_lab_probe.py"})
             for validator in validators.values(): self.assertEqual(validator.call_count, 1)
             validators["kernel_convergence_probe.py"].assert_called_once_with(
                 cache.parse(convergence), self.fixtures)
+            validators["kernel_single_mark_probe.py"].assert_called_once_with(
+                cache.parse(single_mark), self.fixtures, self.status["records"])
+            (self.output / "kernel-single-mark.json").unlink()
+            with self.assertRaises(OSError): cache.acquisition(self.output, self.fixtures)
+            (self.output / "kernel-single-mark.json").write_bytes(single_mark)
+            validators["kernel_single_mark_probe.py"].side_effect = ValueError("invalid single-mark evidence")
+            with self.assertRaisesRegex(ValueError, "single-mark evidence"):
+                cache.acquisition(self.output, self.fixtures)
+            validators["kernel_single_mark_probe.py"].side_effect = None
             (self.output / "kernel-convergence.json").unlink()
             with self.assertRaises(OSError): cache.acquisition(self.output, self.fixtures)
             (self.output / "kernel-convergence.json").write_bytes(cache.canonical({"status": "complete", "kernelPrecisionSha256": "f" * 64}))
@@ -436,6 +448,7 @@ class OracleCacheTest(unittest.TestCase):
             for name in files: (self.output / name).unlink()
             cache.restore(self.root, self.destination, self.expected)
             self.assertEqual((self.output / "kernel-convergence.json").read_bytes(), convergence)
+            self.assertEqual((self.output / "kernel-single-mark.json").read_bytes(), single_mark)
 
     def test_repeat_canonical_mask_matches_pixelwise_definition(self):
         import hashlib

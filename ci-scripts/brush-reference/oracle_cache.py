@@ -147,7 +147,7 @@ GENERATORS = frozenset({
 })
 PURE_TESTS = frozenset({
     "application_test.py", "package_test.py", "oracle_cache_test.py",
-    "hsv_joint_test.py", "kernel_precision_probe_test.py",
+    "hsv_joint_test.py", "kernel_precision_probe_test.py", "kernel_single_mark_probe_test.py",
     "wet_drift_contract_test.py", "gih_cadence_test.py", "test_stochastic_gate.py",
     "managed_lab_probe_test.py", "generated_tip_test.py", "bitmap_path_test.py",
     "paced_policy_test.py", "wet_hsv_combo_fixtures_test.py",
@@ -444,6 +444,11 @@ def acquisition(output, fixtures):
         require(convergence_report.get("kernelPrecisionSha256") == digest(data),
                 "kernel convergence/precision observation linkage mismatch")
         files["kernel-convergence.json"] = convergence
+        single_mark = read(output / "kernel-single-mark.json", 4 * 1024 * 1024)
+        validate_single_mark = run_path(str(Path(__file__).parent /
+            "gzbrush_reference/kernel_single_mark_probe.py"))["validate"]
+        validate_single_mark(parse(single_mark), fixtures, rows)
+        files["kernel-single-mark.json"] = single_mark
     if fixtures.get("group") in ("wetkernelcount", "lab-conversion"):
         from runpy import run_path
         lab = read(output / "managed-lab.json", 1024 * 1024)
@@ -477,7 +482,7 @@ def restore(root, cache, expected):
             "unexpected or missing cache files")
     total = 0
     for name, spec in entries.items():
-        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json", "kernel-convergence.json", "managed-lab.json") else
+        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json", "kernel-convergence.json", "kernel-single-mark.json", "managed-lab.json") else
                  ".png" if name.endswith(".png") else ".xml")
         require(isinstance(spec, list) and len(spec) == 2 and type(spec[0]) is int
                 and 0 <= spec[0] <= FILE_LIMIT and HEX.fullmatch(spec[1]), "invalid file manifest")

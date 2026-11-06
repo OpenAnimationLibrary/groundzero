@@ -1019,6 +1019,9 @@ class Probe(Extension):
                     app, output, fixtures, by_name, report["records"], checkpoint)
                 from . import kernel_convergence_probe
                 kernel_convergence_probe.render(app, output, fixtures)
+                from . import kernel_single_mark_probe
+                yield from kernel_single_mark_probe.render(
+                    app, output, fixtures, by_name, report["records"], checkpoint)
             if report["actualExecutionOrder"] != report["plannedExecutionOrder"]:
                 raise RuntimeError("Actual independent-stroke execution order differs from plan")
             canonical_order = {name: index for index, name in enumerate(fixtures["presets"])}

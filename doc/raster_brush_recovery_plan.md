@@ -232,3 +232,25 @@ public Node API, not yet a general renderer equation. Additional generated-mask,
 kernel-convergence, spacing/scatter and mask-lifecycle captures preserve original
 inputs and failures; no fitted lookup, discarded warm-up stroke or relaxed
 comparison threshold substitutes for a model.
+
+## Sampling convergence and stochastic-process diagnostics
+
+The 9111a8970 kernel-sampling source run 42261285883 completed its public color
+conversion sidecar with 2176 observations. Cumulative U16 RGB means converted to
+full Lab U16, tested in 16-sample batches with a delta below3, predict all16
+measured extent32 gray/chromatic/polarity RGB8 outputs exactly. U8 means do not.
+This supports a convergence candidate, not an implemented generalized sampler:
+minimum sample-count geometry remains unresolved. New70-case U16 single-mark
+controls reuse seven original presets, keep two exact independent captures and
+uniform controls, and retain raw center/crop evidence for count/duplicate-hit
+analysis. Mandatory cache validation binds this evidence to original presets.
+
+The independent100-stroke scatter acquisitions show100 unique source images
+but one repeated native fallback image. Some aggregate RCP1 metric gates pass
+that fallback because their measured dimensions do not distinguish the process.
+New read-only displacement/component reports expose first-versus-later dab
+behavior, authored-axis moments and process uniqueness without replacing the
+original statistical thresholds or admitting the fallback. Auto-spacing source
+case000 stopped before a PNG was retained; failure-only capture retention now
+preserves that observation before re-raising its original diagnostic error.
+No no-op behavior or spacing equation is inferred without the captured pixels.

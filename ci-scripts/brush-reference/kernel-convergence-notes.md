@@ -62,3 +62,59 @@ outputs before implementing any stop rule. Minimum-count/window geometry still
 needs independent original impulse or low-contrast coordinate evidence. Keep the
 existing 230 source cases, exact repeats and full-image numeric limits intact.
 The new contract test is intended for CI; it has not been run locally.
+
+## Completed convergence acquisition at 9111a8970
+
+[Kernel diagnostic run 42261285883](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42261285883)
+completed source acquisition with all 2176 public-color convergence observations.
+The unchanged native sampler still fails its existing full-image comparison.
+The convergence artifact SHA256 is `a58fb8d6b1647646874214065b7068dad8a87ac7bf47a0755b68ef4b94cf1923`.
+
+Using cumulative source-RGB means stored at U16, converting each through the
+public API to the registered U16 Lab profile, and stopping at the first
+16-sample-batch Delta E76 below 3 predicts all 16 observed extent-32 U8
+prefix/complement outputs exactly with initial-count candidate 99:
+
+| Marked points | Endpoint pair | Polarity | First count with Delta E76 < 3 | Observed/predicted RGB8 |
+|---|---|---|---|---|
+| 25 | gray | normal | 147 | 43,43,43 |
+| 25 | gray | complement | 131 | 206,206,206 |
+| 75 | gray | normal | 227 | 84,84,84 |
+| 75 | gray | complement | 211 | 164,164,164 |
+| 25 | red-green | normal | 163 | 216,39,0 |
+| 25 | red-green | complement | 147 | 43,212,0 |
+| 75 | red-green | normal | 307 | 193,62,0 |
+| 75 | red-green | complement | 275 | 70,185,0 |
+| 25 | blue-yellow | normal | 195 | 33,33,222 |
+| 25 | blue-yellow | complement | 163 | 216,216,39 |
+| 75 | blue-yellow | normal | 355 | 54,54,201 |
+| 75 | blue-yellow | complement | 307 | 193,193,62 |
+| 25 | near-lightness | normal | 147 | 165,48,86 |
+| 25 | near-lightness | complement | 115 | 67,107,164 |
+| 75 | near-lightness | normal | 243 | 143,62,104 |
+| 75 | near-lightness | complement | 211 | 89,94,147 |
+
+The equivalent U8-RGB-mean conversion is contradicted by two observations:
+75-point gray complement stops at 227 instead of the observed 211, and the
+75-point blue/yellow normal track has not stopped by 355 although its observed
+output matches that count. Thus quantizing the cumulative mean to RGB8 before
+convergence evaluation does not explain the measurements.
+
+U16 means converted to F32 Lab happen to choose the same counts on these 16
+tracks. The earlier 72/210 versus 72/194 gray boundary discriminator instead
+places the U16-Lab route below 3 and the F32-Lab route above 3, favoring the
+quantized U16 Lab hypothesis when these measurements are considered together.
+This does not expose the source's internal counter or establish every input,
+minimum-count rule, source profile or color transform implementation.
+
+## Single-mark geometry acquisition
+
+`kernel_single_mark_probe.py` adds 70 raw U16 diagnostic cases using the existing
+seven original diameter/radius preset combinations. Each uses four distinct
+coordinates from the original quarter mask, both 112/144 polarities, and two
+uniform controls. Every source result repeats from exact raw initial pixels;
+profile/depth/effective-preset identity and full bounded raw crops are retained.
+No denominator is written into the fixture. Equal response at the separate
+coordinates constrains one-hit normalization; differing responses distinguish
+clipping or duplicate sampling from a global count formula. These observations
+are required before changing the native minimum-count/window model.

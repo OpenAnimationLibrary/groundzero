@@ -57,11 +57,13 @@ jobs:
           python3 ci-scripts/brush-reference/generated_tip_test.py
           python3 ci-scripts/brush-reference/generated_curve_diagnostics_test.py
           python3 ci-scripts/brush-reference/spacing_scatter_test.py
+          python3 ci-scripts/brush-reference/scatter_capture_analysis_test.py
           python3 ci-scripts/brush-reference/wet_drift_contract_test.py
           python3 ci-scripts/brush-reference/wet_drift_geometry_test.py
           python3 ci-scripts/brush-reference/wet_hsv_combo_fixtures_test.py
           python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
           python3 ci-scripts/brush-reference/kernel_convergence_probe_test.py
+          python3 ci-scripts/brush-reference/kernel_single_mark_probe_test.py
           python3 ci-scripts/brush-reference/managed_lab_probe_test.py
           python3 ci-scripts/brush-reference/gih_cadence_test.py
           python3 ci-scripts/brush-reference/bitmap_path_test.py
@@ -350,6 +352,24 @@ jobs:
                           'offset': offset, 'total': len(row['data']), 'data': row['data'][offset:offset + 1800]})
               report_records('Kernel precision research; not parity', records)
           PYPRECISION
+      - name: Report kernel single-mark research diagnostics
+        if: always() && matrix.fixture_group == 'wetkernelcount'
+        run: |
+          python3 - <<'PYSINGLEMARK'
+          import json, os, runpy
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'kernel-single-mark.json'
+          if path.is_file():
+              data = json.loads(path.read_text())
+              report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
+              records = [{key: value for key, value in data.items() if key != 'records'}]
+              for row in data.get('records', []):
+                  records.append({key: value for key, value in row.items() if key != 'data'})
+                  for offset in range(0, len(row['data']), 1800):
+                      records.append({'id': row['id'], 'capture': 'kernel-single-mark-raw',
+                          'offset': offset, 'total': len(row['data']), 'data': row['data'][offset:offset + 1800]})
+              report_records('Kernel single-mark research; not parity', records)
+          PYSINGLEMARK
       - name: Report bundled public setting metadata
         if: always()
         run: |
@@ -447,6 +467,18 @@ jobs:
       - name: Enforce independent scatter statistical gates
         if: startsWith(matrix.fixture_group, 'scatter-')
         run: python3 ci-scripts/brush-reference/scatter_statistics.py "$BRUSH_REFERENCE_ROOT"
+      - name: Record independent scatter process observations
+        if: ${{ always() && startsWith(matrix.fixture_group, 'scatter-') && hashFiles('brush-reference-run/output/comparison.json') != '' }}
+        run: |
+          python3 ci-scripts/brush-reference/scatter_capture_analysis.py "$BRUSH_REFERENCE_ROOT" > "$BRUSH_REFERENCE_ROOT/output/scatter-process-observations.json"
+          python3 - <<'PYSCATTERPROCESS'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output/scatter-process-observations.json').read_text())
+          summary = {key: {field: report[key][field] for field in ('strokes', 'uniqueRasterCount', 'uniqueCentroidSequenceCount')}
+                     for key in ('source', 'candidate')}
+          print('::notice title=Unqualified scatter process observations::' + json.dumps(summary, separators=(',', ':')))
+          PYSCATTERPROCESS
       - name: Report conversion measurements
         if: always()
         run: |
