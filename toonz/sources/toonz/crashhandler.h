@@ -32,6 +32,10 @@ public:
   static void showPendingReport(QWidget *parent = 0);
   static void reportProjectInfo(bool enableReport);
   static void attachParentWindow(QWidget *parent);
+  // For unattended runs (the native integration tests): a crash writes its
+  // report to standard error and exits, instead of showing a dialog that
+  // nobody can close.
+  static void setUnattended(bool unattended);
   static bool trigger(const QString reason, bool showDialog);
 #ifdef ENABLE_CRASH_REPORTER_TEST
   static void triggerTestCrash();

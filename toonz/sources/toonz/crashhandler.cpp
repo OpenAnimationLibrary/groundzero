@@ -56,6 +56,7 @@
 
 static QWidget *s_parentWindow = NULL;
 static bool s_reportProjInfo   = false;
+static bool s_unattended       = false;
 static QString s_previousReport;
 static TFilePath s_previousReportFile;
 #ifdef ENABLE_CRASH_REPORTER_TEST
@@ -895,6 +896,10 @@ void CrashHandler::attachParentWindow(QWidget *parent) {
 
 //-----------------------------------------------------------------------------
 
+void CrashHandler::setUnattended(bool unattended) { s_unattended = unattended; }
+
+//-----------------------------------------------------------------------------
+
 #ifdef ENABLE_CRASH_REPORTER_TEST
 void CrashHandler::triggerTestCrash() {
   s_intentionalCrashTest = 1;
@@ -1000,6 +1005,14 @@ bool CrashHandler::trigger(const QString reason, bool showDialog) {
   if (fw != NULL) {
     fwrite(out.c_str(), 1, out.size(), fw);
     fclose(fw);
+  }
+
+  if (s_unattended) {
+    // Nobody can close a dialog: put the report in the log and let the
+    // caller exit, so the crash fails the run instead of stalling it.
+    fwrite(out.c_str(), 1, out.size(), stderr);
+    fflush(stderr);
+    return true;
   }
 
   if (showDialog) {
