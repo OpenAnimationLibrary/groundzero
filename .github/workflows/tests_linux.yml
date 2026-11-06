@@ -327,7 +327,10 @@ jobs:
               out = pre; for (i = 1; i <= k; i++) out = out lv[i]
               print out; next
             }
-            { print }' "$1"
+            # A level gets a random cast id (QUuid, txshlevel.cpp) when the
+            # scene is made, so two builds making the same scene write
+            # different ids: compare that the id is there, not its value
+            { gsub(/castId="[^"]*"/, "castId=\"*\""); print }' "$1"
         }
         compared=0; identical=0; different=0; shown=0; pngs=0
         : > differing.txt
