@@ -348,6 +348,63 @@ void testBadSampleIsSkipped() {
   requireImage4x3(r.tips[0]);
 }
 
+void testPackBitsDeclaredRowConsumption() {
+  for (int version : {1, 2, 6, 7, 8, 9, 10})
+    for (int subVersion : {1, 2}) {
+      if (version < 6 && subVersion != 1) continue;
+      for (int depth : {8, 16}) {
+        // Original high/low bytes make 16-bit row lengths distinct from the
+        // two coverage bytes retained by the decoder.
+        const Bytes pixels = depth == 8 ? Bytes{17, 229}
+                                        : Bytes{17, 9, 229, 3};
+        Bytes literal;
+        put8(literal, unsigned(pixels.size() - 1));
+        putBytes(literal, pixels);
+        auto fileForRow = [&](const Bytes &row) {
+          Bytes image;
+          put8(image, 1);
+          put16(image, unsigned(row.size()));
+          putBytes(image, row);
+          const Bytes body = boundsAndImage(2, 1, depth, image);
+          if (version < 6) {
+            Bytes file = fileV12(version, 1);
+            putBrush(file, 2, sampleV12(version, 25, {'R', 0}, body));
+            return file;
+          }
+          Bytes file = fileV6(subVersion,
+                              section("samp", sampleV6(subVersion, body)));
+          file[1] = static_cast<unsigned char>(version);
+          return file;
+        };
+        AbrParser::Result result;
+        std::string error;
+        for (unsigned noops : {0u, 1u, 3u}) {
+          Bytes row = literal;
+          row.insert(row.end(), noops, 0x80);
+          require(parse(fileForRow(row), result, error) &&
+                      result.tips.size() == 1 &&
+                      result.tips.front().depth == depth &&
+                      result.tips.front().pixels == Bytes({17, 229}),
+                  "complete PackBits row or trailing no-ops rejected");
+        }
+        for (const Bytes &suffix :
+             {Bytes{0x00, 99}, Bytes{0xff, 99}, Bytes{0x00}, Bytes{0xff},
+              Bytes{0x80, 0x00, 99}}) {
+          Bytes row = literal;
+          putBytes(row, suffix);
+          require(parse(fileForRow(row), result, error) &&
+                      result.tips.empty() && result.skippedSamples == 1,
+                  "PackBits row hid an extra or truncated output run");
+        }
+        Bytes shortRow = literal;
+        shortRow.pop_back();
+        require(parse(fileForRow(shortRow), result, error) &&
+                    result.tips.empty() && result.skippedSamples == 1,
+                "PackBits row accepted incomplete literal data");
+      }
+    }
+}
+
 void testRejected() {
   AbrParser::Result r;
   std::string error;
@@ -825,6 +882,7 @@ int main() {
     testComputedGeometry();
     testV1RawAndUnknownType();
     testBadSampleIsSkipped();
+    testPackBitsDeclaredRowConsumption();
     testRejected();
     testBudgetsAndVersions();
     testTruncation();

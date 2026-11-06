@@ -254,3 +254,119 @@ original statistical thresholds or admitting the fallback. Auto-spacing source
 case000 stopped before a PNG was retained; failure-only capture retention now
 preserves that observation before re-raising its original diagnostic error.
 No no-op behavior or spacing equation is inferred without the captured pixels.
+
+## Confirmed application and parser checkpoint at bd06d01b9
+
+The corrected Linux build passed native UI integration and the full raster
+brush application fixture, including all four stationary-airbrush profiles,
+delivered-event segmentation, deferred taps, undo/redo/cancellation, frame
+switching, rollback and saved-pixel persistence. Installed-application worker
+qualification and Windows/macOS application execution remain separate pending
+gates. All six parser OS/Qt configurations and fuzzing also passed at this
+commit, including exact source-admission rejection/forgery regressions and both
+signed macOS production-worker startup qualifications.
+
+The first new mask and generated-curve source acquisitions completed, then
+exposed a comparator bug in the new admission binding: a mutable Qt JSON
+subscript inserted null for absent metadata, differing from the authored
+undefined value. Const value lookup now preserves absence, with missing/null,
+roundtrip and changed-value regressions in the comparator's CI metric test.
+Source pixels remain retained and the original fidelity gates are unchanged.
+
+The separate macOS memory-cap experiment compiled and signed on both
+architectures but did not execute allocation cases: modern codesign's default
+entitlement display is human-readable DER rather than XML. The driver now
+requests XML explicitly and retains exact sole-key Boolean validation. Its
+continue-on-error workflow status never qualifies the memory bound; actual
+case evidence is still required. Physical-device validation also remains open;
+synthetic input evidence cannot close the tablet requirement.
+
+## Current implementation batch
+
+Implementation continues on the isolated recovery branch. Build/check review and
+execution are deferred until the implementation plan is fulfilled. The changes
+below have not received final compilation, execution or platform qualification.
+They do not close the complete RCP1 acceptance ledger.
+
+- Generated masks now have a separate versioned source definition and runtime
+  candidate for Soft/Gaussian circle/rectangle responses, preserving independent
+  fades, cubic knots and explicit antialias state across worker/private/portable
+  records. Independent analysis covers148 original masks within one alpha code.
+  Known Pixel transfer/blend behavior is shared; broader generated geometry and
+  sensor combinations remain explicit work, with original heldouts authored.
+- Smear stamp placement now uses discrete raster origins and recursive future
+  interpolation with a residual segment distance. The recovered rule accounts
+  for1036 geometry bounds and19998 heldout drift bounds. Nominal sensors, times,
+  cadence and native scheduling retain their separate definitions.
+- Source Dulling pickup now has calibrated cumulative Lab16 convergence in
+  16-sample batches. Its general ICC curve/matrix/33-cube transform reproduces544
+  public conversion observations exactly; source RGBA8 means use bounded wide
+  integer accumulators. The minimum-window/count equation and broader modern
+  clipping/partial-alpha behavior remain unfinished rather than fitted.
+- Source scatter receives explicit versioned state, preserved controls and a
+  distinct experimental uniform displacement path. Native random behavior is
+  separate. Scaling/dynamics/origin heldouts remain necessary beyond the measured
+  static source domain.
+- Random GIH now has an experimental proposal/cache mechanism supported by
+  conditional and lag observations, with stroke-local state and complete cache
+  invalidation. Fine subpixel phase granularity is not identified by existing
+  whole/half-pixel captures; independent phase-boundary heldouts are authored.
+- Legacy ABR extraction now uses the bounded isolated worker, background staging,
+  atomic cancellation and complete-collection publication. The UI explicitly
+  identifies sampled-tip extraction. Structural sample completeness propagates
+  separately from harmless descriptor/pattern interpretation warnings, preventing
+  malformed native or legacy imports from publishing a readable subset.
+- Native file/collection installation now publishes atomically without replacing
+  concurrent entries, verifies reuse, excludes private staging from selectors,
+  shares encoded images and observes cancellation at bounded resource boundaries.
+
+Final validation must exercise the newly authored regressions and original
+source gates unchanged. Photoshop behavior/dynamic associations, New-Dulling
+texture reduction, complete generated/dynamic combinations, strict macOS memory
+coverage, physical tablets and the other open ledger rows still require their
+specified implementation/evidence. No unsupported row becomes complete because
+another experimental component was implemented.
+
+## Declaration preservation and source review checkpoint
+
+The current unvalidated batch also preserves original scoped K/S sensor
+declarations and source secondary-mask definitions/resources through private,
+worker and portable records. These are metadata, independent of active native
+controls and the narrow existing source renderers. The legacy ABR sampled-tip
+path records a bounded, content-bound collection manifest so exact parsed sample
+names/IDs, depth and order survive safe filesystem naming.
+
+A Photoshop 27.11 input contract and operator recipe now specify producer
+identity, original assets, controlled one-setting exports, container variants,
+observations and privacy constraints. Authored inputs and unexecuted regression
+sources are preparation; they do not establish Photoshop execution or parity.
+
+Source-only peer review corrected aggregate sensor-knot preallocation,
+generated zero-flow no-op expectations, retained-mask resource identity during
+native conversion, and explicit wet surface storage semantics. It also closed
+source-control XML/effective-file binding gaps and tightened duplicate metadata
+and portable resource declarations. These are implementation findings, not
+results of a build or test run.
+
+Import, preview and Brush details now show bounded original declarations and
+current control counts separately, with actionable conversion/omission reasons.
+Safe omission categories survive portable export; raw pressure/use-curve switches
+are reported independently without guessing their combined activity. See
+[raster_brush_support_diagnostics.md](raster_brush_support_diagnostics.md).
+
+All CI access, including existing artifacts and logs, remains deferred by
+instruction. No new CI pass or final-head qualification is claimed for this
+batch. Regression sources have been authored but not executed.
+
+The full plan is still open. Remaining source-equation work includes general
+generated geometry/dynamics; automatic and zero spacing; scatter scaling/dynamics;
+random GIH phase boundaries; non-generated K/S sensor normalization, curve
+products and source-clock timing; bitmap/RGBA transforms; Pixel transfer, HSV,
+blend and texture operation order; secondary-mask interactions; Dulling sampling
+windows/clipping; New Dulling texture; and Photoshop dynamic/resource
+associations. This list is not a reduced scope: every row and combination in the
+acceptance audit and normative tables remains required. Discriminating original
+source observations are needed before unidentified equations can be completed.
+Physical tablet evidence is unavailable. Once implementation is complete and
+validation resumes, failing checks must be diagnosed from their actual logs
+before any fix or rerun.

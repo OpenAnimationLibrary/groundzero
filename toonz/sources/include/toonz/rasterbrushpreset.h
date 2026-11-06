@@ -1,6 +1,8 @@
 #pragma once
 #include "qtmsvccompat.h"
 #include "toonz/rasterbrushengine.h"
+#include "toonz/rasterbrushmaskmetadata.h"
+#include "toonz/rasterbrushsourcemetadata.h"
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
@@ -10,6 +12,9 @@
 namespace RasterBrush {
 struct Record {
   Preset preset;
+  std::optional<SourceGeneratedDefinitionV1> sourceGeneratedV1;
+  std::optional<SourceMaskDefinitionV1> sourceMaskDefinitionV1;
+  std::optional<SourceSensorsV1> sourceSensorsV1;
   QJsonObject provenance;
   // Declarations are scoped to stable pixel hashes, never inferred from a pack
   // name.

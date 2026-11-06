@@ -126,6 +126,10 @@ struct Result {
   std::vector<DescriptorValue> descriptors;
   std::vector<Pattern> patterns;
   bool patternDataComplete = true;  // False after any malformed patt section.
+  // Structural completeness of the declared sampled collection, separate
+  // from source-behavior/descriptor warnings. Tolerant callers may inspect
+  // readable tips; atomic extraction must require this flag and no skips.
+  bool sampledDataComplete = true;
   struct Computed {
     std::string name;
     int spacing = 0, diameter = 0, roundness = 0, angle = 0, hardness = 0;

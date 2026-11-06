@@ -16,6 +16,14 @@ importBrush(const QByteArray &bytes, const QString &format, QString &error,
 RASTERBRUSH_API ImportResult
 importBrushFile(const QString &path, QString &error,
                 const std::atomic_bool *cancelled = nullptr);
+// Sampled-tip extraction is deliberately separate from preset conversion:
+// each sampled image/name occurs once in source order, with no dynamics or
+// computed-tip rasterization. A partial/malformed sample collection rejects.
+// Decoding entry point for the isolated worker and bounded format fixtures.
+RASTERBRUSH_API ImportResult
+importAbrTips(const QByteArray &bytes, QString &error,
+              const std::atomic_bool *cancelled = nullptr,
+              size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 // Worker-process import contains decoder crashes and supports hard
 // cancellation. Linux workers require Landlock ABI 3 and seccomp. Windows
 // workers require an ephemeral zero-capability AppContainer plus Job limits.
@@ -24,6 +32,8 @@ importBrushFile(const QString &path, QString &error,
 // qualification checks.
 RASTERBRUSH_API int runImportWorker(const QString &input,
                                     const QString &outputDirectory);
+RASTERBRUSH_API int runAbrTipImportWorker(const QString &input,
+                                          const QString &outputDirectory);
 #ifdef __APPLE__
 // Only the signed helper uses this descriptor transport. The callback supports
 // the same adversarial protocol fixtures in the separately signed CI helper.
@@ -36,4 +46,10 @@ RASTERBRUSH_API ImportResult
 importBrushProcess(const QString &executable, const QString &path,
                    QString &error, const std::atomic_bool *cancelled = nullptr,
                    size_t maximumDecodedBytes = 256u * 1024u * 1024u);
+// Uses the same signed/restricted process, bounded response protocol and hard
+// cancellation as native import; callers never decode ABR bytes in the GUI.
+RASTERBRUSH_API ImportResult
+importAbrTipsProcess(const QString &executable, const QString &path,
+                     QString &error, const std::atomic_bool *cancelled = nullptr,
+                     size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 }  // namespace RasterBrush

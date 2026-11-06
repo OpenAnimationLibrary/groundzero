@@ -1,4 +1,10 @@
 #include "toonz/rasterbrushpreset.h"
+#include "toonz/rasterbrushsupport.h"
+#include "toonz/rasterbrushlibrary.h"
+#include "../rasterbrushlibrarypublication.h"
+#include "../rasterbrushtipcollection.h"
+#include "../rasterbrushsourcemetadata.h"
+#include "../rasterbrushmaskprojection.h"
 #include "rasterbrushfixture.h"
 #include "../rasterbrushresponse.h"
 #include "../rasterbrushtestobserver.h"
@@ -30,6 +36,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <limits>
 #if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
 namespace RasterBrush {
 int probeImportSandbox(const QString &, const QString &, const QString &);
@@ -421,6 +428,7 @@ void testSourceBitmapImport() {
         QString("downscale"), QString("rotation"), QString("unknown"),
         QString("color"), QString("color-image"), QString("wash"),
         QString("gih-incremental"), QString("gih-random"),
+        QString("gih-random-mask"), QString("gih-random-unknown"), QString("gih-random-size-curve"),
         QString("gih-size-curve-off"), QString("gih-size-curve-on"),
         QString("gih-size-curve-invalid"), QString("gih-size-curve-unknown"),
         QString("png-mask"),
@@ -428,6 +436,7 @@ void testSourceBitmapImport() {
         QString("mirror-both"), QString("mirror-disabled"),
         QString("mirror-unknown")}) {
     const bool sequence = variant.startsWith("gih-");
+    const bool randomSequence = variant.startsWith("gih-random");
     QImage image =
         QImage::fromData(RasterBrushTest::hardPixelKpp(
                              variant == "wash" ? "freehandWash" : "buildUp"),
@@ -456,10 +465,13 @@ void testSourceBitmapImport() {
       definition.replace("angle=\"0\"", "angle=\"1.5707963267948966\"");
     if (variant == "color-image" || sequence)
       definition.replace("ColorAsMask=\"1\"", "ColorAsMask=\"0\"");
-    if (variant == "unknown" || variant == "png-mask-unknown")
+    if (variant == "gih-random-mask") definition.replace("ColorAsMask=\"0\"", "ColorAsMask=\"1\"");
+    if (variant == "unknown" || variant == "png-mask-unknown" || variant == "gih-random-unknown")
       definition.replace("<Brush ", "<Brush unimplemented=\"1\" ");
     if (sequence) definition.replace("original.gbr", "original.gih");
     xml.replace(begin, end - begin, definition.toHtmlEscaped());
+    if (variant == "gih-random-size-curve")
+      xml.replace("</Preset>", "<param name=\"SizeUseCurve\">true</param></Preset>");
     if (variant.startsWith("gih-size-curve-")) {
       const QString value = variant == "gih-size-curve-off" ? "false"
                             : variant == "gih-size-curve-on" ? "true"
@@ -513,7 +525,7 @@ void testSourceBitmapImport() {
       resource =
           "Original sequence\n3 ncells:3 step:400 dim:1 cols:1 rows:1 "
           "cellwidth:2 cellheight:1 rank0:3 selection:" +
-          (variant == "gih-random" ? QByteArray("random\n")
+          (randomSequence ? QByteArray("random\n")
                                    : QByteArray("incremental\n"));
       for (int frame = 0; frame < 3; ++frame) {
         QByteArray image = gbr(2, 4);
@@ -551,14 +563,15 @@ void testSourceBitmapImport() {
     const bool candidate =
         variant == "unit" || variant == "double" || variant == "fractional" ||
         variant == "rotation" || variant == "color-image" ||
-        variant == "png-mask" || variant == "gih-incremental" ||
+        variant == "png-mask" || variant == "gih-incremental" || variant == "gih-random" ||
         variant == "gih-size-curve-off" ||
         (variant.startsWith("mirror-") && variant != "mirror-unknown");
     const auto &record = imported.records.front();
     require(
         (record.preset.profile ==
-         (pngMask ? "krita-5.3.4.1-fixed-bitmap-mask-candidate-1"
-                  : "krita-5.3.4.1-fixed-bitmap-candidate-1")) == candidate,
+         (randomSequence ? "krita-5.3.4.1-random-bitmap-candidate-1"
+          : pngMask ? "krita-5.3.4.1-fixed-bitmap-mask-candidate-1"
+                    : "krita-5.3.4.1-fixed-bitmap-candidate-1")) == candidate,
         "source bitmap admission ignored exact settings or resource origin");
     if (pngMask) {
       require(record.preset.tip.images[0]->color == candidate,
@@ -569,6 +582,11 @@ void testSourceBitmapImport() {
                 "PNG source mask was converted before sampling");
     }
     if (!candidate) continue;
+    if (randomSequence)
+      require(record.preset.varySeedPerStroke && !record.semanticallySupported && !record.referenceVerified &&
+                  !record.provenance["sourceSemanticallySupported"].toBool() &&
+                  record.provenance["candidateEligibility"].toString() == "k5341-random-bitmap-proposal-cache-1",
+              "Experimental random GIH import invented global source qualification");
     const auto restored = decode(encode(record, error), error);
     require(
         error.isEmpty() && restored.decoded &&
@@ -597,8 +615,9 @@ void testSourceBitmapImport() {
             "source bitmap portable reopen lost profile or invented parity");
     if (sequence) {
       require(restored.preset.tip.images.size() == 3 &&
-                  !restored.preset.tip.randomSequence,
-              "Incremental GIH portable order changed");
+                  restored.preset.tip.randomSequence == randomSequence &&
+                  restored.preset.varySeedPerStroke == randomSequence,
+              "GIH portable random/incremental selector or host stroke seed policy changed");
       struct Canvas : Surface {
         std::vector<Pixel> pixels = std::vector<Pixel>(512 * 32);
         int width() const override { return 512; }
@@ -639,11 +658,12 @@ void testSourceBitmapImport() {
           for (int dab = 0; dab < count; ++dab) {
             const Pixel pixel       = canvas.read(10 + 8 * dab, 10);
             const double channels[] = {pixel.r, pixel.g, pixel.b};
+            const int selected = randomSequence
+                ? int(std::max_element(channels, channels + 3) - channels) : dab % 3;
             require(
-                pixel.a > 0 && channels[dab % 3] > .99 * pixel.a &&
-                    channels[(dab + 1) % 3] == 0 &&
-                    channels[(dab + 2) % 3] == 0,
-                "Source GIH did not advance per dab or restart at frame zero");
+                pixel.a > 0 && channels[selected] > .99 * pixel.a &&
+                    channels[(selected + 1) % 3] == 0 && channels[(selected + 2) % 3] == 0,
+                "Source GIH lost original frame colors or incremental stroke reset");
           }
         }
     }
@@ -1094,6 +1114,343 @@ void testSourceMaskImport() {
         "imported source mask did not execute post-accumulation opacity/flow");
   }
 }
+void testSourceGeneratedPreservation() {
+  QString error;
+  Record native;
+  native.preset.name = "Original preserved generator metadata";
+  const QByteArray legacy = encode(native, error);
+  require(error.isEmpty() && !legacy.isEmpty() &&
+              !QJsonDocument::fromJson(legacy).object().contains("sourceGeneratedV1"),
+          "Ordinary native preset gained source generator metadata");
+  require(!decode(legacy, error).sourceGeneratedV1 && error.isEmpty(),
+          "Legacy native preset without generated metadata changed");
+
+  SourceGeneratedDefinitionV1 definition;
+  definition.generator = SourceGeneratedGenerator::Soft;
+  definition.shape = SourceGeneratedShape::Rectangle;
+  definition.diameter = 64;
+  definition.ratio = .5;
+  definition.horizontalFade = .25;
+  definition.verticalFade = .75;
+  definition.antialiasEdges = true;
+  definition.softnessCurve = {{0, .75}, {.25, .5}, {1, .25}};
+  native.sourceGeneratedV1 = definition;
+  const auto encoded = encode(native, error);
+  require(error.isEmpty() && !encoded.isEmpty(),
+          "Preserved Soft definition could not be encoded as metadata");
+  const auto root = QJsonDocument::fromJson(encoded).object();
+  const auto metadata = root["sourceGeneratedV1"].toObject();
+  auto unchanged = [&](const Record &record, const QJsonObject &expected) {
+    const auto bytes = encode(record, error);
+    require(error.isEmpty() && !bytes.isEmpty() && record.sourceGeneratedV1 &&
+                record.preset.profile == "groundzero-native-1" &&
+                !record.referenceVerified &&
+                !record.provenance["sourceReferenceVerified"].toBool() &&
+                !record.provenance["sourceSemanticallySupported"].toBool() &&
+                QJsonDocument::fromJson(bytes).object()["sourceGeneratedV1"] == expected,
+            "Preserved source definition changed or gained source qualification");
+  };
+  unchanged(decode(encoded, error), metadata);
+  for (auto mode : {ResourcePackaging::ManifestOnly,
+                    ResourcePackaging::PermittedOnly,
+                    ResourcePackaging::PrivateCopy}) {
+    const auto portable = encodePortable(native, mode, error);
+    require(error.isEmpty() && !portable.isEmpty(),
+            "Portable export discarded source generated definition");
+    unchanged(decode(portable, error), metadata);
+  }
+  QTemporaryDir worker;
+  require(worker.isValid(), "Cannot create generated metadata worker fixture");
+  const auto wire = encodeWorkerRecord(native, worker.path(), error);
+  require(error.isEmpty() && !wire.isEmpty(),
+          "Worker transport could not encode preserved generated definition");
+  unchanged(decodeWorkerRecord(wire, worker.path(), error), metadata);
+
+  for (const std::vector<Knot> &curve : {
+           std::vector<Knot>{{0, 0}, {1, 0}},
+           std::vector<Knot>{{0, .25}, {1, .25}},
+           std::vector<Knot>{{0, .5}, {1, .5}},
+           std::vector<Knot>{{0, .75}, {1, .75}},
+           std::vector<Knot>{{0, 1}, {1, 1}},
+           std::vector<Knot>{{0, 1}, {1, 0}},
+           std::vector<Knot>{{0, 0}, {.25, .75}, {1, 1}}}) {
+    native.sourceGeneratedV1->softnessCurve = curve;
+    const auto bytes = encode(native, error);
+    require(error.isEmpty(), "Original cubic source metadata was normalized away");
+    unchanged(decode(bytes, error),
+              QJsonDocument::fromJson(bytes).object()["sourceGeneratedV1"].toObject());
+  }
+  native.sourceGeneratedV1 = definition;
+  native.sourceGeneratedV1->softnessCurve.clear();
+  for (int i = 0; i < 1024; ++i)
+    native.sourceGeneratedV1->softnessCurve.push_back({i / 1023., .5});
+  require(!encode(native, error).isEmpty() && error.isEmpty(),
+          "Exact source softness curve knot budget rejected");
+  native.sourceGeneratedV1 = definition;
+  native.sourceGeneratedV1->antialiasEdges.reset();
+  auto absentAA = encode(native, error);
+  require(error.isEmpty() &&
+              QJsonDocument::fromJson(absentAA).object()["sourceGeneratedV1"]
+                  .toObject()["antialiasEdges"].isNull() &&
+              !decode(absentAA, error).sourceGeneratedV1->antialiasEdges.has_value(),
+          "Absent legacy source antialias flag became explicit false");
+  native.sourceGeneratedV1->antialiasEdges = false;
+  require(QJsonDocument::fromJson(encode(native, error)).object()["sourceGeneratedV1"]
+              .toObject()["antialiasEdges"] == QJsonValue(false),
+          "Explicit false source antialias flag was lost");
+
+  const std::vector<std::pair<QString, QJsonValue>> malformed = {
+      {"version", 2}, {"version", true}, {"generator", "unknown"},
+      {"shape", "star"}, {"diameter", .249}, {"diameter", 4097},
+      {"ratio", 0}, {"ratio", 1.01}, {"horizontalFade", -.01},
+      {"verticalFade", 1.01}, {"antialiasEdges", 0}, {"spikes", 3},
+      {"spikes", 2.5}, {"softnessCurve", "0,0;1,1;"},
+      {"sourceReferenceVerified", true},
+      {"softnessCurve", QJsonArray{QJsonArray{0, 0}}},
+      {"softnessCurve", QJsonArray{QJsonArray{.1, 0}, QJsonArray{1, 1}}},
+      {"softnessCurve", QJsonArray{QJsonArray{0, 0}, QJsonArray{.9, 1}}},
+      {"softnessCurve", QJsonArray{QJsonArray{0, 0}, QJsonArray{0, 1}, QJsonArray{1, 1}}},
+      {"softnessCurve", QJsonArray{QJsonArray{0, 0}, QJsonArray{.75, 1},
+                                   QJsonArray{.5, 0}, QJsonArray{1, 1}}},
+      {"softnessCurve", QJsonArray{QJsonArray{0, -1}, QJsonArray{1, 1}}},
+      {"softnessCurve", QJsonArray{QJsonArray{0, 0, 0}, QJsonArray{1, 1}}}};
+  for (const auto &mutation : malformed) {
+    auto document = root;
+    auto broken = metadata;
+    broken[mutation.first] = mutation.second;
+    document["sourceGeneratedV1"] = broken;
+    decode(QJsonDocument(document).toJson(), error);
+    require(!error.isEmpty(), "Malformed active source generated metadata accepted");
+  }
+  for (const auto &field : metadata.keys()) {
+    auto document = root;
+    auto broken = metadata;
+    broken.remove(field);
+    document["sourceGeneratedV1"] = broken;
+    decode(QJsonDocument(document).toJson(), error);
+    require(!error.isEmpty(), "Incomplete source generated metadata accepted");
+  }
+  for (const QString &generator : {QString("default"), QString("gauss")}) {
+    auto document = root;
+    auto broken = metadata;
+    broken["generator"] = generator;
+    document["sourceGeneratedV1"] = broken;
+    decode(QJsonDocument(document).toJson(), error);
+    require(!error.isEmpty(), "Inactive Soft curve accepted for another generator");
+  }
+  std::vector<SourceGeneratedDefinitionV1> invalid(7, definition);
+  invalid[0].generator = SourceGeneratedGenerator(99);
+  invalid[1].shape = SourceGeneratedShape(99);
+  invalid[2].diameter = std::numeric_limits<double>::infinity();
+  invalid[3].verticalFade = std::numeric_limits<double>::quiet_NaN();
+  invalid[4].spikes = 3;
+  invalid[5].softnessCurve.clear();
+  invalid[6].softnessCurve.resize(1025, {0, 0});
+  for (const auto &broken : invalid) {
+    native.sourceGeneratedV1 = broken;
+    require(encode(native, error).isEmpty() && !error.isEmpty(),
+            "Invalid typed generated definition encoded");
+  }
+  for (auto generator : {SourceGeneratedGenerator::Soft,
+                         SourceGeneratedGenerator::Gaussian}) {
+    auto document = root;
+    auto settings = document["settings"].toObject();
+    settings["profile"] = "krita-5.3.4.1-hard-pixel-candidate-1";
+    document["settings"] = settings;
+    auto forged = metadata;
+    forged["generator"] = generator == SourceGeneratedGenerator::Soft ? "soft" : "gauss";
+    if (generator == SourceGeneratedGenerator::Gaussian)
+      forged["softnessCurve"] = QJsonArray{};
+    document["sourceGeneratedV1"] = forged;
+    decode(QJsonDocument(document).toJson(), error);
+    require(error.contains("cannot admit a source profile"),
+            "Preserved generator metadata admitted an unimplemented source profile");
+  }
+
+  auto sourcePreset = [&](const QString &generator, const QString &shape,
+                          const QString &extra = {}) {
+    QImage image = QImage::fromData(kpp(), "PNG");
+    auto xml = image.text("preset");
+    xml.replace("id=\"default\"", "id=\"" + generator + "\"");
+    xml.replace("type=\"circle\"", "type=\"" + shape + "\"");
+    xml.replace("hfade=\"1\"", "hfade=\"0.25\"");
+    xml.replace("vfade=\"1\"", "vfade=\"0.75\"");
+    xml.replace("spikes=\"2\"", "spikes=\"2\" " + extra);
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+            "Cannot author original source generated metadata fixture");
+    return bytes;
+  };
+  for (const QString &generator : {QString("default"), QString("gauss")})
+    for (const QString &shape : {QString("circle"), QString("rect")}) {
+      const auto imported = importBrush(sourcePreset(generator, shape), "kpp", error);
+      require(error.isEmpty() && imported.complete && imported.records.size() == 1 &&
+                  imported.records.front().sourceGeneratedV1.has_value(),
+              "Existing generated source conversion lost its preserved definition");
+      const auto &record = imported.records.front();
+      const auto &source = *record.sourceGeneratedV1;
+      require(source.generator == (generator == "gauss" ? SourceGeneratedGenerator::Gaussian
+                                                         : SourceGeneratedGenerator::Default) &&
+                  source.shape == (shape == "rect" ? SourceGeneratedShape::Rectangle
+                                                    : SourceGeneratedShape::Circle) &&
+                  source.horizontalFade == .25 && source.verticalFade == .75 &&
+                  source.diameter == 20 && source.ratio == 1 &&
+                  source.antialiasEdges == std::optional<bool>(true) &&
+                  source.spikes == 2 && source.softnessCurve.empty() &&
+                  record.preset.profile == "groundzero-native-1" &&
+                  record.diagnostics.join(" ").contains("preserved separately"),
+              "Independent source fade/shape metadata was collapsed or qualified");
+      const auto portable = encodePortable(record, ResourcePackaging::PrivateCopy, error);
+      require(error.isEmpty() && !portable.isEmpty(),
+              "Generated source metadata portable export failed");
+      const auto reopened = decode(portable, error);
+      require(error.isEmpty() && reopened.sourceGeneratedV1 &&
+                  reopened.sourceGeneratedV1->horizontalFade == .25 &&
+                  reopened.sourceGeneratedV1->verticalFade == .75,
+              "Generated source axes were lost during sanitized portable export");
+    }
+  for (const QString &attribute : {QString("unmeasuredActive=\"1\""),
+                                   QString("softness_curve=\"0,0;1,1;\"")}) {
+    const auto rejected = importBrush(sourcePreset("default", "circle", attribute), "kpp", error);
+    require(!rejected.complete && rejected.records.empty() && !error.isEmpty(),
+            "Unknown or inactive source generated field was silently ignored");
+  }
+  const auto soft = importBrush(sourcePreset("soft", "circle",
+      "softness_curve=\"0,0;0.25,0.75;1,1;\""), "kpp", error);
+  require(!soft.complete && soft.records.empty() &&
+              error == "Unsupported KPP Soft generated mask geometry or active settings",
+          "Unmeasured Soft generator gained a guessed native fallback");
+}
+
+void testSourceGeneratedCandidateLifecycle() {
+  QString error;
+  auto fixture = [&](const QString &generator, const QString &shape, int diameter,
+                     const QString &curve = "0,0;0.25,0.75;1,1;") {
+    QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
+    QString xml = image.text("preset");
+    auto change = [&](const QString &before, const QString &after) {
+      require(xml.count(before.toHtmlEscaped()) == 1,
+              "Generated candidate fixture lacks a unique source attribute");
+      xml.replace(before.toHtmlEscaped(), after.toHtmlEscaped());
+    };
+    change("id=\"default\"", "id=\"" + generator + "\"");
+    change("type=\"circle\"", "type=\"" + shape + "\"");
+    change("diameter=\"32\"", "diameter=\"" + QString::number(diameter) + "\"");
+    change("spacing=\"0.1\"", "spacing=\"1\"");
+    change("hfade=\"1\"", "hfade=\"0.25\"");
+    change("vfade=\"1\"", "vfade=\"0.75\"");
+    change("antialiasEdges=\"0\"", "antialiasEdges=\"1\"");
+    if (generator == "soft")
+      change("spikes=\"2\"", "spikes=\"2\" softness_curve=\"" + curve + "\"");
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+            "Cannot encode generated source candidate fixture");
+    return bytes;
+  };
+  for (const QString &generator : {QString("soft"), QString("gauss")})
+    for (const QString &shape : {QString("circle"), QString("rect")})
+      for (int diameter : {16, 64}) {
+        auto imported = importBrush(fixture(generator, shape, diameter), "kpp", error);
+        require(error.isEmpty() && imported.complete && imported.records.size() == 1,
+                "Measured generated source definition did not import");
+        const auto &record = imported.records.front();
+        require(record.preset.profile == "krita-5.3.4.1-generated-mask-candidate-1" &&
+                    record.preset.sourceGeneratedV1 && record.sourceGeneratedV1 &&
+                    record.preset.sourceGeneratedV1->generator == record.sourceGeneratedV1->generator &&
+                    record.preset.sourceGeneratedV1->horizontalFade == .25 &&
+                    record.preset.sourceGeneratedV1->verticalFade == .75 &&
+                    !record.referenceVerified &&
+                    !record.provenance["sourceReferenceVerified"].toBool(),
+                "Generated source candidate lost state or gained verification");
+        const auto portable = encodePortable(record, ResourcePackaging::PrivateCopy, error);
+        require(error.isEmpty() && !portable.isEmpty(),
+                "Generated candidate portable export failed");
+        const auto restored = decode(portable, error);
+        require(error.isEmpty() && restored.sourceGeneratedV1 &&
+                    restored.preset.sourceGeneratedV1 &&
+                    restored.preset.profile == record.preset.profile &&
+                    restored.preset.sourceGeneratedV1->shape == record.preset.sourceGeneratedV1->shape,
+                "Portable generated candidate lost active or preserved definition");
+        QTemporaryDir directory;
+        require(directory.isValid(), "Cannot create generated candidate worker fixture");
+        const auto wire = encodeWorkerRecord(record, directory.path(), error);
+        require(error.isEmpty() && !wire.isEmpty(), "Generated candidate worker encoding failed");
+        const auto worker = decodeWorkerRecord(wire, directory.path(), error);
+        require(error.isEmpty() && worker.preset.sourceGeneratedV1 &&
+                    worker.preset.profile == record.preset.profile,
+                "Generated candidate worker lifecycle lost its definition");
+        auto converted = record;
+        converted.preset.profile = "groundzero-native-1";
+        require(encode(converted, error).isEmpty() && !error.isEmpty(),
+                "Generated active state silently survived a native profile switch");
+        converted.preset.sourceGeneratedV1.reset();
+        converted.provenance["conversionKind"] = "native-reinterpretation";
+        converted.provenance["sourceProfileBeforeNativeConversion"] =
+            QString::fromStdString(record.preset.profile);
+        const auto convertedBytes = encodePortable(converted, ResourcePackaging::PrivateCopy, error);
+        require(error.isEmpty() && !convertedBytes.isEmpty(),
+                "Explicit native reinterpretation did not retire generated active state");
+        const auto nativeCopy = decode(convertedBytes, error);
+        require(error.isEmpty() && !nativeCopy.preset.sourceGeneratedV1 && nativeCopy.sourceGeneratedV1 &&
+                    nativeCopy.provenance["sourceProfileBeforeNativeConversion"] ==
+                        QString::fromStdString(record.preset.profile),
+                "Portable native conversion lost preserved source metadata or reactivated it");
+        auto mismatched = record;
+        mismatched.sourceGeneratedV1->horizontalFade = .1;
+        require(encode(mismatched, error).isEmpty() && !error.isEmpty(),
+                "Different preserved/active generated definitions encoded");
+      }
+  for (const QString &curve : {QString("0,0;1,1;"), QString("0,1;1,0;"),
+                               QString("0,0.5;1,0.5;"),
+                               QString("0,1;0.5,0.2;1,0;")}) {
+    const auto imported = importBrush(fixture("soft", "circle", 16, curve), "kpp", error);
+    require(error.isEmpty() && imported.complete,
+            "Noncanonical source cubic endpoints were normalized or rejected");
+  }
+  for (const QString &curve : {QString(""), QString("0,0;"),
+                               QString("0,0;;1,1;"), QString("0,0;0,1;1,1;"),
+                               QString("0,-1;1,1;"), QString("0,0;1,nan;")}) {
+    const auto imported = importBrush(fixture("soft", "circle", 16, curve), "kpp", error);
+    require(!imported.complete && imported.records.empty() && !error.isEmpty(),
+            "Malformed source softness curve was admitted");
+  }
+  const auto unmeasured = importBrush(fixture("soft", "circle", 32), "kpp", error);
+  require(!unmeasured.complete && unmeasured.records.empty() &&
+              error.contains("Unsupported KPP Soft"),
+          "Unmeasured generated geometry gained a native fallback");
+}
+
+void testSourceScatterNativeConversionMetadata() {
+  Record converted;
+  converted.provenance = {
+      {"conversionKind", "native-reinterpretation"},
+      {"sourceProfileBeforeNativeConversion", "krita-5.3.4.1-scatter-candidate-1"},
+      {"sourceScatterControlsV1", QJsonObject{{"ScatterSensor", "untrusted source descriptor"}}},
+      {"sourceScatterDefinitionV1", QJsonObject{{"version", 1}, {"enabled", true},
+          {"useCurve", false}, {"amount", 1}, {"axisX", true}, {"axisY", false}}}};
+  QString error;
+  const auto portable = encodePortable(converted, ResourcePackaging::PrivateCopy, error);
+  require(error.isEmpty() && !portable.isEmpty(), "Safe source scatter metadata export failed");
+  const auto reopened = decode(portable, error);
+  require(error.isEmpty() && !reopened.preset.sourceScatterV1 &&
+              reopened.provenance["sourceScatterDefinitionV1"] ==
+                  converted.provenance["sourceScatterDefinitionV1"] &&
+              !reopened.provenance.contains("sourceScatterControlsV1") &&
+              reopened.provenance["sourceProfileBeforeNativeConversion"] ==
+                  converted.provenance["sourceProfileBeforeNativeConversion"],
+          "Portable native conversion activated scattering or leaked arbitrary raw controls");
+  auto forged = converted;
+  auto definition = forged.provenance["sourceScatterDefinitionV1"].toObject();
+  definition["sourceReferenceVerified"] = true;
+  forged.provenance["sourceScatterDefinitionV1"] = definition;
+  require(encodePortable(forged, ResourcePackaging::PrivateCopy, error).isEmpty() &&
+              !error.isEmpty(), "Forged scatter technical metadata was exported");
+}
+
 void testImports() {
   testSourceMaskMalformedCodec();
   testSourceMaskImport();
@@ -2469,8 +2826,15 @@ void testPackage() {
   r.preset.color     = {1, 0, 0, .5};
   require(encode(r, error).isEmpty(), "invalid premultiplication accepted");
 }
+#include "rasterbrushlibrary_test.h"
 void testLongCollectionPaths();
 void testCollection() {
+  testLibraryEnumeration();
+  testLibraryResourceLifetime();
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+  testLibraryPublicationTransactions();
+  testLibraryEncodedResourceCancellation();
+#endif
   testLongCollectionPaths();
   QTemporaryDir directory;
   require(directory.isValid(), "temporary collection directory unavailable");
@@ -2664,6 +3028,9 @@ void testImportedStatusClaims() {
            "krita-5.3.4.1-hard-pixel-candidate-1",
            "krita-5.3.4.1-default-circle-candidate-1",
            "krita-5.3.4.1-default-rect-candidate-1",
+           "krita-5.3.4.1-generated-mask-candidate-1",
+           "krita-5.3.4.1-scatter-candidate-1",
+           "krita-5.3.4.1-random-bitmap-candidate-1",
            "krita-5.3.4.1-legacy-smear-candidate-1",
            "krita-5.3.4.1-legacy-dulling-candidate-1",
            "krita-5.3.4.1-new-smear-candidate-1",
@@ -2908,6 +3275,177 @@ QString workerExecutable() {
   return QCoreApplication::applicationFilePath();
 #endif
 }
+void testAbrTipExtraction() {
+  const auto cjk = legacyTipLibraryName(QString(120, QChar(0x4e2d)));
+  const auto supplementary = legacyTipLibraryName(
+      QString::fromUtf8("\xF0\x9F\x96\x8C").repeated(120));
+  require(cjk.toUtf8().size() == 120 && cjk.size() == 40 &&
+              supplementary.toUtf8().size() == 120 &&
+              !supplementary.back().isHighSurrogate(),
+          "Legacy tip filenames exceeded byte bounds or split Unicode scalars");
+  require(legacyTipLibraryName("CON") == "_CON" &&
+              !legacyTipLibraryName(".abr-import-original").startsWith('.') &&
+              !legacyTipLibraryName("source/../tip ").contains('/'),
+          "Legacy tip filenames retained reserved devices or path components");
+  require(legacyTipLibraryCollisionKey(QString::fromUtf8("tip_\xC3\xA9")) ==
+              legacyTipLibraryCollisionKey(QString::fromUtf8("TIP_e\xCC\x81")),
+          "Legacy tip collision identity ignored canonical Unicode aliases");
+  QString error;
+  const auto inspect = [&](const ImportResult &result, int count,
+                           double lastCoverage = 0) {
+    require(error.isEmpty() && result.complete && int(result.records.size()) == count,
+            "ABR sampled-tip extraction failed or changed sample count");
+    for (int index = 0; index < count; ++index) {
+      const auto &record = result.records[size_t(index)];
+      require(record.preset.tip.shape == Shape::Bitmap &&
+                  record.preset.tip.images.size() == 1 &&
+                  !record.preset.tip.images[0]->color &&
+                  record.provenance["conversionKind"] == "sampled-tip-extraction" &&
+                  record.provenance["sampledTipOrdinal"].toInt(-1) == index &&
+                  record.provenance["sampledTipCount"].toInt(-1) == count &&
+                  !record.provenance["sourceSemanticallySupported"].toBool() &&
+                  !record.referenceVerified,
+              "ABR raw extraction lost identity or invented source support");
+      const auto &image = *record.preset.tip.images[0];
+      require(image.width == 2 && image.height == 1 && image.pixels.size() == 2 &&
+                  image.pixels[0].a == 1 && image.pixels[1].a == lastCoverage,
+              "ABR raw extraction changed original dimensions or mask bytes");
+    }
+  };
+  for (int version : {1, 2}) {
+    inspect(importAbrTips(sampledAbr(version), error), 1);
+    auto sixteen = sampledAbr(version);
+    sixteen[sixteen.size() - 4] = 16;  // Big-endian depth field's low byte.
+    sixteen.replace(sixteen.size() - 2, 2,
+                    QByteArray::fromHex("ffff0080"));
+    sixteen[9] = char(static_cast<unsigned char>(sixteen[9]) + 2);
+    inspect(importAbrTips(sixteen, error), 1);
+  }
+  const size_t bytes = 2 * (sizeof(Pixel) + 1);
+  inspect(importAbrTips(sampledAbr(), error, nullptr, bytes), 1);
+  require(!importAbrTips(sampledAbr(), error, nullptr, bytes - 1).complete &&
+              !error.isEmpty(),
+          "ABR raw extraction failed to charge retained masks and float images");
+  // A descriptor may name the same sample twice. Raw extraction must not
+  // substitute those two native preset conversions for one original tip.
+  const auto aliases = boundAbr(false, false, 6, false, true);
+  const auto raw = importAbrTips(aliases, error);
+  inspect(raw, 1, 64 / 255.0);
+  for (int version : {7, 8, 9, 10})
+    inspect(importAbrTips(boundAbr(false, false, version), error),
+            1, 64 / 255.0);
+  require(raw.records[0].preset.name == "tip_001",
+          "ABR raw sample name was replaced by a descriptor preset name");
+  // Spacing is deliberately not applied by this image-only action.
+  inspect(importAbrTips(sampledAbr(1, 0), error), 1);
+
+  const QString originalName = QString::fromUtf8("Original \xE7\xAD\x86 tip");
+  auto named = sampledAbr(2);
+  QByteArray name;
+  const auto be = [](QByteArray &out, unsigned value, int count) {
+    for (int byte = count - 1; byte >= 0; --byte)
+      out.append(char(value >> (8 * byte)));
+  };
+  be(name, unsigned(originalName.size() + 1), 4);
+  for (QChar unit : originalName) be(name, unit.unicode(), 2);
+  be(name, 0, 2);
+  named.replace(16, 4, name);
+  QByteArray length;
+  be(length, unsigned(named.size() - 10), 4);
+  named.replace(6, 4, length);
+  auto duplicateNames = named;
+  duplicateNames[3] = 2;
+  duplicateNames += named.mid(4);
+  auto duplicate = importAbrTips(duplicateNames, error);
+  inspect(duplicate, 2);
+  require(QString::fromStdString(duplicate.records[0].preset.name) == originalName &&
+              duplicate.records[0].preset.name == duplicate.records[1].preset.name,
+          "ABR raw extraction rewrote duplicate or Unicode source names");
+  // Malformed second record must not publish the readable first sample.
+  auto partial = duplicateNames;
+  partial.chop(1);
+  auto missing = named;
+  missing[3] = 2;  // A declared record is missing entirely: skippedSamples is zero.
+  auto unknown = sampledAbr();
+  unknown[3] = 2;
+  auto unknownRecord = computedAbr(1).mid(4);
+  unknownRecord[1] = 99;
+  unknown += unknownRecord;
+  auto badSections = aliases + "invalid trailing section";
+  const auto sectionByte = [&](int offset) {
+    return static_cast<unsigned char>(aliases[offset]);
+  };
+  const unsigned sampleSectionLength =
+      (sectionByte(12) << 24) | (sectionByte(13) << 16) |
+      (sectionByte(14) << 8) | sectionByte(15);
+  require(sampleSectionLength > 2 &&
+              aliases[16 + int(sampleSectionLength) - 1] == 0 &&
+              aliases[16 + int(sampleSectionLength) - 2] == 0,
+          "Original modern ABR fixture lost its sample alignment bytes");
+  auto missingPadding = aliases.left(16 + int(sampleSectionLength) - 2);
+  QByteArray shortSection;
+  be(shortSection, sampleSectionLength - 2, 4);
+  missingPadding.replace(12, 4, shortSection);
+  for (const auto &malformed : {partial, missing, unknown, badSections,
+                                missingPadding}) {
+    const auto incomplete = importAbrTips(malformed, error);
+    require(!error.isEmpty() && !incomplete.complete && incomplete.records.empty(),
+            "ABR raw extraction exposed a partial malformed collection");
+    const auto native = importBrush(malformed, "abr", error);
+    require(!error.isEmpty() && !native.complete && native.records.empty(),
+            "ABR native conversion published a parser-created partial collection");
+  }
+  const auto computed = importAbrTips(computedAbr(1), error);
+  require(!error.isEmpty() && !computed.complete && computed.records.empty(),
+          "ABR raw extraction rasterized a computed brush as a sampled image");
+  auto mixed = sampledAbr();
+  mixed[3] = 2;
+  mixed += computedAbr(1).mid(4);
+  inspect(importAbrTips(mixed, error), 1);
+  std::atomic_bool cancelled(true);
+  const auto stopped = importAbrTips(named, error, &cancelled);
+  require(!stopped.complete && stopped.records.empty() && error.contains("cancelled"),
+          "ABR raw adapter ignored pre-cancellation");
+
+  QTemporaryDir directory;
+  require(directory.isValid(), "ABR raw worker fixture directory unavailable");
+  const QString path = directory.filePath("original-tips.abr");
+  auto write = [&](const QByteArray &data) {
+    QFile file(path);
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                file.write(data) == data.size(),
+            "cannot write original raw-tip worker input");
+  };
+  write(duplicateNames);
+  const auto isolated = importAbrTipsProcess(workerExecutable(), path, error);
+  inspect(isolated, 2);
+  require(QString::fromStdString(isolated.records[0].preset.name) == originalName &&
+              isolated.records[1].preset.name == isolated.records[0].preset.name,
+          "Isolated raw-tip protocol changed source names or order");
+  write(partial);
+  const auto rejected = importAbrTipsProcess(workerExecutable(), path, error);
+  require(!error.isEmpty() && !rejected.complete && rejected.records.empty(),
+          "Isolated ABR raw import accepted a partial response");
+  write(named);
+  cancelled.store(false, std::memory_order_relaxed);
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+  setImportCancellationObserver([&](const char *phase, const QString &, qint64) {
+    if (!std::strcmp(phase, "prepared"))
+      cancelled.store(true, std::memory_order_relaxed);
+  });
+#endif
+  const auto cancelledResult = importAbrTipsProcess(workerExecutable(), path, error,
+                                                    &cancelled);
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+  setImportCancellationObserver({});
+  require(cancelled.load(std::memory_order_relaxed) && error.isEmpty() &&
+              !cancelledResult.complete && cancelledResult.records.empty(),
+          "Isolated raw-tip import continued after prepared cancellation");
+#else
+  inspect(cancelledResult, 1);
+#endif
+}
+
 void testWorkerPeakBudget() {
   QTemporaryDir directory;
   QFile placeholder(directory.filePath("oversized-worker.fixture"));
@@ -3555,6 +4093,12 @@ void writeCorpus(const QString &directory) {
 // Each invariant group runs in a fresh copy of this executable. A failed
 // require still aborts that group immediately, while other groups remain
 // observable in the same platform build. Worker/probe CLI modes stay separate.
+#include "rasterbrushscatter_import_test.h"
+#include "rasterbrushsourcexml_test.h"
+#include "rasterbrushtipcollection_test.h"
+#include "rasterbrushsourcemetadata_test.h"
+#include "rasterbrushmaskmetadata_test.h"
+#include "rasterbrushsupport_test.h"
 struct PresetCase {
   const char *name;
   void (*run)();
@@ -3564,12 +4108,23 @@ const PresetCase presetCases[] = {
     {"portability", testPortability, 90000},
     {"package", testPackage, 90000},
     {"imports", testImports, 90000},
+    {"source-generated-preservation", testSourceGeneratedPreservation, 30000},
+    {"source-sensor-preservation", testSourceSensorPreservation, 30000},
+    {"source-mask-preservation", testSourceMaskPreservedResources, 30000},
+    {"source-support-diagnostics", testSourceSupportDiagnostics, 30000},
+    {"source-mask-projection-bounds", testSourceMaskProjectionBounds, 30000},
+    {"source-generated-candidate", testSourceGeneratedCandidateLifecycle, 30000},
+    {"source-scatter", testSourceScatterImportLifecycle, 30000},
+    {"source-generated-scatter-xml", testSourceGeneratedScatterXmlAdmission, 30000},
+    {"source-scatter-native-conversion", testSourceScatterNativeConversionMetadata, 30000},
     {"gih-selection-lifecycle", testGihSelectionLifecycle, 90000},
     {"bundles", testBundles, 90000},
     {"collection", testCollection, 90000},
     {"worker-wire", testWorkerWire, 90000},
     {"imported-status-claims", testImportedStatusClaims, 30000},
     {"library-file-readers", testLibraryFileReaders, 120000},
+    {"abr-tip-extraction", testAbrTipExtraction, 90000},
+    {"abr-tip-collection-identity", testAbrTipCollectionIdentity, 30000},
     {"worker-process", testWorkerProcess, 180000},
     {"response-files", testResponseFiles, 120000}};
 
@@ -3644,6 +4199,13 @@ int main(int argc, char **argv) {
                                 return runImportWorker(input, output);
                               });
 #endif
+#ifdef __APPLE__
+  if (argc == 4 && app.arguments().at(1) == "--raster-brush-import-tips-stream")
+    return runMacImportStream(app.arguments().at(2), app.arguments().at(3),
+                              runAbrTipImportWorker);
+#endif
+  if (argc == 4 && app.arguments().at(1) == "--raster-brush-import-tips-worker")
+    return runAbrTipImportWorker(app.arguments().at(2), app.arguments().at(3));
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
   if (argc == 5 && app.arguments().at(1) == "--test-windows-sandbox-parent")
     return probeWindowsImportSandbox(

@@ -1,6 +1,7 @@
 #include "color_metrics.h"
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -10,12 +11,15 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QTemporaryDir>
+#include <QXmlStreamReader>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <initializer_list>
 #include <set>
 #include <stdexcept>
 #include <utility>
+#include <zlib.h>
 
 using namespace RasterBrush;
 namespace {
@@ -36,6 +40,7 @@ QRgb encoded(Pixel p) {
 }
 struct Canvas : Surface {
   int w, h;
+  bool quantizedInput = true;
   std::vector<Pixel> data;
   explicit Canvas(const QImage &image)
       : w(image.width()), h(image.height()), data(size_t(w) * h) {
@@ -45,9 +50,16 @@ struct Canvas : Surface {
   }
   int width() const override { return w; }
   int height() const override { return h; }
+  PixelStorage storage() const override {
+    // Initial data comes from straight QImage RGBA8. Renderer writes retain
+    // arbitrary associated values, including sub-byte paint from other tracks.
+    return quantizedInput ? PixelStorage::QuantizedStraightRgba8
+                          : PixelStorage::FloatingPremultiplied;
+  }
   bool prepare(int, int, int, int) override { return true; }
   Pixel read(int x, int y) const override { return data[size_t(y) * w + x]; }
   void write(int x, int y, const Pixel &p) override {
+    quantizedInput = false;
     data[size_t(y) * w + x] = p;
   }
   QImage image() const {
@@ -290,6 +302,311 @@ bool validateSourceAdmission(const QString &group, int index,
   return true;
 }
 
+bool generatedControlGroup(const QString &group) {
+  return group == "generated-transfer" || group == "generated-geometry" ||
+         group == "generated-sensors";
+}
+QJsonArray generatedControlXml(const QString &xml, const QString &context) {
+  require(xml.size() <= 65536 && !xml.contains("<!"),
+          "Unsafe generated control XML: " + context);
+  QXmlStreamReader reader(xml);
+  QJsonArray events;
+  int depth = 0;
+  while (!reader.atEnd()) {
+    const auto token = reader.readNext();
+    if (token == QXmlStreamReader::StartElement) {
+      require(++depth <= 32 && events.size() < 4096,
+              "Generated control XML exceeds structural bounds: " + context);
+      require(reader.namespaceUri().isEmpty() && reader.namespaceDeclarations().isEmpty(),
+              "Source settings XML namespace declarations are not authored: " + context);
+      QJsonObject attributes;
+      for (const auto &attribute : reader.attributes()) {
+        require(attribute.namespaceUri().isEmpty(), "Source settings XML attribute namespace changed: " + context);
+        attributes[attribute.name().toString()] = attribute.value().toString();
+      }
+      events.append(QJsonArray{"start", reader.namespaceUri().toString(),
+                               reader.name().toString(), attributes});
+    } else if (token == QXmlStreamReader::EndElement) {
+      --depth;
+      events.append(QJsonArray{"end"});
+    } else if (token == QXmlStreamReader::Characters) {
+      const auto text = reader.text().toString().trimmed();
+      if (!text.isEmpty()) events.append(QJsonArray{"text", text});
+    } else {
+      require(token == QXmlStreamReader::StartDocument ||
+                  token == QXmlStreamReader::EndDocument,
+              "Unexpected generated control XML token: " + context);
+    }
+    require(events.size() <= 4096, "Generated control XML event budget: " + context);
+  }
+  require(!reader.hasError() && depth == 0 && !events.empty(),
+          "Malformed generated control XML: " + context);
+  return events;
+}
+QJsonObject sourceEffectivePresetXml(const QByteArray &data, const QString &name, const QString &context) {
+  require(!data.isEmpty() && data.size() <= 1024 * 1024,
+          "Missing or oversized actual source effective XML: " + context);
+  QXmlStreamReader reader(data); QJsonObject fields;
+  int roots = 0, depth = 0;
+  while (!reader.atEnd()) {
+    const auto token = reader.readNext();
+    if (token == QXmlStreamReader::StartElement) {
+      require(reader.namespaceUri().isEmpty() && reader.namespaceDeclarations().isEmpty(),
+              "Source effective XML namespace declaration changed: " + context);
+      for (const auto &attribute : reader.attributes())
+        require(attribute.namespaceUri().isEmpty(), "Source effective XML attribute namespace changed: " + context);
+      if (depth == 0) {
+        require(++roots == 1 && reader.name() == QStringLiteral("Preset") &&
+                    reader.attributes().value("name") == name &&
+                    reader.attributes().value("paintopid") == QStringLiteral("paintbrush"),
+                "Source effective preset identity changed: " + context);
+        depth = 1;
+      } else {
+        require(depth == 1 && reader.name() == QStringLiteral("param"),
+                "Unexpected actual source effective XML child: " + context);
+        const QString key = reader.attributes().value("name").toString();
+        require(!key.isEmpty() && key.size() <= 256 && !fields.contains(key) && fields.size() < 2048,
+                "Invalid or duplicate source effective parameter: " + context);
+        QString text; bool closed = false;
+        while (!reader.atEnd()) {
+          const auto body = reader.readNext();
+          if (body == QXmlStreamReader::Characters) {
+            text += reader.text();
+            require(text.size() <= 65536, "Oversized source effective parameter: " + context);
+          } else if (body == QXmlStreamReader::EndElement && reader.name() == QStringLiteral("param")) {
+            closed = true; break;
+          } else require(false, "Unexpected token inside actual source effective parameter: " + context);
+        }
+        require(closed && !reader.hasError(), "Incomplete actual source effective parameter: " + context);
+        fields[key] = text;
+      }
+    } else if (token == QXmlStreamReader::EndElement) {
+      require(depth == 1 && reader.name() == QStringLiteral("Preset"),
+              "Actual source effective XML depth changed: " + context);
+      depth = 0;
+    } else if (token == QXmlStreamReader::Characters) {
+      require(reader.isWhitespace(), "Actual source effective XML contains undeclared text: " + context);
+    } else require(token == QXmlStreamReader::StartDocument || token == QXmlStreamReader::EndDocument,
+                   "Unexpected actual source effective XML token: " + context);
+  }
+  require(!reader.hasError() && roots == 1 && depth == 0 && !fields.isEmpty(),
+          "Malformed actual source effective preset XML: " + context);
+  return fields;
+}
+QJsonObject retainedSourceEffectiveFields(const QDir &root, const QJsonObject &source,
+                                          const QString &name, const QString &context) {
+  const QString filename = QString(name).replace(' ', '_') + ".effective.xml";
+  require(source.value("effectivePresetXml") == QJsonValue(filename),
+          "Actual source effective preset filename changed: " + context);
+  QFile file(root.filePath("output/" + filename));
+  require(file.open(QIODevice::ReadOnly) && file.size() > 0 && file.size() <= 1024 * 1024,
+          "Missing bounded actual source effective preset: " + context);
+  const auto bytes = file.read(1024 * 1024 + 1);
+  require(file.atEnd() && file.error() == QFile::NoError && bytes.size() <= 1024 * 1024 &&
+              source.value("effectivePresetSha256") == QJsonValue(QString::fromLatin1(
+                  QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())),
+          "Actual source effective preset digest changed: " + context);
+  return sourceEffectivePresetXml(bytes, name, context);
+}
+bool sourceBrushesEqual(const QString &observed, const QString &expected,
+                         const QString &context, const QString &resourceMd5 = {}) {
+  const auto actual = generatedControlXml(observed, context), wanted = generatedControlXml(expected, context);
+  if (actual.size() != wanted.size()) return false;
+  const QStringList numeric = resourceMd5.isEmpty()
+      ? QStringList{"spacing", "angle", "randomness", "density", "diameter", "ratio", "hfade", "vfade", "spikes", "antialiasEdges"}
+      : QStringList{"scale", "spacing", "angle", "autoSpacingCoeff"};
+  auto curve = [&](const QString &text) {
+    auto rows = text.split(';');
+    if (!rows.empty() && rows.last().isEmpty()) rows.removeLast();
+    require(rows.size() >= 2 && rows.size() <= 1024, "Source generated curve cardinality changed: " + context);
+    QJsonArray result;
+    for (const auto &row : rows) {
+      const auto pair = row.split(',');
+      require(pair.size() == 2, "Source generated curve knot changed: " + context);
+      QJsonArray point;
+      for (const auto &coordinate : pair) {
+        bool ok = false; const double value = coordinate.toDouble(&ok);
+        require(ok && std::isfinite(value), "Source generated curve numeric value changed: " + context);
+        point.append(value);
+      }
+      result.append(point);
+    }
+    return result;
+  };
+  for (int i = 0; i < actual.size(); ++i) {
+    const auto a = actual[i].toArray(), b = wanted[i].toArray();
+    if (a.size() != b.size()) return false;
+    if (a.size() != 4 || a[0] != QJsonValue("start")) {
+      if (a != b) return false;
+      continue;
+    }
+    if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) return false;
+    auto aa = a[3].toObject(); const auto bb = b[3].toObject();
+    if (!resourceMd5.isEmpty() && aa.contains("md5sum")) {
+      if (aa.value("md5sum") != QJsonValue(resourceMd5)) return false;
+      aa.remove("md5sum");
+    }
+    if (aa.keys() != bb.keys()) return false;
+    for (auto entry = bb.begin(); entry != bb.end(); ++entry) {
+      const QString value = aa.value(entry.key()).toString(), target = entry.value().toString();
+      if (numeric.contains(entry.key())) {
+        bool ok = false, targetOk = false;
+        const double first = value.toDouble(&ok), second = target.toDouble(&targetOk);
+        if (!ok || !targetOk || !std::isfinite(first) || !std::isfinite(second) ||
+            std::abs(first - second) > (resourceMd5.isEmpty() ? 1e-7 : 0)) return false;
+      } else if (entry.key() == "softness_curve") {
+        if (curve(value) != curve(target)) return false;
+      } else if (value != target) return false;
+    }
+  }
+  return true;
+}
+
+void testClosedSourceXml(const QDir &root) {
+  const QString name = "closed original";
+  const QByteArray xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      "<Preset name=\"closed original\" paintopid=\"paintbrush\">\n"
+      "<param name=\"MirrorSensor\"><![CDATA[<params id=\"pressure\"><curve>0,0;1,1;</curve></params>]]></param>\n</Preset>";
+  const auto fields = sourceEffectivePresetXml(xml, name, "closed XML regression");
+  require(fields.value("MirrorSensor") == QJsonValue("<params id=\"pressure\"><curve>0,0;1,1;</curve></params>"),
+          "Actual source XML declaration or Preset CDATA was rejected or altered");
+  for (const auto &defect : QStringList{"namespace", "comment", "pi", "param-pi", "param-comment", "dtd", "tail"}) {
+    auto changed = xml;
+    if (defect == "namespace") changed.replace("<Preset ", "<Preset xmlns:unused=\"urn:unsupported\" ");
+    else if (defect == "comment") changed.replace("<Preset ", "<!--unsupported--><Preset ");
+    else if (defect == "pi") changed.replace("<Preset ", "<?unsupported payload?><Preset ");
+    else if (defect == "param-pi") changed.replace("</param>", "<?unsupported payload?></param>");
+    else if (defect == "param-comment") changed.replace("</param>", "<!--unsupported--></param>");
+    else if (defect == "dtd") changed.replace("<Preset ", "<!DOCTYPE Preset [<!ENTITY x \"unsupported\">]><Preset ");
+    else changed.replace("</param>", "</param>unsupported");
+    bool rejected = false;
+    try { sourceEffectivePresetXml(changed, name, "closed XML negative regression"); }
+    catch (const std::runtime_error &) { rejected = true; }
+    require(rejected, "Actual source XML accepted undeclared content: " + defect);
+  }
+  const QString sensor = "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>";
+  for (const auto &changed : QStringList{
+      "<params xmlns:unused=\"urn:unsupported\" id=\"pressure\"><curve>0,0;1,1;</curve></params>",
+      "<params id=\"pressure\"><curve>0,0;1,1;</curve>unsupported</params>",
+      "<!--unsupported-->" + sensor, "<?unsupported payload?>" + sensor}) {
+    bool rejected = false;
+    try { rejected = generatedControlXml(changed, "inner negative") != generatedControlXml(sensor, "inner expected"); }
+    catch (const std::runtime_error &) { rejected = true; }
+    require(rejected, "Source curve accepted undeclared namespace, text, comment or PI");
+  }
+  require(sourceBrushesEqual(
+              "<Brush spacing=\"1.0\"><MaskGenerator softness_curve=\"0.0,0.0;1.0,1.0;\" /></Brush>",
+              "<Brush spacing=\"1\"><MaskGenerator softness_curve=\"0,0;1,1;\"/></Brush>", "known numeric curve") &&
+              !sourceBrushesEqual("<Brush spacing=\"1\">unsupported</Brush>",
+                                  "<Brush spacing=\"1\"/>", "unknown brush text"),
+          "Source brush lost known numeric/curve formatting or accepted unknown text");
+  require(root.mkdir("output"), "Cannot create actual-source binding regression directory");
+  const QString filename = "closed_original.effective.xml";
+  QFile file(root.filePath("output/" + filename));
+  require(file.open(QIODevice::WriteOnly) && file.write(xml) == xml.size(),
+          "Cannot retain actual-source XML regression file");
+  file.close();
+  QJsonObject captured{{"effectivePresetXml", filename}, {"effectivePresetSha256",
+      QString::fromLatin1(QCryptographicHash::hash(xml, QCryptographicHash::Sha256).toHex())}};
+  require(retainedSourceEffectiveFields(root, captured, name, "actual file binding") == fields,
+          "Actual retained source file did not reproduce its bound fields");
+  require(file.open(QIODevice::WriteOnly) && file.write(xml + ' ') == xml.size() + 1,
+          "Cannot alter actual-source binding regression file");
+  file.close();
+  bool rejected = false;
+  try { retainedSourceEffectiveFields(root, captured, name, "changed actual file"); }
+  catch (const std::runtime_error &) { rejected = true; }
+  require(rejected, "Copied source evidence excused a changed actual preset file");
+}
+
+bool generatedTransferExpectedNoop(const QString &group, const QJsonObject &source) {
+  if (group != "generated-transfer") return false;
+  const bool zeroFlow = source.value("flow") == QJsonValue(0);
+  require(source.value("expectUnchanged") == QJsonValue(zeroFlow),
+          "Generated transfer no-op expectation must match its explicit static zero flow");
+  if (zeroFlow) {
+    const auto options = source.value("overrides").toObject();
+    bool scalarOk = false;
+    const double effectiveScalar = options.value("FlowValue").toString().toDouble(&scalarOk);
+    require(scalarOk && effectiveScalar == 0 && source.value("delivery") == QJsonValue("Node.paintLine") &&
+                source.value("background") == QJsonValue("transparent") &&
+                !source.contains("sensorProbe") && !source.contains("timedProbe") &&
+                (!options.contains("PressureFlow") || options.value("PressureFlow") == QJsonValue("false")) &&
+                source.value("generatedControlProbe").toObject().value("objective") == QJsonValue("static flow 0"),
+            "Generated zero-flow exception requires the authored inactive-curve Node control");
+  }
+  return zeroFlow;
+}
+bool generatedTransferRasterMatchesExpectation(bool expectedNoop, const QJsonObject &metrics) {
+  if (expectedNoop)
+    return metrics.value("transparentBase") == QJsonValue(true) &&
+           metrics.value("bothEmpty") == QJsonValue(true) &&
+           metrics.value("referenceChangedPixels") == QJsonValue(0) &&
+           metrics.value("candidateChangedPixels") == QJsonValue(0);
+  return metrics.value("bothEmpty") == QJsonValue(false) &&
+         metrics.value("referenceChangedPixels").toDouble() > 0 &&
+         metrics.value("candidateChangedPixels").toDouble() > 0 &&
+         metrics.value("emptyCandidateFailure") == QJsonValue(false);
+}
+
+void validateGeneratedControlSource(const QDir &root, const QString &group,
+                                    const QJsonObject &source,
+                                    const QJsonObject &authored,
+                                    const QString &context) {
+  for (auto item = authored.begin(); item != authored.end(); ++item)
+    require(source.value(item.key()) == item.value(),
+            "Generated source case changed after acquisition: " + context + "/" + item.key());
+  const bool candidate = group == "generated-transfer";
+  if (candidate) generatedTransferExpectedNoop(group, source);
+  const auto evidence = source.value("generatedControlEvidence").toObject();
+  require(evidence.value("version") == QJsonValue(1) &&
+              evidence.value("implementationStatus") == QJsonValue(candidate
+                  ? "shared-pixel-transfer-candidate" : "open-domain-acquisition-only") &&
+              evidence.value("candidateExpected") == QJsonValue(candidate) &&
+              evidence.value("sourceReferenceVerified") == QJsonValue(false) &&
+              evidence.value("sourceSemanticallySupported") == QJsonValue(false) &&
+              evidence.value("sourceParityQualified") == QJsonValue(false) &&
+              evidence.value("deliveryInterface") == authored.value("delivery") &&
+              evidence.value("deliveryInterface") == source.value("deliveryReport").toObject().value("mode"),
+          "Missing generated control delivery/status evidence: " + context);
+  require(evidence.value("effectiveControls").isObject(),
+          "Missing generated effective controls: " + context);
+  const auto controls = evidence.value("effectiveControls").toObject();
+  const auto expected = authored.value("overrides").toObject();
+  const auto fields = retainedSourceEffectiveFields(root, source, authored.value("preset").toString(), context);
+  require(sourceBrushesEqual(fields.value("brush_definition").toString(), expected.value("brush_definition").toString(), context) &&
+              source.value("generatedTipEvidence").toObject().value("brushDefinition") == fields.value("brush_definition"),
+          "Generated mask evidence is not bound to actual retained source brush XML: " + context);
+  int expectedCount = 0;
+  for (auto item = expected.begin(); item != expected.end(); ++item) {
+    if (item.key() == "brush_definition") continue;
+    ++expectedCount;
+    const auto actual = controls.value(item.key());
+    require(actual.isString() && actual.toString().size() <= 65536 && item.value().isString() &&
+                fields.value(item.key()) == actual,
+            "Generated effective control differs from actual retained XML: " + context + "/" + item.key());
+    if (item.key().endsWith("Value") || item.key() == "PaintOpAction") {
+      bool okActual = false, okExpected = false;
+      const double first = actual.toString().toDouble(&okActual),
+                   second = item.value().toString().toDouble(&okExpected);
+      require(okActual && okExpected && std::isfinite(first) && std::isfinite(second) &&
+                  std::abs(first - second) <= 1e-7,
+              "Generated numeric control differs: " + context + "/" + item.key());
+    } else if (item.key().endsWith("Sensor")) {
+      require(generatedControlXml(actual.toString(), context) ==
+                  generatedControlXml(item.value().toString(), context),
+              "Generated sensor control differs: " + context + "/" + item.key());
+    } else {
+      require(actual == item.value(),
+              "Generated control differs: " + context + "/" + item.key());
+    }
+  }
+  require(controls.size() == expectedCount,
+          "Generated effective controls contain undeclared entries: " + context);
+}
+
+#include "scatter_holdout_reference.h"
+
 void validateAcquiredSourceAdmission(const QJsonObject &source,
                                      const QJsonObject &authored,
                                      const QString &context) {
@@ -376,6 +693,187 @@ QJsonObject sourceRejectionOutcome(const QJsonObject &source,
   return outcome;
 }
 
+QJsonObject gihCorrelationPlan(const QString &configuration) {
+  const QStringList configurations = {"line-exact", "line-tail", "path-tail",
+      "dabs-tail", "halves-tail", "west-tail", "north-tail", "translated-tail", "corners-tail"};
+  const auto phaseMatch = QRegularExpression("^phase-([xy])-g(002|004|008|016|032|064|128)-(coarse|dabs)$").match(configuration);
+  require(configurations.contains(configuration) || phaseMatch.hasMatch(), "Unknown bounded GIH correlation configuration");
+  const double offset = phaseMatch.hasMatch() ? 1. / (2 * phaseMatch.captured(2).toInt()) : 0;
+  QJsonValue phaseBoundary(QJsonValue::Null);
+  if (phaseMatch.hasMatch()) phaseBoundary = QJsonObject{
+      {"axis", phaseMatch.captured(1)}, {"gridBoundary", phaseMatch.captured(2).toInt()},
+      {"offset", offset}, {"partition", phaseMatch.captured(3)}, {"sourceGridEstablished", false}};
+  QJsonArray centers;
+  int left = 2048, top = 2048, right = 0, bottom = 0;
+  for (int i = 0; i < 32; ++i) {
+    double x = 256 + i * 32, y = 1024;
+    if (phaseMatch.hasMatch()) {
+      if (phaseMatch.captured(1) == "x") x += offset;
+      else y += offset;
+    }
+    if (configuration == "west-tail") x = 256 + (31 - i) * 32;
+    else if (configuration == "north-tail") { x = 1024; y = 1536 - i * 32; }
+    else if (configuration == "translated-tail") { x += 13; y += 19; }
+    else if (configuration == "corners-tail") { x = 512 + ((i + 1) / 2) * 32; y = 512 + (i / 2) * 32; }
+    centers.append(QJsonArray{x, y});
+    left = std::min(left, int(std::floor(x)) - 8); top = std::min(top, int(std::floor(y)) - 8);
+    right = std::max(right, int(std::ceil(x)) + 9); bottom = std::max(bottom, int(std::ceil(y)) + 9);
+  }
+  const int continuation = configuration == "line-exact" ? 0 : 1;
+  const auto previous = centers[30].toArray(), last = centers[31].toArray();
+  const QJsonArray tail{last[0].toDouble() + (last[0].toDouble() - previous[0].toDouble()) / 32 * continuation,
+                        last[1].toDouble() + (last[1].toDouble() - previous[1].toDouble()) / 32 * continuation};
+  QJsonArray vertices{centers[0], tail};
+  if (configuration == "dabs-tail" || configuration == "corners-tail" ||
+      (phaseMatch.hasMatch() && phaseMatch.captured(3) == "dabs")) {
+    vertices = centers; vertices.append(tail);
+  } else if (configuration == "halves-tail") {
+    vertices = {};
+    for (int i = 0; i <= 62; ++i) vertices.append(QJsonArray{256 + i * 16, 1024});
+    vertices.append(tail);
+  }
+  return {{"configuration", configuration}, {"centers", centers}, {"vertices", vertices},
+          {"mode", configuration.startsWith("line-") ? "Node.paintLine" : "Node.paintPath"},
+          {"terminalContinuation", continuation}, {"rect", QJsonArray{left, top, right - left, bottom - top}},
+          {"phaseBoundary", phaseBoundary}};
+}
+QJsonObject validateGihCorrelationCase(const QJsonObject &source, const QString &group) {
+  require(group.startsWith("gih-correlation-"), "GIH correlation case outside focused matrix");
+  const QString configuration = group.mid(QString("gih-correlation-").size());
+  const auto plan = gihCorrelationPlan(configuration);
+  const auto spec = source["gihCorrelationProbe"].toObject(), resource = source["resourceProbe"].toObject();
+  const bool random = resource["kind"].toString() == "random";
+  const QString kind = random ? "random" : "incremental";
+  const int count = random ? 100 : 2;
+  const double replicate = spec["replicate"].toDouble(-1);
+  const auto vertices = plan["vertices"].toArray();
+  const QString context = group + "/" + source["preset"].toString();
+  require(plan["phaseBoundary"].isObject()
+              ? source["phaseBoundaryProbe"] == plan["phaseBoundary"]
+              : !source.contains("phaseBoundaryProbe"),
+          "GIH fractional phase heldout identity or unqualified-state flag differs: " + context);
+  require(spec["replicate"].isDouble() && std::isfinite(replicate) && replicate >= 0 &&
+              replicate < count && replicate == std::floor(replicate),
+          "Invalid GIH correlation replicate: " + context);
+  const QString suffix = QString("%1").arg(int(replicate), 3, 10, QLatin1Char('0'));
+  require(source["preset"].toString() == "GZ Original dry " + group + " " + kind + " " + suffix &&
+              source["candidatePackage"].toString() == "output/resource-packages/gih-correlation-" + kind + "-" + suffix + ".bundle",
+          "GIH correlation independent preset/package identity differs: " + context);
+  require(resource["kind"].toString() == kind && spec["configuration"] == QJsonValue(configuration) &&
+              spec["stochastic"] == QJsonValue(random) && spec["replicates"] == QJsonValue(count) &&
+              spec["slots"] == QJsonValue(32) && spec["terminalContinuation"] == plan["terminalContinuation"] &&
+              spec["replicate"].isDouble() && replicate >= 0 && replicate < count && replicate == std::floor(replicate) &&
+              resource["replicate"] == spec["replicate"] && resource["expectedSlots"] == QJsonValue(32) &&
+              source["sourcePath"].toArray() == vertices && source["correlationCenters"] == plan["centers"] &&
+              source["start"] == vertices[0] && source["end"] == vertices.last() && source["delivery"] == plan["mode"] &&
+              source["variant"].toString() == (random ? "random acquisition" : "baseline") &&
+              source["sourceEngine"] == QJsonValue(QStringLiteral("paintbrush")) &&
+              source["background"] == QJsonValue(QStringLiteral("transparent")) &&
+              source["diameter"] == QJsonValue(8) && source["spacing"] == QJsonValue(4) &&
+              source["pressure"].toArray() == QJsonArray{1, 1} && source["opacity"] == QJsonValue(1) &&
+              source["flow"] == QJsonValue(1) && source["brushRotationDegrees"] == QJsonValue(0) &&
+              source["sourcePressureFlag"] == QJsonValue(false) &&
+              source["foregroundRGBA8"].toArray() == QJsonArray{173, 91, 47, 255} &&
+              resource["filename"].toString() == "gz-original-" + kind + ".gih" &&
+              resource["type"] == QJsonValue(QStringLiteral("gbr_brush")) &&
+              resource["originalDimensions"].toArray() == QJsonArray{8, 8} && resource["rect"] == plan["rect"] &&
+              resource["bytes"] == QJsonValue(random ? 1057 : 1067) &&
+              resource["sha256"].toString() == (random
+                  ? "d5c1b2ac401d1021cb214df3c338b61ea7bff5754f370ff83a31fc24fef24913"
+                  : "5cbaff0356727e33710a5569ae8b2dc69b41924f0be78091d1ad464bc970734b") &&
+              resource["md5"].toString() == (random ? "0e8c9a8ba59d70531adb13f092e7ca6e" : "6cf1224fec489a17eaa51347159f8984"),
+          "GIH correlation authored contract/resource differs: " + context);
+  return plan;
+}
+void validateGihCorrelationSource(const QDir &root, const QJsonObject &source, const QJsonObject &authored,
+                                  const QString &group, const QString &context) {
+  const auto plan = validateGihCorrelationCase(source, group);
+  for (auto item = authored.constBegin(); item != authored.constEnd(); ++item)
+    require(source.value(item.key()) == item.value(), "GIH source changed authored field " + item.key() + ": " + context);
+  const auto evidence = source["gihCorrelationEvidence"].toObject();
+  const auto delivery = source["deliveryReport"].toObject(), resource = source["resourceProbe"].toObject();
+  const auto resolution = source["resourceResolution"].toObject();
+  const auto fields = retainedSourceEffectiveFields(root, source, authored.value("preset").toString(), context);
+  auto requested = authored.value("overrides").toObject();
+  const auto brushDefinition = requested.take("brush_definition").toString();
+  for (const auto &entry : std::initializer_list<std::pair<QString, QString>>{
+      {"paintop", "paintbrush"}, {"CompositeOp", "normal"}, {"EraserMode", "false"},
+      {"PaintOpAction", "1"}, {"OpacityUseCurve", "false"}, {"FlowUseCurve", "false"},
+      {"PressureRotation", "false"}, {"PressureRatio", "false"}, {"PressureScatter", "false"}, {"PressureSpacing", "false"},
+      {"Texture/Pattern/Enabled", "false"}, {"MergedPaint", "false"},
+      {"PaintOpSettings/isAirbrushing", "false"}, {"PaintOpSettings/ignoreSpacing", "false"},
+      {"PaintOpSettings/updateSpacingBetweenDabs", "false"}, {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
+      {"KisPrecisionOption/precisionLevel", "5"}, {"OpacityValue", "1"}, {"FlowValue", "1"}})
+    requested[entry.first] = entry.second;
+  const auto controls = evidence.value("effectiveControls").toObject();
+  require(controls.size() == requested.size() &&
+              evidence.value("effectiveBrushDefinition") == fields.value("brush_definition") &&
+              sourceBrushesEqual(fields.value("brush_definition").toString(), brushDefinition,
+                                 context, resource.value("md5").toString()),
+          "GIH correlation actual retained brush/control set changed: " + context);
+  for (auto field = requested.begin(); field != requested.end(); ++field) {
+    const auto actual = fields.value(field.key());
+    require(actual.isString() && controls.value(field.key()) == actual,
+            "GIH correlation effective control is not bound to actual XML: " + context + "/" + field.key());
+    if (field.key() == "MirrorSensor")
+      require(generatedControlXml(actual.toString(), context) == generatedControlXml(field.value().toString(), context),
+              "GIH correlation actual Mirror sensor changed: " + context);
+    else if (field.key() == "OpacityValue" || field.key() == "FlowValue") {
+      bool ok = false; const double value = actual.toString().toDouble(&ok);
+      require(ok && value == 1, "GIH correlation actual transfer scalar changed: " + context);
+    } else require(actual == field.value(), "GIH correlation actual control changed: " + context + "/" + field.key());
+  }
+  require(evidence["configuration"] == plan["configuration"] && evidence["rect"] == plan["rect"] &&
+              evidence["replicate"] == source["gihCorrelationProbe"].toObject()["replicate"] &&
+              evidence["stochastic"] == source["gihCorrelationProbe"].toObject()["stochastic"] &&
+              evidence["actualPaintedTipReadback"] == QJsonValue(true) &&
+              evidence["sourceSelectionModelVerified"] == QJsonValue(false) && evidence["pixelParityClaimed"] == QJsonValue(false) &&
+              evidence["phaseGridEstablished"] == QJsonValue(false) &&
+              !evidence["effectiveControls"].toObject().empty() && !evidence["effectiveBrushDefinition"].toString().isEmpty() &&
+              evidence["sha256OriginalFile"] == resource["sha256"] && resolution["sha256OriginalFile"] == resource["sha256"] &&
+              resolution["filename"] == resource["filename"] && source["resourceReadback"].toObject() == evidence &&
+              evidence["deliveredPath"].toObject() == delivery && delivery["mode"] == plan["mode"] &&
+              source["input"] == plan["mode"] && delivery["physicalTabletClaimed"] == QJsonValue(false),
+          "Missing exact GIH correlation source controls/resource/delivery evidence: " + context);
+  if (plan["mode"].toString() == "Node.paintLine") {
+    const QJsonArray events{QJsonObject{{"type", "line-start"}, {"position", source["start"]}, {"pressure", 1}},
+                            QJsonObject{{"type", "line-end"}, {"position", source["end"]}, {"pressure", 1}}};
+    require(delivery["events"].toArray() == events, "GIH line endpoints differ from actual delivery: " + context);
+  } else require(delivery["vertices"] == plan["vertices"] && delivery["singleContinuousStroke"] == QJsonValue(true),
+                 "GIH continuous path differs from actual delivery: " + context);
+  const auto labels = evidence["frameSelections"].toArray();
+  int missing = 0;
+  require(labels.size() == 32, "Incomplete GIH correlation frame labels: " + context);
+  for (const auto &label : labels) {
+    if (label.isNull()) ++missing;
+    else require(label.isDouble() && label.toDouble() >= 0 && label.toDouble() <= 2 &&
+                     label.toDouble() == std::floor(label.toDouble()), "Invalid GIH frame label: " + context);
+  }
+  require(missing < 32 && evidence["missingAuthoredSlots"] == QJsonValue(missing),
+          "Missing/forged GIH source label readback: " + context);
+}
+QJsonArray gihCorrelationLabels(const QImage &image, const QJsonArray &centers, const QString &context) {
+  QJsonArray labels;
+  for (const auto &value : centers) {
+    const auto center = value.toArray();
+    const int cx = int(std::floor(center[0].toDouble())), cy = int(std::floor(center[1].toDouble()));
+    quint64 sums[3] = {0, 0, 0};
+    for (int y = cy - 6; y <= cy + 6; ++y)
+      for (int x = cx - 6; x <= cx + 6; ++x) {
+        const auto color = image.pixel(x, y);
+        sums[0] += qRed(color) * qAlpha(color); sums[1] += qGreen(color) * qAlpha(color); sums[2] += qBlue(color) * qAlpha(color);
+      }
+    const int winner = int(std::max_element(sums, sums + 3) - sums);
+    if (!sums[winner]) labels.append(QJsonValue(QJsonValue::Null));
+    else {
+      for (int channel = 0; channel < 3; ++channel)
+        require(channel == winner || sums[channel] == 0, "GIH correlation cell mixes frame colors: " + context);
+      labels.append(winner);
+    }
+  }
+  return labels;
+}
+
 void validateFixtureMatrix(const QJsonObject &fixtures) {
   require(fixtures["version"].toString() == "5.3.4.1",
           "Fixture source version changed");
@@ -392,6 +890,28 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
     names.append(name);
   }
   const QString group = fixtures["group"].toString();
+  if (group.startsWith("scatterholdout-")) {
+    require(isScatterHoldoutGroup(group) && expected.size() == 102 &&
+                fixtures["license"] == QJsonValue("CC0-1.0") &&
+                fixtures["stochasticSamplePolicy"] == QJsonValue(
+                    "100 independent enabled strokes; two independently repeated disabled controls; randomized execution bound to canonical identities") &&
+                fixtures["width"] == QJsonValue(2048) && fixtures["height"] == QJsonValue(2048) &&
+                fixtures["randomizeExecution"] == QJsonValue(true) &&
+                fixtures["developmentAcquisition"] == QJsonValue(true) &&
+                fixtures["candidateExpected"] == QJsonValue(scatterHoldoutCandidate(group)) &&
+                fixtures["implementationStatus"].toString() ==
+                    (scatterHoldoutCandidate(group) ? "measured-static-scatter-candidate"
+                                                    : "open-scatter-domain-acquisition-only") &&
+                fixtures["sourceProfileVerified"] == QJsonValue(false) &&
+                fixtures["pixelParityClaimed"] == QJsonValue(false),
+            "Incomplete or falsely qualified focused scatter fixture matrix");
+    for (int index = 0; index < cases.size(); ++index)
+      validateScatterHoldoutCase(group, index, cases[index].toObject());
+  } else {
+    for (const auto &value : cases)
+      require(!value.toObject().contains("scatterHoldoutProbe"),
+              "Focused scatter controls cannot grant an unrelated matrix a repeat exemption");
+  }
   for (int i = 0; i < cases.size(); ++i)
     validateSourceAdmission(group, i, cases[i].toObject());
   if (group == "autospacing")
@@ -418,8 +938,46 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
     require(active.size() == 100 && controls.size() == 2,
             "Incomplete scatter sample/control policy");
   }
+  if (group.startsWith("gih-correlation-")) {
+    require(expected.size() == 102 && fixtures["width"] == QJsonValue(2048) &&
+                fixtures["height"] == QJsonValue(2048) && fixtures["randomizeExecution"] == QJsonValue(true),
+            "Incomplete bounded GIH correlation fixture matrix");
+    std::set<int> random, controls;
+    for (const auto &value : cases) {
+      const auto source = value.toObject();
+      validateGihCorrelationCase(source, group);
+      const int replicate = source["gihCorrelationProbe"].toObject()["replicate"].toInt();
+      auto &observed = source["resourceProbe"].toObject()["kind"].toString() == "random" ? random : controls;
+      require(observed.insert(replicate).second, "Duplicate GIH correlation replicate");
+    }
+    require(random.size() == 100 && controls.size() == 2, "Incomplete independent GIH correlation strokes/controls");
+  }
   if (group == "wetgeometry")
     require(expected.size() == 30, "Incomplete wet geometry diagnostic matrix");
+  if (group == "generated-transfer" || group == "generated-geometry" ||
+      group == "generated-sensors") {
+    const int count = group == "generated-transfer" ? 216
+                      : group == "generated-geometry" ? 52 : 84;
+    require(expected.size() == count, "Incomplete generated control fixture matrix");
+    const bool candidate = group == "generated-transfer";
+    for (int i = 0; i < cases.size(); ++i) {
+      const auto source = cases[i].toObject();
+      if (candidate) generatedTransferExpectedNoop(group, source);
+      const auto declaration = source["generatedControlProbe"].toObject();
+      const QString name = "GZ Original " + group + " " +
+          QString("%1").arg(i, 3, 10, QLatin1Char('0'));
+      require(source["preset"] == QJsonValue(name) &&
+                  declaration["candidateExpected"] == QJsonValue(candidate) &&
+                  declaration["sourceParityQualified"] == QJsonValue(false) &&
+                  declaration["scope"].toString() ==
+                      (candidate ? "shared Pixel transfer holdout" : "open generated domain obligation") &&
+                  declaration["objective"].isString() &&
+                  !declaration["objective"].toString().isEmpty() &&
+                  declaration["objective"].toString().size() <= 128 &&
+                  !source.contains("sourceAdmission"),
+              "Forged generated control identity or implementation declaration");
+    }
+  }
   if (fixtures["group"].toString() == "generatedcurves")
     require(expected.size() == 124, "Incomplete generated curve diagnostic matrix");
   if (fixtures["group"].toString() == "generatedtips")
@@ -475,9 +1033,40 @@ int main(int argc, char **argv) {
       testSourceAdmissionReadback();
       QTemporaryDir directory;
       require(directory.isValid(), "Cannot create metric fixture directory");
+      testClosedSourceXml(QDir(directory.path()));
       QImage base(2, 2, QImage::Format_ARGB32);
       base.fill(Qt::transparent);
       QImage reference = base, candidate = base;
+      const QJsonObject zeroFlowCase{{"flow", 0}, {"expectUnchanged", true},
+          {"delivery", "Node.paintLine"}, {"background", "transparent"},
+          {"overrides", QJsonObject{{"FlowValue", "0"}}},
+          {"generatedControlProbe", QJsonObject{{"objective", "static flow 0"}}}};
+      require(generatedTransferExpectedNoop("generated-transfer", zeroFlowCase),
+              "Authored static zero-flow control lost its no-op declaration");
+      for (bool dynamic : {false, true}) {
+        auto forged = zeroFlowCase;
+        if (dynamic) forged["sensorProbe"] = QJsonObject{{"target", "Flow"}};
+        else forged["expectUnchanged"] = false;
+        bool rejected = false;
+        try { generatedTransferExpectedNoop("generated-transfer", forged); }
+        catch (const std::runtime_error &) { rejected = true; }
+        require(rejected, "Generated no-op exception accepted undeclared or dynamic zero flow");
+      }
+      // Real decoded/candidate images participate even when zero flow is a
+      // deliberate no-op; a missing source image still fails ordinary decoding.
+      const auto noPaint = compare(base, reference, candidate, directory.filePath("generated-zero-flow.png"));
+      require(generatedTransferRasterMatchesExpectation(true, noPaint) &&
+                  !generatedTransferRasterMatchesExpectation(false, noPaint),
+              "Generated zero flow lost its exact no-op gate or excused a nonzero-flow empty stroke");
+      candidate.setPixel(0, 0, qRgba(0, 0, 255, 1));
+      const auto strayNoop = compare(base, reference, candidate, directory.filePath("generated-zero-flow-stray.png"));
+      require(!generatedTransferRasterMatchesExpectation(true, strayNoop),
+              "Generated zero flow excused unexpected candidate paint");
+      bool missingSourceRejected = false;
+      try { compare(base, QImage(), base, directory.filePath("generated-zero-flow-missing.png")); }
+      catch (const std::runtime_error &) { missingSourceRejected = true; }
+      require(missingSourceRejected, "Generated no-op comparison fabricated metrics for a missing source image");
+      candidate = base;
       reference.setPixel(0, 0, qRgba(255, 0, 0, 0));
       reference.setPixel(1, 0, qRgba(0, 0, 255, 255));
       candidate.setPixel(1, 0, qRgba(0, 0, 255, 255));
@@ -612,6 +1201,78 @@ int main(int argc, char **argv) {
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
     validateFixtureMatrix(fixtures);
+    if (fixtures["group"].toString().startsWith("gih-correlation-")) {
+      const auto planned = oracle["plannedExecutionOrder"].toArray();
+      const auto rows = oracle["records"].toArray();
+      require(oracle["intendedPresetOrder"].toArray() == expected && planned.size() == expected.size() &&
+                  oracle["actualExecutionOrder"].toArray() == planned && planned != expected && rows.size() == expected.size(),
+              "Missing actual randomized GIH correlation execution report");
+      std::set<QString> names;
+      for (int index = 0; index < planned.size(); ++index) {
+        const QString name = planned[index].toString();
+        require(!name.isEmpty() && expected.contains(name) && names.insert(name).second,
+                "GIH correlation planned execution contains a missing/duplicate stroke");
+        const auto row = rows[index].toObject();
+        int ordinal = -1;
+        for (int delivered = 0; delivered < planned.size(); ++delivered)
+          if (planned[delivered] == row["preset"]) ordinal = delivered;
+        require(row["preset"] == expected[index] && row["intendedOrdinal"] == QJsonValue(index) &&
+                    row["executionOrdinal"] == QJsonValue(ordinal),
+                "GIH correlation actual execution ordinal differs from its canonical stroke identity");
+      }
+    }
+    if (isScatterHoldoutGroup(fixtures["group"].toString())) {
+      const QString group = fixtures["group"].toString();
+      const auto planned = oracle["plannedExecutionOrder"].toArray();
+      const auto actual = oracle["actualExecutionOrder"].toArray();
+      const auto rows = oracle["records"].toArray();
+      require(expected.size() == 102 && oracle["intendedPresetOrder"].toArray() == expected &&
+                  planned.size() == 102 && actual == planned && rows.size() == 102,
+              "Missing complete focused scatter intended/planned/actual execution binding");
+      std::set<QString> deliveredNames;
+      QJsonArray enabledOrder, canonicalEnabledOrder;
+      for (int index = 0; index < 100; ++index) canonicalEnabledOrder.append(expected[index]);
+      for (int index = 0; index < planned.size(); ++index) {
+        const QString name = planned[index].toString();
+        int authoredIndex = -1;
+        for (int candidate = 0; candidate < expected.size(); ++candidate)
+          if (expected[candidate] == planned[index]) authoredIndex = candidate;
+        require(authoredIndex >= 0 && deliveredNames.insert(name).second,
+                "Focused scatter execution has an unknown or repeated stroke identity");
+        if (authoredIndex < 100) enabledOrder.append(planned[index]);
+        const auto row = rows[index].toObject();
+        int ordinal = -1;
+        for (int delivered = 0; delivered < planned.size(); ++delivered)
+          if (planned[delivered] == expected[index]) ordinal = delivered;
+        require(row["preset"] == expected[index] && row["intendedOrdinal"] == QJsonValue(index) &&
+                    row["executionOrdinal"] == QJsonValue(ordinal),
+                "Focused scatter records were not restored to their canonical source identities");
+      }
+      require(enabledOrder.size() == 100 && enabledOrder != canonicalEnabledOrder,
+              "Focused scatter enabled strokes were not randomized independently of canonical reporting");
+      if (!scatterHoldoutCandidate(group)) {
+        require(!QFile::exists(root.filePath("output/comparison.json")),
+                "Pending scatter source-only acquisition contains a native comparison");
+        const auto cases = fixtures["cases"].toArray();
+        for (int index = 0; index < rows.size(); ++index)
+          validateScatterHoldoutSource(root, group, rows[index].toObject(), cases[index].toObject(),
+                                       group + "/" + expected[index].toString());
+        const QJsonObject pending{{"status", "open-scatter-domain-acquisition-only"}, {"group", group},
+            {"sourceCases", 102}, {"independentEnabledStrokes", 100},
+            {"independentlyRepeatedDisabledControls", 2}, {"developmentAcquisition", true},
+            {"candidateImplemented", false}, {"candidateCompared", false},
+            {"sourceReferenceVerified", false}, {"sourceSemanticallySupported", false},
+            {"sourceParityQualified", false}, {"sourceRngLawIdentified", false},
+            {"pixelParityClaimed", false}, {"physicalTabletClaimed", false},
+            {"remainingWork", "not-admitted-scaling-or-dynamics"}};
+        QFile pendingFile(root.filePath("output/open-scatter-domain.json"));
+        require(pendingFile.open(QIODevice::WriteOnly), "Cannot retain pending scatter source-only report");
+        const QByteArray encodedPending = QJsonDocument(pending).toJson(QJsonDocument::Indented);
+        require(pendingFile.write(encodedPending) == encodedPending.size(),
+                "Cannot write complete pending scatter source-only report");
+        return 0;
+      }
+    }
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -635,7 +1296,15 @@ int main(int argc, char **argv) {
       const bool expectedRejection = validateSourceAdmission(
           fixtures["group"].toString(), fixtureIndex, source);
       const auto authoredCase = fixtures["cases"].toArray()[fixtureIndex].toObject();
+      if (isScatterHoldoutGroup(fixtures["group"].toString()))
+        validateScatterHoldoutSource(root, fixtures["group"].toString(), source,
+                                     authoredCase, caseContext);
       validateAcquiredSourceAdmission(source, authoredCase, caseContext);
+      if (generatedControlGroup(fixtures["group"].toString()))
+        validateGeneratedControlSource(root, fixtures["group"].toString(), source,
+                                       authoredCase, caseContext);
+      if (fixtures["group"].toString().startsWith("gih-correlation-"))
+        validateGihCorrelationSource(root, source, authoredCase, fixtures["group"].toString(), caseContext);
       if (fixtures["group"].toString() == "hsvjoint" ||
           fixtures["group"].toString() == "hsvorder" ||
           fixtures["group"].toString() == "hsvchroma") {
@@ -759,7 +1428,9 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "mirrortips" ||
           fixtures["group"].toString() == "hsvdynamics" ||
           fixtures["group"].toString() == "hsvheldout" ||
-          fixtures["group"].toString() == "distancesensors";
+          fixtures["group"].toString() == "distancesensors" ||
+          (fixtures["group"].toString() == "generated-transfer" &&
+           source.value("sensorProbe").isObject());
       QJsonArray deliveredSensorEvents;
       if (sensorCase) {
         const auto evidence = source["sensorEvidence"].toObject();
@@ -936,12 +1607,15 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "gihstatistics" ||
           fixtures["group"].toString() == "gihlabels" ||
           fixtures["group"].toString() == "gihcadence" ||
-          (sensorCase && source["resourceProbe"].isObject());
+          fixtures["group"].toString().startsWith("gih-correlation-") ||
+          (sensorCase && source.value("resourceProbe").isObject());
       QString package = "data/krita/paintoppresets/" + name + ".kpp";
       if (resourceCase) {
         package = source["candidatePackage"].toString();
-        require(QRegularExpression(
-                    "^output/resource-packages/resource-[0-9]{3}\\.bundle$")
+        const bool correlation = fixtures["group"].toString().startsWith("gih-correlation-");
+        require(QRegularExpression(correlation
+                    ? "^output/resource-packages/gih-correlation-(random|incremental)-[0-9]{3}\\.bundle$"
+                    : "^output/resource-packages/resource-[0-9]{3}\\.bundle$")
                     .match(package)
                     .hasMatch(),
                 "Invalid original resource package path");
@@ -972,8 +1646,60 @@ int main(int argc, char **argv) {
                              fixtures["group"].toString() == "hsvjoint" ||
                              fixtures["group"].toString() == "hsvorder" ||
                              fixtures["group"].toString() == "hsvchroma";
-      const bool sourceHard =
-          fixtures["group"].toString() == "lab-conversion" || maskCase || source["sourceBarrelCandidate"].toBool(false) ||
+      const auto generatedProbe = source.value("generatedTipProbe").toObject();
+      const QString generatedId = generatedProbe.value("id").toString();
+      const bool sourceGenerated =
+          p.profile == "krita-5.3.4.1-generated-mask-candidate-1";
+      if (generatedId == "soft" || generatedId == "gauss")
+        require(sourceGenerated,
+                "Generated mask importer did not select its measured candidate: " + caseContext);
+      if (sourceGenerated) {
+        require(p.sourceGeneratedV1.has_value() &&
+                    imported.records.front().sourceGeneratedV1.has_value(),
+                "Generated mask candidate lost its active or preserved source definition: " + caseContext);
+        const auto &definition = *p.sourceGeneratedV1;
+        require(definition.generator != SourceGeneratedGenerator::Default,
+                "Default generator was silently relabelled as the new mask model: " + caseContext);
+        if (!generatedProbe.isEmpty()) {
+          require(generatedId == (definition.generator == SourceGeneratedGenerator::Soft ? "soft" : "gauss") &&
+                      generatedProbe.value("type").toString() ==
+                          (definition.shape == SourceGeneratedShape::Circle ? "circle" : "rect"),
+                  "Generated candidate changed source family or shape: " + caseContext);
+          for (const auto &item : std::initializer_list<std::pair<QString, double>>{
+                   {"diameter", definition.diameter}, {"ratio", definition.ratio},
+                   {"hfade", definition.horizontalFade}, {"vfade", definition.verticalFade},
+                   {"spikes", double(definition.spikes)}}) {
+            bool numeric = false;
+            const double expected = generatedProbe.value(item.first).toString().toDouble(&numeric);
+            require(numeric && std::isfinite(expected) && expected == item.second,
+                    "Generated candidate lost exact source " + item.first + ": " + caseContext);
+          }
+          require(definition.antialiasEdges.has_value() &&
+                      generatedProbe.value("antialiasEdges").toString() ==
+                          (*definition.antialiasEdges ? "1" : "0"),
+                  "Generated candidate lost source antialias state: " + caseContext);
+          if (definition.generator == SourceGeneratedGenerator::Soft) {
+            const auto points = generatedProbe.value("softness_curve").toString().split(';', Qt::SkipEmptyParts);
+            require(size_t(points.size()) == definition.softnessCurve.size(),
+                    "Generated candidate changed source curve cardinality: " + caseContext);
+            for (int i = 0; i < points.size(); ++i) {
+              const auto pair = points[i].split(',');
+              bool okX = false, okY = false;
+              const double x = pair.value(0).toDouble(&okX), y = pair.value(1).toDouble(&okY);
+              require(pair.size() == 2 && okX && okY &&
+                          x == definition.softnessCurve[size_t(i)].x &&
+                          y == definition.softnessCurve[size_t(i)].y,
+                      "Generated candidate changed source curve knots: " + caseContext);
+            }
+          }
+        }
+      }
+      const bool disabledScatterControl =
+          source.value("scatterProbe").toObject().value("enabled") == QJsonValue(false) ||
+          source.value("scatterHoldoutProbe").toObject().value("enabled") == QJsonValue(false);
+      const bool sourceHard = !sourceGenerated && (
+          disabledScatterControl ||
+          fixtures["group"].toString() == "lab-conversion" || maskCase || source.value("sourceBarrelCandidate").toBool(false) ||
           sourceHsv || (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
@@ -992,7 +1718,7 @@ int main(int argc, char **argv) {
            p.tip.shape == Shape::Round && p.tip.hardness == 1 &&
            !p.tip.antialiasEdges) ||
           (fixtures["group"].toString() == "geometry" &&
-           name.endsWith("antialias 0"));
+           name.endsWith("antialias 0")));
       if (sourceHard)
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
@@ -1044,7 +1770,8 @@ int main(int argc, char **argv) {
                     "Source HSV import lost measured pressure control");
         }
       }
-      const bool sourceSoft =
+      const bool sourceSoft = !sourceGenerated && (
+          generatedId == "default" ||
           (fixtures["group"].toString() == "pixelblend" &&
            (p.tip.shape == Shape::Square || p.tip.hardness < 1 ||
             p.tip.antialiasEdges)) ||
@@ -1056,7 +1783,7 @@ int main(int argc, char **argv) {
              (p.tip.hardness < 1 || p.tip.antialiasEdges)))) ||
           ((fixtures["group"].toString() == "geometry" ||
             fixtures["group"].toString() == "pixelaarange") &&
-           p.tip.antialiasEdges);
+           p.tip.antialiasEdges));
       if (sourceSoft)
         require(p.profile == (p.tip.shape == Shape::Square
                                   ? "krita-5.3.4.1-default-rect-candidate-1"
@@ -1147,14 +1874,55 @@ int main(int argc, char **argv) {
           const int replicate = spec["replicate"].toInt(-1);
           require(replicate >= 0 && replicate < (spec["enabled"].toBool() ? 100 : 2),
                   "Invalid scatter candidate replicate");
+          const QString axes = spec.value("axes").toString();
+          require(axes == "x" || axes == "y" || axes == "xy",
+                  "Unknown source scatter axes: " + caseContext);
+          if (spec.value("enabled") == QJsonValue(true)) {
+            require(p.profile == "krita-5.3.4.1-scatter-candidate-1" &&
+                        p.sourceScatterV1.has_value() && p.varySeedPerStroke &&
+                        p.sourceScatterV1->amount == spec.value("amount").toDouble() &&
+                        p.sourceScatterV1->axisX == (axes != "y") &&
+                        p.sourceScatterV1->axisY == (axes != "x"),
+                    "Source scatter importer lost its distinct model or controls: " + caseContext);
+          } else {
+            require(spec.value("enabled") == QJsonValue(false) &&
+                        p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
+                        !p.sourceScatterV1.has_value(),
+                    "Disabled source scatter failed to retain the hard-pixel control: " + caseContext);
+          }
           // Independent native streams, without presuming source RNG identity.
           p.seed = UINT64_C(0x9e3779b97f4a7c15) * std::uint64_t(replicate + 1);
         }
       }
+      if (source.contains("scatterHoldoutProbe")) {
+        require(scatterHoldoutCandidate(fixtures["group"].toString()),
+                "Unimplemented scatter domain cannot enter native comparison: " + caseContext);
+        const auto spec = source["scatterHoldoutProbe"].toObject();
+        const int replicate = spec["replicate"].toInt(-1);
+        const QString axes = spec["axes"].toString();
+        require(replicate >= 0 && replicate < (spec["enabled"].toBool() ? 100 : 2),
+                "Invalid focused scatter candidate replicate: " + caseContext);
+        if (spec["enabled"] == QJsonValue(true)) {
+          require(p.profile == "krita-5.3.4.1-scatter-candidate-1" &&
+                      p.sourceScatterV1.has_value() && p.varySeedPerStroke &&
+                      p.sourceScatterV1->amount == 1 &&
+                      p.sourceScatterV1->axisX == (axes != "y") &&
+                      p.sourceScatterV1->axisY == (axes != "x"),
+                  "Focused scatter importer lost its measured static component: " + caseContext);
+        } else {
+          require(spec["enabled"] == QJsonValue(false) &&
+                      p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
+                      !p.sourceScatterV1.has_value(),
+                  "Focused scatter disabled control lost its existing hard-pixel gate: " + caseContext);
+        }
+        p.seed = UINT64_C(0x9e3779b97f4a7c15) * std::uint64_t(replicate + 1);
+      }
       p.opacity.value = source["opacity"].toDouble();
       p.flow.value = source["flow"].toDouble();
       if (fixtures["group"].toString() == "gihstatistics" ||
-          fixtures["group"].toString() == "gihlabels") {
+          fixtures["group"].toString() == "gihlabels" ||
+          (fixtures["group"].toString().startsWith("gih-correlation-") &&
+           source["resourceProbe"].toObject()["kind"].toString() == "random")) {
         const auto probe = source["resourceProbe"].toObject();
         const double replicate = probe["replicate"].toDouble(-1);
         require(replicate >= 0 && replicate < 100 &&
@@ -1187,9 +1955,16 @@ int main(int argc, char **argv) {
         bitmapViewRequiresNativeConversion = true;
         p.profile = "groundzero-native-1";
       }
+      const bool sourceRandomBitmap = p.profile == "krita-5.3.4.1-random-bitmap-candidate-1";
       const bool sourceBitmap =
           p.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
           p.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
+      if (fixtures["group"].toString().startsWith("gih-correlation-")) {
+        const bool incremental = source["resourceProbe"].toObject()["kind"].toString() == "incremental";
+        require(p.tip.images.size() == 3 && p.tip.randomSequence == !incremental &&
+                    p.spacing == 4 && sourceBitmap == incremental && sourceRandomBitmap == !incremental,
+                "GIH correlation importer changed original sequence/source-admission behavior: " + caseContext);
+      }
       if (fixtures["group"].toString() == "bitmaptips") {
         const auto probe = source["resourceProbe"].toObject();
         const auto dimensions = probe["originalDimensions"].toArray();
@@ -1339,6 +2114,19 @@ int main(int argc, char **argv) {
           if (mode == "discrete")
             require(dab.finish(), "GIH cadence stroke finish failed [" + caseContext +
                         "]: " + QString::fromStdString(dab.error()));
+        }
+      } else if (fixtures["group"].toString().startsWith("gih-correlation-")) {
+        const auto plan = validateGihCorrelationCase(source, fixtures["group"].toString());
+        const auto vertices = plan["vertices"].toArray();
+        for (int index = 0; index < vertices.size(); ++index) {
+          const auto point = vertices[index].toArray();
+          Sample sample = first;
+          sample.x = point[0].toDouble(); sample.y = point[1].toDouble();
+          // These fixed geometry controls have no time dynamics. Public Node
+          // APIs expose vertices, not internal dab times; keep native time explicit.
+          sample.time = plan["mode"].toString() == "Node.paintLine" ? double(index) : index / 240.;
+          require(stroke.add(sample), "GIH correlation vertex replay failed [" + caseContext +
+                      "] vertex=" + QString::number(index) + ": " + QString::fromStdString(stroke.error()));
         }
       } else if (source["generatedCurvePath"].toBool()) {
         const auto points = source["sourcePath"].toArray();
@@ -1608,7 +2396,8 @@ int main(int argc, char **argv) {
                   candidate, root.filePath("output/diff-" + basename));
       metrics["preset"] = name;
       metrics["inputCase"] = source;
-      metrics["comparisonStatus"] = "measured-conversion";
+      metrics["comparisonStatus"] = sourceGenerated ? "measured-source-candidate"
+                                                    : "measured-conversion";
       if (source.contains("timedProbe")) {
         metrics["timedAcquisitionInputsValidated"] = true;
         metrics["sourceParityQualified"] = false;
@@ -1617,6 +2406,12 @@ int main(int argc, char **argv) {
             "measured release; native conversion only";
       }
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
+      if (sourceRandomBitmap) {
+        metrics["randomBitmapSourceMechanism"] = "proposal-geometry-cache-v1";
+        metrics["randomBitmapSourceQualified"] = false;
+        metrics["sourcePhaseGridEstablished"] = false;
+        metrics["sourceSeedParityClaimed"] = false;
+      }
       metrics["bitmapViewRequiresNativeConversion"] =
           bitmapViewRequiresNativeConversion;
       if (sourceBitmap) {
@@ -1628,6 +2423,33 @@ int main(int argc, char **argv) {
         metrics["bitmapSourceCandidatePassed"] = passed;
         if (!passed)
           failedHardCases.append(name);
+      }
+      if (source.contains("scatterHoldoutProbe")) {
+        require(scatterHoldoutCandidate(fixtures["group"].toString()),
+                "Unimplemented scatter domain cannot yield native metrics");
+        const auto rect = source["scatterHoldoutProbe"].toObject()["rect"].toArray();
+        require(rect.size() == 4, "Missing focused scatter candidate region");
+        const int left = rect[0].toInt(), top = rect[1].toInt(),
+                  width = rect[2].toInt(), height = rect[3].toInt();
+        require(left >= 0 && top >= 0 && width == 1280 && height == 256 &&
+                    left + width <= candidate.width() && top + height <= candidate.height(),
+                "Focused static scatter candidate escaped its authored raster bounds");
+        QByteArray alpha;
+        alpha.reserve(width * height);
+        for (int y = 0; y < candidate.height(); ++y) {
+          const auto *line = reinterpret_cast<const QRgb *>(candidate.constScanLine(y));
+          for (int x = 0; x < candidate.width(); ++x) {
+            const int a = qAlpha(line[x]);
+            if (x >= left && x < left + width && y >= top && y < top + height)
+              alpha.append(char(a));
+            else require(a == 0, "Focused scatter candidate alpha escaped the fixed source region");
+          }
+        }
+        metrics["stochasticAlpha"] = QJsonObject{
+            {"rect", rect}, {"encoding", "zlib-base64-alpha8-row-major"},
+            {"data", QString::fromLatin1(qCompress(alpha).mid(4).toBase64())}};
+        metrics["scatterSourceProfileQualified"] = false;
+        metrics["scatterHoldoutSourceParityQualified"] = false;
       }
       if (source.contains("scatterProbe")) {
         const auto rect = source["scatterProbe"].toObject()["rect"].toArray();
@@ -1760,8 +2582,8 @@ int main(int argc, char **argv) {
         metrics["candidateFrameSelections"] = labels;
         const bool incremental =
             source["resourceProbe"].toObject()["kind"].toString() == "incremental";
-        require(sourceBitmap == incremental,
-                "GIH importer did not separate incremental from random source behavior");
+        require(sourceBitmap == incremental && sourceRandomBitmap == !incremental,
+                "GIH importer did not separate deterministic and experimental random source behavior");
         if (incremental) {
           const auto referenceLabels =
               source["resourceReadback"].toObject()["frameSelections"].toArray();
@@ -1779,12 +2601,39 @@ int main(int argc, char **argv) {
         }
         metrics["cadenceQualification"] = incremental
             ? "Incremental source candidate: exact frame/reset and full-region pixel gates"
-            : "Exploratory random selection; no fitted source RNG";
+            : "Versioned proposal/geometry cache candidate; independent selections on misses; source seed parity unclaimed";
+      }
+      if (fixtures["group"].toString().startsWith("gih-correlation-")) {
+        const auto plan = validateGihCorrelationCase(source, fixtures["group"].toString());
+        const auto centers = plan["centers"].toArray();
+        const auto labels = gihCorrelationLabels(candidate, centers, caseContext + "/candidate");
+        const auto observed = gihCorrelationLabels(reference, centers, caseContext + "/source-PNG");
+        require(observed == source["gihCorrelationEvidence"].toObject()["frameSelections"].toArray(),
+                "GIH correlation retained source PNG disagrees with recorded labels: " + caseContext);
+        const auto rect = plan["rect"].toArray();
+        const int left = rect[0].toInt(), top = rect[1].toInt(), width = rect[2].toInt(), height = rect[3].toInt();
+        QByteArray alpha;
+        alpha.reserve(width * height);
+        for (int y = 0; y < candidate.height(); ++y)
+          for (int x = 0; x < candidate.width(); ++x) {
+            const int value = qAlpha(candidate.pixel(x, y));
+            if (x >= left && x < left + width && y >= top && y < top + height) alpha.append(char(value));
+            else require(value == 0, "GIH correlation native coverage escaped retained bounds: " + caseContext);
+          }
+        metrics["candidateFrameSelections"] = labels;
+        metrics["gihCorrelationConfiguration"] = plan["configuration"];
+        metrics["gihCorrelationReplicate"] = source["gihCorrelationProbe"].toObject()["replicate"];
+        metrics["stochasticAlpha"] = QJsonObject{{"rect", rect}, {"encoding", "zlib-base64-alpha8-row-major"},
+            {"data", QString::fromLatin1(qCompress(alpha).mid(4).toBase64())}};
+        metrics["gihCorrelationSourceModelVerified"] = false;
+        metrics["gihCorrelationSourceParityQualified"] = false;
+        metrics["gihCorrelationCandidateInputConvention"] =
+            "One continuous native stroke with every actual public API vertex in order; fixed pressure/transfer; no inferred source dab times or RNG correspondence";
       }
       metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
-      if (sourceHard || sourceSoft) {
+      if (sourceHard || sourceSoft || sourceGenerated) {
         const bool alphaCoverage = metrics["transparentBase"].toBool();
         auto rb =
             metrics[alphaCoverage ? "referenceAlphaBounds" : "referenceBounds"]
@@ -1811,7 +2660,25 @@ int main(int argc, char **argv) {
         if (fixtures["group"].toString() == "geometry")
           passed = passed && metrics["maxRGBError"].toDouble() == 0 &&
                    metrics["maxAlphaError"].toDouble() == 0;
-        metrics["hardPixelCandidatePassed"] = passed;
+        if (sourceGenerated) {
+          // Every pixel participates through the full union region. Preserve
+          // coverage, endpoints and ordinary profile limits, then enforce the
+          // tighter measured generated-mask per-pixel code bounds as well.
+          passed = passed && metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&
+                   metrics["maxRGBError"].toDouble() <= 2 / 255.0;
+          if (fixtures["group"].toString() == "generated-transfer") {
+            const bool expectedNoop = generatedTransferExpectedNoop(fixtures["group"].toString(), authoredCase);
+            passed = passed && generatedTransferRasterMatchesExpectation(expectedNoop, metrics);
+            metrics["generatedTransferExpectedNoop"] = expectedNoop;
+          }
+          metrics["generatedMaskCandidatePassed"] = passed;
+          metrics["generatedMaskSourceParityQualified"] = false;
+          metrics["generatedMaskSourceDefinitionRetained"] = true;
+          metrics["generatedMaskQualification"] =
+              "Experimental independently measured mask model; complete RCP1 geometry, dynamics and combination qualification remains separate";
+        } else {
+          metrics["hardPixelCandidatePassed"] = passed;
+        }
         metrics["boundsError"] = boundsError;
         if (!passed)
           failedHardCases.append(name);
@@ -1945,7 +2812,8 @@ int main(int argc, char **argv) {
     require(remaining.empty() && results.size() == expected.size(),
             "Incomplete comparison workload");
     require((fixtures["group"].toString() != "gihstatistics" &&
-             fixtures["group"].toString() != "gihlabels") ||
+             fixtures["group"].toString() != "gihlabels" &&
+             !fixtures["group"].toString().startsWith("gih-correlation-")) ||
                 stochasticReplicates.size() == 100,
             "Incomplete independent stochastic candidate workload");
     if (fixtures["group"].toString() == "wetdrift") {

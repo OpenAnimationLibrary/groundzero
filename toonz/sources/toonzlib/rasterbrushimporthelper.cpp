@@ -8,6 +8,9 @@ int main(int argc, char **argv) {
   if (args.size() == 4 && args.at(1) == "--raster-brush-import-stream")
     return RasterBrush::runMacImportStream(args.at(2), args.at(3),
                                            RasterBrush::runImportWorker);
+  if (args.size() == 4 && args.at(1) == "--raster-brush-import-tips-stream")
+    return RasterBrush::runMacImportStream(args.at(2), args.at(3),
+                                           RasterBrush::runAbrTipImportWorker);
 #elif defined(_WIN32)
   if (args.size() == 3 && args.at(1) == "--qualify-brush-import") {
     QString error;
@@ -21,6 +24,8 @@ int main(int argc, char **argv) {
   }
   if (args.size() == 4 && args.at(1) == "--raster-brush-import-worker")
     return RasterBrush::runImportWorker(args.at(2), args.at(3));
+  if (args.size() == 4 && args.at(1) == "--raster-brush-import-tips-worker")
+    return RasterBrush::runAbrTipImportWorker(args.at(2), args.at(3));
 #endif
   return 2;
 }

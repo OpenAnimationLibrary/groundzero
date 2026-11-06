@@ -33,10 +33,14 @@ jobs:
             /ci-scripts/seexpr/
             /ci-scripts/brush-reference/
             /ci-scripts/run_native_ui_test.py
+            /ci-scripts/windows_process.py
             /ci-scripts/neural-style/
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Verify installed brush harness imports
+        shell: bash
+        run: python ci-scripts/brush-reference/package_test.py --help
       - name: Download the current run application artifact
         uses: actions/download-artifact@v6
         with:

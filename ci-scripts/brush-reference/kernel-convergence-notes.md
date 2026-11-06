@@ -2,7 +2,9 @@
 
 The c7a7d71cb source run completed the kernel precision and public ManagedColor
 sidecars. The original full-image gate still fails 18 admitted kernel cases.
-These files do not change source admission, sampler equations or thresholds.
+The sidecars preserve source admission and numeric thresholds. The completed
+color calibration now informs the bounded adaptive candidate described below;
+the general minimum-count/window rule remains unresolved.
 
 ## What the new evidence establishes
 
@@ -118,3 +120,151 @@ No denominator is written into the fixture. Equal response at the separate
 coordinates constrains one-hit normalization; differing responses distinguish
 clipping or duplicate sampling from a global count formula. These observations
 are required before changing the native minimum-count/window model.
+
+
+## Completed single-mark observations
+
+The completed 70-case sidecar retains all 14 exact uniform controls and all
+four separate points with both polarities at each of seven geometries. Point
+responses are identical within each geometry. The U16 output differences from
+the uniform controls are:
+
+| Diameter | Authored radius percent | Absolute U16 difference |
+|---|---|---|
+| 56 | 100 | 103 |
+| 64 | 100 | 83 |
+| 32 | 250 | 56 |
+| 64 | 150 | 41 |
+| 72 | 100 | 68 |
+| 88 | 100 | 48 |
+| 120 | 100 | 27 |
+
+Combined with the existing quarter masks, these constrain count candidates
+80, 99, 146, 202, 121, 173 and 306 respectively. A general size/window equation
+has not been established. The production candidate retains the existing
+`max(80, floor(.02 * width * max(0, width - 1) + 20))` minimum unchanged.
+No size table, fitted denominator, fixture lookup or comparison epsilon is used.
+Differences remaining at other diameters must stay visible in the original
+full-image gate.
+
+## Independently reproduced source color transform
+
+The named source profile is public standards data:
+[sRGB-elle-V2-srgbtrc.icc at the pinned source revision](https://raw.githubusercontent.com/KDE/krita/bd6e8d061d2f0388c5b10278786cf0fe62e3135f/krita/data/profiles/elles-icc-profiles/sRGB-elle-V2-srgbtrc.icc).
+Its 9080 bytes have SHA256
+`5991c8d8fcb628dad5d052d9341df8a32bd3c7a794c913a8ede8eae4b34b4545`.
+Each of its 4096 shared TRC entries is exactly the half-up U16 quantization of
+the standard inverse sRGB transfer function at index/4095. Its XYZ matrix
+columns, as signed 16.16 integers divided by 65536, are:
+
+| Channel | X | Y | Z |
+|---|---|---|---|
+| Red | 28576 | 14581 | 912 |
+| Green | 25239 | 46983 | 6361 |
+| Blue | 9375 | 3972 | 46788 |
+
+The Lab conversion uses color-management D50 (.9642, 1, .8249), not the slightly
+quantized ICC white-point tag. Standard CIE Lab equations and full-range LabV4
+U16 encoding produce vertices of a 33 by 33 by 33 grid. Fixed-domain U16 TRC
+interpolation and generic tetrahedral interpolation reproduce all 544 downloaded
+U16-RGB to U16-Lab observations, all three raw channels, exactly. No brush
+renderer implementation was inspected or copied. The relevant color-management
+math is documented in official LittleCMS
+[interpolation](https://github.com/mm2/Little-CMS/blob/lcms2.16/src/cmsintrp.c)
+and [optimization](https://github.com/mm2/Little-CMS/blob/lcms2.16/src/cmsopt.c)
+sources. The implementation sorts the three fractional axes and accumulates
+successive vertex differences, with explicitly defined signed rounding.
+
+All 544 public source-U16 component writes truncate the intended normalized
+RGB mean times 65535; half-up input encoding disagrees with 741 individual
+channels. Lab output encoding itself is half-up. The public ordered Lab a/b
+components have asymmetric normalization; raw LabV4 codes decode to a physical
+value `code / 257 - 128`, then positive a/b values acquire an additional
+127/128 factor in the pinned public XML serializer. The observed neutral stays
+zero. The convergence candidate preserves that measured physical metric.
+ICC legacy LabV2 encoding is different; see the primary
+[ICC encoding discussion](https://www.color.org/v2issues/) and
+[ICC.1:2001-12 Tables 67/68](https://www.color.org/newiccspec.pdf).
+This calibration is versioned to the observed profile and source 5.3.4.1;
+it does not establish conversion parity for other profiles or source versions.
+
+## Activated bounded adaptive candidate
+
+The private sampling helper now evaluates cumulative premultiplied means, with
+straight RGB converted through the calibrated U16 transform. It compares full
+physical Lab distance with the previous cumulative checkpoint. The first
+comparison is between minimum-minus-16 and minimum attempts; subsequent
+checkpoints are 16 attempts apart. Convergence is strictly Delta E76 below 3.
+The resulting cumulative RGBA mean, including alpha, remains the pickup value.
+The radius-zero single-pixel path and native profiles retain their existing
+behavior. New Dulling retains its existing tip rejection and attempted-count
+basis; accepted-count behavior for other modern clipped masks remains open.
+Opaque source observations establish the color rule; arbitrary partial-alpha
+inputs still require their own full-image source qualification.
+
+The transform creates one immutable 215622-byte table lazily, reserves its
+complete fixed allocation in a dedicated process-cache memory budget, and
+retains no ICC asset or per-fixture data. Initialization is bounded to 33 TRC
+vertices and 35937 matrix/Lab vertices. Per-stroke state is allocation-free.
+Initial sequence work, additional 16-attempt batches, and each checkpoint
+conversion are charged before reads or conversions to the existing input-work
+budget. Sampling has an additional one-million-attempt bound; exhausting either
+bound fails the dab and returns no usable unconverged partial pickup.
+
+Focused C++ regressions retain independently captured raw Lab triples and all
+16 observed gray/chromatic RGB outputs, plus exact-batch/boundary, rejected
+sample, invalid-input, conversion-failure and work-cap cases. They have been
+written for final CI and have not been executed locally. The 544-color exact
+match is numerical analysis of already acquired public observations, not a
+claim that the native brush comparison or all checks have passed.
+
+
+## Exact accumulation at source RGBA8 boundaries
+
+The source candidate initially samples a quantized RGBA8 surface. Its retained
+wet field has a different storage contract: the first field contains its
+unquantized pickup mean, and later halos can preserve unchanged floating
+backdrop values. Repeated floating summation can move a uniform normalized byte value
+just below its exact U16 boundary, so flooring a floating cumulative mean alone
+is insufficient. An explicit `QuantizedRgba8` accumulation mode recovers rounded
+U16 straight RGB and U16 alpha codes from each sampled pixel and sums
+`RGBcode * alphaCode` and `alphaCode` in unsigned 64-bit integers. Lab input is
+the exact truncating integer quotient `sum(RGBcode * alphaCode) / sum(alphaCode)`.
+The returned premultiplied mean uses the same sums divided by accepted count
+and 65535 squared, with alpha divided by accepted count and 65535. This is
+algebraically the existing premultiplied mean for quantized RGBA8, including
+mixed alpha; it adds no alpha-specific convergence criterion or new alpha rule.
+
+At the one-million-attempt cap the largest product sum is
+4294836225000000, below 2^52, so all integer sums and their conversions to double
+are exact. No epsilon, nextafter adjustment or fixture-specific rounding is
+introduced. The renderer explicitly selects quantized storage only for the initial surface
+pickup and charges its channel-code recovery work. Every retained-field pickup
+uses floating accumulation, preserving an exactly uniform accepted Pixel
+without averaging or U16 storage rounding. Its nonuniform sums use compensated
+addition. Thus a retained .25 stays .25, and sub-U16 alpha stays nonzero; Lab
+checkpoint conversion does not impose a new storage quantization stage. Authored non-neutral uniform regressions repeat
+at three different minimum counts and three RGBA8 alpha codes; a repeated
+mixed-alpha red/blue case verifies the same premultiplied weighting and exact
+Lab input quotient. These regressions are written but have not been executed.
+This numerical repair does not expand the previously stated source alpha
+qualification scope.
+
+
+## Cold transform preparation and retained-field regression coverage
+
+The nonallocating transform-readiness query reports a conservative fixed
+4608384 operation units while the 33-cube transform is cold: 128 units per
+matrix/Lab vertex plus 256 per TRC grid input. Source rendering charges this
+cost to the existing per-input operation budget before any sampling can trigger
+transform allocation or construction. Memory remains reserved before table
+allocation. Warmed conversions retain their separate checkpoint charges.
+A racing cold caller may conservatively charge the same construction cost;
+readiness is published atomically only after the immutable cache exists.
+
+Authored preparation-state regressions check that readiness inspection neither
+builds nor allocates the cache and that initialization changes the reported
+preparation cost to zero. Retained-floating regressions cover .25, non-neutral
+rational means, alpha below one U16 code, and nonuniform mixtures with small
+representable contributions. These are internal numerical/storage invariants,
+not new claims of source alpha parity. They have not been executed locally.

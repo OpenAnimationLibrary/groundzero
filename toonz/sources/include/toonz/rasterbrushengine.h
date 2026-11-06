@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <optional>
 
 #ifdef TOONZLIB_EXPORTS
 #define RASTERBRUSH_API DV_EXPORT_API
@@ -47,6 +48,24 @@ enum class Sensor {
 struct Knot {
   double x = 0, y = 0;
 };
+enum class SourceGeneratedGenerator { Default, Soft, Gaussian };
+enum class SourceGeneratedShape { Circle, Rectangle };
+// Shared source definition. Record retains it as metadata; Preset uses it only
+// when an explicit versioned generated-mask candidate profile is selected.
+struct SourceGeneratedDefinitionV1 {
+  SourceGeneratedGenerator generator = SourceGeneratedGenerator::Default;
+  SourceGeneratedShape shape = SourceGeneratedShape::Circle;
+  double diameter = 1, ratio = 1;
+  double horizontalFade = 1, verticalFade = 1;
+  // Missing legacy metadata is distinct from an explicit false value.
+  std::optional<bool> antialiasEdges;
+  int spikes = 2;
+  // Source cubic knots, including noncanonical endpoint Y values. No source
+  // interpolation/sampling equivalence is asserted by retaining these points.
+  std::vector<Knot> softnessCurve;
+};
+RASTERBRUSH_API std::string validateSourceGeneratedDefinitionV1(
+    const SourceGeneratedDefinitionV1 &definition);
 enum class Interpolation { Linear, NaturalCubic };
 struct Mapping {
   Sensor sensor = Sensor::Pressure;
@@ -104,6 +123,12 @@ struct SourceMasked {
   double opacity = 1, flow = 1;
   MaskMode mode = MaskMode::Multiply;
 };
+// Independent, opaque-source scatter process. This state is active only in its
+// explicit experimental source profile; native scatter semantics stay separate.
+struct SourceScatterV1 {
+  double amount = 1;
+  bool axisX = true, axisY = true;
+};
 struct SourceMirror {
   bool enabled = false, horizontal = false, vertical = false;
   Dynamic control{1, 0, {}};
@@ -111,6 +136,8 @@ struct SourceMirror {
 struct Preset {
   std::string name = "Native brush", profile = "groundzero-native-1";
   Tip tip;
+  std::optional<SourceGeneratedDefinitionV1> sourceGeneratedV1;
+  std::optional<SourceScatterV1> sourceScatterV1;
   Dynamic size{20, 0.01, {}}, aspect{1, 0.01, {}}, angle{0, 0, {}};
   Dynamic opacity{1, 0, {}}, flow{1, 0, {}}, scatter{0, 0, {}};
   Dynamic countControl{1, 0, {}};
@@ -155,6 +182,15 @@ struct Sample {
   bool hasPressure = false, hasTilt = false, hasRotation = false;
   bool timerTick = false;  // Explicit host dispatch; source airbrush only.
 };
+// read() always returns premultiplied Pixels. The storage declaration describes
+// the underlying quantization, never whether the returned Pixel is associated.
+// A mutable surface must report FloatingPremultiplied if any read can contain
+// arbitrary floating values; callers must not infer storage from stroke age.
+enum class PixelStorage {
+  FloatingPremultiplied,
+  QuantizedStraightRgba8,
+  QuantizedPremultipliedRgba8
+};
 class Surface {
 public:
   virtual ~Surface()         = default;
@@ -163,6 +199,9 @@ public:
   // prepare must make the whole read/write region available and record undo
   // BEFORE any read. Inclusive-exclusive bounds; clipped to the canvas.
   virtual bool prepare(int x0, int y0, int x1, int y1) = 0;
+  virtual PixelStorage storage() const {
+    return PixelStorage::FloatingPremultiplied;
+  }
   virtual Pixel read(int x, int y) const               = 0;
   virtual void write(int x, int y, const Pixel &pixel) = 0;
   virtual double coverage(int, int) const { return 1; }
@@ -193,6 +232,10 @@ public:
   ~BufferedSurface();
   int width() const override;
   int height() const override;
+  // Cached writes retain sub-byte values, regardless of backing quantization.
+  PixelStorage storage() const override {
+    return PixelStorage::FloatingPremultiplied;
+  }
   bool prepare(int x0, int y0, int x1, int y1) override;
   Pixel read(int x, int y) const override;
   void write(int x, int y, const Pixel &pixel) override;

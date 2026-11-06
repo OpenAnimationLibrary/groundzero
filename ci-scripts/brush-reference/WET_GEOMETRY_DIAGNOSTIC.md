@@ -83,3 +83,109 @@ still fail to explain every observed pattern. No speculative renderer change is
 introduced. The next evidence must distinguish this public API's path behavior
 from actual Qt-delivered tablet painting before a universal source-placement
 rule is inferred. Original wetdrift acceptance thresholds remain unchanged.
+
+## General raster-tip placement distinguished by existing captures
+
+Inspection of 516 deposited marks from the existing source PNGs (both Smear
+models, straight/reversed/vertical/fractional controls and subdivided turns)
+finds the same translated binary support in every mark:
+
+```text
+00111100
+01111110
+11111111
+11111111
+11111111
+11111111
+01111110
+00111100
+```
+
+Every support is exactly 8x8 with 52 green pixels. The 128 nonempty marks in
+both fractional-Y controls across the two models have top coordinate
+`floor(authoredY)-4`: 327.875 gives 323, while 328.125 gives 324. They retain
+this fixed mask instead of continuously resampling its coverage with the
+fractional input. At the vertical control's authored (328,272) observation,
+the source bounds are (324,268,8,8), also a fixed raster mask. Dry controls use
+a different lattice: the same fractional-Y marks are 7x8 with 50 green pixels.
+Thus any placement correction must remain specific to Smear.
+
+A generalized candidate rule distinguished by these observations places the
+rasterized Smear tip at `origin=floor(futurePosition-radius)` independently on
+each axis, then samples its fixed mask around `origin+radius`. For the existing
+even-size integer horizontal and reversed controls, this agrees with the
+previous half-pixel direction convention. It also gives the correct fractional
+and vertical mask positions. With an odd diameter, the origin rule retains the
+half-integer center of the existing symmetric odd raster. This is an inferred
+raster-tip placement model, not a measured hidden dab coordinate or a lookup
+of special paths/windows.
+
+At the initial raster-tip checkpoint, the public Node.paintPath integer-axis
+anomaly was still a separate problem:
+coarse path partitioning sometimes places that fixed raster one pixel below
+its nominal integer boundary, while equivalent subdivided paths do not.
+Quantizing a stable constant coordinate alone cannot reproduce those selected
+windows. No epsilon, offset table, new source run or weakened gate is justified
+by this analysis. Original wetdrift and other wet fidelity gates still have to
+validate any implementation at the end of the planned work.
+
+## Recursive future geometry distinguished by existing pixels
+
+Further arithmetic reconstruction uses the same downloaded observations; no new
+source run or foreign brush-renderer implementation was consulted. A recursive
+future-position rule predicts all 518 deposited bounds in each Smear model's ten
+geometry paths, including the coarse/subdivided/transposed turns: 1,036 bounds
+with zero mismatches. The same rule then predicts all 9,999 deposited mark bounds
+in each original c7 10,000-dab Smear PNG: 19,998 held-out bounds with zero
+mismatches, including the changing rows and the (24,328) failure region.
+
+For each authored segment, start at its exact first endpoint and track its
+original Euclidean length as remaining distance. Advance the running position
+toward the fixed segment endpoint using weighted interpolation at the distance
+to the next future sample. Subtract that consumed distance from the remaining
+scalar; do not recompute length from the rounded current coordinates. Carry the
+unconsumed distance-to-next-sample across every authored endpoint. For these 8px,
+spacing-2 paths, the first moving future sample is 16.5px from stroke start and
+later samples advance 16px each. Raster-tip origins use the separate floor rule
+above.
+
+```text
+toNext = firstSpacing + 0.5
+for each authored segment:
+    position = segmentStart
+    remaining = originalSegmentLength
+    for each event admitted by the unchanged future-availability scheduler:
+        t = toNext / remaining
+        position = (1-t)*position + t*segmentEnd
+        remaining -= toNext
+        toNext = currentSpacing
+    toNext -= remaining
+```
+
+The distinction is measurable. Recursive nominal 16px stepping, with or without
+a separate half-pixel interpolation, fails the straight controls. Recomputing
+remaining length from rounded positions fails 98 geometry windows per model.
+Recovering the next advance by subtracting global cumulative distances instead
+of tracking the residual invents a false shift in subdivided window 67. The
+tracked residual rule produces the captured selected shifts without an index
+table or epsilon, and naturally resets their arithmetic at authored vertices.
+Subtracting the consumed distance and multiplying remaining length by (1-t)
+were observationally equivalent on these controls; the implementation uses the
+explicit consumed-distance bookkeeping above.
+
+The candidate correction is restricted to source Smear geometry. Nominal input
+samples, pressure/time interpolation, source dab cadence, source Pixel/native
+scheduling, cancellation and pixel-work budgets remain independent. One retained
+scalar participates in the existing Impl snapshot-size charge; no additional
+history allocation or changed pruning is needed. Weighted coordinate products
+are rounded separately to binary64 so compiler FMA contraction does not change
+the measured integer-boundary arithmetic. Focused regressions record the source
+raster supports, origins and coarse/subdivided placement; they are prepared for
+final validation after implementation is complete.
+
+The held-out claim concerns mark bounds. In the low-alpha first drift row,
+127 deposited marks have 58 raw-green support pixels; the other 9,872 have 52.
+The model does not claim that every drift mark has the opaque-blue diagnostic's
+52-pixel binary support, nor does matching geometry establish color/feedback
+parity. The unchanged full fidelity gates still determine final qualification,
+and actual Qt tablet geometry remains a separately bounded reference question.

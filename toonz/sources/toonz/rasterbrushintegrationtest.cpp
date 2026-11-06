@@ -622,17 +622,23 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
              mask.spacing == .5 && mask.opacity == 1 && mask.flow == 1 &&
              mask.mode == RasterBrush::MaskMode::Multiply;
     };
-    for (int conversionKind : {0, 1, 2, 3, 4, 5, 6, 7, 8}) {
+    for (int conversionKind : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}) {
       const bool wetConversion = conversionKind == 1;
       const bool hsvConversion = conversionKind >= 2 && conversionKind <= 4;
       const bool hsvSensorConversion =
           conversionKind == 3 || conversionKind == 4;
       const bool mirrorConversion     = conversionKind == 8;
       const bool airbrushConversion   = conversionKind == 7;
-      const bool bitmapMaskConversion = conversionKind == 6;
+      const bool retainedMaskResource = conversionKind == 12 || conversionKind == 13;
+      const bool aliasedMaskResource = conversionKind == 13;
+      const bool bitmapMaskConversion = conversionKind == 6 || retainedMaskResource;
       const bool maskedConversion     = conversionKind == 5;
+      const bool generatedConversion  = conversionKind == 9;
+      const bool scatterConversion    = conversionKind == 10;
+      const bool randomBitmapConversion = conversionKind == 11;
       const bool resourceFreeConversion =
-          hsvConversion || maskedConversion || airbrushConversion;
+          hsvConversion || maskedConversion || airbrushConversion ||
+          generatedConversion || scatterConversion;
       RasterBrush::Record fixture;
       if (maskedConversion) {
         const QString sourcePath =
@@ -679,6 +685,30 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                                         {1, 0, 0, 1},
                                         {0, 0, 128.0 / 255, 128.0 / 255}};
         fixture.preset.tip.images    = {image};
+        if (retainedMaskResource) {
+          RasterBrush::SourceMaskDefinitionV1 metadata;
+          metadata.enabled = false;
+          metadata.composition = "multiply";
+          metadata.application = "alpha-mask";
+          metadata.tipKind = "decoded-resource";
+          metadata.sourceFieldsSha256 = QString(64, 'd');
+          metadata.sourceResourceSha256 = QString(64, 'e');
+          metadata.geometry = QJsonObject{{"tipType", "png_brush"}, {"spacing", .5}};
+          if (aliasedMaskResource) {
+            metadata.resourceEncoding = "canonical-rgba8-srgb";
+            metadata.unsupportedFeatures = {"unverified-resource-color-contract"};
+            metadata.tipImage = image;
+          } else {
+            metadata.resourceEncoding = "alpha-u8";
+            auto secondary = std::make_shared<RasterBrush::Image>();
+            secondary->width = 2;
+            secondary->height = 1;
+            secondary->pixels = {{0, 0, 0, 1}, {0, 0, 0, 64.0 / 255}};
+            metadata.tipImage = secondary;
+          }
+          fixture.sourceMaskDefinitionV1 = std::move(metadata);
+          fixture.preset.name += aliasedMaskResource ? " aliased metadata" : " distinct metadata";
+        }
       }
       if (mirrorConversion) {
         fixture.preset.name       = "Original pressure Mirror conversion";
@@ -704,6 +734,46 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         fixture.preset.airbrushRate  = 20;
         fixture.preset.airbrushIgnoreSpacing = true;
       }
+      if (generatedConversion) {
+        fixture.preset.name = "Original generated-mask native-copy fixture";
+        fixture.preset.profile = "krita-5.3.4.1-generated-mask-candidate-1";
+        fixture.preset.size.value = 16;
+        fixture.preset.spacing = 1;
+        fixture.preset.tip.antialiasEdges = true;
+        RasterBrush::SourceGeneratedDefinitionV1 definition;
+        definition.generator = RasterBrush::SourceGeneratedGenerator::Soft;
+        definition.diameter = 16;
+        definition.horizontalFade = definition.verticalFade = .5;
+        definition.antialiasEdges = true;
+        definition.softnessCurve = {{0, 0}, {1, 1}};
+        fixture.sourceGeneratedV1 = definition;
+        fixture.preset.sourceGeneratedV1 = definition;
+      }
+      if (scatterConversion) {
+        fixture.preset.name = "Original source-scatter native-copy fixture";
+        fixture.preset.profile = "krita-5.3.4.1-scatter-candidate-1";
+        fixture.preset.size.value = 8;
+        fixture.preset.spacing = 4;
+        RasterBrush::SourceScatterV1 process;
+        process.axisX = true;
+        process.axisY = false;
+        fixture.preset.sourceScatterV1 = process;
+      }
+      if (randomBitmapConversion) {
+        fixture.preset.name = "Original random GIH native-copy fixture";
+        fixture.preset.profile = "krita-5.3.4.1-random-bitmap-candidate-1";
+        fixture.preset.size.value = 4;
+        fixture.preset.tip.shape = RasterBrush::Shape::Bitmap;
+        fixture.preset.tip.randomSequence = true;
+        for (int index = 0; index < 2; ++index) {
+          auto frame = std::make_shared<RasterBrush::Image>();
+          frame->width = frame->height = 2;
+          frame->color = true;
+          frame->pixels.resize(4, index == 0 ? RasterBrush::Pixel{1, 0, 0, 1}
+                                             : RasterBrush::Pixel{0, 0, 1, 1});
+          fixture.preset.tip.images.push_back(frame);
+        }
+      }
       if (hsvSensorConversion) {
         auto &channel = fixture.preset.sourceHsvV2[conversionKind == 3 ? 0 : 2];
         channel.enabled = true;
@@ -727,14 +797,33 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       texture->pixels                  = {{0, 0, 0, 1}};
       // These source HSV/masked profiles exclude texture resources.
       // Pixel/wet cases retain the resource-rights preservation coverage.
-      if (!resourceFreeConversion && !bitmapMaskConversion && !mirrorConversion)
+      if (!resourceFreeConversion && !bitmapMaskConversion && !mirrorConversion &&
+          !randomBitmapConversion)
         fixture.preset.texture.image = texture;
+      const auto resourceHash = [&](const std::shared_ptr<const RasterBrush::Image> &image) {
+        // Identify one image independently of the complete retained graph.
+        RasterBrush::Record identity;
+        identity.preset.tip.shape = RasterBrush::Shape::Bitmap;
+        identity.preset.tip.images = {image};
+        const auto resources = RasterBrush::resources(identity, importError);
+        require(importError.isEmpty() && resources.size() == 1,
+                "cannot identify source conversion fixture resource");
+        return resources.front().hash;
+      };
+      const QString sourcePrimaryHash = bitmapMaskConversion
+          ? resourceHash(fixture.preset.tip.images.front()) : QString();
+      const QString retainedMaskHash = retainedMaskResource
+          ? resourceHash(fixture.sourceMaskDefinitionV1->tipImage) : QString();
       const auto assets = RasterBrush::resources(fixture, importError);
       require(importError.isEmpty() &&
-                  assets.size() == (resourceFreeConversion ? 0u : 1u),
+                  assets.size() == (resourceFreeConversion ? 0u
+                      : randomBitmapConversion || (retainedMaskResource && !aliasedMaskResource) ? 2u : 1u),
               "source conversion resource fixture invalid");
+      if (retainedMaskResource)
+        fixture.resourceRights[retainedMaskHash] = QJsonObject{
+            {"redistribution", "restricted"}, {"license", "Retained secondary fixture"}};
       if (!resourceFreeConversion)
-        fixture.resourceRights[assets.front().hash] = QJsonObject{
+        fixture.resourceRights[bitmapMaskConversion ? sourcePrimaryHash : assets.front().hash] = QJsonObject{
             {"redistribution", bitmapMaskConversion ? "unknown" : "restricted"},
             {"license", "Original fixture"}};
       const QString folder =
@@ -788,6 +877,12 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                      confirmation->text().contains("native wet mixing")) &&
                     (!airbrushConversion ||
                      confirmation->text().contains("Source timer dispatch")) &&
+                    (!generatedConversion || confirmation->text().contains(
+                         "Source generated-mask equations and the softness curve")) &&
+                    (!scatterConversion || confirmation->text().contains(
+                         "Source scattering will be removed")) &&
+                    (!randomBitmapConversion || confirmation->text().contains(
+                         "native uniform random selection")) &&
                     (!bitmapMaskConversion ||
                      (confirmation->text().contains("native alpha mask") &&
                       confirmation->text().contains(
@@ -891,9 +986,15 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   converted.preset.sourceMirror.control.mappings.empty() &&
                   noSourceMask(converted.preset) &&
                   !converted.preset.airbrushIgnoreSpacing &&
+                  !converted.preset.sourceGeneratedV1 && !converted.preset.sourceScatterV1 &&
+                  (!randomBitmapConversion || (converted.preset.tip.randomSequence &&
+                      converted.preset.tip.images.size() == 2)) &&
+                  (!generatedConversion || converted.sourceGeneratedV1.has_value()) &&
+                  (!scatterConversion || (converted.preset.scatter.value == 0 &&
+                      converted.provenance["sourceScatterDefinitionV1"].isObject())) &&
                   bool(converted.preset.texture.image) ==
                       (!resourceFreeConversion && !bitmapMaskConversion &&
-                       !mirrorConversion) &&
+                       !mirrorConversion && !randomBitmapConversion) &&
                   (bitmapMaskConversion ||
                    converted.resourceRights == fixture.resourceRights) &&
                   converted.provenance["sourceProfileBeforeNativeConversion"]
@@ -930,6 +1031,11 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                       .preset.sourceMirror.control.mappings.empty() &&
                   noSourceMask(reopened.records.front().preset) &&
                   !reopened.records.front().preset.airbrushIgnoreSpacing &&
+                  !reopened.records.front().preset.sourceGeneratedV1 &&
+                  !reopened.records.front().preset.sourceScatterV1 &&
+                  (!generatedConversion || reopened.records.front().sourceGeneratedV1.has_value()) &&
+                  (!scatterConversion || reopened.records.front().provenance["sourceScatterDefinitionV1"] ==
+                      converted.provenance["sourceScatterDefinitionV1"]) &&
                   reopened.records.front().provenance["conversionKind"] ==
                       "native-reinterpretation" &&
                   reopened.records.front()
@@ -941,7 +1047,72 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                        fixture.resourceRights),
               "portable conversion reimport lost original-profile identity or "
               "resource rights");
-          if (bitmapMaskConversion) {
+          if (retainedMaskResource) {
+            const auto derivedHash = resourceHash(converted.preset.tip.images.front());
+            const auto retainedUnchanged = [&](const RasterBrush::Record &candidate) {
+              if (!candidate.sourceMaskDefinitionV1 ||
+                  !candidate.sourceMaskDefinitionV1->tipImage) return false;
+              const auto &metadata = *candidate.sourceMaskDefinitionV1;
+              const auto &original = *fixture.sourceMaskDefinitionV1;
+              return metadata.enabled == original.enabled &&
+                  metadata.composition == original.composition &&
+                  metadata.application == original.application &&
+                  metadata.tipKind == original.tipKind &&
+                  metadata.geometry == original.geometry &&
+                  metadata.resourceEncoding == original.resourceEncoding &&
+                  metadata.sourceFieldsSha256 == original.sourceFieldsSha256 &&
+                  metadata.sourceResourceSha256 == original.sourceResourceSha256 &&
+                  metadata.unsupportedFeatures == original.unsupportedFeatures &&
+                  resourceHash(metadata.tipImage) == retainedMaskHash;
+            };
+            const auto derived = RasterBrush::resources(converted, importError);
+            require(importError.isEmpty() && derived.size() == 2 &&
+                        derivedHash != sourcePrimaryHash && derivedHash != retainedMaskHash &&
+                        retainedUnchanged(converted) &&
+                        retainedUnchanged(reopened.records.front()) &&
+                        converted.resourceRights[sourcePrimaryHash] == fixture.resourceRights[sourcePrimaryHash] &&
+                        converted.resourceRights[retainedMaskHash] == fixture.resourceRights[retainedMaskHash] &&
+                        converted.resourceRights[derivedHash] == fixture.resourceRights[sourcePrimaryHash] &&
+                        reopened.records.front().resourceRights[retainedMaskHash] == fixture.resourceRights[retainedMaskHash] &&
+                        reopened.records.front().resourceRights[derivedHash] == fixture.resourceRights[sourcePrimaryHash],
+                    "native conversion lost retained mask metadata, images or resource rights");
+            const auto &image = *converted.preset.tip.images.front();
+            const int alpha[] = {255, 0, 168, 108};
+            require(!image.color && image.pixels.size() == 4,
+                    "retained metadata made the derived primary mask a color stamp");
+            for (size_t i = 0; i < image.pixels.size(); ++i)
+              require(image.pixels[i].r == 0 && image.pixels[i].g == 0 &&
+                          image.pixels[i].b == 0 &&
+                          std::abs(image.pixels[i].a - alpha[i] / 255.0) < 1e-12,
+                      "retained metadata changed native primary coverage");
+            const QString manifestPath = QDir::current().filePath(
+                aliasedMaskResource ? "derived-mask-aliased-metadata.gzbrush"
+                                    : "derived-mask-distinct-metadata.gzbrush");
+            require(RasterBrush::savePortable(manifestPath, converted,
+                        RasterBrush::ResourcePackaging::ManifestOnly, importError),
+                    "cannot export native mask plus retained metadata manifest");
+            const auto manifest = RasterBrush::readBoundedRegularFile(
+                manifestPath, 64 * 1024 * 1024, importError);
+            const auto info = RasterBrush::inspectPortable(manifest, importError);
+            require(importError.isEmpty() && info.resources.size() == 2 &&
+                        std::all_of(info.resources.begin(), info.resources.end(),
+                            [](const RasterBrush::ResourceInfo &resource) { return !resource.embedded; }),
+                    "retained metadata manifest lost a resource or embedded restricted bytes");
+            QStringList matched;
+            const auto partiallyLinked = RasterBrush::relinkPortable(
+                manifest, {fixture}, matched, importError);
+            require(importError.isEmpty() && !partiallyLinked.isEmpty() &&
+                        matched.size() == 1 && matched.contains(retainedMaskHash) &&
+                        !matched.contains(derivedHash),
+                    "original primary was confused with its derived mask or retained metadata");
+            matched.clear();
+            const auto fullyLinked = RasterBrush::relinkPortable(
+                manifest, {converted}, matched, importError);
+            require(importError.isEmpty() && !fullyLinked.isEmpty() &&
+                        matched.size() == 2 && matched.contains(retainedMaskHash) &&
+                        matched.contains(derivedHash),
+                    "converted copy could not repair both primary and retained metadata resources");
+          } else if (bitmapMaskConversion) {
             const auto derived = RasterBrush::resources(converted, importError);
             require(
                 importError.isEmpty() && derived.size() == 1 &&
@@ -2459,6 +2630,90 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       property->setValue(previousSelection);
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot restore preset after airbrush qualification");
+      undo->reset();
+    }
+    checkpoint("qualifying opaque source clicks through actual tool lifecycle");
+    {
+      const auto previousSelection = property->getValue();
+      const TRaster32P baseline = raster(level, 1)->clone();
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      for (int kind = 0; kind < 2; ++kind) {
+        RasterBrush::Record fixture;
+        fixture.preset.name = kind == 0 ? "Original source scatter contact"
+                                        : "Original source random bitmap contact";
+        fixture.preset.profile = kind == 0
+            ? "krita-5.3.4.1-scatter-candidate-1"
+            : "krita-5.3.4.1-random-bitmap-candidate-1";
+        fixture.preset.size.value = 8;
+        fixture.preset.spacing = 4;
+        fixture.preset.tip.antialiasEdges = false;
+        fixture.preset.varySeedPerStroke = true;
+        if (kind == 0) {
+          RasterBrush::SourceScatterV1 process;
+          process.axisX = true;
+          process.axisY = false;
+          fixture.preset.sourceScatterV1 = process;
+        } else {
+          fixture.preset.tip.shape = RasterBrush::Shape::Bitmap;
+          fixture.preset.tip.randomSequence = true;
+          for (const RasterBrush::Pixel color :
+               {RasterBrush::Pixel{1, 0, 0, 1}, RasterBrush::Pixel{0, 0, 1, 1}}) {
+            auto frame = std::make_shared<RasterBrush::Image>();
+            frame->width = frame->height = 8;
+            frame->color = true;
+            frame->pixels.assign(64, color);
+            fixture.preset.tip.images.push_back(frame);
+          }
+        }
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(importError.isEmpty() && !path.isEmpty(),
+                "cannot install opaque source contact fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select opaque source contact fixture");
+        TMouseEvent event;
+        event.m_button = Qt::LeftButton;
+        event.m_isTablet = true;
+        auto begin = [&]() {
+          event.m_pressure = 1;
+          event.m_buttons = Qt::LeftButton;
+          require(tool->preLeftButtonDown(), "opaque source contact was refused");
+          tool->leftButtonDown(TPointD(), event);
+          settle();
+        };
+        auto release = [&]() {
+          event.m_buttons = Qt::NoButton;
+          tool->leftButtonUp(TPointD(), event);
+          settle();
+        };
+        undo->reset();
+        for (bool contactLoss : {false, true}) {
+          begin();
+          require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+                  "opaque source contact painted before finalization");
+          if (contactLoss) event.m_pressure = 0;
+          release();
+          const TRaster32P painted = raster(level, 1)->clone();
+          require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+                  "terminal release discarded the opaque source click");
+          require(undo->undo() && same(baseline, raster(level, 1)) &&
+                      undo->redo() && same(painted, raster(level, 1)) &&
+                      undo->undo() && same(baseline, raster(level, 1)),
+                  "opaque source click undo/redo did not preserve resolved pixels");
+          undo->reset();
+        }
+        begin();
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        require(tool->keyDown(&escape), "opaque source contact ignored cancellation");
+        release();
+        require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+                "cancelled opaque source contact committed pixels or history");
+      }
+      property->setValue(previousSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore preset after opaque source contact qualification");
       undo->reset();
     }
     checkpoint("qualifying deferred source taps through actual tool lifecycle");

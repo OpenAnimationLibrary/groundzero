@@ -1,8 +1,11 @@
 #include "toonz/rasterbrushimport.h"
+#include "toonz/rasterbrushsupport.h"
 #include "toonz/abrparser.h"
 #include "rasterbrushpng.h"
 #include "rasterbrusharchive.h"
 #include "rasterbrushbundlemetadata.h"
+#include "rasterbrushsourcemetadata.h"
+#include "rasterbrushmaskprojection.h"
 #include <QXmlStreamReader>
 #include <QSet>
 #include <QJsonArray>
@@ -202,9 +205,11 @@ void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
     throw Invalid("ABR preset metadata exceeds portable budget");
   // Static-native describes a complete static settings conversion, not a
   // dynamic preset with its active settings silently omitted.
-  QStringList omitted;
-  auto report = [&](const std::string &key) {
+  QStringList omitted, omissionTags;
+  auto report = [&](const std::string &key, const char *category = "source-unclassified-setting") {
     omitted << QString::fromStdString(key);
+    const QString tag = QString::fromLatin1(category);
+    if (!omissionTags.contains(tag)) omissionTags.append(tag);
   };
   auto disabled = [&](const char *key) {
     const auto *value = abrField(preset, key);
@@ -231,7 +236,16 @@ void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
     const QString key = QString::fromStdString(value.key);
     if (staticKeys.contains(key)) continue;
     if (switches.contains(key)) {
-      if (value.type != "bool" || value.boolean) report(value.key);
+      if (value.type != "bool" || value.boolean) {
+        const char *category = key == "useTipDynamics" ? "source-shape-dynamics"
+            : key == "useScatter" ? "source-scatter-dynamics"
+            : key == "usePaintDynamics" ? "source-transfer-dynamics"
+            : key == "useColorDynamics" ? "source-color-dynamics"
+            : key == "useTexture" ? "source-texture"
+            : key == "useBrushPose" ? "source-brush-pose"
+            : key == "useBrushSize" ? "source-tool-options" : "source-stroke-effects";
+        report(value.key, category);
+      }
     } else if ((shapeKeys.contains(key) && disabled("useTipDynamics")) ||
                (scatterKeys.contains(key) && disabled("useScatter")) ||
                (transferKeys.contains(key) && disabled("usePaintDynamics"))) {
@@ -241,9 +255,13 @@ void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
           value, key == "dualBrush" ? "useDualBrush" : "useBrushGroup");
       if (value.type != "Objc" || value.classId != value.key || !enabled ||
           enabled->type != "bool" || enabled->boolean)
-        report(value.key);
-    } else {
-      // Includes toolOptions, unknown fields and orphan dynamics whose enabling
+        report(value.key, key == "dualBrush" ? "source-secondary-mask" : "source-unclassified-setting");
+    } else if (shapeKeys.contains(key)) report(value.key, "source-shape-dynamics");
+    else if (scatterKeys.contains(key)) report(value.key, "source-scatter-dynamics");
+    else if (transferKeys.contains(key)) report(value.key, "source-transfer-dynamics");
+    else if (key == "toolOptions") report(value.key, "source-tool-options");
+    else {
+      // Includes unknown fields and orphan dynamics whose enabling
       // switch is absent. Names and plausible defaults are not semantic proof.
       report(value.key);
     }
@@ -252,9 +270,10 @@ void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
                                  "flipX", "flipY", "Nm  ", "sampledData"};
   for (const auto &value : brush.children)
     if (!tipKeys.contains(QString::fromStdString(value.key)))
-      report("Brsh/" + value.key);
+      report("Brsh/" + value.key, "source-tip-geometry");
   if (!omitted.empty()) {
     record.provenance["conversionKind"] = "partial-native";
+    record.provenance["sourceOmissionsV1"] = QJsonArray::fromStringList(omissionTags);
     record.diagnostics << "Partial native conversion: active or unknown source "
                           "settings were not applied. This is not a complete "
                           "preset conversion.";
@@ -469,7 +488,8 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
                const QString &filename, const QString &md5,
                QStringList &diagnostics, size_t maximumDecodedBytes,
                int application, bool *originalBitmapSource = nullptr,
-               bool *originalPngMaskSource = nullptr) {
+               bool *originalPngMaskSource = nullptr,
+               bool *originalRandomBitmapSource = nullptr) {
   if (!resources)
     throw Invalid(
         "KPP tip resource is missing; import a bundle containing its "
@@ -515,20 +535,20 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
     throw Invalid("Cannot decode KPP tip dependency");
   diagnostics.append(imported.diagnostics);
   auto tip = std::move(imported.records[0].preset.tip);
-  if (originalBitmapSource) {
-    // The GIH decoder already enforces one complete incremental/random
-    // dimension and equal frame geometry. Captured K5341 incremental strokes
-    // start at frame zero, advance once per deposited dab and restart at the
-    // next stroke. Random selection has unexplained source correlations and
-    // must not inherit this deterministic candidate.
-    *originalBitmapSource = !tip.images.empty() && !tip.randomSequence &&
-                            (suffix == "gbr" || suffix == "gih");
+  if (originalBitmapSource || originalRandomBitmapSource) {
+    // Both candidates retain original equal-geometry frames. The distinct
+    // random profile owns proposal/cache selection; native GIH keeps its
+    // original independent per-dab uniform selector.
     const auto first = tip.images.empty() ? nullptr : tip.images.front();
+    bool matching = bool(first) && (suffix == "gbr" || suffix == "gih");
     for (const auto &frame : tip.images)
-      *originalBitmapSource =
-          *originalBitmapSource && frame && first &&
-          frame->width == first->width && frame->height == first->height &&
-          frame->color == first->color && (!frame->color || application == 1);
+      matching = matching && frame && first && frame->width == first->width &&
+          frame->height == first->height && frame->color == first->color &&
+          (!frame->color || application == 1);
+    if (originalBitmapSource) *originalBitmapSource = matching && !tip.randomSequence;
+    if (originalRandomBitmapSource)
+      *originalRandomBitmapSource = matching && suffix == "gih" && tip.randomSequence &&
+          tip.images.size() >= 2 && first->color && application == 1;
   }
   if (application == 0) convertTipToMask(tip);
   return tip;
@@ -831,6 +851,36 @@ bool sourceMirrorSettings(const QMap<QString, QString> &fields,
   }
   return true;
 }
+// Source static scatter controls are preserved separately from native scatter.
+// Curve-enabled and legacy amount-only active definitions are explicitly outside
+// this independently captured process; disabled declarations remain metadata.
+bool sourceScatterSettings(const QMap<QString, QString> &fields,
+                           std::optional<SourceScatterV1> &scatter,
+                           QMap<QString, QString> &retained) {
+  scatter.reset();
+  retained.clear();
+  const QString enabled = fields.value("PressureScatter");
+  if (enabled != "true" && enabled != "false") return false;
+  const QSet<QString> controls = {
+      "PressureScatter", "ScatterValue", "ScatterUseCurve", "ScatterUseSameCurve",
+      "ScattercurveMode", "ScattercommonCurve", "ScatterSensor",
+      "Scattering/AxisX", "Scattering/AxisY", "Scattering/Amount"};
+  for (const auto &key : controls)
+    if (fields.contains(key)) retained[key] = fields[key];
+  if (enabled == "false") return true;
+  if (fields.value("ScatterUseCurve") != "false" || !fields.contains("ScatterValue"))
+    return false;
+  const QString x = fields.value("Scattering/AxisX"),
+                y = fields.value("Scattering/AxisY");
+  if ((x != "true" && x != "false") || (y != "true" && y != "false"))
+    return false;
+  bool ok = false;
+  const double amount = fields.value("ScatterValue").toDouble(&ok);
+  if (!ok || !std::isfinite(amount) || amount < 0 || amount > 5)
+    return false;
+  scatter = SourceScatterV1{amount, x == "true", y == "true"};
+  return true;
+}
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
   if (engine != "paintbrush" && engine != "colorsmudge") return false;
@@ -861,6 +911,17 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
       {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
       {"KisPrecisionOption/precisionLevel", "5"}};
+  std::optional<SourceScatterV1> scatter;
+  QMap<QString, QString> scatterFields;
+  if (!sourceScatterSettings(fields, scatter, scatterFields) ||
+      bool(scatter) != bool(preset.sourceScatterV1))
+    return false;
+  if (scatter && (scatter->amount != preset.sourceScatterV1->amount ||
+                  scatter->axisX != preset.sourceScatterV1->axisX ||
+                  scatter->axisY != preset.sourceScatterV1->axisY))
+    return false;
+  for (auto i = scatterFields.begin(); i != scatterFields.end(); ++i)
+    required[i.key()] = i.value();
   SourceMirror mirror;
   QMap<QString, QString> mirrorFields;
   if (!sourceMirrorSettings(fields, mirror, mirrorFields) ||
@@ -1107,6 +1168,10 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       return false;
   for (auto i = required.begin(); i != required.end(); ++i) {
     if (!i.key().endsWith("Sensor")) continue;
+    if (i.key() == "ScatterSensor" &&
+        (fields.value("PressureScatter") == "false" ||
+         fields.value("ScatterUseCurve") == "false"))
+      continue;  // Explicit inactive source sensor; retain it without evaluating.
     const bool eligible =
         i.key() == "RotationSensor"
             ? (eligiblePressureSensor(i.value(), "rotation") ||
@@ -1127,7 +1192,8 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
         i.key() != "brush_definition")
       return false;
   if (preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
-      preset.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1")
+      preset.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1" ||
+      preset.profile == "krita-5.3.4.1-random-bitmap-candidate-1")
     return engine == "paintbrush" &&
            eligibleBitmapDefinition(fields.value("brush_definition"), preset);
   QXmlStreamReader xml(fields.value("brush_definition"));
@@ -1135,11 +1201,14 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   while (!xml.atEnd()) {
     xml.readNext();
     if (xml.isDTD() || xml.isEntityReference()) return false;
+    if (xml.isCharacters() && !xml.isWhitespace()) return false;
     if (xml.isEndElement()) {
       --depth;
       continue;
     }
     if (!xml.isStartElement()) continue;
+    if (!xml.namespaceUri().isEmpty() || !xml.namespaceDeclarations().empty())
+      return false;
     ++depth;
     const bool brush = xml.name() == QStringLiteral("Brush") && depth == 1;
     const bool mask =
@@ -1163,6 +1232,17 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
                                      {"spikes", "2"}};
     const auto attributes = xml.attributes();
     QStringList variable  = {brush ? "spacing" : "diameter"};
+    if (brush && attributes.hasAttribute("autoSpacingCoeff"))
+      exact["autoSpacingCoeff"] = "1";  // Explicit inactive coefficient with auto spacing off.
+    if (!brush && preset.sourceGeneratedV1) {
+      const auto &definition = *preset.sourceGeneratedV1;
+      exact["id"] = definition.generator == SourceGeneratedGenerator::Soft ? "soft" : "gauss";
+      exact["type"] = definition.shape == SourceGeneratedShape::Circle ? "circle" : "rect";
+      exact["hfade"] = QString::number(definition.horizontalFade, 'g', 17);
+      exact["vfade"] = QString::number(definition.verticalFade, 'g', 17);
+      if (definition.generator == SourceGeneratedGenerator::Soft)
+        variable << "softness_curve";
+    }
     if (engine == "paintbrush") {
       const QString geometry = brush ? "angle" : "ratio";
       exact.remove(geometry);
@@ -1188,7 +1268,7 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       variable << "hfade" << "vfade";
     }
     const QSet<QString> numericAttributes = {
-        "angle", "ratio", "hfade", "vfade", "randomness", "density", "spikes"};
+        "angle", "ratio", "hfade", "vfade", "randomness", "density", "spikes", "autoSpacingCoeff"};
     for (auto i = exact.begin(); i != exact.end(); ++i) {
       if (!attributes.hasAttribute(i.key())) return false;
       if (numericAttributes.contains(i.key())) {
@@ -1202,8 +1282,9 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     for (const QString &name : variable)
       if (!attributes.hasAttribute(name)) return false;
     for (const auto &attribute : attributes)
-      if (!exact.contains(attribute.name().toString()) &&
-          !variable.contains(attribute.name().toString()))
+      if (!attribute.namespaceUri().isEmpty() ||
+          (!exact.contains(attribute.name().toString()) &&
+           !variable.contains(attribute.name().toString())))
         return false;
   }
   return !xml.hasError() && brushes == 1 && masks == 1 &&
@@ -1226,9 +1307,11 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   r.preset.name                    = name.toStdString();
   r.provenance["containerVersion"] = QString::fromLatin1(png.text["version"]);
   r.provenance["sourceEngine"]     = engine;
+  auto sourceSensors = Detail::preserveKppSourceSensors(fields);
+  if (!sourceSensors.controls.empty()) r.sourceSensorsV1 = std::move(sourceSensors);
   QXmlStreamReader brush(fields.value("brush_definition"));
   bool found = false, maskFound = false, originalBitmapSource = false;
-  bool originalPngMaskSource = false;
+  bool originalPngMaskSource = false, originalRandomBitmapSource = false;
   auto numeric               = [](const QString &v) {
     bool ok  = false;
     double n = v.toDouble(&ok);
@@ -1239,7 +1322,11 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
     brush.readNext();
     if (brush.isDTD() || brush.isEntityReference())
       throw Invalid("KPP brush entities are unsupported");
+    if (brush.isCharacters() && !brush.isWhitespace())
+      throw Invalid("KPP brush character data is unsupported");
     if (!brush.isStartElement()) continue;
+    if (!brush.namespaceUri().isEmpty() || !brush.namespaceDeclarations().empty())
+      throw Invalid("KPP brush namespaces are unsupported");
     auto a = brush.attributes();
     if (brush.name() == QStringLiteral("Brush")) {
       if (found) throw Invalid("Duplicate KPP brush definition");
@@ -1272,7 +1359,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
             resources ? &resources->brushes : nullptr,
             a.value("filename").toString(), a.value("md5sum").toString(),
             diagnostics, maximumDecodedBytes, application,
-            &originalBitmapSource, &originalPngMaskSource);
+            &originalBitmapSource, &originalPngMaskSource, &originalRandomBitmapSource);
         r.preset.size.value = std::max(r.preset.tip.images[0]->width,
                                        r.preset.tip.images[0]->height) *
                               numeric(a.value("scale").toString());
@@ -1297,9 +1384,19 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       maskFound         = true;
       QString shape     = a.value("type").toString(),
               generator = a.value("id").toString();
+      const QSet<QString> generatedAttributes = {
+          "id", "type", "diameter", "ratio", "hfade", "vfade",
+          "antialiasEdges", "spikes", "softness_curve"};
+      for (const auto &attribute : a)
+        if (!attribute.namespaceUri().isEmpty() ||
+            !generatedAttributes.contains(attribute.name().toString()))
+          throw Invalid("Unknown active KPP mask generator attribute: " +
+                        attribute.name().toString());
+      if (generator != "soft" && a.hasAttribute("softness_curve"))
+        throw Invalid("Inactive KPP softness curve on a non-Soft generator");
       if (shape != "circle" && shape != "rect")
         throw Invalid("Unsupported KPP generated-tip shape");
-      if (generator != "default" && generator != "gauss")
+      if (generator != "default" && generator != "gauss" && generator != "soft")
         throw Invalid("Unsupported KPP mask generator");
       if (generator == "gauss") {
         r.provenance["sourceGeneratedMaskV1"] =
@@ -1328,8 +1425,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         throw Invalid("KPP generated-tip fade is outside the supported 0-1 range");
       r.preset.tip.hardness = std::min(horizontalFade, verticalFade);
       if (horizontalFade != verticalFade)
-        diagnostics << "Unequal generated-tip fades are reduced to the smaller "
-                       "native hardness; independent source fade axes are not reproduced.";
+        diagnostics << "Unequal generated-tip fades are preserved separately in "
+                       "sourceGeneratedV1; native conversion uses the smaller "
+                       "hardness and does not reproduce independent source axes.";
       if (a.hasAttribute("antialiasEdges")) {
         auto value = a.value("antialiasEdges").toString();
         if (value != "0" && value != "1")
@@ -1341,6 +1439,36 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       if (a.value("spikes").toString() != "2")
         throw Invalid(
             "KPP star-shaped mask requires a separate geometry profile");
+      SourceGeneratedDefinitionV1 definition;
+      definition.generator = generator == "gauss" ? SourceGeneratedGenerator::Gaussian
+          : generator == "soft" ? SourceGeneratedGenerator::Soft
+                                  : SourceGeneratedGenerator::Default;
+      definition.shape = shape == "rect" ? SourceGeneratedShape::Rectangle
+                                          : SourceGeneratedShape::Circle;
+      definition.diameter = r.preset.size.value;
+      definition.ratio = r.preset.aspect.value;
+      definition.horizontalFade = horizontalFade;
+      definition.verticalFade = verticalFade;
+      if (a.hasAttribute("antialiasEdges"))
+        definition.antialiasEdges = a.value("antialiasEdges") == QStringLiteral("1");
+      if (generator == "soft") {
+        const QString serialized = a.value("softness_curve").toString();
+        if (serialized.size() > 65536)
+          throw Invalid("KPP softness curve exceeds its encoded budget");
+        auto points = serialized.split(';', Qt::KeepEmptyParts);
+        if (!points.isEmpty() && points.back().isEmpty()) points.removeLast();
+        if (points.size() < 2 || points.size() > 1024)
+          throw Invalid("KPP softness curve exceeds its knot budget");
+        for (const auto &point : points) {
+          const auto pair = point.split(',');
+          if (pair.size() != 2) throw Invalid("Invalid KPP softness curve knot");
+          definition.softnessCurve.push_back({numeric(pair[0]), numeric(pair[1])});
+        }
+      }
+      const auto sourceDefinitionError = validateSourceGeneratedDefinitionV1(definition);
+      if (!sourceDefinitionError.empty())
+        throw Invalid(QString::fromStdString(sourceDefinitionError));
+      r.sourceGeneratedV1 = std::move(definition);
     } else
       throw Invalid("Unknown KPP brush definition element");
   }
@@ -1416,8 +1544,30 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
          "native definitions; source edge and spacing mathematics may differ.";
   if (!unmapped.isEmpty())
     diagnostics << "Source settings not reproduced: " + unmapped.join(", ");
+  std::optional<SourceScatterV1> sourceScatter;
+  QMap<QString, QString> scatterFields;
+  const bool scatterSettingsKnown = sourceScatterSettings(fields, sourceScatter, scatterFields);
+  if (fields.contains("PressureScatter") && fields.value("PressureScatter") != "false" &&
+      (fields.value("PressureScatter") != "true" || !scatterSettingsKnown || engine != "paintbrush"))
+    throw Invalid("Unsupported active KPP scatter controls or source engine");
+  if (scatterFields.size() > 1) {
+    QJsonObject retainedScatter;
+    for (auto i = scatterFields.begin(); i != scatterFields.end(); ++i)
+      retainedScatter[i.key()] = i.value();
+    r.provenance["sourceScatterControlsV1"] = retainedScatter;
+  }
   Preset candidate = r.preset;
-  candidate.profile =
+  candidate.sourceScatterV1 = sourceScatter;
+  const bool scatterCandidate = engine == "paintbrush" && bool(sourceScatter);
+  const bool generatedCandidate = engine == "paintbrush" && r.sourceGeneratedV1 &&
+      r.sourceGeneratedV1->generator != SourceGeneratedGenerator::Default;
+  if (generatedCandidate) {
+    candidate.sourceGeneratedV1 = r.sourceGeneratedV1;
+    candidate.tip.shape = r.sourceGeneratedV1->shape == SourceGeneratedShape::Circle
+                              ? Shape::Round : Shape::Square;
+    candidate.tip.hardness = 1;
+  }
+  candidate.profile = generatedCandidate ? "krita-5.3.4.1-generated-mask-candidate-1" :
       engine == "paintbrush"
           ? (candidate.tip.shape == Shape::Square
                  ? "krita-5.3.4.1-default-rect-candidate-1"
@@ -1427,6 +1577,10 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
           : "krita-5.3.4.1-" +
                 r.provenance["sourceSmudgeModel"].toString().toStdString() +
                 "-candidate-1";
+  if (scatterCandidate) {
+    candidate.profile = "krita-5.3.4.1-scatter-candidate-1";
+    candidate.varySeedPerStroke = true;
+  }
   if (engine == "colorsmudge") {
     candidate.smudgeRadius =
         candidate.wet == Wet::Dulling
@@ -1544,6 +1698,10 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                      ignoredDiagnostics))
       candidate.angle = std::move(barrel);
   }
+  if (engine == "paintbrush" && originalRandomBitmapSource) {
+    candidate.profile = "krita-5.3.4.1-random-bitmap-candidate-1";
+    candidate.varySeedPerStroke = true;
+  }
   if (engine == "paintbrush" && originalBitmapSource)
     candidate.profile = "krita-5.3.4.1-fixed-bitmap-candidate-1";
   if (engine == "paintbrush" && originalPngMaskSource)
@@ -1569,23 +1727,104 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
           fields.value("SmudgeRadiusValue").toDouble();
     while (diagnostics.size() > diagnosticStart) diagnostics.removeLast();
     r.diagnostics.clear();
-    diagnostics
-        << "Strict fixed-tip source candidate selected. Component fixtures "
-           "are tested separately; arbitrary source presets and complete "
-           "source engine parity are not verified.";
+    diagnostics << (scatterCandidate
+        ? "Versioned opaque-source scatter candidate selected from independent original strokes; "
+          "source RNG identity, wider controls and statistical reference verification remain unverified."
+        : generatedCandidate
+        ? "Versioned generated-mask source candidate selected from original full-mask observations; "
+          "reference verification and unmeasured geometry/dynamics are not granted."
+        : "Strict fixed-tip source candidate selected. Component fixtures are tested separately; "
+          "arbitrary source presets and complete source engine parity are not verified.");
     r.provenance["conversion"] = "strict source-profile candidate";
-    r.provenance["candidateEligibility"] =
+    if (generatedCandidate || scatterCandidate) r.provenance["conversionKind"] = "source-candidate";
+    r.provenance["candidateEligibility"] = scatterCandidate
+        ? "k5341-static-scatter-v1" : generatedCandidate
+        ? "k5341-generated-mask-v1" :
+        r.preset.profile == "krita-5.3.4.1-random-bitmap-candidate-1"
+            ? "k5341-random-bitmap-proposal-cache-1" :
         (r.preset.profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
          r.preset.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1")
             ? "k5341-fixed-bitmap-pyramid-1"
             : "k5341-fixed-tip-explicit-settings-1";
   }
+  if (sourceScatter && r.preset.profile != "krita-5.3.4.1-scatter-candidate-1")
+    throw Invalid("Unsupported KPP scatter geometry or active-setting combination");
+  if (r.sourceGeneratedV1 &&
+      r.sourceGeneratedV1->generator == SourceGeneratedGenerator::Soft &&
+      r.preset.profile != "krita-5.3.4.1-generated-mask-candidate-1")
+    throw Invalid("Unsupported KPP Soft generated mask geometry or active settings");
   if (originalPngMaskSource &&
       r.preset.profile != "krita-5.3.4.1-fixed-bitmap-mask-candidate-1") {
     // Drop the rejected candidate alias before the existing unique-owner,
     // in-place native conversion; never duplicate the decoded image budget.
     candidate.tip.images.clear();
     convertTipToMask(r.preset.tip);
+  }
+  if (r.sourceSensorsV1 && std::any_of(r.sourceSensorsV1->controls.begin(),
+          r.sourceSensorsV1->controls.end(), [](const SourceSensorControlV1 &control) {
+            return !control.unsupportedFields.empty();
+          }))
+    diagnostics << "Some source sensor declarations could not be projected; "
+                   "unsupported markers and hashes are retained without activating them.";
+  // Preserve secondary source declarations/resources separately from the
+  // measured fixed-generated SourceMasked renderer and native Secondary.
+  QString maskResourceName, maskResourceMd5;
+  r.sourceMaskDefinitionV1 = Detail::preserveKppSourceMask(
+      fields, maskResourceName, maskResourceMd5);
+  if (r.sourceMaskDefinitionV1) {
+    auto &definition = *r.sourceMaskDefinitionV1;
+    const QString type = definition.geometry.value("tipType").toString();
+    if ((type == "png_brush" || type == "gbr_brush") &&
+        definition.application != "unsupported" &&
+        !definition.unsupportedFeatures.contains("invalid-declaration")) {
+      QStringList matches;
+      if (resources && maskResourceName.size() <= 4096 && maskResourceMd5.size() <= 64)
+        for (auto resource = resources->brushes.begin(); resource != resources->brushes.end(); ++resource) {
+          const bool match = !maskResourceMd5.isEmpty()
+              ? QString::fromLatin1(QCryptographicHash::hash(resource.value(), QCryptographicHash::Md5).toHex()) == maskResourceMd5
+              : resource.key() == maskResourceName || QFileInfo(resource.key()).fileName() == maskResourceName;
+          if (match) matches.append(resource.key());
+        }
+      if (matches.size() != 1) Detail::sourceMaskUnsupported(definition, "unresolved-resource");
+      else if (!QStringList{"png", "gbr"}.contains(QFileInfo(matches.front()).suffix().toLower()))
+        Detail::sourceMaskUnsupported(definition, "unsupported-tip-kind");
+      else {
+        size_t used = 0;
+        QSet<const Image *> retained;
+        auto account = [&](const std::shared_ptr<const Image> &image) {
+          if (!image || retained.contains(image.get())) return;
+          retained.insert(image.get());
+          if (image->pixels.size() > (maximumDecodedBytes - used) / sizeof(Pixel))
+            throw Invalid("KPP mask aggregate decoded budget exceeded");
+          used += image->pixels.size() * sizeof(Pixel);
+        };
+        for (const auto *preset : {&r.preset, &candidate}) {
+          for (const auto &image : preset->tip.images) account(image);
+          for (const auto &image : preset->secondary.tip.images) account(image);
+          account(preset->texture.image);
+        }
+        // Preserve the existing decoder's canonical pixels; tagged PNGs can
+        // be normalized to encoded sRGB. Keep a separate source byte identity.
+        // Source alpha-from-RGB interpretation remains explicitly unverified.
+        auto tip = resolveTip(&resources->brushes, maskResourceName, maskResourceMd5,
+                              diagnostics, maximumDecodedBytes - used, 1);
+        if (tip.images.size() != 1 || tip.randomSequence)
+          throw Invalid("A preserved source mask requires one decoded tip");
+        definition.tipImage = tip.images.front();
+        definition.tipKind = "decoded-resource";
+        definition.sourceResourceSha256 = QString::fromLatin1(QCryptographicHash::hash(
+            resources->brushes.value(matches.front()), QCryptographicHash::Sha256).toHex());
+        definition.resourceEncoding = definition.tipImage->color ? "canonical-rgba8-srgb" : "alpha-u8";
+        if (definition.tipImage->color)
+          Detail::sourceMaskUnsupported(definition, "unverified-resource-color-contract");
+      }
+    } else if (type == "gih_brush") Detail::sourceMaskUnsupported(definition, "unsupported-tip-kind");
+    Detail::validateSourceMaskDefinition(definition);
+    if (!r.preset.sourceMasked.enabled) {
+      diagnostics << "Source mask declarations/resources are preserved as inactive metadata; unmeasured source masking is unsupported.";
+      if (r.preset.profile == "groundzero-native-1" && definition.enabled.value_or(false))
+        r.provenance["conversionKind"] = "partial-native";
+    }
   }
   r.provenance["conversionReport"] = diagnostics.join("\n");
   r.diagnostics.append(diagnostics);
@@ -1771,6 +2010,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         for (const auto &image : r.preset.tip.images) account(image);
         for (const auto &image : r.preset.secondary.tip.images) account(image);
         account(r.preset.texture.image);
+        if (r.sourceMaskDefinitionV1) account(r.sourceMaskDefinitionV1->tipImage);
         r.provenance["bundleSha256"] = QString::fromLatin1(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
                 .toHex());
@@ -1872,6 +2112,9 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
               reinterpret_cast<const unsigned char *>(bytes.constData()),
               bytes.size(), parsed, why, limits))
         throw std::runtime_error(why);
+      if (!parsed.sampledDataComplete || parsed.skippedSamples)
+        throw Invalid("ABR sampled collection is incomplete or malformed; "
+                      "no presets were imported");
       for (const auto &w : parsed.warnings)
         result.diagnostics << QString::fromStdString(w);
       if (parsed.computedBrushes != int(parsed.computed.size()) ||
@@ -2007,6 +2250,92 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
     return {};
   }
 }
+ImportResult importAbrTips(const QByteArray &bytes, QString &error,
+                           const std::atomic_bool *cancelled,
+                           size_t maximumDecodedBytes) {
+  error.clear();
+  maximumDecodedBytes = std::min(maximumDecodedBytes,
+                                size_t(256u * 1024u * 1024u));
+  auto checkCancelled = [&] {
+    if (cancelled && cancelled->load(std::memory_order_relaxed))
+      throw Invalid("Brush import cancelled");
+  };
+  try {
+    checkCancelled();
+    if (bytes.isEmpty() || bytes.size() > fileLimit)
+      throw Invalid("ABR sampled-tip input exceeds 64 MiB");
+    AbrParser::Limits limits;
+    limits.maxFileBytes = fileLimit;
+    limits.maxDecodedBytes = std::min(size_t(8 * 1024 * 1024),
+                                    maximumDecodedBytes / (sizeof(Pixel) + 1));
+    limits.maxRecords = 256;
+    AbrParser::Result parsed;
+    std::string why;
+    if (!AbrParser::parseAbr(
+            reinterpret_cast<const unsigned char *>(bytes.constData()),
+            size_t(bytes.size()), parsed, why, limits))
+      throw std::runtime_error(why);
+    // parseAbr may return readable tips alongside malformed/truncated records.
+    // The legacy action publishes one complete sampled collection or nothing.
+    if (!parsed.sampledDataComplete || parsed.skippedSamples)
+      throw Invalid("ABR sampled-tip collection is incomplete or malformed; "
+                    "no tips were imported");
+    if (parsed.tips.empty())
+      throw Invalid("No sampled brush tips in this ABR");
+    checkCancelled();
+    size_t grayBytes = 0;
+    for (const auto &tip : parsed.tips) grayBytes += tip.pixels.size();
+    if (grayBytes > maximumDecodedBytes)
+      throw Invalid("ABR sampled-tip decoded byte budget exceeded");
+    Reader allocator{bytes};
+    allocator.limit = maximumDecodedBytes - grayBytes;
+    ImportResult result;
+    for (const auto &warning : parsed.warnings)
+      result.diagnostics << QString::fromStdString(warning);
+    result.diagnostics << "Sampled-tip images only; source brush settings, "
+                          "dynamics and appearance are not imported or verified.";
+    if (parsed.computedBrushes)
+      result.diagnostics << QString("%1 computed brushes have no sampled image "
+                                    "and were not extracted.")
+                                .arg(parsed.computedBrushes);
+    for (size_t ordinal = 0; ordinal < parsed.tips.size(); ++ordinal) {
+      checkCancelled();
+      const auto &tip = parsed.tips[ordinal];
+      auto record = converted(bytes, "abr");
+      record.preset.name = tip.name;
+      record.preset.tip.shape = Shape::Bitmap;
+      auto image = allocator.allocate(tip.width, tip.height, false);
+      for (int y = 0; y < tip.height; ++y) {
+        checkCancelled();
+        for (int x = 0; x < tip.width; ++x) {
+          const auto index = size_t(y) * tip.width + x;
+          image->pixels[index] = {0, 0, 0, tip.pixels[index] / 255.0};
+        }
+      }
+      record.preset.tip.images.push_back(image);
+      geometry(record.preset, *image, .1);
+      record.provenance["conversionKind"] = "sampled-tip-extraction";
+      record.provenance["containerVersion"] = parsed.version;
+      record.provenance["containerSubversion"] = parsed.subVersion;
+      record.provenance["sampledTipOrdinal"] = int(ordinal);
+      record.provenance["sampledTipCount"] = int(parsed.tips.size());
+      record.provenance["sourceSampleDepth"] = tip.depth;
+      if (!tip.sampleId.empty())
+        record.provenance["sourceSampleId"] = QString::fromLatin1(
+            tip.sampleId.data(), int(tip.sampleId.size()));
+      record.diagnostics.append(result.diagnostics);
+      check(record);
+      result.records.push_back(std::move(record));
+    }
+    checkCancelled();
+    result.complete = true;
+    return result;
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
+}
+
 ImportResult importBrushFile(const QString &path, QString &error,
                              const std::atomic_bool *cancelled) {
   if (cancelled && cancelled->load(std::memory_order_relaxed)) {

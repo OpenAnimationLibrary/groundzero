@@ -91,6 +91,25 @@ class Probe(Extension):
         raise RuntimeError("Unreachable paced acquisition retry state")
 
     def paint_case(self, app, view, node, case):
+        if "gihCorrelationProbe" in case:
+            from . import gih_correlation_contract
+            authored = gih_correlation_contract.validate_case(case)
+            if authored["mode"] == "Node.paintLine":
+                start, end = (QPoint(*point) for point in authored["vertices"])
+                node.paintLine(start, end, 1, 1, "ForegroundColor")
+                delivery = {"mode": "Node.paintLine", "physicalTabletClaimed": False,
+                            "events": [{"type": "line-start", "position": [start.x(), start.y()], "pressure": 1},
+                                       {"type": "line-end", "position": [end.x(), end.y()], "pressure": 1}]}
+            else:
+                path = QPainterPath()
+                path.moveTo(*authored["vertices"][0])
+                for point in authored["vertices"][1:]:
+                    path.lineTo(*point)
+                node.paintPath(path, "ForegroundColor", "None")
+                delivery = {"mode": "Node.paintPath", "vertices": authored["vertices"],
+                            "singleContinuousStroke": True, "physicalTabletClaimed": False}
+            gih_correlation_contract.validate_delivery(case, delivery)
+            return delivery
         if case.get("generatedCurvePath"):
             from . import generated_curve_probe
             points = generated_curve_probe.validate(case)
@@ -404,6 +423,21 @@ class Probe(Extension):
             spacing_scatter_group = fixtures.get("group") == "autospacing" or fixtures.get("group", "").startswith("scatter-")
             if spacing_scatter_group:
                 spacing_scatter_probe.validate_manifest(fixtures)
+            gih_correlation_group = fixtures.get("group", "").startswith("gih-correlation-")
+            if gih_correlation_group:
+                from . import gih_correlation_contract
+                gih_correlation_contract.validate_manifest(fixtures)
+            scatter_holdout_group = fixtures.get("group", "").startswith("scatterholdout-")
+            if scatter_holdout_group:
+                from . import scatter_holdout_contract
+                scatter_holdout_contract.validate_manifest(fixtures)
+            elif any("scatterHoldoutProbe" in case for case in fixtures.get("cases", [])):
+                raise RuntimeError("Scatter holdout evidence is outside its complete focused matrix")
+            generated_controls_group = fixtures.get("group") in (
+                "generated-transfer", "generated-geometry", "generated-sensors")
+            if generated_controls_group:
+                from . import generated_controls_contract
+                generated_controls_contract.validate_manifest(fixtures)
             resources = app.resources("preset")
             expected_names = set(fixtures["presets"])
             by_name, duplicate_originals = {}, []
@@ -480,15 +514,19 @@ class Probe(Extension):
             if diagnostic:
                 report["documentIsolation"] += "; diagnostic node policy=" + diagnostic["nodePolicy"]
             execution_cases = list(fixtures["cases"])
-            if fixtures.get("group") in ("gihstatistics", "gihlabels", "gihcadence") or (spacing_scatter_group and fixtures["randomizeExecution"]):
+            if scatter_holdout_group or gih_correlation_group or fixtures.get("group") in ("gihstatistics", "gihlabels", "gihcadence") or (spacing_scatter_group and fixtures["randomizeExecution"]):
                 random.Random(0x47494831).shuffle(execution_cases)
             intended_order = {name: index for index, name in enumerate(fixtures["presets"])}
             report["intendedPresetOrder"] = list(fixtures["presets"])
             report["plannedExecutionOrder"] = [case["preset"] for case in execution_cases]
             report["actualExecutionOrder"] = []
+            if scatter_holdout_group:
+                scatter_holdout_contract.validate_plan(fixtures, report["plannedExecutionOrder"])
             for execution_ordinal, case in enumerate(execution_cases):
                 name = case["preset"]
                 report["actualExecutionOrder"].append(name)
+                if scatter_holdout_group:
+                    scatter_holdout_contract.validate_progress(fixtures, report["plannedExecutionOrder"], report["actualExecutionOrder"])
                 if name not in by_name:
                     raise RuntimeError("Original reference preset was not loaded: " + name)
                 # Krita integer RGBA API uses BGRA channel order, top row first.
@@ -730,6 +768,35 @@ class Probe(Extension):
                 readback_checkpoints = [reset_checkpoint, capture_checkpoint]
                 if len(raw) != w * h * 4:
                     raise RuntimeError("Reference API returned an incomplete raster")
+                gih_correlation_evidence = None
+                if gih_correlation_group:
+                    try:
+                        gih_correlation_evidence = gih_correlation_contract.capture(
+                            initial, raw, w, case, effective_fields, delivery, resource_resolution)
+                        gih_correlation_contract.validate_evidence(case, gih_correlation_evidence)
+                    except Exception:
+                        # Retain the actual failed observation after failure only;
+                        # no extra API calls or warm-up precede a successful case.
+                        report["failedGihCorrelationCapture"] = {
+                            "preset": name, "image": "failed-gih-correlation.png",
+                            "input": "failed-gih-correlation-input.json",
+                            "sha256Pixels": hashlib.sha256(raw).hexdigest(),
+                            "sourceSelectionModelVerified": False, "pixelParityClaimed": False}
+                        try:
+                            if not QImage(raw, w, h, w * 4, QImage.Format_ARGB32).copy().save(
+                                    str(output / "failed-gih-correlation.png"), "PNG"):
+                                raise RuntimeError("Cannot retain failed GIH source observation")
+                            (output / "failed-gih-correlation-input.json").write_text(
+                                json.dumps({"case": case, "effectiveFields": effective_fields,
+                                            "deliveryReport": delivery, "resourceResolution": resource_resolution,
+                                            "sourcePresetSha256": source_preset_hash,
+                                            "sourceSelectionModelVerified": False, "pixelParityClaimed": False}, indent=2))
+                        except Exception as retention_error:
+                            report["failedGihCorrelationCapture"]["retentionError"] = str(retention_error)
+                        raise
+                    gih_correlation_contract.emit(case, gih_correlation_evidence)
+                    (output / (name.replace(" ", "_") + ".gih-correlation.json")).write_text(
+                        json.dumps(gih_correlation_evidence, indent=2))
                 wet_geometry_evidence = None
                 if wet_geometry_controls is not None:
                     wet_geometry_evidence = {
@@ -768,6 +835,16 @@ class Probe(Extension):
                     spacing_scatter_probe.emit_notices(name, spacing_scatter_evidence)
                     (output / (name.replace(" ", "_") + ".spacing-scatter.json")).write_text(
                         json.dumps(spacing_scatter_evidence, indent=2))
+                scatter_holdout_evidence = None
+                if scatter_holdout_group:
+                    scatter_holdout_evidence = scatter_holdout_contract.capture(
+                        fixtures["group"], case, effective_fields, delivery, raw, w)
+                    (output / (name.replace(" ", "_") + ".scatter-holdout.json")).write_text(
+                        json.dumps(scatter_holdout_evidence, indent=2))
+                generated_control_evidence = None
+                if generated_controls_group:
+                    generated_control_evidence = generated_controls_contract.capture(
+                        fixtures["group"], case, effective_fields, delivery)
                 timed_evidence = (timed_probe.capture(case, effective_fields, delivery, raw, w)
                                   if "timedProbe" in case else None)
                 if timed_evidence is not None:
@@ -824,6 +901,9 @@ class Probe(Extension):
                 if stochastic_scatter:
                     if not spacing_scatter_group:
                         raise RuntimeError("Scatter repeat policy used outside validated source matrix")
+                    repetitions = 1
+                if scatter_holdout_group and case["scatterHoldoutProbe"]["enabled"]:
+                    scatter_holdout_contract.validate_progress(fixtures, report["plannedExecutionOrder"], report["actualExecutionOrder"])
                     repetitions = 1
                 for repetition in range(1, repetitions):
                     # These fixtures disable random dynamics. Independent
@@ -999,12 +1079,13 @@ class Probe(Extension):
                     from . import wet_drift_contract
                     drift_evidence = wet_drift_contract.capture(initial, raw, case)
                     drift_windows = wet_drift_contract.geometry_windows(raw)
-                resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
+                resource_readback = (gih_correlation_evidence if gih_correlation_group else
+                                     resource_probe.readback(raw, w, case) if "resourceProbe" in case else None)
                 if resource_readback is not None:
                     sequence_evidence.emit(case, resource_readback, delivery)
                 if generated_tip_evidence is not None:
                     generated_tip_probe.emit(case, generated_tip_evidence, raw, w)
-                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "intendedOrdinal": intended_order[name], "wetGeometryEvidence": wet_geometry_evidence, "scatterEvidence": spacing_scatter_evidence if "scatterProbe" in case else None, "autoSpacingEvidence": spacing_scatter_evidence if "autoSpacingProbe" in case else None, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "maskLifecycleEvidence": mask_lifecycle_evidence, "maskLifecycleRepeatEvidence": mask_lifecycle_repeats, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
+                report["records"].append({**case, "scatterHoldoutEvidence": scatter_holdout_evidence, "generatedControlEvidence": generated_control_evidence, "gihCorrelationEvidence": gih_correlation_evidence, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "intendedOrdinal": intended_order[name], "wetGeometryEvidence": wet_geometry_evidence, "scatterEvidence": spacing_scatter_evidence if "scatterProbe" in case else None, "autoSpacingEvidence": spacing_scatter_evidence if "autoSpacingProbe" in case else None, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "maskLifecycleEvidence": mask_lifecycle_evidence, "maskLifecycleRepeatEvidence": mask_lifecycle_repeats, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;
@@ -1026,6 +1107,10 @@ class Probe(Extension):
                 raise RuntimeError("Actual independent-stroke execution order differs from plan")
             canonical_order = {name: index for index, name in enumerate(fixtures["presets"])}
             report["records"].sort(key=lambda record: canonical_order[record["preset"]])
+            if gih_correlation_group:
+                gih_correlation_contract.validate_execution(fixtures, report["records"])
+            if scatter_holdout_group:
+                scatter_holdout_contract.validate_execution(fixtures, report)
             report["resourceStatistics"] = resource_probe.summarize(report["records"])
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))

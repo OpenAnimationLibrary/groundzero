@@ -3,6 +3,9 @@
 #include "fullcolorbrushtool.h"
 #include <atomic>
 #include "toonz/rasterbrushimport.h"
+#include "toonz/rasterbrushprofile.h"
+#include "toonz/rasterbrushsupport.h"
+#include "toonz/rasterbrushlibrary.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -162,9 +165,17 @@ RasterBrush::ImportResult importNativeBrush(const QString &path, QString &error,
       error = QObject::tr("Brush import failed.");
     }
   }));
-  QObject::connect(worker.get(), &QThread::finished, &dialog, &QDialog::accept);
+  bool completed = false;
+  QObject::connect(worker.get(), &QThread::finished, &dialog, [&] {
+    completed = true;
+    dialog.accept();
+  });
   worker->start();
   dialog.exec();
+  // An external close/shutdown must cancel a still-active operation. The
+  // finished callback, rather than isRunning(), distinguishes normal finish
+  // from the thread's final bookkeeping after it emits finished.
+  if (!completed) cancelled.store(true, std::memory_order_relaxed);
   worker->wait();
   if (cancelled.load(std::memory_order_relaxed)) {
     error.clear();
@@ -400,9 +411,17 @@ QStringList installNativeCollection(
       error = QObject::tr("Brush installation failed.");
     }
   }));
-  QObject::connect(worker.get(), &QThread::finished, &dialog, &QDialog::accept);
+  bool completed = false;
+  QObject::connect(worker.get(), &QThread::finished, &dialog, [&] {
+    completed = true;
+    dialog.accept();
+  });
   worker->start();
   dialog.exec();
+  // An external close/shutdown must cancel a still-active operation. The
+  // finished callback, rather than isRunning(), distinguishes normal finish
+  // from the thread's final bookkeeping after it emits finished.
+  if (!completed) cancelled.store(true, std::memory_order_relaxed);
   worker->wait();
   // A nonempty result means the atomic publish already completed. A late
   // cancellation cannot pretend that an installed collection does not exist.
@@ -783,6 +802,10 @@ bool editNativeBrush(RasterBrush::Record &record) {
   status->setObjectName("nativeBrushCompatibilityStatus");
   status->setWordWrap(true);
   layout->addWidget(status);
+  auto support = new QLabel(&dialog);
+  support->setObjectName("nativeBrushSourceSupportSummary");
+  support->setWordWrap(true);
+  layout->addWidget(support);
   auto saveHint = new QLabel(
       QObject::tr("Saving creates a preset copy. Existing presets are kept."),
       &dialog);
@@ -796,8 +819,10 @@ bool editNativeBrush(RasterBrush::Record &record) {
     layout->addWidget(convert);
     QObject::connect(convert, &QPushButton::clicked, &dialog, [&]() {
       const bool wet        = record.preset.wet != RasterBrush::Wet::Off;
-      const bool bitmapMask = record.preset.profile ==
-                              "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
+      const bool bitmapMask = RasterBrush::profileDescriptorV1(record.preset.profile).tip ==
+                              RasterBrush::TipFamilyV1::BitmapMask;
+      const bool randomBitmap = RasterBrush::profileDescriptorV1(record.preset.profile).stochastic ==
+                                RasterBrush::StochasticProcessV1::SourceGihProposalCache;
       QString changes =
           wet ? QObject::tr(
                     "Source wet equations will be replaced by native wet "
@@ -831,7 +856,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
             " Source HSV sensor controls will be removed, including their "
             "pressure mappings. Native saturation and value controls use "
             "different equations and do not preserve those adjustments.");
-      if (record.preset.profile == "krita-5.3.4.1-airbrush-candidate-1")
+      if (RasterBrush::profileDescriptorV1(record.preset.profile).usesDeliveredTimer())
         changes += QObject::tr(
             " Source timer dispatch and dab placement will be replaced by "
             "native "
@@ -842,6 +867,22 @@ bool editNativeBrush(RasterBrush::Record &record) {
             " Source pressure-controlled Mirror will be removed. Native fixed "
             "tip flips remain separate and do not reproduce that dynamic "
             "behavior.");
+      if (randomBitmap)
+        changes += QObject::tr(
+            " Source frame selection will be replaced by native uniform random "
+            "selection. Cached source choices are discarded, and results can differ.");
+      if (record.preset.sourceScatterV1)
+        changes += QObject::tr(
+            " Source scattering will be removed. Native scatter stays at zero; "
+            "its random offsets and axis controls do not reproduce the source "
+            "process. The original amount and axes remain technical metadata.");
+      if (record.preset.sourceGeneratedV1)
+        changes += QObject::tr(
+            " Source generated-mask equations and the softness curve will be "
+            "removed. Soft masks become native hard round or square tips; "
+            "Gaussian masks use the native Gaussian approximation. The source "
+            "definition remains metadata, and native hardness can be edited "
+            "in the converted copy.");
       if (record.preset.sourceMasked.enabled)
         changes += QObject::tr(
             " The source masked brush will be removed, including its separate "
@@ -857,6 +898,8 @@ bool editNativeBrush(RasterBrush::Record &record) {
             "repair "
             "its manifest-only exports; the original PNG alone cannot match "
             "the derived mask hash.");
+      const auto supportReport = RasterBrush::sourceSupportReportV1(record);
+      changes += "\n\n" + RasterBrush::sourceSupportSummaryV1(supportReport);
       QMessageBox confirmation(
           QMessageBox::Warning, QObject::tr("Convert a Copy to Native"),
           changes + "\n\n" +
@@ -865,6 +908,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
           QMessageBox::Cancel, &dialog);
       confirmation.setObjectName("nativeBrushConfirmNativeConversion");
       confirmation.setTextFormat(Qt::PlainText);
+      confirmation.setDetailedText(RasterBrush::sourceSupportDetailsV1(supportReport).join("\n"));
       auto accept = confirmation.addButton(
           QObject::tr("Convert copy to native"), QMessageBox::AcceptRole);
       accept->setObjectName("nativeBrushAcceptNativeConversion");
@@ -875,6 +919,26 @@ bool editNativeBrush(RasterBrush::Record &record) {
       const auto sourceProfile          = converted.preset.profile;
       auto &native                      = converted.preset;
       native.profile                    = "groundzero-native-1";
+      // Source random-tip cache state is stroke-local, never part of Preset.
+      // The native profile uses its own uniform frame-selection path.
+      if (randomBitmap) native.tip.randomSequence = true;
+      if (native.sourceScatterV1) {
+        const auto process = *native.sourceScatterV1;
+        converted.provenance["sourceScatterDefinitionV1"] = QJsonObject{
+            {"version", 1}, {"enabled", true}, {"useCurve", false},
+            {"amount", process.amount}, {"axisX", process.axisX}, {"axisY", process.axisY}};
+        native.sourceScatterV1.reset();
+        native.scatter = RasterBrush::Dynamic{0, 0, {}};
+      }
+      if (native.sourceGeneratedV1) {
+        const auto definition = *native.sourceGeneratedV1;
+        native.tip.shape = definition.generator == RasterBrush::SourceGeneratedGenerator::Gaussian
+            ? RasterBrush::Shape::Gaussian
+            : definition.shape == RasterBrush::SourceGeneratedShape::Rectangle
+                ? RasterBrush::Shape::Square : RasterBrush::Shape::Round;
+        native.tip.hardness = 1;
+        native.sourceGeneratedV1.reset();
+      }
       native.sourceSmudgeLengthEnabled  = native.sourceSmearAlpha =
           native.sourceColorRateEnabled = true;
       native.sourceTextureSoftTexturing = false;
@@ -886,9 +950,22 @@ bool editNativeBrush(RasterBrush::Record &record) {
       native.airbrushIgnoreSpacing      = false;
       if (bitmapMask) {
         QString error;
-        const auto originalAssets = RasterBrush::resources(record, error);
-        if (!error.isEmpty() || originalAssets.size() != 1 ||
-            native.tip.images.size() != 1) {
+        // Hash only the primary resource, not the complete retained graph.
+        // A preserved mask can be distinct or alias the original primary;
+        // neither changes the identity or rights of the new native primary.
+        auto primaryAssets = [&](const std::shared_ptr<const RasterBrush::Image> &image) {
+          RasterBrush::Record identity;
+          identity.preset.tip.shape = RasterBrush::Shape::Bitmap;
+          identity.preset.tip.images = {image};
+          return RasterBrush::resources(identity, error);
+        };
+        if (native.tip.images.size() != 1 || !native.tip.images.front()) {
+          QMessageBox::warning(&dialog, QObject::tr("Cannot convert these settings"),
+                               QObject::tr("The source mask resource could not be identified."));
+          return;
+        }
+        const auto originalAssets = primaryAssets(native.tip.images.front());
+        if (!error.isEmpty() || originalAssets.size() != 1) {
           QMessageBox::warning(
               &dialog, QObject::tr("Cannot convert these settings"),
               QObject::tr("The source mask resource could not be identified."));
@@ -913,7 +990,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
             pixel = {0, 0, 0, coverage / 255.0};
           }
           native.tip.images.front() = std::move(mask);
-          const auto derivedAssets  = RasterBrush::resources(converted, error);
+          const auto derivedAssets  = primaryAssets(native.tip.images.front());
           if (!error.isEmpty() || derivedAssets.size() != 1) {
             QMessageBox::warning(
                 &dialog, QObject::tr("Cannot convert these settings"), error);
@@ -966,7 +1043,9 @@ bool editNativeBrush(RasterBrush::Record &record) {
   auto details = new QPushButton(QObject::tr("Brush details…"), &dialog);
   layout->addWidget(details);
   QObject::connect(details, &QPushButton::clicked, &dialog, [&]() {
-    QStringList notes = record.diagnostics;
+    QStringList notes = RasterBrush::sourceSupportDetailsV1(
+        RasterBrush::sourceSupportReportV1(record));
+    notes.append(record.diagnostics);
     const QString previousReport =
         record.provenance.value("conversionReport").toString();
     if (!previousReport.isEmpty() && !notes.join("\n").contains(previousReport))
@@ -989,9 +1068,6 @@ bool editNativeBrush(RasterBrush::Record &record) {
                  .arg(QString::fromStdString(record.preset.profile));
     notes << QObject::tr("Decoded native package: %1")
                  .arg(record.decoded ? QObject::tr("yes") : QObject::tr("no"));
-    notes << QObject::tr("Native settings supported: %1")
-                 .arg(record.semanticallySupported ? QObject::tr("yes")
-                                                   : QObject::tr("no"));
     notes << QObject::tr("Source reference verification: not established");
     QMessageBox report(QMessageBox::Information, QObject::tr("Brush details"),
                        status->text(), QMessageBox::Ok, &dialog);
@@ -1023,7 +1099,13 @@ bool editNativeBrush(RasterBrush::Record &record) {
   dialog.resize(480, 680);
   auto &p                                  = record.preset;
   const RasterBrush::Preset originalPreset = p;
-  auto refresh                             = [&]() { preview->configure(p); };
+  auto refresh                             = [&]() {
+    const auto report = RasterBrush::sourceSupportReportV1(record);
+    support->setText(RasterBrush::sourceSupportSummaryV1(report));
+    preview->setToolTip(support->text() + "\n\n" +
+                       RasterBrush::sourceSupportDetailsV1(report).join("\n"));
+    preview->configure(p);
+  };
   auto spin = [&](const QString &label, double &value, double lo, double hi) {
     auto box = new QDoubleSpinBox(&dialog);
     box->setDecimals(3);
@@ -1036,6 +1118,14 @@ bool editNativeBrush(RasterBrush::Record &record) {
                          &QDoubleSpinBox::valueChanged),
                      &dialog, [&, target](double v) {
                        *target = v;
+                       if (target == &p.size.value && p.sourceGeneratedV1 &&
+                           RasterBrush::profileDescriptorV1(p.profile).tip == RasterBrush::TipFamilyV1::GeneratedMask) {
+                         // Editing this copy changes its authored definition as
+                         // well as the runtime diameter; admission still checks
+                         // the existing measured sizes and all other settings.
+                         p.sourceGeneratedV1->diameter = v;
+                         record.sourceGeneratedV1 = p.sourceGeneratedV1;
+                       }
                        refresh();
                      });
     return box;
@@ -1146,7 +1236,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
       new QCheckBox(QObject::tr("Vary random seed for each stroke"), &dialog);
   varySeed->setObjectName("nativeBrushVarySeedPerStroke");
   varySeed->setChecked(p.varySeedPerStroke);
-  varySeed->setEnabled(p.profile == "groundzero-native-1");
+  varySeed->setEnabled(RasterBrush::profileDescriptorV1(p.profile).permitsSeedPolicyEditing());
   varySeed->setToolTip(
       QObject::tr("Off repeats the saved random stream. On gives each new "
                   "stroke a different stream. Undo and redo restore the "
@@ -1205,6 +1295,8 @@ bool editNativeBrush(RasterBrush::Record &record) {
       for (const auto &image : preset->secondary.tip.images) account(image);
       account(preset->texture.image);
     }
+    if (record.sourceMaskDefinitionV1)
+      account(record.sourceMaskDefinitionV1->tipImage);
     for (const auto &path : paths) {
       QString error;
       std::shared_ptr<const RasterBrush::Image> image;
@@ -1436,12 +1528,8 @@ void FullColorBrushTool::initNativePresets() {
            {L"<edit>", tr("Edit / Save Native Brush…")},
            {L"<export>", tr("Export Native Brush…")}})
     m_nativePreset.addValueWithUIName(pair.first, pair.second);
-  QStringList files;
-  QDir root(nativeBrushFolder());
-  QDirIterator iterator(root.path(), {"*.gzbrush"},
-                        QDir::Files | QDir::NoSymLinks,
-                        QDirIterator::Subdirectories);
-  while (iterator.hasNext()) files << root.relativeFilePath(iterator.next());
+  QStringList files =
+      RasterBrush::publishedLibraryFiles(nativeBrushFolder(), {"*.gzbrush"});
   files.sort();
   auto displayName = [](const QString &file) {
     QString name = QFileInfo(file).fileName().section('-', 0, -2);
@@ -1491,12 +1579,8 @@ bool FullColorBrushTool::selectNativePreset() {
     auto list = new QListWidget(&chooser);
     layout->addWidget(search);
     layout->addWidget(list);
-    QDir root(nativeBrushFolder());
-    QDirIterator iterator(root.path(), {"*.gzbrush"},
-                          QDir::Files | QDir::NoSymLinks,
-                          QDirIterator::Subdirectories);
-    while (iterator.hasNext()) {
-      const QString path = root.relativeFilePath(iterator.next());
+    for (const auto &path :
+         RasterBrush::publishedLibraryFiles(nativeBrushFolder(), {"*.gzbrush"})) {
       auto item          = new QListWidgetItem(path, list);
       item->setData(Qt::UserRole, path);
       if (path.toStdWString() == previous) list->setCurrentItem(item);
@@ -1592,6 +1676,8 @@ bool FullColorBrushTool::selectNativePreset() {
                     << nativeBrushCompatibility(record)
                     << tr("Profile: %1")
                            .arg(QString::fromStdString(record.preset.profile));
+      compatibility.append(RasterBrush::sourceSupportDetailsV1(
+          RasterBrush::sourceSupportReportV1(record)));
       compatibility.append(record.diagnostics);
       compatibility << QString();
     }
@@ -1820,8 +1906,7 @@ void FullColorBrushTool::initNativeAirbrushTimer() {
             point.tilt, track->hasPressure, track->hasTilt, false,
             TToolTimer::ticks(), point.rotation, point.hasRotation);
         if (m_nativeRecord &&
-            m_nativeRecord->preset.profile ==
-                "krita-5.3.4.1-airbrush-candidate-1" &&
+            RasterBrush::profileDescriptorV1(m_nativeRecord->preset.profile).usesDeliveredTimer() &&
             track->size() == injectedIndex + 1)
           m_nativeTimerPoints[track->id].insert(injectedIndex);
       }
@@ -2065,8 +2150,7 @@ void FullColorBrushTool::updateModifiers() {
   // Tangent interpolation holds the newest point until the next event, which
   // delays a 5 Hz timer dab by another 200 ms even while the pen is stationary.
   const bool sourceAirbrush =
-      m_nativeRecord && m_nativeRecord->preset.profile ==
-                            "krita-5.3.4.1-airbrush-candidate-1";
+      m_nativeRecord && RasterBrush::profileDescriptorV1(m_nativeRecord->preset.profile).usesDeliveredTimer();
   if (!sourceAirbrush)
     m_inputmanager.addModifier(TInputModifierP(m_modifierTangents.getPointer()));
   m_inputmanager.addModifier(
@@ -2321,7 +2405,7 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
     initNativeAirbrushTimer();
     if (!m_nativeAirbrushTimer) return;
     const bool sourceAirbrush =
-        m_nativeRecord->preset.profile == "krita-5.3.4.1-airbrush-candidate-1";
+        RasterBrush::profileDescriptorV1(m_nativeRecord->preset.profile).usesDeliveredTimer();
     m_nativeAirbrushTimer->setInterval(
         sourceAirbrush
             ? int(std::lround(1000 / m_nativeRecord->preset.airbrushRate))
@@ -2360,6 +2444,11 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
                                     m_currentColor.g / 255.0 * alpha,
                                     m_currentColor.b / 255.0 * alpha, alpha};
       preset.size.value *= std::pow(2.0, m_modifierSize.getValue());
+      if (preset.sourceGeneratedV1 &&
+          RasterBrush::profileDescriptorV1(preset.profile).tip == RasterBrush::TipFamilyV1::GeneratedMask)
+        // Only the per-stroke copy changes. Unsupported effective diameters
+        // remain rejected by the source profile's existing geometry guard.
+        preset.sourceGeneratedV1->diameter = preset.size.value;
       preset.opacity.value *= m_modifierOpacity.getValue() / 100.0;
       // The toolbar modifier adds alpha locking; it must not disable a
       // preset's saved Preserve alpha setting when the modifier is off.
@@ -2371,11 +2460,9 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
         // alpha removal even when the saved brush or toolbar locks alpha.
         preset.lockAlpha = false;
       }
-      handler->nativeSourceAirbrush =
-          preset.profile == "krita-5.3.4.1-airbrush-candidate-1";
-      handler->nativeSourcePixel =
-          preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
-          !preset.sourceMasked.enabled;
+      const auto behavior = RasterBrush::profileDescriptorV1(preset.profile);
+      handler->nativeSourceAirbrush = behavior.usesDeliveredTimer();
+      handler->nativeDeferredTap = behavior.needsDeferredTapDedup(preset.sourceMasked.enabled);
       handler->nativeSurface = m_nativeSurface;
       handler->nativeStroke.reset(
           new RasterBrush::Stroke(*handler->nativeSurface, preset,
@@ -2437,8 +2524,9 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     sample.time         = point.time;
     const bool terminal = track.pointsAdded == 1 && track.finished();
     const auto &last    = handler->nativeLastSample;
-    // The track appends a final point for pen-up. A source Pixel click is one
-    // contact followed by finish, not a second stationary input update. Only
+    // The track appends a final point for pen-up. Deferred source Pixel,
+    // scatter and random-bitmap clicks are one contact followed by finish,
+    // not a second stationary input update. Only
     // omit unchanged terminal data (including tablet pressure dropping to zero
     // on contact loss). Real stationary updates, nonzero changed release
     // pressure, moved releases and native elapsed-time input still go through.
@@ -2447,7 +2535,7 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
         (sample.hasPressure && last.hasPressure && sample.pressure == 0 &&
          last.pressure > 0);
     const bool terminalDuplicate =
-        terminal && handler->nativeSourcePixel && handler->nativeHasSample &&
+        terminal && handler->nativeDeferredTap && handler->nativeHasSample &&
         sample.x == last.x && sample.y == last.y && terminalContactPressure &&
         sample.hasPressure == last.hasPressure && sample.tiltX == last.tiltX &&
         sample.tiltY == last.tiltY && sample.hasTilt == last.hasTilt &&
@@ -2745,14 +2833,8 @@ void FullColorBrushTool::initPresets() {
 // Lists the tip images of the library into the "Tip:" property. The tip of
 // the last session is selected the first time.
 void FullColorBrushTool::initTips() {
-  QString folder = brushTipsFolder();
-  QStringList files;
-  QDirIterator it(folder, QStringList() << "*.png", QDir::Files,
-                  QDirIterator::Subdirectories);
-  while (it.hasNext() && files.size() < c_maxTips) {
-    it.next();
-    files << QDir(folder).relativeFilePath(it.filePath());
-  }
+  QStringList files = RasterBrush::publishedLibraryFiles(
+      brushTipsFolder(), {"*.png"}, c_maxTips, true);
   files.sort(Qt::CaseInsensitive);
 
   bool first   = !m_tipsLoaded;

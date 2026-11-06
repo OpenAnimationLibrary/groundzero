@@ -1,6 +1,7 @@
 #include "toonz/abrparser.h"
 
 #include <cstring>
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 #include <zlib.h>
@@ -354,7 +355,9 @@ public:
 bool unpackBits(const unsigned char *src, size_t srcLen, unsigned char *dst,
                 size_t dstLen) {
   size_t i = 0, o = 0;
-  while (i < srcLen && o < dstLen) {
+  // Consume the entire declared row, including valid trailing no-ops.
+  // Filling the destination early must not hide another output-producing run.
+  while (i < srcLen) {
     int n = (signed char)src[i++];
     if (n >= 0) {
       size_t count = (size_t)n + 1;
@@ -515,11 +518,13 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
     int type;
     int32_t length;
     if (!r.i16(type) || !r.i32(length)) {
+      out.sampledDataComplete = false;
       out.warnings.push_back("The file ends after " + std::to_string(i) +
                              " of " + std::to_string(count) + " brushes.");
       return;
     }
     if (length < 0 || (size_t)length > r.remaining()) {
+      out.sampledDataComplete = false;
       out.warnings.push_back("Brush " + std::to_string(i + 1) +
                              " is truncated.");
       return;
@@ -538,9 +543,11 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
           shape.i16(value.roundness) && shape.i16(value.angle) &&
           shape.i16(value.hardness))
         out.computed.push_back(std::move(value));
-      else
+      else {
+        out.sampledDataComplete = false;
         out.warnings.push_back("Computed brush " + std::to_string(i + 1) +
                                " has an invalid fixed record length.");
+      }
     } else if (type == 2) {
       Tip tip;
       tip.name      = defaultName(i + 1);
@@ -549,17 +556,20 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
       if (readSampleV12(sample, version, tip, why, budget)) {
         out.tips.push_back(std::move(tip));
       } else {
+        out.sampledDataComplete = false;
         ++out.skippedSamples;
         out.warnings.push_back("Brush " + std::to_string(i + 1) +
                                " skipped: " + why + ".");
       }
     } else {
+      out.sampledDataComplete = false;
       out.warnings.push_back("Brush " + std::to_string(i + 1) +
                              " has the unknown type " + std::to_string(type) +
                              ".");
     }
     r.seek(next);
   }
+  if (r.remaining() > 3) out.sampledDataComplete = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -596,13 +606,17 @@ void parseSamples(Reader &section, int subVersion, Result &out,
     section.u32(length);
     ++index;
     if (length > section.remaining()) {
+      out.sampledDataComplete = false;
       out.warnings.push_back("Sample " + std::to_string(index) +
                              " is truncated.");
       return;
     }
     size_t start = section.pos();
     size_t next  = start + ((size_t)length + 3) / 4 * 4;
-    if (next > section.end()) next = section.end();
+    if (next > section.end()) {
+      out.sampledDataComplete = false;
+      next = section.end();
+    }
 
     Tip tip;
     tip.name      = defaultName(index);
@@ -611,6 +625,7 @@ void parseSamples(Reader &section, int subVersion, Result &out,
     if (readSampleV6(sample, subVersion, tip, why, budget)) {
       out.tips.push_back(std::move(tip));
     } else {
+      out.sampledDataComplete = false;
       ++out.skippedSamples;
       out.warnings.push_back("Sample " + std::to_string(index) +
                              " skipped: " + why + ".");
@@ -805,6 +820,7 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
       size_t pad = 1;
       while (pad < 4 && !isSignatureAt(r, pad)) ++pad;
       if (pad == 4) {
+      out.sampledDataComplete = false;
         out.warnings.push_back("Unrecognized data after the sections.");
         break;
       }
@@ -818,6 +834,7 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
     uint32_t length;
     r.u32(length);
     if (length > r.remaining()) {
+      out.sampledDataComplete = false;
       out.warnings.push_back("A section is truncated.");
       if (std::memcmp(tag, "patt", 4) == 0) {
         out.patternDataComplete = false;
@@ -861,8 +878,11 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
     }
     r.seek(section.end());
   }
-  if (!sawSamples)
+  if (r.remaining() > 3) out.sampledDataComplete = false;
+  if (!sawSamples) {
+    out.sampledDataComplete = false;
     out.warnings.push_back("The file has no sampled brushes section.");
+  }
 }
 
 }  // namespace

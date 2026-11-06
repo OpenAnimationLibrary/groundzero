@@ -66,6 +66,8 @@ resources = root / "data" / "krita"
 source = Path(__file__).resolve().parent
 shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_reference", dirs_exist_ok=True)
 shutil.copyfile(source / "mask_repeat_contract.py", resources / "pykrita" / "gzbrush_reference" / "mask_repeat_contract.py")
+shutil.copyfile(source / "generated_controls_contract.py", resources / "pykrita" / "gzbrush_reference" / "generated_controls_contract.py")
+shutil.copyfile(source / "scatter_holdout_contract.py", resources / "pykrita" / "gzbrush_reference" / "scatter_holdout_contract.py")
 shutil.copyfile(source / "mask_repeat_lifecycle_contract.py", resources / "pykrita" / "gzbrush_reference" / "mask_repeat_lifecycle_contract.py")
 (resources / "pykrita" / "gzbrush_reference.desktop").write_text("[Desktop Entry]\nType=Service\nServiceTypes=Krita/PythonPlugin\nX-KDE-Library=gzbrush_reference\nX-Python-2-Compatible=false\nName=Brush Reference Fixtures\nComment=Render original API-line fixtures for brush qualification\n")
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
@@ -83,6 +85,11 @@ def finalize_input_contract():
 
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group.startswith("gih-correlation-"):
+    from gih_correlation_fixtures import prepare as prepare_gih_correlation
+    prepare_gih_correlation(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "lab-conversion":
     from hsv_joint_fixtures import prepare as prepare_hsv
     prepare_hsv(root, resources, preset, "hsvchroma")
@@ -94,12 +101,26 @@ if group == "lab-conversion":
     path.write_text(json.dumps(fixture, indent=2))
     finalize_input_contract()
     raise SystemExit(0)
+if group.startswith("scatterholdout-"):
+    from scatter_holdout_fixtures import prepare as prepare_scatter_holdout
+    from scatter_holdout_contract import validate_manifest
+    prepare_scatter_holdout(root, resources, preset, group)
+    finalize_input_contract()
+    validate_manifest(json.loads((root / "output/fixtures.json").read_text()))
+    raise SystemExit(0)
 if group == "autospacing" or group in (
         "scatter-x-east", "scatter-x-north", "scatter-y-east", "scatter-y-north",
         "scatter-xy-east", "scatter-xy-north"):
     from spacing_scatter_fixtures import prepare as prepare_spacing_scatter
     prepare_spacing_scatter(root, resources, preset, group)
     finalize_input_contract()
+    raise SystemExit(0)
+if group in ("generated-transfer", "generated-geometry", "generated-sensors"):
+    from generated_controls_fixtures import prepare as prepare_generated_controls
+    from generated_controls_contract import validate_manifest
+    prepare_generated_controls(root, resources, preset, group)
+    finalize_input_contract()
+    validate_manifest(json.loads((root / "output/fixtures.json").read_text()))
     raise SystemExit(0)
 if group == "generatedcurves":
     from generated_curve_diagnostics import prepare as prepare_generated_curves

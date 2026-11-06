@@ -1,4 +1,7 @@
 #include "toonz/rasterbrushengine.h"
+#include "toonz/rasterbrushprofile.h"
+#include "rasterbrushsampling.h"
+#include "rasterbrushgihselection.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -9,29 +12,46 @@ namespace RasterBrush {
 namespace {
 constexpr double pi = 3.14159265358979323846;
 bool sourceWetProfile(const std::string &profile) {
-  return profile == "krita-5.3.4.1-legacy-smear-candidate-1" ||
-         profile == "krita-5.3.4.1-legacy-dulling-candidate-1" ||
-         profile == "krita-5.3.4.1-new-smear-candidate-1" ||
-         profile == "krita-5.3.4.1-new-dulling-candidate-1";
+  return profileDescriptorV1(profile).family == ProfileFamilyV1::SourceWet;
 }
 bool sourceDefaultProfile(const std::string &profile) {
-  return profile == "krita-5.3.4.1-default-circle-candidate-1" ||
-         profile == "krita-5.3.4.1-default-rect-candidate-1";
+  const auto tip = profileDescriptorV1(profile).tip;
+  return tip == TipFamilyV1::DefaultCircle || tip == TipFamilyV1::DefaultRectangle;
 }
 bool sourceAirbrushProfile(const std::string &profile) {
-  return profile == "krita-5.3.4.1-airbrush-candidate-1";
+  return profileDescriptorV1(profile).usesDeliveredTimer();
+}
+bool sourceGeneratedProfile(const std::string &profile) {
+  return profileDescriptorV1(profile).tip == TipFamilyV1::GeneratedMask;
+}
+bool sourceScatterProfile(const std::string &profile) {
+  return profileDescriptorV1(profile).stochastic == StochasticProcessV1::SourceScatter;
+}
+bool sourceHardPixelProfile(const std::string &profile) {
+  const auto descriptor = profileDescriptorV1(profile);
+  return descriptor.family == ProfileFamilyV1::SourcePixel &&
+         descriptor.scheduling == SchedulingFamilyV1::SourceFuturePixel;
 }
 bool sourcePixelProfile(const std::string &profile) {
-  return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
-         sourceDefaultProfile(profile) || sourceAirbrushProfile(profile);
+  return profileDescriptorV1(profile).family == ProfileFamilyV1::SourcePixel;
+}
+bool sourceRandomBitmapProfile(const std::string &profile) {
+  return profileDescriptorV1(profile).stochastic == StochasticProcessV1::SourceGihProposalCache;
 }
 bool sourceBitmapProfile(const std::string &profile) {
-  return profile == "krita-5.3.4.1-fixed-bitmap-candidate-1" ||
-         profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1";
+  return profileDescriptorV1(profile).family == ProfileFamilyV1::SourceBitmap;
 }
 bool sourceProfile(const std::string &profile) {
-  return sourcePixelProfile(profile) || sourceWetProfile(profile) ||
-         sourceBitmapProfile(profile);
+  return profileDescriptorV1(profile).isSourceCandidate();
+}
+bool sourcePressureControl(const Dynamic &value) {
+  if (value.minimum != 0 || value.mappings.size() != 1) return false;
+  const auto &mapping = value.mappings.front();
+  return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
+         mapping.curve.size() >= 2 && mapping.curve.front().x == 0 &&
+         mapping.curve.back().x == 1 &&
+         ((mapping.curve.size() == 2 && mapping.interpolation == Interpolation::Linear) ||
+          (mapping.curve.size() > 2 && mapping.interpolation == Interpolation::NaturalCubic));
 }
 double unit(double v) { return std::max(0.0, std::min(1.0, v)); }
 Pixel clean(Pixel p) {
@@ -314,6 +334,37 @@ Sample interpolate(const Sample &a, const Sample &b, double t) {
 }
 }  // namespace
 
+std::string validateSourceGeneratedDefinitionV1(
+    const SourceGeneratedDefinitionV1 &definition) {
+  auto range = [](double value, double low, double high) {
+    return std::isfinite(value) && value >= low && value <= high;
+  };
+  if (int(definition.generator) < 0 ||
+      int(definition.generator) > int(SourceGeneratedGenerator::Gaussian) ||
+      int(definition.shape) < 0 ||
+      int(definition.shape) > int(SourceGeneratedShape::Rectangle) ||
+      !range(definition.diameter, .25, 4096) ||
+      !range(definition.ratio, .01, 1) ||
+      !range(definition.horizontalFade, 0, 1) ||
+      !range(definition.verticalFade, 0, 1) || definition.spikes != 2)
+    return "Invalid preserved source generated definition";
+  const auto &curve = definition.softnessCurve;
+  if (definition.generator != SourceGeneratedGenerator::Soft)
+    return curve.empty() ? std::string()
+                         : "Inactive softness curve on a non-Soft source generator";
+  if (curve.size() < 2 || curve.size() > 1024 || curve.front().x != 0 ||
+      curve.back().x != 1)
+    return "Invalid preserved source softness curve endpoints or budget";
+  double previous = -1;
+  for (const auto &point : curve) {
+    if (!range(point.x, 0, 1) || !range(point.y, 0, 1) ||
+        point.x <= previous || (previous >= 0 && point.x - previous < 1e-9))
+      return "Invalid preserved source softness curve knot";
+    previous = point.x;
+  }
+  return {};
+}
+
 Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
   dst = clean(dst);
   src = clean(src);
@@ -371,15 +422,72 @@ Pixel sourcePixelComposite(Pixel dst, Pixel src, Blend mode) {
 }  // namespace
 
 std::string validate(const Preset &p) {
-  const bool sourceHard = sourcePixelProfile(p.profile);
+  const bool sourceGenerated = sourceGeneratedProfile(p.profile);
+  const bool sourceHard = sourcePixelProfile(p.profile) && !sourceGenerated;
   const bool sourceSoft = sourceDefaultProfile(p.profile);
   const bool sourceRect = p.profile == "krita-5.3.4.1-default-rect-candidate-1";
   const bool sourceWet  = sourceWetProfile(p.profile);
-  if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet &&
-      !sourceBitmapProfile(p.profile))
+  if (profileDescriptorV1(p.profile).recognitionRejection() == ProfileRejectionV1::UnknownProfile)
     return "Unimplemented behavior profile: " + p.profile;
-  if (p.varySeedPerStroke && p.profile != "groundzero-native-1")
-    return "Per-stroke seed variation requires the native profile";
+  if (p.sourceScatterV1 && !sourceScatterProfile(p.profile))
+    return "Active source scatter requires its versioned profile";
+  if (sourceScatterProfile(p.profile)) {
+    if (!p.sourceScatterV1)
+      return "Source scatter profile requires its versioned process state";
+    const auto &scatter = *p.sourceScatterV1;
+    auto fixed = [](const Dynamic &control, double value) {
+      return control.value == value && control.mappings.empty();
+    };
+    // Original six independent 100-stroke acquisitions establish this static
+    // geometry and process. Wider amount/size units require retained holdouts;
+    // do not silently substitute native dynamics for unmeasured combinations.
+    if (!std::isfinite(scatter.amount) || scatter.amount != 1 ||
+        (!scatter.axisX && !scatter.axisY) || !fixed(p.size, 8) ||
+        !fixed(p.aspect, 1) || !fixed(p.angle, 0) ||
+        !fixed(p.opacity, 1) || !fixed(p.flow, 1) || p.spacing != 4 || p.wash ||
+        p.blend != Blend::Normal || p.texture.image || p.secondary.enabled ||
+        p.sourceMasked.enabled || p.sourceMirror.enabled ||
+        p.sourceHsvChannel != SourceHsvChannel::Off ||
+        p.sourceHsvV2[0].enabled || p.sourceHsvV2[1].enabled || p.sourceHsvV2[2].enabled)
+      return "Unimplemented source scatter geometry or active controls";
+  }
+  if (p.sourceGeneratedV1 && !sourceGenerated)
+    return "Active generated source definition requires its versioned profile";
+  if (sourceGenerated) {
+    if (!p.sourceGeneratedV1)
+      return "Generated source profile requires its versioned definition";
+    const auto &definition = *p.sourceGeneratedV1;
+    const auto why = validateSourceGeneratedDefinitionV1(definition);
+    if (!why.empty()) return why;
+    auto fixed = [](const Dynamic &control, double value) {
+      return control.value == value && control.mappings.empty();
+    };
+    if ((definition.generator != SourceGeneratedGenerator::Soft &&
+         definition.generator != SourceGeneratedGenerator::Gaussian) ||
+        !definition.antialiasEdges.value_or(false) || definition.ratio != 1 ||
+        (definition.diameter != 16 && definition.diameter != 64) ||
+        p.tip.shape != (definition.shape == SourceGeneratedShape::Circle
+                            ? Shape::Round : Shape::Square) || p.tip.hardness != 1 ||
+        !p.tip.antialiasEdges || !p.tip.images.empty() || p.tip.randomSequence ||
+        !fixed(p.size, definition.diameter) || !fixed(p.aspect, 1) ||
+        !fixed(p.angle, 0) ||
+        (!p.opacity.mappings.empty() && !sourcePressureControl(p.opacity)) ||
+        (!p.flow.mappings.empty() && !sourcePressureControl(p.flow)) ||
+        (!p.opacity.mappings.empty() && (!fixed(p.flow, 1) || p.blend != Blend::Normal)) ||
+        (!p.flow.mappings.empty() && (!fixed(p.opacity, 1) || p.blend != Blend::Normal)) ||
+        !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
+        !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
+        !fixed(p.saturation, 1) || !fixed(p.brightness, 1) || p.spacing < .25 ||
+        p.count != 1 || p.lockAlpha || p.flipX || p.flipY ||
+        p.blend == Blend::Erase || p.color.a != 1 || p.wet != Wet::Off ||
+        p.airbrushRate != 0 || p.texture.image || p.secondary.enabled ||
+        p.sourceMasked.enabled || p.sourceMirror.enabled ||
+        p.sourceHsvChannel != SourceHsvChannel::Off ||
+        p.sourceHsvV2[0].enabled || p.sourceHsvV2[1].enabled || p.sourceHsvV2[2].enabled)
+      return "Unimplemented generated source mask geometry or active settings";
+  }
+  if (p.varySeedPerStroke && !profileDescriptorV1(p.profile).permitsStrokeSeedVariation())
+    return "Per-stroke seed variation requires the native or an opaque-source process profile";
   auto linearPressure = [](const Dynamic &value) {
     if (value.minimum != 0 || value.mappings.size() != 1) return false;
     const auto &mapping = value.mappings.front();
@@ -394,15 +502,7 @@ std::string validate(const Preset &p) {
   // establish natural cubic interpolation beyond the affine two-knot case.
   // Wet pressure qualification remains the separate identity-only predicate.
   auto sourcePressureCurve = [](const Dynamic &value) {
-    if (value.minimum != 0 || value.mappings.size() != 1) return false;
-    const auto &mapping = value.mappings.front();
-    return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
-           mapping.curve.size() >= 2 && mapping.curve.front().x == 0 &&
-           mapping.curve.back().x == 1 &&
-           ((mapping.curve.size() == 2 &&
-             mapping.interpolation == Interpolation::Linear) ||
-            (mapping.curve.size() > 2 &&
-             mapping.interpolation == Interpolation::NaturalCubic));
+    return sourcePressureControl(value);
   };
   const bool sourcePressureSize = sourceHard && sourcePressureCurve(p.size);
   const bool sourceBarrel =
@@ -497,7 +597,7 @@ std::string validate(const Preset &p) {
       return d.value == value && d.mappings.empty();
     };
     if (p.tip.shape != Shape::Bitmap || p.tip.images.empty() ||
-        !p.tip.images[0] || p.tip.randomSequence || p.tip.antialiasEdges ||
+        !p.tip.images[0] || p.tip.randomSequence != sourceRandomBitmapProfile(p.profile) || p.tip.antialiasEdges ||
         !p.size.mappings.empty() || !p.angle.mappings.empty() ||
         !std::isfinite(p.angle.value) || !fixed(p.aspect, 1) ||
         !fixed(p.opacity, 1) || !fixed(p.flow, 1) || !fixed(p.scatter, 0) ||
@@ -512,6 +612,9 @@ std::string validate(const Preset &p) {
         p.sourceHsvV2[2].enabled)
       return "Unimplemented source bitmap combination";
     const auto &image = *p.tip.images[0];
+    if (sourceRandomBitmapProfile(p.profile) &&
+        (!image.color || p.tip.images.size() < 2 || p.sourceMirror.enabled))
+      return "Source random GIH requires original color frames and fixed geometry";
     if (p.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1" &&
         (!image.color || p.tip.images.size() != 1))
       return "Source PNG mask requires one original RGBA image";
@@ -831,9 +934,10 @@ struct Stroke::Impl {
   Preset p;
   size_t budget, dabs = 0;
   std::shared_ptr<MemoryBudget> shared;
-  size_t reserved = 0, inputPixelWork = 0;
+  size_t reserved = 0, inputPixelWork = 0, pendingPreprocessingWork = 0;
   std::string failure;
   Sample previous, first, previousSourceDab;
+  double previousScatterX = 0, previousScatterY = 0;
   double inputTimeOrigin = 0;
   bool started = false, finished = false;
   bool pendingSourceEndpoint = false;
@@ -843,7 +947,9 @@ struct Stroke::Impl {
     double distance;
   };
   std::vector<SourcePoint> sourcePath;
-  double sourceInputDistance = 0, sourceNextDab = 0;
+  double sourceInputDistance = 0, sourceNextDab = 0, sourceSmearToNext = 0;
+  double sourceBitmapToNext = .5;
+  SourceGihV1::Selection sourceGihSelection;
   bool sourcePressureLookahead = false;
   bool sourceHasInputUpdate    = false;
   Sample sourceFuturePosition;
@@ -867,6 +973,8 @@ struct Stroke::Impl {
   int sourceX = 0, sourceY = 0, sourceW = 0, sourceH = 0;
   int smearSide = 0;
   std::map<const Mapping *, std::vector<double>> cubic;
+  std::vector<double> generatedSecond;
+  std::array<double, 2> generatedMean{}, generatedDeviation{}, generatedNormalization{};
   struct Tile {
     std::array<Pixel, 1024> base{}, paint{};
   };
@@ -928,12 +1036,73 @@ struct Stroke::Impl {
         for (const auto &mapping : dynamic->mappings)
           fits = fits && account(mapping.curve.size(), sizeof(Knot));
       }
+      if (v.sourceGeneratedV1)
+        fits = fits && account(v.sourceGeneratedV1->softnessCurve.size(), sizeof(Knot));
       if (!fits || snapshot > budget || !shared->reserve(snapshot)) {
         failure = "Preset snapshot memory limit exceeded";
         return;
       }
       reserved += snapshot;
       p = v;
+      if (p.sourceGeneratedV1 &&
+          p.sourceGeneratedV1->generator == SourceGeneratedGenerator::Gaussian) {
+        // Charge before generated preprocessing. The completed constructor
+        // carries this work into the first input's normal work allowance.
+        if (!accountPixelWork(1, 1, 1024)) {
+          releaseStorage();
+          return;
+        }
+        const auto &definition = *p.sourceGeneratedV1;
+        const double radius = definition.diameter * .5;
+        for (int axis = 0; axis < 2; ++axis) {
+          const double fade = definition.shape == SourceGeneratedShape::Circle
+              ? (definition.horizontalFade + definition.verticalFade) * .5
+              : axis == 0 ? definition.horizontalFade : definition.verticalFade;
+          // The circle width ratio is independently estimated from complete
+          // original masks and held-out fades. It is an experimental byte-error
+          // candidate, not a claim about an exact foreign implementation constant.
+          const double sigma = definition.shape == SourceGeneratedShape::Circle
+              ? .27 * radius * (1 - fade) : radius * (.2 - .1 * fade);
+          generatedMean[axis] = definition.shape == SourceGeneratedShape::Circle
+              ? radius - 2.5 * sigma : radius * (.5 + .25 * fade);
+          generatedDeviation[axis] = sigma * std::sqrt(2.);
+          generatedNormalization[axis] = sigma == 0 ? 1
+              : 2 * std::erf(generatedMean[axis] / generatedDeviation[axis]);
+        }
+      }
+      if (p.sourceGeneratedV1 &&
+          p.sourceGeneratedV1->generator == SourceGeneratedGenerator::Soft) {
+        const auto &curve = p.sourceGeneratedV1->softnessCurve;
+        const size_t count = curve.size(), charge = 2 * count * sizeof(double) + 128;
+        // Cover the linear solve/back-substitution before either solver vector
+        // is allocated. Both simultaneous vectors remain in the peak charge.
+        if (!accountPixelWork(int(count), 1, 128)) {
+          releaseStorage();
+          return;
+        }
+        if (charge > budget - reserved || !shared->reserve(charge)) {
+          failure = "Generated curve memory limit exceeded";
+          releaseStorage();
+          return;
+        }
+        reserved += charge;
+        generatedSecond.assign(count, 0);
+        std::vector<double> rhs(count, 0);
+        for (size_t i = 1; i + 1 < count; ++i) {
+          const auto &a = curve[i - 1], &b = curve[i], &c = curve[i + 1];
+          const double span = c.x - a.x, fraction = (b.x - a.x) / span;
+          const double denominator = fraction * generatedSecond[i - 1] + 2;
+          generatedSecond[i] = (fraction - 1) / denominator;
+          const double slopeChange =
+              (c.y - b.y) / (c.x - b.x) - (b.y - a.y) / (b.x - a.x);
+          rhs[i] = (6 * slopeChange / span - fraction * rhs[i - 1]) / denominator;
+        }
+        for (size_t i = count - 1; i > 0; --i)
+          generatedSecond[i - 1] = generatedSecond[i - 1] * generatedSecond[i] + rhs[i - 1];
+        std::vector<double>().swap(rhs);
+        shared->release(count * sizeof(double));
+        reserved -= count * sizeof(double);
+      }
       for (const Dynamic *dynamic : {&p.size,
                                      &p.aspect,
                                      &p.angle,
@@ -959,6 +1128,10 @@ struct Stroke::Impl {
           if (mapping.interpolation != Interpolation::NaturalCubic) continue;
           size_t n      = mapping.curve.size(),
                  charge = 2 * n * sizeof(double) + 128;
+          if (!accountPixelWork(int(n), 1, 128)) {
+            releaseStorage();
+            return;
+          }
           if (charge > budget - reserved || !shared->reserve(charge)) {
             failure = "Curve memory limit exceeded";
             releaseStorage();
@@ -985,6 +1158,7 @@ struct Stroke::Impl {
           reserved -= n * sizeof(double);
         }
       }
+      pendingPreprocessingWork = inputPixelWork;
     } catch (const std::bad_alloc &) {
       failure = "Preset or curve allocation failed";
       releaseStorage();
@@ -1016,6 +1190,7 @@ struct Stroke::Impl {
     std::vector<std::shared_ptr<const Image>>().swap(p.tip.images);
     std::vector<std::shared_ptr<const Image>>().swap(p.secondary.tip.images);
     p.texture.image.reset();
+    p.sourceGeneratedV1.reset();
     std::string().swap(p.name);
     std::string().swap(p.profile);
   }
@@ -1025,6 +1200,7 @@ struct Stroke::Impl {
     sourceOutside.clear();
     std::vector<SourcePoint>().swap(sourcePath);
     cubic.clear();
+    std::vector<double>().swap(generatedSecond);
     releasePresetStorage();
     std::vector<Pixel>().swap(smear);
     std::vector<Pixel>().swap(sourceField);
@@ -1173,6 +1349,16 @@ struct Stroke::Impl {
       previous                 = s;
       return true;
     }
+    // Smear's raster placement follows recursive future-position stepping
+    // within each authored segment. Reset at every supplied endpoint, retaining
+    // the original segment length rather than remeasuring rounded positions.
+    // Nominal sensors and future pressure keep their independent interpolation.
+    const bool recursiveSmear = sourceWetProfile(p.profile) && p.wet == Wet::Smear;
+    const bool recursiveBitmap = sourceRandomBitmapProfile(p.profile);
+    const bool recursiveGeometry = recursiveSmear || recursiveBitmap;
+    double recursiveX = previous.x, recursiveY = previous.y;
+    double recursiveStep = recursiveBitmap ? sourceBitmapToNext : sourceSmearToNext;
+    double recursiveRemaining = distance;
     sourceInputDistance += distance;
     if (!appendSourcePoint(s, sourceInputDistance)) return false;
     size_t events = 0;
@@ -1184,15 +1370,40 @@ struct Stroke::Impl {
         return false;
       }
       Sample geometric        = sourceSampleAt(sourceNextDab);
-      const Sample future     = sourceSampleAt(sourceNextDab + .5);
+      const double futureDistance = sourceNextDab + .5;
+      const Sample future         = sourceSampleAt(futureDistance);
       sourcePressureLookahead = true;
       sourceFuturePosition    = future;
+      if (recursiveGeometry) {
+        const double advance = recursiveStep;
+        const double fraction = advance / recursiveRemaining;
+        auto weighted = [](double from, double to, double amount) {
+          // Separate binary64 products preserve the measured arithmetic at
+          // integer stamp boundaries across compilers that may contract FMA.
+          const volatile double first = from * (1 - amount);
+          const volatile double last = to * amount;
+          return first + last;
+        };
+        recursiveX = weighted(recursiveX, s.x, fraction);
+        recursiveY = weighted(recursiveY, s.y, fraction);
+        recursiveRemaining -= advance;
+        sourceFuturePosition.x = recursiveX;
+        sourceFuturePosition.y = recursiveY;
+      }
       sourceFuturePressure    = future.pressure;
       sourceFutureHasPressure = future.hasPressure;
       travel                  = sourceNextDab;
       if (!dab(geometric)) return false;
       sourcePressureLookahead = false;
       sourceNextDab += spacing;
+      if (recursiveGeometry) recursiveStep = spacing;
+    }
+    if (recursiveGeometry) {
+      // Carry the unconsumed physical distance across authored vertices. A
+      // subtraction of global cumulative distances changes floating rounding
+      // and invents shifts in the independently captured subdivided path.
+      if (recursiveBitmap) sourceBitmapToNext = recursiveStep - recursiveRemaining;
+      else sourceSmearToNext = recursiveStep - recursiveRemaining;
     }
     // Preserve the endpoint preceding the next geometric sample and the
     // unconsumed half-pixel tail; do not resample away authored corner data.
@@ -1282,6 +1493,42 @@ struct Stroke::Impl {
       factor *= v;
     }
     return d.value * (d.minimum + (1 - d.minimum) * factor);
+  }
+  double generatedGaussian(double coordinate, int axis) const {
+    if (generatedDeviation[axis] == 0) return 1;
+    return unit((std::erf((generatedMean[axis] + coordinate) / generatedDeviation[axis]) +
+                 std::erf((generatedMean[axis] - coordinate) / generatedDeviation[axis])) /
+                generatedNormalization[axis]);
+  }
+  double generatedCurve(double x) const {
+    const auto &curve = p.sourceGeneratedV1->softnessCurve;
+    if (x <= curve.front().x) return unit(curve.front().y);
+    if (x >= curve.back().x) return unit(curve.back().y);
+    const auto upper = std::lower_bound(curve.begin(), curve.end(), x,
+        [](const Knot &point, double value) { return point.x < value; });
+    const size_t i = size_t(upper - curve.begin());
+    const auto &a = curve[i - 1], &b = curve[i];
+    const double span = b.x - a.x, left = (b.x - x) / span,
+                 right = (x - a.x) / span;
+    return unit(a.y * left + b.y * right +
+        ((left * left * left - left) * generatedSecond[i - 1] +
+         (right * right * right - right) * generatedSecond[i]) * span * span / 6);
+  }
+  size_t generatedPixelWork() const {
+    const auto &definition = *p.sourceGeneratedV1;
+    // Account for source curve lookup/evaluation rather than native AA taps.
+    // Rectangle Soft evaluates four cubics; the fixed AA lane scan and final
+    // byte quantization are included independently. Gaussian calls contain two
+    // erf evaluations per axis, plus a square root for the circle distance.
+    if (definition.generator == SourceGeneratedGenerator::Soft) {
+      size_t comparisons = 0;
+      for (size_t n = definition.softnessCurve.size(); n; n /= 2)
+        ++comparisons;
+      const size_t lookups = definition.shape == SourceGeneratedShape::Circle ? 1 : 4;
+      return 64 + lookups * (64 + 2 * comparisons);
+    }
+    return definition.shape == SourceGeneratedShape::Circle
+               ? 64 + 3 * 128 : 64 + 4 * 128;
   }
   size_t index(const Tip &t) {
     return t.images.empty() ? 0
@@ -1636,20 +1883,19 @@ struct Stroke::Impl {
     const Pixel foreground = sourceForeground(p.color, s);
     const double radius = p.size.value * .5;
     spacing             = std::max(.01, p.size.value * p.spacing);
-    // Measured model distinction: Dulling retains the hard Pixel lattice;
-    // Smear transports a pixel-centered footprint instead.
-    // Exact odd-diameter source masks are symmetric about pixel centers:
-    // Smear's 7px rows are 3/5/7/7/7/5/3; even masks retain their half-pixel
-    // center. Dulling uses the independently measured Pixel lattice instead.
-    const double oddOffset = (int(p.size.value) & 1) ? .5 : 0;
-    // Moving source dabs use the actual half-pixel future path position,
-    // including outgoing corner direction. Retain the independently measured
-    // model footprint offsets; forward scans are unchanged. Wet direction
-    // parity is qualified separately from the shared hard Pixel scheduler.
+    // Moving source dabs use the half-pixel future path position, including
+    // outgoing corner direction. Original fractional/vertical Smear captures
+    // retain a fixed raster mask: quantize its origin independently per axis.
+    // This also preserves the half-integer center of odd-diameter raster tips.
+    // Dulling retains its independently measured hard Pixel lattice.
     Sample position = sourcePressureLookahead ? sourceGeometrySample(s) : s;
     if (!sourcePressureLookahead) position.x += .5;  // Initial wet pickup.
-    const double cx = position.x + (p.wet == Wet::Dulling ? 0 : oddOffset - .5),
-                 cy = position.y - (p.wet == Wet::Smear ? oddOffset : 0);
+    const double cx = p.wet == Wet::Smear
+                          ? std::floor(position.x - radius) + radius
+                          : position.x,
+                 cy = p.wet == Wet::Smear
+                          ? std::floor(position.y - radius) + radius
+                          : position.y;
     const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
                         p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
     const double pickupExtent =
@@ -1671,6 +1917,10 @@ struct Stroke::Impl {
                  deltaY       = previousSourceDab.y - s.y;
     const double pickupWidth  = 2 * pickupExtent;
     const double pickupHeight = std::max(0.0, pickupWidth - 1);
+    // Retain the current area/minimum estimate: single-mark observations
+    // constrain several counts but do not establish a general size/window
+    // equation. Cumulative Lab16 convergence adds measured 16-sample batches;
+    // this does not by itself qualify the unresolved minimum-count geometry.
     const unsigned pickupSamples =
         p.smudgeRadius == 0
             ? 1
@@ -1684,17 +1934,34 @@ struct Stroke::Impl {
     // the same conservative ceiling; no geometry/semantic setting is reduced.
     if (!accountPixelWork(x1 - x0, y1 - y0, p.texture.image ? 17 : 16))
       return false;
+    auto pickupSampleWork = [](unsigned lastAttempt) {
+      // Bound both radical-inverse digit loops plus coordinate, tip and
+      // read/accumulate work, including samples rejected by modern clipping.
+      size_t work = 32;  // Includes quantized or compensated RGBA accumulation.
+      for (unsigned n = lastAttempt; n; n /= 2) ++work;
+      for (unsigned n = lastAttempt; n; n /= 3) ++work;
+      return work;
+    };
     if (p.wet == Wet::Dulling) {
-      size_t sampleWork = 1;
-      if (p.smudgeRadius != 0) {
-        // Clipping the canvas does not shorten the physical sample sequence.
-        // Bound both radical-inverse digit loops plus coordinate, tip and
-        // read/accumulate work for every attempted sample, including rejects.
-        sampleWork = 4;
-        for (unsigned n = pickupSamples; n; n /= 2) ++sampleWork;
-        for (unsigned n = pickupSamples; n; n /= 3) ++sampleWork;
+      if (p.smudgeRadius != 0 &&
+          pickupSamples > Detail::AdaptivePickupSampling::maximumAttempts) {
+        failure = "Source pickup sample work limit exceeded";
+        return false;
       }
-      if (!accountPixelWork(int(pickupSamples), 1, sampleWork)) return false;
+      if (!accountPixelWork(int(pickupSamples), 1,
+                            p.smudgeRadius == 0 ? 1
+                                                : pickupSampleWork(pickupSamples)))
+        return false;
+      // Two initial checkpoints. Later conversions and sample batches are
+      // charged before their reads, with no uncharged retry or partial result.
+      if (p.smudgeRadius != 0 && !accountPixelWork(2, 1, 128)) return false;
+      // A cold transform generates its complete 33-cube grid. Charge that
+      // fixed construction work before any renderer-triggered allocation or
+      // lazy initialization, independently of warmed checkpoint lookups.
+      if (p.smudgeRadius != 0) {
+        const size_t preparation = Detail::sourcePickupLabPreparationWork();
+        if (preparation && !accountPixelWork(1, 1, preparation)) return false;
+      }
     }
     if (!prepareSourceOutside(x0, y0, x1, y1)) return false;
     const size_t bytes = size_t(x1 - x0) * (y1 - y0) * sizeof(Pixel);
@@ -1721,14 +1988,16 @@ struct Stroke::Impl {
                  ? sourceField[size_t(y - sourceY) * sourceW + x - sourceX]
                  : Pixel{};
     };
-    // Independent orthogonal impulses identify a base-2/base-3 sequence
-    // with an area-scaled sample count and an 80-sample minimum. Its final y
-    // coordinate is one pixel below the mathematical bottom edge. New Dulling
-    // clips sampling to the tip and caps its extent at one tip radius; legacy
-    // sampling is rectangular.
-    auto pickupAt = [&](auto read, double centerX, double centerY) {
-      if (p.smudgeRadius == 0)
-        return read(int(std::floor(centerX)), int(std::floor(centerY)));
+    // Orthogonal impulses identify a base-2/base-3 rectangle; its last y
+    // coordinate is one pixel above the mathematical bottom edge. New Dulling
+    // clips to the tip. Keep attempted-count checkpoints explicit: accepted-
+    // count behavior for arbitrarily clipped modern masks remains unqualified.
+    auto pickupAt = [&](auto read, PixelStorage storage, double centerX,
+                        double centerY, Pixel &result) {
+      if (p.smudgeRadius == 0) {
+        result = read(int(std::floor(centerX)), int(std::floor(centerY)));
+        return true;
+      }
       auto radicalInverse = [](unsigned value, unsigned base) {
         double result = 0, factor = 1;
         while (value) {
@@ -1738,37 +2007,58 @@ struct Stroke::Impl {
         }
         return result;
       };
-      Pixel sum{};
-      const double extent = pickupExtent;
-      unsigned count      = 0;
-      for (unsigned i = 1; i <= pickupSamples; ++i) {
-        const int x = int(
-            std::floor(centerX + (2 * radicalInverse(i, 2) - 1) * extent + .5));
+      Detail::AdaptivePickupSampling sampling(
+          pickupSamples, Detail::AdaptivePickupSampling::maximumAttempts,
+          Detail::sourcePickupLabCalibration(), Detail::PickupCountBasis::Attempted,
+          storage == PixelStorage::QuantizedStraightRgba8
+              ? Detail::PickupMeanStorage::QuantizedStraightRgba8
+          : storage == PixelStorage::QuantizedPremultipliedRgba8
+              ? Detail::PickupMeanStorage::QuantizedPremultipliedRgba8
+              : Detail::PickupMeanStorage::FloatingPoint);
+      unsigned chargedAttempts = pickupSamples;
+      while (sampling.decision() == Detail::PickupDecision::Collecting) {
+        if (sampling.attempts() == chargedAttempts) {
+          const unsigned extra = std::min(
+              unsigned(Detail::AdaptivePickupSampling::batchSize),
+              Detail::AdaptivePickupSampling::maximumAttempts - chargedAttempts);
+          if (!extra ||
+              !accountPixelWork(int(extra), 1,
+                                pickupSampleWork(chargedAttempts + extra)) ||
+              !accountPixelWork(1, 1, 128))
+            return false;
+          chargedAttempts += extra;
+        }
+        const unsigned i = sampling.attempts() + 1;
+        const int x = int(std::floor(
+            centerX + (2 * radicalInverse(i, 2) - 1) * pickupExtent + .5));
         const int y = int(std::floor(
-            centerY - extent +
-            radicalInverse(i, 3) * std::max(0.0, 2 * extent - 1) + .5));
+            centerY - pickupExtent +
+            radicalInverse(i, 3) * std::max(0.0, 2 * pickupExtent - 1) + .5));
+        bool accepted = true;
         if (modern) {
           const double dx = (x - centerX) / radius,
                        dy = (y + .5 - centerY) / radius;
-          if (tipPixel(p.tip, 0, dx, dy).a == 0) continue;
+          accepted = tipPixel(p.tip, 0, dx, dy).a != 0;
         }
-        ++count;
-        const Pixel sample = read(x, y);
-        sum.r += sample.r;
-        sum.g += sample.g;
-        sum.b += sample.b;
-        sum.a += sample.a;
+        sampling.add(accepted ? read(x, y) : Pixel{}, accepted);
       }
-      return count ? mul(sum, 1.0 / count) : Pixel{};
+      if (sampling.result(result)) return true;
+      failure = sampling.decision() == Detail::PickupDecision::WorkLimit
+                    ? "Source pickup failed to converge within its work limit"
+                    : "Source pickup color conversion or sample is invalid";
+      return false;
     };
     auto surfaceAt = [&](int x, int y) { return sourceRead(x, y); };
     // Radius-zero Dulling carries the previous center pickup uniformly.
     // Smear carries a translated field. Heterogeneous third-dab fixtures
     // distinguish these states even when their first two dabs coincide.
-    const Pixel dullingPickup =
-        p.wet != Wet::Dulling ? Pixel{}
-        : !dabs               ? pickupAt(surfaceAt, s.x, s.y)
-                : pickupAt(at, previousSourceDab.x, previousSourceDab.y);
+    Pixel dullingPickup{};
+    if (p.wet == Wet::Dulling &&
+        (!dabs ? !pickupAt(surfaceAt, surface.storage(), s.x, s.y, dullingPickup)
+               : !pickupAt(at, PixelStorage::FloatingPremultiplied,
+                           previousSourceDab.x, previousSourceDab.y,
+                           dullingPickup)))
+      return false;
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
         const double fx = x + deltaX, fy = y + deltaY;
@@ -1875,7 +2165,7 @@ struct Stroke::Impl {
         s);
     if (!dabs) reservoir = foreground;
     const Sample sizeSample = sourcePressureSample(s);
-    const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
+    const bool sourceHard = sourceHardPixelProfile(p.profile);
     const double diameter =
                      std::max(sourceHard ? .5 : .25, eval(p.size, sizeSample)),
                  radius = diameter * .5;
@@ -1903,11 +2193,22 @@ struct Stroke::Impl {
     const double pickup       = p.pickup * eval(p.pickupControl, s),
                  colorRate    = p.colorRate * eval(p.colorRateControl, s);
     const double smudgeRadius = p.smudgeRadius * eval(p.radiusControl, s);
-    const size_t primaryIndex = index(p.tip),
+    const size_t primaryProposal = index(p.tip),
                  secondIndex  = p.secondary.enabled && !independentSecondary()
                                     ? index(p.secondary.tip)
                                     : 0;
-    const double scatter      = eval(p.scatter, s) * diameter;
+    const double scatter = p.sourceScatterV1
+                               ? p.sourceScatterV1->amount * diameter
+                               : eval(p.scatter, s) * diameter;
+    // Captured first single-axis dabs use the global-origin-to-contact vector.
+    // Later dabs use consecutive nominal positions; random offsets never feed
+    // back into direction. Both-axis source scatter stays in canvas axes.
+    const double sourceScatterDirection = p.sourceScatterV1
+        ? std::atan2(s.y - previousScatterY, s.x - previousScatterX) : 0;
+    if (p.sourceScatterV1) {
+      previousScatterX = s.x;
+      previousScatterY = s.y;
+    }
     const int stampCount =
         int(std::floor(p.count * unit(eval(p.countControl, s)) + .5));
     for (int stamp = 0; stamp < stampCount; ++stamp) {
@@ -1917,17 +2218,57 @@ struct Stroke::Impl {
       // Forward lines therefore have the previously measured integer-x /
       // half-integer-y lattice; reverse and outgoing corners differ. Other
       // source profiles retain their independently qualified placement.
-      const Sample position = sourceHard ? sourceGeometrySample(s) : s;
+      const bool sourceRandomBitmap = sourceRandomBitmapProfile(p.profile);
+      const Sample position = sourceHard || sourceRandomBitmap ? sourceGeometrySample(s) : s;
       const double sourceOffset =
           !sourceHard && sourcePixelProfile(p.profile) &&
                   !sourceAirbrushProfile(p.profile)
               ? .5 : 0;
-      const double cx = position.x + sourceOffset +
-                        (p.scatterBothAxes ? scatterX
-                                           : -std::sin(direction) * scatterX),
-                   cy = position.y + (p.scatterBothAxes
-                                          ? scatterY
-                                          : std::cos(direction) * scatterX);
+      double offsetX = p.scatterBothAxes ? scatterX
+                                         : -std::sin(direction) * scatterX;
+      double offsetY = p.scatterBothAxes ? scatterY
+                                         : std::cos(direction) * scatterX;
+      if (p.sourceScatterV1) {
+        const auto &process = *p.sourceScatterV1;
+        if (process.axisX && process.axisY) {
+          offsetX = scatterX;
+          offsetY = scatterY;
+        } else {
+          const double along = process.axisX ? scatterX : 0;
+          const double across = process.axisY ? scatterX : 0;
+          const double dc = std::cos(sourceScatterDirection),
+                       ds = std::sin(sourceScatterDirection);
+          offsetX = dc * along - ds * across;
+          offsetY = ds * along + dc * across;
+        }
+      }
+      const double cx = position.x + sourceOffset + offsetX,
+                   cy = position.y + offsetY;
+      size_t primaryIndex = primaryProposal;
+      double bitmapX = s.x, bitmapY = s.y;
+      if (sourceRandomBitmap) {
+        // A public moving stroke provides a half-pixel future position. A true
+        // tap retains the independently supported contact-centered bitmap.
+        const double geometryX = position.x + (sourcePressureLookahead ? 0 : .5);
+        const double geometryY = position.y;
+        const auto &proposed = *p.tip.images[primaryProposal];
+        SourceGihV1::GeometryKey key;
+        key.resources = p.tip.images.data();
+        key.proposalResource = p.tip.images[primaryProposal].get();
+        key.resourceCount = p.tip.images.size();
+        key.width = proposed.width; key.height = proposed.height;
+        key.phaseX = SourceGihV1::phase(geometryX);
+        key.phaseY = SourceGihV1::phase(geometryY);
+        key.diameter = diameter; key.aspect = aspect;
+        key.rotation = std::remainder(angleDegrees, 360.);
+        key.mirrorX = p.flipX || (sourceMirrored && p.sourceMirror.horizontal);
+        key.mirrorY = p.flipY || (sourceMirrored && p.sourceMirror.vertical);
+        primaryIndex = sourceGihSelection.select(key, primaryProposal, [&] {
+          return size_t(random() * p.tip.images.size()) % p.tip.images.size();
+        });
+        bitmapX = SourceGihV1::quantized(geometryX) - .5;
+        bitmapY = SourceGihV1::quantized(geometryY);
+      }
       const int reach = int(std::ceil(radius * 1.415 + 1));
       int x0          = std::max(0, int(std::floor(cx)) - reach),
           y0          = std::max(0, int(std::floor(cy)) - reach);
@@ -1935,7 +2276,9 @@ struct Stroke::Impl {
           y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
       const size_t samples =
-          (sourceBitmapProfile(p.profile) ? 16 : tipWork(p.tip)) +
+          (sourceBitmapProfile(p.profile) ? 16
+           : sourceGeneratedProfile(p.profile) ? generatedPixelWork()
+                                               : tipWork(p.tip)) +
           (p.sourceMasked.enabled ? 1 : 0) + (p.texture.image ? 4 : 0) +
           (p.wet == Wet::Smear ? 4 : 0) +
           (p.secondary.enabled && !p.secondary.independentSpacing
@@ -2038,12 +2381,65 @@ struct Stroke::Impl {
           double a = 0;
           if (sourceBitmapProfile(p.profile)) {
             tip = sourceBitmapPixel(
-                *p.tip.images[primaryIndex], diameter, angleDegrees, s.x, s.y,
+                *p.tip.images[primaryIndex], diameter, angleDegrees, bitmapX, bitmapY,
                 x, y,
                 p.profile == "krita-5.3.4.1-fixed-bitmap-mask-candidate-1",
                 sourceMirrored && p.sourceMirror.horizontal,
                 sourceMirrored && p.sourceMirror.vertical);
             a = tip.a;
+          } else if (sourceGeneratedProfile(p.profile)) {
+            // Original complete circle masks at two diameters and fractional
+            // origins establish the cubic response and outer one-pixel AA
+            // envelope independently of native hardness and filtering.
+            const auto &definition = *p.sourceGeneratedV1;
+            if (definition.shape == SourceGeneratedShape::Circle) {
+              const double q = u * u + v * v;
+              if (q < 1) {
+                double coverage = 0;
+                if (definition.generator == SourceGeneratedGenerator::Soft) {
+                  const double inner = (radius - 1) * (radius - 1) / (radius * radius);
+                  const double resolution = 4 * diameter;
+                  const double scale = (resolution - 1) / resolution;
+                  coverage = q <= inner
+                      ? 255 * generatedCurve(q * scale)
+                      : std::ceil(255 * generatedCurve(inner * scale)) *
+                            unit((1 - q) / (1 - inner));
+                } else {
+                  const double distance = std::sqrt(q) * radius;
+                  coverage = distance <= radius - 1
+                      ? 255 * generatedGaussian(distance, 0)
+                      : std::ceil(255 * generatedGaussian(radius - 1, 0)) *
+                            unit(radius - distance);
+                }
+                a = std::floor(coverage + .5) / 255;
+              }
+            } else {
+              const double px = std::abs(u) * radius, py = std::abs(v) * radius;
+              if (px <= radius && py <= radius) {
+                double response = 0;
+                if (definition.generator == SourceGeneratedGenerator::Soft) {
+                  const auto axis = [&](double coordinate) {
+                    const double t = coordinate / radius;
+                    return generatedCurve(t) * (1 - generatedCurve(1 - t));
+                  };
+                  response = axis(px) * axis(py);
+                } else {
+                  response = generatedGaussian(px, 0) * generatedGaussian(py, 1);
+                }
+                // Original fractional-origin masks identify an eight-column
+                // AA decision anchored to the generated stamp, rather than a
+                // radial filter or a per-pixel edge test.
+                const double left = std::floor(s.x + .5) - radius;
+                const double block = left + std::floor((x - left) / 8) * 8;
+                bool edgeBlock = false;
+                for (int lane = 0; lane < 8; ++lane)
+                  edgeBlock = edgeBlock || std::abs(block + lane - s.x) > radius - 1;
+                const double coverage = edgeBlock
+                    ? std::ceil(255 * response) * unit(radius - px) * unit(radius - py)
+                    : 255 * response;
+                a = std::floor(coverage + .5) / 255;
+              }
+            }
           } else if (sourceDefaultProfile(p.profile)) {
             // Independently recovered from complete alpha masks at five fade
             // values. Default circles fade in squared distance, with a
@@ -2250,18 +2646,21 @@ bool Stroke::add(const Sample &input) {
     return false;
   }
   try {
-    m->inputPixelWork = 0;
-    if (sourceAirbrushProfile(m->p.profile)) return m->addSourceAirbrush(s);
-    if (!m->p.sourceMasked.enabled &&
-        m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1")
+    m->inputPixelWork = m->pendingPreprocessingWork;
+    m->pendingPreprocessingWork = 0;
+    const auto profile = profileDescriptorV1(m->p.profile);
+    if (profile.usesDeliveredTimer()) return m->addSourceAirbrush(s);
+    if (profile.scheduling == SchedulingFamilyV1::SourceFuturePixel &&
+        (profile.id == ProfileIdV1::RandomBitmap || !m->p.sourceMasked.enabled))
       return m->addSourcePixel(s);
-    if (sourceWetProfile(m->p.profile) && m->started) {
+    if (profile.scheduling == SchedulingFamilyV1::SourceWetPickupThenFuture && m->started) {
       // Keep the first wet pickup immediate, preserving its transaction and
       // preflight guarantees. Subsequent deposits need future path geometry;
       // the retained history uses the same bounded allocation as dry input.
       if (m->sourcePath.empty()) {
         if (!m->appendSourcePoint(m->first, 0)) return false;
         m->sourceNextDab = m->spacing;
+        m->sourceSmearToNext = m->spacing + .5;
       }
       return m->addSourcePixel(s);
     }
@@ -2377,7 +2776,7 @@ bool Stroke::add(const Sample &input) {
 bool Stroke::finish() {
   if (!m->finished && m->failure.empty() && m->started && !m->dabs &&
       !m->sourceHasInputUpdate && !m->p.sourceMasked.enabled &&
-      m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
+      (sourceHardPixelProfile(m->p.profile) || sourceRandomBitmapProfile(m->p.profile))) {
     try {
       m->inputPixelWork          = 0;
       m->sourcePressureLookahead = false;

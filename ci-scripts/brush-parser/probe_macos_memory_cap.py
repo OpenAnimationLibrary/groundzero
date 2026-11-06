@@ -181,12 +181,18 @@ def main():
         for name, executable in (("parent", parent), ("child", child)):
             run_command(["/usr/bin/codesign", "--verify", "--strict", str(executable)],
                         output / f"verify-{name}.log")
-        signed = subprocess.check_output(
-            ["/usr/bin/codesign", "--display", "--entitlements", "-", str(child)],
-            stderr=subprocess.DEVNULL, timeout=15)
-        match = re.findall(rb"<\?xml.*?</plist>", signed, re.DOTALL)
-        if len(match) != 1 or plistlib.loads(match[0]) != {"com.apple.security.app-sandbox": True}:
-            raise RuntimeError("Probe child has unexpected signing entitlements")
+        # Apple TN3125: the default display is human-readable DER, not XML.
+        # Request XML explicitly and retain the sanitized display evidence.
+        signed = run_command(
+            ["/usr/bin/codesign", "--display", "--entitlements", "-", "--xml", str(child)],
+            output / "display-child-entitlements.log")
+        match = re.findall(r"<plist\b[^>]*>.*?</plist>", signed, re.DOTALL)
+        if len(match) != 1:
+            raise RuntimeError("Expected one XML entitlement plist; see display-child-entitlements.log")
+        claimed = plistlib.loads(match[0].encode("utf-8"))
+        if (type(claimed) is not dict or set(claimed) != {"com.apple.security.app-sandbox"}
+                or claimed["com.apple.security.app-sandbox"] is not True):
+            raise RuntimeError("Probe child must claim only Boolean App Sandbox; see display-child-entitlements.log")
         with tempfile.TemporaryDirectory(prefix="brush-memory-cap-") as temporary:
             PUBLIC_ROOTS.append((temporary, "<probe-private>"))
             private = Path(temporary)

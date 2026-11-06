@@ -15,6 +15,9 @@ public:
       : raster(r), controller(c), changed(changedPixels) {}
   int width() const override { return raster->getLx(); }
   int height() const override { return raster->getLy(); }
+  RasterBrush::PixelStorage storage() const override {
+    return RasterBrush::PixelStorage::QuantizedPremultipliedRgba8;
+  }
   bool prepare(int x0, int y0, int x1, int y1) override {
     return controller.askWrite(
         TRect(x0, height() - y1, x1 - 1, height() - y0 - 1));

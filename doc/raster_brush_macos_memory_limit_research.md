@@ -74,6 +74,15 @@ identifier, and signs a separate child with exactly App Sandbox. It requires an
 unprivileged parent and child; the child must observe denied private-sentinel
 reads/writes and denied loopback access before allocating.
 
+The driver explicitly requests `codesign --display --entitlements - --xml` and
+retains its sanitized output in `display-child-entitlements.log`. Apple's
+[TN3125](https://developer.apple.com/documentation/Technotes/tn3125-inside-code-signing-provisioning-profiles)
+explains that the default display is a human-readable DER representation, not
+XML. This distinction caused the first CI diagnostic attempt to reject the
+display before executing any memory case. Extraction now requires one XML plist
+whose sole key is App Sandbox with the actual Boolean value true; integer or
+extra entitlement values remain rejected. This corrects diagnostic decoding,
+without granting additional authority or qualifying the memory bound.
 Run in CI, never as a local-build exception:
 
 ```sh

@@ -57,7 +57,7 @@ public:
     std::shared_ptr<RasterBrush::Surface> nativeSurface;
     std::unique_ptr<RasterBrush::Stroke> nativeStroke;
     bool nativeTiltObserved = false;
-    bool nativeSourcePixel = false, nativeSourceAirbrush = false,
+    bool nativeDeferredTap = false, nativeSourceAirbrush = false,
          nativeHasSample = false;
     RasterBrush::Sample nativeLastSample;
     int nativeSourceLastIndex = -1;

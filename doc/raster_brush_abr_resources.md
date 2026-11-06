@@ -174,3 +174,15 @@ for two additional ABR 6.2 collections. All tips are sampled and all dynamics
 are disabled; both pattern sections are empty. This evidence does not resolve
 modern computed-tip, pattern-association, dynamic-control or other-version gaps,
 and does not establish source rendering parity. No pack assets are included.
+
+## Controlled P2711 reference-input contract
+
+The [operator recipe and bounded input contract](../ci-scripts/brush-reference/PHOTOSHOP_REFERENCE_INPUTS.md)
+make the required external exports concrete. Exact product/build/executable
+identity, original-asset ownership, complete UI state, one-setting export pairs,
+and opaque sample/preset/pattern identities are recorded without assigning ABR
+enum meanings. Historical original inputs and P2711-produced exports have
+separate hashes/headers and interpretation/render associations; P2711 need not
+export every historical container variant. The read-only ingester produces an
+unqualified integrity receipt and never runs Photoshop or grants source support.
+This does not replace the full D behavior, version, combination or device gates.

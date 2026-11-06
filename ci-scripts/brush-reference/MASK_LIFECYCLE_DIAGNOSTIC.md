@@ -78,3 +78,57 @@ implementation was consulted or copied.
 
 - [Pinned public Node API](https://github.com/KDE/krita/blob/bd6e8d0/libs/libkis/Node.cpp)
 - [Pinned public painting resource plumbing](https://github.com/KDE/krita/blob/bd6e8d0/libs/libkis/PaintingResources.cpp)
+
+## Measured checkpoint at bd06d01b9
+
+Run 42263149104 has completed source acquisition for three profiles so far:
+reused node (job 128048288533), fresh node (128048288016), and one-worker plus
+fresh node (128048287864). Their retained artifacts each contain all 40 ordered
+records: original cases 000-038 have two independent captures each and target
+039 has eight. Every visible/alpha repeat comparison is zero in these three
+acquisitions. Every target capture has alpha bounds (890,1021,265,6), 1,590
+nonzero-alpha pixels, and these complete-canvas identities:
+
+- Raw BGRA8 SHA-256: `f3eaa19db9b8b71c31503be0d42315ae8ff6f7976d7699d357e61ec39568cf64`
+- Transparent-RGB-canonical SHA-256: `77096ca3f03a3d2686dab18cd7b43df922dc8a0c6168cd555c7a7bfb9dce62e2`
+
+Both identities match the complete second capture from the original c7 failure.
+The target's effective XML fields and root attribute values also match that
+original case; raw XML serialization hashes can differ because attribute order
+changes. These jobs subsequently failed the new native admission-metadata
+binding before comparison, at original case 000; that comparator failure is
+separate from their successful source acquisitions. Other lifecycle profiles
+were still pending at this checkpoint.
+
+No lifecycle or worker mechanism has been identified: the unchanged reused-node
+profile is stable here too. Retaining original history order, preset bytes and
+capture counts does not reproduce original wall-clock timing exactly. The new
+CPU-side evidence collection changes work between strokes, even though it adds
+no source-engine operation, fixed delay, discarded capture or retry selected by
+pixels. That timing difference and an intermittent source condition remain
+possible explanations requiring evidence. These bounded successes neither erase
+the recorded missing-tail failure nor qualify general masked painting. The
+unchanged original full maskwash acquisition and exact-repeat gate remain the
+required acceptance proof.
+
+A later artifact checkpoint covers nine profiles from that same run. In addition
+to the three above, single-worker reused node (job 128048287868), preset
+reselection (128048287987), isolated Node input (128048288309), retained-history
+Qt input (128048287896), isolated Qt input (128048288042), and x-minus-one
+translation (128048287894) all completed source acquisition with exact repeats.
+The two isolated profiles retain only target 039, as declared; all others retain
+the original 000-038 history twice. Every inspected target has eight complete
+captures. All eight untranslated profiles have the raw and canonical target
+hashes above. Both Qt profiles retain 33 verified contacts and match the Node
+result in this bounded case, so this run does not demonstrate an API-specific
+rendering divergence for 039.
+
+The x-minus-one profile has the complete expected bounds (889,1021,265,6) in all
+eight captures. Translating its bounded crop back to the baseline coordinates
+gives zero visible/alpha pixel differences; six alpha-zero hidden-RGB pixels
+differ. Its complete-canvas canonical SHA-256 is
+`693de5572721b737310a26e4efa6b59ab253f18195712b70d607b66c91ec9c75`.
+The other three translation artifacts were not inspected at this checkpoint.
+The nine jobs' later comparator failure remains the separate admission-binding
+issue described above. These observations identify no truncation mechanism and
+do not replace the original full maskwash gate.

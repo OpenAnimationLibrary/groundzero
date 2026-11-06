@@ -33,9 +33,9 @@ translation, image fitting, or substituted renderer output.
 ## Six completed directional measurements
 
 Every enabled source raster in these six groups is unique (100 of 100).
-Every native candidate raster is identical within each group (1 of 100), despite
-100 distinct candidate seeds. This agrees with the current importer having no
-Scatter control conversion. A source admission must therefore remain disabled,
+In that pre-implementation run, every native candidate raster is identical
+within each group (1 of 100), despite 100 distinct candidate seeds. The importer
+then had no Scatter control conversion. A source admission must therefore remain disabled,
 even for groups whose aggregate statistics pass.
 
 | Group | Original aggregate statistical outcome | Later active-axis centroid SD, pixels | First measured principal axis, degrees |
@@ -125,6 +125,103 @@ The evidence report digests below bind these measurements to the original data.
 | scatter-y-north | 7c21b2e531d8ef169c7921962a8fb90b7fda0af154795c92d20a1e8877688024 | 43fca6250e8487b5701f55045e877497150c8863808e56f5830a39d4848662bf |
 | scatter-xy-east | 7cefde23437e824dfe68332f867867da616fd2480d2641c2736d298c7cad2756 | 6dbe2e933c7294ab152f4f5ab5542be747ff4bcc393e9a88621b7ecff5ee12d9 |
 | scatter-xy-north | ec63633b624d58f42c6cbbc9598860774daf65f98fd6fa4dadc6e29ea053ccd4 | 571a52e715c74257102cbd7f7993e663aa753d5564581a6dea637f8707ce4660 |
+
+## Implemented bounded source scatter component
+
+`krita-5.3.4.1-scatter-candidate-1` now retains an explicit
+`Preset.sourceScatterV1` with amount and independent X/Y switches. This state is
+serialized strictly through native, portable and worker packages and cannot be
+activated under the native profile by changing a profile string. Original
+source parameter declarations remain in private/native provenance; portable
+exports retain only a validated technical projection, excluding arbitrary XML
+and private strings.
+
+Static source import preserves `ScatterValue`, `PressureScatter` and axis
+selection instead of silently discarding them. Disabled controls retain their
+metadata and select the existing independently measured hard-Pixel geometry.
+The explicit inactive `autoSpacingCoeff=1` is accepted with auto spacing off;
+this avoids the former unrelated unknown-attribute native fallback.
+
+The process uses independent uniform draws for both canvas axes. For one-axis
+scatter, one signed draw is projected along or perpendicular to the direction
+between consecutive nominal dabs. The first previous nominal point is the
+global origin, reproducing the observed initial basis; displaced positions do
+not feed back into direction. The dimensionless offset amplitude is
+`amount*effectiveDiameter`. This is one general state equation, not a fixture
+lookup, per-pixel fit, conditional stay probability, or source-seed imitation.
+
+The current admission guard remains exactly the acquired static component:
+diameter8, amount1, spacing4, unit aspect, zero angle, AA off, opacity/flow one,
+Normal build-up, and no coupled dynamics, texture, mirror, masks or wet engine.
+The source curve switch must explicitly be false. Unknown active settings,
+curve-enabled scatter, new sizes/amounts or unsupported combinations produce a
+clear import error rather than a source-labeled native approximation. Broader
+valid RCP1 settings are still required work, not clamped into this component.
+
+The existing native RNG algorithm, native scatter interpretation and native
+call order remain unchanged. Imported opaque-source candidates default to the
+existing host policy that resolves a different seed per logical stroke. The
+raw renderer still uses only its explicit resolved seed, and source/native
+seed identity is not asserted. Reference comparisons retain their 100 distinct
+explicit candidate streams and all original stochastic gates. Independent
+engine regressions exercise seed reproducibility, source mask controls,
+nondegenerate displacement, square support, first/later direction and rejected
+unmeasured state; import tests cover native/portable/worker preservation and
+strict malformed-state handling. These regressions have not been run locally.
+
+The existing captures further discriminate the proposed distribution. Across
+6,200 later XY dabs, measured X/Y population SDs are 4.653570/4.645847 pixels and
+central kurtoses are 1.779109/1.792807. A uniform [-8,+8] draw has SD4.618802 and
+kurtosis1.8. Measured correlation is -0.012091. There are 1,426 centroids outside
+a radius-eight disk and 578 in corners with both absolute coordinates above
+8/sqrt(2), ruling out a disk-only proposal. Single-axis later-dab kurtoses range
+1.766967..1.820526. First-dab residual RMS orthogonal to the global-start basis
+is 0.069591..0.082020 pixels over four independent 100-stroke groups. These are
+quantized-mask observations, not access to the source's private random values.
+They motivate the bounded independent uniform candidate, while final statistical
+acceptance remains mandatory.
+
+## Authored final-acquisition holdouts
+
+`scatter_holdout_fixtures.py` contains ten original configurations, each with
+100 independent enabled strokes and two disabled deterministic controls:
+
+- X-only and Y-only strokes shifted to a new origin, plus westward XY strokes.
+- Half/double scatter amounts, with spacing chosen to separate nominal cells.
+- Diameter4/16 controls around the acquired diameter8 component.
+- Half/full/ramping pressure delivered through actual Qt tablet events, with
+  an explicit identity Scatter curve. No Node.paintLine pressure is fabricated.
+
+`scatter_holdout_fixtures_test.py` checks complete replicate identities, bounded
+authored geometry, explicit unverified flags, actual pressure-event traces and
+unadmitted scaling/dynamic scope. Existing six group identities and metrics are
+unchanged. Holdout preparation does not widen source eligibility or reinterpret
+an unsupported active setting as a successful comparison.
+
+The manual `scatter-holdouts` focus now prepares and acquires all ten groups;
+these development groups remain absent from the default source workload. A pure
+shared contract validates every authored case and the complete 102-case planned
+permutation before allowing one capture for each independent enabled stroke.
+The final report and reusable cache must bind the actual execution permutation,
+canonical record ordering, ordinal identities, repeat evidence, retained actual
+effective XML, delivered endpoints or 37 tablet events, and bounded BGRA crop.
+The two disabled controls retain two independent exact canonical repeats.
+Synthetic contract regressions cover missing cases, altered inputs, coordinated
+XML/evidence tampering, event changes, ordering, repetition and cache restoration;
+they validate storage/input contracts without claiming renderer observations.
+
+Only shifted-origin X/Y and westward XY groups replay the measured static source
+candidate. They retain the ordinary hard-Pixel full-image gates for disabled
+controls and each independently enforce the unchanged 24 three-band metrics and
+10,000-bootstrap stochastic gates over exactly100 distinct candidate streams.
+Westward normalization is the fixed authored 180-degree transform for both
+rasters, with no rendered registration or fitted translation. The seven
+amount/size/pressure groups instead write `open-scatter-domain.json`, explicitly
+marking source-only acquisition, implementation pending and no comparison or
+qualification. They are routed before any native importer or renderer and reject
+a stale comparison file. Actual observations remain required before broadening
+the component. No new source capture, build, test or CI check has been run for
+these holdouts; final validation follows implementation.
 
 ## Automatic spacing capture remains open
 

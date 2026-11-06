@@ -137,7 +137,7 @@ jobs:
           name: brush-macos-memory-${{ matrix.os }}-qt${{ matrix.qt }}-${{ github.sha }}
           if-no-files-found: warn
           # Deliberately retain only sanitized text/JSON, not executables,
-          # generated resident-map fixtures, signing metadata or host state.
+          # generated resident-map fixtures, signing input files or host state.
           path: |
             brush-macos-memory-probe.log
             brush-macos-memory-probe/*.log

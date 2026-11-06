@@ -19,6 +19,11 @@ import tempfile
 TRUNCATION_GROUPS = frozenset((
     "wethsv", "gihcadence", "generatedtips", "autospacing", "scatter-x-east",
     "wetgeometry", "timedsensors", "generatedcurves",
+    "generated-transfer", "generated-geometry", "generated-sensors",
+    "scatterholdout-origin-x", "scatterholdout-origin-y", "scatterholdout-west-xy",
+    "scatterholdout-half-xy", "scatterholdout-double-xy", "scatterholdout-small-xy",
+    "scatterholdout-large-xy", "scatterholdout-pressure-half", "scatterholdout-pressure-full",
+    "scatterholdout-pressure-ramp",
 ))
 
 
@@ -41,7 +46,10 @@ def workflow_groups(workflow):
     # The final fallback is the full PR/default matrix. Validate it first, then
     # focused-only diagnostics such as Lab and repeat investigations.
     groups = list(dict.fromkeys(matrices[-1] + [g for matrix in matrices[:-1] for g in matrix]))
-    if len(groups) > 128 or not TRUNCATION_GROUPS.issubset(groups):
+    # Default workloads and each focus matrix stay bounded independently.
+    # This metadata-only union includes all development-only authored groups;
+    # it does not widen any group's case counts, fidelity, or default workload.
+    if len(groups) > 256 or not TRUNCATION_GROUPS.issubset(groups):
         raise RuntimeError("Reference workflow omitted a required fixture regression")
     return groups
 

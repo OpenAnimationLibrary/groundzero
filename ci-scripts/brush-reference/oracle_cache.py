@@ -22,6 +22,7 @@ import struct
 import subprocess
 import zipfile
 import zlib
+from xml.etree.ElementTree import ParseError, fromstring
 from mask_repeat_contract import contract as mask_repeat_contract
 import mask_repeat_lifecycle_contract
 
@@ -143,7 +144,7 @@ GENERATORS = frozenset({
     "hsv_joint_fixtures.py", "wet_drift_fixtures.py", "hsv_heldout_fixtures.py",
     "resource_fixtures.py", "hsv_pressure_fixtures.py", "sensor_fixtures.py",
     "mirror_fixtures.py", "texture_pickup_fixtures.py", "wet_hsv_fixtures.py",
-    "timed_fixtures.py",
+    "timed_fixtures.py", "gih_correlation_fixtures.py", "generated_controls_fixtures.py", "scatter_holdout_fixtures.py",
 })
 PURE_TESTS = frozenset({
     "application_test.py", "package_test.py", "oracle_cache_test.py",
@@ -152,6 +153,8 @@ PURE_TESTS = frozenset({
     "managed_lab_probe_test.py", "generated_tip_test.py", "bitmap_path_test.py",
     "paced_policy_test.py", "wet_hsv_combo_fixtures_test.py",
     "mask_repeat_contract_test.py", "mask_repeat_lifecycle_test.py", "view_control_contract_test.py",
+    "gih_correlation_test.py", "generated_controls_contract_test.py",
+    "scatter_holdout_fixtures_test.py", "scatter_holdout_contract_test.py",
 })
 
 
@@ -293,6 +296,79 @@ def validate_spacing_scatter_acquisition(fixtures, status):
     return scatter
 
 
+def validate_gih_correlation_acquisition(fixtures, status):
+    helper = run_path(str(Path(__file__).with_name("gih_correlation_contract.py")))
+    helper["validate_execution"](fixtures, status.get("records"))
+    expected = fixtures["presets"]
+    planned, actual = status.get("plannedExecutionOrder"), status.get("actualExecutionOrder")
+    require(status.get("intendedPresetOrder") == expected and type(planned) is list and
+            len(planned) == len(expected) and all(type(name) is str for name in planned) and
+            len(set(planned)) == len(expected) and set(planned) == set(expected) and
+            actual == planned, "missing GIH correlation execution order evidence")
+    order = {name: index for index, name in enumerate(planned)}
+    for index, row in enumerate(status["records"]):
+        require(type(row.get("intendedOrdinal")) is int and row["intendedOrdinal"] == index and
+                row["executionOrdinal"] == order[row["preset"]],
+                "source GIH correlation execution ordinal mismatch")
+    rows = [row for row in status["records"] if row["gihCorrelationProbe"]["stochastic"]]
+    sequences = [row["gihCorrelationEvidence"]["frameSelections"] for row in rows]
+    labels = [value for sequence in sequences for value in sequence]
+    statistics = status.get("resourceStatistics", {})
+    require(statistics.get("strokes") == 100 and statistics.get("sourceSequences") == sequences and
+            statistics.get("observedDabs") == sum(value is not None for value in labels) and
+            statistics.get("missingAuthoredSlots") == labels.count(None) and
+            statistics.get("frameCounts") == [labels.count(value) for value in range(3)] and
+            statistics.get("seedParityClaimed") is False and statistics.get("uniformityAssumed") is False,
+            "source GIH correlation resource summary differs from actual independent strokes")
+    return helper
+
+
+def validate_gih_correlation_effective_preset(helper, case, row, data):
+    preset = helper["closed_xml"](data, "malformed GIH correlation effective preset XML",
+                                   limit=1024 * 1024, allow_cdata=True)
+    params = preset.findall("param")
+    names = [item.get("name") for item in params]
+    require(preset.tag == "Preset" and preset.get("paintopid") == "paintbrush" and
+            preset.get("name") == case["preset"] and len(params) == len(preset) and
+            0 < len(params) <= 2048 and all(type(name) is str and 0 < len(name) <= 256 for name in names) and
+            len(set(names)) == len(names) and not (preset.text or "").strip() and
+            all(not len(item) for item in params), "invalid GIH correlation effective preset identity")
+    validated = helper["controls"](case, {item.get("name"): item.text or "" for item in params},
+                                    row["resourceResolution"])
+    require(all(row["gihCorrelationEvidence"].get(key) == value for key, value in validated.items()),
+            "GIH correlation controls differ from retained effective preset XML")
+
+
+def validate_scatter_holdout_acquisition(fixtures, status):
+    helper = run_path(str(Path(__file__).with_name("scatter_holdout_contract.py")))
+    helper["validate_execution"](fixtures, status)
+    for case, row in zip(fixtures["cases"], status["records"]):
+        require(helper["strict_equal"]({key: row.get(key) for key in case}, case),
+                "focused scatter inputs changed types or values")
+        evidence = row.get("scatterHoldoutEvidence", {})
+        fields = dict(evidence.get("effectiveControls", {}))
+        fields["brush_definition"] = evidence.get("effectiveBrushDefinition")
+        helper["validate_evidence"](fixtures["group"], case, fields, row.get("deliveryReport"), evidence)
+    return helper
+
+
+def validate_generated_control_effective_preset(helper, group, case, row, data):
+    require(helper["strict_equal"]({key: row.get(key) for key in case}, case),
+            "generated control fixture inputs changed types or values")
+    preset = helper["closed_xml"](data, "malformed generated control effective preset XML",
+                                   limit=1024 * 1024, allow_cdata=True)
+    params = preset.findall("param")
+    names = [item.get("name") for item in params]
+    require(preset.tag == "Preset" and preset.get("paintopid") == "paintbrush" and
+            preset.get("name") == case["preset"] and len(params) == len(preset) and
+            0 < len(params) <= 2048 and all(type(name) is str and 0 < len(name) <= 256 for name in names) and
+            len(set(names)) == len(names) and not (preset.text or "").strip() and
+            all(not len(item) for item in params), "invalid generated control effective preset identity")
+    fields = {item.get("name"): item.text or "" for item in params}
+    helper["validate_evidence"](group, case, fields, row.get("deliveryReport", {}),
+                                 row.get("generatedControlEvidence"))
+
+
 def acquisition(output, fixtures):
     require(fixtures.get("license") == "CC0-1.0", "non-original fixture license")
     status_bytes = read(output / "oracle-status.json")
@@ -300,12 +376,27 @@ def acquisition(output, fixtures):
     expected = fixtures["presets"]
     cases = fixtures["cases"]
     rows = status["records"]
+    generated_controls = None
+    if fixtures.get("group") in ("generated-transfer", "generated-geometry", "generated-sensors"):
+        generated_controls = run_path(str(Path(__file__).with_name("generated_controls_contract.py")))
+        generated_controls["validate_manifest"](fixtures)
+    else:
+        require(not any("generatedControlProbe" in case for case in cases),
+                "generated control declaration is outside its complete acquisition matrix")
     require(status["status"] == "complete" and status["version"] == fixtures["version"]
             and 0 < len(expected) <= 512 and len(set(expected)) == len(expected)
             and len(cases) == len(expected) and
             [r["preset"] for r in rows] == expected, "incomplete acquisition")
+    scatter_holdouts = (validate_scatter_holdout_acquisition(fixtures, status)
+                        if fixtures.get("group", "").startswith("scatterholdout-") else None)
+    require(scatter_holdouts is not None or not any("scatterHoldoutProbe" in case for case in cases),
+            "scatter holdout evidence is outside its complete focused matrix")
     spacing_scatter_group = fixtures.get("group") == "autospacing" or fixtures.get("group", "").startswith("scatter-")
     validated_scatter = validate_spacing_scatter_acquisition(fixtures, status) if spacing_scatter_group else False
+    gih_correlation = (validate_gih_correlation_acquisition(fixtures, status)
+                       if fixtures.get("group", "").startswith("gih-correlation-") else None)
+    require(gih_correlation is not None or not any("gihCorrelationProbe" in case for case in cases),
+            "GIH correlation evidence is outside its complete focused matrix")
     lifecycle = mask_repeat_lifecycle_contract.contract(fixtures["group"])
     if lifecycle:
         mask_repeat_lifecycle_contract.validate_manifest(fixtures)
@@ -360,6 +451,8 @@ def acquisition(output, fixtures):
             repetitions = (mask_repeat_lifecycle_contract.repeat_count(case)
                            if lifecycle else diagnostic["repetitions"])
         if validated_scatter and case["scatterProbe"]["enabled"]:
+            repetitions = 1
+        if scatter_holdouts is not None and case["scatterHoldoutProbe"]["enabled"]:
             repetitions = 1
         canonical = row["sha256RepeatPixels"]
         require(HEX.fullmatch(row["sha256Pixels"]) and len(repeated) == repetitions
@@ -427,6 +520,13 @@ def acquisition(output, fixtures):
                         (fixtures["width"], fixtures["height"]), "source image geometry")
             else:
                 require(digest(data) == row["effectivePresetSha256"], "effective preset hash")
+                if gih_correlation is not None:
+                    validate_gih_correlation_effective_preset(gih_correlation, case, row, data)
+                if generated_controls is not None:
+                    validate_generated_control_effective_preset(
+                        generated_controls, fixtures["group"], case, row, data)
+                if scatter_holdouts is not None:
+                    scatter_holdouts["validate_effective_preset"](fixtures["group"], case, row, data)
             files[name] = data
         require(sum(map(len, files.values())) <= TOTAL_LIMIT, "capture byte budget")
     if fixtures.get("group") == "wetkernelcount":

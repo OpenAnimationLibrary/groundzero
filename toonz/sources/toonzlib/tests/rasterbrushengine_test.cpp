@@ -1,10 +1,13 @@
 #include "toonz/rasterbrushengine.h"
+#include "../rasterbrushsampling.h"
+#include "../rasterbrushgihselection.h"
 #include "rasterbrushbitmapreference.h"
 #include <cmath>
 #include <array>
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 using namespace RasterBrush;
 namespace {
 void require(bool v, const char *s) {
@@ -63,6 +66,159 @@ void line(Canvas &c, Preset p) {
     require(s.add(sample(i, 64, i / 240.0)), s.error().c_str());
   finishStroke(s);
 }
+void testSourceGeneratedMasks() {
+  auto preset = [](SourceGeneratedGenerator generator, SourceGeneratedShape shape,
+                   double diameter, double horizontal, double vertical,
+                   const std::vector<Knot> &curve = {}) {
+    Preset p;
+    p.profile = "krita-5.3.4.1-generated-mask-candidate-1";
+    p.size.value = diameter;
+    p.spacing = 1;
+    p.tip.shape = shape == SourceGeneratedShape::Circle ? Shape::Round : Shape::Square;
+    p.tip.antialiasEdges = true;
+    SourceGeneratedDefinitionV1 definition;
+    definition.generator = generator;
+    definition.shape = shape;
+    definition.diameter = diameter;
+    definition.horizontalFade = horizontal;
+    definition.verticalFade = vertical;
+    definition.antialiasEdges = true;
+    definition.softnessCurve = curve;
+    p.sourceGeneratedV1 = definition;
+    return p;
+  };
+  auto anchors = [&](const Preset &p, double originX,
+                     const std::vector<std::array<int, 3>> &expected) {
+    require(validate(p).empty(), "Measured generated source candidate rejected");
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(64 + originX, 64, 0)) &&
+                stroke.add(sample(65 + originX, 64, .01)), stroke.error().c_str());
+    finishStroke(stroke);
+    require(stroke.dabCount() == 1, "Generated source short stroke changed dab count");
+    for (const auto &point : expected)
+      require(std::abs(std::floor(canvas.read(64 + point[0], 64 + point[1]).a * 255 + .5) -
+                           point[2]) <= 1,
+              "Generated mask differs from independently retained source pixel");
+  };
+  // Original full-raster source captures, retained before this implementation.
+  // The fixed bytes exercise nonuniform cubic curves, off-grid block AA and
+  // independent Gaussian axes; tests do not recalculate the model equations.
+  anchors(preset(SourceGeneratedGenerator::Soft, SourceGeneratedShape::Circle,
+                 16, .5, .5, {{0, 0}, {.25, .75}, {1, 1}}), 0,
+          {{0, 0, 3}, {4, 0, 191}, {5, 0, 254}, {7, 0, 251}, {5, 5, 149}});
+  anchors(preset(SourceGeneratedGenerator::Soft, SourceGeneratedShape::Rectangle,
+                 16, .5, .5, {{0, 1}, {.5, .2}, {1, 0}}), 0,
+          {{0, 0, 223}, {1, 0, 168}, {2, 0, 116}, {4, 0, 36}});
+  anchors(preset(SourceGeneratedGenerator::Soft, SourceGeneratedShape::Rectangle,
+                 16, .5, .5, {{0, 0}, {1, 1}}), .125,
+          {{-7, -8, 78}, {2, -8, 12}, {7, -8, 166}, {8, -8, 13}, {7, -7, 124}});
+  anchors(preset(SourceGeneratedGenerator::Soft, SourceGeneratedShape::Rectangle,
+                 64, .5, .5, {{0, 0}, {1, 1}}), .125,
+          {{-31, -32, 102}, {-25, -32, 76}, {-24, -32, 140},
+           {25, -32, 149}, {31, -32, 230}, {32, -32, 15}});
+  anchors(preset(SourceGeneratedGenerator::Gaussian, SourceGeneratedShape::Circle,
+                 16, 0, 0), 0, {{0, 0, 251}, {3, 0, 137}, {0, 7, 3}, {5, 5, 3}});
+  anchors(preset(SourceGeneratedGenerator::Gaussian, SourceGeneratedShape::Circle,
+                 64, .5, .5), 0,
+          {{20, 0, 155}, {21, 0, 132}, {22, 0, 108}, {31, 0, 2}, {22, 22, 1}});
+  anchors(preset(SourceGeneratedGenerator::Gaussian, SourceGeneratedShape::Circle,
+                 64, .1, .9), 0,
+          {{20, 0, 155}, {21, 0, 132}, {22, 0, 108}, {0, 21, 120}, {22, 22, 1}});
+  anchors(preset(SourceGeneratedGenerator::Gaussian, SourceGeneratedShape::Rectangle,
+                 64, .1, .9), 0,
+          {{0, 0, 255}, {12, 0, 201}, {0, 23, 119}, {12, 20, 157}, {-31, 20, 2}, {31, 20, 2}});
+  auto measured = preset(SourceGeneratedGenerator::Soft, SourceGeneratedShape::Circle,
+                         16, .5, .5, {{0, 0}, {1, 1}});
+  for (int mutation = 0; mutation < 8; ++mutation) {
+    auto p = measured;
+    if (mutation == 0) p.profile = "groundzero-native-1";
+    if (mutation == 1) p.sourceGeneratedV1.reset();
+    if (mutation == 2) p.sourceGeneratedV1->antialiasEdges = false;
+    if (mutation == 3) p.angle.value = 15;
+    if (mutation == 4) p.aspect.value = .5;
+    if (mutation == 5) p.size.value = p.sourceGeneratedV1->diameter = 32;
+    if (mutation == 6) p.blend = Blend::Erase;
+    if (mutation == 7) p.size.mappings.push_back({});
+    require(!validate(p).empty(), "Unmeasured generated source setting was admitted");
+  }
+  // These operations consume generated coverage through the same independently
+  // established Pixel transfer/compositor, rather than changing mask geometry.
+  for (auto blend : {Blend::Normal, Blend::Multiply, Blend::Screen, Blend::Overlay})
+    for (bool wash : {false, true}) {
+      auto p = measured;
+      p.blend = blend;
+      p.wash = wash;
+      p.opacity.value = .5;
+      p.flow.value = .25;
+      p.spacing = .25;
+      require(validate(p).empty(), "Shared Pixel transfer was blocked for generated coverage");
+    }
+  for (bool flow : {false, true}) {
+    auto p = measured;
+    auto &control = flow ? p.flow : p.opacity;
+    control.value = .5;
+    control.mappings.push_back({Sensor::Pressure, {{0, .25}, {.5, .75}, {1, .5}},
+                                1, Interpolation::NaturalCubic});
+    require(validate(p).empty(), "Measured Pixel pressure transfer was not shared");
+    control.mappings.front().sensor = Sensor::Time;
+    require(!validate(p).empty(), "Unmeasured generated Time transfer was admitted");
+  }
+  Canvas untouched;
+  Stroke bounded(untouched, measured, 1);
+  require(!bounded.add(sample(64, 64, 0)) && bounded.dabCount() == 0,
+          "Generated source snapshot ignored its memory budget");
+  // The maximum admitted source curve must reserve its complete temporary
+  // solver peak before construction, not merely the coefficients it retains.
+  auto maximum = measured;
+  auto &knots = maximum.sourceGeneratedV1->softnessCurve;
+  knots.clear();
+  for (int index = 0; index < 1024; ++index)
+    knots.push_back({double(index) / 1023, double(index) / 1023});
+  require(validate(maximum).empty(), "legal 1024-knot generated curve rejected");
+  struct GeneratedGuard : Canvas {
+    int prepares = 0, writes = 0;
+    mutable int reads = 0;
+    bool prepare(int x0, int y0, int x1, int y1) override {
+      ++prepares;
+      return Canvas::prepare(x0, y0, x1, y1);
+    }
+    Pixel read(int x, int y) const override {
+      ++reads;
+      return Canvas::read(x, y);
+    }
+    void write(int x, int y, const Pixel &pixel) override {
+      ++writes;
+      Canvas::write(x, y, pixel);
+    }
+  } guard;
+  auto memory = std::make_shared<MemoryBudget>(1024 * 1024);
+  Stroke measurement(guard, maximum, 1024 * 1024, memory);
+  const size_t retained = memory->used();
+  require(measurement.error().empty() && retained >= 1024 * sizeof(Knot),
+          "maximum generated curve escaped its snapshot/cache charge");
+  finishStroke(measurement);
+  require(memory->used() == 0, "generated coefficient snapshot leaked storage");
+  const size_t peak = retained + 1024 * sizeof(double);
+  {
+    auto oneShort = std::make_shared<MemoryBudget>(peak - 1);
+    Stroke denied(guard, maximum, peak - 1, oneShort);
+    require(denied.error() == "Generated curve memory limit exceeded" &&
+                oneShort->used() == 0 && !denied.add(sample(64, 64, 0)),
+            "generated solver did not reject its one-byte-short peak before allocation");
+  }
+  {
+    auto exact = std::make_shared<MemoryBudget>(peak);
+    Stroke allowed(guard, maximum, peak, exact);
+    require(allowed.error().empty() && exact->used() == retained,
+            "generated solver changed its declared complete construction peak");
+    finishStroke(allowed);
+    require(exact->used() == 0, "completed generated solver retained storage");
+  }
+  require(guard.prepares == 0 && guard.reads == 0 && guard.writes == 0,
+          "generated preprocessing touched the host before input");
+}
+
 void testSourceAirbrushDispatch() {
   Preset preset;
   preset.profile       = "krita-5.3.4.1-airbrush-candidate-1";
@@ -168,6 +324,350 @@ void testSourceAirbrushDispatch() {
   }
   require(same(nativePointer, nativeFlagged) && a.dabCount() == b.dabCount(),
           "Source tick flag changed native scheduling");
+}
+bool mockLinearPickupLab(const Pixel &mean, Detail::QuantizedPickupLab &lab) {
+  lab.encoded = {{std::uint16_t(std::floor(mean.r * 65535 + .5)), 32768, 32768}};
+  lab.physical = {{lab.encoded[0] * 100.0 / 65535, 0, 0}};
+  return true;
+}
+bool mockBoundaryPickupLab(const Pixel &mean, Detail::QuantizedPickupLab &lab) {
+  // Exact physical delta3 tests the controller boundary; this is deliberately
+  // a mock calibration and does not implement a claimed source color transform.
+  lab.encoded = {{std::uint16_t(mean.r > 0 ? 1966 : 0), 32768, 32768}};
+  lab.physical = {{mean.r > 0 ? 3.0 : 0.0, 0, 0}};
+  return true;
+}
+bool mockUnavailablePickupLab(const Pixel &, Detail::QuantizedPickupLab &) {
+  return false;
+}
+void testAdaptiveSourcePickupComponent() {
+  using namespace Detail;
+  const PickupLabCalibration mock{mockLinearPickupLab, "mock component test"};
+  require(sourcePickupLabCalibration().available(),
+          "Measured source Lab conversion is unavailable");
+  AdaptivePickupSampling blocked(80, 256, PickupLabCalibration{},
+                                 PickupCountBasis::Attempted);
+  Pixel result;
+  require(blocked.decision() == PickupDecision::CalibrationUnavailable &&
+              blocked.add({0, 0, 0, 1}, true) ==
+                  PickupDecision::CalibrationUnavailable &&
+              blocked.attempts() == 0 && !blocked.result(result),
+          "Uncalibrated source sampling produced a usable approximation");
+  AdaptivePickupSampling uniform(80, 256, mock, PickupCountBasis::Attempted);
+  for (unsigned i = 0; i < 80; ++i) {
+    const auto decision = uniform.add({.25, .25, .25, 1}, true);
+    require(decision == (i == 79 ? PickupDecision::Converged
+                                : PickupDecision::Collecting),
+            "Uniform pickup failed its exact minimum/batch boundary");
+  }
+  require(uniform.result(result) && result.r == .25 && result.a == 1 &&
+              uniform.attempts() == 80 && uniform.accepted() == 80,
+          "Uniform adaptive pickup changed cumulative color or count");
+  AdaptivePickupSampling cumulative(80, 256, mock, PickupCountBasis::Attempted);
+  while (cumulative.decision() == PickupDecision::Collecting) {
+    const double value = cumulative.attempts() < 25 ? 1 : 0;
+    cumulative.add({value, value, value, 1}, true);
+  }
+  require(cumulative.decision() == PickupDecision::Converged &&
+              cumulative.attempts() == 128 && cumulative.result(result) &&
+              result.r == 25.0 / 128 && result.a == 1,
+          "Adaptive pickup used a batch-only mean or skipped a16-sample checkpoint");
+  const PickupLabCalibration boundary{mockBoundaryPickupLab, "mock exact boundary"};
+  AdaptivePickupSampling strict(80, 128, boundary, PickupCountBasis::Attempted);
+  for (unsigned i = 0; i < 80; ++i)
+    strict.add(i < 64 ? Pixel{0, 0, 0, 1} : Pixel{1, 1, 1, 1}, true);
+  require(strict.decision() == PickupDecision::Collecting,
+          "Delta E exactly3 incorrectly satisfied a strict below3 boundary");
+  for (unsigned i = 0; i < 16; ++i) strict.add({1, 1, 1, 1}, true);
+  require(strict.decision() == PickupDecision::Converged &&
+              strict.attempts() == 96,
+          "Adaptive pickup omitted a subsequent converged batch");
+  AdaptivePickupSampling capped(80, 95, mock, PickupCountBasis::Attempted);
+  for (unsigned i = 0; i < 95; ++i) {
+    const double value = i < 25 ? 1 : 0;
+    capped.add({value, value, value, 1}, true);
+  }
+  require(capped.decision() == PickupDecision::WorkLimit &&
+              capped.attempts() == 95 && !capped.result(result),
+          "Unconverged pickup escaped its work limit or returned partial paint");
+  AdaptivePickupSampling accepted(80, 200, mock, PickupCountBasis::Accepted);
+  while (accepted.decision() == PickupDecision::Collecting)
+    accepted.add({.25, .25, .25, 1}, accepted.attempts() % 2 == 0);
+  require(accepted.decision() == PickupDecision::Converged &&
+              accepted.attempts() == 159 && accepted.accepted() == 80,
+          "Attempted and accepted pickup counts were conflated");
+  const PickupLabCalibration unavailable{mockUnavailablePickupLab, "mock failure"};
+  AdaptivePickupSampling failed(80, 128, unavailable, PickupCountBasis::Attempted);
+  for (unsigned i = 0; i < 64; ++i) failed.add({0, 0, 0, 1}, true);
+  require(failed.decision() == PickupDecision::InvalidCalibration &&
+              !failed.result(result),
+          "Failed color calibration returned a usable pickup");
+  AdaptivePickupSampling invalid(80, 128, mock, PickupCountBasis::Attempted);
+  require(invalid.add({1, 0, 0, .5}, true) == PickupDecision::InvalidSample &&
+              !invalid.result(result),
+          "Non-premultiplied input entered adaptive pickup state");
+  AdaptivePickupSampling badConfiguration(79, 128, mock,
+                                         PickupCountBasis::Attempted);
+  require(badConfiguration.decision() == PickupDecision::InvalidConfiguration,
+          "Invalid adaptive pickup configuration was accepted");
+}
+void testSourcePickupLabPreparation() {
+  using namespace Detail;
+  const bool ready = sourcePickupLabReadyFlag().load(std::memory_order_acquire);
+  const size_t expected = ready ? 0 : SourcePickupLabTransform::initializationWork;
+  require(sourcePickupLabReady() == ready &&
+              sourcePickupLabPreparationWork() == expected &&
+              sourcePickupLabReady() == ready,
+          "Source Lab preparation query allocated or changed cache readiness");
+  require(SourcePickupLabTransform::initializationWork == 4608384 &&
+              SourcePickupLabTransform::initializationWork < 256u * 1024u * 1024u,
+          "Source Lab grid construction escaped its fixed operation bound");
+  QuantizedPickupLab lab;
+  require(sourcePickupLabFromU16({{0, 0, 0}}, lab) && sourcePickupLabReady() &&
+              sourcePickupLabPreparationWork() == 0,
+          "Constructed source Lab cache still reports uncharged cold work");
+}
+void testSourcePickupLabCalibration() {
+  using namespace Detail;
+  // Original public ManagedColor observations, not generated by this helper.
+  // These include gray, both chromatic polarities and near-lightness colors.
+  struct Observation {
+    SourcePickupLabTransform::Code rgb, lab;
+  };
+  const Observation observations[] = {
+      {{{16549, 16549, 16549}}, {{17868, 32896, 32896}}},
+      {{{14246, 14246, 14246}}, {{15244, 32896, 32896}}},
+      {{{10051, 10051, 10051}}, {{10280, 32896, 32896}}},
+      {{{16383, 16383, 16383}}, {{17682, 32896, 32896}}},
+      {{{54389, 11145, 0}}, {{31088, 49251, 48629}}},
+      {{{10051, 10051, 55483}}, {{19401, 45612, 9839}}},
+      {{{4818, 4818, 60716}}, {{18782, 48567, 6435}}},
+      {{{5319, 60215, 0}}, {{53389, 13989, 52450}}},
+      {{{17808, 17808, 17808}}, {{19274, 32896, 32896}}},
+      {{{36704, 15807, 26559}}, {{25181, 42818, 31078}}},
+      {{{42350, 42350, 23184}}, {{43526, 30822, 42762}}},
+      {{{16886, 27698, 42413}}, {{29164, 32591, 23681}}},
+  };
+  const auto &transform = sourcePickupLabTransform();
+  require(&transform == &sourcePickupLabTransform() &&
+              transform.chargedBytes() == SourcePickupLabTransform::tableBytes &&
+              transform.chargedBytes() == 215622,
+          "Source Lab cache was duplicated or escaped its fixed memory charge");
+  for (const auto &observation : observations) {
+    QuantizedPickupLab lab;
+    require(sourcePickupLabFromU16(observation.rgb, lab) &&
+                lab.encoded == observation.lab,
+            "Calibrated source ICC conversion differs from an original U16 observation");
+    const Pixel input{(observation.rgb[0] + .25) / 65535,
+                      (observation.rgb[1] + .25) / 65535,
+                      (observation.rgb[2] + .25) / 65535, 1};
+    QuantizedPickupLab normalized;
+    require(convertSourcePickupLab(input, normalized) &&
+                normalized.encoded == observation.lab,
+            "Source U16 component writes stopped truncating cumulative RGB means");
+    const Pixel associated{input.r / 2, input.g / 2, input.b / 2, .5};
+    require(convertSourcePickupLab(associated, normalized) &&
+                normalized.encoded == observation.lab,
+            "Premultiplied alpha changed straight RGB profile conversion");
+  }
+  QuantizedPickupLab gray, chromatic;
+  sourcePickupLabFromU16({{16549, 16549, 16549}}, gray);
+  require(std::abs(gray.physical[0] - 27.2648215293884) < .00001 &&
+              gray.physical[1] == 0 && gray.physical[2] == 0,
+          "Source physical Lab decode disagrees with public neutral XML");
+  sourcePickupLabFromU16({{54389, 11145, 0}}, chromatic);
+  require(chromatic.physical[1] ==
+              (chromatic.encoded[1] / 257.0 - 128) * (127.0 / 128),
+          "Source positive Lab XML channel scaling changed");
+  require(!convertSourcePickupLab({1, 0, 0, .5}, gray),
+          "Invalid premultiplied input entered source color conversion");
+}
+void testSourcePickupObservedConvergence() {
+  using namespace Detail;
+  // Completed source first-25/75 point masks and complements: four endpoint
+  // pairs, 16 independently captured RGB outputs. Stopping counts remain
+  // predictions of this model; a source internal counter was not observed.
+  // Minimum candidate 99 is explicit, not a fitted general size-count rule.
+  using RGB = std::array<unsigned, 3>;
+  struct Pair {
+    Pixel low, high;
+    unsigned normal25, complement25, normal75, complement75;
+    std::array<RGB, 4> observed;
+  };
+  const Pair pairs[] = {
+      {{0, 0, 0, 1}, {1, 1, 1, 1}, 147, 131, 227, 211,
+       {{{{43, 43, 43}}, {{206, 206, 206}}, {{84, 84, 84}}, {{164, 164, 164}}}}},
+      {{1, 0, 0, 1}, {0, 1, 0, 1}, 163, 147, 307, 275,
+       {{{{216, 39, 0}}, {{43, 212, 0}}, {{193, 62, 0}}, {{70, 185, 0}}}}},
+      {{0, 0, 1, 1}, {1, 1, 0, 1}, 195, 163, 355, 307,
+       {{{{33, 33, 222}}, {{216, 216, 39}}, {{54, 54, 201}}, {{193, 193, 62}}}}},
+      {{192.0 / 255, 32.0 / 255, 64.0 / 255, 1},
+       {32.0 / 255, 128.0 / 255, 192.0 / 255, 1}, 147, 115, 243, 211,
+       {{{{165, 48, 86}}, {{67, 107, 164}}, {{143, 62, 104}}, {{89, 94, 147}}}}}};
+  for (const auto &pair : pairs)
+    for (unsigned points : {25u, 75u})
+      for (bool complement : {false, true}) {
+        AdaptivePickupSampling sampling(99, 1024, sourcePickupLabCalibration(),
+                                        PickupCountBasis::Attempted,
+                                        PickupMeanStorage::QuantizedStraightRgba8);
+        while (sampling.decision() == PickupDecision::Collecting) {
+          const bool marked = (sampling.attempts() < points) != complement;
+          sampling.add(marked ? pair.high : pair.low, true);
+        }
+        const unsigned expected = points == 25
+            ? (complement ? pair.complement25 : pair.normal25)
+            : (complement ? pair.complement75 : pair.normal75);
+        Pixel result;
+        require(sampling.attempts() == expected && sampling.result(result),
+                "Full-color U16 Lab convergence disagrees with a captured source mask");
+        const RGB &observed = pair.observed[(points == 75 ? 2 : 0) + complement];
+        auto byte = [](double value) { return std::floor(value * 255 + .5); };
+        require(byte(result.r) == observed[0] && byte(result.g) == observed[1] &&
+                    byte(result.b) == observed[2] && std::abs(result.a - 1) < 1e-12,
+                "Adaptive pickup did not return the captured cumulative RGB output");
+      }
+}
+void testSourcePickupExactQuantizedMean() {
+  using namespace Detail;
+  const PickupLabCalibration uniformCalibration{
+      convertSourcePickupLab, "authored exact non-neutral RGBA8 mean",
+      [](const std::array<std::uint16_t, 3> &rgb, QuantizedPickupLab &lab) {
+        // These authored bytes times 257 must survive every checkpoint,
+        // independent of repetition count or uniform quantized alpha.
+        if (rgb != std::array<std::uint16_t, 3>{{4369, 23901, 51657}})
+          return false;
+        return sourcePickupLabFromU16(rgb, lab);
+      }};
+  for (unsigned minimum : {80u, 147u, 4096u})
+    for (unsigned alpha : {255u, 127u, 1u}) {
+      const double a = alpha / 255.0;
+      const Pixel pixel{(17.0 / 255) * a, (93.0 / 255) * a,
+                        (201.0 / 255) * a, a};
+      AdaptivePickupSampling sampling(minimum, 8192, uniformCalibration,
+                                      PickupCountBasis::Attempted,
+                                      PickupMeanStorage::QuantizedStraightRgba8);
+      while (sampling.decision() == PickupDecision::Collecting)
+        sampling.add(pixel, true);
+      Pixel mean;
+      require(sampling.attempts() == minimum && sampling.result(mean) &&
+                  mean.r == (17.0 * alpha) / (255 * 255) &&
+                  mean.g == (93.0 * alpha) / (255 * 255) &&
+                  mean.b == (201.0 * alpha) / (255 * 255) && mean.a == a,
+              "Uniform quantized non-neutral pickup drifted with repeated accumulation");
+    }
+  const PickupLabCalibration weightedCalibration{
+      convertSourcePickupLab, "authored exact premultiplied mixed-alpha mean",
+      [](const std::array<std::uint16_t, 3> &rgb, QuantizedPickupLab &lab) {
+        if (rgb != std::array<std::uint16_t, 3>{{49151, 0, 16383}})
+          return false;
+        return sourcePickupLabFromU16(rgb, lab);
+      }};
+  for (unsigned minimum : {80u, 144u, 4096u}) {
+    AdaptivePickupSampling sampling(minimum, 8192, weightedCalibration,
+                                    PickupCountBasis::Attempted,
+                                    PickupMeanStorage::QuantizedStraightRgba8);
+    while (sampling.decision() == PickupDecision::Collecting)
+      sampling.add(sampling.attempts() % 2 == 0
+                       ? Pixel{1, 0, 0, 1} : Pixel{0, 0, 85.0 / 255, 85.0 / 255},
+                   true);
+    Pixel mean;
+    require(sampling.attempts() == minimum && sampling.result(mean) &&
+                mean.r == .5 && mean.g == 0 && mean.b == 1.0 / 6 &&
+                mean.a == 2.0 / 3,
+            "Exact source accumulation changed premultiplied mixed-alpha weighting");
+  }
+}
+void testSourcePickupPremultipliedByteStorage() {
+  using namespace Detail;
+  const PickupLabCalibration calibration{
+      convertSourcePickupLab, "authored associated-byte storage contract",
+      [](const SourcePickupLabTransform::Code &rgb, QuantizedPickupLab &lab) {
+        // Average associated byte channels are 26.5, 46.5, 69 and alpha 127.
+        // Unassociation happens after exact accumulation, with truncation.
+        if (rgb != SourcePickupLabTransform::Code{{13674, 23995, 35605}})
+          return false;
+        return sourcePickupLabFromU16(rgb, lab);
+      }};
+  for (unsigned minimum : {80u, 144u, 4096u}) {
+    AdaptivePickupSampling sampling(minimum, 8192, calibration,
+        PickupCountBasis::Attempted, PickupMeanStorage::QuantizedPremultipliedRgba8);
+    while (sampling.decision() == PickupDecision::Collecting)
+      sampling.add(sampling.attempts() % 2 == 0
+          ? Pixel{17.0 / 255, 31.0 / 255, 91.0 / 255, 128.0 / 255}
+          : Pixel{36.0 / 255, 62.0 / 255, 47.0 / 255, 126.0 / 255}, true);
+    Pixel mean;
+    require(sampling.attempts() == minimum && sampling.result(mean) &&
+                mean.r == 53.0 / 510 && mean.g == 93.0 / 510 &&
+                mean.b == 138.0 / 510 && mean.a == 127.0 / 255,
+            "Associated-byte pickup re-quantized unassociated color or changed its mean");
+  }
+}
+void testSurfacePickupStorageContract() {
+  Canvas generic;
+  require(generic.storage() == PixelStorage::FloatingPremultiplied,
+          "Generic Surface inferred byte storage for arbitrary floating pixels");
+  struct ByteBacking : Canvas {
+    PixelStorage storage() const override {
+      return PixelStorage::QuantizedPremultipliedRgba8;
+    }
+  };
+  auto backing = std::make_shared<ByteBacking>();
+  auto memory = std::make_shared<MemoryBudget>(1024 * 1024);
+  BufferedSurface buffered(backing, memory);
+  require(buffered.storage() == PixelStorage::FloatingPremultiplied &&
+              buffered.prepare(0, 0, 32, 32),
+          "Float tile cache inherited the backing raster's byte declaration");
+  const Pixel priorTrack{.25e-12, .125e-12, .375e-12, 1e-12};
+  buffered.write(10, 10, priorTrack);
+  const Pixel retained = buffered.read(10, 10);
+  require(retained.r == priorTrack.r && retained.g == priorTrack.g &&
+              retained.b == priorTrack.b && retained.a == priorTrack.a &&
+              buffered.storage() == PixelStorage::FloatingPremultiplied,
+          "Shared float tiles discarded a prior track's sub-byte paint");
+  using namespace Detail;
+  AdaptivePickupSampling first(80, 128, sourcePickupLabCalibration(),
+                               PickupCountBasis::Attempted);
+  while (first.decision() == PickupDecision::Collecting)
+    first.add(buffered.read(10, 10), true);
+  Pixel mean;
+  require(first.result(mean) && mean.r == priorTrack.r && mean.g == priorTrack.g &&
+              mean.b == priorTrack.b && mean.a == priorTrack.a,
+          "First floating-surface pickup was quantized from dab count");
+}
+void testSourcePickupRetainedFloatingMean() {
+  using namespace Detail;
+  // First retained Dulling feedback stores its mathematical mean directly.
+  // These are authored floating pixels, not claimed RGBA8 source captures.
+  const Pixel retained[] = {
+      {.25, .125, .375, 1},
+      {25.0 / 99, 39.0 / 163, 54.0 / 355, 1},
+      {.25e-12, .125e-12, .375e-12, 1e-12}};
+  for (const Pixel &pixel : retained)
+    for (unsigned minimum : {80u, 147u, 4096u}) {
+      AdaptivePickupSampling sampling(minimum, 8192, sourcePickupLabCalibration(),
+                                      PickupCountBasis::Attempted,
+                                      PickupMeanStorage::FloatingPoint);
+      while (sampling.decision() == PickupDecision::Collecting)
+        sampling.add(pixel, true);
+      Pixel mean;
+      require(sampling.attempts() == minimum && sampling.result(mean) &&
+                  mean.r == pixel.r && mean.g == pixel.g &&
+                  mean.b == pixel.b && mean.a == pixel.a,
+              "Retained floating pickup was rounded or lost its uniform tiny alpha");
+    }
+  const PickupLabCalibration mock{mockLinearPickupLab, "compensated floating mean"};
+  AdaptivePickupSampling varied(128, 256, mock, PickupCountBasis::Attempted,
+                                PickupMeanStorage::FloatingPoint);
+  const double tiny = std::ldexp(1.0, -54);
+  while (varied.decision() == PickupDecision::Collecting)
+    varied.add(varied.attempts() == 0 ? Pixel{1, 0, .5, 1}
+                                    : Pixel{tiny, 2 * tiny, 3 * tiny, 1}, true);
+  Pixel mean;
+  require(varied.attempts() == 128 && varied.result(mean) &&
+              mean.r == (1 + 127 * tiny) / 128 &&
+              mean.g == (254 * tiny) / 128 &&
+              mean.b == (.5 + 381 * tiny) / 128 && mean.a == 1,
+          "Nonuniform retained pickup discarded representable small contributions");
 }
 void testPeriodicTimeMapping() {
   auto render = [](bool periodic, double origin) {
@@ -385,6 +885,111 @@ void testSourceMirrorThreshold() {
     require(!validate(p).empty(),
             "source Mirror silently retained on native profile");
   }
+}
+void testSourceRandomGihCacheMechanism() {
+  using namespace SourceGihV1;
+  const double below = std::nextafter(16., 0.);
+  require(phase(below) == 64 && phase(16.) == 0 && quantized(below) == 16. &&
+              quantized(16.) == 16. && phase(16.5) == phase(48.5),
+          "GIH cache phase endpoint was normalized or integer translation changed its mask key");
+  int resourceA = 0, resourceB = 0;
+  GeometryKey key;
+  key.resources = &resourceA; key.proposalResource = &resourceA;
+  key.resourceCount = 3; key.width = key.height = 8;
+  key.diameter = 8; key.phaseX = 32;
+  Selection selection;
+  int calls = 0;
+  auto fresh = [&] { ++calls; return std::size_t(2); };
+  require(selection.select(key, 0, fresh) == 2 && calls == 1 && selection.valid() &&
+              selection.proposedFrame() == 0 && selection.actualFrame() == 2,
+          "Source GIH first proposal did not perform an independent actual selection");
+  require(selection.select(key, 0, fresh) == 2 && calls == 1,
+          "Source GIH unchanged proposal/key consumed a new actual selection");
+  require(selection.select(key, 1, fresh) == 2 && calls == 2,
+          "Source GIH proposal change reused a stale frame without independent selection");
+  for (int field = 0; field < 12; ++field) {
+    GeometryKey altered = key;
+    switch (field) {
+    case 0: altered.phaseX = 31; break;
+    case 1: altered.phaseY = 64; break;
+    case 2: altered.diameter = 16; break;
+    case 3: altered.aspect = .5; break;
+    case 4: altered.rotation = 90; break;
+    case 5: altered.mirrorX = true; break;
+    case 6: altered.mirrorY = true; break;
+    case 7: altered.resources = &resourceB; break;
+    case 8: altered.proposalResource = &resourceB; break;
+    case 9: altered.width = 16; break;
+    case 10: altered.resourceCount = 4; break;
+    case 11: altered.colorAsMask = true; break;
+    }
+    Selection changed;
+    changed.select(key, 0, fresh);
+    const int before = calls;
+    changed.select(altered, 0, fresh);
+    require(calls == before + 1, "Source GIH cache omitted an effective geometry/resource invalidation");
+    changed.select(altered, 0, fresh);
+    require(calls == before + 1, "Source GIH exact cache hit advanced actual frame");
+  }
+  Selection restarted;
+  const int before = calls;
+  restarted.select(key, 0, fresh);
+  require(calls == before + 1, "Source GIH cache state escaped its stroke");
+}
+void testSourceRandomGihRenderAndNativeInvariance() {
+  Preset p;
+  p.tip.shape = Shape::Bitmap; p.tip.antialiasEdges = false;
+  p.tip.randomSequence = true; p.size.value = 2; p.spacing = 2; p.seed = 1;
+  for (int frame = 0; frame < 3; ++frame) {
+    auto image = std::make_shared<Image>();
+    image->width = image->height = 2; image->color = true;
+    image->pixels.assign(4, Pixel{frame == 0 ? 1. : 0., frame == 1 ? 1. : 0., frame == 2 ? 1. : 0., 1});
+    p.tip.images.push_back(image);
+  }
+  auto render = [&](const Preset &preset, double end) {
+    Canvas canvas;
+    Stroke stroke(canvas, preset);
+    require(stroke.add(sample(16, 64, 0)) && stroke.add(sample(end, 64, 1)), stroke.error().c_str());
+    finishStroke(stroke);
+    return std::make_pair(canvas, stroke.dabCount());
+  };
+  auto labels = [&](const Canvas &canvas, int count) {
+    std::vector<int> result;
+    for (int index = 0; index < count; ++index) {
+      const Pixel color = canvas.read(16 + index * 4, 64);
+      require(color.a > 0, "GIH sequence regression lost an observable stamp");
+      result.push_back(color.r > color.g && color.r > color.b ? 0 : color.g > color.b ? 1 : 2);
+    }
+    return result;
+  };
+  const std::vector<int> nativeFrames{2, 2, 1, 2, 1, 2, 1, 0, 0, 1, 1, 2, 1, 2, 2, 1};
+  const auto native = render(p, 77);
+  require(native.second == 16 && labels(native.first, 16) == nativeFrames,
+          "Source GIH work changed the established native uniform-per-dab RNG sequence");
+  Preset source = p;
+  source.profile = "krita-5.3.4.1-random-bitmap-candidate-1";
+  require(validate(source).empty(), "Experimental source random GIH profile rejected original fixed frames");
+  const auto acquired = render(source, 77), replay = render(source, 77);
+  const std::vector<int> sourceFrames{2, 2, 2, 2, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1};
+  require(acquired.second == 16 && labels(acquired.first, 16) == sourceFrames && same(acquired.first, replay.first),
+          "Source GIH proposal/cache mechanism was not deterministic or was not used by rendering");
+  Preset changedSeed = source;
+  ++changedSeed.seed;
+  require(!same(acquired.first, render(changedSeed, 77).first), "Source GIH ignored its resolved stroke seed");
+  Preset hostPolicy = source;
+  hostPolicy.varySeedPerStroke = true;
+  require(same(acquired.first, render(hostPolicy, 77).first),
+          "Source GIH renderer replaced the resolved seed using host stroke policy");
+  const auto exact = render(source, 76);
+  require(exact.second == 15 && exact.first.read(76, 64).a == 0 && render(p, 76).second == 16,
+          "Source GIH exact endpoint continuation was invented or changed native endpoint behavior");
+  require(labels(render(p, 77).first, 16) == nativeFrames,
+          "Source GIH stroke cache contaminated a subsequent native stroke");
+  Preset invalid = source;
+  invalid.tip.randomSequence = false;
+  require(!validate(invalid).empty(), "Random source profile accepted an incremental selector");
+  invalid = source; invalid.profile = "krita-5.3.4.1-fixed-bitmap-candidate-1";
+  require(!validate(invalid).empty(), "Random GIH inherited deterministic bitmap source admission");
 }
 void testSourceBitmapWorkBudget() {
   struct Guard : Surface {
@@ -2029,6 +2634,148 @@ void testNativeWetAnalyticalDrift() {
               "cancelled native wet stroke retained field memory");
     }
 }
+void testSourceWetBoundaryMatrix() {
+  // Structural oracle for the original wetboundary controls: four models,
+  // four edges, entry/exit/reentry, color 0/.25, D32 and 8px input steps.
+  // This checks state preservation across host clipping, not source fidelity.
+  struct BoundaryCanvas : Canvas {
+    BoundaryCanvas(int side) {
+      w = h = side;
+      pixels.assign(size_t(w) * h, {});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  for (const std::string model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"})
+    for (double colorRate : {0.0, .25})
+      for (int edge = 0; edge < 4; ++edge)
+        for (int trace = 0; trace < 3; ++trace) {
+          BoundaryCanvas finite(256), padded(1024);
+          constexpr int padding = 384;
+          for (int y = 0; y < finite.h; ++y)
+            for (int x = 0; x < finite.w; ++x) {
+              const Pixel initial = x < 64
+                                        ? Pixel{0, 0, 1, 1}
+                                        : Pixel{128 / 255.0, 0, 0, 128 / 255.0};
+              finite.write(x, y, initial);
+              padded.write(x + padding, y + padding, initial);
+            }
+          Preset p;
+          p.profile = "krita-5.3.4.1-" + model + "-candidate-1";
+          p.wet = model.find("dulling") != std::string::npos ? Wet::Dulling
+                                                            : Wet::Smear;
+          p.tip.antialiasEdges = false;
+          p.size.value = 32;
+          p.spacing = .5;
+          p.smudgeRadius = 0;
+          p.color = {0, 1, 0, 1};
+          p.colorRate = colorRate;
+          const std::vector<std::pair<int, int>> paths[] = {
+              {{-96, 128}, {128, 128}},
+              {{128, 128}, {-96, 128}},
+              {{128, 128}, {-96, 128}, {-96, 192}, {128, 192}}};
+          auto transform = [edge](std::pair<int, int> point) {
+            const int x = point.first, y = point.second;
+            return edge == 0 ? std::make_pair(x, y)
+                 : edge == 1 ? std::make_pair(256 - x, y)
+                 : edge == 2 ? std::make_pair(y, x)
+                             : std::make_pair(y, 256 - x);
+          };
+          auto budget = std::make_shared<MemoryBudget>(8 * 1024 * 1024);
+          Stroke clipped(finite, p, 8 * 1024 * 1024, budget), full(padded, p);
+          double time = 0;
+          for (size_t segment = 1; segment < paths[trace].size(); ++segment) {
+            const auto a = transform(paths[trace][segment - 1]);
+            const auto b = transform(paths[trace][segment]);
+            const int steps = std::max(std::abs(b.first - a.first),
+                                       std::abs(b.second - a.second)) / 8;
+            for (int index = segment == 1 ? 0 : 1; index <= steps; ++index) {
+              const double x = a.first + (b.first - a.first) * double(index) / steps;
+              const double y = a.second + (b.second - a.second) * double(index) / steps;
+              require(clipped.add(sample(x, y, time)), clipped.error().c_str());
+              require(full.add(sample(x + padding, y + padding, time)),
+                      full.error().c_str());
+              time += 1 / 240.0;
+            }
+          }
+          require(clipped.dabCount() == full.dabCount(),
+                  "document edge changed source wet dab cadence");
+          for (int y = 0; y < finite.h; ++y)
+            for (int x = 0; x < finite.w; ++x) {
+              const Pixel a = finite.read(x, y);
+              const Pixel b = padded.read(x + padding, y + padding);
+              require(std::abs(a.r - b.r) < 1e-12 &&
+                          std::abs(a.g - b.g) < 1e-12 &&
+                          std::abs(a.b - b.b) < 1e-12 &&
+                          std::abs(a.a - b.a) < 1e-12,
+                      "wet entry/exit/reentry lost state at a document edge");
+            }
+          finishStroke(clipped);
+          finishStroke(full);
+          require(budget->used() == 0,
+                  "completed boundary matrix retained transient state");
+        }
+}
+void testSourceWetLengthToggleMeaning() {
+  // Original c7 wetopacitycombo RGBA8 centers at half opacity, length off,
+  // alpha transport on/off. Retained length=.5 still attenuates legacy color;
+  // disabled length selects full transport, never zero or native pickup.
+  const int captured[3][2][2][4] = {
+      {{{85, 11, 159, 192}, {148, 18, 88, 162}},
+       {{85, 11, 159, 192}, {157, 17, 81, 177}}},
+      {{{82, 11, 163, 193}, {143, 18, 93, 164}},
+       {{82, 11, 163, 193}, {153, 17, 85, 179}}},
+      {{{105, 11, 139, 181}, {173, 18, 64, 153}},
+       {{110, 5, 141, 179}, {189, 7, 60, 164}}}};
+  struct LengthCanvas : Canvas {
+    LengthCanvas() {
+      w = 640;
+      pixels.resize(size_t(w) * h);
+      for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+          write(x, y, x < 336 ? Pixel{0, 0, 1, 1}
+                              : Pixel{128 / 255.0, 0, 0, 128 / 255.0});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  for (const std::string model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
+    for (int alpha = 0; alpha < 2; ++alpha) {
+      const int group = model == "new-smear" ? 1 : model == "new-dulling" ? 2 : 0;
+      LengthCanvas canvas;
+      Preset p;
+      p.profile = "krita-5.3.4.1-" + model + "-candidate-1";
+      p.wet = model.find("dulling") != std::string::npos ? Wet::Dulling
+                                                        : Wet::Smear;
+      p.tip.antialiasEdges = false;
+      p.size.value = 32;
+      p.spacing = 5;
+      p.smudgeRadius = 0;
+      p.pickup = .5;
+      p.colorRate = .25;
+      p.color = {0, 1, 0, 1};
+      p.opacity.value = .5;
+      p.sourceSmudgeLengthEnabled = false;
+      p.sourceSmearAlpha = alpha == 0;
+      Stroke stroke(canvas, p);
+      require(stroke.add(sample(256, 64, 0)) && stroke.add(sample(577, 64, 1)),
+              stroke.error().c_str());
+      finishStroke(stroke);
+      require(stroke.dabCount() == 3,
+              "disabled length changed source wet spacing");
+      for (int dab = 0; dab < 2; ++dab) {
+        const Pixel actual = canvas.read(416 + 160 * dab, 64);
+        require(actual.a > 0, "disabled length erased a captured wet deposit");
+        const int encoded[] = {int(std::lround(actual.r / actual.a * 255)),
+                               int(std::lround(actual.g / actual.a * 255)),
+                               int(std::lround(actual.b / actual.a * 255)),
+                               int(std::lround(actual.a * 255))};
+        for (int channel = 0; channel < 4; ++channel)
+          require(std::abs(encoded[channel] - captured[group][alpha][dab][channel]) <= 1,
+                  "disabled length/alpha state differs from source center");
+      }
+    }
+}
 void testSourceWetOffCanvasState() {
   struct UnselectedCanvas : Canvas {
     double coverage(int, int) const override { return 1; }
@@ -3190,6 +3937,158 @@ void testSourceTransferCurves() {
               "Pixel cubic transfer broadened wet qualification");
     }
 }
+void testSourceSmearRasterOrigin() {
+  // Translated original 8px wetgeometry PNG support, observed identically in
+  // 516 Legacy/New Smear marks: fractional Y, reverse and vertical controls
+  // retain this fixed raster. Node.paintPath partition roundoff is separate.
+  const char *rows[] = {"..####..", ".######.", "########", "########",
+                        "########", "########", ".######.", "..####.."};
+  struct Capture {
+    double x0, y0, x1, y1;
+    int left, top;
+  };
+  const Capture captures[] = {
+      {16, 64, 33, 64, 28, 60},
+      {16, 63.875, 33, 63.875, 28, 59},
+      {16, 64.125, 33, 64.125, 28, 60},
+      {96, 64, 79, 64, 75, 60},
+      {64, 16, 64, 33, 60, 28},
+  };
+  for (const auto &model : {"legacy-smear", "new-smear"}) {
+    Preset p;
+    p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+    p.tip.antialiasEdges = false;
+    p.size.value = 8;
+    p.spacing = 2;
+    p.wet = Wet::Smear;
+    p.smudgeRadius = 0;
+    p.color = {0, 1, 0, 1};
+    require(validate(p).empty(), "measured Smear geometry profile rejected");
+    for (const auto &capture : captures) {
+      Canvas canvas;
+      for (int y = 0; y < canvas.h; ++y)
+        for (int x = 0; x < canvas.w; ++x)
+          canvas.write(x, y, {0, 0, 1, 1});
+      Stroke stroke(canvas, p);
+      require(stroke.add(sample(capture.x0, capture.y0, 0)) &&
+                  stroke.add(sample(capture.x1, capture.y1, 1)),
+              stroke.error().c_str());
+      finishStroke(stroke);
+      require(stroke.dabCount() == 2,
+              "Smear raster-origin control lost its independent second dab");
+      int occupied = 0;
+      for (int y = 0; y < canvas.h; ++y)
+        for (int x = 0; x < canvas.w; ++x) {
+          const int dx = x - capture.left, dy = y - capture.top;
+          const bool expected = dx >= 0 && dx < 8 && dy >= 0 && dy < 8 &&
+                                rows[dy][dx] == '#';
+          const bool changed = canvas.read(x, y).g > 0;
+          require(changed == expected,
+                  "Smear fractional/vertical raster differs from source support");
+          occupied += changed;
+        }
+      require(occupied == 52, "Smear source raster support changed");
+    }
+  }
+}
+void testSourceSmearRecursiveGeometry() {
+  // Original 9111a8970 wetgeometry captures: three constant-axis origins and
+  // geometrically identical coarse/subdivided turns distinguish recursive
+  // future stepping from direct lerp and coordinate-derived remaining length.
+  // These are captured support expectations, never runtime position tables.
+  struct GeometryCanvas : Canvas {
+    GeometryCanvas() {
+      w = 800;
+      h = 1000;
+      pixels.assign(size_t(w) * h, Pixel{0, 0, 1, 1});
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  const char *rows[] = {"..####..", ".######.", "########", "########",
+                        "########", "########", ".######.", "..####.."};
+  auto capturedMark = [&](const Canvas &canvas, int cx, int cy, int left,
+                          int top) {
+    for (int y = cy - 6; y <= cy + 6; ++y)
+      for (int x = cx - 6; x <= cx + 6; ++x) {
+        const int dx = x - left, dy = y - top;
+        const bool expected = dx >= 0 && dx < 8 && dy >= 0 && dy < 8 &&
+                              rows[dy][dx] == '#';
+        require((canvas.read(x, y).g > 0) == expected,
+                "recursive Smear geometry differs from captured raster window");
+      }
+  };
+  for (const auto &model : {"legacy-smear", "new-smear"}) {
+    Preset p;
+    p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+    p.tip.antialiasEdges = false;
+    p.size.value = 8;
+    p.spacing = 2;
+    p.wet = Wet::Smear;
+    p.smudgeRadius = 0;
+    p.color = {0, 1, 0, 1};
+    for (int y : {40, 328, 968}) {
+      GeometryCanvas canvas;
+      Stroke stroke(canvas, p);
+      require(stroke.add(sample(256, y, 0)) && stroke.add(sample(769, y, 1)),
+              stroke.error().c_str());
+      finishStroke(stroke);
+      require(stroke.dabCount() == 33,
+              "recursive geometry changed the captured straight dab cadence");
+      for (int index = 1; index <= 32; ++index) {
+        const bool shifted =
+            (y == 328 && ((index >= 5 && index <= 8) ||
+                          (index >= 21 && index <= 24))) ||
+            (y == 968 && index >= 22 && index <= 27);
+        capturedMark(canvas, 256 + 16 * index, y, 252 + 16 * index,
+                     y - 4 - int(shifted));
+      }
+    }
+    const double vertices[][2] = {{256, 328}, {768, 328}, {768, 344},
+                                   {256, 344}, {256, 360}, {769, 360}};
+    for (bool subdivided : {false, true}) {
+      GeometryCanvas canvas;
+      Stroke stroke(canvas, p);
+      require(stroke.add(sample(vertices[0][0], vertices[0][1], 0)),
+              stroke.error().c_str());
+      int ordinal = 0;
+      for (int segment = 1; segment < 6; ++segment) {
+        const double dx = vertices[segment][0] - vertices[segment - 1][0];
+        const double dy = vertices[segment][1] - vertices[segment - 1][1];
+        const int steps = subdivided ? int(std::ceil(std::hypot(dx, dy) / 16)) : 1;
+        for (int step = 1; step <= steps; ++step) {
+          const double fraction = double(step) / steps;
+          require(stroke.add(sample(vertices[segment - 1][0] + dx * fraction,
+                                    vertices[segment - 1][1] + dy * fraction,
+                                    ++ordinal / 240.0)),
+                  stroke.error().c_str());
+        }
+      }
+      finishStroke(stroke);
+      require(stroke.dabCount() == 99,
+              "path partition changed the captured Smear dab count");
+      for (int index = 1; index <= 98; ++index) {
+        int x, y, left;
+        if (index <= 32) {
+          x = 256 + 16 * index;
+          y = 328;
+          left = x - 4;
+        } else if (index <= 65) {
+          x = 768 - 16 * (index - 33);
+          y = 344;
+          left = x - (index == 65 ? 4 : 5);
+        } else {
+          x = 256 + 16 * (index - 66);
+          y = 360;
+          left = x - 4;
+        }
+        const bool shifted = !subdivided &&
+                             ((index >= 20 && index <= 22) ||
+                              (index >= 87 && index <= 95));
+        capturedMark(canvas, x, y, left, y - 4 - int(shifted));
+      }
+    }
+  }
+}
 void testSourcePathDirectionGeometry() {
   // Original dry count controls from continuous Node.paintPath. The window
   // includes forward, reverse and reverse-to-downward corner footprints.
@@ -4155,6 +5054,7 @@ void testNativeSpacingAndWorkLimits() {
               !guard.touched,
           "extreme independent mask work was not bounded before raster access");
 }
+#include "rasterbrushscatter_test.h"
 }  // namespace
 int main() {
   struct Case {
@@ -4167,6 +5067,8 @@ int main() {
       {"testSourceFixedBitmapCaptures", testSourceFixedBitmapCaptures},
       {"testSourceMirrorThreshold", testSourceMirrorThreshold},
       {"testSourceBitmapWorkBudget", testSourceBitmapWorkBudget},
+      {"testSourceRandomGihCacheMechanism", testSourceRandomGihCacheMechanism},
+      {"testSourceRandomGihRenderAndNativeInvariance", testSourceRandomGihRenderAndNativeInvariance},
       {"testSourceMaskedEventBudget", testSourceMaskedEventBudget},
       {"testFloatTransaction", testFloatTransaction},
       {"testSnapshotAndPrepareBudgets", testSnapshotAndPrepareBudgets},
@@ -4195,9 +5097,19 @@ int main() {
       {"testNativePressureDeliveryBatches", testNativePressureDeliveryBatches},
       {"testColorDynamics", testColorDynamics},
       {"testCubicCurves", testCubicCurves},
+      {"testAdaptiveSourcePickupComponent", testAdaptiveSourcePickupComponent},
+      {"testSourcePickupLabPreparation", testSourcePickupLabPreparation},
+      {"testSourcePickupLabCalibration", testSourcePickupLabCalibration},
+      {"testSourcePickupObservedConvergence", testSourcePickupObservedConvergence},
+      {"testSourcePickupExactQuantizedMean", testSourcePickupExactQuantizedMean},
+      {"testSourcePickupPremultipliedByteStorage", testSourcePickupPremultipliedByteStorage},
+      {"testSurfacePickupStorageContract", testSurfacePickupStorageContract},
+      {"testSourcePickupRetainedFloatingMean", testSourcePickupRetainedFloatingMean},
       {"testPeriodicTimeMapping", testPeriodicTimeMapping},
       {"testPeriodicDistanceMapping", testPeriodicDistanceMapping},
       {"testSourceAirbrushDispatch", testSourceAirbrushDispatch},
+      {"testSourceGeneratedMasks", testSourceGeneratedMasks},
+      {"testSourceScatterProcess", testSourceScatterProcess},
       {"testSourceDefaultCircle", testSourceDefaultCircle},
       {"testSourceDullingRadiusImpulses", testSourceDullingRadiusImpulses},
       {"testSourceWetPressureColorAttenuation",
@@ -4210,6 +5122,8 @@ int main() {
       {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
       {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
+      {"testSourceSmearRasterOrigin", testSourceSmearRasterOrigin},
+      {"testSourceSmearRecursiveGeometry", testSourceSmearRecursiveGeometry},
       {"testSourcePathDirectionGeometry", testSourcePathDirectionGeometry},
       {"testSourceHalfPixelLookahead", testSourceHalfPixelLookahead},
       {"testSourceTapAndShortMotion", testSourceTapAndShortMotion},
@@ -4222,6 +5136,8 @@ int main() {
       {"testSourceTransferCurves", testSourceTransferCurves},
       {"testSourceRectangle", testSourceRectangle},
       {"testSourceWetInitialization", testSourceWetInitialization},
+      {"testSourceWetBoundaryMatrix", testSourceWetBoundaryMatrix},
+      {"testSourceWetLengthToggleMeaning", testSourceWetLengthToggleMeaning},
       {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},
       {"testSourceTextureMasks", testSourceTextureMasks},
       {"testSourceWetHsvReferenceInteraction",

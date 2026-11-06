@@ -233,7 +233,8 @@ bool prepareWorkerCodecs() {
 }
 }  // namespace
 
-int runImportWorker(const QString &input, const QString &directory) {
+static int runImportWorkerImpl(const QString &input, const QString &directory,
+                               bool sampledTipsOnly) {
   // Establish restrictions before any untrusted bytes are decoded.
 #ifdef __APPLE__
   if (!macImportEntitlement()) return 2;
@@ -272,7 +273,13 @@ int runImportWorker(const QString &input, const QString &directory) {
     }
 #endif
     QString error;
-    auto imported = importBrushFile(input, error);
+    ImportResult imported;
+    if (sampledTipsOnly) {
+      const auto bytes = readBoundedRegularFile(input, 64LL * 1024 * 1024, error);
+      if (error.isEmpty()) imported = importAbrTips(bytes, error);
+    } else {
+      imported = importBrushFile(input, error);
+    }
     if (!error.isEmpty() || !imported.complete || imported.records.empty() ||
         imported.records.size() > 256) {
       writeFile(output.filePath("error.txt"), error.left(4096).toUtf8());
@@ -301,6 +308,13 @@ int runImportWorker(const QString &input, const QString &directory) {
   } catch (...) {
     return 2;
   }
+}
+
+int runImportWorker(const QString &input, const QString &directory) {
+  return runImportWorkerImpl(input, directory, false);
+}
+int runAbrTipImportWorker(const QString &input, const QString &directory) {
+  return runImportWorkerImpl(input, directory, true);
 }
 
 #if defined(__APPLE__) && defined(RASTERBRUSH_SANDBOX_TESTING)
@@ -695,10 +709,10 @@ void notifyImportCancellationObserver(const char *phase, const QString &path,
 }
 #endif
 
-ImportResult importBrushProcess(const QString &executable, const QString &path,
-                                QString &error,
-                                const std::atomic_bool *cancelled,
-                                size_t maximumDecodedBytes) {
+static ImportResult importBrushProcessImpl(
+    const QString &executable, const QString &path, QString &error,
+    const std::atomic_bool *cancelled, size_t maximumDecodedBytes,
+    bool sampledTipsOnly) {
   maximumDecodedBytes = std::min(maximumDecodedBytes, size_t(packageBudget));
   error.clear();
   QElapsedTimer elapsed;
@@ -756,7 +770,9 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   process.setProgram(executable);
 #endif
   process.setArguments(
-      {"--raster-brush-import-worker", workerInput, directory.path()});
+      {sampledTipsOnly ? "--raster-brush-import-tips-worker"
+                       : "--raster-brush-import-worker",
+       workerInput, directory.path()});
   process.setWorkingDirectory(directory.path());
   // Decoder console output is not part of the result protocol. Redirect it
   // at process creation: draining QProcess later still permits its internal
@@ -775,7 +791,8 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
           ? requested.absoluteFilePath()
           : requested.dir().filePath("rasterbrushimport-helper");
   process.setProgram(helper);
-  process.setArguments({"--raster-brush-import-stream",
+  process.setArguments({sampledTipsOnly ? "--raster-brush-import-tips-stream"
+                                        : "--raster-brush-import-stream",
                         QFileInfo(path).fileName(), sentinel.fileName()});
   process.setStandardInputFile(staged.fileName());
   process.setStandardOutputFile(wire.fileName());
@@ -852,6 +869,21 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
       process.exitCode(), error, maximumDecodedBytes, cancelled, &elapsed);
 }
 
+ImportResult importBrushProcess(const QString &executable, const QString &path,
+                                QString &error,
+                                const std::atomic_bool *cancelled,
+                                size_t maximumDecodedBytes) {
+  return importBrushProcessImpl(executable, path, error, cancelled,
+                                maximumDecodedBytes, false);
+}
+ImportResult importAbrTipsProcess(const QString &executable, const QString &path,
+                                  QString &error,
+                                  const std::atomic_bool *cancelled,
+                                  size_t maximumDecodedBytes) {
+  return importBrushProcessImpl(executable, path, error, cancelled,
+                                maximumDecodedBytes, true);
+}
+
 ImportResult readWorkerResponse(
     const Detail::RegularResponseDirectory &responses, bool normalExit,
     int exitCode, QString &error, size_t maximumDecodedBytes,
@@ -919,6 +951,7 @@ ImportResult readWorkerResponse(
     for (const auto &image : record.preset.tip.images) account(image);
     for (const auto &image : record.preset.secondary.tip.images) account(image);
     account(record.preset.texture.image);
+    if (record.sourceMaskDefinitionV1) account(record.sourceMaskDefinitionV1->tipImage);
     if (pixels > maximumDecodedBytes / sizeof(Pixel)) {
       error = "Brush import result exceeded its decoded image budget";
       return {};

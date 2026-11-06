@@ -2554,7 +2554,7 @@ void MainWindow::defineActions() {
       "import_oca");
   createMenuFileAction(
       MI_ImportAbr,
-      QT_TRANSLATE_NOOP("MainWindow", "Import Photoshop Brushes (ABR)..."), "");
+      QT_TRANSLATE_NOOP("MainWindow", "Extract Sampled Tips from ABR..."), "");
   createMenuFileAction(
       MI_ExportTvpJson,
       QT_TRANSLATE_NOOP("MainWindow", "Export TVPaint JSON File"), "");

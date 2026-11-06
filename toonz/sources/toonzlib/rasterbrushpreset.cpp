@@ -1,7 +1,12 @@
 #include "toonz/rasterbrushpreset.h"
+#include "toonz/rasterbrushprofile.h"
+#include "toonz/rasterbrushsupport.h"
 #include "rasterbrushpng.h"
 #include "rasterbrushresponse.h"
+#include "rasterbrushlibrarypublication.h"
 #include "rasterbrushbundlemetadata.h"
+#include "rasterbrushsourcemetadata.h"
+#include "rasterbrushmaskmetadata.h"
 #include <QColorSpace>
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -17,6 +22,7 @@
 #include <QTemporaryDir>
 #include <QSet>
 #include <QMap>
+#include <QHash>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -80,6 +86,72 @@ const QStringList masks  = {"multiply", "subtract"};
 const QStringList sourceHsvChannels = {"off", "hue", "saturation", "value"};
 const QStringList wets              = {"off", "dulling", "smear"};
 const QStringList interpolations    = {"linear", "natural-cubic"};
+const QStringList sourceGeneratedGenerators = {"default", "soft", "gauss"};
+const QStringList sourceGeneratedShapes = {"circle", "rect"};
+void validateSourceGenerated(const SourceGeneratedDefinitionV1 &definition) {
+  const auto why = validateSourceGeneratedDefinitionV1(definition);
+  if (!why.empty()) throw Invalid(QString::fromStdString(why));
+}
+QJsonObject sourceGeneratedJson(const SourceGeneratedDefinitionV1 &definition);
+void validateSourceGeneratedProfile(const SourceGeneratedDefinitionV1 &definition,
+                                    const QString &profile,
+                                    const std::optional<SourceGeneratedDefinitionV1> &active = {}) {
+  if (profileDescriptorV1(profile.toStdString()).tip == TipFamilyV1::GeneratedMask) {
+    if (!active || sourceGeneratedJson(definition) != sourceGeneratedJson(*active))
+      throw Invalid("Preserved and active generated source definitions differ");
+    return;
+  }
+  if (definition.generator != SourceGeneratedGenerator::Default &&
+      !profileDescriptorV1(profile.toStdString()).isNative())
+    throw Invalid("Preserved Soft/Gaussian metadata cannot admit a source profile");
+}
+QJsonObject sourceGeneratedJson(const SourceGeneratedDefinitionV1 &definition) {
+  validateSourceGenerated(definition);
+  QJsonArray curve;
+  for (const auto &point : definition.softnessCurve)
+    curve.append(QJsonArray{point.x, point.y});
+  return {{"version", 1},
+          {"generator", sourceGeneratedGenerators[int(definition.generator)]},
+          {"shape", sourceGeneratedShapes[int(definition.shape)]},
+          {"diameter", definition.diameter}, {"ratio", definition.ratio},
+          {"horizontalFade", definition.horizontalFade},
+          {"verticalFade", definition.verticalFade},
+          {"antialiasEdges", definition.antialiasEdges.has_value()
+                                 ? QJsonValue(*definition.antialiasEdges)
+                                 : QJsonValue(QJsonValue::Null)},
+          {"spikes", definition.spikes}, {"softnessCurve", curve}};
+}
+SourceGeneratedDefinitionV1 sourceGenerated(const QJsonValue &value) {
+  const auto definition = object(value);
+  keys(definition, {"version", "generator", "shape", "diameter", "ratio",
+                    "horizontalFade", "verticalFade", "antialiasEdges",
+                    "spikes", "softnessCurve"});
+  if (number(definition["version"]) != 1)
+    throw Invalid("Unsupported preserved source generated definition version");
+  SourceGeneratedDefinitionV1 result;
+  result.generator = SourceGeneratedGenerator(
+      choice(definition["generator"], sourceGeneratedGenerators));
+  result.shape = SourceGeneratedShape(
+      choice(definition["shape"], sourceGeneratedShapes));
+  result.diameter = number(definition["diameter"]);
+  result.ratio = number(definition["ratio"]);
+  result.horizontalFade = number(definition["horizontalFade"]);
+  result.verticalFade = number(definition["verticalFade"]);
+  if (!definition.contains("antialiasEdges"))
+    throw Invalid("Missing preserved source antialias declaration");
+  if (!definition["antialiasEdges"].isNull())
+    result.antialiasEdges = boolean(definition["antialiasEdges"]);
+  const double spikes = number(definition["spikes"]);
+  if (spikes != 2) throw Invalid("Unsupported preserved source generated spikes");
+  result.spikes = 2;
+  for (const auto &item : array(definition["softnessCurve"], 1024)) {
+    const auto point = array(item, 2);
+    if (point.size() != 2) throw Invalid("Invalid preserved source softness knot");
+    result.softnessCurve.push_back({number(point[0]), number(point[1])});
+  }
+  validateSourceGenerated(result);
+  return result;
+}
 QJsonObject dynamicJson(const Dynamic &d) {
   QJsonArray maps;
   for (const auto &m : d.mappings) {
@@ -178,8 +250,27 @@ struct Writer {
   QJsonObject assets;
   QString rawDirectory;
   QMap<QString, std::shared_ptr<const Image>> *images = nullptr;
+  QHash<const Image *, QString> identifiers;
+  const std::atomic_bool *cancelled = nullptr;
+  void checkCancelled() const {
+    if (cancelled && cancelled->load(std::memory_order_relaxed))
+      throw Invalid("Brush import cancelled");
+  }
+  void completedImage(const Image *image, const QString &id) {
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+    QString error;
+    if (!Detail::libraryInstallCheckpoint("after-resource-encode", id,
+                                          rawDirectory, error))
+      throw Invalid(error);
+#endif
+    checkCancelled();
+    identifiers.insert(image, id);
+  }
   QString image(const std::shared_ptr<const Image> &im) {
+    checkCancelled();
     if (!im) return {};
+    const auto known = identifiers.constFind(im.get());
+    if (known != identifiers.constEnd()) return known.value();
     if (!rawDirectory.isEmpty()) {
       QByteArray raw;
       raw.reserve(8 + int(im->pixels.size() * 4));
@@ -203,6 +294,7 @@ struct Writer {
                  file.write(raw) != raw.size() || !file.flush())
         throw Invalid("Cannot write private worker image");
       assets[id] = QJsonObject{{"rgba8", id}, {"color", im->color}};
+      completedImage(im.get(), id);
       return id;
     }
     QByteArray png;
@@ -214,6 +306,7 @@ struct Writer {
     assets[id] = QJsonObject{{"png", QString::fromLatin1(png.toBase64())},
                              {"color", im->color}};
     if (images) (*images)[id] = im;
+    completedImage(im.get(), id);
     return id;
   }
   QJsonObject tip(const Tip &t) {
@@ -364,10 +457,15 @@ std::shared_ptr<const Image> decodeImage(const QByteArray &bytes, bool color,
 
 static QByteArray encodeRecord(
     const Record &r, QString &error, const QString &rawDirectory,
-    QMap<QString, std::shared_ptr<const Image>> *images = nullptr) {
+    QMap<QString, std::shared_ptr<const Image>> *images = nullptr,
+    const std::atomic_bool *cancelled = nullptr) {
   error.clear();
   try {
+    if (cancelled && cancelled->load(std::memory_order_relaxed))
+      throw Invalid("Brush import cancelled");
     validateRights(r.resourceRights);
+    if (r.sourceMaskDefinitionV1 && r.sourceSensorsV1)
+      Detail::validateSourceMaskSensorConsistency(*r.sourceMaskDefinitionV1, *r.sourceSensorsV1);
     if (r.provenance.contains("bundleMetadata")) {
       const auto why =
           Detail::bundleMetadataError(r.provenance["bundleMetadata"]);
@@ -388,6 +486,8 @@ static QByteArray encodeRecord(
     Writer w;
     w.rawDirectory = rawDirectory;
     w.images       = images;
+    w.cancelled    = cancelled;
+    w.checkCancelled();
     const auto &p  = r.preset;
     const auto &t  = p.texture;
     const auto &s  = p.secondary;
@@ -458,6 +558,13 @@ static QByteArray encodeRecord(
         {"smudgeRadius", p.smudgeRadius},
         {"varySeedPerStroke", p.varySeedPerStroke},
         {"seed", QString::number(p.seed)}};
+    if (p.sourceGeneratedV1)
+      settings["sourceGeneratedMaskV1"] = sourceGeneratedJson(*p.sourceGeneratedV1);
+    if (p.sourceScatterV1)
+      settings["sourceScatterV1"] = QJsonObject{
+          {"amount", p.sourceScatterV1->amount},
+          {"axisX", p.sourceScatterV1->axisX},
+          {"axisY", p.sourceScatterV1->axisY}};
     settings["texture"] =
         QJsonObject{{"image", w.image(t.image)},  {"mode", masks[int(t.mode)]},
                     {"scale", t.scale},           {"angle", t.angle},
@@ -479,20 +586,33 @@ static QByteArray encodeRecord(
                     {"scatter", s.scatter},
                     {"independentSpacing", s.independentSpacing},
                     {"spacing", s.spacing}};
+    QJsonObject sourceMask;
+    if (r.sourceMaskDefinitionV1) {
+      const auto &definition = *r.sourceMaskDefinitionV1;
+      Detail::validateSourceMaskDefinition(definition);
+      const QJsonValue generated = definition.generated
+          ? QJsonValue(sourceGeneratedJson(*definition.generated))
+          : QJsonValue(QJsonValue::Null);
+      sourceMask = Detail::sourceMaskDefinitionJson(
+          definition, w.image(definition.tipImage), generated);
+    }
     if (w.assets.size() > 512) throw Invalid("Too many resources");
-    QByteArray result =
-        QJsonDocument(
-            QJsonObject{
-                {"format", rawDirectory.isEmpty()
-                               ? "groundzero-raster-brush"
-                               : "groundzero-brush-worker-record"},
-                {"version", 1},
-                {"settings", settings},
-                {"assets", w.assets},
-                {"provenance", r.provenance},
-                {"resourceRights", r.resourceRights},
-                {"diagnostics", QJsonArray::fromStringList(r.diagnostics)}})
-            .toJson();
+    QJsonObject package{
+        {"format", rawDirectory.isEmpty() ? "groundzero-raster-brush"
+                                         : "groundzero-brush-worker-record"},
+        {"version", 1}, {"settings", settings}, {"assets", w.assets},
+        {"provenance", r.provenance}, {"resourceRights", r.resourceRights},
+        {"diagnostics", QJsonArray::fromStringList(r.diagnostics)}};
+    if (r.sourceGeneratedV1) {
+      validateSourceGeneratedProfile(*r.sourceGeneratedV1,
+                                     QString::fromStdString(r.preset.profile),
+                                     r.preset.sourceGeneratedV1);
+      package["sourceGeneratedV1"] = sourceGeneratedJson(*r.sourceGeneratedV1);
+    }
+    if (r.sourceMaskDefinitionV1) package["sourceMaskDefinitionV1"] = sourceMask;
+    if (r.sourceSensorsV1)
+      package["sourceSensorsV1"] = Detail::sourceSensorsJson(*r.sourceSensorsV1);
+    const QByteArray result = QJsonDocument(package).toJson();
     if (result.size() > maxBytes) throw Invalid("Brush package exceeds 64 MiB");
     return result;
   } catch (const std::exception &e) {
@@ -518,12 +638,14 @@ static Record decodeRecord(
       throw Invalid("Invalid brush JSON: " + parse.errorString());
     auto root = doc.object();
     keys(root, {"format", "version", "settings", "assets", "provenance",
-                "resourceRights", "diagnostics"});
+                "resourceRights", "diagnostics", "sourceGeneratedV1", "sourceSensorsV1", "sourceMaskDefinitionV1"});
     if (text(root["format"]) != (rawDirectory.isEmpty()
                                      ? "groundzero-raster-brush"
                                      : "groundzero-brush-worker-record") ||
         number(root["version"]) != 1)
       throw Invalid("Unsupported native brush version");
+    if (root.contains("sourceSensorsV1"))
+      r.sourceSensorsV1 = Detail::sourceSensors(root["sourceSensorsV1"]);
     if (root.contains("diagnostics")) {
       auto notes = array(root["diagnostics"], 1024);
       if (QJsonDocument(notes).toJson().size() > 256 * 1024)
@@ -562,6 +684,17 @@ static Record decodeRecord(
       if (total > maximumDecodedBytes)
         throw Invalid("Aggregate resource budget exceeded");
       rd.assets[i.key()] = im;
+    }
+    if (root.contains("sourceMaskDefinitionV1")) {
+      QString imageId;
+      auto definition = Detail::sourceMaskDefinition(
+          root["sourceMaskDefinitionV1"], sourceGenerated, imageId);
+      definition.tipImage = rd.image(imageId);
+      Detail::sourceMaskRequire((definition.tipKind == "decoded-resource") == bool(definition.tipImage));
+      Detail::validateSourceMaskDefinition(definition);
+      r.sourceMaskDefinitionV1 = std::move(definition);
+      if (r.sourceSensorsV1)
+        Detail::validateSourceMaskSensorConsistency(*r.sourceMaskDefinitionV1, *r.sourceSensorsV1);
     }
     auto o = object(root["settings"]);
     keys(o, {"name",
@@ -610,11 +743,22 @@ static Record decodeRecord(
              "sourceMaskedV1",
              "sourceHsvChannelV1",
              "sourceHsvValueV1",
-             "sourceHsvControlsV2"});
+             "sourceHsvControlsV2", "sourceGeneratedMaskV1", "sourceScatterV1"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
     p.tip     = rd.tip(o["tip"]);
+    if (o.contains("sourceGeneratedMaskV1"))
+      p.sourceGeneratedV1 = sourceGenerated(o["sourceGeneratedMaskV1"]);
+    if (o.contains("sourceScatterV1")) {
+      const auto process = object(o["sourceScatterV1"]);
+      keys(process, {"amount", "axisX", "axisY"});
+      SourceScatterV1 scatter;
+      scatter.amount = number(process["amount"]);
+      scatter.axisX = boolean(process["axisX"]);
+      scatter.axisY = boolean(process["axisY"]);
+      p.sourceScatterV1 = scatter;
+    }
     p.size    = dynamic(o["size"]);
     p.aspect  = dynamic(o["aspect"]);
     p.angle   = dynamic(o["angle"]);
@@ -758,6 +902,11 @@ static Record decodeRecord(
     }
     if (s.contains("flipX")) p.secondary.flipX = boolean(s["flipX"]);
     if (s.contains("flipY")) p.secondary.flipY = boolean(s["flipY"]);
+    if (root.contains("sourceGeneratedV1")) {
+      r.sourceGeneratedV1 = sourceGenerated(root["sourceGeneratedV1"]);
+      validateSourceGeneratedProfile(*r.sourceGeneratedV1,
+                                     QString::fromStdString(p.profile), p.sourceGeneratedV1);
+    }
     if (root.contains("resourceRights")) {
       r.resourceRights = object(root["resourceRights"]);
       validateRights(r.resourceRights);
@@ -809,6 +958,8 @@ std::vector<std::shared_ptr<const Image>> recordImages(const Record &record) {
                 record.preset.secondary.tip.images.end());
   if (record.preset.texture.image)
     images.push_back(record.preset.texture.image);
+  if (record.sourceMaskDefinitionV1 && record.sourceMaskDefinitionV1->tipImage)
+    images.push_back(record.sourceMaskDefinitionV1->tipImage);
   return images;
 }
 struct PortableData {
@@ -838,6 +989,16 @@ PortableData portableData(const QByteArray &bytes) {
   if (data.manifest.size() > 512 || assets.size() > data.manifest.size())
     throw Invalid("Portable resource count exceeds limits");
   auto settings  = object(data.package["settings"]);
+  if (data.package.contains("sourceGeneratedV1")) {
+    const auto definition = sourceGenerated(data.package["sourceGeneratedV1"]);
+    std::optional<SourceGeneratedDefinitionV1> active;
+    if (settings.contains("sourceGeneratedMaskV1"))
+      active = sourceGenerated(settings["sourceGeneratedMaskV1"]);
+    validateSourceGeneratedProfile(definition, text(settings["profile"]), active);
+  }
+  std::optional<SourceSensorsV1> declaredSensors;
+  if (data.package.contains("sourceSensorsV1"))
+    declaredSensors = Detail::sourceSensors(data.package["sourceSensorsV1"]);
   data.info.name = text(settings["name"]);
   QSet<QString> references;
   auto tipReferences = [&](const QJsonValue &value) {
@@ -852,6 +1013,14 @@ PortableData portableData(const QByteArray &bytes) {
   tipReferences(object(settings["secondary"])["tip"]);
   const auto texture = text(object(settings["texture"])["image"]);
   if (!texture.isEmpty()) references.insert(texture);
+  std::optional<SourceMaskDefinitionV1> declaredMask;
+  QString maskImageId;
+  if (data.package.contains("sourceMaskDefinitionV1")) {
+    declaredMask = Detail::sourceMaskDefinition(
+        data.package["sourceMaskDefinitionV1"], sourceGenerated, maskImageId);
+    if (declaredSensors) Detail::validateSourceMaskSensorConsistency(*declaredMask, *declaredSensors);
+    if (!maskImageId.isEmpty()) references.insert(maskImageId);
+  }
   if (references.size() != data.manifest.size())
     throw Invalid("Portable resource manifest does not match its settings");
   static const QRegularExpression identity("^[0-9a-f]{64}$");
@@ -875,6 +1044,10 @@ PortableData portableData(const QByteArray &bytes) {
     resource.width          = int(width);
     resource.height         = int(height);
     resource.color          = boolean(metadata["color"]);
+    // Both are known declarations even when embedded pixels are missing.
+    if (declaredMask && i.key() == maskImageId &&
+        resource.color != (declaredMask->resourceEncoding == "canonical-rgba8-srgb"))
+      throw Invalid("Portable source mask encoding disagrees with its resource color");
     resource.redistribution = text(metadata["redistribution"]);
     resource.license        = text(metadata["license"]);
     validateRights(QJsonObject{
@@ -932,6 +1105,11 @@ void replaceResourceReference(QJsonObject &package, const QString &oldId,
   if (texture["image"].toString() == oldId) texture["image"] = newId;
   settings["texture"] = texture;
   package["settings"] = settings;
+  if (package.contains("sourceMaskDefinitionV1")) {
+    auto definition = package["sourceMaskDefinitionV1"].toObject();
+    if (definition["image"].toString() == oldId) definition["image"] = newId;
+    package["sourceMaskDefinitionV1"] = definition;
+  }
 }
 void verifyPortablePixels(const PortableData &data, Record &record) {
   QMap<QString, std::shared_ptr<const Image>> images;
@@ -950,6 +1128,9 @@ void verifyPortablePixels(const PortableData &data, Record &record) {
   if (record.preset.texture.image)
     images[settings["texture"].toObject()["image"].toString()] =
         record.preset.texture.image;
+  if (record.sourceMaskDefinitionV1 && record.sourceMaskDefinitionV1->tipImage)
+    images[data.package["sourceMaskDefinitionV1"].toObject()["image"].toString()] =
+        record.sourceMaskDefinitionV1->tipImage;
   record.resourceRights = {};
   for (auto i = data.manifest.begin(); i != data.manifest.end(); ++i) {
     const auto metadata = i.value().toObject();
@@ -972,6 +1153,7 @@ std::vector<ResourceInfo> resources(const Record &record, QString &error) {
     const auto why = validate(record.preset);
     if (!why.empty()) throw Invalid(QString::fromStdString(why));
     validateRights(record.resourceRights);
+    if (record.sourceMaskDefinitionV1) Detail::validateSourceMaskDefinition(*record.sourceMaskDefinitionV1);
     QMap<QString, ResourceInfo> unique;
     for (const auto &image : recordImages(record)) {
       ResourceInfo info;
@@ -1037,7 +1219,7 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
     // (including aliases and private paths) remain excluded above.
     const QString conversionKind =
         record.provenance.value("conversionKind").toString();
-    const bool nativeProfile = record.preset.profile == "groundzero-native-1";
+    const bool nativeProfile = profileDescriptorV1(record.preset.profile).isNative();
     if (!nativeProfile)
       exported.provenance["conversionKind"] = "source-candidate";
     else if (conversionKind == "tip-only" ||
@@ -1045,22 +1227,14 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
              conversionKind == "partial-native" ||
              conversionKind == "native-reinterpretation")
       exported.provenance["conversionKind"] = conversionKind;
+    const auto sourceOmissions = safeSourceOmissionsV1(record.provenance.value("sourceOmissionsV1"));
+    if (!sourceOmissions.empty())
+      exported.provenance["sourceOmissionsV1"] = QJsonArray::fromStringList(sourceOmissions);
     const QString originalProfile =
         record.provenance.value("sourceProfileBeforeNativeConversion")
             .toString();
-    const QStringList sourceProfiles{
-        "krita-5.3.4.1-airbrush-candidate-1",
-        "krita-5.3.4.1-fixed-bitmap-mask-candidate-1",
-        "krita-5.3.4.1-fixed-bitmap-candidate-1",
-        "krita-5.3.4.1-hard-pixel-candidate-1",
-        "krita-5.3.4.1-default-circle-candidate-1",
-        "krita-5.3.4.1-default-rect-candidate-1",
-        "krita-5.3.4.1-legacy-smear-candidate-1",
-        "krita-5.3.4.1-legacy-dulling-candidate-1",
-        "krita-5.3.4.1-new-smear-candidate-1",
-        "krita-5.3.4.1-new-dulling-candidate-1"};
     if (nativeProfile && conversionKind == "native-reinterpretation" &&
-        sourceProfiles.contains(originalProfile))
+        profileDescriptorV1(originalProfile.toStdString()).isSourceCandidate())
       exported.provenance["sourceProfileBeforeNativeConversion"] =
           originalProfile;
     static const QRegularExpression hash("^[0-9a-f]{64}$");
@@ -1076,7 +1250,28 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
       if (!why.isEmpty()) throw Invalid(why);
       exported.provenance["bundleMetadata"] = metadata;
     }
+    QJsonValue scatterDefinition = record.provenance.value("sourceScatterDefinitionV1");
+    if (record.preset.sourceScatterV1) {
+      const auto &process = *record.preset.sourceScatterV1;
+      scatterDefinition = QJsonObject{
+          {"version", 1}, {"enabled", true}, {"useCurve", false},
+          {"amount", process.amount}, {"axisX", process.axisX}, {"axisY", process.axisY}};
+    }
+    if (!scatterDefinition.isUndefined()) {
+      const auto preserved = object(scatterDefinition);
+      keys(preserved, {"version", "enabled", "useCurve", "amount", "axisX", "axisY"});
+      const bool axisX = boolean(preserved["axisX"]), axisY = boolean(preserved["axisY"]);
+      if (number(preserved["version"]) != 1 || !boolean(preserved["enabled"]) ||
+          boolean(preserved["useCurve"]) || number(preserved["amount"]) != 1 ||
+          (!axisX && !axisY))
+        throw Invalid("Unsupported preserved source scatter definition");
+      // Raw sensor XML and inactive curve strings can contain arbitrary text;
+      // only this fixed typed projection is safe to carry in portable copies.
+      exported.provenance["sourceScatterDefinitionV1"] = preserved;
+    }
     exported.diagnostics.clear();
+    if (exported.sourceMaskDefinitionV1 && !exported.preset.sourceMasked.enabled)
+      exported.diagnostics << "Preserved source mask declarations/resources are inactive; unmeasured source masking is unsupported.";
     // Diagnostics can contain arbitrary importer filenames. Do not attempt to
     // infer which free-form diagnostic text is safe to redistribute.
     static const QRegularExpression privatePath(
@@ -1250,18 +1445,50 @@ QString install(const QString &directory, const Record &r, QString &error) {
     error = "Cannot create brush library";
     return {};
   }
-  QString path = QDir(directory).filePath(name + "-" + id + ".gzbrush");
-  const QFileInfo existing(path);
-  if (existing.exists() || existing.isSymLink()) {
+  const QString path = QDir(directory).filePath(name + "-" + id + ".gzbrush");
+  auto reuse = [&]() -> QString {
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+    if (!Detail::libraryInstallCheckpoint("before-reuse", {}, path, error))
+      return {};
+#endif
     const auto saved = readBoundedRegularFile(path, maxBytes, error);
     if (!error.isEmpty() || saved != bytes) {
       error = "Existing brush resource conflicts with its identity";
       return {};
     }
     return path;
+  };
+  const QFileInfo existing(path);
+  if (existing.exists() || existing.isSymLink()) return reuse();
+  // Encode once, stage completely, and atomically create the absent name.
+  // QSaveFile is reserved for explicit user exports: its commit can replace a
+  // destination created after an existence check.
+  QTemporaryDir stage(QDir(directory).filePath(".brush-install-XXXXXX"));
+  if (!stage.isValid()) {
+    error = "Cannot stage brush library entry";
+    return {};
   }
-  if (!save(path, r, error)) return {};
-  return path;
+  const QString stagedPath = stage.filePath("preset.gzbrush");
+  QFile file(stagedPath);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+      file.write(bytes) != bytes.size() || !file.flush()) {
+    error = "Cannot stage brush library entry: " + file.errorString();
+    return {};
+  }
+  // Use an ordinary closed file inside the private transaction directory, so
+  // no temporary-file engine retains a handle across native publication.
+  file.close();
+  if (file.error() != QFileDevice::NoError) {
+    error = "Cannot close staged brush library entry: " + file.errorString();
+    return {};
+  }
+  const auto publication =
+      Detail::publishLibraryEntryNoReplace(stagedPath, path, error);
+  if (publication == Detail::LibraryPublication::Published) return path;
+  // Another importer may have won the name. Verify its complete bytes; an
+  // identity collision never authorizes overwriting or deleting that entry.
+  if (publication == Detail::LibraryPublication::Exists) return reuse();
+  return {};
 }
 QStringList installCollection(const QString &directory,
                               const std::vector<Record> &records,
@@ -1269,8 +1496,11 @@ QStringList installCollection(const QString &directory,
                               const std::atomic_bool *cancelled) {
   error.clear();
   auto stopped = [&]() {
-    return cancelled && cancelled->load(std::memory_order_relaxed);
+    if (!cancelled || !cancelled->load(std::memory_order_relaxed)) return false;
+    error = "Brush import cancelled";
+    return true;
   };
+  if (stopped()) return {};
   if (records.empty() || records.size() > 256) {
     error = "A brush collection must contain 1 to 256 presets";
     return {};
@@ -1288,12 +1518,9 @@ QStringList installCollection(const QString &directory,
   QCryptographicHash identity(QCryptographicHash::Sha256);
   qint64 total = 0;
   for (const auto &record : records) {
-    if (stopped()) {
-      error = "Brush import cancelled";
-      return {};
-    }
-    auto bytes = encode(record, error);
-    if (!error.isEmpty()) return {};
+    if (stopped()) return {};
+    auto bytes = encodeRecord(record, error, {}, nullptr, cancelled);
+    if (!error.isEmpty() || stopped()) return {};
     total += bytes.size();
     if (total > 256 * 1024 * 1024) {
       error = "Brush collection package budget exceeded";
@@ -1309,64 +1536,78 @@ QStringList installCollection(const QString &directory,
     if (label.isEmpty()) label = "brush";
     QString name = label + "-" + QString::fromLatin1(hash) + ".gzbrush";
     if (names.contains(name)) continue;
-    QFile file(QDir(stage.path()).filePath(name));
+    const QString stagedPath = QDir(stage.path()).filePath(name);
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+    if (!Detail::libraryInstallCheckpoint("before-write", stagedPath, directory,
+                                          error))
+      return {};
+#endif
+    if (stopped()) return {};
+    QFile file(stagedPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
         file.write(bytes) != bytes.size() || !file.flush()) {
       error = "Cannot write staged brush collection: " + file.errorString();
       return {};
     }
     file.close();
+    if (file.error() != QFileDevice::NoError) {
+      error = "Cannot close staged brush collection: " + file.errorString();
+      return {};
+    }
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+    if (!Detail::libraryInstallCheckpoint("after-write", stagedPath, directory,
+                                          error))
+      return {};
+#endif
     names << name;
   }
-  if (stopped()) {
-    error = "Brush import cancelled";
-    return {};
-  }
-  QString destination = QDir(directory).filePath(
+  const QString destination = QDir(directory).filePath(
       "pack-" + QString::fromLatin1(identity.result().toHex()));
-  if (QFileInfo(destination).isSymLink()) {
-    error = "Brush collection destination cannot be a symbolic link";
-    return {};
-  }
-  if (!QFileInfo::exists(destination)) {
-    if (!QDir().rename(stage.path(), destination)) {
-      error = "Cannot atomically publish brush collection";
-      return {};
-    }
-    stage.setAutoRemove(false);
-  } else {
-    Detail::RegularResponseDirectory savedDirectory, stagedDirectory;
-    if (!savedDirectory.open(destination, error) ||
-        !stagedDirectory.open(stage.path(), error))
-      return {};
-    QDir existing(destination);
-    auto actual = existing.entryList(
-        QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden,
-        QDir::Name);
-    QStringList expected = names;
-    expected.sort();
-    if (actual != expected) {
-      error = "Existing brush collection conflicts with its identity";
-      return {};
-    }
-    for (const auto &name : names) {
-      if (stopped()) {
-        error = "Brush import cancelled";
-        return {};
-      }
-      const auto staged =
-          Detail::readResponseFile(stagedDirectory, name, maxBytes, error);
-      if (!error.isEmpty()) return {};
-      const auto saved =
-          Detail::readResponseFile(savedDirectory, name, maxBytes, error);
-      if (!error.isEmpty() || saved != staged) {
-        error = "Existing brush collection content conflicts with its identity";
-        return {};
-      }
-    }
-  }
+  // Allocate all return values before publication. A post-commit allocation
+  // failure must not report that an already-installed collection was rejected.
   QStringList installed;
   for (const auto &name : names) installed << QDir(destination).filePath(name);
+  if (stopped()) return {};
+  const auto publication = Detail::publishLibraryEntryNoReplace(
+      stage.path(), destination, error, cancelled);
+  if (publication == Detail::LibraryPublication::Published) {
+    stage.setAutoRemove(false);
+    return installed;
+  }
+  if (publication != Detail::LibraryPublication::Exists) return {};
+  Detail::RegularResponseDirectory savedDirectory, stagedDirectory;
+  if (!savedDirectory.open(destination, error) ||
+      !stagedDirectory.open(stage.path(), error))
+    return {};
+  QDir existing(destination);
+  const auto actual = existing.entryList(
+      QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+      QDir::Name);
+  QStringList expected = names;
+  expected.sort();
+  if (actual != expected) {
+    error = "Existing brush collection conflicts with its identity";
+    return {};
+  }
+  for (const auto &name : names) {
+#ifdef RASTERBRUSH_SANDBOX_TESTING
+    if (!Detail::libraryInstallCheckpoint(
+            "before-reuse", QDir(stage.path()).filePath(name),
+            QDir(destination).filePath(name), error))
+      return {};
+#endif
+    if (stopped()) return {};
+    const auto staged =
+        Detail::readResponseFile(stagedDirectory, name, maxBytes, error);
+    if (!error.isEmpty()) return {};
+    const auto saved =
+        Detail::readResponseFile(savedDirectory, name, maxBytes, error);
+    if (!error.isEmpty() || saved != staged) {
+      error = "Existing brush collection content conflicts with its identity";
+      return {};
+    }
+  }
+  if (stopped()) return {};
   return installed;
 }
 }  // namespace RasterBrush

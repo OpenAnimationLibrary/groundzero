@@ -289,12 +289,15 @@ static void script_output(int type, const QString &value) {
 
 int main(int argc, char *argv[]) {
   if (argc > 1 &&
-      QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker") {
+      (QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker" ||
+       QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-tips-worker")) {
     if (argc != 4) return 2;
     QCoreApplication worker(argc, argv);
     // Qt reconstructs Windows arguments from the Unicode command line.
     const QStringList arguments = worker.arguments();
-    return RasterBrush::runImportWorker(arguments.at(2), arguments.at(3));
+    return arguments.at(1) == "--raster-brush-import-tips-worker"
+               ? RasterBrush::runAbrTipImportWorker(arguments.at(2), arguments.at(3))
+               : RasterBrush::runImportWorker(arguments.at(2), arguments.at(3));
   }
   PluginManager::takeLaunchArguments(argc, argv);
   bool nativeUiTest = false;
