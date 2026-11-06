@@ -9,6 +9,7 @@
 #include "drawutil.h"
 #include "tcurveutil.h"
 #include "tstroke.h"
+#include "tstrokeopacity.h"
 #include "tstrokeutil.h"
 #include "tvectorrenderdata.h"
 #include "tstrokedeformations.h"
@@ -55,19 +56,25 @@ bool isZeroThick(const TStroke *s) {
   return true;
 }
 
-//! Undo of an Opacity Brush drag: the opacity of some strokes of one frame.
+//! Undo of an Opacity Brush drag: the opacity, and the opacity along the
+//! stroke, of some strokes of one frame.
 class UndoStrokeOpacity final : public TToolUndo {
   std::vector<int> m_indices;
   std::vector<double> m_before, m_after;
+  std::vector<StrokeOpacity::Profile> m_beforeProfile, m_afterProfile;
 
-  void apply(const std::vector<double> &opacities) const {
+  void apply(const std::vector<double> &opacities,
+             const std::vector<StrokeOpacity::Profile> &profiles) const {
     TVectorImageP image = m_level->getFrame(m_frameId, true);
     if (!image) return;
     {
       QMutexLocker lock(image->getMutex());
       for (size_t i = 0; i < m_indices.size(); ++i) {
         if (m_indices[i] >= (int)image->getStrokeCount()) continue;
-        image->getStroke(m_indices[i])->setOpacity(opacities[i]);
+        TStroke *stroke = image->getStroke(m_indices[i]);
+        stroke->setOpacity(opacities[i]);
+        stroke->setOpacityProfile(profiles[i]);
+        stroke->invalidate();
       }
     }
     m_level->setDirtyFlag(true);
@@ -78,18 +85,26 @@ public:
   UndoStrokeOpacity(TXshSimpleLevel *level, const TFrameId &frameId)
       : TToolUndo(level, frameId) {}
 
-  void add(int index, double before, double after) {
+  void add(int index, double before, double after,
+           const StrokeOpacity::Profile &beforeProfile,
+           const StrokeOpacity::Profile &afterProfile) {
     m_indices.push_back(index);
     m_before.push_back(before);
     m_after.push_back(after);
+    m_beforeProfile.push_back(beforeProfile);
+    m_afterProfile.push_back(afterProfile);
   }
   bool isEmpty() const { return m_indices.empty(); }
 
-  void undo() const override { apply(m_before); }
-  void redo() const override { apply(m_after); }
+  void undo() const override { apply(m_before, m_beforeProfile); }
+  void redo() const override { apply(m_after, m_afterProfile); }
   int getSize() const override {
-    return sizeof(*this) +
-           m_indices.size() * (sizeof(int) + 2 * sizeof(double));
+    std::size_t knots = 0;
+    for (size_t i = 0; i < m_indices.size(); ++i)
+      knots += m_beforeProfile[i].size() + m_afterProfile[i].size();
+    return int(sizeof(*this) +
+               m_indices.size() * (sizeof(int) + 2 * sizeof(double)) +
+               knots * sizeof(TPointD));
   }
   QString getToolName() override { return QObject::tr("Pump Tool Opacity"); }
 };
@@ -139,6 +154,8 @@ class PumpTool final : public TTool {
   TEnumProperty m_mode;  //!< Pump, or a brush that thickens or thins lines
   TDoubleProperty m_strength;  //!< Thickness change of the brush modes
   TIntProperty m_opacity;      //!< Target stroke opacity (%) of Opacity Brush
+  TBoolProperty m_alongStroke;  //!< Opacity Brush paints the opacity along
+                                //!< the stroke instead of the whole stroke's
   TIntProperty m_widthFalloff;  //!< Width mode: reach of a change, in pixels
   TPropertyGroup m_prop;
 
@@ -149,6 +166,7 @@ class PumpTool final : public TTool {
   std::map<int, UndoModifyStroke *> m_brushUndos;
   std::map<int, TStroke *> m_brushOldStrokes;
   std::map<int, double> m_brushOldOpacity;  //!< Opacity Brush: before the drag
+  std::map<int, StrokeOpacity::Profile> m_brushOldProfile;
 
   // Width mode: the stroke picked by the press and the state of its drag. The
   // control points of the stroke are changed while dragging; the undo records
@@ -186,6 +204,7 @@ public:
       , m_mode("Mode:")
       , m_strength("Strength:", 1, 100, 20)
       , m_opacity("Opacity:", 0, 100, 50)
+      , m_alongStroke("Along Stroke", false)
       , m_widthFalloff("Width Falloff:", 1, 100, 30)
       , m_brushing(false)
       , m_widthDragging(false)
@@ -211,6 +230,7 @@ public:
     m_prop.bind(m_accuracy);
     m_prop.bind(m_strength);
     m_prop.bind(m_opacity);
+    m_prop.bind(m_alongStroke);
     m_prop.bind(m_widthFalloff);
   }
 
@@ -229,6 +249,7 @@ public:
     m_mode.setItemUIName(WIDTH_MODE, tr("Width"));
     m_strength.setQStringName(tr("Strength:"));
     m_opacity.setQStringName(tr("Opacity:"));
+    m_alongStroke.setQStringName(tr("Along Stroke"));
     m_widthFalloff.setQStringName(tr("Width Falloff:"));
   }
 
@@ -1177,7 +1198,42 @@ void PumpTool::opacityBrushAt(const TPointD &pos, double moved) {
 
     const double old = stroke->getOpacity();
     // Record the stroke before its first change in this drag
-    if (m_brushOldOpacity.count(i) == 0) m_brushOldOpacity[i] = old;
+    if (m_brushOldOpacity.count(i) == 0) {
+      m_brushOldOpacity[i] = old;
+      m_brushOldProfile[i] = stroke->getOpacityProfile();
+    }
+
+    if (m_alongStroke.getValue()) {
+      // Retouch: only the part of the line under the brush moves toward the
+      // target. The opacity along the stroke is sampled evenly by length;
+      // samples closer than the brush's reach fade toward the target.
+      const double length = stroke->getLength();
+      if (!(length > 0.0)) continue;
+      const int samples = std::max(
+          16, std::min(1024, int(std::ceil(length / std::max(1.0, 0.25 * radius)))));
+      const StrokeOpacity::Profile &current = stroke->getOpacityProfile();
+      StrokeOpacity::Profile next;
+      next.reserve(samples + 1);
+      bool changed = false;
+      for (int k = 0; k <= samples; ++k) {
+        const double s = double(k) / samples;
+        double value   = StrokeOpacity::evaluate(current, s);
+        const TThickPoint p =
+            stroke->getThickPoint(stroke->getParameterAtLength(s * length));
+        const double d =
+            std::max(0.0, tdistance(TPointD(p.x, p.y), pos) - p.thick);
+        if (d < radius) {
+          const double falloff = 1.0 - d / radius;
+          const double moved =
+              value + (target - value) * std::min(1.0, rate * falloff);
+          if (moved != value) changed = true;
+          value = moved;
+        }
+        next.emplace_back(s, std::min(1.0, std::max(0.0, value)));
+      }
+      if (changed && stroke->setOpacityProfile(next)) stroke->invalidate();
+      continue;
+    }
 
     double falloff = 1.0 - dist / radius;
     stroke->setOpacity(old + (target - old) * std::min(1.0, rate * falloff));
@@ -1200,8 +1256,13 @@ void PumpTool::endOpacityBrush(bool accept) {
     UndoStrokeOpacity *undo = new UndoStrokeOpacity(sl, getCurrentFid());
     for (const auto &old : m_brushOldOpacity) {
       if (old.first >= (int)vi->getStrokeCount()) continue;
-      double after = vi->getStroke(old.first)->getOpacity();
-      if (after != old.second) undo->add(old.first, old.second, after);
+      const TStroke *stroke = vi->getStroke(old.first);
+      const double after    = stroke->getOpacity();
+      const StrokeOpacity::Profile &beforeProfile =
+          m_brushOldProfile[old.first];
+      const StrokeOpacity::Profile &afterProfile = stroke->getOpacityProfile();
+      if (after != old.second || afterProfile != beforeProfile)
+        undo->add(old.first, old.second, after, beforeProfile, afterProfile);
     }
     if (undo->isEmpty())
       delete undo;
@@ -1213,11 +1274,16 @@ void PumpTool::endOpacityBrush(bool accept) {
   } else if (vi) {
     // Not accepted: restore the opacities
     for (const auto &old : m_brushOldOpacity)
-      if (old.first < (int)vi->getStrokeCount())
-        vi->getStroke(old.first)->setOpacity(old.second);
+      if (old.first < (int)vi->getStrokeCount()) {
+        TStroke *stroke = vi->getStroke(old.first);
+        stroke->setOpacity(old.second);
+        stroke->setOpacityProfile(m_brushOldProfile[old.first]);
+        stroke->invalidate();
+      }
   }
 
   m_brushOldOpacity.clear();
+  m_brushOldProfile.clear();
   invalidate();
 }
 
