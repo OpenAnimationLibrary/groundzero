@@ -1,5 +1,7 @@
 <fxlayout>
   <page name="Curve Deformer">
+   <separator label="Vector Art"/>
+    <control>deformStrokes</control>
    <separator label="Influence"/>
     <control>width</control>
     <control>falloff</control>

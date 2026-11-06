@@ -51,6 +51,7 @@
 #include "toonz/preferences.h"
 #include "toonz/dpiscale.h"
 #include "toonz/timeremap.h"
+#include "toonz/strokedeformerdata.h"
 #include "imagebuilders.h"
 
 // 4.6 compatibility - sandor fxs
@@ -1351,6 +1352,9 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
   if (TVectorImageP vectorImage = img) {
     // Vector case
 
+    // Deform Strokes: the deformer fxs above deform a copy of the strokes
+    vectorImage = applyStrokeDeformers(vectorImage, info.m_data, frame);
+
     if (checkImage) {
       // Check drawing replaces stroke/region drawing properties. Keep those
       // properties, as well as temporary Fill Check regions, off the source.
@@ -1831,6 +1835,15 @@ bool TLevelColumnFx::doGetBBox(double frame, TRectD &bBox,
     TImageP img = m_levelColumn->getRemappedCell(row).getImage(false);
     if (!img) return false;
     bBox = img->getBBox();
+
+    // Deform Strokes: the strokes keep their thickness where they move
+    TVectorImageP vi = img;
+    if (vi && hasStrokeDeformers(info.m_data)) {
+      double thickness = 0.0;
+      for (int i = 0; i < (int)vi->getStrokeCount(); ++i)
+        thickness = std::max(thickness, vi->getStroke(i)->getMaxThickness());
+      bBox = strokeDeformedBounds(bBox, thickness, info.m_data, frame);
+    }
   }
 
   // Add the enlargement of the bbox due to Tzp render data

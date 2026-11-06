@@ -54,6 +54,10 @@
 //
 // The warp is made on the rendered Source raster, so vector art is resampled
 // rather than deformed as strokes.
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 namespace {
@@ -179,11 +183,13 @@ class DeformerStackFx final : public TStandardRasterFx, public TDeformerSource {
   };
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   Layer m_layers[LAYER_COUNT];
 
 public:
   DeformerStackFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     for (int i = 0; i < LAYER_COUNT; ++i) {
       Layer &layer       = m_layers[i];
@@ -244,7 +250,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -277,6 +284,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the layers at frame, for Bake Deformers into Vector
   // Level (see TDeformerSource): whatever layers buildStack() makes, of
   // every layer type
@@ -334,6 +344,10 @@ bool DeformerStackFx::doGetBBox(double frame, TRectD &bBox,
     return false;
   }
 
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
+
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
   TDeformerStack stack;
@@ -367,6 +381,11 @@ void DeformerStackFx::transform(double frame, int port,
                                 const TRenderSettings &infoOnOutput,
                                 TRectD &rectOnInput,
                                 TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -376,6 +395,7 @@ void DeformerStackFx::transform(double frame, int port,
 int DeformerStackFx::getMemoryRequirement(const TRectD &rect, double frame,
                                           const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -385,6 +405,12 @@ int DeformerStackFx::getMemoryRequirement(const TRectD &rect, double frame,
 void DeformerStackFx::doCompute(TTile &tile, double frame,
                                 const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   // The stack is built in the render's space, which differs from the fx's by
   // a similarity (see canHandle()).

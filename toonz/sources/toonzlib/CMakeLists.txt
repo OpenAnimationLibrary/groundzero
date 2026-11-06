@@ -148,6 +148,7 @@ set(HEADERS
     ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
+    ../include/toonz/strokedeformerdata.h
     ../include/toonz/tfreeformdeformer.h
     ../include/toonz/tdistort.h
     ../include/toonz/textureutils.h
@@ -298,6 +299,7 @@ set(SOURCES
     tcurvedeformer.cpp
     tdeformer.cpp
     tdeformerstack.cpp
+    strokedeformerdata.cpp
     tdistort.cpp
     tfreeformdeformer.cpp
     texturemanager.cpp
@@ -485,7 +487,7 @@ endif()
 option(BUILD_DEFORMER_TESTS "Build the deformer regression test" ${BUILD_TESTS})
 if(BUILD_DEFORMER_TESTS)
     add_executable(deformer_test tests/deformer_test.cpp)
-    target_link_libraries(deformer_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    target_link_libraries(deformer_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME deformer COMMAND deformer_test)
 endif()
 

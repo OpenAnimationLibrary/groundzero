@@ -44,6 +44,10 @@
 // (the class supports trees of any size, for later use by game export). The
 // parameters and the deformer are made by deformerfx::BoneChainParams, which
 // a Bone layer of the Deformer Stack Fx shares.
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 namespace {
@@ -58,11 +62,13 @@ class BoneDeformerFx final : public TStandardRasterFx, public TDeformerSource {
   FX_PLUGIN_DECLARATION(BoneDeformerFx)
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   deformerfx::BoneChainParams m_chain;
 
 public:
   BoneDeformerFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     // By default, the joints are along a horizontal line from -200 to 200,
     // on the rest ones
@@ -84,7 +90,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -99,6 +106,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the bones at frame, for Bake Deformers into Vector Level
   // (see TDeformerSource)
   std::shared_ptr<const TDeformer> makeDeformer(
@@ -116,6 +126,10 @@ bool BoneDeformerFx::doGetBBox(double frame, TRectD &bBox,
     bBox = TRectD();
     return false;
   }
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
@@ -152,6 +166,11 @@ void BoneDeformerFx::transform(double frame, int port,
                                const TRenderSettings &infoOnOutput,
                                TRectD &rectOnInput,
                                TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -161,6 +180,7 @@ void BoneDeformerFx::transform(double frame, int port,
 int BoneDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
                                          const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -170,6 +190,12 @@ int BoneDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
 void BoneDeformerFx::doCompute(TTile &tile, double frame,
                                const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   // The deformer is built in the render's space, which differs from the fx's
   // by a similarity (see canHandle()).

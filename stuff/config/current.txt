@@ -355,6 +355,7 @@
   <item>"STD_freeDistortFx.deactivate"	" Deactivate"	</item>
 
   <item>"STD_envelopeDeformerFx"	"Envelope Deformer"	</item>
+  <item>"STD_envelopeDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_envelopeDeformerFx.point1"	"Point 1"	</item>
   <item>"STD_envelopeDeformerFx.point2"	"Point 2"	</item>
   <item>"STD_envelopeDeformerFx.point3"	"Point 3"	</item>
@@ -373,6 +374,7 @@
   <item>"STD_envelopeDeformerFx.rest8"	"Rest 8"	</item>
 
   <item>"STD_envelopeDeformerPlusFx"	"Envelope Deformer Plus"	</item>
+  <item>"STD_envelopeDeformerPlusFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_envelopeDeformerPlusFx.pointCount"	"Point Count"	</item>
   <item>"STD_envelopeDeformerPlusFx.smooth"	"Smooth Edges"	</item>
   <item>"STD_envelopeDeformerPlusFx.point1"	"Point 1"	</item>
@@ -409,6 +411,7 @@
   <item>"STD_envelopeDeformerPlusFx.rest16"	"Rest 16"	</item>
 
   <item>"STD_deformerStackFx"	"Deformer Stack"	</item>
+  <item>"STD_deformerStackFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_deformerStackFx.a_weight"	"A Weight"	</item>
   <item>"STD_deformerStackFx.a_falloff"	"A Falloff"	</item>
   <item>"STD_deformerStackFx.a_center"	"A Falloff Center"	</item>
@@ -678,6 +681,7 @@
   <item>"STD_deformerStackFx.c_shapeAware_cageRest4"	"C Rest Cage 4"	</item>
 
   <item>"STD_boneDeformerFx"	"Bone Deformer"	</item>
+  <item>"STD_boneDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_boneDeformerFx.inner"	"Inner Radius"	</item>
   <item>"STD_boneDeformerFx.outer"	"Outer Radius"	</item>
   <item>"STD_boneDeformerFx.jointCount"	"Joint Count"	</item>
@@ -701,6 +705,7 @@
   <item>"STD_boneDeformerFx.rest5"	"Rest Joint 5"	</item>
 
   <item>"STD_freeFormDeformerFx"	"Free-Form Deformer"	</item>
+  <item>"STD_freeFormDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_freeFormDeformerFx.center"	"Rest Center"	</item>
   <item>"STD_freeFormDeformerFx.width"	"Rest Width"	</item>
   <item>"STD_freeFormDeformerFx.height"	"Rest Height"	</item>
@@ -722,6 +727,7 @@
   <item>"STD_freeFormDeformerFx.point16"	"Point 16"	</item>
 
   <item>"STD_shapeAwareDeformerFx"	"Shape Aware Deformer"	</item>
+  <item>"STD_shapeAwareDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_shapeAwareDeformerFx.resolution"	"Resolution"	</item>
   <item>"STD_shapeAwareDeformerFx.margin"	"Margin"	</item>
   <item>"STD_shapeAwareDeformerFx.stretch"	"Stretch Bones"	</item>
@@ -765,6 +771,7 @@
   <item>"STD_shapeAwareDeformerFx.cage4"	"Cage 4"	</item>
   <item>"STD_shapeAwareDeformerFx.cageRest4"	"Rest Cage 4"	</item>
   <item>"STD_curveDeformerFx"	"Curve Deformer"	</item>
+  <item>"STD_curveDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_curveDeformerFx.width"	"Width"	</item>
   <item>"STD_curveDeformerFx.falloff"	"Falloff"	</item>
   <item>"STD_curveDeformerFx.anchorCount"	"Anchor Count"	</item>

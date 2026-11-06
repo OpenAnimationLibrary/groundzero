@@ -35,6 +35,10 @@
 // Width the art folds over itself. The parameters and
 // the deformer are made by deformerfx::CurveDeformerParams, which a Curve
 // layer of the Deformer Stack Fx shares.
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 namespace {
@@ -52,11 +56,13 @@ class CurveDeformerFx final : public TStandardRasterFx, public TDeformerSource {
   FX_PLUGIN_DECLARATION(CurveDeformerFx)
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   deformerfx::CurveDeformerParams m_curve;
 
 public:
   CurveDeformerFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     // By default, the curve is a straight line across the origin
     m_curve.bind(this, "", MAX_ANCHORS, c_defaultHalfLength, DEFAULT_ANCHORS);
@@ -77,7 +83,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -92,6 +99,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the curve at frame, for Bake Deformers into Vector Level
   // (see TDeformerSource)
   std::shared_ptr<const TDeformer> makeDeformer(
@@ -109,6 +119,10 @@ bool CurveDeformerFx::doGetBBox(double frame, TRectD &bBox,
     bBox = TRectD();
     return false;
   }
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
@@ -145,6 +159,11 @@ void CurveDeformerFx::transform(double frame, int port,
                                 const TRenderSettings &infoOnOutput,
                                 TRectD &rectOnInput,
                                 TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -154,6 +173,7 @@ void CurveDeformerFx::transform(double frame, int port,
 int CurveDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
                                           const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -163,6 +183,12 @@ int CurveDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
 void CurveDeformerFx::doCompute(TTile &tile, double frame,
                                 const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   // The deformer is built in the render's space, which differs from the fx's
   // by a similarity (see canHandle()).

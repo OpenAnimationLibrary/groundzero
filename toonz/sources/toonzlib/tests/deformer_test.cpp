@@ -11,6 +11,7 @@
 #include "toonz/tdeformer.h"
 #include "toonz/tdeformerstack.h"
 #include "toonz/tfreeformdeformer.h"
+#include "toonz/strokedeformerdata.h"
 #include "traster.h"
 
 #include "tstroke.h"
@@ -1136,6 +1137,71 @@ void testVectorImage() {
   }
 }
 
+//------------------------------------------------------------------
+
+// Deform Strokes: the deformers that the fxs pass down to the column
+void testStrokeDeformers() {
+  TVectorImageP vi(new TVectorImage());
+  std::vector<TThickPoint> points = {TThickPoint(0.0, 0.0, 2.0),
+                                     TThickPoint(10.0, 20.0, 3.0),
+                                     TThickPoint(30.0, 0.0, 4.0)};
+  vi->addStroke(new TStroke(points));
+
+  // The outer fx translates, the one nearest to the column doubles
+  std::vector<TPointD> moved = square(), doubled = square();
+  for (TPointD &p : moved) p += TPointD(5.0, -3.0);
+  for (TPointD &p : doubled) p = 2.0 * p;
+  std::shared_ptr<const TDeformer> translate(
+      new TEnvelopeDeformer(square(), moved));
+  std::shared_ptr<const TDeformer> scale(
+      new TEnvelopeDeformer(square(), doubled));
+
+  std::vector<TRasterFxRenderDataP> data;
+  require(applyStrokeDeformers(vi, data, 0.0).getPointer() ==
+              vi.getPointer(),
+          "strokes: the drawing is copied without deformers");
+
+  data.push_back(TRasterFxRenderDataP(
+      new TStrokeDeformerRenderData(translate, "outer")));
+  data.push_back(
+      TRasterFxRenderDataP(new TStrokeDeformerRenderData(scale, "inner")));
+  require(hasStrokeDeformers(data), "strokes: the deformers are not found");
+
+  TVectorImageP deformed = applyStrokeDeformers(vi, data, 0.0);
+  require(deformed && deformed.getPointer() != vi.getPointer(),
+          "strokes: the drawing is not copied");
+  for (int i = 0; i < 3; ++i) {
+    TThickPoint p = deformed->getStroke(0)->getControlPoint(i);
+    TThickPoint o = vi->getStroke(0)->getControlPoint(i);
+    require(isClose(TPointD(p.x, p.y),
+                    2.0 * TPointD(points[i].x, points[i].y) +
+                        TPointD(5.0, -3.0),
+                    1e-4),
+            "strokes: the deformers are not applied from the column up");
+    require(std::fabs(p.thick - points[i].thick) < 1e-9,
+            "strokes: the thickness changed");
+    require(isClose(TPointD(o.x, o.y), TPointD(points[i].x, points[i].y),
+                    1e-12),
+            "strokes: the level's drawing was deformed");
+  }
+
+  // The bounds hold the deformed drawing
+  TRectD bounds = strokeDeformedBounds(
+      vi->getBBox(), vi->getStroke(0)->getMaxThickness(), data, 0.0);
+  TRectD box = deformed->getBBox();
+  require(bounds.contains(box), "strokes: the bounds miss the drawing");
+  require(strokeDeformedBounds(vi->getBBox(), 4.0,
+                               std::vector<TRasterFxRenderDataP>(), 0.0) ==
+              vi->getBBox(),
+          "strokes: bounds change without deformers");
+
+  // The cache tells deformers apart by their keys
+  TStrokeDeformerRenderData a(translate, "k"), b(scale, "k"),
+      c(translate, "other");
+  require(a == b && !(a == c), "strokes: the keys are not compared");
+  require(a.toString() != c.toString(), "strokes: the keys are not written");
+}
+
 }  // namespace
 
 //------------------------------------------------------------------
@@ -1544,6 +1610,7 @@ int main() {
     testTriangleAffine();
     testSmoothBend();
     testVectorImage();
+    testStrokeDeformers();
     testShapeAware();
     testStackCurveAndBone();
     testStackIdentityLayers();
