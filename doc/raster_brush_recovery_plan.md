@@ -147,3 +147,33 @@ application workload advanced past portable conversion/resource/source-wet stage
 and then failed stationary airbrush accumulation; callback/lifecycle evidence is
 being added before any timing-policy change. Cross-platform package and final-head
 qualification remain open.
+
+## Timer lifecycle and complete early matrix coverage
+
+The 810a4fd2b parser suites passed Windows Qt5/Qt6 and macOS Qt5/Qt6; Linux
+parser/fuzz remained queued at this checkpoint. Its Linux Qt6 build also passed.
+These are scoped results, not full branch or package qualification.
+
+The full-color brush tool is a static registry instance. Its QTimer member was
+constructed before QApplication, a lifecycle Qt does not support. Timer creation
+and connection now happen lazily during an actual airbrush stroke, with application
+ownership and QPointer invalidation. Dispatch/rates,250ms fixture holds and exact
+accumulation/cancel assertions stay unchanged. Actual application CI must establish
+whether this resolves the observed stationary-airbrush failure; diagnostic state
+snapshots remain available.
+
+Metadata-only validation now derives all70 groups from the owning workflow and
+runs each generated manifest through the native comparator, including negative
+schema/identity cases. The paced-sensor guard now includes all40 authored cases
+(original28 plus12 causal clock controls). The expanded300-second fixture budget
+reflects the complete workload rather than relaxing a fidelity gate.
+
+Two script API tests in edition still expected null palettes for newly created
+Vector levels, despite the fallback palette introduced in #130. They now check the
+actual default schema and read-only copy semantics; empty Level objects retain
+null/None assertions. Production palette behavior is unchanged.
+
+The703b77b82 generated-tip source acquisition completed all32 cases. Comparison
+then exposed genuine missing Soft generator import/runtime behavior. Work is
+proceeding from those original captures; no silent native approximation replaces
+that required source-profile work.

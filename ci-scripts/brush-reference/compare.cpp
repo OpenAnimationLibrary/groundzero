@@ -327,7 +327,7 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
   if (fixtures["group"].toString() == "airbrushtimed")
     require(expected.size() == 56, "Incomplete paced airbrush workload");
   if (fixtures["group"].toString() == "timedsensors")
-    require(expected.size() == 28, "Incomplete paced sensor workload");
+    require(expected.size() == 40, "Incomplete paced sensor workload");
 }
 } // namespace
 int main(int argc, char **argv) {

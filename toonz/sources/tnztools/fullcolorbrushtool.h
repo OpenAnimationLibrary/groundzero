@@ -20,6 +20,7 @@
 #include "toonz/rasterbrushpreset.h"
 #include "nativerasterbrush.h"
 #include <QTimer>
+#include <QPointer>
 #include <QElapsedTimer>
 #include <QStringList>
 
@@ -68,6 +69,7 @@ public:
 
 private:
   void updateCurrentStyle();
+  void initNativeAirbrushTimer();
   void applyClassicToonzBrushSettings(mypaint::Brush &mypaintBrush);
   void applyToonzBrushSettings(mypaint::Brush &mypaintBrush);
 
@@ -79,7 +81,8 @@ public:
   QString nativeBrushTestState() const {
     QStringList result{
         QString("started=%1 timer=%2 failed=%3").arg(m_started)
-            .arg(m_nativeAirbrushTimer.isActive()).arg(m_nativeStrokeFailed)};
+            .arg(bool(m_nativeAirbrushTimer && m_nativeAirbrushTimer->isActive()))
+            .arg(m_nativeStrokeFailed)};
     auto append = [&](const char *label, const TTrackList &tracks) {
       for (const auto &track : tracks) {
         const auto *handler =
@@ -194,7 +197,7 @@ protected:
   std::shared_ptr<RasterBrush::Record> m_nativeRecord;
   std::shared_ptr<RasterBrush::Surface> m_nativeSurface;
   std::shared_ptr<RasterBrush::MemoryBudget> m_nativeMemory;
-  QTimer m_nativeAirbrushTimer;
+  QPointer<QTimer> m_nativeAirbrushTimer;
   std::map<TTrack::Id, std::set<int>> m_nativeTimerPoints;
 
   TPixel32 m_currentColor;

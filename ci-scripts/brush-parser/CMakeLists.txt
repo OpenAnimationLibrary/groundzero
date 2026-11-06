@@ -133,7 +133,9 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME rasterbrushfixtures COMMAND "${Python3_EXECUTABLE}"
   "${REPO_ROOT}/ci-scripts/brush-reference/fixture_matrix_test.py"
   "$<TARGET_FILE:rasterbrushreference>")
-set_tests_properties(rasterbrushfixtures PROPERTIES TIMEOUT 60)
+# Generate the complete workflow matrix (including focused diagnostics) and
+# run native positive/negative schema gates, without source application startup.
+set_tests_properties(rasterbrushfixtures PROPERTIES TIMEOUT 300)
 
 
 if(WIN32)

@@ -488,9 +488,26 @@ void testSceneCheck(Console &console) {
          result, "0");
   expectError(console, "cs.check(3)", "Bad argument (3)");
 
-  // The palette: none for a vector level (the stuff folder of the test has no
-  // default palettes), the converter's for a converted Toonz Raster level
-  expect(console, "cs.newLevel('Vector', 'V').palette", result, "null");
+  // No palette file exists in this test's stuff folder. New vector levels
+  // still receive the native fallback palette: transparent style 0 and black
+  // style 1, unused until a drawing references them. A truly empty Level has
+  // no palette. Both the default schema and its read-only copy semantics are
+  // part of the script API.
+  expect(console, "new Level().palette", result, "null");
+  expect(console,
+         "var cv = cs.newLevel('Vector', 'V'); var vp = cv.palette; "
+         "[vp.name, vp.styles.map(function (st) { return "
+         "[st.id, st.name, st.color, st.page, st.used]; })]",
+         result,
+         "[\"V\",[[0,\"color_0\",\"#00ffffff\",0,false],"
+         "[1,\"color_1\",\"#ff000000\",0,false]]]");
+  expect(console,
+         "vp.name = 'changed'; vp.styles[1].color = '#ffff0000'; "
+         "vp.styles[1].used = true; vp.styles.push({id: 2}); "
+         "[cv.palette.name, cv.palette.styles[1].color, "
+         "cv.palette.styles[1].used, cv.palette.styles.length]",
+         result, "[\"V\",\"#ff000000\",false,2]");
+  // A converted Toonz Raster level instead exposes its converter's palette.
   expect(console,
          "var ct = cs.newLevel('ToonzRaster', 'T'); ct.appendFrame(new "
          "ToonzRasterConverter().convert(new ImageBuilder(4, 4, "

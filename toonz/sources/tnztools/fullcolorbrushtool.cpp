@@ -1798,6 +1798,37 @@ public:
 //    FullColor Brush Tool implementation
 //************************************************************************
 
+void FullColorBrushTool::initNativeAirbrushTimer() {
+  // Qt does not support creating static QObjects before QApplication:
+  // https://doc.qt.io/qt-6.8/threads-qobject.html
+  // This tool is a static registry instance. Construct its timer only once the
+  // UI exists, and let the application destroy it before static tool teardown.
+  if (m_nativeAirbrushTimer || !QCoreApplication::instance()) return;
+  auto *timer = new QTimer(QCoreApplication::instance());
+  m_nativeAirbrushTimer = timer;
+  timer->setTimerType(Qt::PreciseTimer);
+  timer->setInterval(8);
+  QObject::connect(timer, &QTimer::timeout, timer, [this]() {
+    if (!m_started || m_nativeStrokeFailed) return;
+    const auto tracks = m_inputmanager.getInputTracks();
+    for (const auto &track : tracks)
+      if (!track->finished() && track->size() > 0) {
+        const auto point        = track->back();
+        const int injectedIndex = track->size();
+        m_inputmanager.trackEvent(
+            track->deviceId, track->touchId, point.position, point.pressure,
+            point.tilt, track->hasPressure, track->hasTilt, false,
+            TToolTimer::ticks(), point.rotation, point.hasRotation);
+        if (m_nativeRecord &&
+            m_nativeRecord->preset.profile ==
+                "krita-5.3.4.1-airbrush-candidate-1" &&
+            track->size() == injectedIndex + 1)
+          m_nativeTimerPoints[track->id].insert(injectedIndex);
+      }
+    m_inputmanager.processTracks();
+  });
+}
+
 FullColorBrushTool::FullColorBrushTool(std::string name)
     : TTool(name)
     , m_thickness("Size", 1, 1000, 1, 5, false)
@@ -1824,29 +1855,6 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
     , m_started(false)
     , m_strokeFrameId()
     , m_strokeLevel() {
-  m_nativeAirbrushTimer.setTimerType(Qt::PreciseTimer);
-  m_nativeAirbrushTimer.setInterval(8);
-  QObject::connect(&m_nativeAirbrushTimer, &QTimer::timeout,
-                   &m_nativeAirbrushTimer, [this]() {
-                     if (!m_started || m_nativeStrokeFailed) return;
-                     const auto tracks = m_inputmanager.getInputTracks();
-                     for (const auto &track : tracks)
-                       if (!track->finished() && track->size() > 0) {
-                         const auto point        = track->back();
-                         const int injectedIndex = track->size();
-                         m_inputmanager.trackEvent(
-                             track->deviceId, track->touchId, point.position,
-                             point.pressure, point.tilt, track->hasPressure,
-                             track->hasTilt, false, TToolTimer::ticks(),
-                             point.rotation, point.hasRotation);
-                         if (m_nativeRecord &&
-                             m_nativeRecord->preset.profile ==
-                                 "krita-5.3.4.1-airbrush-candidate-1" &&
-                             track->size() == injectedIndex + 1)
-                           m_nativeTimerPoints[track->id].insert(injectedIndex);
-                       }
-                     m_inputmanager.processTracks();
-                   });
   bind(TTool::RasterImage | TTool::EmptyTarget);
   m_thickness.setNonLinearSlider();
 
@@ -2303,13 +2311,15 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
   }
   m_started = busy;
   if (busy && m_nativeRecord && m_nativeRecord->preset.airbrushRate > 0) {
+    initNativeAirbrushTimer();
+    if (!m_nativeAirbrushTimer) return;
     const bool sourceAirbrush =
         m_nativeRecord->preset.profile == "krita-5.3.4.1-airbrush-candidate-1";
-    m_nativeAirbrushTimer.setInterval(
+    m_nativeAirbrushTimer->setInterval(
         sourceAirbrush
             ? int(std::lround(1000 / m_nativeRecord->preset.airbrushRate))
             : 8);
-    m_nativeAirbrushTimer.start();
+    m_nativeAirbrushTimer->start();
   }
 }
 
@@ -2561,7 +2571,7 @@ bool FullColorBrushTool::keyDown(QKeyEvent *event) {
 }
 
 void FullColorBrushTool::commitStroke() {
-  m_nativeAirbrushTimer.stop();
+  if (m_nativeAirbrushTimer) m_nativeAirbrushTimer->stop();
   m_nativeTimerPoints.clear();
   if (!m_started) return;
 
