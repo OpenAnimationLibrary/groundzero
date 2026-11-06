@@ -137,7 +137,8 @@ TDoubleParam *cloneCurve(const TDoubleParam *src) {
 //    TStageObjectParams  implementation
 //************************************************************************************************
 
-TStageObjectParams::TStageObjectParams() : m_spline(0), m_noScaleZ(0) {}
+TStageObjectParams::TStageObjectParams()
+    : m_spline(0), m_noScaleZ(0), m_controllerWidget(-1) {}
 
 //-----------------------------------------------------------------------------
 
@@ -173,6 +174,8 @@ TStageObjectParams::TStageObjectParams(TStageObjectParams *data)
     , m_center(data->m_center)
     , m_offset(data->m_offset)
     , m_name(data->m_name)
+    , m_controllerWidget(data->m_controllerWidget)
+    , m_controllerPadY(data->m_controllerPadY)
     , m_isOpened(data->m_isOpened)
     , m_pinnedRangeSet(data->m_pinnedRangeSet->clone()) {}
 
@@ -448,6 +451,7 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
     , m_center()
     , m_offset()
     , m_cycleEnabled(false)
+    , m_controllerWidget(-1)
     , m_handle("B")
     , m_parentHandle("B")
     , m_dagNodePos(TConst::nowhere)
@@ -1649,6 +1653,8 @@ TStageObject *TStageObject::clone() {
     clonedKeyframes.insert(make_pair(itKf->first, itKf->second));
   }
   cloned->m_cycleEnabled    = m_cycleEnabled;
+  cloned->m_controllerWidget = m_controllerWidget;
+  cloned->m_controllerPadY   = m_controllerPadY;
   cloned->lazyData().m_time = lazyData().m_time;
   cloned->m_localPlacement  = m_localPlacement;
   cloned->m_absPlacement    = m_absPlacement;
@@ -1695,6 +1701,14 @@ bool TStageObject::isCycleEnabled() const { return m_cycleEnabled; }
 //-----------------------------------------------------------------------------
 
 void TStageObject::enableCycle(bool on) { m_cycleEnabled = on; }
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::setControllerWidget(int widget,
+                                       const TStageObjectId &padY) {
+  m_controllerWidget = widget;
+  m_controllerPadY   = padY;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -2124,6 +2138,17 @@ void TStageObject::saveData(TOStream &os) {
   if (m_aperture->hasDataToSave()) os.child("aperture") << *m_aperture;
   if (m_cycleEnabled) os.child("cycle") << 1;
 
+  // The widget of a master controller, written only once one is chosen in
+  // the Master Controllers panel: builds without it refuse the tag
+  // ("unexpected tag"), as with offsetLayers below.
+  if (m_controllerWidget >= 0) {
+    os.openChild("controllerWidget");
+    os.child("mode") << m_controllerWidget;
+    if (m_controllerPadY != TStageObjectId::NoneId)
+      os.child("padY") << m_controllerPadY.toString();
+    os.closeChild();
+  }
+
   if (m_skeletonDeformation) os.child("plasticSD") << *m_skeletonDeformation;
 
   // Offset layers. This tag is written only for objects having layers, and
@@ -2275,6 +2300,21 @@ void TStageObject::loadData(TIStream &is) {
       int dummy;
       is >> dummy;
       m_cycleEnabled = true;
+    } else if (tagName == "controllerWidget") {
+      while (is.matchTag(tagName)) {
+        if (tagName == "mode")
+          is >> m_controllerWidget;
+        else if (tagName == "padY") {
+          std::string padY;
+          is >> padY;
+          m_controllerPadY = toStageObjectId(padY);
+        } else {
+          // Written by a newer version
+          is.skipCurrentTag();
+          continue;
+        }
+        is.matchEndTag();
+      }
     } else if (tagName == "nodePos") {
       TPointD pos;
       is >> pos.x >> pos.y;
@@ -2445,6 +2485,9 @@ TStageObjectParams *TStageObject::getParams() const {
   data->m_cycleEnabled = m_cycleEnabled;
   data->m_spline       = m_spline;
 
+  data->m_controllerWidget = m_controllerWidget;
+  data->m_controllerPadY   = m_controllerPadY;
+
   data->m_handle       = m_handle;
   data->m_parentHandle = m_parentHandle;
   if (m_pinnedRangeSet) data->m_pinnedRangeSet = m_pinnedRangeSet->clone();
@@ -2539,6 +2582,8 @@ void TStageObject::assignParams(const TStageObjectParams *src,
   m_parentHandle = src->m_parentHandle;
 
   m_cycleEnabled = src->m_cycleEnabled;
+  m_controllerWidget = src->m_controllerWidget;
+  m_controllerPadY   = src->m_controllerPadY;
   if (m_pinnedRangeSet) *m_pinnedRangeSet = *src->m_pinnedRangeSet;
   updateKeyframes();
   if (m_spline && isUppkEnabled()) m_spline->addParam(m_posPath.getPointer());

@@ -149,6 +149,7 @@ set(HEADERS
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
     ../include/toonz/strokedeformerdata.h
+    ../include/toonz/mastercontroller.h
     ../include/toonz/tfreeformdeformer.h
     ../include/toonz/tdistort.h
     ../include/toonz/textureutils.h
@@ -300,6 +301,7 @@ set(SOURCES
     tdeformer.cpp
     tdeformerstack.cpp
     strokedeformerdata.cpp
+    mastercontroller.cpp
     tdistort.cpp
     tfreeformdeformer.cpp
     texturemanager.cpp
