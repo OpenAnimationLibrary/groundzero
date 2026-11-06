@@ -131,8 +131,15 @@ public:
       return fail("Cannot resolve response directory parent");
     const QByteArray native =
         QFile::encodeName(QDir(parent).filePath(info.fileName()));
-    handle_ = ::open(native.constData(), O_RDONLY | O_CLOEXEC | O_DIRECTORY |
-                                             O_NOFOLLOW | O_NONBLOCK);
+#ifdef __linux__
+    // An anchor needs no directory-read capability. O_PATH also permits the
+    // isolated worker to reach its allowed input without listing its parent.
+    constexpr int flags = O_PATH | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW;
+#else
+    constexpr int flags = O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW |
+                          O_NONBLOCK;
+#endif
+    handle_ = ::open(native.constData(), flags);
     struct stat status {};
     if (handle_ < 0 || fstat(handle_, &status) != 0 || !S_ISDIR(status.st_mode))
       return fail("Response directory is a link or non-directory");

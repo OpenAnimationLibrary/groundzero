@@ -491,10 +491,13 @@ static QByteArray encodeRecord(
     const auto &p  = r.preset;
     const auto &t  = p.texture;
     const auto &s  = p.secondary;
+    // Resource encoding can throw on cancellation. Finish it before building
+    // Qt JSON initializer lists so partial list temporaries need not unwind.
+    const auto primaryTip = w.tip(p.tip);
     QJsonObject settings{
         {"name", QString::fromStdString(p.name)},
         {"profile", QString::fromStdString(p.profile)},
-        {"tip", w.tip(p.tip)},
+        {"tip", primaryTip},
         {"size", dynamicJson(p.size)},
         {"aspect", dynamicJson(p.aspect)},
         {"angle", dynamicJson(p.angle)},
@@ -565,16 +568,18 @@ static QByteArray encodeRecord(
           {"amount", p.sourceScatterV1->amount},
           {"axisX", p.sourceScatterV1->axisX},
           {"axisY", p.sourceScatterV1->axisY}};
+    const auto textureImage = w.image(t.image);
     settings["texture"] =
-        QJsonObject{{"image", w.image(t.image)},  {"mode", masks[int(t.mode)]},
+        QJsonObject{{"image", textureImage},  {"mode", masks[int(t.mode)]},
                     {"scale", t.scale},           {"angle", t.angle},
                     {"offsetX", t.offsetX},       {"offsetY", t.offsetY},
                     {"depth", t.depth},           {"contrast", t.contrast},
                     {"brightness", t.brightness}, {"invert", t.invert},
                     {"perDab", t.perDab}};
+    const auto secondaryTip = w.tip(s.tip);
     settings["secondary"] =
         QJsonObject{{"enabled", s.enabled},
-                    {"tip", w.tip(s.tip)},
+                    {"tip", secondaryTip},
                     {"mode", masks[int(s.mode)]},
                     {"size", dynamicJson(s.size)},
                     {"angle", dynamicJson(s.angle)},

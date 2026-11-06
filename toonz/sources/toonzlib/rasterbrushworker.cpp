@@ -275,7 +275,25 @@ static int runImportWorkerImpl(const QString &input, const QString &directory,
     QString error;
     ImportResult imported;
     if (sampledTipsOnly) {
-      const auto bytes = readBoundedRegularFile(input, 64LL * 1024 * 1024, error);
+      QByteArray bytes;
+#ifdef _WIN32
+      // The parent validated the original and created this private, read-only
+      // input copy. AppContainer permits that file, not listing its ancestors.
+      constexpr qint64 limit = 64LL * 1024 * 1024;
+      QFile file(input);
+      if (!file.open(QIODevice::ReadOnly))
+        error = file.errorString();
+      else if (file.size() > limit)
+        error = "Brush input exceeds 64 MiB";
+      else {
+        bytes = file.read(limit + 1);
+        if (bytes.size() > limit || !file.atEnd() ||
+            file.error() != QFile::NoError)
+          error = "Cannot read complete bounded brush input";
+      }
+#else
+      bytes = readBoundedRegularFile(input, 64LL * 1024 * 1024, error);
+#endif
       if (error.isEmpty()) imported = importAbrTips(bytes, error);
     } else {
       imported = importBrushFile(input, error);

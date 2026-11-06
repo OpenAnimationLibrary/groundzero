@@ -583,7 +583,7 @@ void testSourceBitmapImport() {
     }
     if (!candidate) continue;
     if (randomSequence)
-      require(record.preset.varySeedPerStroke && !record.semanticallySupported && !record.referenceVerified &&
+      require(record.preset.varySeedPerStroke && record.decoded && record.semanticallySupported && !record.referenceVerified &&
                   !record.provenance["sourceSemanticallySupported"].toBool() &&
                   record.provenance["candidateEligibility"].toString() == "k5341-random-bitmap-proposal-cache-1",
               "Experimental random GIH import invented global source qualification");
@@ -611,7 +611,8 @@ void testSourceBitmapImport() {
         "gzbrush", error);
     require(error.isEmpty() && portable.records.size() == 1 &&
                 portable.records[0].preset.profile == record.preset.profile &&
-                !record.provenance["sourceReferenceVerified"].toBool(),
+                !portable.records[0].referenceVerified &&
+                !portable.records[0].provenance["sourceReferenceVerified"].toBool(),
             "source bitmap portable reopen lost profile or invented parity");
     if (sequence) {
       require(restored.preset.tip.images.size() == 3 &&
@@ -3291,10 +3292,14 @@ void testAbrTipExtraction() {
               legacyTipLibraryCollisionKey(QString::fromUtf8("TIP_e\xCC\x81")),
           "Legacy tip collision identity ignored canonical Unicode aliases");
   QString error;
-  const auto inspect = [&](const ImportResult &result, int count,
-                           double lastCoverage = 0) {
+  const auto inspect = [&](const QString &context, const ImportResult &result,
+                           int count, double lastCoverage = 0) {
     require(error.isEmpty() && result.complete && int(result.records.size()) == count,
-            "ABR sampled-tip extraction failed or changed sample count");
+            qPrintable(QString("ABR sampled-tip extraction [%1]: complete=%2, "
+                               "records=%3, expected=%4, error=%5")
+                           .arg(context).arg(result.complete)
+                           .arg(qulonglong(result.records.size())).arg(count)
+                           .arg(error)));
     for (int index = 0; index < count; ++index) {
       const auto &record = result.records[size_t(index)];
       require(record.preset.tip.shape == Shape::Bitmap &&
@@ -3313,16 +3318,16 @@ void testAbrTipExtraction() {
     }
   };
   for (int version : {1, 2}) {
-    inspect(importAbrTips(sampledAbr(version), error), 1);
+    inspect(QString("legacy-8bit-v%1").arg(version), importAbrTips(sampledAbr(version), error), 1);
     auto sixteen = sampledAbr(version);
     sixteen[sixteen.size() - 4] = 16;  // Big-endian depth field's low byte.
     sixteen.replace(sixteen.size() - 2, 2,
                     QByteArray::fromHex("ffff0080"));
     sixteen[9] = char(static_cast<unsigned char>(sixteen[9]) + 2);
-    inspect(importAbrTips(sixteen, error), 1);
+    inspect(QString("legacy-16bit-v%1").arg(version), importAbrTips(sixteen, error), 1);
   }
   const size_t bytes = 2 * (sizeof(Pixel) + 1);
-  inspect(importAbrTips(sampledAbr(), error, nullptr, bytes), 1);
+  inspect("exact-budget", importAbrTips(sampledAbr(), error, nullptr, bytes), 1);
   require(!importAbrTips(sampledAbr(), error, nullptr, bytes - 1).complete &&
               !error.isEmpty(),
           "ABR raw extraction failed to charge retained masks and float images");
@@ -3330,14 +3335,14 @@ void testAbrTipExtraction() {
   // substitute those two native preset conversions for one original tip.
   const auto aliases = boundAbr(false, false, 6, false, true);
   const auto raw = importAbrTips(aliases, error);
-  inspect(raw, 1, 64 / 255.0);
+  inspect("descriptor-aliases", raw, 1, 64 / 255.0);
   for (int version : {7, 8, 9, 10})
-    inspect(importAbrTips(boundAbr(false, false, version), error),
-            1, 64 / 255.0);
+    inspect(QString("modern-v%1").arg(version),
+            importAbrTips(boundAbr(false, false, version), error), 1, 64 / 255.0);
   require(raw.records[0].preset.name == "tip_001",
           "ABR raw sample name was replaced by a descriptor preset name");
   // Spacing is deliberately not applied by this image-only action.
-  inspect(importAbrTips(sampledAbr(1, 0), error), 1);
+  inspect("zero-spacing", importAbrTips(sampledAbr(1, 0), error), 1);
 
   const QString originalName = QString::fromUtf8("Original \xE7\xAD\x86 tip");
   auto named = sampledAbr(2);
@@ -3357,7 +3362,7 @@ void testAbrTipExtraction() {
   duplicateNames[3] = 2;
   duplicateNames += named.mid(4);
   auto duplicate = importAbrTips(duplicateNames, error);
-  inspect(duplicate, 2);
+  inspect("duplicate-unicode-names", duplicate, 2);
   require(QString::fromStdString(duplicate.records[0].preset.name) == originalName &&
               duplicate.records[0].preset.name == duplicate.records[1].preset.name,
           "ABR raw extraction rewrote duplicate or Unicode source names");
@@ -3401,7 +3406,7 @@ void testAbrTipExtraction() {
   auto mixed = sampledAbr();
   mixed[3] = 2;
   mixed += computedAbr(1).mid(4);
-  inspect(importAbrTips(mixed, error), 1);
+  inspect("sampled-plus-computed", importAbrTips(mixed, error), 1);
   std::atomic_bool cancelled(true);
   const auto stopped = importAbrTips(named, error, &cancelled);
   require(!stopped.complete && stopped.records.empty() && error.contains("cancelled"),
@@ -3418,7 +3423,7 @@ void testAbrTipExtraction() {
   };
   write(duplicateNames);
   const auto isolated = importAbrTipsProcess(workerExecutable(), path, error);
-  inspect(isolated, 2);
+  inspect("isolated-duplicate-unicode-names", isolated, 2);
   require(QString::fromStdString(isolated.records[0].preset.name) == originalName &&
               isolated.records[1].preset.name == isolated.records[0].preset.name,
           "Isolated raw-tip protocol changed source names or order");
@@ -3442,7 +3447,7 @@ void testAbrTipExtraction() {
               !cancelledResult.complete && cancelledResult.records.empty(),
           "Isolated raw-tip import continued after prepared cancellation");
 #else
-  inspect(cancelledResult, 1);
+  inspect("isolated-without-cancellation-hook", cancelledResult, 1);
 #endif
 }
 

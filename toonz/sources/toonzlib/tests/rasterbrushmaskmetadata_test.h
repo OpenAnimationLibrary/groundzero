@@ -36,7 +36,7 @@ void testSourceMaskPreservedResources() {
   QByteArray pixels;
   QBuffer pixelBuffer(&pixels); pixelBuffer.open(QIODevice::WriteOnly);
   require(mask.save(&pixelBuffer, "PNG"), "Cannot encode authored alpha-application resource");
-  QByteArray manifest = "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\">"
+  QByteArray manifest = "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">"
       "<manifest:file-entry manifest:full-path=\"paintoppresets/masked.kpp\" manifest:media-type=\"paintoppresets\"/>"
       "<manifest:file-entry manifest:full-path=\"brushes/mask.png\" manifest:media-type=\"brushes\"/>"
       "</manifest:manifest>";

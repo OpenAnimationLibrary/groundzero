@@ -56,7 +56,7 @@ void testSourceSensorPreservation() {
   Record original;
   original.sourceSensorsV1 = metadata;
   QString error;
-  const auto settings = QJsonDocument::fromJson(encode(Record{}, error)).object()["settings"];
+  const auto settings = QJsonDocument::fromJson(encode(Record{}, error)).object().value("settings");
   const auto encoded = encode(original, error);
   require(error.isEmpty() && !encoded.isEmpty() &&
               QJsonDocument::fromJson(encoded).object()["settings"] == settings,
