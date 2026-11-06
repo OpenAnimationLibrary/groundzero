@@ -321,14 +321,26 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
   QString sensor, curve;
   bool periodic = false;
   double scale = 1;
+  int depth = 0, roots = 0, curves = 0;
+  bool intervalStructureValid = true;
   while (!xml.atEnd()) {
     xml.readNext();
     if (xml.isEntityReference()) return false;
     if (xml.isDTD() && xml.text().toString().trimmed() != "<!DOCTYPE params>")
       return false;
+    if (xml.isEndElement()) {
+      --depth;
+      continue;
+    }
+    if (xml.isCharacters() && !xml.isWhitespace())
+      intervalStructureValid = false;
     if (!xml.isStartElement()) continue;
+    ++depth;
+    if (!xml.namespaceUri().isEmpty() || !xml.namespaceDeclarations().empty())
+      intervalStructureValid = false;
     if (xml.name() == QStringLiteral("params")) {
       if (!sensor.isEmpty()) return false;
+      intervalStructureValid &= depth == 1 && ++roots == 1;
       sensor = xml.attributes().value("id").toString();
       // Original real-clock Size captures establish explicit one-second
       // clamping versus cycling. Native conversion preserves that distinction;
@@ -364,12 +376,21 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
         for (auto a : xml.attributes())
           if (a.name() != QStringLiteral("id")) return false;
       }
-    } else if (xml.name() == QStringLiteral("curve"))
-      curve = xml.readElementText();
-    else
+    } else if (xml.name() == QStringLiteral("curve")) {
+      intervalStructureValid &= depth == 2 && ++curves == 1 &&
+                                xml.attributes().empty();
+      curve = xml.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+      --depth;  // readElementText consumes the curve's closing element.
+    } else
       return false;
   }
   if (xml.hasError()) return false;
+  // Intervals must not silently discard active XML semantics just because a
+  // shared point list is available. Legacy native curve conversion retains
+  // its existing approximation boundary for other sensor types.
+  if ((sensor == "time" || sensor == "distance") &&
+      (!intervalStructureValid || depth != 0 || roots != 1 || curves != 1))
+    return false;
   const QMap<QString, Sensor> names = {{"time", Sensor::Time},
                                        {"distance", Sensor::Distance},
                                        {"pressure", Sensor::Pressure},
@@ -1293,8 +1314,15 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                                                    : Shape::Round;
       r.preset.size.value   = numeric(a.value("diameter").toString());
       r.preset.aspect.value = numeric(a.value("ratio").toString());
-      r.preset.tip.hardness = std::min(numeric(a.value("hfade").toString()),
-                                       numeric(a.value("vfade").toString()));
+      const double horizontalFade = numeric(a.value("hfade").toString()),
+                   verticalFade = numeric(a.value("vfade").toString());
+      if (horizontalFade < 0 || horizontalFade > 1 ||
+          verticalFade < 0 || verticalFade > 1)
+        throw Invalid("KPP generated-tip fade is outside the supported 0-1 range");
+      r.preset.tip.hardness = std::min(horizontalFade, verticalFade);
+      if (horizontalFade != verticalFade)
+        diagnostics << "Unequal generated-tip fades are reduced to the smaller "
+                       "native hardness; independent source fade axes are not reproduced.";
       if (a.hasAttribute("antialiasEdges")) {
         auto value = a.value("antialiasEdges").toString();
         if (value != "0" && value != "1")
@@ -1899,7 +1927,14 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
           im->pixels[i] = {0, 0, 0, tip.pixels[i] / 255.0};
         r.preset.tip.shape = Shape::Bitmap;
         r.preset.tip.images.push_back(im);
-        geometry(r.preset, *im, tip.spacing < 0 ? .1 : tip.spacing / 100.0);
+        // V1/V2 always serialize a signed spacing value. A negative value
+        // there is unsupported input, not the sentinel used by modern ABR
+        // sample records where spacing is absent entirely.
+        const bool spacingStored = parsed.version == 1 || parsed.version == 2;
+        if (spacingStored && (tip.spacing < 1 || tip.spacing > 500))
+          throw Invalid("Legacy ABR sampled spacing is outside the supported "
+                        "1-500 percent range");
+        geometry(r.preset, *im, spacingStored ? tip.spacing / 100.0 : .1);
         check(r);
         sampledRecords.push_back(r);
       }

@@ -6,6 +6,7 @@ credentials are persisted. Cache integrity assumes GitHub's repository/branch
 cache access boundary; hashes detect damage, not a malicious authorized writer.
 """
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -19,6 +20,7 @@ import stat
 import struct
 import subprocess
 import zipfile
+import zlib
 from mask_repeat_contract import contract as mask_repeat_contract
 
 VERSION = 2
@@ -217,9 +219,72 @@ def identity(root, repository, appimage):
 
 def filename(value, suffix):
     require(isinstance(value, str) and len(value) <= 240 and
-            re.fullmatch(r"[A-Za-z0-9_.-]+", value) and value.endswith(suffix),
+            re.fullmatch(r"[A-Za-z0-9_.+-]+", value) and value.endswith(suffix),
             "invalid capture name")
     return value
+
+
+
+def validate_spacing_scatter_acquisition(fixtures, status):
+    # Only these complete original source matrices may replace deterministic
+    # repeat equality with independent scatter sampling. Merely adding an
+    # enabled flag to another fixture must never reduce its repeat gate.
+    from runpy import run_path
+    helper = run_path(str(Path(__file__).parent /
+        "gzbrush_reference/spacing_scatter_probe.py"))
+    try:
+        helper["validate_manifest"](fixtures)
+    except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+        raise ValueError("invalid complete spacing/scatter manifest") from error
+    expected = fixtures["presets"]
+    planned, actual = status.get("plannedExecutionOrder"), status.get("actualExecutionOrder")
+    require(status.get("intendedPresetOrder") == expected and type(planned) is list and
+            len(planned) == len(expected) and all(type(name) is str for name in planned) and
+            len(set(planned)) == len(expected) and set(planned) == set(expected) and
+            actual == planned, "missing spacing/scatter execution order evidence")
+    cases = fixtures["cases"]
+    scatter = fixtures["group"] != "autospacing"
+    if scatter:
+        enabled = [case["preset"] for case in cases if case["scatterProbe"]["enabled"]]
+        active_plan = [name for name in planned if name in set(enabled)]
+        require(len(enabled) == len(active_plan) == 100 and active_plan != enabled,
+                "source scatter execution was not randomized")
+    else:
+        require(planned == expected, "unexpected automatic-spacing execution order")
+    order = {name: index for index, name in enumerate(planned)}
+    for index, (case, row) in enumerate(zip(cases, status["records"])):
+        require(type(row.get("intendedOrdinal")) is int and row["intendedOrdinal"] == index and
+                type(row.get("executionOrdinal")) is int and row["executionOrdinal"] == order[case["preset"]],
+                "source spacing/scatter execution ordinal mismatch")
+        field = "scatterEvidence" if scatter else "autoSpacingEvidence"
+        evidence = row.get(field, {})
+        require(isinstance(evidence, dict), "missing spacing/scatter source evidence")
+        fields = dict(evidence.get("effectiveControls", {}))
+        fields["brush_definition"] = evidence.get("effectiveBrushDefinition", "")
+        try:
+            validated = helper["validate_controls"](case, fields, row.get("deliveryReport", {}))
+        except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+            raise ValueError("invalid effective spacing/scatter controls or delivery") from error
+        require(all(evidence.get(key) == value for key, value in validated.items()) and
+                evidence.get("encoding") == "zlib-base64-bgra8-row-major",
+                "spacing/scatter source evidence differs from readback")
+        rect = validated["rect"]
+        size = rect[2] * rect[3] * 4
+        data = evidence.get("data")
+        require(type(data) is str and len(data) <= 2 * size + 1024,
+                "oversized spacing/scatter source pixels")
+        stream = zlib.decompressobj()
+        try:
+            pixels = stream.decompress(base64.b64decode(data, validate=True), size + 1)
+        except (ValueError, zlib.error) as error:
+            raise ValueError("invalid encoded spacing/scatter source pixels") from error
+        require(len(pixels) == size and stream.eof and not stream.unused_data and
+                not stream.unconsumed_tail and digest(pixels) == evidence.get("sha256Pixels") and
+                type(evidence.get("nonzeroAlphaPixels")) is int and
+                evidence["nonzeroAlphaPixels"] == sum(alpha != 0 for alpha in pixels[3::4]) and
+                evidence["nonzeroAlphaPixels"] > 0,
+                "invalid spacing/scatter source pixel evidence")
+    return scatter
 
 
 def acquisition(output, fixtures):
@@ -233,6 +298,8 @@ def acquisition(output, fixtures):
             and 0 < len(expected) <= 512 and len(set(expected)) == len(expected)
             and len(cases) == len(expected) and
             [r["preset"] for r in rows] == expected, "incomplete acquisition")
+    spacing_scatter_group = fixtures.get("group") == "autospacing" or fixtures.get("group", "").startswith("scatter-")
+    validated_scatter = validate_spacing_scatter_acquisition(fixtures, status) if spacing_scatter_group else False
     diagnostic = mask_repeat_contract(fixtures["group"])
     if diagnostic:
         observed = status.get("repeatDiagnostic", {})
@@ -262,6 +329,8 @@ def acquisition(output, fixtures):
             require(fixtures.get("repeatDiagnostic") == diagnostic and row.get("repeatDiagnostic") == diagnostic,
                     "missing mask-repeat diagnostic identity")
             repetitions = diagnostic["repetitions"]
+        if validated_scatter and case["scatterProbe"]["enabled"]:
+            repetitions = 1
         canonical = row["sha256RepeatPixels"]
         require(HEX.fullmatch(row["sha256Pixels"]) and len(repeated) == repetitions
                 and repeated[0] == row["sha256Pixels"] and all(HEX.fullmatch(h) for h in repeated)
@@ -338,6 +407,14 @@ def acquisition(output, fixtures):
             "gzbrush_reference/kernel_precision_probe.py"))["validate"]
         validate_precision(parse(data), fixtures, rows)
         files["kernel-precision.json"] = data
+        convergence = read(output / "kernel-convergence.json", 8 * 1024 * 1024)
+        convergence_report = parse(convergence)
+        validate_convergence = run_path(str(Path(__file__).parent /
+            "gzbrush_reference/kernel_convergence_probe.py"))["validate"]
+        validate_convergence(convergence_report, fixtures)
+        require(convergence_report.get("kernelPrecisionSha256") == digest(data),
+                "kernel convergence/precision observation linkage mismatch")
+        files["kernel-convergence.json"] = convergence
     if fixtures.get("group") in ("wetkernelcount", "lab-conversion"):
         from runpy import run_path
         lab = read(output / "managed-lab.json", 1024 * 1024)
@@ -371,7 +448,7 @@ def restore(root, cache, expected):
             "unexpected or missing cache files")
     total = 0
     for name, spec in entries.items():
-        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json", "managed-lab.json") else
+        filename(name, ".json" if name in ("oracle-status.json", "kernel-precision.json", "kernel-convergence.json", "managed-lab.json") else
                  ".png" if name.endswith(".png") else ".xml")
         require(isinstance(spec, list) and len(spec) == 2 and type(spec[0]) is int
                 and 0 <= spec[0] <= FILE_LIMIT and HEX.fullmatch(spec[1]), "invalid file manifest")

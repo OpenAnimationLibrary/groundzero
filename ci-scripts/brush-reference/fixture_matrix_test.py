@@ -12,7 +12,8 @@ def main():
     comparator = str(Path(sys.argv[1]).resolve())
     prepare = Path(__file__).with_name("prepare.py")
     with tempfile.TemporaryDirectory() as folder:
-        for group in ("wethsv", "gihcadence", "generatedtips"):
+        for group in ("wethsv", "gihcadence", "generatedtips", "autospacing",
+                      "scatter-x-east", "wetgeometry"):
             root = Path(folder) / group
             environment = dict(os.environ, BRUSH_REFERENCE_ROOT=str(root),
                                BRUSH_REFERENCE_GROUP=group)

@@ -1,5 +1,6 @@
 #include "rasterbrushintegrationtest.h"
 #include "../toonzlib/tests/rasterbrushfixture.h"
+#include "../tnztools/fullcolorbrushtool.h"
 #include "tapp.h"
 #include "sceneviewer.h"
 #include "tools/tool.h"
@@ -62,6 +63,7 @@
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -477,6 +479,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             importError.isEmpty() && reopened.complete &&
                 reopened.records.size() == 1 &&
                 reopened.records.front().preset.size.mappings.size() == 1 &&
+                reopened.records.front().preset.size.mappings.front().sensor ==
+                    repeatSensor &&
                 reopened.records.front()
                     .preset.size.mappings.front()
                     .periodic &&
@@ -1658,6 +1662,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       }
     checkpoint("qualifying combined portable resources and native dynamics");
     for (bool wet : {false, true}) {
+      const auto previousPaintColor = palette->getStyle(1)->getMainColor();
+      // A neutral foreground cannot reveal dropped Hue/Saturation controls.
+      if (wet) palette->getStyle(1)->setMainColor(TPixel32(160, 80, 40, 255));
       RasterBrush::Record fixture;
       auto mask   = std::make_shared<RasterBrush::Image>();
       mask->width = mask->height = 4;
@@ -1918,6 +1925,47 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           originalPath, 64 * 1024 * 1024, importError);
       require(importError.isEmpty(),
               "cannot capture original preset for copy workflow");
+      const auto editWetControls = [](QWidget *editor) {
+        const std::pair<const char *, double> controls[] = {
+            {"nativeBrushHue", 37.5}, {"nativeBrushSaturation", .7},
+            {"nativeBrushBrightness", 1.2}, {"nativeBrushTextureDepth", .4}};
+        bool found = true;
+        for (const auto &control : controls) {
+          auto spin = editor->findChild<QDoubleSpinBox *>(control.first);
+          if (spin) spin->setValue(control.second);
+          else found = false;
+        }
+        return found;
+      };
+      if (wet) {
+        checkpoint("cancelling wet HSV/texture editor changes");
+        const auto beforeFiles =
+            QDir(folder).entryList(QDir::Files | QDir::NoDotAndDotDot);
+        bool editedThenCancelled = false;
+        QTimer::singleShot(0, [&] {
+          auto editor =
+              qobject_cast<QDialog *>(QApplication::activeModalWidget());
+          if (!editor || editor->objectName() != "nativeBrushEditor") return;
+          editedThenCancelled = editWetControls(editor);
+          editor->reject();
+        });
+        property->setValue(L"<edit>");
+        require(tool->onPropertyChanged("Native Brush:") &&
+                    editedThenCancelled && property->getValue() == originalSelection &&
+                    sameFiles(beforeFiles, QDir(folder).entryList(
+                        QDir::Files | QDir::NoDotAndDotDot)) &&
+                    RasterBrush::readBoundedRegularFile(
+                        originalPath, 64 * 1024 * 1024, importError) == originalBytes &&
+                    importError.isEmpty() && undo->getHistoryCount() == 0 &&
+                    same(baseline, raster(level, 1)),
+                "cancelled wet HSV/texture editor changed preset, selection or document");
+        draw(tool, false, .8, .8, 1.5707963267948966);
+        requireSame(high, raster(level, 1),
+                    "cancelled wet HSV/texture edit changed active brush output");
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "cancelled wet edit repaint undo failed");
+        undo->reset();
+      }
       std::wstring editedSelection;
       for (int saveIndex = 0; saveIndex < 2; ++saveIndex) {
         bool edited = false, named = false;
@@ -1931,16 +1979,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             if (opacity && buttons && buttons->button(QDialogButtonBox::Ok)) {
               opacity->setValue(.333);
               edited = true;
-              if (wet) {
-                const std::pair<const char *, double> controls[] = {
-                    {"nativeBrushHue", 37.5}, {"nativeBrushSaturation", .7},
-                    {"nativeBrushBrightness", 1.2}, {"nativeBrushTextureDepth", .4}};
-                for (const auto &control : controls) {
-                  auto spin = modal->findChild<QDoubleSpinBox *>(control.first);
-                  if (spin) spin->setValue(control.second);
-                  else edited = false;
-                }
-              }
+              if (wet) edited = editWetControls(modal);
               if (edited) buttons->button(QDialogButtonBox::Ok)->click();
               else qobject_cast<QDialog *>(modal)->reject();
             } else
@@ -1996,6 +2035,36 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             require(undo->undo() && same(baseline, raster(level, 1)),
                     "edited wet persistence restore failed");
             undo->reset();
+            // Hold opacity and every other setting fixed while changing one
+            // edited control. A changed opacity alone must not make the HSV /
+            // texture workflow pass when a foreground or coverage input is lost.
+            for (int control = 0; control < 4; ++control) {
+              auto comparison = saved.records.front();
+              comparison.preset.name += " original-control " + std::to_string(control);
+              if (control == 0) comparison.preset.hue.value = fixture.preset.hue.value;
+              if (control == 1) comparison.preset.saturation.value = fixture.preset.saturation.value;
+              if (control == 2) comparison.preset.brightness.value = fixture.preset.brightness.value;
+              if (control == 3) comparison.preset.texture.depth = fixture.preset.texture.depth;
+              const QString comparisonPath =
+                  RasterBrush::install(folder, comparison, importError);
+              require(importError.isEmpty() && !comparisonPath.isEmpty(),
+                      "cannot install independent wet edit control");
+              tool->onActivate();
+              property->setValue(
+                  QDir(folder).relativeFilePath(comparisonPath).toStdWString());
+              require(tool->onPropertyChanged("Native Brush:"),
+                      "cannot select independent wet edit control");
+              draw(tool, false, .8, .8, 1.5707963267948966);
+              require(!same(editedPaint, raster(level, 1)) &&
+                          undo->getHistoryCount() == 1 && undo->undo() &&
+                          same(baseline, raster(level, 1)),
+                      "wet edit failed to affect pixels independently of opacity");
+              undo->reset();
+            }
+            tool->onActivate();
+            property->setValue(editedSelection);
+            require(tool->onPropertyChanged("Native Brush:"),
+                    "cannot restore edited wet preset after controls");
             draw(tool, true, .8, .8, 1.5707963267948966);
             require(same(baseline, raster(level, 1)) &&
                         undo->getHistoryCount() == 0,
@@ -2059,6 +2128,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       property->setValue(originalSelection);
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot restore original preset after copy workflow");
+      palette->getStyle(1)->setMainColor(previousPaintColor);
     }
     checkpoint(
         "qualifying preset and toolbar alpha preservation through actual tool");
@@ -2286,10 +2356,28 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       };
       begin();
       const auto initialDab = raster(level, 1)->clone();
+      const auto initialState =
+          static_cast<FullColorBrushTool *>(tool)->nativeBrushTestState();
       pump(250);
       const TRaster32P accumulated = raster(level, 1)->clone();
+      const auto accumulatedState =
+          static_cast<FullColorBrushTool *>(tool)->nativeBrushTestState();
+      const auto beforePixel = initialDab->pixels(initialDab->getLy() / 2)
+                                              [initialDab->getLx() / 2];
+      const auto afterPixel = accumulated->pixels(accumulated->getLy() / 2)
+                                              [accumulated->getLx() / 2];
+      const QString timerEvidence =
+          QString("airbrush profile=%1 initial={%2} after={%3} "
+                  "center=%4,%5,%6,%7 -> %8,%9,%10,%11")
+              .arg(airbrushProfile).arg(initialState).arg(accumulatedState)
+              .arg(int(beforePixel.r)).arg(int(beforePixel.g))
+              .arg(int(beforePixel.b)).arg(int(beforePixel.m))
+              .arg(int(afterPixel.r)).arg(int(afterPixel.g))
+              .arg(int(afterPixel.b)).arg(int(afterPixel.m));
+      checkpoint(qPrintable(timerEvidence));
       require(!same(initialDab, accumulated),
-              "stationary airbrush did not accumulate without move events");
+              qPrintable("stationary airbrush did not accumulate without move events: " +
+                         timerEvidence));
       for (int y = 0; y < baseline->getLy(); ++y)
         for (int x = 0; x < baseline->getLx(); ++x)
           if (std::abs(x - baseline->getLx() / 2) > 24 ||

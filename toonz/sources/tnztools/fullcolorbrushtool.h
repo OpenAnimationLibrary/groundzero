@@ -73,6 +73,31 @@ private:
 
 public:
   FullColorBrushTool(std::string name);
+#ifdef BUILD_UI_PORT_TESTS
+  // Read-only qualification snapshot. No counters or behavior exist in
+  // production; keep timer dispatch and renderer consumption distinguishable.
+  QString nativeBrushTestState() const {
+    QStringList result{
+        QString("started=%1 timer=%2 failed=%3").arg(m_started)
+            .arg(m_nativeAirbrushTimer.isActive()).arg(m_nativeStrokeFailed)};
+    auto append = [&](const char *label, const TTrackList &tracks) {
+      for (const auto &track : tracks) {
+        const auto *handler =
+            dynamic_cast<const TrackHandler *>(track->handler.getPointer());
+        result.append(QString("%1:points=%2 fixed=%3 final=%4 time=%5 dabs=%6")
+                          .arg(QString::fromLatin1(label)).arg(track->size())
+                          .arg(track->fixedSize()).arg(track->finished())
+                          .arg(track->size() ? track->back().time : 0, 0, 'g', 17)
+                          .arg(qulonglong(handler && handler->nativeStroke
+                                              ? handler->nativeStroke->dabCount()
+                                              : 0)));
+      }
+    };
+    append("input", m_inputmanager.getInputTracks());
+    append("output", m_inputmanager.getOutputTracks());
+    return result.join("; ");
+  }
+#endif
 
   ToolType getToolType() const override { return TTool::LevelWriteTool; }
   unsigned int getToolHints() const override;

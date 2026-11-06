@@ -2297,24 +2297,50 @@ bool Stroke::add(const Sample &input) {
     m->speed = dt > 0 ? distance / dt : 0;
     if (m->independentSecondary())
       return m->addIndependent(from, s, distance, dt);
-    double f      = 0;
+    double f = 0, emittedDistance = 0, emittedTime = 0;
+    const double segmentTravel = m->travel;
+    const bool source = sourceProfile(m->p.profile);
     size_t events = 0;
     while (f < 1) {
-      double fd = distance > 0 ? (m->spacing - m->sinceDab) / distance : 2;
+      const double distanceToDab = m->spacing - m->sinceDab;
+      const double timeToDab = m->p.airbrushRate > 0
+                                   ? 1 / m->p.airbrushRate - m->sinceTime : 0;
+      double fd = distance > 0 ? distanceToDab / distance : 2;
       double ft = m->p.airbrushRate > 0 && dt > 0
                       ? (1 / m->p.airbrushRate - m->sinceTime) / dt
                       : 2;
       double step =
           std::max(sourceProfile(m->p.profile) ? 1e-9 : 0.0, std::min(fd, ft));
-      const double end = f + step;
+      // Native spacing advances in physical segment distance/time, not a
+      // sum of normalized fractions. Summing .2 three times can move a hard
+      // stamp off an exact boundary and make Distance curves event-dependent.
+      double nextDistance = emittedDistance, nextTime = emittedTime;
+      if (!source) {
+        if (fd <= ft && distance > 0) {
+          nextDistance += std::max(0.0, distanceToDab);
+          nextTime = dt * (nextDistance / distance);
+        } else if (m->p.airbrushRate > 0 && dt > 0) {
+          nextTime += std::max(0.0, timeToDab);
+          nextDistance = distance * (nextTime / dt);
+        }
+      }
+      const double end = source ? f + step
+                         : fd <= ft && distance > 0 ? nextDistance / distance
+                         : m->p.airbrushRate > 0 && dt > 0 ? nextTime / dt : 2;
       const bool sourceEndpoint =
-          sourceProfile(m->p.profile) && std::abs(end - 1) <= 1e-12;
+          source && std::abs(end - 1) <= 1e-12;
       if (end > 1 && !sourceEndpoint) break;
       if (++events > 65536) {
         m->failure = "Stroke input event work limit exceeded";
         return false;
       }
-      m->travel += (sourceEndpoint ? 1 - f : step) * distance;
+      if (source)
+        m->travel += (sourceEndpoint ? 1 - f : step) * distance;
+      else {
+        emittedDistance = nextDistance;
+        emittedTime = nextTime;
+        m->travel = segmentTravel + emittedDistance;
+      }
       f = sourceEndpoint ? 1 : end;
       if (sourceEndpoint) {
         // The measured source omits a dab exactly at the final endpoint.
@@ -2332,9 +2358,15 @@ bool Stroke::add(const Sample &input) {
       m->sinceDab  = 0;
       m->sinceTime = 0;
     }
-    m->travel += (1 - f) * distance;
-    m->sinceDab += (1 - f) * distance;
-    m->sinceTime += (1 - f) * dt;
+    if (source) {
+      m->travel += (1 - f) * distance;
+      m->sinceDab += (1 - f) * distance;
+      m->sinceTime += (1 - f) * dt;
+    } else {
+      m->travel = segmentTravel + distance;
+      m->sinceDab += distance - emittedDistance;
+      m->sinceTime += dt - emittedTime;
+    }
     m->previous = s;
     return true;
   } catch (const std::bad_alloc &) {

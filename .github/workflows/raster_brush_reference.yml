@@ -17,6 +17,7 @@ on:
           - all
           - wet-interactions
           - wet-drift
+          - wet-geometry
           - kernel-sampling
           - bitmap-input
           - hsv-composition
@@ -27,6 +28,7 @@ on:
           - masked-timed
           - resources
           - generatedtips
+          - spacing-scatter
           - lab-conversion
 permissions:
   contents: read
@@ -49,9 +51,12 @@ jobs:
           python3 ci-scripts/brush-reference/mask_repeat_contract_test.py
           python3 ci-scripts/brush-reference/hsv_joint_test.py
           python3 ci-scripts/brush-reference/generated_tip_test.py
+          python3 ci-scripts/brush-reference/spacing_scatter_test.py
           python3 ci-scripts/brush-reference/wet_drift_contract_test.py
+          python3 ci-scripts/brush-reference/wet_drift_geometry_test.py
           python3 ci-scripts/brush-reference/wet_hsv_combo_fixtures_test.py
           python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
+          python3 ci-scripts/brush-reference/kernel_convergence_probe_test.py
           python3 ci-scripts/brush-reference/managed_lab_probe_test.py
           python3 ci-scripts/brush-reference/gih_cadence_test.py
           python3 ci-scripts/brush-reference/bitmap_path_test.py
@@ -138,7 +143,7 @@ jobs:
       matrix:
         # Pull requests always run every declared source group. Manual subsets
         # shorten diagnostics without representing full source qualification.
-        fixture_group: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'generatedtips' && fromJSON('["generatedtips"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'lab-conversion' && fromJSON('["lab-conversion"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'mask-repeat' && fromJSON('["maskrepeat-reused","maskrepeat-freshnode","maskrepeat-single-reused","maskrepeat-single-freshnode"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'bitmap-input' && fromJSON('["bitmaptips"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'kernel-sampling' && fromJSON('["wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-composition' && fromJSON('["hsvjoint"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-drift' && fromJSON('["wetdrift"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-color' && fromJSON('["wetdrift","wethsv","texturepickup","wetkernelcount","hsvorder","hsvheldout"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-interactions' && fromJSON('["wetdrift","wethsv","texturepickup","wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'pixel-input' && fromJSON('["pixelprecision","tabletsensors","pixelpressure","pixelsmallpressure","pixeltransfer","hsvpressure"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-interactions' && fromJSON('["hsvpressure","hsvchroma","hsvorder","hsvjoint","hsvheldout","hsvdynamics"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'masked-timed' && fromJSON('["maskwash","maskbuildup","airbrushtimed","timedsensors"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'resources' && fromJSON('["bitmaptips","mirrortips","gihlabels","gihstatistics","gihcadence"]') || fromJSON('["generatedtips","wetdrift","wethsv","texturepickup","wetkernelcount","hsvorder","hsvpressure","hsvchroma","pixelprecision","tabletsensors","hsvjoint","hsvheldout","airbrushtimed","timedsensors","maskwash","maskbuildup","hsvdynamics","distancesensors","mirrortips","spacingdynamics","bitmaptips","gihlabels","gihstatistics","gihcadence","pixelcurveknots","texturestate","pixeltransfer","wetboundary","texturemasks","pixelblend","wetopacitycombo","wettransfer","pixelcurves","wetkernelscale","wetkernel","wettexture3","wetpressure","pixelsoftsize","pixelrectsize","pixelsoft","pixelopacitytablet","pixelopacity","pixelpressure","wetstate","wethold","wettexture","pixelaarange","pixelcontrols","pixelsmallpressure","pixelshape","wetswitches","wetcombined","wetsteps","hardpixel","geometry","tablet","parameters"]') }}
+        fixture_group: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-geometry' && fromJSON('["wetgeometry"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'spacing-scatter' && fromJSON('["autospacing","scatter-x-east","scatter-x-north","scatter-y-east","scatter-y-north","scatter-xy-east","scatter-xy-north"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'generatedtips' && fromJSON('["generatedtips"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'lab-conversion' && fromJSON('["lab-conversion"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'mask-repeat' && fromJSON('["maskrepeat-reused","maskrepeat-freshnode","maskrepeat-single-reused","maskrepeat-single-freshnode"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'bitmap-input' && fromJSON('["bitmaptips"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'kernel-sampling' && fromJSON('["wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-composition' && fromJSON('["hsvjoint"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-drift' && fromJSON('["wetdrift"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-color' && fromJSON('["wetdrift","wethsv","texturepickup","wetkernelcount","hsvorder","hsvheldout"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'wet-interactions' && fromJSON('["wetdrift","wethsv","texturepickup","wetkernelcount"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'pixel-input' && fromJSON('["pixelprecision","tabletsensors","pixelpressure","pixelsmallpressure","pixeltransfer","hsvpressure"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'hsv-interactions' && fromJSON('["hsvpressure","hsvchroma","hsvorder","hsvjoint","hsvheldout","hsvdynamics"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'masked-timed' && fromJSON('["maskwash","maskbuildup","airbrushtimed","timedsensors"]') || github.event_name == 'workflow_dispatch' && inputs.focus == 'resources' && fromJSON('["bitmaptips","mirrortips","gihlabels","gihstatistics","gihcadence"]') || fromJSON('["wetgeometry","autospacing","scatter-x-east","scatter-x-north","scatter-y-east","scatter-y-north","scatter-xy-east","scatter-xy-north","generatedtips","wetdrift","wethsv","texturepickup","wetkernelcount","hsvorder","hsvpressure","hsvchroma","pixelprecision","tabletsensors","hsvjoint","hsvheldout","airbrushtimed","timedsensors","maskwash","maskbuildup","hsvdynamics","distancesensors","mirrortips","spacingdynamics","bitmaptips","gihlabels","gihstatistics","gihcadence","pixelcurveknots","texturestate","pixeltransfer","wetboundary","texturemasks","pixelblend","wetopacitycombo","wettransfer","pixelcurves","wetkernelscale","wetkernel","wettexture3","wetpressure","pixelsoftsize","pixelrectsize","pixelsoft","pixelopacitytablet","pixelopacity","pixelpressure","wetstate","wethold","wettexture","pixelaarange","pixelcontrols","pixelsmallpressure","pixelshape","wetswitches","wetcombined","wetsteps","hardpixel","geometry","tablet","parameters"]') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -434,6 +439,9 @@ jobs:
         run: |
           python3 ci-scripts/brush-reference/test_stochastic_gate.py
           python3 ci-scripts/brush-reference/stochastic_gate.py "$BRUSH_REFERENCE_ROOT"
+      - name: Enforce independent scatter statistical gates
+        if: startsWith(matrix.fixture_group, 'scatter-')
+        run: python3 ci-scripts/brush-reference/scatter_statistics.py "$BRUSH_REFERENCE_ROOT"
       - name: Report conversion measurements
         if: always()
         run: |

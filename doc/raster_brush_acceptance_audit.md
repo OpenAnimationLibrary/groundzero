@@ -26,7 +26,7 @@ for; candidate subsets and successful native conversions do not close rows.
 | Isolation/resource budgets | worker/response/archive/PNG sandbox paths; platform isolation document | Exact-head fuzz, malicious responses, cancellation, no-follow reads, allocation limits and packaged Windows/macOS/Linux confinement |
 | Fidelity and repeatability | compare.cpp and source acquisition records | Contract canvases/events, complete union-region thresholds, coverage/endpoints, exact repeats and cross-platform reference tolerances |
 | Wet drift | wet_drift_contract.py and native/source fixtures | 1/10/100/1000/10000 checkpoints, unchanged numerical/perceptual limits, transition direction/halos and transparency |
-| Opaque RNG | stochastic_gate.py and captured independent stroke sequences | 100 strokes, bands, bootstrap confidence/effect/KS thresholds and multiple-test control from the normative contract |
+| Opaque RNG | stochastic_gate.py and captured independent stroke sequences | 100 strokes, bands, bootstrap mean-difference confidence intervals and variance-ratio thresholds from the normative contract |
 | Platform/packages/performance/tablets | desktop workflows, installed fixtures, benchmark.cpp | Exact final commit fully qualified; real tablet input/latency and release performance acceptance |
 | Documentation/review | acceptance ledger, portability/isolation/ABR documents and PR | Refresh final scope/evidence, no unsupported parity claims, completed review and explicit merge decision |
 

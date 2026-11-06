@@ -66,7 +66,8 @@ QByteArray altered(const QByteArray &bytes, const QString &key,
   root[key] = value;
   return QJsonDocument(root).toJson();
 }
-QByteArray gbr(unsigned version = 2, unsigned channels = 1) {
+QByteArray gbr(unsigned version = 2, unsigned channels = 1,
+               unsigned spacing = 25) {
   QByteArray b;
   auto word = [&](unsigned n) {
     for (int i = 3; i >= 0; --i) b.append(char(n >> (8 * i)));
@@ -78,7 +79,7 @@ QByteArray gbr(unsigned version = 2, unsigned channels = 1) {
   word(channels);
   if (version == 2) {
     word(0x47494d50);
-    word(25);
+    word(spacing);
   }
   b.append("x\0", 2);
   if (channels == 1) {
@@ -197,13 +198,14 @@ void testGihSelectionLifecycle() {
              .complete,
         "GIH malformed or unsupported selection metadata accepted");
 }
-QByteArray sampledAbr() {
+QByteArray sampledAbr(int version = 1, int spacing = 25) {
   QByteArray abr, sample;
   auto be = [](QByteArray &out, unsigned n, int length) {
     for (int i = length - 1; i >= 0; --i) out.append(char(n >> (8 * i)));
   };
   be(sample, 0, 4);
-  be(sample, 25, 2);
+  be(sample, spacing, 2);
+  if (version == 2) be(sample, 0, 4);  // Explicit empty Unicode name.
   be(sample, 1, 1);
   for (int n : {0, 0, 1, 2}) be(sample, n, 2);
   for (int n : {0, 0, 1, 2}) be(sample, n, 4);
@@ -211,7 +213,7 @@ QByteArray sampledAbr() {
   be(sample, 0, 1);
   sample.append(char(255));
   sample.append(char(0));
-  be(abr, 1, 2);
+  be(abr, version, 2);
   be(abr, 1, 2);
   be(abr, 2, 2);
   be(abr, sample.size(), 4);
@@ -1088,6 +1090,73 @@ void testImports() {
   require(
       !importBrush(sampledAbr(), "abr", error, nullptr, abrBytes - 1).complete,
       "retained ABR byte masks not charged to allocation budget");
+  for (int version : {1, 2})
+    for (int spacing : {-32768, -25, -1, 0, 1, 25, 500, 501, 32767}) {
+      const auto imported = importBrush(sampledAbr(version, spacing), "abr", error);
+      const bool supported = spacing >= 1 && spacing <= 500;
+      require(supported ? error.isEmpty() && imported.complete &&
+                              imported.records.size() == 1 &&
+                              imported.records.front().preset.spacing == spacing / 100.0
+                        : !error.isEmpty() && !imported.complete &&
+                              imported.records.empty(),
+              "Legacy sampled ABR spacing was defaulted, clamped or misclassified");
+    }
+  for (unsigned spacing : {0u, 1u, 25u, 500u, 501u, 0xffffffffu}) {
+    const auto imported = importBrush(gbr(2, 1, spacing), "gbr", error);
+    const bool supported = spacing >= 1 && spacing <= 500;
+    require(supported ? error.isEmpty() && imported.complete &&
+                            imported.records.size() == 1 &&
+                            imported.records.front().preset.spacing == spacing / 100.0
+                      : !error.isEmpty() && !imported.complete &&
+                            imported.records.empty(),
+            "GBR spacing outside the contract was imported or clamped");
+  }
+  for (const QByteArray &step : {QByteArray("-1"), QByteArray("0"),
+                               QByteArray(".5"), QByteArray("1"),
+                               QByteArray("500"), QByteArray("501"),
+                               QByteArray("nan"), QByteArray("inf")}) {
+    const QByteArray bytes = "Original spacing fixture\n1 ncells:1 step:" + step +
+        " dim:1 cols:1 rows:1 rank0:1 sel0:incremental\n" + gbr();
+    const auto imported = importBrush(bytes, "gih", error);
+    const bool supported = step == "1" || step == "500";
+    require(supported ? error.isEmpty() && imported.complete &&
+                            imported.records.size() == 1 &&
+                            imported.records.front().preset.spacing == step.toDouble() / 100.0
+                      : !error.isEmpty() && !imported.complete &&
+                            imported.records.empty(),
+            "GIH spacing outside the contract was imported or clamped");
+  }
+  for (const QString attribute : {QString("spacing"), QString("hfade"), QString("vfade")})
+    for (const QString &value : {QString("-1"), QString("0"), QString(".005"),
+                                 QString(".01"), QString(".25"), QString("1"),
+                                 QString("1.1"), QString("5"), QString("5.01"),
+                                 QString("nan"), QString("inf")}) {
+      QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
+      QString xml = image.text("preset");
+      const QString original =
+          (attribute + "=\"" + (attribute == "spacing" ? "0.1" : "1") + "\"").toHtmlEscaped();
+      require(xml.count(original) == 1, "KPP range fixture lacks a unique attribute");
+      xml.replace(original, (attribute + "=\"" + value + "\"").toHtmlEscaped());
+      image.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+              "Cannot author original KPP range fixture");
+      bool numeric = false;
+      const double number = value.toDouble(&numeric);
+      const bool supported = numeric && std::isfinite(number) &&
+          (attribute == "spacing" ? number >= .01 && number <= 5
+                                  : number >= 0 && number <= 1);
+      const auto imported = importBrush(bytes, "kpp", error);
+      require(supported ? error.isEmpty() && imported.complete &&
+                              imported.records.size() == 1 &&
+                              (attribute == "spacing"
+                                  ? imported.records.front().preset.spacing == number
+                                  : imported.records.front().preset.tip.hardness == number)
+                        : !error.isEmpty() && !imported.complete &&
+                              imported.records.empty(),
+              "KPP spacing/fade outside the contract was imported or clamped");
+    }
   auto bound =
       importBrush(boundAbr(false, false, 6, false, true), "abr", error);
   require(bound.complete && bound.records.size() == 2,
@@ -1140,6 +1209,7 @@ void testImports() {
           "ABR static units silently reinterpreted");
   auto newer = importBrush(boundAbr(false, false, 7), "abr", error);
   require(newer.complete && newer.records.size() == 1 &&
+              newer.records[0].preset.spacing == .1 &&
               !newer.records[0].provenance.contains("sourceSampleBinding") &&
               newer.records[0].provenance["conversionKind"].toString() ==
                   "tip-only",
@@ -1502,6 +1572,39 @@ void testImports() {
               "Portable Distance conversion lost interval semantics");
     }
   }
+  for (const QString sensor : {QString("time"), QString("distance")}) {
+    const QString attributes = sensor == "time" ? "duration=\"1000\"" : "length=\"64\"";
+    for (const QString &body : {
+             QString("<curve>0,0;1,1;</curve><curve>0,0;1,1;</curve>"),
+             QString("<curve interpolation=\"unknown\">0,0;1,1;</curve>"),
+             QString("active-setting<curve>0,0;1,1;</curve>"),
+             QString("<curve xmlns=\"urn:unknown-behavior\">0,0;1,1;</curve>"),
+             QString()}) {
+      QImage image = QImage::fromData(hardPixelKpp("pressure"), "PNG");
+      QString xml = image.text("preset");
+      const QString original =
+          QString("<params id=\"pressure\"><curve>0,0;1,1;</curve></params>").toHtmlEscaped();
+      require(xml.count(original) == 1, "Interval fixture lacks a unique sensor");
+      const QString replacement = "<params id=\"" + sensor + "\" " + attributes +
+                                  " periodic=\"1\">" + body + "</params>";
+      xml.replace(original, replacement.toHtmlEscaped());
+      image.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+              "Cannot author malformed interval fixture");
+      const auto imported = importBrush(bytes, "kpp", error);
+      require(error.isEmpty() && imported.complete && imported.records.size() == 1 &&
+                  imported.records.front().preset.profile == "groundzero-native-1" &&
+                  imported.records.front().preset.size.mappings.empty() &&
+                  imported.records.front().diagnostics.join(" ").contains(
+                      "Source settings not reproduced") &&
+                  imported.records.front().diagnostics.join(" ").contains("SizeSensor") &&
+                  !imported.records.front().provenance["sourceSemanticallySupported"].toBool() &&
+                  !imported.records.front().referenceVerified,
+              "Malformed interval metadata was silently mapped or source-qualified");
+    }
+  }
   // Unknown source curve declarations must not be qualified merely because
   // the permissive native decoder can extract an identity point list.
   for (const QString variant :
@@ -1722,7 +1825,10 @@ void testImports() {
       "explicit default-circle fade lost its candidate identity");
   auto unequal = importBrush(hardPixelKpp("unequalFade"), "kpp", error);
   require(unequal.complete &&
-              unequal.records.front().preset.profile == "groundzero-native-1",
+              unequal.records.front().preset.profile == "groundzero-native-1" &&
+              unequal.records.front().preset.tip.hardness == .5 &&
+              unequal.records.front().diagnostics.join(" ").contains(
+                  "Unequal generated-tip fades"),
           "unequal fade was silently collapsed");
   auto ellipse = importBrush(hardPixelKpp("ellipse"), "kpp", error);
   require(

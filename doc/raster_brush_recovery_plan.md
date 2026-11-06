@@ -112,3 +112,38 @@ its diagnostics are under investigation without changing thresholds.
 These observations qualify only the named c7a7d71cb checks. Later reconstruction
 and correction commits require their own CI. Broad source behavior and external
 reference/device evidence are still incomplete.
+
+## Parallel recovery checkpoint
+
+Independent review strengthened the wet editor workflow: nonneutral foreground,
+editor cancellation, and per-control pixel comparisons with unchanged opacity.
+Import auditing found and corrected legacy sampled ABR negative/out-of-range
+spacing fallback, hidden per-axis fade ranges, and malformed interval XML.
+
+The 703b77b82 Linux/Windows Qt5/Qt6 preset suites passed, including worker and
+response-file cases; its new Distance renderer fixture failed exact path partition
+comparison. The correction advances native scheduling in physical segment distance
+and time rather than accumulated normalized fractions. This changes native
+scheduling only; source scheduling/thresholds stay intact. CI must qualify it.
+
+Full c7a7d71cb source execution exposed genuine Smear placement and adaptive
+Dulling sampling discrepancies. New bounded wetgeometry and public Lab convergence
+diagnostics collect generalized evidence; no speculative sampler or offset rule
+has been installed. Wethsv composition036/037 differed by exactly one alpha byte;
+normalizing before subtraction falsely exceeded the one-byte threshold. Alpha
+error now uses the integer code difference divided by255, with exhaustive adjacent
+alpha-code and two-code negative metric controls; RGB gates are unchanged.
+
+Pixel-precision capture sealing rejected a safe '+' in original signed boundary
+names. Cache support preserves the existing path/suffix restrictions. A separate
+compatibility fixture generated random Cast UUIDs on each build; fixed authored
+UUIDs and explicit Cast-ID dump comparisons preserve identity checks.
+
+New auto-spacing/scatter acquisition groups retain actual settings/inputs and
+100 independent randomized active strokes per scatter configuration. These are
+measurement and statistical gates, not completed source runtime admission. The
+full source matrix includes them and all prior groups. The original Linux
+application workload advanced past portable conversion/resource/source-wet stages
+and then failed stationary airbrush accumulation; callback/lifecycle evidence is
+being added before any timing-policy change. Cross-platform package and final-head
+qualification remain open.

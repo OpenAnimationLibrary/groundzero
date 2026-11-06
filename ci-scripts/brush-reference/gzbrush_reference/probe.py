@@ -10,7 +10,7 @@ import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
-from . import repeat_pixels, mask_repeat_contract
+from . import repeat_pixels, mask_repeat_contract, spacing_scatter_probe
 from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe, cadence_probe, sequence_evidence, paced_policy
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
@@ -114,6 +114,17 @@ class Probe(Extension):
                     node.paintPath(path, "ForegroundColor", "None")
             return {"mode": "Node.paintLine" if mode in ("line", "discrete") else "Node.paintPath",
                     "cadencePaths": paths, "strokeCount": len(paths), "physicalTabletClaimed": False}
+        if "wetGeometryProbe" in case:
+            from . import wet_drift_geometry_contract
+            points = wet_drift_geometry_contract.validate(case)
+            path = QPainterPath()
+            path.moveTo(*points[0])
+            for point in points[1:]:
+                path.lineTo(*point)
+            node.paintPath(path, "ForegroundColor", "None")
+            return {"mode": "Node.paintPath", "vertices": points,
+                    "singleContinuousStroke": True, "physicalTabletClaimed": False}
+
         if "driftProbe" in case:
             from . import wet_drift_contract
             wet_drift_contract.validate(case)
@@ -380,6 +391,9 @@ class Probe(Extension):
             if version != "5.3.4.1":
                 raise RuntimeError("Reference application version mismatch")
             fixtures = json.loads((output / "fixtures.json").read_text())
+            spacing_scatter_group = fixtures.get("group") == "autospacing" or fixtures.get("group", "").startswith("scatter-")
+            if spacing_scatter_group:
+                spacing_scatter_probe.validate_manifest(fixtures)
             resources = app.resources("preset")
             expected_names = set(fixtures["presets"])
             by_name, duplicate_originals = {}, []
@@ -453,10 +467,15 @@ class Probe(Extension):
             if diagnostic:
                 report["documentIsolation"] += "; diagnostic node policy=" + diagnostic["nodePolicy"]
             execution_cases = list(fixtures["cases"])
-            if fixtures.get("group") in ("gihstatistics", "gihlabels", "gihcadence"):
+            if fixtures.get("group") in ("gihstatistics", "gihlabels", "gihcadence") or (spacing_scatter_group and fixtures["randomizeExecution"]):
                 random.Random(0x47494831).shuffle(execution_cases)
+            intended_order = {name: index for index, name in enumerate(fixtures["presets"])}
+            report["intendedPresetOrder"] = list(fixtures["presets"])
+            report["plannedExecutionOrder"] = [case["preset"] for case in execution_cases]
+            report["actualExecutionOrder"] = []
             for execution_ordinal, case in enumerate(execution_cases):
                 name = case["preset"]
+                report["actualExecutionOrder"].append(name)
                 if name not in by_name:
                     raise RuntimeError("Original reference preset was not loaded: " + name)
                 # Krita integer RGBA API uses BGRA channel order, top row first.
@@ -610,6 +629,11 @@ class Probe(Extension):
                 if effective_fields.get("CompositeOp") != case.get("overrides", {}).get("CompositeOp", "normal"):
                     raise RuntimeError("Selected source preset lost requested blend mode")
                 controls = {key: effective_fields.get(key) for key in ("CompositeOp", "PaintOpAction", "PressureFlow", "FlowUseCurve", "PressureOpacity", "OpacityUseCurve", "PressureColorRate", "ColorRateUseCurve", "SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
+                wet_geometry_controls = None
+                if "wetGeometryProbe" in case:
+                    from . import wet_drift_geometry_contract
+                    wet_geometry_controls = wet_drift_geometry_contract.controls(case, effective_fields)
+
                 generated_tip_evidence = None
                 if case.get("generatedTipProbe"):
                     from . import generated_tip_probe
@@ -693,6 +717,22 @@ class Probe(Extension):
                 readback_checkpoints = [reset_checkpoint, capture_checkpoint]
                 if len(raw) != w * h * 4:
                     raise RuntimeError("Reference API returned an incomplete raster")
+                wet_geometry_evidence = None
+                if wet_geometry_controls is not None:
+                    wet_geometry_evidence = {
+                        **wet_geometry_controls,
+                        **wet_drift_geometry_contract.capture(initial, raw, case)}
+                    wet_drift_geometry_contract.emit(case, wet_geometry_evidence)
+                    (output / (name.replace(" ", "_") + ".wet-geometry.json")).write_text(
+                        json.dumps(wet_geometry_evidence, indent=2))
+
+                spacing_scatter_evidence = None
+                if "autoSpacingProbe" in case or "scatterProbe" in case:
+                    spacing_scatter_evidence = spacing_scatter_probe.capture(
+                        case, effective_fields, delivery, raw, w)
+                    spacing_scatter_probe.emit_notices(name, spacing_scatter_evidence)
+                    (output / (name.replace(" ", "_") + ".spacing-scatter.json")).write_text(
+                        json.dumps(spacing_scatter_evidence, indent=2))
                 timed_evidence = (timed_probe.capture(case, effective_fields, delivery, raw, w)
                                   if "timedProbe" in case else None)
                 if timed_evidence is not None:
@@ -728,6 +768,14 @@ class Probe(Extension):
                 repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" or fixtures.get("group") == "wetboundary" else 1)
                 if diagnostic:
                     repetitions = diagnostic["repetitions"]
+                # The enabled scatter group has exactly 100 independent calls
+                # in randomized order. Different source RNG pixels are measured
+                # statistically; disabled controls retain exact-repeat checks.
+                stochastic_scatter = case.get("scatterProbe", {}).get("enabled") is True
+                if stochastic_scatter:
+                    if not spacing_scatter_group:
+                        raise RuntimeError("Scatter repeat policy used outside validated source matrix")
+                    repetitions = 1
                 for repetition in range(1, repetitions):
                     # These fixtures disable random dynamics. Independent
                     # strokes must start from the same raster and must not
@@ -885,7 +933,7 @@ class Probe(Extension):
                     sequence_evidence.emit(case, resource_readback, delivery)
                 if generated_tip_evidence is not None:
                     generated_tip_probe.emit(case, generated_tip_evidence, raw, w)
-                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
+                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "intendedOrdinal": intended_order[name], "wetGeometryEvidence": wet_geometry_evidence, "scatterEvidence": spacing_scatter_evidence if "scatterProbe" in case else None, "autoSpacingEvidence": spacing_scatter_evidence if "autoSpacingProbe" in case else None, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;
@@ -898,6 +946,10 @@ class Probe(Extension):
                 from . import kernel_precision_probe
                 yield from kernel_precision_probe.render(
                     app, output, fixtures, by_name, report["records"], checkpoint)
+                from . import kernel_convergence_probe
+                kernel_convergence_probe.render(app, output, fixtures)
+            if report["actualExecutionOrder"] != report["plannedExecutionOrder"]:
+                raise RuntimeError("Actual independent-stroke execution order differs from plan")
             canonical_order = {name: index for index, name in enumerate(fixtures["presets"])}
             report["records"].sort(key=lambda record: canonical_order[record["preset"]])
             report["resourceStatistics"] = resource_probe.summarize(report["records"])

@@ -181,7 +181,9 @@ QJsonObject compare(const QImage &base, const QImage &reference,
     for (int x = 0; x < w; ++x) {
       Pixel r = pixel(reference.pixel(x, y)), c = pixel(candidate.pixel(x, y));
       double er = std::abs(r.r - c.r), eg = std::abs(r.g - c.g),
-             eb = std::abs(r.b - c.b), ea = std::abs(r.a - c.a);
+             eb = std::abs(r.b - c.b),
+             ea = std::abs(qAlpha(reference.pixel(x, y)) -
+                           qAlpha(candidate.pixel(x, y))) / 255.0;
       diff.setPixel(x, y,
                     qRgb(int(std::min(1.0, er + ea) * 255 + .5),
                          int(std::min(1.0, eg + ea) * 255 + .5),
@@ -257,6 +259,33 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
             "Duplicate or mismatched fixture preset identity");
     names.append(name);
   }
+  const QString group = fixtures["group"].toString();
+  if (group == "autospacing")
+    require(expected.size() == 192, "Incomplete automatic spacing fixture matrix");
+  if (group.startsWith("scatter-")) {
+    const QStringList groups = {"scatter-x-east", "scatter-x-north",
+        "scatter-y-east", "scatter-y-north", "scatter-xy-east", "scatter-xy-north"};
+    require(groups.contains(group) && expected.size() == 102,
+            "Incomplete independent scatter fixture matrix");
+    std::set<int> active, controls;
+    for (const auto &value : cases) {
+      const auto spec = value.toObject()["scatterProbe"].toObject();
+      require(spec["enabled"].isBool() && spec["replicate"].isDouble() &&
+                  spec["replicate"].toDouble() == spec["replicate"].toInt(),
+              "Invalid scatter replicate declaration");
+      const int replicate = spec["replicate"].toInt();
+      if (spec["enabled"].toBool())
+        require(replicate >= 0 && replicate < 100 && active.insert(replicate).second,
+                "Duplicate or missing active scatter replicate");
+      else
+        require(replicate >= 0 && replicate < 2 && controls.insert(replicate).second,
+                "Duplicate or missing deterministic scatter control");
+    }
+    require(active.size() == 100 && controls.size() == 2,
+            "Incomplete scatter sample/control policy");
+  }
+  if (group == "wetgeometry")
+    require(expected.size() == 30, "Incomplete wet geometry diagnostic matrix");
   if (fixtures["group"].toString() == "generatedtips")
     require(expected.size() == 32, "Incomplete generated tip fixture matrix");
   if (fixtures["group"].toString() == "tabletsensors")
@@ -343,6 +372,26 @@ int main(int argc, char **argv) {
                   measured["maxRGBError"].toDouble() == 0 &&
                   measured["maxAlphaError"].toDouble() == 0,
               "Hidden RGB contaminated mixed-background coverage");
+      // RGBA8 alpha differences are integer code differences. Subtracting
+      // normalized alpha first can put exactly one byte above 1/255 at some
+      // code values and below it at others.
+      QImage alphaBase(255, 1, QImage::Format_ARGB32);
+      alphaBase.fill(Qt::transparent);
+      QImage alphaReference = alphaBase, alphaCandidate = alphaBase;
+      for (int value = 0; value < 255; ++value) {
+        alphaReference.setPixel(value, 0, qRgba(0, 0, 0, value));
+        alphaCandidate.setPixel(value, 0, qRgba(0, 0, 0, value + 1));
+      }
+      measured = compare(alphaBase, alphaReference, alphaCandidate,
+                         directory.filePath("one-byte-alpha.png"));
+      require(measured["maxAlphaError"].toDouble() == 1 / 255.0 &&
+                  measured["alphaP99"].toDouble() == 1 / 255.0,
+              "One-byte alpha threshold depends on the alpha code value");
+      alphaCandidate.setPixel(100, 0, qRgba(0, 0, 0, 102));
+      measured = compare(alphaBase, alphaReference, alphaCandidate,
+                         directory.filePath("two-byte-alpha.png"));
+      require(measured["maxAlphaError"].toDouble() == 2 / 255.0,
+              "Two-byte alpha error was rounded into the one-byte gate");
       // Published numerical pairs, including neutral and hue-wrap boundaries.
       // https://www.ece.rochester.edu/~gsharma/ciede2000/
       const double pairs[][7] = {
@@ -902,6 +951,25 @@ int main(int argc, char **argv) {
         p.color = pixel(qRgba(color[0].toInt(), color[1].toInt(),
                               color[2].toInt(), color[3].toInt()));
       }
+      if (source.contains("autoSpacingProbe") || source.contains("scatterProbe")) {
+        const bool scatter = source.contains("scatterProbe");
+        const auto evidence = source[scatter ? "scatterEvidence" : "autoSpacingEvidence"].toObject();
+        require(!evidence["effectiveControls"].toObject().empty() &&
+                    !evidence["effectiveBrushDefinition"].toString().isEmpty() &&
+                    evidence["deliveryInterface"].toString() == "Node.paintLine" &&
+                    evidence["deliveredContactEvents"].toArray().size() == 2 &&
+                    evidence["sourceProfileVerified"] == QJsonValue(false) &&
+                    evidence["sourceRngLawIdentified"] == QJsonValue(false),
+                "Missing spacing/scatter effective-control and delivery evidence");
+        if (scatter) {
+          const auto spec = source["scatterProbe"].toObject();
+          const int replicate = spec["replicate"].toInt(-1);
+          require(replicate >= 0 && replicate < (spec["enabled"].toBool() ? 100 : 2),
+                  "Invalid scatter candidate replicate");
+          // Independent native streams, without presuming source RNG identity.
+          p.seed = UINT64_C(0x9e3779b97f4a7c15) * std::uint64_t(replicate + 1);
+        }
+      }
       p.opacity.value = source["opacity"].toDouble();
       p.flow.value = source["flow"].toDouble();
       if (fixtures["group"].toString() == "gihstatistics" ||
@@ -1088,6 +1156,28 @@ int main(int argc, char **argv) {
           }
           if (mode == "discrete")
             require(dab.finish(), QString::fromStdString(dab.error()));
+        }
+      } else if (fixtures["group"].toString() == "wetgeometry") {
+        const auto path = source["sourcePath"].toArray();
+        const auto delivery = source["deliveryReport"].toObject();
+        const auto evidence = source["wetGeometryEvidence"].toObject();
+        require(path.size() >= 2 && path.size() <= 129 &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["singleContinuousStroke"].toBool() &&
+                    delivery["vertices"].toArray() == path &&
+                    !evidence["windows"].toArray().empty() &&
+                    evidence["model"] == source["wetGeometryProbe"].toObject()["model"] &&
+                    evidence["pathId"] == source["wetGeometryProbe"].toObject()["pathId"] &&
+                    evidence["sourceParityQualified"] == QJsonValue(false),
+                "Missing wet geometry diagnostic path/readback");
+        for (int i = 0; i < path.size(); ++i) {
+          const auto point = path[i].toArray();
+          require(point.size() == 2, "Invalid wet geometry diagnostic vertex");
+          Sample event = first;
+          event.x = point[0].toDouble();
+          event.y = point[1].toDouble();
+          event.time = double(i) / 240;
+          require(stroke.add(event), QString::fromStdString(stroke.error()));
         }
       } else if (fixtures["group"].toString() == "wetdrift") {
         const auto spec = source["driftProbe"].toObject();
@@ -1330,6 +1420,30 @@ int main(int argc, char **argv) {
         metrics["bitmapSourceCandidatePassed"] = passed;
         if (!passed)
           failedHardCases.append(name);
+      }
+      if (source.contains("scatterProbe")) {
+        const auto rect = source["scatterProbe"].toObject()["rect"].toArray();
+        require(rect.size() == 4, "Missing bounded scatter candidate region");
+        const int left = rect[0].toInt(), top = rect[1].toInt(),
+                  width = rect[2].toInt(), height = rect[3].toInt();
+        require(left >= 0 && top >= 0 && width > 0 && width <= 1280 &&
+                    height > 0 && height <= 1280 && width * height <= 1280 * 256 &&
+                    left <= candidate.width() - width &&
+                    top <= candidate.height() - height,
+                "Invalid bounded scatter candidate region");
+        QByteArray alpha;
+        alpha.reserve(width * height);
+        for (int y = 0; y < candidate.height(); ++y)
+          for (int x = 0; x < candidate.width(); ++x) {
+            const auto a = qAlpha(candidate.pixel(x, y));
+            if (x >= left && x < left + width && y >= top && y < top + height)
+              alpha.append(char(a));
+            else require(a == 0, "Candidate scatter stroke escaped fixed region");
+          }
+        metrics["stochasticAlpha"] = QJsonObject{
+            {"rect", rect}, {"encoding", "zlib-base64-alpha8-row-major"},
+            {"data", QString::fromLatin1(qCompress(alpha).mid(4).toBase64())}};
+        metrics["scatterSourceProfileQualified"] = false;
       }
       if (fixtures["group"].toString() == "gihstatistics") {
         const auto rect = source["resourceProbe"].toObject()["rect"].toArray();

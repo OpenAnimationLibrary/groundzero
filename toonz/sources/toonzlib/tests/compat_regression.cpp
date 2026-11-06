@@ -466,9 +466,9 @@ std::string dumpScene(ToonzScene &scene) {
   for (int i = 0; i < levels->getLevelCount(); i++) {
     TXshLevel *level = levels->getLevel(i);
     if (level)
-      out += textf("level \"%s\" type %d path \"%s\"\n",
+      out += textf("level \"%s\" type %d path \"%s\" castId \"%s\"\n",
                    str(level->getName()).c_str(), level->getType(),
-                   str(level->getPath()).c_str());
+                   str(level->getPath()).c_str(), str(level->getCastId()).c_str());
   }
 
   out += textf("columns %d\n", xsh->getColumnCount());
@@ -544,6 +544,37 @@ QStringList sceneLevels(const QString &root, const QStringList &plis) {
   return chosen;
 }
 
+// Cast IDs are authored input to this generated fixture. Use the public
+// serialization API to assign fixed valid UUIDs while retaining every other
+// Cast attribute. Saved IDs and cross-loaded IDs remain part of the comparison;
+// they are not stripped or normalized after serialization.
+void assignFixtureCastIdentity(TXshLevel &level, int column) {
+  QTemporaryDir directory;
+  if (!directory.isValid())
+    throw std::runtime_error("cannot create Cast identity fixture directory");
+  const QString identity = QString("00000000-0000-4000-8000-%1")
+                               .arg(column + 1, 12, 16, QChar('0'));
+  const TFilePath metadata = toPath(QDir(directory.path()).filePath("cast.xml"));
+  auto attributes = level.getCastAttributes();
+  attributes["castId"] = str(identity);
+  {
+    TOStream os(metadata);
+    if (!os) throw std::runtime_error("cannot write Cast identity fixture");
+    os.openChild("path", attributes);
+    os << level.getPath();
+    os.closeChild();
+  }
+  {
+    TIStream is(metadata);
+    std::string tag;
+    if (!is || !is.matchTag(tag) || tag != "path")
+      throw std::runtime_error("cannot read Cast identity fixture");
+    level.loadCastTags(is);
+  }
+  if (level.getCastId() != identity)
+    throw std::runtime_error("Cast identity fixture was not retained");
+}
+
 // Three columns: one level per column, the first on ones, the second on twos
 // and the third on rows 2 to 9 only. The first column is parented to a
 // keyframed pegbar, the others have keys of their own, and the second goes
@@ -577,6 +608,7 @@ void buildScene(ToonzScene &scene, const QString &root, const QStringList &plis,
 
     TXshLevel *level = scene.loadLevel(toPath(dst));
     if (!level) throw std::runtime_error("cannot load " + str(dst));
+    assignFixtureCastIdentity(*level, c);
     std::vector<TFrameId> fids;
     if (TXshSimpleLevel *sl = level->getSimpleLevel()) fids = sl->getFids();
     if (fids.empty()) fids.push_back(TFrameId(1));

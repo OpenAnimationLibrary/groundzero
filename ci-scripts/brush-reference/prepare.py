@@ -93,9 +93,21 @@ if group == "lab-conversion":
     path.write_text(json.dumps(fixture, indent=2))
     finalize_input_contract()
     raise SystemExit(0)
+if group == "autospacing" or group in (
+        "scatter-x-east", "scatter-x-north", "scatter-y-east", "scatter-y-north",
+        "scatter-xy-east", "scatter-xy-north"):
+    from spacing_scatter_fixtures import prepare as prepare_spacing_scatter
+    prepare_spacing_scatter(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "generatedtips":
     from generated_tip_fixtures import prepare as prepare_generated
     prepare_generated(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "wetgeometry":
+    from wet_drift_geometry_fixtures import prepare as prepare_wet_geometry
+    prepare_wet_geometry(root, resources, preset)
     finalize_input_contract()
     raise SystemExit(0)
 if group == "wetdrift":
