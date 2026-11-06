@@ -206,7 +206,8 @@ struct InputSampler {
     const double x = px - .5, y = py - .5;
     const int ix = int(std::floor(x)), iy = int(std::floor(y));
     auto tap = [&](int tx, int ty) {
-      if (edge > 1) {
+      // Without a canvas (an unbounded Source) there is no period to wrap by
+      if (edge > 1 && !canvas.isEmpty()) {
         const double gx = wrapped(position.x + tx + .5, canvas.x0, canvas.getLx(), edge == 3);
         const double gy = wrapped(position.y + ty + .5, canvas.y0, canvas.getLy(), edge == 3);
         tx = int(std::floor(gx - position.x)); ty = int(std::floor(gy - position.y));
