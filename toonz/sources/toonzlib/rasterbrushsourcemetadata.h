@@ -143,7 +143,8 @@ inline QJsonObject sourceSensorsJson(const SourceSensorsV1 &metadata) {
           !sensor.angleOffset && !sensor.lockedAngleMode));
       sourceMetadataRequire((!sensor.fanCornersStep || sourceMetadataNumber(*sensor.fanCornersStep)) &&
           (!sensor.angleOffset || sourceMetadataNumber(*sensor.angleOffset)));
-      sensors.append(QJsonObject{{"id", sensor.id}, {"curve", sourceSensorCurveJson(sensor.curve, knots)},
+      const auto curve = sourceSensorCurveJson(sensor.curve, knots);
+      sensors.append(QJsonObject{{"id", sensor.id}, {"curve", curve},
           {"intervalAttribute", sourceSensorIntervalAttribute(sensor.id)},
           {"intervalUnit", sourceSensorIntervalUnit(sensor.id)},
           {"interval", sourceMetadataOptional(sensor.interval)}, {"periodic", sourceMetadataOptional(sensor.periodic)},
@@ -152,11 +153,12 @@ inline QJsonObject sourceSensorsJson(const SourceSensorsV1 &metadata) {
           {"angleOffset", sourceMetadataOptional(sensor.angleOffset)},
           {"lockedAngleMode", sourceMetadataOptional(sensor.lockedAngleMode)}});
     }
+    const auto commonCurve = sourceSensorCurveJson(control.commonCurve, knots);
     controls.append(QJsonObject{{"scope", control.scope}, {"target", control.target},
         {"enabled", sourceMetadataOptional(control.enabled)}, {"useCurve", sourceMetadataOptional(control.useCurve)},
         {"useSameCurve", sourceMetadataOptional(control.useSameCurve)}, {"strength", sourceMetadataOptional(control.strength)},
         {"combinationCode", sourceMetadataOptional(control.combinationCode)},
-        {"commonCurve", sourceSensorCurveJson(control.commonCurve, knots)}, {"layout", control.layout},
+        {"commonCurve", commonCurve}, {"layout", control.layout},
         {"sourceFieldsSha256", control.sourceFieldsSha256},
         {"unsupportedFields", QJsonArray::fromStringList(control.unsupportedFields)}, {"sensors", sensors}});
   }
