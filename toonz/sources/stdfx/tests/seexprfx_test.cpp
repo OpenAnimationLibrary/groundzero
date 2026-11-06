@@ -143,6 +143,43 @@ template <typename Pixel> void checkColorAndSampling() {
   require(rejected, "sampler silently exceeded its declared radius");
 }
 
+// The renderer computes only the part of a tile inside the effect's bounds, so
+// the bounds must cover every pixel a sampler or an edge mode can colour.
+void checkSampledBounds() {
+  TRaster32P input(3, 1); input->fill(TPixel32::Red);
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new Source(input));
+  const TRectD sourceBox(0, 0, 3, 1);
+  auto bounds = [&]() {
+    TRectD box;
+    require(fx.getBBox(0, box, TRenderSettings()), "Expression Color reported no bounds");
+    return box;
+  };
+  document(fx, "$src", "$a");
+  require(bounds() == sourceBox, "an expression that does not sample changed the Source bounds");
+  document(fx, "sample_rgb(-4,0)", "sample_alpha(-4,0)");
+  set(fx, "samplingRadius", 4);
+  const TRectD sampled = bounds();
+  require(sampled.x0 <= -5 && sampled.x1 >= 8 && sampled.y0 <= -5 && sampled.y1 >= 6,
+          "sampled pixels outside the Source were clipped by the bounds");
+  // The pixel four to the left of the Source's last pixel is outside the
+  // Source and takes its colour.
+  TRenderSettings scaled; scaled.m_affine = TScale(2);
+  TRectD scaledBox;
+  require(fx.getBBox(0, scaledBox, scaled) && scaledBox.x1 >= 16,
+          "the sampled bounds did not follow the render transform");
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(6, 0))->pixels(0)[0], 1, 0, 0, 1);
+  choice(fx, "edgeMode", 1);
+  // getBBox rounds to integers, which leaves an infinite box unchanged
+  const TRectD clamped = bounds();
+  require(clamped.x0 <= -1e6 && clamped.x1 >= 1e6 && clamped.y0 <= -1e6 && clamped.y1 >= 1e6,
+          "an edge mode was clipped to the Source bounds");
+  choice(fx, "edgeMode", 0);
+  fx.getInputPort("Source")->setFx(nullptr);
+  TRectD none;
+  require(!fx.getBBox(0, none, TRenderSettings()) && none.isEmpty(),
+          "Expression Color without a Source reported bounds");
+}
+
 void checkControlRangeEdits() {
   SeExprGeneratorFx fx;
   auto amount = scalar("amount", 2.5);
@@ -1008,6 +1045,7 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary; require(temporary.isValid(), "temporary fixture directory is unavailable");
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
+    checkSampledBounds();
     checkControlRangeEdits(); checkAnimationCurveControls(temporary.path()); checkNamespacedRenderAttributes();
     checkSurfaceHostBoundary();
     checkNamedControlsAndPersistence(temporary.path());
