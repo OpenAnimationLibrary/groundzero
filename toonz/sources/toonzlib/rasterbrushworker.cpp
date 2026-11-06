@@ -97,43 +97,54 @@ bool limitLinuxImportMemory() {
   return setrlimit(RLIMIT_AS, &addressSpace) == 0 &&
          setrlimit(RLIMIT_FSIZE, &fileSize) == 0;
 }
-bool restrictLinuxImport(const QString &input, const QString &directory) {
+bool restrictLinuxImport(const QString &input, const QString &directory,
+                         QString &error) {
 #if defined(SYS_landlock_create_ruleset) && defined(SYS_landlock_add_rule) &&  \
     defined(SYS_landlock_restrict_self) &&                                     \
     (defined(__x86_64__) || defined(__aarch64__))
-  auto failed = [](const char *stage) {
+  auto failed = [&](const char *stage, int code) {
+    error = QString("%1 (errno %2)").arg(QString::fromLatin1(stage)).arg(code);
     std::fprintf(stderr, "Import isolation failed at %s (errno %d)\n", stage,
-                 errno);
+                 code);
     return false;
   };
   // Landlock scopes the calling thread and its future children. Refuse a
   // process that already has another thread before applying the restrictions.
-  if (QDir("/proc/self/task")
-          .entryList(QDir::Dirs | QDir::NoDotAndDotDot)
-          .size() != 1)
-    return failed("single-thread precondition");
+  const auto threads = QDir("/proc/self/task")
+                           .entryList(QDir::Dirs | QDir::NoDotAndDotDot)
+                           .size();
+  if (threads != 1) {
+    error = QString("single-thread precondition (%1 threads)").arg(threads);
+    return false;
+  }
   // ABI 3 controls truncation as well as ordinary reads/writes. There is no
   // fallback to unrestricted decoding when the kernel lacks this boundary.
   const int abi = int(syscall(SYS_landlock_create_ruleset, nullptr, 0,
                               LANDLOCK_CREATE_RULESET_VERSION));
-  if (abi < 3) return failed("Landlock ABI >= 3");
+  if (abi < 0) return failed("Landlock ABI query", errno);
+  if (abi < 3) {
+    error = QString("Landlock ABI >= 3 required (available %1)").arg(abi);
+    return false;
+  }
   constexpr uint64_t truncateAccess = uint64_t(1) << 14;
   constexpr uint64_t referAccess    = uint64_t(1) << 13;
   landlock_ruleset_attr attributes{};
   attributes.handled_access_fs = (uint64_t(1) << 15) - 1;
   const int rules              = int(
       syscall(SYS_landlock_create_ruleset, &attributes, sizeof(attributes), 0));
-  if (rules < 0) return failed("Landlock ruleset creation");
+  if (rules < 0) return failed("Landlock ruleset creation", errno);
   auto allow = [&](const QString &path, uint64_t access) {
     const QByteArray native = QFile::encodeName(path);
     const int fd            = open(native.constData(), O_PATH | O_CLOEXEC);
-    if (fd < 0) return false;
+    if (fd < 0) return failed("Landlock path open", errno);
     landlock_path_beneath_attr rule{};
     rule.parent_fd      = fd;
     rule.allowed_access = access;
     const bool ok       = syscall(SYS_landlock_add_rule, rules,
                                   LANDLOCK_RULE_PATH_BENEATH, &rule, 0) == 0;
+    const int code = ok ? 0 : errno;
     close(fd);
+    if (!ok) return failed("Landlock path rule", code);
     return ok;
   };
   const bool paths =
@@ -142,11 +153,13 @@ bool restrictLinuxImport(const QString &input, const QString &directory) {
             LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_READ_DIR |
                 LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_MAKE_REG |
                 LANDLOCK_ACCESS_FS_REMOVE_FILE | truncateAccess | referAccess);
-  const bool restricted = paths &&
-                          prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0 &&
-                          syscall(SYS_landlock_restrict_self, rules, 0) == 0;
+  bool restricted = paths;
+  if (restricted && prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0)
+    restricted = failed("no-new-privileges", errno);
+  if (restricted && syscall(SYS_landlock_restrict_self, rules, 0) != 0)
+    restricted = failed("Landlock restrict self", errno);
   close(rules);
-  if (!restricted) return failed("Landlock path restrictions");
+  if (!restricted) return false;
     // A small syscall allowlist complements Landlock: no sockets, subprocesses,
     // executable loading, ptrace, cross-process memory access or mount changes.
     // All codec initialization happens before this boundary; the worker is a
@@ -217,8 +230,9 @@ bool restrictLinuxImport(const QString &input, const QString &directory) {
   filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM));
   sock_fprog program{static_cast<unsigned short>(filter.size()), filter.data()};
   return prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0 ||
-         failed("seccomp installation");
+         failed("seccomp installation", errno);
 #else
+  error = "Landlock syscall or architecture support unavailable at build time";
   return false;
 #endif
 }
@@ -265,10 +279,14 @@ static int runImportWorkerImpl(const QString &input, const QString &directory,
 #endif
     if (!prepareWorkerCodecs()) return 2;
 #ifdef __linux__
-    if (!restrictLinuxImport(input, directory)) {
+    QString isolationError;
+    if (!restrictLinuxImport(input, directory, isolationError)) {
+      // Worker stderr is discarded; preserve the failing boundary in the
+      // bounded response protocol without capturing arbitrary decoder output.
       writeFile(
           output.filePath("error.txt"),
-          "Brush import requires Linux Landlock ABI 3 and seccomp isolation");
+          "Brush import requires Linux Landlock ABI 3 and seccomp isolation: " +
+              isolationError.left(4096).toUtf8());
       return 2;
     }
 #endif
@@ -666,8 +684,9 @@ int probeWindowsImportLimits() {
 #if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
 int probeImportSandbox(const QString &input, const QString &directory,
                        const QString &forbidden) {
+  QString isolationError;
   if (!limitLinuxImportMemory() || !prepareWorkerCodecs() ||
-      !restrictLinuxImport(input, directory))
+      !restrictLinuxImport(input, directory, isolationError))
     return 1;
   QFile allowed(input), denied(forbidden);
   if (!allowed.open(QIODevice::ReadOnly) || allowed.readAll() != "allowed" ||

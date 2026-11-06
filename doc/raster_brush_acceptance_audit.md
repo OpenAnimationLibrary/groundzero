@@ -2,6 +2,23 @@
 
 ## Current stabilization evidence
 
+Latest qualification checkpoint, `cfea0b542`: all six parser configurations,
+import fuzzing and native metrics passed. Linux build-tree and installed brush
+application lifecycles passed in
+[run 42307578641](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42307578641).
+This confirms the portable-conversion fixture correction below on Linux.
+
+The [Qt6 regression job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42307606082)
+failed: four integration/test sources had Qt6 type ambiguities, three executor/
+renderer cases and native batch rendering crashed, and integrated brush workers
+reported unavailable isolation. Source review found invalid reverse-iterator
+operations at task-queue boundaries. Corrections preserve traversal order and
+all assertions. Sandbox failures now report bounded stage/errno details through
+the existing error protocol; the cause of isolation failure still needs execution
+evidence, and all restrictions remain enforced. These changes require new-head
+qualification. Windows/macOS and the remaining full-regression jobs were still
+running at this checkpoint.
+
 Implementation and focused source review are complete; runtime qualification is
 in progress. The historical source inventory below records what was known at its
 named checkpoint, not the current execution status. Do not redo those components.

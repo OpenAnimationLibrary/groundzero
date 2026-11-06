@@ -579,7 +579,7 @@ void testInterrupt(ScriptEngine &engine, Console &console) {
 void testDefineFunction(ScriptEngine &engine, Console &console) {
   engine.defineFunction(
       "twice", [](QJSEngine *, const QList<QJSValue> &args) -> QJSValue {
-        return QJSValue(args.size() * 2);
+        return QJSValue(static_cast<double>(args.size()) * 2);
       });
   expect(console, "twice(1, 2, 3)", ScriptEngine::EvaluationResult, "6");
 }
