@@ -31,6 +31,7 @@
 #include "toonz/tproject.h"
 #include "toonz/childstack.h"
 #include "toonz/fxdag.h"
+#include "toonz/tcolumnfxset.h"
 #include "toonz/tfxhandle.h"
 #include "toonz/doubleparamcmd.h"
 #include "toonz/fxcommand.h"
