@@ -1,0 +1,85 @@
+name: Windows workflow heap replay
+
+on:
+  push:
+    branches: [diagnose/pr133-windows-heap]
+    paths: [.github/workflows/windows-workflow-heap-replay.yml]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  heap-replay:
+    runs-on: windows-2025
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: ci-scripts
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v6
+        with:
+          artifact-ids: '13546751245'
+          github-token: ${{ github.token }}
+          run-id: '42297300171'
+          path: retained
+          merge-multiple: true
+      - name: Extract the retained failing runtime
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem retained -File -Filter '*.zip'
+          if (@($archive).Count -ne 1) { throw 'Expected one retained native bundle' }
+          python -m zipfile -e $archive.FullName replay
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $manifest = Get-Content replay/manifest.json -Raw | ConvertFrom-Json
+          if ($manifest.source_sha -ne '2e52fb78b70915925393290f32dc09a95a3927ec' -or $manifest.native_outcome -ne 'failure') {
+            throw 'Unexpected retained runtime identity'
+          }
+      - name: Ensure Windows debugger is available
+        shell: pwsh
+        run: ./ci-scripts/install_windows_debugger.ps1
+      - name: Stop at the first verifier failure
+        shell: bash
+        run: |
+          python -u - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, "ci-scripts")
+          from native_ui_page_heap import enable_page_heap, disable_page_heap
+          from run_native_ui_test import (decode_output, isolated_fixture,
+                                          run_captured_process, select_diagnostic_suite)
+
+          root = Path("replay").resolve(strict=True)
+          executable = root / "package" / "OpenToonz.exe"
+          debugger = Path(os.environ["ProgramFiles(x86)"]) / "Windows Kits/10/Debuggers/x64/cdb.exe"
+          commands = ("sxd av; sxe 0xc0000421; g; "
+                      ".echo Workflow heap stop; .lastevent; .exr -1; "
+                      "!avrf; kv 60; .ecxr; kv 60; q")
+          command = [str(debugger), "-G", "-sins", "-netsyms:no", "-noshell", "-lines",
+                     "-y", str(root / "symbols"), "-c", commands,
+                     str(executable), "--test-native-ui"]
+          state = {"safe_to_release": True}
+          try:
+              enable_page_heap(executable.name)
+              with isolated_fixture(root / "package" / "portablestuff", executable,
+                                    root / "mesa", runtime_state=state) as (directory, environment):
+                  select_diagnostic_suite(environment, "workflow-switch")
+                  try:
+                      result = run_captured_process(command, cwd=directory,
+                                                    environment=environment,
+                                                    timeout=1650, runtime_state=state)
+                      print(decode_output(result.stdout))
+                      print(f"CDB exit status {result.returncode}")
+                  except subprocess.TimeoutExpired as error:
+                      print(decode_output(error.stdout))
+                      raise
+          finally:
+              disable_page_heap(executable.name)
+          PY
