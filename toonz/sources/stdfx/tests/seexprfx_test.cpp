@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #ifdef _WIN32
@@ -58,14 +59,23 @@ template <typename Pixel> TRasterPT<Pixel> rendered(
     throw std::runtime_error("render fixture requires a native expression effect");
   return image;
 }
-template <typename Pixel> void expect(const Pixel &pixel, double r, double g, double b, double a) {
+// Reports where it was called and both pixels, so a CI failure names its check
+template <typename Pixel> void expect(const Pixel &pixel, double r, double g, double b, double a,
+                                      const char *where = "") {
   const double maximum = Pixel::maxChannelValue;
   const double epsilon = std::is_same<Pixel, TPixelF>::value ? 0.000003 : 1.5 / maximum;
-  require(std::abs(double(pixel.r) / maximum - r) < epsilon &&
-              std::abs(double(pixel.g) / maximum - g) < epsilon &&
-              std::abs(double(pixel.b) / maximum - b) < epsilon &&
-              std::abs(double(pixel.m) / maximum - a) < epsilon,
-          "rendered pixel differs from the analytic result");
+  if (std::abs(double(pixel.r) / maximum - r) < epsilon &&
+      std::abs(double(pixel.g) / maximum - g) < epsilon &&
+      std::abs(double(pixel.b) / maximum - b) < epsilon &&
+      std::abs(double(pixel.m) / maximum - a) < epsilon)
+    return;
+  std::ostringstream message;
+  message << "rendered pixel differs from the analytic result";
+  if (*where) message << " (" << where << ")";
+  message << ": got " << double(pixel.r) / maximum << ',' << double(pixel.g) / maximum << ','
+          << double(pixel.b) / maximum << ',' << double(pixel.m) / maximum
+          << " expected " << r << ',' << g << ',' << b << ',' << a;
+  throw std::runtime_error(message.str());
 }
 class Source final : public TStandardRasterFx {
   TRasterP m_image;
@@ -167,7 +177,8 @@ void checkSampledBounds() {
   TRectD scaledBox;
   require(fx.getBBox(0, scaledBox, scaled) && scaledBox.x1 >= 16,
           "the sampled bounds did not follow the render transform");
-  expect(rendered<TPixel32>(fx, 1, 1, TPointD(6, 0))->pixels(0)[0], 1, 0, 0, 1);
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(6, 0))->pixels(0)[0], 1, 0, 0, 1,
+         "sampled pixel outside the Source");
   choice(fx, "edgeMode", 1);
   // getBBox rounds to integers, which leaves an infinite box unchanged
   const TRectD clamped = bounds();
@@ -257,7 +268,8 @@ void checkUnboundedSourceEdges() {
   document(fx, "sample_rgb(-3,0)", "sample_alpha(-3,0)");
   for (int edge = 1; edge <= 3; ++edge) {
     choice(fx, "edgeMode", edge);
-    expect(rendered<TPixel32>(fx, 2, 2, TPointD(100, 100))->pixels(0)[0], 0, 0, 1, 1);
+    expect(rendered<TPixel32>(fx, 2, 2, TPointD(100, 100))->pixels(0)[0], 0, 0, 1, 1,
+           "unbounded Source with an edge mode");
   }
 }
 
@@ -273,9 +285,11 @@ void checkClampRegion() {
   choice(fx, "edgeMode", 1);
   document(fx, "sample_rgb(2,0)", "sample_alpha(2,0)");
   // Two pixels right of x = 62.5 clamps to the last column.
-  expect(rendered<TPixel32>(fx, 1, 1, TPointD(62, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1);
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(62, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1,
+         "clamp next to the Source's last column");
   // Far right of the Source, samples clamp to the last column as well.
-  expect(rendered<TPixel32>(fx, 1, 1, TPointD(200, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1);
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(200, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1,
+         "clamp far right of the Source");
 }
 
 void checkControlRangeEdits() {
