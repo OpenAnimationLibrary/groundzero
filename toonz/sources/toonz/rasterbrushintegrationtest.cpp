@@ -952,7 +952,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           metadata.geometry = QJsonObject{{"tipType", "png_brush"}, {"spacing", .5}};
           if (aliasedMaskResource) {
             metadata.resourceEncoding = "canonical-rgba8-srgb";
-            metadata.unsupportedFeatures = {"unverified-resource-color-contract"};
+            metadata.unsupportedFeatures = QStringList{"unverified-resource-color-contract"};
             metadata.tipImage = image;
           } else {
             metadata.resourceEncoding = "alpha-u8";
