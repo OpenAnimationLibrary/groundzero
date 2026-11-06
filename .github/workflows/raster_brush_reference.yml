@@ -54,31 +54,46 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Reject corrupt, stale, incomplete and unsafe source caches
+        shell: bash
         run: |
-          python3 ci-scripts/brush-reference/oracle_cache_test.py
-          python3 ci-scripts/brush-reference/view_control_contract_test.py
-          python3 ci-scripts/brush-reference/mask_repeat_contract_test.py
-          python3 ci-scripts/brush-reference/mask_repeat_lifecycle_test.py
-          python3 ci-scripts/brush-reference/hsv_joint_test.py
-          python3 ci-scripts/brush-reference/generated_tip_test.py
-          python3 ci-scripts/brush-reference/generated_curve_diagnostics_test.py
-          python3 ci-scripts/brush-reference/generated_controls_contract_test.py
-          python3 ci-scripts/brush-reference/generated_mask_analysis_test.py
-          python3 ci-scripts/brush-reference/spacing_scatter_test.py
-          python3 ci-scripts/brush-reference/scatter_capture_analysis_test.py
-          python3 ci-scripts/brush-reference/scatter_holdout_fixtures_test.py
-          python3 ci-scripts/brush-reference/scatter_holdout_contract_test.py
-          python3 ci-scripts/brush-reference/wet_drift_contract_test.py
-          python3 ci-scripts/brush-reference/wet_drift_geometry_test.py
-          python3 ci-scripts/brush-reference/wet_hsv_combo_fixtures_test.py
-          python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
-          python3 ci-scripts/brush-reference/kernel_convergence_probe_test.py
-          python3 ci-scripts/brush-reference/kernel_single_mark_probe_test.py
-          python3 ci-scripts/brush-reference/managed_lab_probe_test.py
-          python3 ci-scripts/brush-reference/gih_cadence_test.py
-          python3 ci-scripts/brush-reference/gih_correlation_test.py
-          python3 ci-scripts/brush-reference/bitmap_path_test.py
-          python3 ci-scripts/brush-reference/paced_policy_test.py
+          set -o pipefail
+          {
+            python3 ci-scripts/brush-reference/oracle_cache_test.py
+            python3 ci-scripts/brush-reference/view_control_contract_test.py
+            python3 ci-scripts/brush-reference/mask_repeat_contract_test.py
+            python3 ci-scripts/brush-reference/mask_repeat_lifecycle_test.py
+            python3 ci-scripts/brush-reference/hsv_joint_test.py
+            python3 ci-scripts/brush-reference/generated_tip_test.py
+            python3 ci-scripts/brush-reference/generated_curve_diagnostics_test.py
+            python3 ci-scripts/brush-reference/generated_controls_contract_test.py
+            python3 ci-scripts/brush-reference/generated_mask_analysis_test.py
+            python3 ci-scripts/brush-reference/spacing_scatter_test.py
+            python3 ci-scripts/brush-reference/scatter_capture_analysis_test.py
+            python3 ci-scripts/brush-reference/scatter_holdout_fixtures_test.py
+            python3 ci-scripts/brush-reference/scatter_holdout_contract_test.py
+            python3 ci-scripts/brush-reference/wet_drift_contract_test.py
+            python3 ci-scripts/brush-reference/wet_drift_geometry_test.py
+            python3 ci-scripts/brush-reference/wet_hsv_combo_fixtures_test.py
+            python3 ci-scripts/brush-reference/kernel_precision_probe_test.py
+            python3 ci-scripts/brush-reference/kernel_convergence_probe_test.py
+            python3 ci-scripts/brush-reference/kernel_single_mark_probe_test.py
+            python3 ci-scripts/brush-reference/managed_lab_probe_test.py
+            python3 ci-scripts/brush-reference/gih_cadence_test.py
+            python3 ci-scripts/brush-reference/gih_correlation_test.py
+            python3 ci-scripts/brush-reference/bitmap_path_test.py
+            python3 ci-scripts/brush-reference/paced_policy_test.py
+          } 2>&1 | tee brush-source-contracts.log
+      - name: Report source contract failure
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PYREPORT'
+          from pathlib import Path
+          path = Path('brush-source-contracts.log')
+          if path.is_file():
+              message = path.read_text(errors='replace')[-3500:]
+              print('::error title=Source contract tests::' + message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYREPORT
   native-metrics:
     # Focused source diagnostics do not qualify the full native workload.
     # Every PR and explicit full run still executes all native metric gates.

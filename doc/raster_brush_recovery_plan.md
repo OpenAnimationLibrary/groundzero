@@ -18,8 +18,8 @@ missing source behavior to make the feature list larger.
 
 The PR foundation already contains real application features. The recovery adds
 fixes, safer imports/resource handling, clearer support reporting and new controls
-for existing candidates. The working tree adds preview lifecycle and source-editor
-improvements. Finish and demonstrate these changes rather than create more systems.
+for existing candidates. The committed recovery adds preview lifecycle and
+source-editor improvements. Finish and demonstrate these changes rather than create more systems.
 
 The source review traced all six outcomes to actual UI entries. Against the locally
 tracked edition branch, the native engine and native preset implementation are new
@@ -37,7 +37,7 @@ integration target before review. Source wiring is not proof of successful execu
 
 A finished milestone must cite the actual behavior and its evidence. More test
 files, metadata fields or documents do not independently count as a user feature.
-All current working-tree execution evidence remains pending.
+Final integrated-commit execution evidence remains pending.
 
 ## Milestone 1: close the finite known-fix list
 
@@ -46,7 +46,8 @@ source-reviewed. FIX-01 also rejects a failed finish whose observed dab count
 moves backwards; its paired-counter regression is authored. The preview/editor,
 collection workflow and opt-in boundary received a focused source review with no
 additional concrete defects found. The native zero-weight and alpha-lock cases
-needed no production renderer changes. No builds/tests have run for this batch.
+needed no production renderer changes. Initial CI compilation exposed an importer
+diagnostic string-type error; those affected jobs did not reach the tests. Runtime qualification remains open.
 The refreshed edition revision `2e52fb78b` merges without conflicts. Source review
 confirmed the native routing, application test entry and build registration are
 preserved. The scoped implementation and integration review are complete; final
@@ -93,6 +94,20 @@ application, installed Windows/macOS/Linux package, isolation and performance
 checks for the current features. Reuse the benchmark/report runner and current
 application fixtures. Record the exact commit and result for each required gate.
 A historical pass does not qualify changed code.
+
+Required execution map (reuse the registered tests):
+
+| Evidence | Workflow and job |
+|---|---|
+| Six GUI outcomes | Linux Build / Ubuntu, Windows Build / Windows, MacOS Build / macOS: `rasterbrush_application` |
+| Installed application and worker | Each platform's InstalledApplication job: installed raster brush lifecycle |
+| Engine, presets, resources, isolation | Raster Brush Parser: six OS/Qt parser configurations and import-fuzz |
+| Native performance and import memory | Raster Brush Reference: native-metrics |
+| Full regressions, Qt6 application, vector compatibility | Linux Tests: Tests, Qt6, Compat; manually dispatch for this branch |
+
+Compat covers vector/scene compatibility; it does not prove full-color MyPaint or
+TLV brush gestures. Preserve the source routing guards and use focused application
+coverage for switching back from a native brush to the legacy painting path.
 
 For each failure, read its actual log/annotation, identify the cause, fix it and
 rerun the affected checks. Broaden reruns when the changed behavior warrants it.
@@ -161,15 +176,18 @@ original requirements for a possible later phase; it is not this phase's checkli
 
 Implementation has resumed against the six-item stabilization list. Use the independent
 `codex/pr115-raster-brush-recovery` branch; do not modify the other active checkout.
-Current work includes local commits `fb44b5e1a` and `6064436c2` plus uncommitted
-source. Preserve it. One writer owns shared GUI files, another the benchmark;
-reviewers can work in parallel without rebuilding existing components.
+The implementation is committed through `5fbe4267d`, with edition integration
+at `485eb7bb3`, and published as draft PR #141. Preserve that implementation;
+remaining changes address demonstrated qualification failures. Shared files have
+one writer at a time; reviewers can work in parallel without rebuilding existing
+components.
 
 No local project builds, tests or generators under CLAUDE.md. No CI status, log,
 artifact, dispatch or rerun access before the current implementation steps are
-finished. No push merely to save progress. This scope update changes documents
-only. The subsequent implementation resumption follows the milestones above;
-no remote PR update or CI access is implied before its gate.
+finished. The scoped implementation and integration review have passed that gate.
+Qualification fixes must be source-reviewed before publishing the next commit.
+Read actual failure logs before fixing or restarting a check; do not add scope
+in response to missing source-reference or physical-tablet evidence.
 
 The history below describes earlier work and the larger original target. It does
 not restore deferred work to the current phase or override the scope above.

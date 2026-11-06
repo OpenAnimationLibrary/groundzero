@@ -25,6 +25,8 @@ namespace {
 constexpr int fileLimit = 64 * 1024 * 1024;
 struct Invalid : std::runtime_error {
   explicit Invalid(const char *s) : std::runtime_error(s) {}
+  explicit Invalid(const QString &s)
+      : std::runtime_error(s.toUtf8().toStdString()) {}
 };
 struct Reader {
   const QByteArray &bytes;

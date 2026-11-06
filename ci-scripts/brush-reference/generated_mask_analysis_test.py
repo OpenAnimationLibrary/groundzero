@@ -1,6 +1,7 @@
 ﻿"""CI-only validation of original generated-mask research input contracts."""
 import base64
 import json
+import math
 from pathlib import Path
 import struct
 import sys
@@ -36,7 +37,9 @@ class GeneratedMaskAnalysisTest(unittest.TestCase):
         self.assertEqual(C(0), 1)
         self.assertAlmostEqual(C(.5), .2)
         self.assertEqual(C(1), 0)
-        self.assertEqual(curve("0,0.75;1,0.75;")(.3), .75)
+        # Barycentric products and their sum may round by one binary64 ULP.
+        self.assertAlmostEqual(curve("0,0.75;1,0.75;")(.3), .75,
+                               delta=math.ulp(.75))
         for value in ("0,0;0,1;", "0,0;1,nan;", "0.1,0;1,1;", "0,0;1,2;"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 curve(value)
