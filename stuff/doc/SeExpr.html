@@ -9,7 +9,8 @@ preview it, and press Apply. Revert discards the draft. Applying is undoable.</p
 <p><code>$x</code> and <code>$y</code> are FX-local pixel-center coordinates.
 <code>$u</code> and <code>$v</code> are normalized across the canvas; <code>$width</code>
 and <code>$height</code> are its dimensions. Generator has a finite centered canvas.
-Color uses the finite Source bounds when available. Coordinates are independent of render tiles.</p>
+Color uses the finite Source bounds when available, and otherwise its Canvas Width and Height.
+Coordinates are independent of render tiles.</p>
 <p><code>$frame</code> starts at one. <code>$time</code> starts at zero and is the
 zero-based frame divided by <b>Time Rate</b>. Time Rate defaults to 24 frames/second
 and is an explicit effect control; set it to the intended rate for seconds-based motion.
@@ -38,7 +39,8 @@ external texture files. Formula text is saved in the scene; animate controls ins
 <p><code>sample_rgb(dx,dy)</code> and <code>sample_alpha(dx,dy)</code> sample Source at
 FX-local pixel offsets. Sampling Radius defaults to 32 pixels. Set it to at least the largest absolute requested
 offset in either axis. Larger requests fail visibly. Sampling Filter selects nearest or bilinear.
-Source Edges selects transparent, clamp, repeat or mirror; the latter modes require finite Source bounds.
+Source Edges selects transparent, clamp, repeat or mirror. With an unbounded Source, such as a colour card,
+there is no edge and the latter modes sample as transparent does.
 With transparent edges, the output extends past the Source by the Sampling Radius when the expression samples;
 clamp, repeat and mirror cover the whole frame.
 Neighbor Shift uses the default nonzero Sampling Radius. Sampling requests share a 256 MiB temporary Source/Mask budget.</p>

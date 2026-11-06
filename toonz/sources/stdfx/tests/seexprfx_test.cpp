@@ -235,6 +235,49 @@ void checkRotatedEdges() {
   require(inside > 10, "the rotated Source was not rendered");
 }
 
+// A Source without bounds has no edge: the edge modes sample it as with
+// transparent edges instead of failing the frame.
+class UnboundedSource final : public TStandardRasterFx {
+public:
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double, const TRenderSettings &) const override { return "seexpr-test-unbounded-source"; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TConsts::infiniteRectD; return true;
+  }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    TRaster32P(tile.getRaster())->fill(TPixel32(0, 0, 255, 255));
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
+};
+
+void checkUnboundedSourceEdges() {
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new UnboundedSource);
+  set(fx, "samplingRadius", 4);
+  document(fx, "sample_rgb(-3,0)", "sample_alpha(-3,0)");
+  for (int edge = 1; edge <= 3; ++edge) {
+    choice(fx, "edgeMode", edge);
+    expect(rendered<TPixel32>(fx, 2, 2, TPointD(100, 100))->pixels(0)[0], 0, 0, 1, 1);
+  }
+}
+
+// Clamp requests only the part of the Source next to the tile, and still
+// reads its edge pixels.
+void checkClampRegion() {
+  TRaster32P input(64, 4);
+  for (int x = 0; x < 64; ++x) for (int y = 0; y < 4; ++y)
+    input->pixels(y)[x] = TPixel32(x * 4, 0, 0, 255);
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new Source(input));
+  set(fx, "samplingRadius", 2);
+  choice(fx, "samplingFilter", 0);
+  choice(fx, "edgeMode", 1);
+  document(fx, "sample_rgb(2,0)", "sample_alpha(2,0)");
+  // Two pixels right of x = 62.5 clamps to the last column.
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(62, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1);
+  // Far right of the Source, samples clamp to the last column as well.
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(200, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1);
+}
+
 void checkControlRangeEdits() {
   SeExprGeneratorFx fx;
   auto amount = scalar("amount", 2.5);
@@ -1126,6 +1169,8 @@ int main(int argc, char **argv) {
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
     checkRotatedEdges();
+    checkUnboundedSourceEdges();
+    checkClampRegion();
     checkSampledBounds();
     checkControlRangeEdits(); checkAnimationCurveControls(temporary.path()); checkNamespacedRenderAttributes();
     checkSurfaceHostBoundary();

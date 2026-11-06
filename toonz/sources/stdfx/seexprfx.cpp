@@ -1086,7 +1086,20 @@ protected:
     TRectD box;
     if (!static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, settings) || box.isEmpty())
       return TRectD();
-    demand(finiteBox(box), "clamp/repeat/mirror sampling needs a finite Source canvas");
+    const TRectD reach = requested.enlarge(support(frame, settings));
+    // An unbounded Source (a colour card, a gradient) has no edge to clamp or
+    // wrap at: sample it as with transparent edges.
+    if (!finiteBox(box)) return rasterBox(reach);
+    // A clamped sample lands on the part of the Source nearest to it, so an
+    // axis-aligned request needs only the request projected onto the Source,
+    // plus a pixel for the bilinear taps, not the whole Source for every tile.
+    if (m_edge->getValue() == 1 && settings.m_affine.a12 == 0 && settings.m_affine.a21 == 0) {
+      auto project = [](double value, double low, double high) { return std::max(low, std::min(high, value)); };
+      const TRectD nearest(project(reach.x0, box.x0, box.x1), project(reach.y0, box.y0, box.y1),
+                           project(reach.x1, box.x0, box.x1), project(reach.y1, box.y0, box.y1));
+      return rasterBox(nearest.enlarge(1) * box);
+    }
+    // Repeat and Mirror can read anywhere on the Source.
     return rasterBox(box);
   }
 
