@@ -16,11 +16,31 @@ the New Pegbar button). When it is on, a **Filter nodes** and a **Filter
 ports** field appear next to it, and the nodes get small badges and port rows
 under them.
 
+### Deformer nodes (column nodes)
+
+The deformer FXs of a column's fx chain (Envelope, Envelope Plus, Curve,
+Free-Form, Bone, Shape Aware and Deformer Stack) are nodes of the Rig view,
+to the right of the column's node, in the order of the chain: the first one
+linked to the column's node, each next one hanging below the one before. The
+chain follows the output connections of the column's fx, and stops at the
+FXs that combine several inputs and at the xsheet node. A deformer turned off
+is grey. Each shows its type and its name, which the filter looks for.
+
+- A click makes the deformer the current FX and opens the FX Settings.
+- Its context menu: **Edit Settings**, **Turn Off** / **Turn On**, **Move
+  Toward Column** and **Move Away From Column** (it swaps places with the
+  deformer before or after it, when they feed each other alone), and
+  **Remove Deformer** (its Source takes its place in the chain).
+- **Add Deformer** in the context menu of a column node adds a deformer of
+  the chosen type at the end of the column's chain of deformers, or right
+  after the column when it has none, and makes it the current FX.
+
+Every change is one undo step, and edits the FX DAG that the FX Schematic
+shows. Before this, a Deformers badge listed them, and it found none: it
+compared the FX types without their `STD_` prefix.
+
 ### Badges (column nodes)
 
-- **Deformers**: the Deformer Stack, Envelope and Free-Form FXs found in the
-  column's fx chain. The chain follows the output connections of the column's
-  fx, and stops at the FXs that combine several inputs and at the xsheet node.
 - **Offsets**: the offset layers of the column (doc/offset_layers.md); a
   disabled layer is marked "(off)".
 - **Controllers**: the master controllers (pegbars named `ctrl_*`) that drive a
@@ -30,9 +50,6 @@ under them.
 The tool tip of a badge has the whole text. The badges can be clicked (left
 button) while the Rig view is on:
 
-- **Deformers**: makes the deformer FX the current FX and opens the FX
-  Settings (the FX Editor). If the chain has several deformers, a menu asks
-  which one.
 - **Offsets**: makes the column the current object and opens the Offset Layers
   panel.
 - **Controllers**: opens the Master Controllers panel.
@@ -125,9 +142,10 @@ The code is in `toonzlib/tstageobject.cpp` (`TStageObject::PublishedChannel`),
 
 ## Partial
 
-- Deformers are still not nodes of the graph, and the pose and deformer chains
-  are shown as badges only: a deformer cannot be wired or published, it is
-  edited in the FX Settings. A published port stands for a stage object
+- Deformer nodes are laid out by the view, beside their column's node: they
+  cannot be dragged, nor wired to another column (remove the deformer and add
+  one to the other column), and their parameters cannot be published. The
+  pose chains are shown as badges only. A published port stands for a stage object
   channel (or a layer weight); the parameters of the FXs cannot be published.
 - A port cannot be renamed (unpublish and publish it again), and the ports
   have no links: they are rows for reading and keying, not sockets to wire.

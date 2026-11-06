@@ -33,6 +33,9 @@
 #include "toonz/fxdag.h"
 #include "toonz/tfxhandle.h"
 #include "toonz/doubleparamcmd.h"
+#include "toonz/fxcommand.h"
+#include "toonz/tdeformer.h"
+#include "toonz/tapplication.h"
 
 // TnzCore includes
 #include "tconst.h"
@@ -41,6 +44,9 @@
 #include "tstroke.h"
 #include "tenv.h"
 #include "tfx.h"
+#include "tfxattributes.h"
+#include "tundo.h"
+#include "historytypes.h"
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
 #include "tunit.h"
@@ -68,6 +74,7 @@
 
 #include <cctype>
 #include <functional>
+#include <list>
 #include <set>
 #include <string>
 #include <vector>
@@ -302,16 +309,215 @@ FunctionViewer *findVisibleFunctionViewer() {
 
 //------------------------------------------------------------------
 
-//! The label of the deformer fx types shown by the Rig view, or an empty
-//! string for any other fx.
+//! The deformer fx types of the Rig view: their fx ids, without the "STD_"
+//! of the fx types, and their labels
+const struct {
+  const char *m_id;
+  const char *m_label;
+} rigDeformerTypes[] = {
+    {"envelopeDeformerFx", QT_TRANSLATE_NOOP("StageSchematicScene", "Envelope")},
+    {"envelopeDeformerPlusFx",
+     QT_TRANSLATE_NOOP("StageSchematicScene", "Envelope Plus")},
+    {"curveDeformerFx", QT_TRANSLATE_NOOP("StageSchematicScene", "Curve")},
+    {"freeFormDeformerFx", QT_TRANSLATE_NOOP("StageSchematicScene", "Free-Form")},
+    {"boneDeformerFx", QT_TRANSLATE_NOOP("StageSchematicScene", "Bone")},
+    {"shapeAwareDeformerFx",
+     QT_TRANSLATE_NOOP("StageSchematicScene", "Shape Aware")},
+    {"deformerStackFx",
+     QT_TRANSLATE_NOOP("StageSchematicScene", "Deformer Stack")},
+};
+
+//! The label of the deformer fxs (the fxs building a TDeformer) shown by the
+//! Rig view, or an empty string for any other fx.
 QString getDeformerLabel(TFx *fx) {
+  if (!fx || !dynamic_cast<TDeformerSource *>(fx)) return QString();
   std::string type = fx->getFxType();
-  if (type == "deformerStackFx")
-    return StageSchematicScene::tr("Deformer Stack");
-  if (type == "envelopeDeformerFx") return StageSchematicScene::tr("Envelope");
-  if (type == "freeFormDeformerFx") return StageSchematicScene::tr("Free-Form");
-  return QString();
+  if (type.compare(0, 4, "STD_") == 0) type = type.substr(4);
+  for (const auto &deformer : rigDeformerTypes)
+    if (type == deformer.m_id)
+      return StageSchematicScene::tr(deformer.m_label);
+  return QString::fromStdWString(fx->getName());
 }
+
+//------------------------------------------------------------------
+
+//! Turns a deformer of the Rig view on or off, with undo
+class RigDeformerEnableUndo final : public TUndo {
+  TFxP m_fx;
+  bool m_enabled;
+  TXsheetHandle *m_xshHandle;
+
+  void set(bool enabled) const {
+    m_fx->getAttributes()->enable(enabled);
+    m_xshHandle->notifyXsheetChanged();
+  }
+
+public:
+  RigDeformerEnableUndo(const TFxP &fx, bool enabled, TXsheetHandle *xshHandle)
+      : m_fx(fx), m_enabled(enabled), m_xshHandle(xshHandle) {}
+
+  void undo() const override { set(!m_enabled); }
+  void redo() const override { set(m_enabled); }
+  int getSize() const override { return sizeof(*this); }
+  QString getHistoryString() override {
+    return (m_enabled ? QObject::tr("Enable Fx  ")
+                      : QObject::tr("Disable Fx  ")) +
+           QString::fromStdWString(m_fx->getFxId());
+  }
+  int getHistoryType() override { return HistoryType::Fx; }
+};
+
+//------------------------------------------------------------------
+
+//! Swaps two deformers of a chain, with undo: \b lower feeds \b upper
+//! alone, through its first port, and takes its place in the chain.
+class RigDeformerSwapUndo final : public TUndo {
+  TFxP m_lower, m_upper;
+  TXsheetHandle *m_xshHandle;
+
+  //! lower feeds upper; afterwards upper feeds lower
+  void swap(TFx *lower, TFx *upper) const {
+    FxDag *dag      = m_xshHandle->getXsheet()->getFxDag();
+    TFx *below      = lower->getInputPort(0)->getFx();
+    const bool term = dag->getTerminalFxs()->containsFx(upper);
+
+    // The ports that upper feeds take lower (copied first: setFx() changes
+    // the output connections)
+    std::vector<TFxPort *> outputs;
+    for (int i = 0; i < upper->getOutputConnectionCount(); ++i)
+      outputs.push_back(upper->getOutputConnection(i));
+    for (TFxPort *port : outputs) port->setFx(lower);
+
+    lower->getInputPort(0)->setFx(upper);
+    upper->getInputPort(0)->setFx(below);
+
+    if (term) {
+      dag->removeFromXsheet(upper);
+      dag->addToXsheet(lower);
+    }
+    m_xshHandle->notifyXsheetChanged();
+  }
+
+public:
+  RigDeformerSwapUndo(const TFxP &lower, const TFxP &upper,
+                      TXsheetHandle *xshHandle)
+      : m_lower(lower), m_upper(upper), m_xshHandle(xshHandle) {}
+
+  //! Returns whether lower feeds upper alone, as swap() needs
+  static bool canSwap(TXsheet *xsh, TFx *lower, TFx *upper) {
+    return lower && upper && lower != upper &&
+           lower->getInputPortCount() > 0 && upper->getInputPortCount() > 0 &&
+           upper->getInputPort(0)->getFx() == lower &&
+           lower->getOutputConnectionCount() == 1 &&
+           !xsh->getFxDag()->getTerminalFxs()->containsFx(lower);
+  }
+
+  void redo() const override { swap(m_lower.getPointer(), m_upper.getPointer()); }
+  void undo() const override { swap(m_upper.getPointer(), m_lower.getPointer()); }
+  int getSize() const override { return sizeof(*this); }
+  QString getHistoryString() override {
+    return QObject::tr("Move Deformer  ") +
+           QString::fromStdWString(m_upper->getFxId());
+  }
+  int getHistoryType() override { return HistoryType::Fx; }
+};
+
+//------------------------------------------------------------------
+
+//! A deformer of a column's fx chain, as a node of the Rig view: drawn to the
+//! right of the column's node, below the deformer before it in the chain,
+//! with a link from the node or from that deformer. A click edits it in the
+//! FX Settings; its context menu turns it on or off, moves it along the
+//! chain and removes it. The handlers run once the event is over, as they
+//! rebuild the scene, and with it this item.
+class RigDeformerNodeItem final : public QGraphicsItem {
+  QString m_text;
+  QRectF m_rect;
+  QPointF m_linkFrom;  //!< The start of the link, in the item's coordinates
+  bool m_enabled;
+  std::function<void()> m_onClick;
+  std::function<void(QMenu &)> m_fillMenu;
+
+  void fire(const std::function<void()> &handler) {
+    if (!handler || !scene()) return;
+    QTimer::singleShot(0, scene(), [handler]() { handler(); });
+  }
+
+public:
+  RigDeformerNodeItem(QGraphicsItem *parent, const QString &label,
+                      const QString &name, bool enabled)
+      : QGraphicsItem(parent), m_enabled(enabled) {
+    QFont f = font();
+    QFontMetrics fm(f);
+    m_text = fm.elidedText(label + "  " + name, Qt::ElideRight, 160);
+    m_rect = QRectF(0, 0, fm.horizontalAdvance(m_text) + 14, fm.height() + 6);
+    setToolTip(label + " (" + name + ")" +
+               (enabled ? QString() : StageSchematicScene::tr(" (off)")));
+    setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton);
+    setCursor(Qt::PointingHandCursor);
+    setZValue(1);
+  }
+
+  static QFont font() {
+    QFont f;
+    f.setPixelSize(10);
+    return f;
+  }
+
+  qreal height() const { return m_rect.height(); }
+
+  void setLinkFrom(const QPointF &from) {
+    prepareGeometryChange();
+    m_linkFrom = from;
+  }
+  void setHandlers(const std::function<void()> &onClick,
+                   const std::function<void(QMenu &)> &fillMenu) {
+    m_onClick  = onClick;
+    m_fillMenu = fillMenu;
+  }
+
+  QRectF boundingRect() const override {
+    return m_rect.united(QRectF(m_linkFrom, QSizeF(1, 1))).adjusted(-2, -2, 2, 2);
+  }
+
+  void paint(QPainter *painter, const QStyleOptionGraphicsItem *,
+             QWidget *) override {
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    const QColor color =
+        m_enabled ? QColor(140, 80, 190, 230) : QColor(110, 110, 110, 200);
+
+    // The link: into the left side from the column's node, down into the
+    // top from the deformer before
+    painter->setPen(QPen(color, 1.5));
+    const QPointF to = m_linkFrom.x() >= 0
+                           ? QPointF(m_linkFrom.x(), m_rect.top())
+                           : QPointF(m_rect.left(), m_rect.center().y());
+    painter->drawLine(m_linkFrom, to);
+
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(color);
+    painter->drawRoundedRect(m_rect, 4, 4);
+    painter->setPen(Qt::white);
+    painter->setFont(font());
+    painter->drawText(m_rect, Qt::AlignCenter, m_text);
+  }
+
+protected:
+  void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
+    event->accept();
+  }
+  void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override {
+    if (event->button() == Qt::LeftButton && m_rect.contains(event->pos()))
+      fire(m_onClick);
+  }
+  void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override {
+    event->accept();
+    if (!m_fillMenu) return;
+    QMenu menu;
+    m_fillMenu(menu);
+    menu.exec(event->screenPos());
+  }
+};
 
 //------------------------------------------------------------------
 
@@ -1309,7 +1515,6 @@ void StageSchematicScene::applyRigView() {
     controllers.push_back(controller);
   }
 
-  const QColor deformerColor(140, 80, 190, 210);
   const QColor offsetColor(40, 140, 140, 210);
   const QColor controllerColor(190, 120, 30, 210);
   const QColor portColor(50, 100, 170, 220);
@@ -1343,16 +1548,60 @@ void StageSchematicScene::applyRigView() {
     if (id.isColumn()) {
       TXshColumn *column = xsh->getColumn(id.getIndex());
 
-      // Deformer fxs of the column's fx chain
+      // Deformer fxs of the column's fx chain, as nodes to the right of the
+      // column's node, in the order of the chain
       std::vector<TFx *> deformerFxs = getColumnDeformers(xsh, column);
-      QStringList deformers;
-      std::vector<TFxP> deformerPtrs;
-      for (TFx *fx : deformerFxs) {
-        deformers.append(getDeformerLabel(fx));
-        deformerPtrs.push_back(TFxP(fx));
+      const QRectF nodeRect          = node->boundingRect();
+      const qreal gap                = 24;
+      QPointF linkFrom(nodeRect.right(), nodeRect.center().y());
+      qreal deformerY = nodeRect.top();
+      for (size_t k = 0; k < deformerFxs.size(); ++k) {
+        TFxP fx(deformerFxs[k]);
+        const QString label = getDeformerLabel(fx.getPointer());
+        const QString name  = QString::fromStdWString(fx->getName());
+        search.append(label);
+        search.append(name);
+
+        RigDeformerNodeItem *item = new RigDeformerNodeItem(
+            node, label, name, fx->getAttributes()->isEnabled());
+        const QPointF pos(nodeRect.right() + gap, deformerY);
+        item->setPos(pos);
+        item->setLinkFrom(linkFrom - pos);
+        const bool first = k == 0, last = k + 1 == deformerFxs.size();
+        item->setHandlers(
+            [this, fx]() { openRigDeformer(std::vector<TFxP>(1, fx)); },
+            [this, fx, first, last](QMenu &menu) {
+              auto later = [this](const std::function<void()> &f) {
+                return [this, f]() { QTimer::singleShot(0, this, f); };
+              };
+              connect(menu.addAction(tr("Edit Settings")), &QAction::triggered,
+                      this, later([this, fx]() {
+                        openRigDeformer(std::vector<TFxP>(1, fx));
+                      }));
+              connect(menu.addAction(fx->getAttributes()->isEnabled()
+                                         ? tr("Turn Off")
+                                         : tr("Turn On")),
+                      &QAction::triggered, this,
+                      later([this, fx]() { toggleRigDeformer(fx); }));
+              menu.addSeparator();
+              QAction *up = menu.addAction(tr("Move Toward Column"));
+              up->setEnabled(!first);
+              connect(up, &QAction::triggered, this,
+                      later([this, fx]() { moveRigDeformer(fx, true); }));
+              QAction *down = menu.addAction(tr("Move Away From Column"));
+              down->setEnabled(!last);
+              connect(down, &QAction::triggered, this,
+                      later([this, fx]() { moveRigDeformer(fx, false); }));
+              menu.addSeparator();
+              connect(menu.addAction(tr("Remove Deformer")),
+                      &QAction::triggered, this,
+                      later([this, fx]() { removeRigDeformer(fx); }));
+            });
+
+        // The next deformer hangs below this one
+        linkFrom = QPointF(pos.x() + 12, deformerY + item->height());
+        deformerY += item->height() + 10;
       }
-      addBadge(tr("Deformers"), deformers, deformers, deformerColor,
-               [this, deformerPtrs]() { openRigDeformer(deformerPtrs); });
 
       // Offset layers of the column
       QStringList layers, layerNames;
@@ -1606,6 +1855,20 @@ void StageSchematicScene::addRigMenuActions(QMenu &menu,
 
   // The dialogs are opened once the menu is closed
   menu.addSeparator();
+
+  // A deformer at the end of the column's chain of deformers
+  if (id.isColumn() && m_app) {
+    QMenu *add = menu.addMenu(tr("Add Deformer"));
+    for (const auto &deformer : rigDeformerTypes) {
+      const std::string type = std::string("STD_") + deformer.m_id;
+      connect(add->addAction(tr(deformer.m_label)), &QAction::triggered, this,
+              [this, id, type]() {
+                QTimer::singleShot(0, this,
+                                   [this, id, type]() { addRigDeformer(id, type); });
+              });
+    }
+  }
+
   QAction *publish = menu.addAction(tr("Publish Channel..."));
   connect(publish, &QAction::triggered, this, [this, id]() {
     QTimer::singleShot(0, this, [this, id]() { publishChannelDialog(id); });
@@ -1716,6 +1979,78 @@ void StageSchematicScene::unpublishChannelDialog(const TStageObjectId &id) {
                                           tr("Channel:"), names, 0, false, &ok);
   if (!ok) return;
   TStageObjectCmd::unpublishChannel(id, names.indexOf(chosen), m_xshHandle);
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::addRigDeformer(const TStageObjectId &columnId,
+                                         const std::string &type) {
+  TXsheet *xsh = getXsheet();
+  if (!xsh || !m_app || !columnId.isColumn()) return;
+  TXshColumn *column = xsh->getColumn(columnId.getIndex());
+  if (!column || !column->getFx()) return;
+
+  // After the last deformer of the chain, or after the column
+  std::vector<TFx *> chain = getColumnDeformers(xsh, column);
+  TFx *after               = chain.empty() ? column->getFx() : chain.back();
+
+  TFxP fx(TFx::create(type));
+  if (!fx) return;
+  QList<TFxP> fxs;
+  fxs.append(TFxP(after));
+  TFxCommand::insertFx(fx.getPointer(), fxs, QList<TFxCommand::Link>(), m_app,
+                       columnId.getIndex(),
+                       m_frameHandle ? m_frameHandle->getFrame() : 0);
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::removeRigDeformer(const TFxP &fx) {
+  if (!fx || !m_xshHandle || !m_fxHandle) return;
+  // The fx's Source takes its place in the chain
+  TFxCommand::deleteSelection(std::list<TFxP>(1, fx),
+                              std::list<TFxCommand::Link>(), std::list<int>(),
+                              m_xshHandle, m_fxHandle);
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::toggleRigDeformer(const TFxP &fx) {
+  if (!fx || !m_xshHandle) return;
+  RigDeformerEnableUndo *undo = new RigDeformerEnableUndo(
+      fx, !fx->getAttributes()->isEnabled(), m_xshHandle);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::moveRigDeformer(const TFxP &fx, bool towardColumn) {
+  TXsheet *xsh = getXsheet();
+  if (!fx || !xsh || !m_xshHandle || fx->getInputPortCount() == 0) return;
+
+  // The deformer before it (its Source), or the one after it (the only fx it
+  // feeds)
+  TFx *lower = 0, *upper = 0;
+  if (towardColumn) {
+    lower = fx->getInputPort(0)->getFx();
+    upper = fx.getPointer();
+  } else {
+    lower = fx.getPointer();
+    if (fx->getOutputConnectionCount() == 1)
+      upper = fx->getOutputConnection(0)->getOwnerFx();
+  }
+  if (getDeformerLabel(lower).isEmpty() || getDeformerLabel(upper).isEmpty() ||
+      !RigDeformerSwapUndo::canSwap(xsh, lower, upper)) {
+    DVGui::warning(tr("The deformer can move only past a deformer that it "
+                      "feeds, or that feeds it, alone."));
+    return;
+  }
+
+  RigDeformerSwapUndo *undo =
+      new RigDeformerSwapUndo(TFxP(lower), TFxP(upper), m_xshHandle);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
 }
 
 //------------------------------------------------------------------
