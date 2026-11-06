@@ -1,5 +1,35 @@
 # PR 115 acceptance audit
 
+## Current stabilization evidence
+
+Implementation and focused source review are complete; runtime qualification is
+in progress. The historical source inventory below records what was known at its
+named checkpoint, not the current execution status. Do not redo those components.
+
+At commit `697a9212737beb6de0643ec9117fe7eb3e9528df`:
+
+| Required evidence | Observed result |
+|---|---|
+| Six OS/Qt parser configurations and import fuzzing | All seven jobs passed in [run 42305891378](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42305891378). |
+| Native metrics and source-contract/cache checks | Both automatic jobs passed in [run 42305891418](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42305891418). The manual Krita job was skipped, not passed. |
+| Linux actual application | Compilation and general native application integration passed. The brush application failed during portable native-conversion reimport in [run 42305891491](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42305891491). Source identity/resource-rights assertions need diagnosis; the combined failure does not yet identify which field differs. |
+| Linux installed application | Skipped after the parent failure; no installed qualification. |
+| Windows/macOS application and packages | Not yet qualified; application builds were still running at this observation. |
+| Full regressions, Qt6 and Compat | [Run 42305900406](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42305900406) was still building at this observation. |
+
+Source diagnosis found a deterministic fixture defect: the random bitmap
+conversion has two resources but declared rights for only the first. Portable
+export materializes explicit unknown rights for an undeclared resource, so the
+whole-object equality was invalid. The fixture now declares all resource rights
+and retains every original assertion, with separate conversion/profile-specific
+diagnostics. This correction needs CI execution; the original combined log
+cannot rule out an earlier failing predicate. Production export policy is unchanged.
+
+The remaining sequence is finite: resolve demonstrated in-scope failures, obtain
+all required actual/installed and regression results on the resulting commit,
+then complete independent review and the PR evidence summary. Historical passes
+must not qualify subsequent changes. No local project execution was performed.
+
 ## Stabilization versus reference qualification
 
 The reduced phase keeps existing native and bounded experimental support, without
@@ -34,12 +64,13 @@ D behavior and broader K/S ranges/combinations are deferred, not new tasks for
 this phase. The original target is preserved below for future reference; successful
 stabilization does not complete that full target or establish source parity.
 
-## Source audit snapshot: 2026-11-06
+## Historical source audit snapshot: 2026-11-06
 
 Audited local HEAD `6064436c2` plus the existing working-tree changes. This is a
 source/history audit, not build, runtime or source-reference qualification.
-All CI access and local project execution remain deferred. Implementation is
-paused for planning. The audit changes documentation only.
+At that checkpoint, all CI access and local project execution were deferred,
+and implementation was paused for planning. The current evidence above supersedes
+that execution status; the original source findings remain the audit trail.
 
 The original PR already contains the native brush foundation and the full RCP1
 target. The main planning error was mixing code already written, missing active
@@ -249,7 +280,9 @@ diagnostics. Raw pressure switches are displayed independently of use-curve
 switches; neither alone is treated as proof that a source evaluator is inactive.
 Each original K/S combination remains either an implemented constrained path or
 a named deferred compatibility obligation; a source-only fixture is not a pass.
-This implementation and its authored regression sources remain unexecuted.
+At the historical source-audit checkpoint, this implementation and its authored
+regression sources were unexecuted. See the current evidence above for subsequent
+qualification and the remaining application failure.
 
 Deferred source-equation work depends on discriminating observations where no
 model has been identified. Examples include automatic/zero spacing, the random

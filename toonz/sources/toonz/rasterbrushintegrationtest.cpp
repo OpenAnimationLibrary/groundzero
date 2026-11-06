@@ -1078,10 +1078,15 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       if (retainedMaskResource)
         fixture.resourceRights[retainedMaskHash] = QJsonObject{
             {"redistribution", "restricted"}, {"license", "Retained secondary fixture"}};
-      if (!resourceFreeConversion)
-        fixture.resourceRights[bitmapMaskConversion ? sourcePrimaryHash : assets.front().hash] = QJsonObject{
+      // Portable manifests materialize rights for every image, including
+      // unknown declarations. Give both random bitmap frames explicit rights
+      // so the roundtrip comparison checks preservation of a complete fixture.
+      for (const auto &asset : assets) {
+        if (retainedMaskResource && asset.hash != sourcePrimaryHash) continue;
+        fixture.resourceRights[asset.hash] = QJsonObject{
             {"redistribution", bitmapMaskConversion ? "unknown" : "restricted"},
             {"license", "Original fixture"}};
+      }
       const QString folder =
           ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
       const QString originalPath =
@@ -1273,36 +1278,48 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   "cannot export native conversion copy");
           const auto reopened = RasterBrush::importBrushProcess(
               QCoreApplication::applicationFilePath(), portable, importError);
-          require(
-              importError.isEmpty() && reopened.complete &&
-                  reopened.records.size() == 1 &&
-                  reopened.records.front().preset.sourceHsvChannel ==
-                      RasterBrush::SourceHsvChannel::Off &&
-                  reopened.records.front().preset.sourceHsvValue == .5 &&
-                  noSourceHsvSensors(reopened.records.front().preset) &&
-                  !reopened.records.front().preset.sourceMirror.enabled &&
-                  !reopened.records.front().preset.sourceMirror.horizontal &&
-                  !reopened.records.front().preset.sourceMirror.vertical &&
-                  reopened.records.front()
-                      .preset.sourceMirror.control.mappings.empty() &&
-                  noSourceMask(reopened.records.front().preset) &&
-                  !reopened.records.front().preset.airbrushIgnoreSpacing &&
-                  !reopened.records.front().preset.sourceGeneratedV1 &&
-                  !reopened.records.front().preset.sourceScatterV1 &&
-                  (!generatedConversion || reopened.records.front().sourceGeneratedV1.has_value()) &&
-                  (!scatterConversion || reopened.records.front().provenance["sourceScatterDefinitionV1"] ==
-                      converted.provenance["sourceScatterDefinitionV1"]) &&
-                  reopened.records.front().provenance["conversionKind"] ==
-                      "native-reinterpretation" &&
-                  reopened.records.front()
-                          .provenance["sourceProfileBeforeNativeConversion"] ==
-                      converted
-                          .provenance["sourceProfileBeforeNativeConversion"] &&
-                  (bitmapMaskConversion ||
-                   reopened.records.front().resourceRights ==
-                       fixture.resourceRights),
-              "portable conversion reimport lost original-profile identity or "
-              "resource rights");
+          const auto requirePortable = [&](bool value, const QString &message) {
+            require(value, QString("Portable conversion %1 (%2): %3")
+                               .arg(conversionKind)
+                               .arg(QString::fromStdString(fixture.preset.profile))
+                               .arg(message).toUtf8().constData());
+          };
+          requirePortable(importError.isEmpty(),
+                          "reimport error: " + importError);
+          requirePortable(reopened.complete, "reimport is incomplete");
+          requirePortable(reopened.records.size() == 1,
+                          "reimport did not return exactly one record");
+          const auto &portableCopy = reopened.records.front();
+          requirePortable(portableCopy.preset.sourceHsvChannel ==
+                              RasterBrush::SourceHsvChannel::Off &&
+                              portableCopy.preset.sourceHsvValue == .5 &&
+                              noSourceHsvSensors(portableCopy.preset),
+                          "source HSV reset was not preserved");
+          requirePortable(!portableCopy.preset.sourceMirror.enabled &&
+                              !portableCopy.preset.sourceMirror.horizontal &&
+                              !portableCopy.preset.sourceMirror.vertical &&
+                              portableCopy.preset.sourceMirror.control.mappings.empty(),
+                          "source Mirror reset was not preserved");
+          requirePortable(noSourceMask(portableCopy.preset),
+                          "source mask reset was not preserved");
+          requirePortable(!portableCopy.preset.airbrushIgnoreSpacing,
+                          "source airbrush reset was not preserved");
+          requirePortable(!portableCopy.preset.sourceGeneratedV1 &&
+                              (!generatedConversion || portableCopy.sourceGeneratedV1.has_value()),
+                          "generated-mask runtime reset or retained definition changed");
+          requirePortable(!portableCopy.preset.sourceScatterV1 &&
+                              (!scatterConversion || portableCopy.provenance["sourceScatterDefinitionV1"] ==
+                                  converted.provenance["sourceScatterDefinitionV1"]),
+                          "scatter runtime reset or retained definition changed");
+          requirePortable(portableCopy.provenance["conversionKind"] ==
+                              "native-reinterpretation",
+                          "native conversion classification changed");
+          requirePortable(portableCopy.provenance["sourceProfileBeforeNativeConversion"] ==
+                              converted.provenance["sourceProfileBeforeNativeConversion"],
+                          "original source-profile identity changed");
+          requirePortable(bitmapMaskConversion ||
+                              portableCopy.resourceRights == fixture.resourceRights,
+                          "resource rights changed");
           if (retainedMaskResource) {
             const auto derivedHash = resourceHash(converted.preset.tip.images.front());
             const auto retainedUnchanged = [&](const RasterBrush::Record &candidate) {
