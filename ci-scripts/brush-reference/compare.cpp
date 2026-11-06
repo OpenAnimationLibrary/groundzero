@@ -244,6 +244,95 @@ QJsonObject compare(const QImage &base, const QImage &reference,
                                           candidateAlphaBounds.isEmpty()
                                     : refCount == 0 && candidateCount == 0}};
 }
+constexpr char spacingAdmissionError[] =
+    "KPP spacing is outside the RCP1 supported range 0.01-5";
+
+bool validateSourceAdmission(const QString &group, int index,
+                             const QJsonObject &source) {
+  if (group != "spacingdynamics") {
+    require(!source.contains("sourceAdmission"),
+            "Source admission metadata is not allowed for this fixture group");
+    return false;
+  }
+  const QString name = QString("GZ Original dry sensor spacingdynamics %1")
+                           .arg(index, 3, 10, QLatin1Char('0'));
+  const int spacing = index < 16 ? 1 : index < 64 ? 4 : 8;
+  const int plan = index < 16 ? index / 4 : (index - 16) / 4;
+  const QStringList pressures = {"quarter", "half", "full", "ramp"};
+  const QStringList directions = {"east", "north", "diagonal"};
+  require(index >= 0 && index < 112,
+          "Source admission fixture index is outside its bounded matrix");
+  const QString label = index < 16 ? pressures[plan]
+      : "sparse " + QString::number(spacing) + " " + directions[(plan % 12) / 4] +
+            " " + pressures[plan % 4];
+  const auto sensor = source["sensorProbe"].toObject();
+  require(source["preset"] == QJsonValue(name) &&
+              source["spacing"] == QJsonValue(spacing) &&
+              source["diameter"] == QJsonValue(24) &&
+              sensor["target"] == QJsonValue(QStringLiteral("Spacing")) &&
+              sensor["sensor"] == QJsonValue(QStringLiteral("pressure")) &&
+              sensor["enabled"] == QJsonValue(index % 4 >= 2) &&
+              sensor["isotropic"] == QJsonValue(index % 2 == 1) &&
+              sensor["label"] == QJsonValue(label),
+          "Source admission inputs differ from the authored spacing matrix: " + name);
+  if (spacing != 8) {
+    require(!source.contains("sourceAdmission"),
+            "An admitted source spacing case declares expected rejection: " + name);
+    return false;
+  }
+  const QJsonObject admission = {
+      {"version", 1}, {"outcome", "expected-rejection"},
+      {"reasonCode", "kpp-spacing-outside-rcp1"}, {"field", "spacing"},
+      {"authoredValue", 8}, {"minimum", .01}, {"maximum", 5}};
+  require(source["sourceAdmission"].isObject() &&
+              source["sourceAdmission"].toObject() == admission,
+          "Missing or forged outside-envelope source admission: " + name);
+  return true;
+}
+
+QJsonObject sourceRejectionOutcome(const QJsonObject &source,
+                                   const ImportResult &imported,
+                                   const QString &error,
+                                   bool acquisitionInputsValidated) {
+  require(!imported.complete && imported.records.empty() &&
+              error == QString::fromLatin1(spacingAdmissionError),
+          "Expected exact source-envelope rejection for " +
+              source["preset"].toString() + "; actual complete=" +
+              QString::number(imported.complete) + " records=" +
+              QString::number(int(imported.records.size())) + " reason=" + error);
+  QJsonObject outcome;
+  // No candidate raster exists. Null metrics cannot be mistaken for zero
+  // error, matching coverage, an empty stroke or measured runtime.
+  for (const QString &field : {
+           QString("region"), QString("regionPixels"), QString("referenceBounds"),
+           QString("candidateBounds"), QString("referenceAlphaBounds"),
+           QString("candidateAlphaBounds"), QString("transparentBase"),
+           QString("alphaCoverageIoU"), QString("referenceChangedPixels"),
+           QString("candidateChangedPixels"), QString("changedPixelIoU"),
+           QString("visibleChangedPixelIoU"), QString("premultipliedRGBMAE"),
+           QString("alphaMAE"), QString("maxRGBError"), QString("maxAlphaError"),
+           QString("alphaP99"), QString("deltaE00BlackMean"),
+           QString("deltaE00WhiteMean"), QString("deltaE00BlackP95"),
+           QString("deltaE00WhiteP95"), QString("emptyCandidateFailure"),
+           QString("bothEmpty"), QString("boundsError"), QString("candidateProfile"),
+           QString("candidateSeed"), QString("renderMilliseconds"), QString("dabs")})
+    outcome[field] = QJsonValue(QJsonValue::Null);
+  outcome["preset"] = source["preset"];
+  outcome["inputCase"] = source;
+  outcome["comparisonStatus"] = "expected-rejection";
+  outcome["sourceAdmission"] = source["sourceAdmission"];
+  outcome["admissionReason"] = error;
+  outcome["candidateImportComplete"] = imported.complete;
+  outcome["candidateImportRecords"] = int(imported.records.size());
+  outcome["sourceSemanticallySupported"] = false;
+  outcome["sourceReferenceVerified"] = false;
+  outcome["sourceParityQualified"] = false;
+  outcome["sensorSourceParityQualified"] = false;
+  outcome["sensorAcquisitionInputsValidated"] = acquisitionInputsValidated;
+  outcome["diagnostics"] = QJsonArray{error};
+  return outcome;
+}
+
 void validateFixtureMatrix(const QJsonObject &fixtures) {
   require(fixtures["version"].toString() == "5.3.4.1",
           "Fixture source version changed");
@@ -260,6 +349,8 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
     names.append(name);
   }
   const QString group = fixtures["group"].toString();
+  for (int i = 0; i < cases.size(); ++i)
+    validateSourceAdmission(group, i, cases[i].toObject());
   if (group == "autospacing")
     require(expected.size() == 192, "Incomplete automatic spacing fixture matrix");
   if (group.startsWith("scatter-")) {
@@ -286,6 +377,8 @@ void validateFixtureMatrix(const QJsonObject &fixtures) {
   }
   if (group == "wetgeometry")
     require(expected.size() == 30, "Incomplete wet geometry diagnostic matrix");
+  if (fixtures["group"].toString() == "generatedcurves")
+    require(expected.size() == 124, "Incomplete generated curve diagnostic matrix");
   if (fixtures["group"].toString() == "generatedtips")
     require(expected.size() == 32, "Incomplete generated tip fixture matrix");
   if (fixtures["group"].toString() == "tabletsensors")
@@ -418,13 +511,35 @@ int main(int argc, char **argv) {
     }
     const bool fixturesOnly = argc == 3 &&
         app.arguments().at(1) == "--validate-fixtures";
-    require(argc == 2 || fixturesOnly, "Expected reference run directory");
-    QDir root(app.arguments().at(fixturesOnly ? 2 : 1));
-    if (fixturesOnly) {
+    const bool admissionOnly = argc == 3 &&
+        app.arguments().at(1) == "--validate-source-admission";
+    require(argc == 2 || fixturesOnly || admissionOnly,
+            "Expected reference run directory");
+    QDir root(app.arguments().at(fixturesOnly || admissionOnly ? 2 : 1));
+    if (fixturesOnly || admissionOnly) {
       QFile manifest(root.filePath("output/fixtures.json"));
       require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
-      validateFixtureMatrix(QJsonDocument::fromJson(manifest.readAll()).object());
-      std::cout << "Fixture matrix accepted before source acquisition.\n";
+      const auto fixtures = QJsonDocument::fromJson(manifest.readAll()).object();
+      validateFixtureMatrix(fixtures);
+      if (fixturesOnly)
+        std::cout << "Fixture matrix accepted before source acquisition.\n";
+      else {
+        require(fixtures["group"].toString() == "spacingdynamics",
+                "Source admission import regression requires its spacing matrix");
+        QJsonArray rejections;
+        const auto cases = fixtures["cases"].toArray();
+        for (int i = 0; i < cases.size(); ++i) {
+          const auto source = cases[i].toObject();
+          if (!validateSourceAdmission("spacingdynamics", i, source)) continue;
+          QString error;
+          const auto imported = importBrushFile(root.filePath(
+              "data/krita/paintoppresets/" + source["preset"].toString() + ".kpp"), error);
+          rejections.append(sourceRejectionOutcome(source, imported, error, false));
+        }
+        require(rejections.size() == 48, "Incomplete source admission import regression");
+        std::cout << QJsonDocument(QJsonObject{{"records", rejections}})
+                         .toJson(QJsonDocument::Compact).constData() << '\n';
+      }
       return 0;
     }
     QFile status(root.filePath("output/oracle-status.json"));
@@ -456,6 +571,8 @@ int main(int argc, char **argv) {
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
+    const QStringList declaredNames = remaining;
+    int expectedRejections = 0;
     QImage initial(2048, 2048, QImage::Format_ARGB32);
     const QRgb colors[] = {qRgba(0, 0, 255, 255), qRgba(0, 255, 0, 128),
                            qRgba(255, 0, 0, 255), qRgba(0, 0, 0, 0)};
@@ -467,6 +584,16 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
+      const QString caseName = source["preset"].toString();
+      const QString caseContext = fixtures["group"].toString() + "/" + caseName;
+      const int fixtureIndex = declaredNames.indexOf(caseName);
+      require(fixtureIndex >= 0, "Unexpected source case: " + caseContext);
+      const bool expectedRejection = validateSourceAdmission(
+          fixtures["group"].toString(), fixtureIndex, source);
+      const auto authoredCase = fixtures["cases"].toArray()[fixtureIndex].toObject();
+      require(source.contains("sourceAdmission") == authoredCase.contains("sourceAdmission") &&
+                  source["sourceAdmission"] == authoredCase["sourceAdmission"],
+              "Source admission changed after acquisition: " + caseContext);
       if (fixtures["group"].toString() == "hsvjoint" ||
           fixtures["group"].toString() == "hsvorder" ||
           fixtures["group"].toString() == "hsvchroma") {
@@ -760,8 +887,8 @@ int main(int argc, char **argv) {
                 x, y,
                 qRgba(c[0].toInt(), c[1].toInt(), c[2].toInt(), c[3].toInt()));
       }
-      QString name = source["preset"].toString(), error;
-      require(remaining.removeOne(name), "Unexpected or duplicate source case");
+      QString name = caseName, error;
+      require(remaining.removeOne(name), "Unexpected or duplicate source case: " + caseContext);
       const bool resourceCase =
           fixtures["group"].toString() == "bitmaptips" ||
           fixtures["group"].toString() == "gihstatistics" ||
@@ -781,8 +908,20 @@ int main(int argc, char **argv) {
                 "Missing actual resource resolution/readback evidence");
       }
       auto imported = importBrushFile(root.filePath(package), error);
-      require(error.isEmpty() && imported.records.size() == 1,
-              "Candidate import failed: " + error);
+      if (expectedRejection) {
+        // Acquisition controls and actual delivered tablet values were checked
+        // above. Preserve the source image without inventing a candidate raster.
+        QImage reference(root.filePath("output/" + source["image"].toString()));
+        require(!reference.isNull() && reference.size() == initial.size(),
+                "Missing retained source image for expected rejection: " + caseContext);
+        results.append(sourceRejectionOutcome(source, imported, error, true));
+        ++expectedRejections;
+        continue;
+      }
+      require(error.isEmpty() && imported.complete && imported.records.size() == 1,
+              "Candidate import failed [" + caseContext + "]: " + error +
+                  " (complete=" + QString::number(imported.complete) +
+                  ", records=" + QString::number(int(imported.records.size())) + ")");
       Preset p = imported.records.front().preset;
       const bool textureGate = fixtures["group"].toString() == "texturemasks";
       const bool sourceHsv = fixtures["group"].toString() == "hsvdynamics" ||
@@ -994,7 +1133,7 @@ int main(int argc, char **argv) {
                     source["diameter"].toDouble() == 8 &&
                     p.spacing == spacing && spec["replicate"].toInt(-1) >= 0 &&
                     spec["replicate"].toInt(-1) < 4 && p.tip.images.size() == 3,
-                "Invalid bounded GIH cadence candidate settings");
+                "Invalid bounded GIH cadence candidate settings: " + caseContext);
         p.seed = UINT64_C(0x9e3779b97f4a7c15) *
                  std::uint64_t(spec["replicate"].toInt() + 1);
       }
@@ -1074,9 +1213,9 @@ int main(int argc, char **argv) {
               ? QJsonArray{768 + ((i + 1) / 2) * step, 768 + (i / 2) * step}
               : QJsonArray{16 + i * step, 1024});
         require(source["cadenceCenters"].toArray() == expectedCenters,
-                "GIH readback centers differ from exact path contract");
+                "GIH readback centers differ from exact path contract: " + caseContext);
         if (mode == "path-corners") {
-          require(step == 16, "Invalid corner cadence spacing");
+          require(step == 16, "Invalid corner cadence spacing: " + caseContext);
           QJsonArray path = expectedCenters;
           const auto endPoint = path.last().toArray();
           path.append(QJsonArray{endPoint[0].toInt() + 1, endPoint[1]});
@@ -1089,7 +1228,7 @@ int main(int argc, char **argv) {
           require(mode == "line" || mode == "path-endpoints" ||
                       mode == "path-dabs" || mode == "path-halves" ||
                       mode == "path-offgrid" || mode == "qt-dabs" || mode == "qt-halves",
-                  "Unknown GIH cadence mode");
+                  "Unknown GIH cadence mode: " + caseContext);
           const int increment = (mode == "path-dabs" || mode == "qt-dabs") ? step
                                 : (mode == "path-halves" || mode == "qt-halves") ? step / 2
                                 : mode == "path-offgrid" ? 17
@@ -1108,9 +1247,9 @@ int main(int argc, char **argv) {
                         (mode.startsWith("qt-") ? "Qt tablet events"
                          : mode == "line" || mode == "discrete"
                              ? "Node.paintLine" : "Node.paintPath"),
-                "GIH source cadence delivery differs from authored paths");
+                "GIH source cadence delivery differs from authored paths: " + caseContext);
         if (mode.startsWith("qt-")) {
-          require(step == 16, "Qt cadence requires bounded spacing two");
+          require(step == 16, "Qt cadence requires bounded spacing two: " + caseContext);
           QJsonArray contacts;
           for (const auto &event : delivered["events"].toArray()) {
             const auto item = event.toObject();
@@ -1118,7 +1257,7 @@ int main(int argc, char **argv) {
                 item["pressure"].toDouble() > 0) contacts.append(item);
           }
           const auto path = expectedPaths[0].toArray();
-          require(contacts.size() == path.size(), "Incomplete Qt GIH contacts");
+          require(contacts.size() == path.size(), "Incomplete Qt GIH contacts: " + caseContext);
           const double timeBase = contacts[0].toObject()["timeMs"].toDouble();
           for (int i = 0; i < contacts.size(); ++i) {
             const auto contact = contacts[i].toObject();
@@ -1127,19 +1266,19 @@ int main(int argc, char **argv) {
                         contact["tilt"].toArray() == QJsonArray{0, 0} &&
                         contact["rotation"].toDouble() == 0 &&
                         std::abs(contact["timeMs"].toDouble() - timeBase - i * 4.167) <= .500001,
-                    "Actual Qt GIH inputs differ from causal control");
+                    "Actual Qt GIH inputs differ from causal control: " + caseContext);
           }
         }
         const auto labels =
             source["resourceReadback"].toObject()["frameSelections"].toArray();
         require(labels.size() == 32,
-                "Missing bounded source cadence frame labels");
+                "Missing bounded source cadence frame labels: " + caseContext);
         for (const auto &label : labels)
           require(label.isNull() ||
                       (label.isDouble() && label.toDouble() >= 0 &&
                        label.toDouble() <= 2 &&
                        label.toDouble() == std::floor(label.toDouble())),
-                  "Invalid source cadence label");
+                  "Invalid source cadence label: " + caseContext);
         for (int i = 0; i < expectedPaths.size(); ++i) {
           const auto path = expectedPaths[i].toArray();
           Preset separate = p;
@@ -1152,10 +1291,35 @@ int main(int argc, char **argv) {
             sample.x = point[0].toDouble();
             sample.y = point[1].toDouble();
             sample.time = j / 240.;
-            require(target.add(sample), QString::fromStdString(target.error()));
+            require(target.add(sample), "GIH cadence stroke failed [" + caseContext +
+                        "] mode=" + mode + ": " + QString::fromStdString(target.error()));
           }
           if (mode == "discrete")
-            require(dab.finish(), QString::fromStdString(dab.error()));
+            require(dab.finish(), "GIH cadence stroke finish failed [" + caseContext +
+                        "]: " + QString::fromStdString(dab.error()));
+        }
+      } else if (source["generatedCurvePath"].toBool()) {
+        const auto points = source["sourcePath"].toArray();
+        const auto delivery = source["deliveryReport"].toObject();
+        require(fixtures["group"].toString() == "generatedcurves" &&
+                    points.size() == 2 &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["singleContinuousStroke"] == QJsonValue(true) &&
+                    delivery["physicalTabletClaimed"] == QJsonValue(false) &&
+                    delivery["vertices"].toArray() == points,
+                "Missing generated curve fractional delivery evidence");
+        for (int i = 0; i < points.size(); ++i) {
+          const auto point = points[i].toArray();
+          require(point.size() == 2 && point[0].isDouble() && point[1].isDouble() &&
+                      std::isfinite(point[0].toDouble()) && std::isfinite(point[1].toDouble()) &&
+                      point[0].toDouble() >= 1023.875 && point[0].toDouble() <= 1025.5 &&
+                      point[1].toDouble() >= 1023.875 && point[1].toDouble() <= 1024.5,
+                  "Generated curve fractional path leaves its bounded origin controls");
+          Sample event = first;
+          event.x = point[0].toDouble();
+          event.y = point[1].toDouble();
+          event.time = double(i) / 240;
+          require(stroke.add(event), QString::fromStdString(stroke.error()));
         }
       } else if (fixtures["group"].toString() == "wetgeometry") {
         const auto path = source["sourcePath"].toArray();
@@ -1388,7 +1552,8 @@ int main(int argc, char **argv) {
                 QString::fromStdString(stroke.error()));
       }
       if (!stroke.finish())
-        require(false, QString::fromStdString(stroke.error()));
+        require(false, "Candidate stroke finish failed [" + caseContext + "]: " +
+                           QString::fromStdString(stroke.error()));
       double elapsed = timer.nsecsElapsed() / 1e6;
       QImage candidate = canvas.image();
       QString basename = source["image"].toString();
@@ -1401,6 +1566,7 @@ int main(int argc, char **argv) {
                   candidate, root.filePath("output/diff-" + basename));
       metrics["preset"] = name;
       metrics["inputCase"] = source;
+      metrics["comparisonStatus"] = "measured-conversion";
       if (source.contains("timedProbe")) {
         metrics["timedAcquisitionInputsValidated"] = true;
         metrics["sourceParityQualified"] = false;
@@ -1760,10 +1926,12 @@ int main(int argc, char **argv) {
     report.write(
         QJsonDocument(
             QJsonObject{{"status", "measured-conversions-not-qualified"},
+                        {"expectedSourceEnvelopeRejections", expectedRejections},
                         {"records", results}})
             .toJson());
-    std::cout << "Measured " << results.size()
-              << " native conversion cases; source parity is not granted.\n";
+    std::cout << "Recorded " << results.size() << " candidate outcomes ("
+              << expectedRejections << " explicit source-envelope rejections); "
+              << "source parity is not granted.\n";
     require(failedHardCases.empty(),
             "Experimental K5341 source-candidate fidelity gates failed: " +
                 failedHardCases.join(", "));

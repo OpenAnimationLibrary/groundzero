@@ -420,7 +420,10 @@ void testSourceBitmapImport() {
        {QString("unit"), QString("double"), QString("fractional"),
         QString("downscale"), QString("rotation"), QString("unknown"),
         QString("color"), QString("color-image"), QString("wash"),
-        QString("gih-incremental"), QString("gih-random"), QString("png-mask"),
+        QString("gih-incremental"), QString("gih-random"),
+        QString("gih-size-curve-off"), QString("gih-size-curve-on"),
+        QString("gih-size-curve-invalid"), QString("gih-size-curve-unknown"),
+        QString("png-mask"),
         QString("png-mask-unknown"), QString("mirror-x"), QString("mirror-y"),
         QString("mirror-both"), QString("mirror-disabled"),
         QString("mirror-unknown")}) {
@@ -457,6 +460,16 @@ void testSourceBitmapImport() {
       definition.replace("<Brush ", "<Brush unimplemented=\"1\" ");
     if (sequence) definition.replace("original.gbr", "original.gih");
     xml.replace(begin, end - begin, definition.toHtmlEscaped());
+    if (variant.startsWith("gih-size-curve-")) {
+      const QString value = variant == "gih-size-curve-off" ? "false"
+                            : variant == "gih-size-curve-on" ? "true"
+                            : variant == "gih-size-curve-invalid" ? "0" : "unknown";
+      require(xml.count("<param name=\"PressureSize\">false</param>") == 1 &&
+                  !xml.contains("<param name=\"SizeUseCurve\">"),
+              "inactive GIH size-curve fixture changed its source control state");
+      xml.replace("</Preset>", "<param name=\"SizeUseCurve\">" + value +
+                                  "</param></Preset>");
+    }
     if (variant.startsWith("mirror-")) {
       QString settings;
       auto field = [&](const QString &key, const QString &value) {
@@ -539,6 +552,7 @@ void testSourceBitmapImport() {
         variant == "unit" || variant == "double" || variant == "fractional" ||
         variant == "rotation" || variant == "color-image" ||
         variant == "png-mask" || variant == "gih-incremental" ||
+        variant == "gih-size-curve-off" ||
         (variant.startsWith("mirror-") && variant != "mirror-unknown");
     const auto &record = imported.records.front();
     require(
@@ -1130,7 +1144,7 @@ void testImports() {
     for (const QString &value : {QString("-1"), QString("0"), QString(".005"),
                                  QString(".01"), QString(".25"), QString("1"),
                                  QString("1.1"), QString("5"), QString("5.01"),
-                                 QString("nan"), QString("inf")}) {
+                                 QString("8"), QString("nan"), QString("inf")}) {
       QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
       QString xml = image.text("preset");
       const QString original =
@@ -1156,6 +1170,10 @@ void testImports() {
                         : !error.isEmpty() && !imported.complete &&
                               imported.records.empty(),
               "KPP spacing/fade outside the contract was imported or clamped");
+      if (attribute == "spacing" && numeric && std::isfinite(number) &&
+          !supported)
+        require(error == "KPP spacing is outside the RCP1 supported range 0.01-5",
+                "Out-of-contract KPP spacing lost its precise rejection reason");
     }
   auto bound =
       importBrush(boundAbr(false, false, 6, false, true), "abr", error);

@@ -603,6 +603,39 @@ class OracleCacheTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             cache.acquisition(self.output, self.fixtures)
 
+    def test_wrapped_bitmap_rotation_seals_and_restores_original_readback(self):
+        self.case["resourceProbe"] = {"kind": "original"}
+        self.case["brushRotationDegrees"] = -23
+        self.row.update(self.case)
+        self.row["effectiveView"]["rotation"] = 337.0000241088671
+        (self.output / "fixtures.json").write_bytes(cache.canonical(self.fixtures))
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        self.sealed()
+        cache.restore(self.root, self.destination, self.expected)
+        restored = cache.parse((self.output / "oracle-status.json").read_bytes())
+        self.assertEqual(restored["records"][0]["effectiveView"]["rotation"],
+                         337.0000241088671)
+        self.assertEqual(restored["records"][0]["brushRotationDegrees"], -23)
+
+    def test_wrap_does_not_relax_nonresource_or_other_modifier_guards(self):
+        self.case["brushRotationDegrees"] = -23
+        self.row.update(self.case)
+        self.row["effectiveView"]["rotation"] = 337.0000241088671
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        with self.assertRaises(ValueError):
+            cache.acquisition(self.output, self.fixtures)
+        self.case["resourceProbe"] = {"kind": "original"}
+        self.row.update(self.case)
+        baseline = copy.deepcopy(self.row["effectiveView"])
+        for key, value in (("rotation", 337.002), ("rotation", True),
+                           ("rotation", "337"), ("rotation", None),
+                           ("blend", "multiply"), ("eraser", True),
+                           ("alphaLock", True), ("disablePressure", True)):
+            self.row["effectiveView"] = {**baseline, key: value}
+            (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+            with self.assertRaises(ValueError):
+                cache.acquisition(self.output, self.fixtures)
+
     def test_cache_inventory_bounds(self):
         self.sealed()
         path = self.destination / "manifest.json"

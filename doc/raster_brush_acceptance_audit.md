@@ -35,6 +35,7 @@ for; candidate subsets and successful native conversions do not close rows.
 The prior implementation's failures and historical passes do not qualify the
 recovery branch. All new fixtures execute in CI per CLAUDE.md. Photoshop export
 associations/reference execution and physical tablet measurements remain external
-prerequisites. Optional named paid packs are not prerequisites. The unavailable
-unpublished Distance/masked/editor changes and separate application fixture must
-be reconstructed or recovered before those obligations can close.
+prerequisites. Optional named paid packs are not prerequisites. Distance interval
+editing and the native wet editor/resource/application lifecycle have now been
+reconstructed on the recovery branch. Their scoped parser evidence does not
+replace final-head installed-application and complete source qualification.

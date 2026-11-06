@@ -18,7 +18,7 @@ import tempfile
 # cardinality by deleting a case without deleting its declared preset identity.
 TRUNCATION_GROUPS = frozenset((
     "wethsv", "gihcadence", "generatedtips", "autospacing", "scatter-x-east",
-    "wetgeometry", "timedsensors",
+    "wetgeometry", "timedsensors", "generatedcurves",
 ))
 
 

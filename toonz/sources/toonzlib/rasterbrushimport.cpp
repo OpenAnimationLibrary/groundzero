@@ -884,6 +884,11 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       return false;
   for (auto i = hsvFields.begin(); i != hsvFields.end(); ++i)
     required[i.key()] = i.value();
+  // Resource presets can explicitly store the disabled Size curve switch.
+  // Accept that exact inactive declaration only; a true or unknown switch
+  // must not disappear into a fixed-size source-candidate classification.
+  if (fields.value("PressureSize") == "false" && fields.contains("SizeUseCurve"))
+    required["SizeUseCurve"] = "false";
   if (fields.contains("Spacing/Isotropic"))
     required["Spacing/Isotropic"] = "false";
   if (fields.value("Texture/Pattern/Enabled") == "true") {
@@ -1275,6 +1280,8 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       }
       found            = true;
       r.preset.spacing = numeric(a.value("spacing").toString());
+      if (r.preset.spacing < .01 || r.preset.spacing > 5)
+        throw Invalid("KPP spacing is outside the RCP1 supported range 0.01-5");
       // KPP positive rotation is counterclockwise in raster coordinates.
       // Original 16/64px ellipse masks at 45 degrees establish this sign.
       r.preset.angle.value =

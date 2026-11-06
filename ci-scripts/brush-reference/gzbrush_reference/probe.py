@@ -10,7 +10,7 @@ import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
-from . import repeat_pixels, mask_repeat_contract, spacing_scatter_probe
+from . import repeat_pixels, mask_repeat_contract, mask_repeat_lifecycle_contract, spacing_scatter_probe, view_control_contract
 from . import resource_probe, sensor_probe, mirror_probe, masked_probe, timed_probe, label_probe, cadence_probe, sequence_evidence, paced_policy
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
@@ -91,6 +91,16 @@ class Probe(Extension):
         raise RuntimeError("Unreachable paced acquisition retry state")
 
     def paint_case(self, app, view, node, case):
+        if case.get("generatedCurvePath"):
+            from . import generated_curve_probe
+            points = generated_curve_probe.validate(case)
+            path = QPainterPath()
+            path.moveTo(*points[0])
+            for point in points[1:]:
+                path.lineTo(*point)
+            node.paintPath(path, "ForegroundColor", "None")
+            return {"mode": "Node.paintPath", "vertices": points,
+                    "singleContinuousStroke": True, "physicalTabletClaimed": False}
         if "bitmapPathProbe" in case:
             from . import bitmap_path
             points = bitmap_path.validate(case)
@@ -436,7 +446,10 @@ class Probe(Extension):
                         break
                 report["bundledSettingMetadata"] = metadata
                 (output / "bundled-settings.json").write_text(json.dumps(metadata, indent=2))
-            diagnostic = mask_repeat_contract.contract(fixtures.get("group"))
+            lifecycle = mask_repeat_lifecycle_contract.contract(fixtures.get("group"))
+            if lifecycle:
+                mask_repeat_lifecycle_contract.validate_manifest(fixtures)
+            diagnostic = lifecycle or mask_repeat_contract.contract(fixtures.get("group"))
             if diagnostic:
                 if fixtures.get("repeatDiagnostic") != diagnostic:
                     raise RuntimeError("Invalid fixed mask-repeat diagnostic contract")
@@ -603,7 +616,7 @@ class Probe(Extension):
                         abs(effective_view[key] - case[key]) > 1 / 255 + 1e-9
                         for key in ("opacity", "flow")):
                     control_failure("Source view did not apply requested brush controls")
-                if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > (.001 if "resourceProbe" in case else 1e-5) or effective_view["blend"] != case.get("overrides", {}).get("CompositeOp", "normal") or
+                if (not view_control_contract.rotation_matches(effective_view["rotation"], case.get("brushRotationDegrees", 0), resource="resourceProbe" in case) or effective_view["blend"] != case.get("overrides", {}).get("CompositeOp", "normal") or
                         (any(effective_view[key] for key in ("eraser", "alphaLock")) or
                          effective_view["disablePressure"] is not pressure_flag)):
                     control_failure("Source view retained an unexpected painting modifier")
@@ -728,8 +741,30 @@ class Probe(Extension):
 
                 spacing_scatter_evidence = None
                 if "autoSpacingProbe" in case or "scatterProbe" in case:
-                    spacing_scatter_evidence = spacing_scatter_probe.capture(
-                        case, effective_fields, delivery, raw, w)
+                    try:
+                        spacing_scatter_evidence = spacing_scatter_probe.capture(
+                            case, effective_fields, delivery, raw, w)
+                    except Exception:
+                        # Retain an observation even when its diagnostic rejects
+                        # it. This runs only after failure, so it cannot warm up
+                        # or delay a successful source stroke or its repeats.
+                        report["failedSpacingScatterCapture"] = {
+                            "preset": name, "image": "failed-spacing-scatter.png",
+                            "input": "failed-spacing-scatter-input.json",
+                            "sha256Pixels": hashlib.sha256(raw).hexdigest(),
+                            "sourceParityQualified": False}
+                        try:
+                            if not QImage(raw, w, h, w * 4, QImage.Format_ARGB32).copy().save(
+                                    str(output / "failed-spacing-scatter.png"), "PNG"):
+                                raise RuntimeError("Cannot retain failed source observation")
+                            (output / "failed-spacing-scatter-input.json").write_text(
+                                json.dumps({"case": case, "effectiveFields": effective_fields,
+                                            "deliveryReport": delivery,
+                                            "sourcePresetSha256": source_preset_hash,
+                                            "sourceParityQualified": False}, indent=2))
+                        except Exception as retention_error:
+                            report["failedSpacingScatterCapture"]["retentionError"] = str(retention_error)
+                        raise
                     spacing_scatter_probe.emit_notices(name, spacing_scatter_evidence)
                     (output / (name.replace(" ", "_") + ".spacing-scatter.json")).write_text(
                         json.dumps(spacing_scatter_evidence, indent=2))
@@ -739,6 +774,19 @@ class Probe(Extension):
                     timed_probe.emit_notices(name, timed_evidence)
                     (output / (name.replace(" ", "_") + ".timed.json")).write_text(
                         json.dumps(timed_evidence, indent=2))
+                mask_lifecycle_evidence = None
+                mask_lifecycle_repeats = []
+                if lifecycle:
+                    mask_lifecycle_evidence = mask_repeat_lifecycle_contract.capture(
+                        case, effective_fields, delivery, raw, w, initial)
+                    (output / (name.replace(" ", "_") + ".mask-lifecycle.json")).write_text(
+                        json.dumps(mask_lifecycle_evidence, indent=2))
+                    print("::notice title=Masked lifecycle observation::" + json.dumps({
+                        "preset": name, "capture": 0, "inputApi": mask_lifecycle_evidence["inputApi"],
+                        "alphaBounds": mask_lifecycle_evidence["alphaBounds"],
+                        "nonzeroAlphaPixels": mask_lifecycle_evidence["nonzeroAlphaPixels"],
+                        "alphaRunsAtStrokeY": mask_lifecycle_evidence["alphaRunsAtStrokeY"],
+                        "sourceParityQualified": False}, separators=(",", ":")), flush=True)
                 mask_evidence = (masked_probe.capture(case, effective_fields, delivery, raw, w, initial)
                                  if "maskProbe" in case else None)
                 if mask_evidence is not None:
@@ -767,7 +815,8 @@ class Probe(Extension):
                 repeat_images, repeat_differences = [], []
                 repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" or fixtures.get("group") == "wetboundary" else 1)
                 if diagnostic:
-                    repetitions = diagnostic["repetitions"]
+                    repetitions = (mask_repeat_lifecycle_contract.repeat_count(case)
+                                   if lifecycle else diagnostic["repetitions"])
                 # The enabled scatter group has exactly 100 independent calls
                 # in randomized order. Different source RNG pixels are measured
                 # statistically; disabled controls retain exact-repeat checks.
@@ -785,6 +834,11 @@ class Probe(Extension):
                         node = mask_repeat_contract.fresh_node(document, node)
                     if fixtures.get("group") == "wetboundary":
                         clear_boundary_margin()
+                    if lifecycle and lifecycle["resourcePolicy"] == "reselect-per-stroke":
+                        # A declared control, never a retry selected by pixels.
+                        view.setCurrentBrushPreset(by_name[name])
+                        if view.currentBrushPreset().name() != name:
+                            raise RuntimeError("Lifecycle preset reselection did not retain exact resource")
                     if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
                         raise RuntimeError("Cannot reset repeated reference raster")
                     document.refreshProjection()
@@ -799,6 +853,20 @@ class Probe(Extension):
                         readback, document.waitForDone, w * h * 4,
                         name + ": repeat capture " + str(repetition))
                     readback_checkpoints.extend((reset_checkpoint, capture_checkpoint))
+                    if lifecycle:
+                        repeated_lifecycle = mask_repeat_lifecycle_contract.capture(
+                            case, effective_fields, repeated_delivery, repeated, w, initial)
+                        mask_lifecycle_repeats.append(repeated_lifecycle)
+                        (output / (name.replace(" ", "_") + ".mask-lifecycle-repeat-" +
+                                   str(repetition) + ".json")).write_text(
+                            json.dumps(repeated_lifecycle, indent=2))
+                        print("::notice title=Masked lifecycle observation::" + json.dumps({
+                            "preset": name, "capture": repetition,
+                            "inputApi": repeated_lifecycle["inputApi"],
+                            "alphaBounds": repeated_lifecycle["alphaBounds"],
+                            "nonzeroAlphaPixels": repeated_lifecycle["nonzeroAlphaPixels"],
+                            "alphaRunsAtStrokeY": repeated_lifecycle["alphaRunsAtStrokeY"],
+                            "sourceParityQualified": False}, separators=(",", ":")), flush=True)
                     repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
                     canonical_repeats.append(repeat_pixels.canonical_hash(repeated))
                     difference = repeat_pixels.differences(raw, repeated)
@@ -829,6 +897,9 @@ class Probe(Extension):
                                   "firstToolState": delivery.get("stateAfterProximity"),
                                   "repeatedToolState": repeated_delivery.get("stateAfterProximity"),
                                   "firstEndpoints": endpoints(delivery), "repeatedEndpoints": endpoints(repeated_delivery)}
+                        if lifecycle:
+                            detail["lifecycleDifference"] = mask_repeat_lifecycle_contract.difference_summary(
+                                raw, repeated, w, case["maskRepeatProbe"]["maskProbe"]["rect"])
                         (output / "repeat-failure.json").write_text(json.dumps(detail, indent=2))
                         for suffix, pixels in (("first", raw), ("repeated", repeated)):
                             if not QImage(pixels, w, h, w * 4, QImage.Format_ARGB32).copy().save(str(output / ("repeat-failure-" + suffix + ".png"))):
@@ -933,7 +1004,7 @@ class Probe(Extension):
                     sequence_evidence.emit(case, resource_readback, delivery)
                 if generated_tip_evidence is not None:
                     generated_tip_probe.emit(case, generated_tip_evidence, raw, w)
-                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "intendedOrdinal": intended_order[name], "wetGeometryEvidence": wet_geometry_evidence, "scatterEvidence": spacing_scatter_evidence if "scatterProbe" in case else None, "autoSpacingEvidence": spacing_scatter_evidence if "autoSpacingProbe" in case else None, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
+                report["records"].append({**case, "generatedTipEvidence": generated_tip_evidence, "executionOrdinal": execution_ordinal, "intendedOrdinal": intended_order[name], "wetGeometryEvidence": wet_geometry_evidence, "scatterEvidence": spacing_scatter_evidence if "scatterProbe" in case else None, "autoSpacingEvidence": spacing_scatter_evidence if "autoSpacingProbe" in case else None, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "repeatSemantics": repeat_pixels.SEMANTICS, "sha256RepeatPixels": canonical_hash, "repeatSha256CanonicalPixels": canonical_repeats, "repeatImages": repeat_images, "repeatDifferences": repeat_differences, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "readbackCheckpoints": readback_checkpoints, "sourcePresetSha256": source_preset_hash, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence, "maskLifecycleEvidence": mask_lifecycle_evidence, "maskLifecycleRepeatEvidence": mask_lifecycle_repeats, "timedEvidence": timed_evidence, "driftEvidence": drift_evidence, "driftGeometryWindows": drift_windows})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

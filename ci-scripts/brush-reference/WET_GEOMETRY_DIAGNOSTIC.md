@@ -59,3 +59,27 @@ candidate, replace the original 10,000-dab test or establish source parity.
 A renderer change should follow a generalized rule distinguished by these
 original measurements and held-out translations/directions. The original
 wetdrift gate must pass on the final implementation without weakened assertions.
+
+## Completed discriminator observations at 9111a8970
+
+Run 42257828455, job 128032799812 completed all 30 original wetgeometry cases
+with exact independent-repeat gates. At straight Y328, both Smear models shift
+the deposited 8x8 raster upward by one pixel in observation windows 5-8 and
+21-24. At Y968 the shifted windows are 22-27. At Y40 the sampled marks do not
+show this shift. Reversal retains the same Y328 shift indices; transposition
+moves the anomaly to X. The positive/negative one-eighth-pixel Y controls do
+not exhibit the integer-boundary anomaly.
+
+The equivalent coarse and subdivided multi-turn paths have identical complete
+canonical pixels for the dry control. For both Smear models, 12 authored windows
+differ: 20,21,22 and 87 through 95. All those windows have the observed one-pixel
+placement discrepancy; the subdivided Smear paths have no anomalous vertical
+shift. Their complete canonical source hashes differ as well. This establishes
+source Node.paintPath partition-dependent Smear placement for these inputs,
+not a general reservoir equation or actual-tablet behavior.
+
+Simple nominal/future weighted interpolation and Bernstein-coordinate hypotheses
+still fail to explain every observed pattern. No speculative renderer change is
+introduced. The next evidence must distinguish this public API's path behavior
+from actual Qt-delivered tablet painting before a universal source-placement
+rule is inferred. Original wetdrift acceptance thresholds remain unchanged.

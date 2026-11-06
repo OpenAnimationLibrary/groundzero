@@ -58,6 +58,7 @@
 #include "toonz/txshpalettelevel.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/paletteviewer.h"
 #include "toonzqt/selection.h"
 #include "toonzqt/styleeditor.h"
 #include "toonzqt/tselectionhandle.h"
@@ -557,8 +558,37 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
     viewer.reset();
     require(releases == 1 && releasedFromToolbar && probe.isNull(),
             "playback toolbar released its controls after QToolBar teardown");
+    checkpoint("workflow playback-toolbar retirement passed");
+
+    // Room retirement must also release both palette toolbars' widget actions
+    // before QWidget tears down their layouts and stylesheet ancestry.
+    auto paletteViewer = std::make_unique<PaletteViewer>(window);
+    QToolBar *paletteToolbars[2] = {
+        paletteViewer->findChild<QToolBar *>("PaletteToolBar"),
+        paletteViewer->findChild<QToolBar *>("PaletteSaveToolBar")};
+    require(paletteToolbars[0] && paletteToolbars[1],
+            "palette viewer does not contain both native toolbars");
+    bool paletteReleasedFromToolbar[2] = {false, false};
+    int paletteReleases[2]             = {0, 0};
+    QPointer<ReleaseProbe> paletteProbes[2];
+    for (int i = 0; i < 2; ++i) {
+      paletteProbes[i] = new ReleaseProbe(paletteToolbars[i],
+                                         paletteReleasedFromToolbar[i],
+                                         paletteReleases[i]);
+      paletteToolbars[i]->addWidget(paletteProbes[i]);
+    }
+    paletteViewer->ensurePolished();
+    for (const auto &paletteProbe : paletteProbes) {
+      paletteProbe->ensurePolished();
+      paletteProbe->armed = true;
+    }
+    paletteViewer.reset();
+    for (int i = 0; i < 2; ++i)
+      require(paletteReleases[i] == 1 && paletteReleasedFromToolbar[i] &&
+                  paletteProbes[i].isNull(),
+              "palette toolbar released its controls after QToolBar teardown");
   }
-  checkpoint("workflow playback-toolbar retirement passed");
+  checkpoint("workflow palette-toolbar retirement passed");
   // Batch data must survive panel retirement, while each view keeps its own
   // selection/model and unregisters both model and observer before destruction.
   {

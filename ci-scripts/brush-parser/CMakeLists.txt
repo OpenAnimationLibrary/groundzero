@@ -158,3 +158,10 @@ if(WIN32)
   include("${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushhelper.cmake")
   deploy_rasterbrush_windows(rasterbrushworker_test ${BRUSH_QT_MAJOR} "brush-worker-test-runtime")
 endif()
+
+# Preserve original outside-envelope acquisitions while requiring explicit
+# native rejection; malformed or forged admission metadata must fail closed.
+add_test(NAME rasterbrushsourceadmission COMMAND "${Python3_EXECUTABLE}"
+  "${REPO_ROOT}/ci-scripts/brush-reference/source_admission_contract_test.py"
+  "$<TARGET_FILE:rasterbrushreference>")
+set_tests_properties(rasterbrushsourceadmission PROPERTIES TIMEOUT 60)

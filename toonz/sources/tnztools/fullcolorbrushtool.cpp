@@ -2061,7 +2061,14 @@ void FullColorBrushTool::updateModifiers() {
                                  true, false, false, nullptr);
 
   m_inputmanager.clearModifiers();
-  m_inputmanager.addModifier(TInputModifierP(m_modifierTangents.getPointer()));
+  // The source airbrush consumes delivered pointer/timer events immediately.
+  // Tangent interpolation holds the newest point until the next event, which
+  // delays a 5 Hz timer dab by another 200 ms even while the pen is stationary.
+  const bool sourceAirbrush =
+      m_nativeRecord && m_nativeRecord->preset.profile ==
+                            "krita-5.3.4.1-airbrush-candidate-1";
+  if (!sourceAirbrush)
+    m_inputmanager.addModifier(TInputModifierP(m_modifierTangents.getPointer()));
   m_inputmanager.addModifier(
       TInputModifierP(m_modifierAssistants.getPointer()));
 #ifndef NDEBUG

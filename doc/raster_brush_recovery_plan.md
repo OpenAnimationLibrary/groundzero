@@ -191,3 +191,44 @@ The810a4fd2b source-cache job exposed a mismatch in the new geometry helper's
 malformed-XML error API. ParseError is now normalized to ValueError, with additional
 empty/truncated/mismatched XML controls. The malformed-input guard remains strict;
 no source comparison has been waived. These corrections require fresh CI.
+
+## Source admission and application recovery evidence
+
+All six Ubuntu/Windows/macOS Qt5/Qt6 parser configurations and fuzzing passed
+at a953850e9. At 9111a8970, Linux Qt6 and compatibility output comparison also
+passed. These results qualify those commits and workloads only. The full source,
+installed-application, device and external-reference obligations remain open.
+
+The latest Linux application diagnostics show native stationary airbrush
+accumulation now succeeds. The 5 Hz source airbrush receives its first timer at
+approximately 200 ms, but the tangent modifier retains that event as a preview
+until the next input. The recovery bypasses that lookahead only for the strict
+source airbrush profile; the existing delivered-event filter, assistants and
+replicator restrictions, 250 ms fixture and accumulation assertions remain.
+Corrected-head application execution is required.
+
+The macOS native-UI failure stack passes through palette QWidgetAction release
+during QToolBar base destruction. Both palette bars now release their actions
+while the toolbar and palette ancestry are intact. A lifecycle regression probes
+both actual bars, requiring release while QToolBar is alive and widget retirement.
+This follows the same lifetime rule as the existing playback-toolbar fix.
+
+Bitmap source acquisition stopped on the equivalent angles -23 and
+337.0000241088671 degrees. Acquisition and cache validation now share circular
+angle comparison, keeping the original resource and ordinary tolerances. Invalid
+and nonfinite inputs and unrelated view-state mismatches remain rejected.
+
+Spacing-dynamics source fixtures include 48 raw spacing8 cases, outside the
+published 0.01-5 RCP1 envelope. The authored values and captures remain intact;
+precise expected rejection is distinguished from comparison, with no supported
+or verified claim and no fabricated zero-error metrics. In-envelope spacing1/4
+cases retain their complete pixel gates. Source-admission metadata is a closed,
+validated contract and cannot waive arbitrary importer failures.
+
+The complete 30-case wetgeometry acquisition at 9111a8970 passed independent
+repeats. Both Smear source models show one-pixel placement changes dependent on
+path subdivision, while dry controls do not. This is evidence about the pinned
+public Node API, not yet a general renderer equation. Additional generated-mask,
+kernel-convergence, spacing/scatter and mask-lifecycle captures preserve original
+inputs and failures; no fitted lookup, discarded warm-up stroke or relaxed
+comparison threshold substitutes for a model.

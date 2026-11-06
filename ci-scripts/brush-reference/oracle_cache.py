@@ -13,6 +13,7 @@ import json
 import math
 import os
 from pathlib import Path
+from runpy import run_path
 import platform
 import re
 import shutil
@@ -22,6 +23,11 @@ import subprocess
 import zipfile
 import zlib
 from mask_repeat_contract import contract as mask_repeat_contract
+import mask_repeat_lifecycle_contract
+
+# Load only the pure helper file. Importing the package initializes Krita.
+rotation_matches = run_path(str(Path(__file__).parent /
+    "gzbrush_reference/view_control_contract.py"))["rotation_matches"]
 
 VERSION = 2
 FILE_LIMIT = 64 * 1024 * 1024
@@ -145,7 +151,7 @@ PURE_TESTS = frozenset({
     "wet_drift_contract_test.py", "gih_cadence_test.py", "test_stochastic_gate.py",
     "managed_lab_probe_test.py", "generated_tip_test.py", "bitmap_path_test.py",
     "paced_policy_test.py", "wet_hsv_combo_fixtures_test.py",
-    "mask_repeat_contract_test.py",
+    "mask_repeat_contract_test.py", "mask_repeat_lifecycle_test.py", "view_control_contract_test.py",
 })
 
 
@@ -300,7 +306,10 @@ def acquisition(output, fixtures):
             [r["preset"] for r in rows] == expected, "incomplete acquisition")
     spacing_scatter_group = fixtures.get("group") == "autospacing" or fixtures.get("group", "").startswith("scatter-")
     validated_scatter = validate_spacing_scatter_acquisition(fixtures, status) if spacing_scatter_group else False
-    diagnostic = mask_repeat_contract(fixtures["group"])
+    lifecycle = mask_repeat_lifecycle_contract.contract(fixtures["group"])
+    if lifecycle:
+        mask_repeat_lifecycle_contract.validate_manifest(fixtures)
+    diagnostic = lifecycle or mask_repeat_contract(fixtures["group"])
     if diagnostic:
         observed = status.get("repeatDiagnostic", {})
         require(all(observed.get(key) == value for key, value in diagnostic.items()) and
@@ -321,14 +330,35 @@ def acquisition(output, fixtures):
                     type(evidence.get("maximumCellOffset")) is int and 0 <= evidence["maximumCellOffset"] <= 5 and
                     (not spec["calibration"] or evidence.get("calibrationAlpha") in (127, 128)),
                     "missing source drift count evidence")
+        if lifecycle:
+            lifecycle_evidence = [row.get("maskLifecycleEvidence")] + row.get("maskLifecycleRepeatEvidence", [])
+            require(len(lifecycle_evidence) == mask_repeat_lifecycle_contract.repeat_count(case),
+                    "lifecycle capture evidence missing")
+            for evidence in lifecycle_evidence:
+                require(isinstance(evidence, dict) and evidence.get("inputApi") == case["delivery"] and
+                        evidence.get("deliveryValuesMatchAuthored") is True and
+                        evidence.get("sourceParityQualified") is False and
+                        evidence.get("repeatDiagnostic") == lifecycle and
+                        evidence.get("rect") == case["maskRepeatProbe"]["maskProbe"]["rect"] and
+                        HEX.fullmatch(evidence.get("sha256Pixels", "")),
+                        "lifecycle source controls or raster evidence missing")
+                # Revalidate retained contacts against the same fixed public
+                # Qt enum/sequence/value contract as source acquisition.
+                contacts = evidence.get("deliveredContacts", [])
+                mask_repeat_lifecycle_contract.validate_delivery(
+                    case, {"mode": evidence["inputApi"], "events": contacts}, contacts_only=True)
+                fields = dict(evidence.get("effectiveControls", {}),
+                              brush_definition=evidence.get("effectivePrimaryBrush", ""))
+                mask_repeat_lifecycle_contract.controls(case, fields)
         repeated = row["repeatSha256Pixels"]
         repetitions = 3 if fixtures["group"] == "geometry" else (
             2 if case.get("variant") == "baseline" or fixtures["group"] == "wetboundary" else 1)
-        diagnostic = mask_repeat_contract(fixtures["group"])
+        diagnostic = lifecycle or mask_repeat_contract(fixtures["group"])
         if diagnostic:
             require(fixtures.get("repeatDiagnostic") == diagnostic and row.get("repeatDiagnostic") == diagnostic,
                     "missing mask-repeat diagnostic identity")
-            repetitions = diagnostic["repetitions"]
+            repetitions = (mask_repeat_lifecycle_contract.repeat_count(case)
+                           if lifecycle else diagnostic["repetitions"])
         if validated_scatter and case["scatterProbe"]["enabled"]:
             repetitions = 1
         canonical = row["sha256RepeatPixels"]
@@ -363,14 +393,13 @@ def acquisition(output, fixtures):
                                ("flow", 1 / 255 + 1e-9)):
             require(isinstance(view[key], (int, float)) and math.isfinite(view[key]) and
                     abs(view[key] - case[key]) <= tolerance, "source control mismatch")
-        # Resource fixtures expose a measured source UI roundtrip of
-        # 90.0002104591497 degrees for a requested 90. Preserve that readback;
-        # match the bounded resource-only acquisition guard, not pixel parity.
-        rotation_tolerance = .001 if "resourceProbe" in case else 1e-5
+        # Preserve the measured resource-only guard and signed/wrapped source
+        # orientations; cache admission uses the same pure guard as acquisition.
         pressure_flag = case.get("sourcePressureFlag", False)
         require(type(pressure_flag) is bool and view["disablePressure"] is pressure_flag,
                 "source pressure mode mismatch")
-        require(abs(view["rotation"] - case.get("brushRotationDegrees", 0)) <= rotation_tolerance
+        require(rotation_matches(view["rotation"], case.get("brushRotationDegrees", 0),
+                                 resource="resourceProbe" in case)
                 and view["blend"] == case.get("overrides", {}).get("CompositeOp", "normal")
                 and all(view[k] is False for k in ("eraser", "alphaLock")),
                 "source modifier mismatch")

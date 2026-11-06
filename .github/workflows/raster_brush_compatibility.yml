@@ -81,6 +81,67 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+      - name: Diagnose macOS native footprint enforcement
+        id: mac_memory_cap
+        if: runner.os == 'macOS'
+        # Private-SPI research is separate from existing parser qualification.
+        # Failure leaves this mechanism unqualified and is retained explicitly.
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          # Match Configure: Qt 5.15.2 targets Intel/Rosetta; Qt 6 is native.
+          PROBE_ARCH: ${{ matrix.qt == '5.15.2' && 'x86_64' || 'arm64' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 ci-scripts/brush-parser/probe_macos_memory_cap.py --arch "$PROBE_ARCH" --output-dir brush-macos-memory-probe 2>&1 | tee brush-macos-memory-probe.log
+      - name: Report macOS memory capability evidence
+        if: ${{ always() && runner.os == 'macOS' }}
+        env:
+          MEMORY_DIAGNOSTIC_OUTCOME: ${{ steps.mac_memory_cap.outcome }}
+        shell: bash
+        run: |
+          python3 - <<'PYMEMORY'
+          import json
+          import os
+          from pathlib import Path
+          report_path = Path('brush-macos-memory-probe/memory-cap-report.json')
+          try:
+              report = json.loads(report_path.read_text()) if report_path.is_file() else {}
+          except (OSError, ValueError):
+              report = {'error': 'Diagnostic JSON could not be read'}
+          outcome = os.environ.get('MEMORY_DIAGNOSTIC_OUTCOME', 'unavailable')
+          lines = [
+              '### macOS memory capability experiment',
+              '',
+              '- Diagnostic step outcome: ' + outcome,
+              '- Experiment completed: ' + str(report.get('experiment_completed', False)),
+              '- Probe architecture: ' + str(report.get('probe_architecture', 'unavailable')),
+              '- Last phase: ' + str(report.get('phase', 'unavailable')),
+              '- Fatal footprint supported: ' + str(report.get('native_fatal_footprint_supported', False)),
+              '- Resident mapping escape observed: ' + str(report.get('resident_mapping_escape_observed', 'unavailable')),
+              '- Strict whole-process 2 GiB resident/commit cap remains unqualified.',
+              '',
+          ]
+          if outcome != 'success' or not report.get('experiment_completed', False):
+              detail = report.get('error', 'Experiment did not produce complete capability evidence; inspect retained logs')
+              message = str(detail).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::warning title=macOS memory capability experiment::' + message)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('\n'.join(lines))
+          PYMEMORY
+      - name: Retain macOS memory capability diagnostics
+        if: ${{ always() && runner.os == 'macOS' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brush-macos-memory-${{ matrix.os }}-qt${{ matrix.qt }}-${{ github.sha }}
+          if-no-files-found: warn
+          # Deliberately retain only sanitized text/JSON, not executables,
+          # generated resident-map fixtures, signing metadata or host state.
+          path: |
+            brush-macos-memory-probe.log
+            brush-macos-memory-probe/*.log
+            brush-macos-memory-probe/memory-cap-report.json
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ matrix.qt }}

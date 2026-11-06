@@ -66,6 +66,7 @@ resources = root / "data" / "krita"
 source = Path(__file__).resolve().parent
 shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_reference", dirs_exist_ok=True)
 shutil.copyfile(source / "mask_repeat_contract.py", resources / "pykrita" / "gzbrush_reference" / "mask_repeat_contract.py")
+shutil.copyfile(source / "mask_repeat_lifecycle_contract.py", resources / "pykrita" / "gzbrush_reference" / "mask_repeat_lifecycle_contract.py")
 (resources / "pykrita" / "gzbrush_reference.desktop").write_text("[Desktop Entry]\nType=Service\nServiceTypes=Krita/PythonPlugin\nX-KDE-Library=gzbrush_reference\nX-Python-2-Compatible=false\nName=Brush Reference Fixtures\nComment=Render original API-line fixtures for brush qualification\n")
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 def finalize_input_contract():
@@ -100,6 +101,11 @@ if group == "autospacing" or group in (
     prepare_spacing_scatter(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
+if group == "generatedcurves":
+    from generated_curve_diagnostics import prepare as prepare_generated_curves
+    prepare_generated_curves(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group == "generatedtips":
     from generated_tip_fixtures import prepare as prepare_generated
     prepare_generated(root, resources, preset)
@@ -118,6 +124,11 @@ if group == "wetdrift":
 if group == "texturepickup":
     from texture_pickup_fixtures import prepare as prepare_texture_pickup
     prepare_texture_pickup(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group.startswith("masklife-"):
+    from mask_repeat_lifecycle_contract import prepare as prepare_mask_lifecycle
+    prepare_mask_lifecycle(root, resources, preset, group)
     finalize_input_contract()
     raise SystemExit(0)
 if mask_repeat_contract(group):

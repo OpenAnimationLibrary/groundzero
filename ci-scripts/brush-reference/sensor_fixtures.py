@@ -160,6 +160,14 @@ def prepare(root, resources, preset_writer, group):
                                               if sensor == "rotation" else "observed official bundled KPP sensor/option metadata",
                                               "qualification": "source acquisition only; normalization, sign and event-to-dab semantics unqualified"}})
                 cases[-1]["sourceBarrelCandidate"] = source_barrel and enabled
+                if group == "spacingdynamics" and spacing == 8:
+                    # Retain the authored source diagnostic. RCP1 admits only
+                    # spacing .01..5; this row must prove explicit rejection,
+                    # never a clamped candidate or a source-parity claim.
+                    cases[-1]["sourceAdmission"] = {
+                        "version": 1, "outcome": "expected-rejection",
+                        "reasonCode": "kpp-spacing-outside-rcp1", "field": "spacing",
+                        "authoredValue": 8, "minimum": .01, "maximum": 5}
                 if resource_spec is not None:
                     package_name = "resource-" + str(len(cases) - 1).zfill(3) + ".bundle"
                     packages = root / "output" / "resource-packages"
