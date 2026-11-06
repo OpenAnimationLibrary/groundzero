@@ -290,6 +290,49 @@ bool validateSourceAdmission(const QString &group, int index,
   return true;
 }
 
+void validateAcquiredSourceAdmission(const QJsonObject &source,
+                                     const QJsonObject &authored,
+                                     const QString &context) {
+  // A non-const JSON subscript inserts null for an absent field. Absence is
+  // meaningful here: ordinary cases must not acquire rejection metadata.
+  require(source.contains("sourceAdmission") == authored.contains("sourceAdmission") &&
+              source.value("sourceAdmission") == authored.value("sourceAdmission"),
+          "Source admission changed after acquisition: " + context);
+}
+
+void testSourceAdmissionReadback() {
+  QJsonObject source = QJsonDocument::fromJson("{\"preset\":\"original\"}").object();
+  const auto authored = source;
+  validateAcquiredSourceAdmission(source, authored, "ordinary captured case");
+  require(source == authored && !source.contains("sourceAdmission"),
+          "Admission readback inserted metadata into an ordinary case");
+  QJsonObject nullMetadata = source;
+  nullMetadata["sourceAdmission"] = QJsonValue(QJsonValue::Null);
+  for (bool changedSource : {false, true}) {
+    bool rejected = false;
+    try {
+      validateAcquiredSourceAdmission(changedSource ? nullMetadata : source,
+                                      changedSource ? authored : nullMetadata,
+                                      "forged null metadata");
+    } catch (const std::runtime_error &) {
+      rejected = true;
+    }
+    require(rejected, "Admission readback equated missing and null metadata");
+  }
+  source["sourceAdmission"] = QJsonObject{{"version", 1}, {"authoredValue", 8}};
+  const auto captured = QJsonDocument::fromJson(QJsonDocument(source).toJson()).object();
+  validateAcquiredSourceAdmission(captured, source, "rejection captured case");
+  auto altered = captured;
+  altered["sourceAdmission"] = QJsonObject{{"version", 1}, {"authoredValue", 4}};
+  bool rejected = false;
+  try {
+    validateAcquiredSourceAdmission(altered, source, "changed rejection input");
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  require(rejected, "Admission readback accepted changed rejection inputs");
+}
+
 QJsonObject sourceRejectionOutcome(const QJsonObject &source,
                                    const ImportResult &imported,
                                    const QString &error,
@@ -429,6 +472,7 @@ int main(int argc, char **argv) {
     if (app.arguments().size() == 2 &&
         app.arguments().at(1) == "--test-metrics") {
       testViewRotation();
+      testSourceAdmissionReadback();
       QTemporaryDir directory;
       require(directory.isValid(), "Cannot create metric fixture directory");
       QImage base(2, 2, QImage::Format_ARGB32);
@@ -591,9 +635,7 @@ int main(int argc, char **argv) {
       const bool expectedRejection = validateSourceAdmission(
           fixtures["group"].toString(), fixtureIndex, source);
       const auto authoredCase = fixtures["cases"].toArray()[fixtureIndex].toObject();
-      require(source.contains("sourceAdmission") == authoredCase.contains("sourceAdmission") &&
-                  source["sourceAdmission"] == authoredCase["sourceAdmission"],
-              "Source admission changed after acquisition: " + caseContext);
+      validateAcquiredSourceAdmission(source, authoredCase, caseContext);
       if (fixtures["group"].toString() == "hsvjoint" ||
           fixtures["group"].toString() == "hsvorder" ||
           fixtures["group"].toString() == "hsvchroma") {

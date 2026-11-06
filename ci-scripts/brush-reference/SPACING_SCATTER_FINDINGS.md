@@ -1,4 +1,4 @@
-﻿# Original spacing/scatter acquisition findings
+# Original spacing/scatter acquisition findings
 
 Research evidence only. These captures do not qualify a source profile, identify
 an RNG, establish a general amount/diameter law, or permit native fallback to be
@@ -30,9 +30,9 @@ The east path is `(256,1024) -> (1249,1024)` and the north path is
 The retained rectangles are the authored fixed regions, with no registration,
 translation, image fitting, or substituted renderer output.
 
-## Four completed directional measurements
+## Six completed directional measurements
 
-Every enabled source raster in these four groups is unique (100 of 100).
+Every enabled source raster in these six groups is unique (100 of 100).
 Every native candidate raster is identical within each group (1 of 100), despite
 100 distinct candidate seeds. This agrees with the current importer having no
 Scatter control conversion. A source admission must therefore remain disabled,
@@ -44,6 +44,8 @@ even for groups whose aggregate statistics pass.
 | scatter-x-north | passed | 4.624499 | 50.579735 |
 | scatter-y-east | failed meanWidth in bands 1 and 2 | 4.700625 | -14.102733 |
 | scatter-y-north | failed meanWidth in bands 1 and 2 | 4.604035 | -39.412749 |
+| scatter-xy-east | passed | parallel 4.693858; perpendicular 4.612571 | two-dimensional |
+| scatter-xy-north | passed | parallel 4.679530; perpendicular 4.614188 | two-dimensional |
 
 These are descriptive measurements of quantized rendered masks, not raw RNG
 samples. Later centroid displacement on the active axis spans approximately
@@ -55,7 +57,7 @@ its exact distribution and scaling have not been established.
 The two Y-only groups fail two of the original 24 aggregate metrics. For
 example east band 1 meanWidth is source 0.855467 versus candidate 0.8125, with
 95% mean-difference interval `[-0.0441484,-0.0417857]` and tolerance 0.0427734.
-The X-only groups pass those aggregates while having no candidate displacement.
+The X-only and XY groups pass those aggregates while having no candidate displacement.
 Existing variance-floor exemptions and area/width/energy aggregates cannot by
 themselves demonstrate that an active stochastic process was preserved.
 
@@ -103,6 +105,12 @@ holdouts. The statistical law and appropriate thresholds must be chosen from
 those measurements. Requiring exactly 100 unique masks is not assumed to be a
 universal RNG acceptance rule.
 
+The two XY captures also have observed displacements bounded near [-8,+8] on
+each canvas axis. Later X/Y covariance is 0.134434 square pixels east and
+-0.661726 square pixels north, with axis SDs approximately 4.6 pixels. This is
+consistent with separate symmetric axis draws at this configuration; it does
+not establish independence, an exact uniform law, scaling, or source RNG identity.
+
 ## Retained report identities
 
 All artifacts have the name
@@ -115,6 +123,8 @@ The evidence report digests below bind these measurements to the original data.
 | scatter-x-north | 1802e95138a2b81760fcf876380ed687dd153e1051f0aeb9d16206c24e449888 | d7b3c096845293805614ed85335d0ea1f796032a0b705551b173df2eeaff5702 |
 | scatter-y-east | dd48721f130ed5d0a7d6046d631f01d6242e34dfd7681e8c697ea9cebce181fc | a0de3fd06cc88b89023aabed13b114f35252ca5b969c51b79e61fca8f19a888d |
 | scatter-y-north | 7c21b2e531d8ef169c7921962a8fb90b7fda0af154795c92d20a1e8877688024 | 43fca6250e8487b5701f55045e877497150c8863808e56f5830a39d4848662bf |
+| scatter-xy-east | 7cefde23437e824dfe68332f867867da616fd2480d2641c2736d298c7cad2756 | 6dbe2e933c7294ab152f4f5ab5542be747ff4bcc393e9a88621b7ecff5ee12d9 |
+| scatter-xy-north | ec63633b624d58f42c6cbbc9598860774daf65f98fd6fa4dadc6e29ea053ccd4 | 571a52e715c74257102cbd7f7993e663aa753d5564581a6dea637f8707ce4660 |
 
 ## Automatic spacing capture remains open
 
