@@ -242,6 +242,62 @@ QJsonObject compare(const QImage &base, const QImage &reference,
                                           candidateAlphaBounds.isEmpty()
                                     : refCount == 0 && candidateCount == 0}};
 }
+void validateFixtureMatrix(const QJsonObject &fixtures) {
+  require(fixtures["version"].toString() == "5.3.4.1",
+          "Fixture source version changed");
+  const auto expected = fixtures["presets"].toArray();
+  const auto cases = fixtures["cases"].toArray();
+  require(!expected.empty() && expected.size() == cases.size(),
+          "Incomplete fixture preset/case manifest");
+  QStringList names;
+  for (int i = 0; i < expected.size(); ++i) {
+    const QString name = expected[i].toString();
+    require(!name.isEmpty() && !names.contains(name) &&
+                cases[i].toObject()["preset"].toString() == name,
+            "Duplicate or mismatched fixture preset identity");
+    names.append(name);
+  }
+  if (fixtures["group"].toString() == "tabletsensors")
+    require(expected.size() == 188,
+            "Incomplete tablet sensor fixture matrix");
+  if (fixtures["group"].toString() == "spacingdynamics")
+    require(expected.size() == 112,
+            "Incomplete spacing sensor fixture matrix");
+  if (fixtures["group"].toString() == "mirrortips")
+    require(expected.size() == 70, "Incomplete mirror fixture matrix");
+  if (fixtures["group"].toString() == "lab-conversion")
+    require(expected.size() == 1, "Incomplete public Lab dry control");
+  if (fixtures["group"].toString() == "wethsv")
+    require(expected.size() == 144, "Incomplete wet HSV acquisition matrix");
+  if (fixtures["group"].toString() == "hsvpressure")
+    require(expected.size() == 24, "Incomplete pressure HSV heldout matrix");
+  if (fixtures["group"].toString() == "hsvchroma")
+    require(expected.size() == 36,
+            "Incomplete low-chroma HSV heldout matrix");
+  if (fixtures["group"].toString() == "hsvorder")
+    require(expected.size() == 24,
+            "Incomplete order-discriminating HSV matrix");
+  if (fixtures["group"].toString() == "hsvjoint")
+    require(expected.size() == 64, "Incomplete joint HSV acquisition matrix");
+  if (fixtures["group"].toString() == "hsvheldout")
+    require(expected.size() == 54,
+            "Incomplete heldout HSV acquisition matrix");
+  if (fixtures["group"].toString() == "hsvdynamics")
+    require(expected.size() == 72, "Incomplete HSV acquisition matrix");
+  if (fixtures["group"].toString() == "distancesensors")
+    require(expected.size() == 32, "Incomplete distance acquisition matrix");
+  if (fixtures["group"].toString() == "gihcadence")
+    require(expected.size() == 168,
+            "Incomplete GIH cadence acquisition matrix");
+  if (fixtures["group"].toString() == "maskwash" ||
+      fixtures["group"].toString() == "maskbuildup")
+    require(expected.size() == 156,
+            "Incomplete masked-brush acquisition matrix");
+  if (fixtures["group"].toString() == "airbrushtimed")
+    require(expected.size() == 56, "Incomplete paced airbrush workload");
+  if (fixtures["group"].toString() == "timedsensors")
+    require(expected.size() == 28, "Incomplete paced sensor workload");
+}
 } // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
@@ -309,8 +365,17 @@ int main(int argc, char **argv) {
               "sRGB/D65 neutral calibration failed");
       return 0;
     }
-    require(argc == 2, "Expected reference run directory");
-    QDir root(QString::fromLocal8Bit(argv[1]));
+    const bool fixturesOnly = argc == 3 &&
+        app.arguments().at(1) == "--validate-fixtures";
+    require(argc == 2 || fixturesOnly, "Expected reference run directory");
+    QDir root(app.arguments().at(fixturesOnly ? 2 : 1));
+    if (fixturesOnly) {
+      QFile manifest(root.filePath("output/fixtures.json"));
+      require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
+      validateFixtureMatrix(QJsonDocument::fromJson(manifest.readAll()).object());
+      std::cout << "Fixture matrix accepted before source acquisition.\n";
+      return 0;
+    }
     QFile status(root.filePath("output/oracle-status.json"));
     require(status.open(QIODevice::ReadOnly),
             "Source reference status missing");
@@ -336,46 +401,7 @@ int main(int argc, char **argv) {
     }
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
-    if (fixtures["group"].toString() == "tabletsensors")
-      require(expected.size() == 188,
-              "Incomplete tablet sensor fixture matrix");
-    if (fixtures["group"].toString() == "spacingdynamics")
-      require(expected.size() == 112,
-              "Incomplete spacing sensor fixture matrix");
-    if (fixtures["group"].toString() == "mirrortips")
-      require(expected.size() == 70, "Incomplete mirror fixture matrix");
-    if (fixtures["group"].toString() == "lab-conversion")
-      require(expected.size() == 1, "Incomplete public Lab dry control");
-    if (fixtures["group"].toString() == "wethsv")
-      require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
-    if (fixtures["group"].toString() == "hsvpressure")
-      require(expected.size() == 24, "Incomplete pressure HSV heldout matrix");
-    if (fixtures["group"].toString() == "hsvchroma")
-      require(expected.size() == 36,
-              "Incomplete low-chroma HSV heldout matrix");
-    if (fixtures["group"].toString() == "hsvorder")
-      require(expected.size() == 24,
-              "Incomplete order-discriminating HSV matrix");
-    if (fixtures["group"].toString() == "hsvjoint")
-      require(expected.size() == 64, "Incomplete joint HSV acquisition matrix");
-    if (fixtures["group"].toString() == "hsvheldout")
-      require(expected.size() == 54,
-              "Incomplete heldout HSV acquisition matrix");
-    if (fixtures["group"].toString() == "hsvdynamics")
-      require(expected.size() == 72, "Incomplete HSV acquisition matrix");
-    if (fixtures["group"].toString() == "distancesensors")
-      require(expected.size() == 32, "Incomplete distance acquisition matrix");
-    if (fixtures["group"].toString() == "gihcadence")
-      require(expected.size() == 144,
-              "Incomplete GIH cadence acquisition matrix");
-    if (fixtures["group"].toString() == "maskwash" ||
-        fixtures["group"].toString() == "maskbuildup")
-      require(expected.size() == 156,
-              "Incomplete masked-brush acquisition matrix");
-    if (fixtures["group"].toString() == "airbrushtimed")
-      require(expected.size() == 56, "Incomplete paced airbrush workload");
-    if (fixtures["group"].toString() == "timedsensors")
-      require(expected.size() == 28, "Incomplete paced sensor workload");
+    validateFixtureMatrix(fixtures);
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());

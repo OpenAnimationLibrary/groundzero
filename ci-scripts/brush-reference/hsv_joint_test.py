@@ -109,10 +109,13 @@ class JointHsvEvidence(unittest.TestCase):
         root=Path(self.temp.name)
         prepare_wet(root, root, lambda *args: b"original fixture placeholder")
         matrix=json.loads((root / "output" / "fixtures.json").read_text())
-        self.assertEqual(len(matrix["cases"]),96)
-        self.assertEqual({c["wetHsvProbe"]["model"] for c in matrix["cases"]},
+        self.assertEqual(len(matrix["cases"]),144)
+        baseline = matrix["cases"][:96]
+        self.assertEqual(len(baseline),96)
+        self.assertTrue(all("wetHsvProbe" in c for c in baseline))
+        self.assertEqual({c["wetHsvProbe"]["model"] for c in baseline},
                          {"legacy-smear","legacy-dulling","new-smear","new-dulling"})
-        self.case=matrix["cases"][-1]
+        self.case=baseline[-1]
         self.case["sensorProbe"]["rect"]=[0,0,1,1]
         self.fields={**self.case["overrides"], "brush_definition":"<Brush/>",
                      "paintop":"colorsmudge", "CompositeOp":"normal", "PaintOpAction":"1",

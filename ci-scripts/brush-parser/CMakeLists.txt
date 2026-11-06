@@ -129,6 +129,12 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 add_test(NAME rasterbrushmetrics COMMAND rasterbrushreference --test-metrics)
 set_tests_properties(rasterbrushmetrics PROPERTIES TIMEOUT 60)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME rasterbrushfixtures COMMAND "${Python3_EXECUTABLE}"
+  "${REPO_ROOT}/ci-scripts/brush-reference/fixture_matrix_test.py"
+  "$<TARGET_FILE:rasterbrushreference>")
+set_tests_properties(rasterbrushfixtures PROPERTIES TIMEOUT 60)
+
 
 if(WIN32)
   foreach(target rasterbrushpreset_test rasterbrushworker_test rasterbrushreference rasterbrushfuzz)

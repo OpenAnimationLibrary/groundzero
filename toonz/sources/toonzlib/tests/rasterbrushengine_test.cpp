@@ -190,6 +190,10 @@ void testPeriodicTimeMapping() {
   const auto cycling = render(true, 0), shifted = render(true, 100);
   const auto clamped = render(false, 0);
   require(same(cycling, shifted), "Time cycle used absolute device epoch");
+  for (double origin : {-100., 1000000., 1000000000.})
+    require(same(cycling, render(true, origin)) &&
+                same(clamped, render(false, origin)),
+            "Time mapping changed with a different device epoch");
   require(std::abs(cycling.read(10, 10).a - .25) < 1e-12 &&
               std::abs(cycling.read(74, 10).a - .25) < 1e-12 &&
               std::abs(clamped.read(74, 10).a - 1) < 1e-12,
@@ -2233,7 +2237,7 @@ void testSourceWetForegroundTransformPlumbing() {
           }
 }
 void testSourceWetJointForegroundComposition() {
-  // Red plus a half-turn hue and neutral S/V is exactly cyan. Compare with
+  // Red plus a quarter-turn hue and neutral S/V is encoded yellow-green. Compare with
   // direct injection through wet/transfer/texture, not duplicated equations.
   for (const std::string model :
        {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
@@ -2275,7 +2279,7 @@ void testSourceWetJointForegroundComposition() {
         require(validate(preset).empty(), "wet HSV composition candidate rejected");
         Preset direct = preset;
         direct.sourceHsvV2 = {};
-        direct.color = {0, 1, 1, 1};
+        direct.color = {128. / 255, 1, 0, 1};
         Canvas actual, expected;
         for (size_t i = 0; i < actual.pixels.size(); ++i)
           actual.pixels[i] = expected.pixels[i] = {0, 0, .5, .5};
@@ -3756,7 +3760,7 @@ void testSourceWetOutgoingGeometry() {
     p.spacing = 2;
     p.tip.antialiasEdges = false;
     p.smudgeRadius = 0;
-    p.pickup = 0;
+    p.pickup = .5;
     p.colorRate = 1;
     p.color = {1, 0, 0, 1};
     auto render = [&](bool dense) {

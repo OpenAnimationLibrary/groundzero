@@ -1049,6 +1049,7 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
         record.provenance.value("sourceProfileBeforeNativeConversion")
             .toString();
     const QStringList sourceProfiles{
+        "krita-5.3.4.1-airbrush-candidate-1",
         "krita-5.3.4.1-fixed-bitmap-mask-candidate-1",
         "krita-5.3.4.1-fixed-bitmap-candidate-1",
         "krita-5.3.4.1-hard-pixel-candidate-1",

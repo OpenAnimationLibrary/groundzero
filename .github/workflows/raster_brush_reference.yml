@@ -185,6 +185,17 @@ jobs:
           PYTHONPATHS
       - name: Prepare original brush fixtures
         run: python3 ci-scripts/brush-reference/prepare.py
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          cache: true
+      - name: Build comparator and validate generated matrix before acquisition
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/brush-parser -B brush-comparison-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build brush-comparison-build --target rasterbrushreference --parallel 2 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison-build.log"
+          brush-comparison-build/rasterbrushreference --validate-fixtures "$BRUSH_REFERENCE_ROOT"
       - name: Identify exact source acquisition inputs
         id: source-key
         run: python3 ci-scripts/brush-reference/oracle_cache.py identity
@@ -413,16 +424,10 @@ jobs:
               message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print('::error title=' + name + '::' + message)
           PYREPORT
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.3'
-          cache: true
-      - name: Build and measure native conversion differences
+      - name: Measure native conversion differences
         shell: bash
         run: |
           set -o pipefail
-          cmake -S ci-scripts/brush-parser -B brush-comparison-build -DCMAKE_BUILD_TYPE=Release
-          cmake --build brush-comparison-build --target rasterbrushreference --parallel 2 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison-build.log"
           brush-comparison-build/rasterbrushreference "$BRUSH_REFERENCE_ROOT" 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison.log"
       - name: Verify stochastic analysis and enforce GIH statistical gates
         if: matrix.fixture_group == 'gihstatistics' || matrix.fixture_group == 'gihlabels'

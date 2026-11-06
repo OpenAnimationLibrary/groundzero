@@ -833,6 +833,7 @@ struct Stroke::Impl {
   size_t reserved = 0, inputPixelWork = 0;
   std::string failure;
   Sample previous, first, previousSourceDab;
+  double inputTimeOrigin = 0;
   bool started = false, finished = false;
   bool pendingSourceEndpoint = false;
   bool pendingMaskPrimary = false, pendingMaskSecondary = false;
@@ -2228,13 +2229,23 @@ Stroke::Stroke(Surface &s, const Preset &p, size_t limit,
                std::shared_ptr<MemoryBudget> shared)
     : m(new Impl(s, p, limit, std::move(shared))) {}
 Stroke::~Stroke() = default;
-bool Stroke::add(const Sample &s) {
+bool Stroke::add(const Sample &input) {
+  Sample s = input;
   if (m->finished || !m->failure.empty()) return false;
   if (!std::isfinite(s.x) || !std::isfinite(s.y) || std::abs(s.x) > 1e8 ||
       std::abs(s.y) > 1e8 || !std::isfinite(s.time) ||
       !std::isfinite(s.pressure) || !std::isfinite(s.tiltX) ||
       !std::isfinite(s.tiltY) || !std::isfinite(s.rotation)) {
     m->failure = "Invalid tablet sample";
+    return false;
+  }
+  // Normalize before any interpolation. Interpolating absolute device epochs
+  // and subtracting afterwards introduces epoch-dependent rounding in Time
+  // curves, including their periodic reset boundaries.
+  if (!m->started) m->inputTimeOrigin = s.time;
+  s.time -= m->inputTimeOrigin;
+  if (!std::isfinite(s.time)) {
+    m->failure = "Invalid tablet elapsed time";
     return false;
   }
   try {

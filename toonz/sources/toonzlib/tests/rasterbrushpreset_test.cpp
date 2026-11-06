@@ -654,13 +654,16 @@ void testAirbrushCandidateCodec() {
           !restored.provenance["sourceReferenceVerified"].toBool(),
       "Explicit airbrush candidate portable state lost or falsely qualified");
   auto root                         = QJsonDocument::fromJson(bytes).object();
-  auto settings                     = root["settings"].toObject();
+  auto package                      = root["package"].toObject();
+  auto settings                     = package["settings"].toObject();
   settings["airbrushIgnoreSpacing"] = "true";
-  root["settings"]                  = settings;
+  package["settings"]               = settings;
+  root["package"]                   = package;
   decode(QJsonDocument(root).toJson(), error);
   require(!error.isEmpty(), "Malformed airbrush ignore-spacing type accepted");
   settings.remove("airbrushIgnoreSpacing");
-  root["settings"]     = settings;
+  package["settings"] = settings;
+  root["package"]     = package;
   const auto defaulted = decode(QJsonDocument(root).toJson(), error);
   require(
       error.isEmpty() && !defaulted.preset.airbrushIgnoreSpacing,
@@ -1285,8 +1288,16 @@ void testImports() {
             document["settings"]            = settings;
             const auto malformed =
                 decode(QJsonDocument(document).toJson(), error);
-            require(!malformed.decoded && !error.isEmpty(),
-                    "decoder admitted periodic source HSV pressure");
+            require(malformed.decoded && !malformed.semanticallySupported &&
+                        !error.isEmpty(),
+                    "decoder semantically admitted periodic source HSV pressure");
+            require(encode(malformed, error).isEmpty() && !error.isEmpty(),
+                    "invalid periodic source HSV pressure re-encoded");
+            const auto rejected = importBrush(
+                QJsonDocument(document).toJson(), "gzbrush", error);
+            require(!rejected.complete && rejected.records.empty() &&
+                        !error.isEmpty(),
+                    "import admitted periodic source HSV pressure");
             error.clear();
             auto conflict                    = restored;
             conflict.preset.sourceHsvChannel = SourceHsvChannel::Hue;
@@ -2473,6 +2484,33 @@ void testImportedStatusClaims() {
                 "sourceProfileBeforeNativeConversion"),
         "source runtime profile retained forged native-conversion export "
         "classification");
+  }
+  // Native conversion must retain the bounded source identity through the
+  // portable envelope and importer, including the explicit airbrush runtime.
+  for (const QString &profile : {
+           "krita-5.3.4.1-airbrush-candidate-1",
+           "krita-5.3.4.1-fixed-bitmap-mask-candidate-1",
+           "krita-5.3.4.1-fixed-bitmap-candidate-1",
+           "krita-5.3.4.1-hard-pixel-candidate-1",
+           "krita-5.3.4.1-default-circle-candidate-1",
+           "krita-5.3.4.1-default-rect-candidate-1",
+           "krita-5.3.4.1-legacy-smear-candidate-1",
+           "krita-5.3.4.1-legacy-dulling-candidate-1",
+           "krita-5.3.4.1-new-smear-candidate-1",
+           "krita-5.3.4.1-new-dulling-candidate-1"}) {
+    Record converted;
+    converted.provenance = {
+        {"conversionKind", "native-reinterpretation"},
+        {"sourceProfileBeforeNativeConversion", profile}};
+    const auto bytes =
+        encodePortable(converted, ResourcePackaging::ManifestOnly, error);
+    const auto imported = importBrush(bytes, "gzbrush", error);
+    require(error.isEmpty() && imported.complete && imported.records.size() == 1 &&
+                imported.records.front().provenance["conversionKind"] ==
+                    "native-reinterpretation" &&
+                imported.records.front().provenance[
+                    "sourceProfileBeforeNativeConversion"] == profile,
+            "portable native conversion lost its source profile identity");
   }
   claimed.provenance["conversionKind"] = "source-candidate";
   const auto native                    = decode(
