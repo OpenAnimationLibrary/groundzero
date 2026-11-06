@@ -77,17 +77,17 @@ this was written). What each one delivered and what is still partial:
 
 | # | Delivered | Still partial |
 |---|---|---|
-| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX with 3 layers, each of type Envelope, Curve, Free-Form, Bone or Shape-Aware (`doc/deformer_stack.md`) | Raster warp only; weights are not painted; not a per-column stack; fixed point counts per layer type |
+| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX with 3 layers, each of type Envelope, Curve, Free-Form, Bone or Shape-Aware (`doc/deformer_stack.md`) | Raster warp, or live stroke deformation of a Toonz Vector Source with Deform Strokes (`doc/deform_strokes.md`); weights are not painted; not a per-column stack; fixed point counts per layer type |
 | A2 | Rig view in the Stage Schematic: badges, filter, published channels with ports, clickable badges | Deformers are not graph nodes; ports have no links |
 | A3 | Offset layers on stage objects, panel, Function Editor channels, Train from Keys, pose "apply as layer" | No Plastic / Path / sound channels; no Setup Mode |
-| A4 | 2D pad, pose blend through offset layers, drawing-swap bake in Master Controllers | No viewer gadgets; widget modes are not saved |
-| A5 | `TCurveDeformer` and Curve Deformer FX; Curve layers in the Deformer Stack FX (3 anchors) | Fixed anchor counts; raster warp |
-| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command, generalised to every deformer FX (Bake Deformers into Vector Level, `doc/deformer_bake.md`) | Stroke deformation is a bake, not live; the bake covers deformer FXs only, not other warping FXs |
+| A4 | 2D pad, pose blend through offset layers, drawing-swap bake in Master Controllers; the widgets are saved with the controller pegbars and drawn in the viewer by the Animate tool (`toonz/mastercontroller.h`) | No grid widget |
+| A5 | `TCurveDeformer` and Curve Deformer FX; Curve layers in the Deformer Stack FX (3 anchors) | Anchor Count 2 to 8 in the FX, fixed in Deformer Stack layers; raster warp unless Deform Strokes |
+| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command, generalised to every deformer FX (Bake Deformers into Vector Level, `doc/deformer_bake.md`) | Live stroke deformation with Deform Strokes needs the column as the deformers' direct Source (`doc/deform_strokes.md`); the bake covers deformer FXs only, not other warping FXs |
 | A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice); Free-Form layers in the Deformer Stack FX (3x3) | No free cage |
-| A8 | `TBoneDeformer` and Bone Deformer FX (4-bone chain, no mesh); Bone layers in the Deformer Stack FX (2-bone chain) | Raster warp |
+| A8 | `TBoneDeformer` and Bone Deformer FX (Joint Count 2 to 9, no mesh); Bone layers in the Deformer Stack FX (2-bone chain) | Raster warp unless Deform Strokes |
 | A9 | Spine mesh attachments and Plastic deform timelines | Unweighted meshes; no stacking order |
 | A10 | Substitution Slider panel; template thumbnails already existed | No separate template browser |
-| A11 | Rig Library panel (rigs and poses) | Pose thumbnails are name badges |
+| A11 | Rig Library panel (rigs and poses), with pose thumbnails | |
 | A12 | Auto-Patch joint region and Enable Patch switch | Circle only; no automatic joint detection |
 
 Follow-ups that Tier 7 opened, both done on the tier12 branch: the Curve,
