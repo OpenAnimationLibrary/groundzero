@@ -85,7 +85,7 @@ this was written). What each one delivered and what is still partial:
 | A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command, generalised to every deformer FX (Bake Deformers into Vector Level, `doc/deformer_bake.md`) | Live stroke deformation with Deform Strokes needs the column as the deformers' direct Source (`doc/deform_strokes.md`); the bake covers deformer FXs only, not other warping FXs |
 | A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice); Free-Form layers in the Deformer Stack FX (3x3) | No free cage |
 | A8 | `TBoneDeformer` and Bone Deformer FX (Joint Count 2 to 9, no mesh); Bone layers in the Deformer Stack FX (2-bone chain) | Raster warp unless Deform Strokes |
-| A9 | Spine mesh attachments and Plastic deform timelines | Unweighted meshes; no stacking order |
+| A9 | Spine mesh attachments and Plastic deform timelines; the faces' stacking order as triangle order | Unweighted meshes (the baked offsets are exact); the stacking order is the one of the first frame shown |
 | A10 | Substitution Slider panel; template thumbnails already existed | No separate template browser |
 | A11 | Rig Library panel (rigs and poses), with pose thumbnails | |
 | A12 | Auto-Patch joint region and Enable Patch switch | Circle only; no automatic joint detection |
