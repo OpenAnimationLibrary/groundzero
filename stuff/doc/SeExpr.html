@@ -39,6 +39,8 @@ external texture files. Formula text is saved in the scene; animate controls ins
 FX-local pixel offsets. Sampling Radius defaults to 32 pixels. Set it to at least the largest absolute requested
 offset in either axis. Larger requests fail visibly. Sampling Filter selects nearest or bilinear.
 Source Edges selects transparent, clamp, repeat or mirror; the latter modes require finite Source bounds.
+With transparent edges, the output extends past the Source by the Sampling Radius when the expression samples;
+clamp, repeat and mirror cover the whole frame.
 Neighbor Shift uses the default nonzero Sampling Radius. Sampling requests share a 256 MiB temporary Source/Mask budget.</p>
 <p>Source is the ordinary rendered level, including rasterized vector columns; drawings stay editable
 in their native level. These effects operate on rendered pixels.</p>

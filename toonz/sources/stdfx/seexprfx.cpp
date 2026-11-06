@@ -1028,7 +1028,9 @@ protected:
     demand(width >= 1 && height >= 1 && width <= 65536 && height <= 65536, "canvas dimensions must be within one to 65536 pixels");
     return TRectD(-width * .5, -height * .5, width * .5, height * .5);
   }
-  double support(double frame, const TRenderSettings &settings) const {
+  // How far the expression reads around each pixel, in FX-local pixels: the
+  // Sampling Radius when it calls a sampler, otherwise zero.
+  double samplingReach(double frame) const {
     const double radius = finite(m_radius->getValue(frame), "sampling radius must be finite");
     demand(radius >= 0 && radius <= 4096, "sampling radius must be within zero to 4096 pixels");
     const auto document = SeExprFx::parseDocument(documentText());
@@ -1036,8 +1038,11 @@ protected:
     // not shrink its required halo. Mentions in comments may over-request.
     static const QRegularExpression calls(QStringLiteral("\\bsample_(rgb|alpha)\\b"));
     const bool sampling = calls.match(document.rgb).hasMatch() || calls.match(document.alpha).hasMatch();
-    return (sampling ? radius : 0) * std::max(std::abs(settings.m_affine.a11) + std::abs(settings.m_affine.a12),
-                              std::abs(settings.m_affine.a21) + std::abs(settings.m_affine.a22)) + 2;
+    return sampling ? radius : 0;
+  }
+  double support(double frame, const TRenderSettings &settings) const {
+    return samplingReach(frame) * std::max(std::abs(settings.m_affine.a11) + std::abs(settings.m_affine.a12),
+                                           std::abs(settings.m_affine.a21) + std::abs(settings.m_affine.a22)) + 2;
   }
   TRectD inputRegion(const TRectD &requested, double frame, const TRenderSettings &settings) const {
     if (m_edge->getValue() == 0) return rasterBox(requested.enlarge(support(frame, settings)));
@@ -1383,7 +1388,18 @@ public:
     if (m_generator) { box = localCanvas(frame, settings); return !box.isEmpty(); }
     if (!m_source.isConnected()) { box = TRectD(); return false; }
     TRenderSettings identity = settings; identity.m_affine = TAffine();
-    return m_source->getBBox(frame, box, identity);
+    const bool found = m_source->getBBox(frame, box, identity);
+    if (box.isEmpty() || box == TConsts::infiniteRectD) return found;
+    // Clamp, Repeat and Mirror continue the Source past its canvas.
+    if (m_edge->getValue() != 0) { box = TConsts::infiniteRectD; return found; }
+    // A sampler reads Source pixels up to its reach away, so a pixel outside
+    // the Source can take their colour (a drop shadow or an outline). The
+    // extra pixel covers the bilinear filter. Bounds queries come from the
+    // viewer and the schematic too: an invalid document fails at render.
+    double reach = 0;
+    try { reach = samplingReach(frame); } catch (...) {}
+    if (reach > 0) box = box.enlarge(reach + 1);
+    return found;
   }
   void transform(double frame, int port, const TRectD &rect, const TRenderSettings &settings,
                   TRectD &input, TRenderSettings &inputSettings) override {
