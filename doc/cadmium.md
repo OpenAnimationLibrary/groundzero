@@ -33,6 +33,18 @@ be installed offline by selecting their folder.
 The optional runtime component is delivered separately with its dependency
 notices. Extract the component before selecting its executable.
 
+## Model license
+
+The models are downloaded from the `models-v2` release of
+[latentspacelabs/cadmium-oss](https://github.com/latentspacelabs/cadmium-oss),
+pinned by name, size and SHA-256 in `toonz/cadmiumruntime.cpp` and
+`toonz/cadmiuminstaller.cpp`. That repository, including the ONNX models it
+publishes, is licensed under the Apache License 2.0 (its `LICENSE` and
+`NOTICE`, checked 2026-11-06). Groundzero does not ship the models: they are
+downloaded only when the user asks. A package that bundles them must include
+that license and the repository's `NOTICE`. The repository does not describe
+the training data, which is outside Groundzero's control.
+
 Painting
 --------
 

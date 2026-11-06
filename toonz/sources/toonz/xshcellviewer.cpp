@@ -49,6 +49,7 @@
 #include "toonz/txshsoundlevel.h"
 #include "toonz/txshnoteset.h"
 #include "toonz/txshcolumn.h"
+#include "toonz/txshlevelcolumn.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshzeraryfxcolumn.h"
@@ -1411,8 +1412,10 @@ void CellArea::drawCells(QPainter &p, const QRect toBeUpdated) {
           drawPaletteCell(p, row, col, isReference);
         // else if (isSoundTextColumn) // I left these lines just in case
         //  drawSoundTextCell(p, row, col);
-        else
+        else {
           drawLevelCell(p, row, col, isReference, showLevelName);
+          drawTimeRemapHint(p, row, col);
+        }
       }
     }
 
@@ -1580,6 +1583,41 @@ void CellArea::drawExtenderHandles(QPainter &p) {
   }
 
   p.setBrush(Qt::NoBrush);
+}
+
+//-----------------------------------------------------------------------------
+
+void CellArea::drawTimeRemapHint(QPainter &p, int row, int col) {
+  if (col < 0) return;
+  TXshColumn *column = m_viewer->getXsheet()->getColumn(col);
+  TXshLevelColumn *levelColumn = column ? column->getLevelColumn() : nullptr;
+  if (!levelColumn || !levelColumn->isTimeRemapActive()) return;
+  if (levelColumn->getRemappedRow(row) == row) return;
+  const TXshCell shown = levelColumn->getRemappedCell(row);
+  QString frame = QStringLiteral("-");
+  if (!shown.isEmpty()) {
+    const TFrameId &fid = shown.m_frameId;
+    if (Preferences::instance()->isShowFrameNumberWithLettersEnabled())
+      frame = m_viewer->getFrameNumberWithLetters(fid.getNumber());
+    else {
+      frame = fid.getNumber() >= 0 ? QString::number(fid.getNumber()) : QString();
+      if (!fid.getLetter().isEmpty()) frame += fid.getLetter();
+    }
+  }
+  const Orientation *o = m_viewer->orientation();
+  const QPoint xy      = m_viewer->positionToXY(CellPosition(row, col));
+  QPoint frameAdj      = m_viewer->getFrameZoomAdjustment();
+  QRect cellRect = o->rect(PredefinedRect::CELL).translated(xy);
+  cellRect.adjust(1, 1, -frameAdj.x() - 1, -frameAdj.y() - 1);
+  QFont font = p.font();
+  font.setPointSizeF(std::max(5.0, font.pointSizeF() * 0.75));
+  p.save();
+  p.setFont(font);
+  p.setPen(m_viewer->getTextColor());
+  // An arrow and the frame that renders, in the top left corner
+  p.drawText(cellRect, Qt::AlignLeft | Qt::AlignTop,
+             QString(QChar(0x2192)) + frame);
+  p.restore();
 }
 
 //-----------------------------------------------------------------------------

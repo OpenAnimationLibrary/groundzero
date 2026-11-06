@@ -1,6 +1,7 @@
 
 
 #include "toonz/preferences.h"
+#include "toonz/themenames.h"
 
 // TnzLib includes
 #include "toonz/tscenehandle.h"
@@ -297,8 +298,12 @@ Preferences::Preferences() {
     setValue(CurrentRoomChoice, m_roomMaps[0]);
   }
 
-  if (!m_styleSheetList.contains(getStringValue(CurrentStyleSheetName)))
-    setValue(CurrentStyleSheetName, "Default");
+  // A renamed theme selects its new name; one that is not installed, Default
+  const QString styleSheet = getStringValue(CurrentStyleSheetName);
+  const QString installedStyleSheet =
+      installedThemeName(styleSheet, m_styleSheetList);
+  if (installedStyleSheet != styleSheet)
+    setValue(CurrentStyleSheetName, installedStyleSheet);
 
   if (!m_languageList.contains(getStringValue(CurrentLanguageName)))
     setValue(CurrentLanguageName, "English");

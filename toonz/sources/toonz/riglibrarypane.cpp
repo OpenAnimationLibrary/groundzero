@@ -60,7 +60,8 @@ enum ItemRoles {
   PreviewRole,
   PoseCountRole,
   PoseNameRole,
-  ChannelCountRole
+  ChannelCountRole,
+  ThumbnailRole
 };
 
 void setItemMetadata(QListWidgetItem *item, const QFileInfo &file) {
@@ -183,10 +184,38 @@ QPixmap makeBadgeThumbnail(const QString &name, const QString &detail,
 
 //-----------------------------------------------------------------------------
 
+// A pose added with the viewer visible shows its picture, named in a corner.
 QPixmap makePoseThumbnail(const QString &name, int channelCount,
-                          const QPalette &pal) {
-  return makeBadgeThumbnail(name, QObject::tr("%1 channels").arg(channelCount),
-                            pal);
+                          const QPalette &pal,
+                          const QByteArray &png = QByteArray()) {
+  QImage image;
+  if (png.isEmpty() || !image.loadFromData(png, "PNG"))
+    return makeBadgeThumbnail(
+        name, QObject::tr("%1 channels").arg(channelCount), pal);
+  QPixmap pixmap(PoseIconSize);
+  pixmap.fill(pal.color(QPalette::Base));
+  QPainter p(&pixmap);
+  const QImage fitted = image.scaled(PoseIconSize, Qt::KeepAspectRatio,
+                                     Qt::SmoothTransformation);
+  p.drawImage((PoseIconSize.width() - fitted.width()) / 2,
+              (PoseIconSize.height() - fitted.height()) / 2, fitted);
+  QFont font = p.font();
+  font.setPointSizeF(std::max(6.0, font.pointSizeF() * 0.8));
+  p.setFont(font);
+  QFontMetrics fm(font);
+  const QString label =
+      fm.elidedText(name, Qt::ElideRight, PoseIconSize.width() - 10);
+  QRect badge(3, 0, fm.horizontalAdvance(label) + 6, fm.height() + 2);
+  badge.moveBottom(PoseIconSize.height() - 3);
+  p.setPen(Qt::NoPen);
+  p.setBrush(pal.color(QPalette::Highlight));
+  p.drawRoundedRect(badge, 3, 3);
+  p.setPen(pal.color(QPalette::HighlightedText));
+  p.drawText(badge, Qt::AlignCenter, label);
+  p.setPen(pal.color(QPalette::Mid));
+  p.setBrush(Qt::NoBrush);
+  p.drawRect(QRect(QPoint(0, 0), PoseIconSize).adjusted(0, 0, -1, -1));
+  return pixmap;
 }
 
 //=============================================================================
@@ -547,11 +576,12 @@ void RigLibraryPane::refreshPoses() {
       const PoseLibrary::Pose &pose = poseLibrary->getPose(i);
       QListWidgetItem *item         = new QListWidgetItem(
                   QIcon(makePoseThumbnail(pose.m_name, (int)pose.m_entries.size(),
-                                          palette())),
+                                          palette(), pose.m_thumbnail)),
                   QString());
       item->setData(Qt::UserRole, i);
       item->setData(PoseNameRole, pose.m_name);
       item->setData(ChannelCountRole, (int)pose.m_entries.size());
+      item->setData(ThumbnailRole, pose.m_thumbnail);
       item->setToolTip(tr("%1 (%2 channels)")
                            .arg(pose.m_name)
                            .arg((int)pose.m_entries.size()));
@@ -610,7 +640,8 @@ void RigLibraryPane::retranslateUi() {
       } else {
         const QString name = item->data(PoseNameRole).toString();
         const int count    = item->data(ChannelCountRole).toInt();
-        item->setIcon(QIcon(makePoseThumbnail(name, count, palette())));
+        item->setIcon(QIcon(makePoseThumbnail(
+            name, count, palette(), item->data(ThumbnailRole).toByteArray())));
         item->setToolTip(tr("%1 (%2 channels)").arg(name).arg(count));
       }
     }

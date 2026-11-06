@@ -23,9 +23,15 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tcamera.h"
+#include "toonz/txsheet.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
+#include "toonz/mastercontroller.h"
 
 #include <QApplication>
 #include <QVector2D>
+
+#include <algorithm>
 
 using namespace EditToolGadgets;
 
@@ -310,7 +316,11 @@ public:
   GadgetDragTool(FxGadgetController *controller, FxGadget *gadget)
       : m_controller(controller), m_gadget(gadget) {}
 
-  TAffine getMatrix() const { return m_controller->getMatrix().inv(); }
+  TAffine getMatrix() const {
+    return (m_gadget->isInWorldSpace() ? m_controller->getWorldMatrix()
+                                       : m_controller->getMatrix())
+        .inv();
+  }
 
   void leftButtonDown(const TPointD &pos, const TMouseEvent &e) override {
     m_gadget->createUndo();
@@ -2824,6 +2834,104 @@ public:
 };
 
 //*************************************************************************************
+//    ControllerGadget  definition
+//*************************************************************************************
+
+//! A master controller (toonz/mastercontroller.h) in the viewer, drawn at the
+//! position of its pegbar with the widget chosen in the Master Controllers
+//! panel: a slider, or a 2D pad that also sets the pad's Y controller. The
+//! values 0 to 1 span the widget, as in the panel, and the widget keeps its
+//! size on screen. A drag sets a key at the current frame, with undo.
+class ControllerGadget final : public FxGadget {
+  TStageObjectId m_id;
+  TDoubleParamP m_value, m_yValue;  //!< m_yValue is set for a pad only
+  std::string m_name;
+  TPointD m_origin;  //!< The widget's corner, at the start of a drag
+
+  enum { WIDGET_PIXELS = 100 };
+
+  double size() const { return WIDGET_PIXELS * getPixelSize(); }
+
+  static double unitValue(double v) { return std::min(1.0, std::max(0.0, v)); }
+
+  void dragTo(const TPointD &pos) {
+    const double s = size();
+    if (!(s > 0.0)) return;
+    setValue(m_value, unitValue((pos.x - m_origin.x) / s));
+    if (m_yValue) setValue(m_yValue, unitValue((pos.y - m_origin.y) / s));
+    m_controller->notifyControllerChanged(true);
+  }
+
+public:
+  ControllerGadget(FxGadgetController *controller, const TStageObjectId &id,
+                   const std::string &name, const TDoubleParamP &value,
+                   const TDoubleParamP &yValue)
+      : FxGadget(controller)
+      , m_id(id)
+      , m_value(value)
+      , m_yValue(yValue)
+      , m_name(name) {
+    addParam(m_value);
+    if (m_yValue) addParam(m_yValue);
+    setLabel(name);
+  }
+
+  bool isInWorldSpace() const override { return true; }
+
+  void draw(bool picking) override {
+    setPixelSize();
+    const double unit = getPixelSize(), s = size(), r = 4.0 * unit;
+    const TPointD o   = m_controller->getObjectPosition(m_id);
+    const double x    = unitValue(getValue(m_value));
+
+    if (isSelected())
+      glColor3dv(m_selectedColor);
+    else
+      glColor3d(0.95, 0.55, 0.1);
+
+    glPushName(getId());
+    if (picking) {
+      // The whole widget can be grabbed
+      if (m_yValue)
+        tglFillRect(TRectD(o, o + TPointD(s, s)).enlarge(r));
+      else
+        tglFillRect(TRectD(o.x - r, o.y - 2.0 * r, o.x + s + r, o.y + 2.0 * r));
+    } else {
+      tgl::Batch batch;
+      if (m_yValue) {
+        const TPointD p = o + TPointD(x, unitValue(getValue(m_yValue))) * s;
+        batch.rect(TRectD(o, o + TPointD(s, s)));
+        batch.line(TPointD(p.x, o.y), TPointD(p.x, o.y + s));
+        batch.line(TPointD(o.x, p.y), TPointD(o.x + s, p.y));
+        batch.rect(TRectD(p - TPointD(r, r), p + TPointD(r, r)));
+      } else {
+        const TPointD p = o + TPointD(x * s, 0.0);
+        batch.line(o, o + TPointD(s, 0.0));
+        batch.line(o - TPointD(0.0, r), o + TPointD(0.0, r));
+        batch.line(o + TPointD(s, -r), o + TPointD(s, r));
+        batch.rect(TRectD(p - TPointD(r, 2.0 * r), p + TPointD(r, 2.0 * r)));
+      }
+      batch.draw();
+    }
+    glPopName();
+
+    if (!picking)
+      drawTooltip(o + TPointD(0.0, (m_yValue ? s : 0.0) + 3.0 * r), m_name);
+  }
+
+  void leftButtonDown(const TPointD &pos, const TMouseEvent &) override {
+    m_origin = m_controller->getObjectPosition(m_id);
+    dragTo(pos);
+  }
+
+  void leftButtonDrag(const TPointD &pos, const TMouseEvent &) override {
+    dragTo(pos);
+  }
+
+  void leftButtonUp() override { m_controller->notifyControllerChanged(false); }
+};
+
+//*************************************************************************************
 //    FxGadgetController  implementation
 //*************************************************************************************
 
@@ -2877,9 +2985,14 @@ void FxGadgetController::addGadget(FxGadget *gadget) {
 void FxGadgetController::draw(bool picking) {
   glPushMatrix();
   tglMultMatrix(getMatrix());
-  std::vector<FxGadget *>::iterator it;
-  for (it = m_gadgets.begin(); it != m_gadgets.end(); ++it)
-    (*it)->draw(picking);
+  for (FxGadget *gadget : m_gadgets)
+    if (!gadget->isInWorldSpace()) gadget->draw(picking);
+  glPopMatrix();
+
+  glPushMatrix();
+  tglMultMatrix(getWorldMatrix());
+  for (FxGadget *gadget : m_gadgets)
+    if (gadget->isInWorldSpace()) gadget->draw(picking);
   glPopMatrix();
 }
 
@@ -3139,7 +3252,35 @@ void FxGadgetController::onFxSwitched() {
   } else
     m_editingNonZeraryFx = false;
 
+  addControllerGadgets();
+
   m_tool->invalidate();
+}
+
+//---------------------------------------------------------------------------
+
+//! Adds a gadget for each master controller of the xsheet, with the widget
+//! chosen in the Master Controllers panel. A pose blend is a slider.
+void FxGadgetController::addControllerGadgets() {
+  TXsheet *xsh = m_tool->getXsheet();
+  if (!xsh) return;
+
+  for (TStageObject *obj : MasterController::controllers(xsh)) {
+    TDoubleParamP value(MasterController::valueCurve(obj)), yValue;
+    if (!value) continue;
+    if (MasterController::widget(xsh, obj) == MasterController::PadWidget) {
+      const TStageObjectId yId = MasterController::padY(xsh, obj);
+      if (yId != TStageObjectId::NoneId)
+        if (TDoubleParam *curve = MasterController::valueCurve(
+                xsh->getStageObjectTree()->getStageObject(yId, false)))
+          yValue = curve;
+    }
+
+    // Shown without the "ctrl_" prefix, as in the panel
+    std::string name = obj->getName();
+    if (name.size() > 5) name = name.substr(5);
+    addGadget(new ControllerGadget(this, obj->getId(), name, value, yValue));
+  }
 }
 
 //---------------------------------------------------------------------------
@@ -3170,6 +3311,36 @@ TAffine FxGadgetController::getMatrix() {
 //---------------------------------------------------------------------------
 
 int FxGadgetController::getCurrentFrame() const { return m_tool->getFrame(); }
+
+//---------------------------------------------------------------------------
+
+TAffine FxGadgetController::getWorldMatrix() {
+  return m_tool->getMatrix().inv();
+}
+
+//---------------------------------------------------------------------------
+
+TPointD FxGadgetController::getObjectPosition(const TStageObjectId &id) {
+  TXsheet *xsh = m_tool->getXsheet();
+  if (!xsh) return TPointD();
+  const int frame = getCurrentFrame();
+
+  // As TTool::getColumnMatrix() places the columns
+  TStageObject *camera = xsh->getStageObject(
+      xsh->getStageObjectTree()->getCurrentCameraId());
+  TAffine placement;
+  TStageObject::perspective(placement, camera->getPlacement(frame),
+                            camera->getZ(frame), xsh->getPlacement(id, frame),
+                            xsh->getZ(id, frame), 0);
+  return placement * TPointD();
+}
+
+//---------------------------------------------------------------------------
+
+void FxGadgetController::notifyControllerChanged(bool dragging) {
+  m_tool->getApplication()->getCurrentObject()->notifyObjectIdChanged(dragging);
+  m_tool->invalidate();
+}
 
 //---------------------------------------------------------------------------
 

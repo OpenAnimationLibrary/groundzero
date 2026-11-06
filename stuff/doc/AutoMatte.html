@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Auto Matte</title></head>
+<body>
+<h1>Auto Matte</h1>
+<p>Make a solid matte of a drawing's silhouette from its lines. Everything the
+lines enclose is filled, so a drawing with lines only, or with gaps in its
+paint, still gives a solid shape. Add Auto Matte from the Matte category and
+connect the drawing to Source; use the result as the matte of Matte In or Matte
+Out, or of Tone / Highlight.</p>
+<p>Pixels at least as opaque as <b>Line Threshold</b> count as lines. A gap in
+the outline lets the outside in, as with the Fill tool: close the gap in the
+drawing, or lower the threshold so that faint antialiased lines count.
+<b>Color</b> is the colour of the matte, white by default.</p>
+<p>The fill needs the whole drawing, so the Source is rendered over its bounds.
+A Source without bounds, such as a colour card, or one larger than 64
+megapixels at the render size, has no outline to close: the matte is then its
+own alpha.</p>
+</body>
+</html>

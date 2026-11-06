@@ -42,8 +42,12 @@
 // (skin/slot/attachment/"deform": keys), the only place 4.1 runtimes read.
 //
 // Mesh export limits: the faces' stacking order (the "SO" Plastic parameter)
-// is not exported, as meshes are drawn in face order, and neither are meshes
-// with unused vertex slots (not "squeezed"). The texture is meant to keep its
+// is exported as the order of the triangles, which Spine draws in turn, at
+// the first frame the mesh is shown: an animated stacking order is not, as
+// Spine has no timeline for it. Meshes with unused vertex slots (not
+// "squeezed") are not exported. The vertices are not weighted to bones: the
+// Plastic deformation is not a linear blend of bones, so it is exported
+// exactly, as per frame vertex offsets. The texture is meant to keep its
 // placement relative to the mesh column: a placement which is animated moves
 // the exported texture with the mesh, instead of sliding it under the mesh as
 // the render does. Curve bending is exported, as it is part of the vertices
@@ -178,6 +182,8 @@ struct SpineMesh {
   std::vector<double> m_meshXy;                //!< Vertex positions, mesh units
   std::vector<std::pair<int, int>> m_sources;  //!< Mesh and vertex per vertex
   std::vector<int> m_triangles;
+  std::vector<int> m_faceOffsets;  //!< Per mesh of the drawing, its first
+                                   //!< triangle in m_triangles
   int m_hull = 0;
   TPointD m_meshDpi;
   std::vector<TPointD> m_setup;  //!< Setup pose vertices, pixels
@@ -415,6 +421,7 @@ bool buildMeshGeometry(const TMeshImageP &mi, SpineMesh &mesh) {
   std::vector<int> triangles;
 
   const std::vector<TTextureMeshP> &meshes = mi->meshes();
+  mesh.m_faceOffsets.clear();
   for (int m = 0; m < (int)meshes.size(); ++m) {
     if (!meshes[m]) return false;
     const TTextureMesh &tm = *meshes[m];
@@ -425,6 +432,7 @@ bool buildMeshGeometry(const TMeshImageP &mi, SpineMesh &mesh) {
       return false;
 
     int offset = (int)sources.size();
+    mesh.m_faceOffsets.push_back((int)triangles.size() / 3);
     for (int v = 0; v < tm.verticesCount(); ++v) {
       const TPointD &p = tm.vertex(v).P();
       xy.push_back(p.x), xy.push_back(p.y);
@@ -457,6 +465,48 @@ bool buildMeshGeometry(const TMeshImageP &mi, SpineMesh &mesh) {
     mesh.m_triangles[i] = layout.m_remap[triangles[i]];
   mesh.m_hull = layout.m_hull;
   return true;
+}
+
+//-----------------------------------------------------------------------------
+
+/*!
+Puts the triangles of \e mesh in the stacking order of its faces at \e row,
+the order the Plastic deformer draws them in (by their "SO", see
+PlasticDeformerStorage), since Spine draws the triangles in turn. Leaves them
+in face order when the drawing has no deformation there.
+*/
+void sortMeshFaces(TXsheet *xsh, SpineMesh &mesh, int row) {
+  TStageObject *meshObj          = xsh->getStageObject(mesh.m_meshColumnId);
+  PlasticSkeletonDeformationP sd = meshObj->getPlasticSkeletonDeformation();
+  TMeshImageP mi(mesh.m_level->getFrame(mesh.m_fid, false));
+  if (!sd || !mi) return;
+
+  TScale worldMeshToMeshAff(mesh.m_meshDpi.x / Stage::inch,
+                            mesh.m_meshDpi.y / Stage::inch);
+  double sdFrame = meshObj->paramsTime(row);
+  std::unique_ptr<const PlasticDeformerDataGroup> group(
+      PlasticDeformerStorage::processOnce(sdFrame, mi.getPointer(),
+                                          sd.getPointer(),
+                                          sd->skeletonId(sdFrame),
+                                          worldMeshToMeshAff));
+  if (!group) return;
+
+  const std::vector<std::pair<int, int>> &faces = group->m_sortedFaces;
+  if (faces.size() * 3 != mesh.m_triangles.size()) return;
+
+  std::vector<int> sorted;
+  sorted.reserve(mesh.m_triangles.size());
+  for (const std::pair<int, int> &face : faces) {
+    // The pairs are (face, mesh)
+    if (face.second < 0 || face.second >= (int)mesh.m_faceOffsets.size())
+      return;
+    const size_t t = 3 * size_t(mesh.m_faceOffsets[face.second] + face.first);
+    if (t + 2 >= mesh.m_triangles.size()) return;
+    sorted.push_back(mesh.m_triangles[t]);
+    sorted.push_back(mesh.m_triangles[t + 1]);
+    sorted.push_back(mesh.m_triangles[t + 2]);
+  }
+  mesh.m_triangles.swap(sorted);
 }
 
 //-----------------------------------------------------------------------------
@@ -854,6 +904,10 @@ void ExportSpineCommand::execute() {
 
     int first = 0;
     while (!mesh.m_active[first]) ++first;
+
+    // The faces in the stacking order of the first frame shown
+    sortMeshFaces(xsh, mesh, r0 + first);
+
     TAffine local =
         xsh->getStageObject(mesh.m_columnId)->getLocalPlacement(r0 + first);
     if (std::abs(local.det()) < 1e-12) continue;

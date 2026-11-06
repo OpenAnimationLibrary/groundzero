@@ -1,5 +1,7 @@
 <fxlayout>
   <page name="Envelope Deformer Plus">
+   <separator label="Vector Art"/>
+    <control>deformStrokes</control>
    <separator label="Shape"/>
     <control>pointCount</control>
     <control>smooth</control>

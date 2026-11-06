@@ -355,6 +355,7 @@
   <item>"STD_freeDistortFx.deactivate"	" Deactivate"	</item>
 
   <item>"STD_envelopeDeformerFx"	"Envelope Deformer"	</item>
+  <item>"STD_envelopeDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_envelopeDeformerFx.point1"	"Point 1"	</item>
   <item>"STD_envelopeDeformerFx.point2"	"Point 2"	</item>
   <item>"STD_envelopeDeformerFx.point3"	"Point 3"	</item>
@@ -373,6 +374,7 @@
   <item>"STD_envelopeDeformerFx.rest8"	"Rest 8"	</item>
 
   <item>"STD_envelopeDeformerPlusFx"	"Envelope Deformer Plus"	</item>
+  <item>"STD_envelopeDeformerPlusFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_envelopeDeformerPlusFx.pointCount"	"Point Count"	</item>
   <item>"STD_envelopeDeformerPlusFx.smooth"	"Smooth Edges"	</item>
   <item>"STD_envelopeDeformerPlusFx.point1"	"Point 1"	</item>
@@ -409,11 +411,13 @@
   <item>"STD_envelopeDeformerPlusFx.rest16"	"Rest 16"	</item>
 
   <item>"STD_deformerStackFx"	"Deformer Stack"	</item>
+  <item>"STD_deformerStackFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_deformerStackFx.a_weight"	"A Weight"	</item>
   <item>"STD_deformerStackFx.a_falloff"	"A Falloff"	</item>
   <item>"STD_deformerStackFx.a_center"	"A Falloff Center"	</item>
   <item>"STD_deformerStackFx.a_inner"	"A Inner Radius"	</item>
   <item>"STD_deformerStackFx.a_outer"	"A Outer Radius"	</item>
+  <item>"STD_deformerStackFx.a_paint"	"A Painted Weights"	</item>
   <item>"STD_deformerStackFx.a_point1"	"A Point 1"	</item>
   <item>"STD_deformerStackFx.a_point2"	"A Point 2"	</item>
   <item>"STD_deformerStackFx.a_point3"	"A Point 3"	</item>
@@ -435,6 +439,7 @@
   <item>"STD_deformerStackFx.b_center"	"B Falloff Center"	</item>
   <item>"STD_deformerStackFx.b_inner"	"B Inner Radius"	</item>
   <item>"STD_deformerStackFx.b_outer"	"B Outer Radius"	</item>
+  <item>"STD_deformerStackFx.b_paint"	"B Painted Weights"	</item>
   <item>"STD_deformerStackFx.b_point1"	"B Point 1"	</item>
   <item>"STD_deformerStackFx.b_point2"	"B Point 2"	</item>
   <item>"STD_deformerStackFx.b_point3"	"B Point 3"	</item>
@@ -456,6 +461,7 @@
   <item>"STD_deformerStackFx.c_center"	"C Falloff Center"	</item>
   <item>"STD_deformerStackFx.c_inner"	"C Inner Radius"	</item>
   <item>"STD_deformerStackFx.c_outer"	"C Outer Radius"	</item>
+  <item>"STD_deformerStackFx.c_paint"	"C Painted Weights"	</item>
   <item>"STD_deformerStackFx.c_point1"	"C Point 1"	</item>
   <item>"STD_deformerStackFx.c_point2"	"C Point 2"	</item>
   <item>"STD_deformerStackFx.c_point3"	"C Point 3"	</item>
@@ -678,8 +684,18 @@
   <item>"STD_deformerStackFx.c_shapeAware_cageRest4"	"C Rest Cage 4"	</item>
 
   <item>"STD_boneDeformerFx"	"Bone Deformer"	</item>
+  <item>"STD_boneDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_boneDeformerFx.inner"	"Inner Radius"	</item>
   <item>"STD_boneDeformerFx.outer"	"Outer Radius"	</item>
+  <item>"STD_boneDeformerFx.jointCount"	"Joint Count"	</item>
+  <item>"STD_boneDeformerFx.point6"	"Joint 6"	</item>
+  <item>"STD_boneDeformerFx.rest6"	"Rest Joint 6"	</item>
+  <item>"STD_boneDeformerFx.point7"	"Joint 7"	</item>
+  <item>"STD_boneDeformerFx.rest7"	"Rest Joint 7"	</item>
+  <item>"STD_boneDeformerFx.point8"	"Joint 8"	</item>
+  <item>"STD_boneDeformerFx.rest8"	"Rest Joint 8"	</item>
+  <item>"STD_boneDeformerFx.point9"	"Joint 9"	</item>
+  <item>"STD_boneDeformerFx.rest9"	"Rest Joint 9"	</item>
   <item>"STD_boneDeformerFx.point1"	"Joint 1"	</item>
   <item>"STD_boneDeformerFx.point2"	"Joint 2"	</item>
   <item>"STD_boneDeformerFx.point3"	"Joint 3"	</item>
@@ -692,6 +708,7 @@
   <item>"STD_boneDeformerFx.rest5"	"Rest Joint 5"	</item>
 
   <item>"STD_freeFormDeformerFx"	"Free-Form Deformer"	</item>
+  <item>"STD_freeFormDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_freeFormDeformerFx.center"	"Rest Center"	</item>
   <item>"STD_freeFormDeformerFx.width"	"Rest Width"	</item>
   <item>"STD_freeFormDeformerFx.height"	"Rest Height"	</item>
@@ -713,6 +730,7 @@
   <item>"STD_freeFormDeformerFx.point16"	"Point 16"	</item>
 
   <item>"STD_shapeAwareDeformerFx"	"Shape Aware Deformer"	</item>
+  <item>"STD_shapeAwareDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_shapeAwareDeformerFx.resolution"	"Resolution"	</item>
   <item>"STD_shapeAwareDeformerFx.margin"	"Margin"	</item>
   <item>"STD_shapeAwareDeformerFx.stretch"	"Stretch Bones"	</item>
@@ -756,8 +774,34 @@
   <item>"STD_shapeAwareDeformerFx.cage4"	"Cage 4"	</item>
   <item>"STD_shapeAwareDeformerFx.cageRest4"	"Rest Cage 4"	</item>
   <item>"STD_curveDeformerFx"	"Curve Deformer"	</item>
+  <item>"STD_curveDeformerFx.deformStrokes"	"Deform Strokes"	</item>
   <item>"STD_curveDeformerFx.width"	"Width"	</item>
   <item>"STD_curveDeformerFx.falloff"	"Falloff"	</item>
+  <item>"STD_curveDeformerFx.anchorCount"	"Anchor Count"	</item>
+  <item>"STD_curveDeformerFx.point5"	"Point 5"	</item>
+  <item>"STD_curveDeformerFx.in5"	"In 5"	</item>
+  <item>"STD_curveDeformerFx.out5"	"Out 5"	</item>
+  <item>"STD_curveDeformerFx.restPoint5"	"Rest Point 5"	</item>
+  <item>"STD_curveDeformerFx.restIn5"	"Rest In 5"	</item>
+  <item>"STD_curveDeformerFx.restOut5"	"Rest Out 5"	</item>
+  <item>"STD_curveDeformerFx.point6"	"Point 6"	</item>
+  <item>"STD_curveDeformerFx.in6"	"In 6"	</item>
+  <item>"STD_curveDeformerFx.out6"	"Out 6"	</item>
+  <item>"STD_curveDeformerFx.restPoint6"	"Rest Point 6"	</item>
+  <item>"STD_curveDeformerFx.restIn6"	"Rest In 6"	</item>
+  <item>"STD_curveDeformerFx.restOut6"	"Rest Out 6"	</item>
+  <item>"STD_curveDeformerFx.point7"	"Point 7"	</item>
+  <item>"STD_curveDeformerFx.in7"	"In 7"	</item>
+  <item>"STD_curveDeformerFx.out7"	"Out 7"	</item>
+  <item>"STD_curveDeformerFx.restPoint7"	"Rest Point 7"	</item>
+  <item>"STD_curveDeformerFx.restIn7"	"Rest In 7"	</item>
+  <item>"STD_curveDeformerFx.restOut7"	"Rest Out 7"	</item>
+  <item>"STD_curveDeformerFx.point8"	"Point 8"	</item>
+  <item>"STD_curveDeformerFx.in8"	"In 8"	</item>
+  <item>"STD_curveDeformerFx.out8"	"Out 8"	</item>
+  <item>"STD_curveDeformerFx.restPoint8"	"Rest Point 8"	</item>
+  <item>"STD_curveDeformerFx.restIn8"	"Rest In 8"	</item>
+  <item>"STD_curveDeformerFx.restOut8"	"Rest Out 8"	</item>
   <item>"STD_curveDeformerFx.point1"	"Point 1"	</item>
   <item>"STD_curveDeformerFx.in1"	"In 1"	</item>
   <item>"STD_curveDeformerFx.out1"	"Out 1"	</item>
@@ -938,6 +982,8 @@
   <item>"STD_autoPatchFx.jointPoint"	"Joint Point X"	</item>
   <item>"STD_autoPatchFx.jointRadius"	"Joint Radius"	</item>
   <item>"STD_autoPatchFx.softness"	"Softness"	</item>
+  <item>"STD_autoPatchFx.outlineOnly"	"Outline Only"	</item>
+  <item>"STD_autoPatchFx.outlineWidth"	"Outline Width"	</item>
 
 
 
@@ -1350,6 +1396,9 @@
   <item>"STD_edgeExtendFx.radius" "Radius" </item>
   <item>"STD_edgeExtendFx.solid" "Solid From Alpha" </item>
   <item>"STD_edgeExtendFx.extendAlpha" "Extend Alpha" </item>
+  <item>"STD_autoMatteFx" "Auto Matte" </item>
+  <item>"STD_autoMatteFx.threshold" "Line Threshold" </item>
+  <item>"STD_autoMatteFx.color" "Color" </item>
   <item>"STD_matteChokeFx" "Matte Choke" </item>
   <item>"STD_matteChokeFx.amount" "Choke / Spread" </item>
   <item>"STD_matteChokeFx.feather" "Feather" </item>

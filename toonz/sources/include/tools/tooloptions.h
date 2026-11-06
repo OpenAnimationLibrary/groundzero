@@ -258,6 +258,11 @@ class ArrowToolOptionsBox final : public ToolOptionsBox {
 
   ToolOptionCheckbox *m_globalKey;
   ToolOptionCheckbox *m_showTrajectory;
+  // Paint Weights of the Deformer Stack FX
+  ToolOptionCheckbox *m_paintWeights;
+  ToolOptionCombo *m_weightLayerCombo;
+  ToolOptionSlider *m_weightBrushField;
+  ToolOptionCheckbox *m_eraseWeights;
 
   // Flip buttons
   QPushButton *m_hFlipButton, *m_vFlipButton, *m_leftRotateButton,

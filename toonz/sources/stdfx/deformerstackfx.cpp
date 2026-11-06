@@ -54,6 +54,10 @@
 //
 // The warp is made on the rendered Source raster, so vector art is resampled
 // rather than deformed as strokes.
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 namespace {
@@ -115,6 +119,10 @@ class DeformerStackFx final : public TStandardRasterFx, public TDeformerSource {
     TBoolParamP m_falloff;
     TPointParamP m_center;
     TDoubleParamP m_inner, m_outer;
+    // The painted weights (TDeformerWeightPainting::toString()), in the fx's
+    // space; empty when none were painted. Painted with the Animate tool's
+    // Paint Weights, not shown in the fx settings.
+    TStringParamP m_paint;
 
     //! Returns the layer's type, a LayerType.
     int getType() const {
@@ -179,11 +187,13 @@ class DeformerStackFx final : public TStandardRasterFx, public TDeformerSource {
   };
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   Layer m_layers[LAYER_COUNT];
 
 public:
   DeformerStackFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     for (int i = 0; i < LAYER_COUNT; ++i) {
       Layer &layer       = m_layers[i];
@@ -212,6 +222,9 @@ public:
       layer.m_outer->setMeasureName("fxLength");
       layer.m_outer->setValueRange(0.0, 1e6);
       bindParam(this, prefix + "outer", layer.m_outer);
+
+      layer.m_paint = TStringParamP(L"");
+      bindParam(this, prefix + "paint", layer.m_paint);
 
       // The type, and the parameters of the types other than Envelope
       layer.m_type = TIntEnumParamP(ENVELOPE_LAYER, c_typeLabels[0]);
@@ -244,7 +257,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -277,6 +291,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the layers at frame, for Bake Deformers into Vector
   // Level (see TDeformerSource): whatever layers buildStack() makes, of
   // every layer type
@@ -315,6 +332,15 @@ int DeformerStackFx::buildStack(double frame, const TAffine &aff,
           layer.m_inner->getValue(frame) * radiusScale,
           layer.m_outer->getValue(frame) * radiusScale);
 
+    // Painted weights multiply the others; they are in the fx's space
+    const std::wstring paint = layer.m_paint->getValue();
+    if (!paint.empty()) {
+      std::shared_ptr<const TDeformerWeightPainting> painting(
+          new TDeformerWeightPainting(TDeformerWeightPainting::fromString(
+              std::string(paint.begin(), paint.end()))));
+      weights = weights.withPainting(painting, aff.inv());
+    }
+
     stack.addLayer(deformer, weights);
     rest.insert(rest.end(), layerRest.begin(), layerRest.end());
   }
@@ -333,6 +359,10 @@ bool DeformerStackFx::doGetBBox(double frame, TRectD &bBox,
     bBox = TRectD();
     return false;
   }
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
@@ -367,6 +397,11 @@ void DeformerStackFx::transform(double frame, int port,
                                 const TRenderSettings &infoOnOutput,
                                 TRectD &rectOnInput,
                                 TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -376,6 +411,7 @@ void DeformerStackFx::transform(double frame, int port,
 int DeformerStackFx::getMemoryRequirement(const TRectD &rect, double frame,
                                           const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -385,6 +421,12 @@ int DeformerStackFx::getMemoryRequirement(const TRectD &rect, double frame,
 void DeformerStackFx::doCompute(TTile &tile, double frame,
                                 const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   // The stack is built in the render's space, which differs from the fx's by
   // a similarity (see canHandle()).
@@ -457,6 +499,9 @@ bool DeformerStackFx::isParamSaved(const TParamVar *paramVar) const {
     const int type = m_layers[i].getType();
     if (name == std::string(c_layerNames[i]) + "_type")
       return type != ENVELOPE_LAYER;
+    // The painted weights, once painted
+    if (name == std::string(c_layerNames[i]) + "_paint")
+      return !m_layers[i].m_paint->getValue().empty();
 
     for (int t = CURVE_LAYER; t < LAYER_TYPE_COUNT; ++t)
       if (startsWith(name, typePrefix(i, t))) return type == t;

@@ -187,6 +187,7 @@ set(SOURCES
     printprocessfx.cpp
     lightwrapfx.cpp
     edgeextendfx.cpp
+    automattefx.cpp
     mattechokefx.cpp
     flowdisplacefx.cpp
     alphadistancegradientfx.cpp
@@ -472,6 +473,20 @@ endif()
 
 # Optional regression target for the pure helpers of the Light Shading FX
 # (lightshading.h, header-only).
+option(BUILD_AUTOMATTE_TESTS "Build the Auto Matte FX helper test" ${BUILD_TESTS})
+if(BUILD_AUTOMATTE_TESTS)
+    add_executable(automatte_test tests/automatte_test.cpp)
+    add_test(NAME automatte COMMAND automatte_test)
+endif()
+
+# Optional regression target for the Outline Only helper of the Auto-Patch FX
+# (autopatchoutline.h, header-only).
+option(BUILD_AUTOPATCH_TESTS "Build the Auto-Patch FX outline helper test" ${BUILD_TESTS})
+if(BUILD_AUTOPATCH_TESTS)
+    add_executable(autopatchoutline_test tests/autopatchoutline_test.cpp)
+    add_test(NAME autopatchoutline COMMAND autopatchoutline_test)
+endif()
+
 option(BUILD_LIGHTSHADING_TESTS "Build the Light Shading FX helper test" ${BUILD_TESTS})
 if(BUILD_LIGHTSHADING_TESTS)
     add_executable(lightshading_test tests/lightshading_test.cpp)

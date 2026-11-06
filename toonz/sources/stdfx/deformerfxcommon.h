@@ -11,9 +11,11 @@
 #include "tfxparam.h"
 #include "tparamset.h"
 #include "tparamuiconcept.h"
+#include "tnotanimatableparam.h"
 #include "tmathutil.h"
 
 #include "toonz/tdeformer.h"
+#include "toonz/strokedeformerdata.h"
 
 #include <algorithm>
 #include <cmath>
@@ -120,6 +122,46 @@ public:
       point.m_label          = labelPrefix + "Point " + suffix;
       point.m_params.push_back(m_point[i]);
     }
+  }
+};
+
+//------------------------------------------------------------------------------
+
+//! The Deform Strokes option of a deformer fx (see toonz/strokedeformerdata.h).
+//! Off by default, and in the scenes saved before it, which render as before.
+class StrokeMode {
+  TBoolParamP m_on;
+
+public:
+  void bind(TFx *fx) {
+    m_on = TBoolParamP(false);
+    bindParam(fx, "deformStrokes", m_on);
+  }
+
+  bool isOn() const { return m_on->getValue(); }
+
+  //! Returns whether the fx, whose Source is input, deforms the strokes of
+  //! the Source at frame: the option is on and the Source draws a Toonz
+  //! Vector drawing in the fx's space.
+  bool applies(TRasterFxPort &input, double frame) const {
+    return isOn() && input.isConnected() &&
+           rendersVectorStrokes(input.getFx(), frame);
+  }
+
+  //! When applies(), sets ri to info plus the deformer of fx at frame, if it
+  //! deforms, for the Source to apply on its strokes, and returns true.
+  bool settings(const TFx *fx, TRasterFxPort &input, double frame,
+                const TRenderSettings &info, TRenderSettings &ri) const {
+    if (!applies(input, frame)) return false;
+
+    ri = info;
+    const TDeformerSource *source = dynamic_cast<const TDeformerSource *>(fx);
+    std::shared_ptr<const TDeformer> deformer =
+        source ? source->makeDeformer(frame, TAffine()) : nullptr;
+    if (deformer)
+      ri.m_data.push_back(TRasterFxRenderDataP(new TStrokeDeformerRenderData(
+          deformer, fx->getAlias(frame, TRenderSettings()))));
+    return true;
   }
 };
 

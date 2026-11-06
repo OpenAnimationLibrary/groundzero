@@ -105,9 +105,9 @@ there the FXs work in the mesh's space, on the Plastic-deformed image
 
 ## Limits
 
-- A bake, not a live deformation: the strokes are edited once. To animate the
-  deformation on vector strokes, bake every frame (each drawing takes the
-  deformation of its frame), with a drawing per frame.
+- A bake, not a live deformation: the strokes are edited once. For a live
+  deformation of the strokes, turn on the FXs' Deform Strokes option instead
+  (see [Deform Strokes](deform_strokes.md)).
 - Only the control points of the strokes are moved (`deformVectorImage()`), so
   a stroke follows a strong deformation only as closely as its control points
   are dense; the thickness is kept.

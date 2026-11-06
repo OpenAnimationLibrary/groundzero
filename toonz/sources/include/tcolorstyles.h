@@ -11,6 +11,9 @@
 #include <QString>
 #include <QStringList>  // a class in Qt 5, a typedef in Qt 6: no forward declaration
 
+#include <string>
+#include <vector>
+
 #undef DVAPI
 #undef DVVAR
 
@@ -426,6 +429,21 @@ It is used when updates must be done after changes or creation of new styles.
   }  //!< Returns the version number of the style.
 
   virtual TRectD getStrokeBBox(const TStroke *stroke) const;
+
+  //! Settings of the style kept outside its data, so that older versions
+  //! skip them: saved as attributes of the palette's style tag, and as tagged
+  //! values after the style's record in PLI files. The names are
+  //! identifiers, unique among the style tag's attributes.
+  virtual std::vector<std::string> getExtraSettingNames() const {
+    return std::vector<std::string>();
+  }
+  //! Returns the value of an extra setting, or an empty string when it has
+  //! its default value, which is not saved.
+  virtual std::string getExtraSetting(const std::string &name) const {
+    return std::string();
+  }
+  virtual void setExtraSetting(const std::string &name,
+                               const std::string &value) {}
 
 protected:
   virtual void makeIcon(const TDimension &d);

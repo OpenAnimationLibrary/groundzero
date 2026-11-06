@@ -418,6 +418,74 @@ void concurrentCorruptCycle() {
   finished = true; watchdog.join();
   require(successful, "corrupted native cycle returned a successful value or lost its diagnostic");
 }
+
+// Roadmap S1 E4: every expression evaluation, ordinary or SeExpr, takes one
+// global gate (seExprGraphEvaluationGate() in texpression.cpp). Measures what
+// it costs, without asserting anything: the timings go to the CI notices.
+//   - ordinary expressions, each thread with its own, on 1 and on 4 threads:
+//     a ratio near 1 means they run in parallel, near 4 serialized;
+//   - the same 4 threads while a fifth evaluates a slow SeExpr curve.
+void evaluationContention() {
+  TSyntax::Grammar grammar;
+  const int evaluations = 20000;
+
+  auto runOrdinary = [&](int threadCount, std::atomic<bool> *stop) {
+    std::vector<std::unique_ptr<TExpression>> expressions;
+    for (int i = 0; i < threadCount; ++i) {
+      expressions.emplace_back(new TExpression);
+      expressions.back()->setGrammar(&grammar);
+      expressions.back()->setText("frame*2 + sin(frame)");
+      // A measurement, not a check: report rather than fail
+      if (!expressions.back()->isValid()) return -1.0;
+    }
+    std::thread slow;
+    TExpression slowExpression;
+    if (stop) {
+      slowExpression.setGrammar(&grammar);
+      // A long sum: no loops are needed to make it slow
+      std::string slowText = "0";
+      for (int k = 1; k <= 400; ++k)
+        slowText += " + sin($frame + " + std::to_string(k) + ")";
+      slowExpression.setText(TExpression::makeSeExprText(slowText));
+      if (slowExpression.isValid())
+        slow = std::thread([&slowExpression, stop]() {
+          double value = 0;
+          for (int f = 0; !*stop; ++f)
+            slowExpression.evaluate(0, f, f, nullptr, value);
+        });
+    }
+
+    const auto start = std::chrono::steady_clock::now();
+    std::vector<std::thread> threads;
+    for (int i = 0; i < threadCount; ++i)
+      threads.emplace_back([&expressions, i, evaluations]() {
+        double value = 0;
+        for (int f = 0; f < evaluations; ++f)
+          expressions[i]->evaluate(0, f, f, nullptr, value);
+      });
+    for (auto &thread : threads) thread.join();
+    const double ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - start)
+                          .count();
+    if (stop) {
+      *stop = true;
+      if (slow.joinable()) slow.join();
+    }
+    return ms;
+  };
+
+  const double one  = runOrdinary(1, nullptr);
+  const double four = runOrdinary(4, nullptr);
+  std::atomic<bool> stop{false};
+  const double busy = runOrdinary(4, &stop);
+  std::cout << "NOTICE: expression gate (S1 E4), " << evaluations
+            << " ordinary evaluations per thread: 1 thread " << one
+            << " ms, 4 threads " << four << " ms (ratio "
+            << (one > 0 ? four / one : 0)
+            << "; 1 parallel, 4 serialized), 4 threads beside a slow SeExpr "
+               "curve "
+            << busy << " ms\n";
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -430,6 +498,7 @@ int main(int argc, char **argv) {
     rewriteReferences();
     persistenceAndUndo();
     concurrentCorruptCycle();
+    evaluationContention();
     std::cout << "seexpr_animation: PASS\n";
     return 0;
   } catch (const std::exception &error) {

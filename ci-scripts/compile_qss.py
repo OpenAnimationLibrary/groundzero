@@ -12,7 +12,7 @@ so adding a theme needs no change here.
 Usage:
     python3 ci-scripts/compile_qss.py            # write every QSS
     python3 ci-scripts/compile_qss.py --check    # fail if any QSS is stale
-    python3 ci-scripts/compile_qss.py Animate    # only themes whose name matches
+    python3 ci-scripts/compile_qss.py Charcoal   # only themes whose name matches
 
 `lessc` is taken from PATH; when it is missing, `npx --package less lessc` is
 used instead (needs Node.js).

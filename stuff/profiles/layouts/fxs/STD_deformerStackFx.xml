@@ -1,5 +1,7 @@
 <fxlayout>
   <page name="Layer A">
+   <separator label="Vector Art"/>
+    <control>deformStrokes</control>
    <separator label="Blend"/>
     <control>a_weight</control>
     <control>a_falloff</control>

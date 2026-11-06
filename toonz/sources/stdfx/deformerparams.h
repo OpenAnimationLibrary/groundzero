@@ -105,9 +105,13 @@ public:
   //! default, the curve is a straight line along the x axis, from -halfLength
   //! to halfLength, with the anchors evenly spaced and the handles a third of
   //! the way to the neighbours.
+  //! With layoutCount, the first layoutCount anchors span the line and the
+  //! others continue it at the same spacing, for a count that can grow.
   void bind(TFx *fx, const std::string &posName, const std::string &inName,
-            const std::string &outName, int anchorCount, double halfLength) {
-    const double step   = 2.0 * halfLength / (anchorCount - 1);
+            const std::string &outName, int anchorCount, double halfLength,
+            int layoutCount = 0) {
+    if (layoutCount < 2) layoutCount = anchorCount;
+    const double step   = 2.0 * halfLength / (layoutCount - 1);
     const double handle = step / 3.0;
 
     m_pos.resize(anchorCount);
@@ -129,10 +133,11 @@ public:
 
   int getAnchorCount() const { return (int)m_pos.size(); }
 
-  //! Returns the anchors at frame, in the fx's space.
-  void getAnchors(double frame,
-                  std::vector<TBezierChain::Anchor> &anchors) const {
-    const int count = getAnchorCount();
+  //! Returns the first count anchors (all with -1) at frame, in the fx's
+  //! space.
+  void getAnchors(double frame, std::vector<TBezierChain::Anchor> &anchors,
+                  int count = -1) const {
+    if (count < 0 || count > getAnchorCount()) count = getAnchorCount();
     anchors.resize(count);
     for (int i = 0; i < count; ++i)
       anchors[i] = TBezierChain::Anchor(m_pos[i]->getValue(frame),
@@ -147,10 +152,11 @@ public:
     The handles that do not shape the curve have no gadget. No more than
     maxConceptCount() concepts are written.
   */
-  int getParamUIs(TParamUIConcept *concepts,
-                  const std::string &labelPrefix) const {
-    const int anchorCount = getAnchorCount();
-    int count             = 0;
+  int getParamUIs(TParamUIConcept *concepts, const std::string &labelPrefix,
+                  int anchorCount = -1) const {
+    if (anchorCount < 0 || anchorCount > getAnchorCount())
+      anchorCount = getAnchorCount();
+    int count = 0;
 
     for (int i = 0; i < anchorCount; ++i) {
       if (i > 0) {
@@ -204,6 +210,7 @@ public:
   CurveParams m_deformed;  // The curve, deformed
   CurveParams m_rest;      // The curve in rest pose
   TDoubleParamP m_width, m_falloff;
+  TIntParamP m_count;  // How many anchors are used; all when not bound
 
   //! Creates the parameters and binds them to fx as prefix + "point1",
   //! "in1", "out1", ... for the deformed curve, prefix + "restPoint1",
@@ -211,17 +218,30 @@ public:
   //! prefix + "falloff". By default both curves are the straight line of
   //! CurveParams::bind().
   void bind(TFx *fx, const std::string &prefix, int anchorCount,
-            double halfLength) {
+            double halfLength, int layoutCount = 0) {
     m_deformed.bind(fx, prefix + "point", prefix + "in", prefix + "out",
-                    anchorCount, halfLength);
+                    anchorCount, halfLength, layoutCount);
     m_rest.bind(fx, prefix + "restPoint", prefix + "restIn", prefix + "restOut",
-                anchorCount, halfLength);
+                anchorCount, halfLength, layoutCount);
 
     m_width = makeLengthParam(100.0);
     bindParam(fx, prefix + "width", m_width);
 
     m_falloff = makeLengthParam(300.0);
     bindParam(fx, prefix + "falloff", m_falloff);
+  }
+
+  //! Binds an anchor count parameter as name: only the first anchors, from 2
+  //! to all of them, are used. Without it all the anchors are.
+  void bindCount(TFx *fx, const std::string &name, int defaultCount) {
+    m_count = TIntParamP(defaultCount);
+    m_count->setValueRange(2, m_deformed.getAnchorCount());
+    bindParam(fx, name, m_count);
+  }
+
+  int getActiveCount() const {
+    const int all = m_deformed.getAnchorCount();
+    return m_count ? std::min(all, std::max(2, (int)m_count->getValue())) : all;
   }
 
   //! Builds the curve deformer at frame, in the space that aff maps the fx's
@@ -234,8 +254,9 @@ public:
     rest.clear();
 
     std::vector<TBezierChain::Anchor> restAnchors, deformedAnchors;
-    m_rest.getAnchors(frame, restAnchors);
-    m_deformed.getAnchors(frame, deformedAnchors);
+    const int count = getActiveCount();
+    m_rest.getAnchors(frame, restAnchors, count);
+    m_deformed.getAnchors(frame, deformedAnchors, count);
 
     // The distances follow the scale of the affine, a similarity
     double radiusScale = std::sqrt(std::fabs(aff.det()));
@@ -262,8 +283,9 @@ public:
   //! deformed points are dragged where they lie on the rest ones.
   int getParamUIs(TParamUIConcept *concepts,
                   const std::string &labelPrefix) const {
-    int count = m_rest.getParamUIs(concepts, labelPrefix + "Rest ");
-    count += m_deformed.getParamUIs(concepts + count, labelPrefix);
+    const int anchors = getActiveCount();
+    int count = m_rest.getParamUIs(concepts, labelPrefix + "Rest ", anchors);
+    count += m_deformed.getParamUIs(concepts + count, labelPrefix, anchors);
     return count;
   }
 
@@ -409,15 +431,19 @@ public:
   std::vector<TPointParamP> m_point;  // The joints, deformed
   std::vector<TPointParamP> m_rest;   // The joints in rest pose
   TDoubleParamP m_inner, m_outer;
+  TIntParamP m_count;  // How many joints are used; all when not bound
 
   //! Creates the parameters of jointCount joints (at least 2) and binds them
   //! to fx as prefix + "point1" to "pointN", prefix + "rest1" to "restN",
   //! then prefix + "inner" and prefix + "outer". By default, the joints are
   //! evenly spaced along a horizontal line from -halfLength to halfLength,
   //! and the moved ones are on the rest ones.
+  //! With layoutCount, the first layoutCount joints span the line and the
+  //! others continue it at the same spacing, for a count that can grow.
   void bind(TFx *fx, const std::string &prefix, int jointCount,
-            double halfLength) {
-    const double step = 2.0 * halfLength / (jointCount - 1);
+            double halfLength, int layoutCount = 0) {
+    if (layoutCount < 2) layoutCount = jointCount;
+    const double step = 2.0 * halfLength / (layoutCount - 1);
 
     m_point.resize(jointCount);
     for (int i = 0; i < jointCount; ++i) {
@@ -440,13 +466,26 @@ public:
 
   int getJointCount() const { return (int)m_point.size(); }
 
+  //! Binds a joint count parameter as name: only the first joints, from 2 to
+  //! all of them, are used. Without it all the joints are.
+  void bindCount(TFx *fx, const std::string &name, int defaultCount) {
+    m_count = TIntParamP(defaultCount);
+    m_count->setValueRange(2, getJointCount());
+    bindParam(fx, name, m_count);
+  }
+
+  int getActiveCount() const {
+    const int all = getJointCount();
+    return m_count ? std::min(all, std::max(2, (int)m_count->getValue())) : all;
+  }
+
   //! Builds the bone deformer at frame, in the space that aff maps the fx's
   //! space to, and fills rest with the rest joints in that space. Returns
   //! null, with rest empty, when the Source passes through unchanged: the
   //! joints are on the rest ones.
   std::shared_ptr<const TDeformer> buildDeformer(
       double frame, const TAffine &aff, std::vector<TPointD> &rest) const {
-    const int jointCount = getJointCount();
+    const int jointCount = getActiveCount();
 
     std::vector<TPointD> joints(jointCount);
     rest.resize(jointCount);
@@ -477,7 +516,7 @@ public:
   //! dragged where they lie on the rest ones.
   int getParamUIs(TParamUIConcept *concepts,
                   const std::string &labelPrefix) const {
-    const int jointCount = getJointCount();
+    const int jointCount = getActiveCount();
 
     for (int i = 0; i < jointCount; ++i) {
       std::string suffix = std::to_string(i + 1);
@@ -497,7 +536,7 @@ public:
       joint.m_label          = labelPrefix + "Joint " + suffix;
       joint.m_params.push_back(m_point[i]);
     }
-    return conceptCount();
+    return 3 * jointCount;
   }
 
   int conceptCount() const { return 3 * getJointCount(); }

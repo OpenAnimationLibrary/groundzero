@@ -131,7 +131,7 @@ jobs:
         fi
         # All benchmark lines in one notice: a step shows at most 10 notices
         cd toonz/build
-        bench=$(xvfb-run -a ctest -V --timeout 900 -R '^(scenebench)$' 2>/dev/null | grep -o 'NOTICE:.*' | sed 's/^NOTICE: //' | head -60 | enc)
+        bench=$(xvfb-run -a ctest -V --timeout 900 -R '^(scenebench|seexpr_animation)$' 2>/dev/null | grep -o 'NOTICE:.*' | sed 's/^NOTICE: //' | head -60 | enc)
         [ -n "$bench" ] && echo "::notice title=benchmark::${bench}" || true
 
     - name: Upload test diagnostics and candidate FX images
@@ -327,7 +327,10 @@ jobs:
               out = pre; for (i = 1; i <= k; i++) out = out lv[i]
               print out; next
             }
-            { print }' "$1"
+            # A level gets a random cast id (QUuid, txshlevel.cpp) when the
+            # scene is made, so two builds making the same scene write
+            # different ids: compare that the id is there, not its value
+            { gsub(/castId="[^"]*"/, "castId=\"*\""); print }' "$1"
         }
         compared=0; identical=0; different=0; shown=0; pngs=0
         : > differing.txt
@@ -459,7 +462,7 @@ jobs:
         # what it already fetched
         ok=0
         for attempt in 1 2 3; do
-          if mkdir -p /home/runner/apt-archives/partial && timeout 480 sudo apt-get install -o Dir::Cache::archives=/home/runner/apt-archives -y -q --no-install-recommends -o Dpkg::Use-Pty=0 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential bison flex cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev > apt.log 2>&1; then ok=1; break; fi
+          if mkdir -p /home/runner/apt-archives/partial && timeout 480 sudo apt-get install -o Dir::Cache::archives=/home/runner/apt-archives -y -q --no-install-recommends -o Dpkg::Use-Pty=0 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential bison flex cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev xvfb > apt.log 2>&1; then ok=1; break; fi
           echo "::warning title=Qt 6 packages::attempt $attempt failed: $(tail -n 2 apt.log | tr '\n' ' ')"
           sudo dpkg --configure -a > /dev/null 2>&1 || true
         done
@@ -490,13 +493,15 @@ jobs:
         CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
         make -j $(nproc)
 
+    # With the tests, which run below: the first step of running the
+    # application with Qt 6 (master plan D1, roadmap F1)
     - name: Build with Qt 6
       run: |
         export CCACHE_DIR=/home/runner/.ccache
         mkdir -p toonz/build
         cd toonz/build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DOT_QT_MAJOR_VERSION=6 -DWITH_TRANSLATION=OFF 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DOT_QT_MAJOR_VERSION=6 -DWITH_TRANSLATION=OFF -DBUILD_TESTS=ON 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
     - name: Report Qt 6 build errors
@@ -527,3 +532,36 @@ jobs:
         grep -E 'CMake Error|undefined reference' errors.txt | head -5 | while IFS= read -r line; do
           echo "::error::${line}"
         done
+
+    # The tests of the Qt 6 build, also when some targets failed to build
+    # (their tests are then reported as not run). The job may fail: its
+    # annotations list the failing tests with the end of their output.
+    - name: Run tests with Qt 6
+      id: qt6tests
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      run: |
+        cd toonz/build
+        set -o pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          ctest --output-on-failure --no-tests=error --timeout 900 2>&1 | tee "$GITHUB_WORKSPACE/ctest-qt6.log"
+
+    - name: Report Qt 6 test results
+      if: ${{ !cancelled() }}
+      run: |
+        log="$GITHUB_WORKSPACE/ctest-qt6.log"
+        [ -f "$log" ] || exit 0
+        enc() { sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g'; }
+        total=$(grep -E 'tests passed, [0-9]+ tests failed' "$log" || true)
+        echo "::notice title=Qt 6 ctest::${total:-no summary}"
+        failed="toonz/build/Testing/Temporary/LastTestsFailed.log"
+        if [ -f "$failed" ]; then
+          cut -d: -f2 "$failed" | head -20 | while IFS= read -r name; do
+            out=$(cd toonz/build && xvfb-run -a -s '-screen 0 1280x1024x24' ctest -R "^${name}\$" --output-on-failure --timeout 900 2>&1 | tail -n 40 | enc)
+            echo "::error title=Qt 6 test ${name} failed::${out}"
+          done
+        fi
+
+    - name: Fail if Qt 6 tests failed
+      if: ${{ !cancelled() && steps.qt6tests.outcome == 'failure' }}
+      run: exit 1

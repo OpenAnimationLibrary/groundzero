@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #ifdef _WIN32
@@ -58,14 +59,23 @@ template <typename Pixel> TRasterPT<Pixel> rendered(
     throw std::runtime_error("render fixture requires a native expression effect");
   return image;
 }
-template <typename Pixel> void expect(const Pixel &pixel, double r, double g, double b, double a) {
+// Reports where it was called and both pixels, so a CI failure names its check
+template <typename Pixel> void expect(const Pixel &pixel, double r, double g, double b, double a,
+                                      const char *where = "") {
   const double maximum = Pixel::maxChannelValue;
   const double epsilon = std::is_same<Pixel, TPixelF>::value ? 0.000003 : 1.5 / maximum;
-  require(std::abs(double(pixel.r) / maximum - r) < epsilon &&
-              std::abs(double(pixel.g) / maximum - g) < epsilon &&
-              std::abs(double(pixel.b) / maximum - b) < epsilon &&
-              std::abs(double(pixel.m) / maximum - a) < epsilon,
-          "rendered pixel differs from the analytic result");
+  if (std::abs(double(pixel.r) / maximum - r) < epsilon &&
+      std::abs(double(pixel.g) / maximum - g) < epsilon &&
+      std::abs(double(pixel.b) / maximum - b) < epsilon &&
+      std::abs(double(pixel.m) / maximum - a) < epsilon)
+    return;
+  std::ostringstream message;
+  message << "rendered pixel differs from the analytic result";
+  if (*where) message << " (" << where << ")";
+  message << ": got " << double(pixel.r) / maximum << ',' << double(pixel.g) / maximum << ','
+          << double(pixel.b) / maximum << ',' << double(pixel.m) / maximum
+          << " expected " << r << ',' << g << ',' << b << ',' << a;
+  throw std::runtime_error(message.str());
 }
 class Source final : public TStandardRasterFx {
   TRasterP m_image;
@@ -141,6 +151,150 @@ template <typename Pixel> void checkColorAndSampling() {
   document(fx, "sample_rgb(2,0)", "1");
   bool rejected = false; try { rendered<Pixel>(fx, 1, 1); } catch (const TException &) { rejected = true; }
   require(rejected, "sampler silently exceeded its declared radius");
+}
+
+// The renderer computes only the part of a tile inside the effect's bounds, so
+// the bounds must cover every pixel a sampler or an edge mode can colour.
+void checkSampledBounds() {
+  TRaster32P input(3, 1); input->fill(TPixel32::Red);
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new Source(input));
+  const TRectD sourceBox(0, 0, 3, 1);
+  auto bounds = [&]() {
+    TRectD box;
+    require(fx.getBBox(0, box, TRenderSettings()), "Expression Color reported no bounds");
+    return box;
+  };
+  document(fx, "$src", "$a");
+  require(bounds() == sourceBox, "an expression that does not sample changed the Source bounds");
+  document(fx, "sample_rgb(-4,0)", "sample_alpha(-4,0)");
+  set(fx, "samplingRadius", 4);
+  const TRectD sampled = bounds();
+  require(sampled.x0 <= -5 && sampled.x1 >= 8 && sampled.y0 <= -5 && sampled.y1 >= 6,
+          "sampled pixels outside the Source were clipped by the bounds");
+  // The pixel four to the left of the Source's last pixel is outside the
+  // Source and takes its colour.
+  TRenderSettings scaled; scaled.m_affine = TScale(2);
+  TRectD scaledBox;
+  require(fx.getBBox(0, scaledBox, scaled) && scaledBox.x1 >= 16,
+          "the sampled bounds did not follow the render transform");
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(6, 0))->pixels(0)[0], 1, 0, 0, 1,
+         "sampled pixel outside the Source");
+  choice(fx, "edgeMode", 1);
+  // getBBox rounds to integers, which leaves an infinite box unchanged
+  const TRectD clamped = bounds();
+  require(clamped.x0 <= -1e6 && clamped.x1 >= 1e6 && clamped.y0 <= -1e6 && clamped.y1 >= 1e6,
+          "an edge mode was clipped to the Source bounds");
+  choice(fx, "edgeMode", 0);
+  fx.getInputPort("Source")->setFx(nullptr);
+  TRectD none;
+  require(!fx.getBBox(0, none, TRenderSettings()) && none.isEmpty(),
+          "Expression Color without a Source reported bounds");
+}
+
+// A Source that honours the render transform, as a level column does: each
+// output pixel shows the image pixel under its centre.
+class TransformedSource final : public TStandardRasterFx {
+  TRaster32P m_image;
+public:
+  explicit TransformedSource(const TRaster32P &image) : m_image(image) {}
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double, const TRenderSettings &) const override { return "seexpr-test-transformed-source"; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(0, 0, m_image->getLx(), m_image->getLy()); return true;
+  }
+  void compute(TTile &tile, double, const TRenderSettings &settings) override {
+    TRaster32P out = tile.getRaster();
+    out->clear();
+    const TAffine inverse = settings.m_affine.inv();
+    for (int y = 0; y < out->getLy(); ++y)
+      for (int x = 0; x < out->getLx(); ++x) {
+        const TPointD local = inverse * (tile.m_pos + TPointD(x + .5, y + .5));
+        const int ix = int(std::floor(local.x)), iy = int(std::floor(local.y));
+        if (ix >= 0 && iy >= 0 && ix < m_image->getLx() && iy < m_image->getLy())
+          out->pixels(y)[x] = m_image->pixels(iy)[ix];
+      }
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
+};
+
+// Under a rotation the Source canvas is a rotated rectangle. Repeating by
+// exactly the Source width must give back the same Source pixel; wrapping in
+// screen coordinates, as before, does not.
+void checkRotatedEdges() {
+  TRaster32P input(8, 4);
+  for (int y = 0; y < 4; ++y)
+    for (int x = 0; x < 8; ++x)
+      input->pixels(y)[x] = TPixel32(30 * x + 10, 60 * y + 10, 200, 255);
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new TransformedSource(input));
+  set(fx, "samplingRadius", 8);
+  choice(fx, "samplingFilter", 0);
+  choice(fx, "edgeMode", 2);
+  TRenderSettings rotated; rotated.m_affine = TRotation(30);
+  document(fx, "$src", "$a");
+  const auto direct = rendered<TPixel32>(fx, 12, 12, TPointD(-3, -1), 0, rotated);
+  document(fx, "sample_rgb(8,0)", "sample_alpha(8,0)");
+  const auto repeated = rendered<TPixel32>(fx, 12, 12, TPointD(-3, -1), 0, rotated);
+  int inside = 0;
+  for (int y = 0; y < 12; ++y)
+    for (int x = 0; x < 12; ++x) {
+      if (direct->pixels(y)[x].m != 255) continue;
+      ++inside;
+      require(repeated->pixels(y)[x] == direct->pixels(y)[x],
+              "Repeat under a rotation did not wrap by the Source width");
+    }
+  require(inside > 10, "the rotated Source was not rendered");
+}
+
+// A Source without bounds has no edge: the edge modes sample it as with
+// transparent edges instead of failing the frame.
+class UnboundedSource final : public TStandardRasterFx {
+public:
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double, const TRenderSettings &) const override { return "seexpr-test-unbounded-source"; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TConsts::infiniteRectD; return true;
+  }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    TRaster32P(tile.getRaster())->fill(TPixel32(0, 0, 255, 255));
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
+};
+
+void checkUnboundedSourceEdges() {
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new UnboundedSource);
+  set(fx, "samplingRadius", 4);
+  document(fx, "sample_rgb(-3,0)", "sample_alpha(-3,0)");
+  for (int edge = 1; edge <= 3; ++edge) {
+    choice(fx, "edgeMode", edge);
+    TRectD box;
+    static_cast<TRasterFx *>(fx.getInputPort("Source")->getFx())->getBBox(0, box, TRenderSettings());
+    std::ostringstream where;
+    where << "unbounded Source with edge mode " << edge << ", its getBBox " << box.x0 << ','
+          << box.y0 << ',' << box.x1 << ',' << box.y1;
+    expect(rendered<TPixel32>(fx, 2, 2, TPointD(100, 100))->pixels(0)[0], 0, 0, 1, 1,
+           where.str().c_str());
+  }
+}
+
+// Clamp requests only the part of the Source next to the tile, and still
+// reads its edge pixels.
+void checkClampRegion() {
+  TRaster32P input(64, 4);
+  for (int x = 0; x < 64; ++x) for (int y = 0; y < 4; ++y)
+    input->pixels(y)[x] = TPixel32(x * 4, 0, 0, 255);
+  SeExprColorFx fx; fx.getInputPort("Source")->setFx(new Source(input));
+  set(fx, "samplingRadius", 2);
+  choice(fx, "samplingFilter", 0);
+  choice(fx, "edgeMode", 1);
+  document(fx, "sample_rgb(2,0)", "sample_alpha(2,0)");
+  // Two pixels right of x = 62.5 clamps to the last column.
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(62, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1,
+         "clamp next to the Source's last column");
+  // Far right of the Source, samples clamp to the last column as well.
+  expect(rendered<TPixel32>(fx, 1, 1, TPointD(200, 1))->pixels(0)[0], 63 * 4 / 255., 0, 0, 1,
+         "clamp far right of the Source");
 }
 
 void checkControlRangeEdits() {
@@ -669,6 +823,31 @@ void editWhileRendering() {
   worker.get();
   require(concurrent > 1, "the render did not run during the edits");
 }
+// Removed controls stay archived, but only active ones count against the
+// 128-control limit, so replacing controls never locks an effect.
+void checkControlLimit() {
+  SeExprGeneratorFx fx;
+  set(fx, "width", 2); set(fx, "height", 2);
+  for (int round = 0; round < 200; ++round) {
+    QJsonObject gain = scalar(QString("gain_%1").arg(round).toUtf8().constData(), .25);
+    gain["name"] = "gain";
+    document(fx, "[$gain,0,0]", "1", {gain});
+  }
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(-1, -1))->pixels(0)[0], .25, 0, 0, 1);
+  QJsonArray many;
+  for (int index = 0; index <= 128; ++index)
+    many.append(scalar(QString("c%1").arg(index).toUtf8().constData(), 0));
+  SeExprGeneratorFx crowded;
+  document(crowded, "[0,0,0]", "1", many);
+  bool rejected = false;
+  try {
+    rendered<TPixelF>(crowded, 1, 1);
+  } catch (const TException &failure) {
+    rejected = QString::fromStdWString(failure.getMessage()).toStdString().find("too many expression controls") != std::string::npos;
+  }
+  require(rejected, "129 active controls were accepted");
+}
+
 void checkConcurrentDocumentEdits() {
   // Each effect accepts about a hundred new controls; repeat to catch races.
   for (int round = 0; round < 8; ++round) editWhileRendering();
@@ -1008,12 +1187,17 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary; require(temporary.isValid(), "temporary fixture directory is unavailable");
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
+    checkRotatedEdges();
+    checkUnboundedSourceEdges();
+    checkClampRegion();
+    checkSampledBounds();
     checkControlRangeEdits(); checkAnimationCurveControls(temporary.path()); checkNamespacedRenderAttributes();
     checkSurfaceHostBoundary();
     checkNamedControlsAndPersistence(temporary.path());
     checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
     checkDoubleUnderscoreIds(temporary.path());
     checkConcurrentDocumentEdits();
+    checkControlLimit();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

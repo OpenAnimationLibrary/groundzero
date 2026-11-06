@@ -19,6 +19,7 @@ class TObjectHandle;
 class TColumnHandle;
 class TSceneHandle;
 class TFrameHandle;
+class TApplication;
 class TXsheet;
 class StageSchematicNode;
 class StageSchematicSplineNode;
@@ -94,6 +95,7 @@ class StageSchematicScene final : public SchematicScene {
   TSceneHandle *m_sceneHandle;
   TFrameHandle *m_frameHandle;
   TFxHandle *m_fxHandle = nullptr;
+  TApplication *m_app   = nullptr;  //!< For the fx commands of the Rig view
   TPointD m_nextNodePos;
   TPointD m_firstPos;
   QMap<TStageObjectId, StageSchematicNode *> m_nodeTable;
@@ -136,6 +138,7 @@ public:
   void setObjectHandle(TObjectHandle *objHandle);
   void setColumnHandle(TColumnHandle *colHandle);
   void setFxHandle(TFxHandle *fxHandle);
+  void setApplication(TApplication *app) { m_app = app; }
   void setSceneHandle(TSceneHandle *sceneHandle) {
     m_sceneHandle = sceneHandle;
   }
@@ -200,6 +203,11 @@ private:
   //! Rig view badge clicks: selects a deformer fx and opens the FX settings,
   //! or opens the panel of the offset layers or of the master controllers.
   void openRigDeformer(const std::vector<TFxP> &fxs);
+  // The deformer nodes of the Rig view
+  void addRigDeformer(const TStageObjectId &columnId, const std::string &type);
+  void removeRigDeformer(const TFxP &fx);
+  void toggleRigDeformer(const TFxP &fx);
+  void moveRigDeformer(const TFxP &fx, bool towardColumn);
   void openRigPanel(const TStageObjectId &id, const char *commandId);
 
   //! Search nodes in the TStageObjectTree that are roots of a tree.
