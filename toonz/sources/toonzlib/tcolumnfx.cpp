@@ -52,6 +52,7 @@
 #include "toonz/dpiscale.h"
 #include "toonz/timeremap.h"
 #include "toonz/strokedeformerdata.h"
+#include "tstroke.h"
 #include "imagebuilders.h"
 
 // 4.6 compatibility - sandor fxs
