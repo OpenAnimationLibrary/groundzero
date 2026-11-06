@@ -1384,6 +1384,9 @@
   <item>"STD_edgeExtendFx.radius" "Radius" </item>
   <item>"STD_edgeExtendFx.solid" "Solid From Alpha" </item>
   <item>"STD_edgeExtendFx.extendAlpha" "Extend Alpha" </item>
+  <item>"STD_autoMatteFx" "Auto Matte" </item>
+  <item>"STD_autoMatteFx.threshold" "Line Threshold" </item>
+  <item>"STD_autoMatteFx.color" "Color" </item>
   <item>"STD_matteChokeFx" "Matte Choke" </item>
   <item>"STD_matteChokeFx.amount" "Choke / Spread" </item>
   <item>"STD_matteChokeFx.feather" "Feather" </item>
