@@ -521,11 +521,14 @@ void testClosedSourceXml(const QDir &root) {
 
 bool generatedTransferExpectedNoop(const QString &group, const QJsonObject &source) {
   if (group != "generated-transfer") return false;
-  const bool zeroFlow = source.value("flow") == QJsonValue(0);
-  require(source.value("expectUnchanged") == QJsonValue(zeroFlow),
-          "Generated transfer no-op expectation must match its explicit static zero flow");
-  if (zeroFlow) {
-    const auto options = source.value("overrides").toObject();
+  const auto options = source.value("overrides").toObject();
+  // Original source observations establish inactive FlowValue in build-up.
+  // A zero scalar is a no-op only for an explicitly authored static Wash row.
+  const bool zeroWashFlow = source.value("flow") == QJsonValue(0) &&
+                            options.value("PaintOpAction") == QJsonValue("0");
+  require(source.value("expectUnchanged") == QJsonValue(zeroWashFlow),
+          "Generated transfer no-op expectation must match explicit static zero-flow Wash");
+  if (zeroWashFlow) {
     bool scalarOk = false;
     const double effectiveScalar = options.value("FlowValue").toString().toDouble(&scalarOk);
     require(scalarOk && effectiveScalar == 0 && source.value("delivery") == QJsonValue("Node.paintLine") &&
@@ -533,10 +536,11 @@ bool generatedTransferExpectedNoop(const QString &group, const QJsonObject &sour
                 !source.contains("sensorProbe") && !source.contains("timedProbe") &&
                 (!options.contains("PressureFlow") || options.value("PressureFlow") == QJsonValue("false")) &&
                 source.value("generatedControlProbe").toObject().value("objective") == QJsonValue("static flow 0"),
-            "Generated zero-flow exception requires the authored inactive-curve Node control");
+            "Generated zero-flow Wash exception requires the authored inactive-curve Node control");
   }
-  return zeroFlow;
+  return zeroWashFlow;
 }
+
 bool generatedTransferRasterMatchesExpectation(bool expectedNoop, const QJsonObject &metrics) {
   if (expectedNoop)
     return metrics.value("transparentBase") == QJsonValue(true) &&
@@ -1039,10 +1043,15 @@ int main(int argc, char **argv) {
       QImage reference = base, candidate = base;
       const QJsonObject zeroFlowCase{{"flow", 0}, {"expectUnchanged", true},
           {"delivery", "Node.paintLine"}, {"background", "transparent"},
-          {"overrides", QJsonObject{{"FlowValue", "0"}}},
+          {"overrides", QJsonObject{{"FlowValue", "0"}, {"PaintOpAction", "0"}}},
           {"generatedControlProbe", QJsonObject{{"objective", "static flow 0"}}}};
       require(generatedTransferExpectedNoop("generated-transfer", zeroFlowCase),
-              "Authored static zero-flow control lost its no-op declaration");
+              "Explicit static zero-flow Wash control lost its no-op declaration");
+      auto zeroBuildUpCase = zeroFlowCase;
+      zeroBuildUpCase["overrides"] = QJsonObject{{"FlowValue", "0"}, {"PaintOpAction", "1"}};
+      zeroBuildUpCase["expectUnchanged"] = false;
+      require(!generatedTransferExpectedNoop("generated-transfer", zeroBuildUpCase),
+              "Measured build-up FlowValue0 was incorrectly classified as a no-op");
       for (bool dynamic : {false, true}) {
         auto forged = zeroFlowCase;
         if (dynamic) forged["sensorProbe"] = QJsonObject{{"target", "Flow"}};
@@ -1052,12 +1061,13 @@ int main(int argc, char **argv) {
         catch (const std::runtime_error &) { rejected = true; }
         require(rejected, "Generated no-op exception accepted undeclared or dynamic zero flow");
       }
-      // Real decoded/candidate images participate even when zero flow is a
-      // deliberate no-op; a missing source image still fails ordinary decoding.
+      // Real decoded/candidate images participate in explicit Wash no-op
+      // comparisons; missing images still fail ordinary decoding. Build-up
+      // FlowValue0 belongs to the ordinary nonempty comparison below.
       const auto noPaint = compare(base, reference, candidate, directory.filePath("generated-zero-flow.png"));
       require(generatedTransferRasterMatchesExpectation(true, noPaint) &&
                   !generatedTransferRasterMatchesExpectation(false, noPaint),
-              "Generated zero flow lost its exact no-op gate or excused a nonzero-flow empty stroke");
+              "Generated zero-flow Wash lost its exact no-op gate or excused empty build-up paint");
       candidate.setPixel(0, 0, qRgba(0, 0, 255, 1));
       const auto strayNoop = compare(base, reference, candidate, directory.filePath("generated-zero-flow-stray.png"));
       require(!generatedTransferRasterMatchesExpectation(true, strayNoop),

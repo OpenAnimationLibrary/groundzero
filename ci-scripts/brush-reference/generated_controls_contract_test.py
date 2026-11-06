@@ -59,21 +59,28 @@ class GeneratedControlContract(unittest.TestCase):
         transfer = self.manifests["generated-transfer"]["cases"]
         self.assertEqual(sum("sensorProbe" in case for case in transfer), 80)
 
-    def test_only_explicit_static_zero_flow_controls_expect_unchanged_pixels(self):
-        zeros = []
+    def test_zero_flow_build_up_still_requires_paint_and_only_explicit_wash_may_be_empty(self):
+        build_up_zeros = []
+        wash_zeros = []
         for group, fixture in self.manifests.items():
             for case in fixture["cases"]:
-                expected = group == "generated-transfer" and case["flow"] == 0
+                action = int(case["overrides"]["PaintOpAction"])
+                expected = group == "generated-transfer" and action == 0 and case["flow"] == 0
                 self.assertIs(case["expectUnchanged"], expected)
-                if expected:
-                    zeros.append(case)
+                if group == "generated-transfer" and case["flow"] == 0:
+                    (wash_zeros if action == 0 else build_up_zeros).append(case)
                     self.assertEqual(case["generatedControlProbe"]["objective"], "static flow 0")
                     self.assertEqual(float(case["overrides"]["FlowValue"]), 0)
                     self.assertEqual(case["delivery"], "Node.paintLine")
                     self.assertNotIn("sensorProbe", case)
                     self.assertNotIn("timedProbe", case)
                     self.assertIs(case["generatedControlProbe"]["sourceParityQualified"], False)
-        self.assertEqual(len(zeros), 8)  # Four authored families at both measured sizes.
+        # Keep all 216 original cases. Their eight FlowValue0 controls use
+        # build-up; measured source semantics require visible paint for each.
+        self.assertEqual(len(self.manifests["generated-transfer"]["cases"]), 216)
+        self.assertEqual(len(build_up_zeros), 8)
+        self.assertEqual(wash_zeros, [])
+        self.assertTrue(all(case["expectUnchanged"] is False for case in build_up_zeros))
 
     def test_incomplete_or_forged_matrix_cannot_change_implementation_scope(self):
         for group, fixture in self.manifests.items():

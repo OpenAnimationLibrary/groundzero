@@ -10,6 +10,9 @@ on:
       - 'toonz/sources/toonzlib/tests/rasterbrush*'
       - 'ci-scripts/brush-parser/**'
       - 'ci-scripts/brush-reference/annotations.py'
+      - 'ci-scripts/brush-reference/benchmark.cpp'
+      - 'ci-scripts/brush-reference/benchmark_report.py'
+      - 'ci-scripts/brush-reference/benchmark_report_test.py'
       - '.github/workflows/raster_brush_compatibility.yml'
   workflow_dispatch:
     inputs:
@@ -31,6 +34,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Validate deployment signing inventory and metadata policy
         run: python3 ci-scripts/brush-parser/sign_macos_deployment_test.py
+      - name: Validate engine CPU lifecycle report contracts
+        run: python3 ci-scripts/brush-reference/benchmark_report_test.py
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'

@@ -5054,6 +5054,7 @@ void testNativeSpacingAndWorkLimits() {
               !guard.touched,
           "extreme independent mask work was not bounded before raster access");
 }
+#include "rasterbrushnativewet_spatial_test.h"
 #include "rasterbrushscatter_test.h"
 }  // namespace
 int main() {
@@ -5150,6 +5151,10 @@ int main() {
       {"testSourceWetDisabledControls", testSourceWetDisabledControls},
       {"testLongWetTrace", testLongWetTrace},
       {"testNativeWetAnalyticalDrift", testNativeWetAnalyticalDrift},
+      {"testNativeWetSpatialDullingOracle", testNativeWetSpatialDullingOracle},
+      {"testNativeWetSpatialSmearOracle", testNativeWetSpatialSmearOracle},
+      {"testNativeWetZeroWeightPickup", testNativeWetZeroWeightPickup},
+      {"testNativeWetNormalAlphaLockOracle", testNativeWetNormalAlphaLockOracle},
   };
   int failures = 0;
   for (const auto &test : cases) {

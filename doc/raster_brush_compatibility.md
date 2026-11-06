@@ -1,5 +1,25 @@
 # Regular-raster brush compatibility contract
 
+## Current phase scope amendment: 2026-11-06
+
+The current PR recovery phase is **stabilization of existing native brush support
+and already implemented bounded Krita candidates**. Photoshop P2711/D behavior
+and broader K/S compatibility research are deferred by explicit scope decision.
+Existing ABR decoding, extraction and native conversion remain available with
+their current limitations. No active source profile is promoted by this decision.
+
+The original RCP1 matrices below remain the future compatibility target, not a
+requirement to implement every missing source behavior in this phase. They still
+define semantics and evidence standards for any capability actually claimed.
+Existing regression, durability, parser-budget and isolation protections remain
+in force. Unknown source behavior, the unresolved strict macOS memory guarantee
+and absent device/reference evidence remain disclosed; they are not marked done.
+Completing stabilization must not be described as full RCP1 completion or broad
+Photoshop/Krita parity. The operative steps are in the
+[stabilization plan](raster_brush_recovery_plan.md).
+
+## Original target and implementation history
+
 Status: implementation in progress against the scoped independent compatibility contract.
 ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
 Strict experimental K5341 component profiles are implemented; none of the full
@@ -143,7 +163,7 @@ Internally store premultiplied color C and alpha A in [0,1]. Unpremultiply only 
 
 Quantize to RGBA8 only at specified raster commit boundaries: clamp 0–1, round half up using floor(255*x+0.5). Keep stroke buffers at float32 minimum; the deterministic reference path uses float64 scalar arithmetic with fixed operation ordering and no fast-math. Erase multiplies destination premultiplied RGB and alpha by (1-coverage*flow); alpha lock preserves destination alpha and confines color deposition to existing coverage. Store hidden RGB at zero when alpha is zero. The adapter must explicitly reconcile the actual host raster convention; it must not assume that normalization alone establishes premultiplication.
 
-Native wet is an original Groundzero brush, not an assertion of Photoshop Mixer or Krita algorithm parity. State R is a premultiplied RGBA reservoir, initially selected foreground at configured load alpha. At each dab sample premultiplied Q from the pre-deposit raster using the normalized tip weights (transparent samples contribute alpha zero). Update R1=(1-p)*R+p*Q for pickup p∈[0,1]; form paint P=(1-c)*R1+c*F for color rate c; deposit P through mask/flow/opacity using Normal composition; then set R=(1-d)*R1+d*F for reload d. Smear native mode uses a transported previous-dab tile field in place of uniform Q/R; Dulling native mode uses a weighted average reservoir. Native wet defaults are p=0.5,c=0.25,d=0, and all state resets on stroke end/cancel. These settings are editable/native presets only. The four K5341 profiles need their own measured parameter relationships; this formula is not used to conceal a missing emulation.
+Native wet is an original Groundzero brush, not an assertion of Photoshop Mixer or Krita algorithm parity. State R is a premultiplied RGBA reservoir, initially selected foreground at configured load alpha. At each dab sample premultiplied Q from the pre-deposit raster using the normalized tip weights (transparent samples contribute alpha zero). Update R1=(1-p)*R+p*Q for pickup p∈[0,1]; form paint P=(1-c)*R1+c*F for color rate c; deposit P through mask/flow/opacity using Normal composition; then set R=(1-d)*R1+d*F for reload d. Smear native mode uses a transported previous-dab tile field in place of uniform Q/R; Dulling native mode uses a weighted average reservoir. For native Dulling, when the total tip weight is zero, define Q=(0,0,0,0). Pickup and reload still update the reservoir; zero mask coverage deposits no pixels. Native wet defaults are p=0.5,c=0.25,d=0, and all state resets on stroke end/cancel. These settings are editable/native presets only. The four K5341 profiles need their own measured parameter relationships; this formula is not used to conceal a missing emulation.
 
 ### Exact parity measurement protocol
 

@@ -109,9 +109,15 @@ jobs:
           for row in result['records']:
               print('::notice title=Native brush measurement::' + json.dumps(row))
           PY
+          report_status=0
+          python3 ci-scripts/brush-reference/benchmark_report.py brush-metrics.json || report_status=$?
           if [ "$metric_status" -ne 0 ]; then
             echo "::error::Native benchmark exited with status $metric_status"
             exit "$metric_status"
+          fi
+          if [ "$report_status" -ne 0 ]; then
+            echo "::error::Engine lifecycle report failed its strict measurement contract"
+            exit "$report_status"
           fi
       - name: Qualify hostile multi-package import peak memory
         shell: bash

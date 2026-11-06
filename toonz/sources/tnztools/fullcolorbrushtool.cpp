@@ -1,6 +1,7 @@
 
 
 #include "fullcolorbrushtool.h"
+#include "rasterbrushsourceeditor.h"
 #include <atomic>
 #include "toonz/rasterbrushimport.h"
 #include "toonz/rasterbrushprofile.h"
@@ -443,31 +444,136 @@ std::uint64_t resolveNativeStrokeSeed(const RasterBrush::Preset &p) {
 }
 
 class NativeBrushPreview final : public QWidget, public RasterBrush::Surface {
-  std::vector<RasterBrush::Pixel> pixels;
+  enum class InputOwner { None, Mouse, Tablet };
+  std::vector<RasterBrush::Pixel> pixels, beforeStroke;
   std::unique_ptr<RasterBrush::Stroke> stroke;
   RasterBrush::Preset preset;
+  RasterBrush::Sample lastSample;
+  InputOwner owner = InputOwner::None;
+  quint64 tabletId = 0, inputGeneration = 0;
+  QTimer *airbrushTimer;
+  QMetaObject::Connection timerConnection;
   TTimerTicks startTicks = 0;
-  double lastTime        = -TToolTimer::step;
-  bool tiltObserved      = false;
-  void beginInput() {
-    startTicks   = TToolTimer::ticks();
-    lastTime     = -TToolTimer::step;
-    tiltObserved = false;
+  double lastTime = -TToolTimer::step;
+  bool tiltObserved = false, hasLastSample = false, deferredTap = false;
+  void stopInput(bool rollback) {
+    ++inputGeneration;
+    airbrushTimer->stop();
+    QObject::disconnect(timerConnection);
+    if (stroke) stroke->cancel();
+    stroke.reset();
+    if (rollback && beforeStroke.size() == pixels.size()) pixels.swap(beforeStroke);
+    std::vector<RasterBrush::Pixel>().swap(beforeStroke);
+    owner = InputOwner::None;
+    hasLastSample = tiltObserved = false;
+    tabletId = 0;
+  }
+  void failInput(const std::string &message) {
+    stopInput(true);
+    setToolTip(tr("Brush preview failed: %1").arg(QString::fromStdString(message)));
+    update();
+  }
+  void beginInput(InputOwner inputOwner, quint64 identity = 0) {
+    beforeStroke = pixels;
+    auto resolved = preset;
+    resolved.seed = resolveNativeStrokeSeed(preset);
+    stroke.reset(new RasterBrush::Stroke(*this, resolved));
+    owner = inputOwner;
+    tabletId = identity;
+    startTicks = TToolTimer::ticks();
+    lastTime = -TToolTimer::step;
+    tiltObserved = hasLastSample = false;
+    deferredTap = RasterBrush::profileDescriptorV1(preset.profile)
+                      .needsDeferredTapDedup(preset.sourceMasked.enabled);
+    setFocus(Qt::MouseFocusReason);
   }
   double inputTime() {
-    lastTime =
-        std::max(lastTime + TToolTimer::step,
-                 double(TToolTimer::ticks() - startTicks) * TToolTimer::step);
+    lastTime = std::max(lastTime + TToolTimer::step,
+        double(TToolTimer::ticks() - startTicks) * TToolTimer::step);
     return lastTime;
+  }
+  bool submit(RasterBrush::Sample sample, bool terminal = false) {
+    if (!stroke) return false;
+    // Same terminal policy as the real tool: only an unchanged deferred tap
+    // (including contact-loss pressure zero) omits the appended pen-up point.
+    // Changed/moved releases and native elapsed-time input reach the renderer.
+    const bool samePressure = sample.pressure == lastSample.pressure ||
+        (sample.hasPressure && lastSample.hasPressure && sample.pressure == 0 &&
+         lastSample.pressure > 0);
+    const bool duplicate = terminal && deferredTap && hasLastSample &&
+        sample.x == lastSample.x && sample.y == lastSample.y && samePressure &&
+        sample.hasPressure == lastSample.hasPressure &&
+        sample.tiltX == lastSample.tiltX && sample.tiltY == lastSample.tiltY &&
+        sample.hasTilt == lastSample.hasTilt &&
+        sample.rotation == lastSample.rotation && sample.hasRotation == lastSample.hasRotation;
+    if (!duplicate && !stroke->add(sample)) {
+      const auto error = stroke->error();
+      failInput(error);
+      return false;
+    }
+    if (!duplicate) {
+      lastSample = sample;
+      hasLastSample = true;
+    }
+    if (terminal) {
+      const bool success = stroke->finish();
+      const auto error = stroke->error();
+      if (!success) {
+        failInput(error);
+        return false;
+      }
+      stopInput(false);
+    }
+    update();
+    return true;
+  }
+  void startAirbrush() {
+    if (!stroke || !hasLastSample || preset.airbrushRate <= 0) return;
+    const bool delivered = RasterBrush::profileDescriptorV1(preset.profile).usesDeliveredTimer();
+    airbrushTimer->setInterval(delivered ? int(std::lround(1000 / preset.airbrushRate)) : 8);
+    const auto generation = inputGeneration;
+    timerConnection = QObject::connect(airbrushTimer, &QTimer::timeout, this,
+        [this, generation, delivered]() {
+          // A timeout queued for an ended/configured stroke cannot paint a
+          // later contact, even if a new owner has already pressed.
+          if (generation != inputGeneration || !stroke || !hasLastSample ||
+              owner == InputOwner::None) return;
+          auto sample = lastSample;
+          sample.time = inputTime();
+          sample.timerTick = delivered;
+          submit(sample);
+        });
+    airbrushTimer->start();
+  }
+  static quint64 tabletIdentity(const QTabletEvent *event) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return quint64(reinterpret_cast<quintptr>(event->pointingDevice()));
+#else
+    return quint64(event->uniqueId());
+#endif
+  }
+  RasterBrush::Sample mouseSample(const QMouseEvent *event) {
+    RasterBrush::Sample sample;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF position = event->position();
+#else
+    const QPointF position = event->localPos();
+#endif
+    sample.x = position.x(); sample.y = position.y(); sample.time = inputTime();
+    return sample;
   }
 
 public:
   explicit NativeBrushPreview(QWidget *parent)
-      : QWidget(parent), pixels(320 * 140) {
+      : QWidget(parent), pixels(320 * 140), airbrushTimer(new QTimer(this)) {
     setObjectName("nativeBrushScratchpad");
     setFixedSize(320, 140);
     setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
+    airbrushTimer->setObjectName("nativeBrushScratchpadTimer");
+    airbrushTimer->setTimerType(Qt::PreciseTimer);
   }
+  ~NativeBrushPreview() override { stopInput(false); }
   int width() const override { return 320; }
   int height() const override { return 140; }
   bool prepare(int, int, int, int) override { return true; }
@@ -478,27 +584,26 @@ public:
     pixels[size_t(y) * 320 + x] = p;
   }
   void clear() {
-    stroke.reset();
+    stopInput(false);
     pixels.assign(320 * 140, {});
     update();
   }
   void configure(const RasterBrush::Preset &p) {
-    preset = p;
     clear();
+    preset = p;
     RasterBrush::Stroke demo(*this, preset);
     for (int i = 0; i < 240; ++i) {
       RasterBrush::Sample s;
-      s.x           = 20 + i;
-      s.y           = 70 + std::sin(i * .025) * 25;
-      s.time        = i / 240.0;
-      s.pressure    = .2 + .8 * std::sin(i / 240.0 * 3.141592653589793);
+      s.x = 20 + i;
+      s.y = 70 + std::sin(i * .025) * 25;
+      s.time = i / 240.0;
+      s.pressure = .2 + .8 * std::sin(i / 240.0 * 3.141592653589793);
       s.hasPressure = true;
-      demo.add(s);
+      if (!demo.add(s)) break;
     }
     if (!demo.finish()) {
       pixels.assign(320 * 140, {});
-      setToolTip(tr("Brush preview failed: %1")
-                     .arg(QString::fromStdString(demo.error())));
+      setToolTip(tr("Brush preview failed: %1").arg(QString::fromStdString(demo.error())));
     }
     update();
   }
@@ -506,9 +611,7 @@ public:
 protected:
   void paintEvent(QPaintEvent *) override {
     QImage im(320, 140, QImage::Format_ARGB32_Premultiplied);
-    auto q = [](double v) {
-      return std::max(0, std::min(255, int(v * 255 + .5)));
-    };
+    auto q = [](double v) { return std::max(0, std::min(255, int(v * 255 + .5))); };
     for (int y = 0; y < 140; ++y)
       for (int x = 0; x < 320; ++x) {
         auto p = read(x, y);
@@ -519,87 +622,87 @@ protected:
     painter.drawImage(0, 0, im);
   }
   void tabletEvent(QTabletEvent *e) override {
+    const auto identity = tabletIdentity(e);
     if (e->type() == QEvent::TabletPress) {
-      auto resolved = preset;
-      resolved.seed = resolveNativeStrokeSeed(preset);
-      stroke.reset(new RasterBrush::Stroke(*this, resolved));
-      beginInput();
+      if (e->button() != Qt::LeftButton || owner != InputOwner::None) { e->accept(); return; }
+      beginInput(InputOwner::Tablet, identity);
     }
-    if (stroke) {
-      RasterBrush::Sample sample;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-      const QPointF position = e->position();
-#else
-      const QPointF position = e->posF();
-#endif
-      sample.x           = position.x();
-      sample.y           = position.y();
-      sample.time        = inputTime();
-      sample.pressure    = e->pressure();
-      sample.hasPressure = true;
-      sample.tiltX       = e->xTilt() / 60.0;
-      sample.tiltY       = e->yTilt() / 60.0;
-
-      sample.rotation = e->rotation() * 3.141592653589793 / 180.0;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-      sample.hasTilt =
-          e->pointingDevice()->hasCapability(QInputDevice::Capability::XTilt) ||
-          e->pointingDevice()->hasCapability(QInputDevice::Capability::YTilt);
-      sample.hasRotation = e->pointingDevice()->hasCapability(
-          QInputDevice::Capability::Rotation);
-#else
-      // Qt 5 has no per-axis capability query. Once observed in this stroke,
-      // preserve the available channel through upright (zero-tilt) samples.
-      tiltObserved       = tiltObserved || e->xTilt() != 0 || e->yTilt() != 0;
-      sample.hasTilt     = tiltObserved;
-      sample.hasRotation = e->deviceType() == QTabletEvent::RotationStylus;
-#endif
-      if (e->type() != QEvent::TabletRelease)
-        stroke->add(sample);
-      else {
-        if (!stroke->finish()) {
-          setToolTip(tr("Brush preview failed: %1")
-                         .arg(QString::fromStdString(stroke->error())));
-          pixels.assign(320 * 140, {});
-        }
-        stroke.reset();
-      }
-      update();
+    // Barrel buttons do not own the tip contact. Releasing an auxiliary
+    // button while the tip remains down must not finish its ongoing stroke.
+    if (e->type() == QEvent::TabletRelease &&
+        (e->button() != Qt::LeftButton || e->buttons().testFlag(Qt::LeftButton))) {
+      e->accept();
+      return;
     }
+    if (owner != InputOwner::Tablet || identity != tabletId || !stroke) {
+      e->accept();
+      return;
+    }
+    RasterBrush::Sample sample;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF position = e->position();
+#else
+    const QPointF position = e->posF();
+#endif
+    sample.x = position.x(); sample.y = position.y(); sample.time = inputTime();
+    sample.pressure = e->pressure(); sample.hasPressure = true;
+    sample.tiltX = e->xTilt() / 60.0; sample.tiltY = e->yTilt() / 60.0;
+    sample.rotation = e->rotation() * 3.141592653589793 / 180.0;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const auto *device = e->pointingDevice();
+    sample.hasTilt = device && (device->hasCapability(QInputDevice::Capability::XTilt) ||
+                                device->hasCapability(QInputDevice::Capability::YTilt));
+    sample.hasRotation = device && device->hasCapability(QInputDevice::Capability::Rotation);
+#else
+    tiltObserved = tiltObserved || e->xTilt() != 0 || e->yTilt() != 0;
+    sample.hasTilt = tiltObserved;
+    sample.hasRotation = e->deviceType() == QTabletEvent::RotationStylus;
+#endif
+    const bool first = !hasLastSample;
+    const bool terminal = e->type() == QEvent::TabletRelease;
+    if (submit(sample, terminal) && first && !terminal) startAirbrush();
     e->accept();
   }
   void mousePressEvent(QMouseEvent *e) override {
     if (e->button() != Qt::LeftButton) return;
-    auto resolved = preset;
-    resolved.seed = resolveNativeStrokeSeed(preset);
-    stroke.reset(new RasterBrush::Stroke(*this, resolved));
-    beginInput();
-    drawAt(e);
+    e->accept();
+    if (owner != InputOwner::None) return;
+    beginInput(InputOwner::Mouse);
+    if (submit(mouseSample(e))) startAirbrush();
+    e->accept();
   }
   void mouseMoveEvent(QMouseEvent *e) override {
-    if (stroke && e->buttons().testFlag(Qt::LeftButton)) drawAt(e);
-  }
-  void mouseReleaseEvent(QMouseEvent *) override {
-    if (stroke && !stroke->finish()) {
-      setToolTip(tr("Brush preview failed: %1")
-                     .arg(QString::fromStdString(stroke->error())));
-      pixels.assign(320 * 140, {});
+    if (owner == InputOwner::Mouse && stroke) {
+      if (e->buttons().testFlag(Qt::LeftButton)) submit(mouseSample(e));
+      else { stopInput(true); update(); }
     }
-    stroke.reset();
-    update();
+    if (owner != InputOwner::None) e->accept();
   }
-  void drawAt(QMouseEvent *e) {
-    RasterBrush::Sample s;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    const QPointF position = e->position();
-#else
-    const QPointF position = e->localPos();
-#endif
-    s.x    = position.x();
-    s.y    = position.y();
-    s.time = inputTime();
-    stroke->add(s);
-    update();
+  void mouseReleaseEvent(QMouseEvent *e) override {
+    if (owner == InputOwner::Mouse && stroke && e->button() == Qt::LeftButton)
+      submit(mouseSample(e), true);
+    e->accept();
+  }
+  bool event(QEvent *e) override {
+    if ((e->type() == QEvent::UngrabMouse && owner == InputOwner::Mouse) ||
+        (e->type() == QEvent::WindowDeactivate && owner != InputOwner::None)) {
+      stopInput(true);
+      update();
+    }
+    return QWidget::event(e);
+  }
+  void keyPressEvent(QKeyEvent *e) override {
+    if (e->key() == Qt::Key_Escape && stroke) {
+      stopInput(true);
+      update();
+      e->accept();
+      return;
+    }
+    QWidget::keyPressEvent(e);
+  }
+  void hideEvent(QHideEvent *e) override {
+    stopInput(true);
+    QWidget::hideEvent(e);
   }
 };
 
@@ -1093,7 +1196,15 @@ bool editNativeBrush(RasterBrush::Record &record) {
   auto scroll = new QScrollArea(&dialog);
   scroll->setWidgetResizable(true);
   auto controls = new QWidget(scroll);
-  auto form     = new QFormLayout(controls);
+  auto controlLayout = new QVBoxLayout(controls);
+  auto sourceControls = new QWidget(controls);
+  auto sourceForm = new QFormLayout(sourceControls);
+  sourceControls->setObjectName("nativeBrushSourceControls");
+  controlLayout->addWidget(sourceControls);
+  auto nativeControls = new QWidget(controls);
+  nativeControls->setObjectName("nativeBrushNativeControls");
+  auto form = new QFormLayout(nativeControls);
+  controlLayout->addWidget(nativeControls);
   scroll->setWidget(controls);
   layout->addWidget(scroll);
   dialog.resize(480, 680);
@@ -1485,6 +1596,12 @@ bool editNativeBrush(RasterBrush::Record &record) {
     }
     refresh();
   });
+  const bool nativeProfile = RasterBrush::profileDescriptorV1(p.profile).isNative();
+  nativeControls->setEnabled(nativeProfile);
+  nativeControls->setVisible(nativeProfile);
+  sourceControls->setVisible(!nativeProfile);
+  if (!nativeProfile)
+    RasterBrushSourceEditor::add(record, sourceControls, sourceForm, refresh);
   auto buttons = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
   layout->addWidget(buttons);

@@ -33,6 +33,7 @@
 #include <QImage>
 #include <QDialog>
 #include <QTimer>
+#include <QPointer>
 #include <QMainWindow>
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -194,6 +195,9 @@ void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
 }
 }  // namespace
 
+#include "rasterbrushcollectionintegrationtest.h"
+#include "rasterbrushsourceeditorintegrationtest.h"
+
 int runRasterBrushIntegrationTest(QMainWindow *window) {
   try {
     checkpoint("importing through the packaged application worker");
@@ -325,7 +329,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
     {
       const auto baseline = raster(level, 1)->clone();
       bool editorSeen = false, scratchQualified = false;
-      QTimer::singleShot(0, [&]() {
+      QObject callbackContext;
+      QTimer::singleShot(0, &callbackContext, [&]() {
         auto dialog =
             qobject_cast<QDialog *>(QApplication::activeModalWidget());
         if (!dialog) return;
@@ -392,7 +397,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         require(tool->onPropertyChanged("Native Brush:"),
                 "cannot select periodic editor fixture");
         bool periodicSeen = false, repeatRestricted = false;
-        QTimer::singleShot(0, [&] {
+        QObject callbackContext;
+        QTimer::singleShot(0, &callbackContext, [&] {
           auto editor =
               qobject_cast<QDialog *>(QApplication::activeModalWidget());
           if (!editor) return;
@@ -402,7 +408,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             editor->reject();
             return;
           }
-          QTimer::singleShot(0, [&] {
+          QTimer::singleShot(0, &callbackContext, [&] {
             auto dynamics =
                 qobject_cast<QDialog *>(QApplication::activeModalWidget());
             if (!dynamics) return;
@@ -436,7 +442,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             editor->reject();
             return;
           }
-          QTimer::singleShot(0, [] {
+          QTimer::singleShot(0, &callbackContext, [] {
             if (auto name = qobject_cast<QInputDialog *>(
                     QApplication::activeModalWidget()))
               name->accept();
@@ -512,7 +518,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "cannot select scratchpad time fixture");
       const auto baseline = raster(level, 1)->clone();
       bool qualified      = false;
-      QTimer::singleShot(0, [&]() {
+      QObject callbackContext;
+      QTimer::singleShot(0, &callbackContext, [&]() {
         auto dialog =
             qobject_cast<QDialog *>(QApplication::activeModalWidget());
         if (!dialog) return;
@@ -568,6 +575,188 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
               "tablet scratchpad changed document or undo");
     }
+    checkpoint("qualifying scratchpad release, contact ownership and timer lifecycle");
+    for (int previewKind : {0, 1, 2, 3}) {
+      const bool deferred = previewKind == 1;
+      const bool timed = previewKind >= 2;
+      RasterBrush::Record fixture;
+      fixture.preset.name = "Original preview lifecycle fixture " + std::to_string(previewKind);
+      fixture.preset.size.value = deferred ? 8 : 16;
+      fixture.preset.spacing = 1;
+      fixture.preset.opacity.value = timed ? .1 : 1;
+      if (deferred) fixture.preset.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+      if (timed) fixture.preset.airbrushRate = 20;
+      if (previewKind == 3) {
+        fixture.preset.profile = "krita-5.3.4.1-airbrush-candidate-1";
+        fixture.preset.airbrushIgnoreSpacing = true;
+      }
+      const QString folder = ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString path = RasterBrush::install(folder, fixture, importError);
+      require(importError.isEmpty() && !path.isEmpty(), "cannot install preview lifecycle fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"), "cannot select preview lifecycle fixture");
+      const auto baseline = raster(level, 1)->clone();
+      bool qualified = false;
+      QPointer<QTimer> timerGuard;
+      QPointer<QWidget> previewGuard;
+      QObject callbackContext;
+      QTimer::singleShot(0, &callbackContext, [&] {
+        auto dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto preview = dialog->findChild<QWidget *>("nativeBrushScratchpad");
+        auto clear = dialog->findChild<QPushButton *>("nativeBrushClearScratchpad");
+        auto demo = dialog->findChild<QPushButton *>("nativeBrushSampleStroke");
+        auto timer = preview ? preview->findChild<QTimer *>("nativeBrushScratchpadTimer") : nullptr;
+        previewGuard = preview;
+        timerGuard = timer;
+        if (!preview || !clear || !demo || !timer) { dialog->reject(); return; }
+        auto waitFor = [](int milliseconds) {
+          QEventLoop elapsed;
+          QTimer::singleShot(milliseconds, &elapsed, &QEventLoop::quit);
+          elapsed.exec();
+        };
+        auto mouse = [&](QEvent::Type type, double x) {
+          const auto button = type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton;
+          const Qt::MouseButtons buttons = type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton;
+          QMouseEvent event(type, QPointF(x, 70), button, buttons, Qt::NoModifier);
+          QApplication::sendEvent(preview, &event);
+        };
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QPointingDevice device("Original preview contact fixture", 7,
+            QInputDevice::DeviceType::Stylus, QPointingDevice::PointerType::Pen,
+            QInputDevice::Capability::Position | QInputDevice::Capability::Pressure,
+            1, 1);
+#endif
+        auto tablet = [&](QEvent::Type type, double x, double pressure,
+                          Qt::MouseButton changed = Qt::LeftButton,
+                          bool tipStillDown = false) {
+          const auto button = type == QEvent::TabletMove ? Qt::NoButton : changed;
+          Qt::MouseButtons buttons = Qt::NoButton;
+          if (type == QEvent::TabletPress) buttons = changed;
+          // Moves in this helper are contact moves. An auxiliary press while
+          // hovering has only its own button; a held tip is explicit instead.
+          if (type == QEvent::TabletMove || tipStillDown) buttons |= Qt::LeftButton;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+          QTabletEvent event(type, &device, QPointF(x, 70), QPointF(x, 70),
+              pressure, 0, 0, 0, 0, 0, Qt::NoModifier, button, buttons);
+#else
+          QTabletEvent event(type, QPointF(x, 70), QPointF(x, 70), QTabletEvent::Stylus,
+              QTabletEvent::Pen, pressure, 0, 0, 0, 0, 0, Qt::NoModifier, 7, button, buttons);
+#endif
+          QApplication::sendEvent(preview, &event);
+        };
+        clear->click();
+        const auto blank = preview->grab().toImage();
+        mouse(QEvent::MouseButtonPress, 40);
+        mouse(QEvent::MouseButtonRelease, 40);
+        const auto tapImage = preview->grab().toImage();
+        bool releaseQualified = tapImage != blank && !timer->isActive();
+        clear->click();
+        mouse(QEvent::MouseButtonPress, 40);
+        mouse(QEvent::MouseButtonRelease, 240); // Release carries the only movement.
+        releaseQualified = releaseQualified && !timer->isActive() &&
+            (previewKind == 3 ? preview->grab().toImage() == tapImage
+                : preview->grab().toImage() != tapImage &&
+                  preview->grab().toImage().copy(200, 0, 120, 140) != blank.copy(200, 0, 120, 140));
+        clear->click();
+        tablet(QEvent::TabletPress, 40, 1);
+        tablet(QEvent::TabletRelease, 240, 1);
+        releaseQualified = releaseQualified && !timer->isActive() &&
+            (previewKind == 3 ? preview->grab().toImage() != blank
+                : preview->grab().toImage().copy(200, 0, 120, 140) != blank.copy(200, 0, 120, 140));
+        if (deferred) {
+          clear->click();
+          tablet(QEvent::TabletPress, 40, 1);
+          tablet(QEvent::TabletRelease, 40, 0); // Contact loss still commits the tap.
+          releaseQualified = releaseQualified && preview->grab().toImage() == tapImage;
+          clear->click();
+          tablet(QEvent::TabletPress, 40, 1);
+          tablet(QEvent::TabletRelease, 40, .5); // Changed nonzero data must be delivered.
+          releaseQualified = releaseQualified && preview->grab().toImage() == blank;
+        }
+        bool ownershipQualified = true, timerQualified = true;
+        if (timed) {
+          clear->click();
+          mouse(QEvent::MouseButtonPress, 40);
+          const auto initial = preview->grab().toImage();
+          tablet(QEvent::TabletPress, 240, 1);
+          tablet(QEvent::TabletMove, 260, 1);
+          tablet(QEvent::TabletRelease, 260, 0);
+          ownershipQualified = timer->isActive() &&
+              preview->grab().toImage().copy(200, 0, 120, 140) == blank.copy(200, 0, 120, 140);
+          waitFor(125);
+          timerQualified = timer->isActive() && preview->grab().toImage() != initial;
+          mouse(QEvent::MouseButtonRelease, 40);
+          const auto finished = preview->grab().toImage();
+          waitFor(75);
+          timerQualified = timerQualified && !timer->isActive() && preview->grab().toImage() == finished;
+          clear->click();
+          tablet(QEvent::TabletPress, 240, 0, Qt::RightButton);
+          tablet(QEvent::TabletRelease, 240, 0, Qt::RightButton);
+          ownershipQualified = ownershipQualified && !timer->isActive() && preview->grab().toImage() == blank;
+          tablet(QEvent::TabletPress, 40, 1);
+          tablet(QEvent::TabletPress, 40, 1, Qt::RightButton, true);
+          tablet(QEvent::TabletRelease, 40, 1, Qt::RightButton, true);
+          ownershipQualified = ownershipQualified && timer->isActive();
+          QEvent unrelatedUngrab(QEvent::UngrabMouse);
+          QApplication::sendEvent(preview, &unrelatedUngrab);
+          ownershipQualified = ownershipQualified && timer->isActive();
+          mouse(QEvent::MouseButtonPress, 240);
+          mouse(QEvent::MouseMove, 260);
+          mouse(QEvent::MouseButtonRelease, 260);
+          ownershipQualified = ownershipQualified && timer->isActive() &&
+              preview->grab().toImage().copy(200, 0, 120, 140) == blank.copy(200, 0, 120, 140);
+          tablet(QEvent::TabletRelease, 40, 0);
+          ownershipQualified = ownershipQualified && !timer->isActive();
+          const auto prior = preview->grab().toImage();
+          mouse(QEvent::MouseButtonPress, 200);
+          waitFor(60);
+          QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+          QApplication::sendEvent(preview, &escape);
+          waitFor(75);
+          timerQualified = timerQualified && !timer->isActive() && preview->grab().toImage() == prior;
+          for (int cancellation : {0, 1, 2, 3}) {
+            mouse(QEvent::MouseButtonPress, 200);
+            waitFor(60);
+            if (cancellation < 2) {
+              QEvent event(cancellation == 0 ? QEvent::UngrabMouse : QEvent::WindowDeactivate);
+              QApplication::sendEvent(preview, &event);
+            } else if (cancellation == 2) {
+              QMouseEvent lost(QEvent::MouseMove, QPointF(200, 70), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+              QApplication::sendEvent(preview, &lost);
+            } else mouse(QEvent::MouseMove, 1e9); // Renderer failure must also roll back.
+            waitFor(75);
+            timerQualified = timerQualified && !timer->isActive() && preview->grab().toImage() == prior;
+          }
+          mouse(QEvent::MouseButtonPress, 40);
+          clear->click();
+          waitFor(75);
+          timerQualified = timerQualified && !timer->isActive() && preview->grab().toImage() == blank;
+          mouse(QEvent::MouseButtonPress, 40);
+          demo->click(); // Reconfigure must retire the old input and queued ticks.
+          const auto configured = preview->grab().toImage();
+          waitFor(75);
+          timerQualified = timerQualified && !timer->isActive() && preview->grab().toImage() == configured;
+          clear->click();
+          mouse(QEvent::MouseButtonPress, 40);
+          preview->hide();
+          preview->show();
+          waitFor(75);
+          timerQualified = timerQualified && !timer->isActive() && preview->grab().toImage() == blank;
+          mouse(QEvent::MouseButtonPress, 40); // Reject with a live timer below.
+        }
+        qualified = releaseQualified && ownershipQualified && timerQualified;
+        dialog->reject();
+      });
+      property->setValue(L"<edit>");
+      require(tool->onPropertyChanged("Native Brush:") && qualified &&
+                  timerGuard.isNull() && previewGuard.isNull(),
+              "scratchpad release, ownership, timer cleanup or cancellation diverged from host policy");
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "scratchpad lifecycle modified document or undo");
+    }
+    runRasterBrushSourceEditorIntegration(tool, property, level, undo);
     checkpoint("qualifying invalid installed preset selection isolation");
     {
       const QString folder =
@@ -859,7 +1048,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               requested      = true;
               originalStatus = status && status->text().contains(
                                              "Experimental source profile");
-              QTimer::singleShot(0, [&]() {
+              QTimer::singleShot(0, &conversionDriver, [&]() {
                 auto confirmation = qobject_cast<QMessageBox *>(
                     QApplication::activeModalWidget());
                 if (!confirmation || confirmation->objectName() !=
@@ -1229,6 +1418,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         }
       }
     }
+    runRasterBrushCollectionImportIntegration(tool, property, level, undo);
     checkpoint("qualifying explicit approximation acceptance and rejection");
     for (const QString &kind :
          {QString(), QString("tip-only"), QString("static-native"),
@@ -2116,7 +2306,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         const auto beforeFiles =
             QDir(folder).entryList(QDir::Files | QDir::NoDotAndDotDot);
         bool editedThenCancelled = false;
-        QTimer::singleShot(0, [&] {
+        QObject callbackContext;
+        QTimer::singleShot(0, &callbackContext, [&] {
           auto editor =
               qobject_cast<QDialog *>(QApplication::activeModalWidget());
           if (!editor || editor->objectName() != "nativeBrushEditor") return;

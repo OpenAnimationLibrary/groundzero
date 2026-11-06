@@ -1,47 +1,182 @@
-# PR 115 recovery and completion plan
+# PR 115 stabilization plan
 
-## Scope and completion rule
+## Current scope: finish the support already implemented
 
-Resume the opt-in native regular-RGBA8 raster brush work from a40370a60.
-The normative RCP1 revision 2 contract and acceptance ledger in
-raster_brush_compatibility.md govern completion. This plan does not narrow them.
-Decoded resources, semantic support, converted approximations and reference
-verification remain distinct. Passing existing tests alone is not completion.
+Scope changed explicitly on 2026-11-06. This phase finishes and stabilizes the
+existing native brush workflow and bounded Krita candidates. Photoshop emulation
+and broader Krita compatibility research are deferred. This supersedes the
+previous full-RCP1 completion plan; it does not claim full RCP1 is complete.
 
-## Isolation
+Keep existing ABR decoding, sampled-tip extraction and explicit native conversion.
+Preserve native dry/wet painting, currently admitted Krita settings, preview and
+editing, collection import, portable presets/repair, undo/cancel/save, and existing
+resource and isolation protections. Keep supported, converted, experimental and
+reference-verified statuses distinct. Do not widen candidate admission or invent
+missing source behavior to make the feature list larger.
 
-Use the dedicated codex/pr115-raster-brush-recovery branch in its independent
-clone. Do not change another working checkout, its index or its branches.
-Publish only this dedicated branch when a correction batch is ready; updating
-PR 115's original branch is a separate integration step. Reconcile concurrent
-changes deliberately before final qualification. Run builds and tests in CI.
+## What this work delivers to users
 
-## Ordered milestones
+The PR foundation already contains real application features. The recovery adds
+fixes, safer imports/resource handling, clearer support reporting and new controls
+for existing candidates. The working tree adds preview lifecycle and source-editor
+improvements. Finish and demonstrate these changes rather than create more systems.
 
-- [x] Create an independent clone and dedicated recovery branch at the published head.
-- [x] Refresh remote PR and edition refs and inventory current CI evidence.
-- [ ] Recover/review unpublished implementation tip 44022b4c81ae60083a157fe8cd051e18ee2456ed.
-- [ ] Recover/review separate application-test commit 73073046dae45144d020f9a9f22fee32a77a31f6.
-- [ ] If recovery is unavailable, document missing work and reconstruct it from the handoff and acceptance requirements.
-- [ ] Map every acceptance-ledger row and normative requirement to code, tests, source evidence and outstanding work.
-- [x] Reconcile current edition changes in application integration, tool options, CMake and workflows (validation pending).
-- [ ] Read complete parser, fuzz, application and source-cache failure evidence before correcting causes.
-- [ ] Verify timestamp normalization, wet footprint/HSV fixtures, semantic rejection, airbrush nesting and matrix completeness corrections.
-- [ ] Resolve all other failures; retain fidelity thresholds, meaningful assertions and resource limits.
-- [ ] Complete required source dynamics/resource combinations, automatic spacing and scatter.
-- [ ] Complete required Gaussian/Soft generators and secondary-mask geometry/dynamics.
-- [ ] Complete adaptive smudge sampling, required texture behavior and wet combinations.
-- [ ] Complete required source timing/tap semantics and resource holdouts.
-- [ ] Close required ABR setting/resource bindings with evidence; preserve explicit rejection/conversion for unsupported inputs.
-- [ ] Qualify preset editing, previews, import, export, resource repair and persistence.
-- [ ] Qualify actual painting, undo/redo, cancel, frame lifecycle and save/reopen on all supported desktop platforms.
-- [ ] Obtain required authorized Photoshop reference/export evidence and physical tablet measurements.
-- [ ] Qualify the exact final head: six parser configurations, fuzzing, application, installed packages, isolation, source comparisons and performance.
-- [ ] Refresh public scope/evidence documentation and PR description; obtain review before merge.
+The source review traced all six outcomes to actual UI entries. Against the locally
+tracked edition branch, the native engine and native preset implementation are new
+files; this is a substantive product change. Recheck the final diff against the
+integration target before review. Source wiring is not proof of successful execution.
 
-## Known baseline
+| User outcome | Actual delivery in this phase | Existing proof to reuse |
+|---|---|---|
+| Paint with native dry, Wet Mix and Smear brushes | Finish the original opt-in brush foundation with recovery lifecycle/storage corrections; preserve undo, cancel and saved pixels. | Native tool lifecycle and scene/PNG reopen cases in `rasterbrushintegrationtest.cpp`; native engine math cases. |
+| Import and find usable brushes | Keep existing ABR/native conversions and bounded Krita support, with collection selection, safe installation/reimport and searchable presets. | Real collection picker/worker/selector/paint cases in `rasterbrushcollectionintegrationtest.h`; direct installer fault cases remain complementary. |
+| Try a brush in the editor scratchpad | Complete moved-release, stationary timer, ownership and cancellation behavior without modifying the drawing. | Actual QWidget preview lifecycle cases in `rasterbrushintegrationtest.cpp`. |
+| Edit supported settings and save a copy | Expose the already admitted source controls through the new profile-aware panel; keep native controls meaningful, original presets unchanged and edited state portable. | Nine-family cancel/save/reopen cases in `rasterbrushsourceeditorintegrationtest.h`; existing native Time/Distance editor cases. |
+| Understand what was imported or converted | Show supported/retained/omitted settings and explicit native conversion consequences through Brush details and import reports. | `rasterbrushsupport_test.h` plus actual conversion/acceptance dialog cases. |
+| Export, reopen and repair presets | Preserve settings and resource identities/rights; missing resources can be relinked without silently substituting a different asset. | Existing portable/repair/private-copy and retained-mask application cases. |
 
-The last published implementation is 1c62ec606; a40370a60 adds the pause handoff.
+A finished milestone must cite the actual behavior and its evidence. More test
+files, metadata fields or documents do not independently count as a user feature.
+All current working-tree execution evidence remains pending.
+
+## Milestone 1: close the finite known-fix list
+
+Implementation checkpoint: all six items below are written and independently
+source-reviewed. FIX-01 also rejects a failed finish whose observed dab count
+moves backwards; its paired-counter regression is authored. The preview/editor,
+collection workflow and opt-in boundary received a focused source review with no
+additional concrete defects found. The native zero-weight and alpha-lock cases
+needed no production renderer changes. No builds/tests have run for this batch.
+Integration of the refreshed edition branch is the remaining pre-CI step.
+
+These are the six known items. The first four are confirmed source-review defects;
+the last two are focused proof questions, not established production mismatches.
+
+| Item | Implemented change | Completion condition | Owner |
+|---|---|---|---|
+| FIX-01 | Correct benchmark dab accounting after failed add/finish. | Record observed progress before cleanup; mark unobserved checkpoints explicitly. Existing failure cases cover both paths. | Benchmark owner |
+| FIX-02 | Pin the original benchmark workload in the report validator. | Correct the existing synthetic fixture and reject changed size/spacing/resources/curves without weakening performance limits. | Benchmark owner |
+| FIX-03 | Correct the tablet-hover fixture event. | Right-button hover has no left-tip contact; auxiliary-button events during contact remain distinct. Reuse current cases. | GUI owner |
+| FIX-04 | Bound older modal test callback lifetimes. | Each affected queued callback has a fixture-owned context; failed startup cannot outlive captured locals. Leave already scoped new callbacks intact. | GUI owner |
+| Native proof A | Specify/confirm empty-tip pickup behavior. | The existing transparent pickup when total weight is zero is explicitly documented and independently asserted by an existing or narrowly added case. | Native math owner |
+| Native proof B | Confirm wet Normal painting under alpha lock. | An independent pixel/spatial expectation checks unchanged destination alpha. Reuse the reviewed spatial oracle where sufficient. | Native math owner |
+
+Work in parallel only on disjoint files. Do not replace the written preview/editor,
+collection helper, spatial oracle or benchmark. If a proof case reveals a real
+in-scope defect, fix that behavior and its cause; do not start a new brush model.
+
+## Milestone 2: make the existing product flows reviewable
+
+The integrator and an independent reviewer perform one focused pass over the final
+local changes and the six user outcomes above. Confirm UI entry -> actual engine/
+importer behavior -> saved/reopened state, including cancellation and error paths.
+Reuse the authored coverage; add a focused case only for a demonstrated gap.
+
+Confirm the opt-in boundary and preserve existing MyPaint, TLV and vector behavior.
+Retain parser budgets, sandbox boundaries, atomic publication, hash/rights checks
+and exact undo/cancel expectations. Reconcile necessary integration-target changes
+inside the isolated clone, never in the other active checkout. Give shared
+engine/importer/codec files one writer at a time.
+
+Exit: all six known items have source-review disposition, each user outcome has an
+actual reachable path and an evidence case, no known in-scope implementation defect
+is left, and coherent local commits preserve the work. This is **implementation
+complete**, not a claim that tests ran. Only after this exit does CI deferral end.
+
+## Milestone 3: validate the final integrated commit
+
+Run the existing required parser configurations, fuzzing, engine/regression,
+application, installed Windows/macOS/Linux package, isolation and performance
+checks for the current features. Reuse the benchmark/report runner and current
+application fixtures. Record the exact commit and result for each required gate.
+A historical pass does not qualify changed code.
+
+For each failure, read its actual log/annotation, identify the cause, fix it and
+rerun the affected checks. Broaden reruns when the changed behavior warrants it.
+Do not skip failing tests, loosen comparisons or relabel current-feature failures
+as future research. If an expectation genuinely covers deferred behavior, review
+and record that scope distinction explicitly rather than silently deleting a gate.
+
+Exit: required checks for the resulting integrated commit pass, and every claimed
+platform has its actual installed workflow evidence. Unavailable or failing
+mandatory package/isolation evidence is an unresolved readiness item, not a pass.
+Source candidates stay experimental/unverified where reference evidence is absent;
+no physical tablet or display-latency qualification is inferred from these checks.
+
+## Milestone 4: deliver the reviewed result and stop
+
+Prepare the final PR description around the six user outcomes, actual new changes,
+validation results and remaining limitations. Include a compact demonstration
+checklist tied to the existing application cases: paint/undo/reopen, import/select,
+scratchpad, edit/cancel/save-copy, details/conversion, and export/repair. It is a
+record of evidence, not another demo application or test framework.
+
+Finish when:
+
+- The six known items and any demonstrated in-scope regressions are resolved.
+- All six user outcomes are implemented and demonstrated by the applicable
+  actual/installed application checks; MyPaint/TLV/vector regressions are covered.
+- Required checks pass on the final integrated commit and independent review has
+  no unresolved blocking findings. Current-feature failures are not hidden.
+- The branch and PR description are ready for review/integration, with precise
+  supported/converted/experimental labels and no unsupported fidelity, device or
+  strict macOS memory guarantee.
+- The deferred roadmap remains separate. No extra source model, generic framework,
+  reference research or new feature is added merely to keep the effort running.
+
+Call the result **stabilized native brush features and bounded Krita candidates**.
+Readiness for review does not establish reference verification, hardware
+qualification or release readiness on a platform with an unmet mandatory gate.
+Actual integration must retain the checked commit or requalify subsequent changes.
+
+Progress updates name the current milestone, items closed, concrete issues still
+open and the next action. Do not turn fixture/commit counts into a completion
+percentage. Planning is now specific enough to execute; re-plan only if a concrete
+blocker or an explicit scope decision changes these outcomes.
+
+## Deferred work and honest limits
+
+- All Photoshop P2711/D work: new rendering behavior, descriptor/resource binding
+  expansion, reference exports and precision investigations (R-04).
+- Broader Krita Pixel and smudge support: new geometry/ranges/sensor products,
+  general automatic/zero spacing, random-process research, full interaction
+  coverage, general Dulling pickup and New Dulling texture research.
+- New generic composition frameworks and a separate host timing subsystem.
+- Strict macOS whole-process 2 GiB architecture research remains an open future
+  decision. Existing sandbox/limits and their regression checks stay in scope;
+  do not claim the stronger guarantee, remove protections or call an unqualified
+  platform ready.
+- Missing exact-app reference and physical-tablet evidence stays explicitly
+  unverified. Neither broad parity nor measured tablet feel/display latency is
+  promised by this phase. These unavailable inputs do not justify more scaffolding.
+
+The [audit](raster_brush_acceptance_audit.md) records the concrete fixes and current
+code inventory. The [deferred roadmap](raster_brush_work_packages.md) retains the
+original requirements for a possible later phase; it is not this phase's checklist.
+
+## Work rules
+
+Implementation has resumed against the six-item stabilization list. Use the independent
+`codex/pr115-raster-brush-recovery` branch; do not modify the other active checkout.
+Current work includes local commits `fb44b5e1a` and `6064436c2` plus uncommitted
+source. Preserve it. One writer owns shared GUI files, another the benchmark;
+reviewers can work in parallel without rebuilding existing components.
+
+No local project builds, tests or generators under CLAUDE.md. No CI status, log,
+artifact, dispatch or rerun access before the current implementation steps are
+finished. No push merely to save progress. This scope update changes documents
+only. The subsequent implementation resumption follows the milestones above;
+no remote PR update or CI access is implied before its gate.
+
+The history below describes earlier work and the larger original target. It does
+not restore deferred work to the current phase or override the scope above.
+
+## Historical handoff baseline
+
+
+At the original handoff, the published implementation was 1c62ec606;
+a40370a60 added the pause handoff. The following is historical evidence, not a
+current-head check or an instruction to access CI during implementation.
 Completed checks for that implementation show all six parser jobs and fuzzing
 failed; application compilation passed on Windows/macOS/Linux but raster brush
 application tests failed; installed-application jobs were skipped. Reference
@@ -281,9 +416,9 @@ continue-on-error workflow status never qualifies the memory bound; actual
 case evidence is still required. Physical-device validation also remains open;
 synthetic input evidence cannot close the tablet requirement.
 
-## Current implementation batch
+## Saved implementation batch: fb44b5e1a and 6064436c2
 
-Implementation continues on the isolated recovery branch. Build/check review and
+This section records the saved implementation before the audit pause. Build/check review and
 execution are deferred until the implementation plan is fulfilled. The changes
 below have not received final compilation, execution or platform qualification.
 They do not close the complete RCP1 acceptance ledger.
@@ -342,7 +477,7 @@ observations and privacy constraints. Authored inputs and unexecuted regression
 sources are preparation; they do not establish Photoshop execution or parity.
 
 Source-only peer review corrected aggregate sensor-knot preallocation,
-generated zero-flow no-op expectations, retained-mask resource identity during
+generated transfer expectations (the subsequent build-up/Wash correction is recorded above), retained-mask resource identity during
 native conversion, and explicit wet surface storage semantics. It also closed
 source-control XML/effective-file binding gaps and tightened duplicate metadata
 and portable resource declarations. These are implementation findings, not

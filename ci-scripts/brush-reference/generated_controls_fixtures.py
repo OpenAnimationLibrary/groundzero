@@ -130,7 +130,9 @@ def prepare(root, resources, writer, group):
                 "opacity": row["opacity"], "flow": row["flow"], "foregroundRGBA8": [173, 91, 47, 255],
                 "start": start, "end": end, "background": "transparent", "overrides": overrides,
                 "delivery": "Node.paintLine", "canvasCenter": [1024, 1024],
-                "expectUnchanged": group == "generated-transfer" and row["flow"] == 0,
+                # Measured K5341 build-up ignores FlowValue, including zero.
+                # Only an explicitly authored static Wash zero-flow row is a no-op.
+                "expectUnchanged": group == "generated-transfer" and row["action"] == 0 and row["flow"] == 0,
                 "generatedTipProbe": mask,
                 "generatedControlProbe": {"objective": row["objective"], "candidateExpected": row["candidateExpected"],
                                            "sourceParityQualified": False,
