@@ -553,6 +553,13 @@ endif()
 
 # Optional regression target for the camera's depth channels, Focus Z and
 # Aperture: saved and keyed only when used, and read by expressions.
+option(BUILD_POSETHUMBNAIL_TESTS "Build the pose thumbnail regression test" ${BUILD_TESTS})
+if(BUILD_POSETHUMBNAIL_TESTS)
+    add_executable(posethumbnail_test tests/posethumbnail_test.cpp)
+    target_link_libraries(posethumbnail_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME posethumbnail COMMAND posethumbnail_test)
+endif()
+
 option(BUILD_CAMERADEPTH_TESTS "Build the camera depth channels regression test" ${BUILD_TESTS})
 if(BUILD_CAMERADEPTH_TESTS)
     add_executable(cameradepth_test tests/cameradepth_test.cpp)

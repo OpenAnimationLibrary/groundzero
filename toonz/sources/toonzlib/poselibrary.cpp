@@ -146,6 +146,9 @@ void PoseLibrary::saveData(TOStream &os) const {
     os.openChild("entries");
     saveEntries(os, pose.m_entries);
     os.closeChild();
+    // Older versions skip the tag
+    if (!pose.m_thumbnail.isEmpty())
+      os.child("thumbnail") << pose.m_thumbnail.toBase64().toStdString();
     os.closeChild();
   }
 }
@@ -167,6 +170,10 @@ void PoseLibrary::loadData(TIStream &is) {
           pose.m_name = QString::fromStdString(name);
         } else if (tagName == "entries") {
           loadEntries(is, pose.m_entries);
+        } else if (tagName == "thumbnail") {
+          std::string data;
+          is >> data;
+          pose.m_thumbnail = QByteArray::fromBase64(QByteArray::fromStdString(data));
         } else {
           is.skipCurrentTag();
           continue;
