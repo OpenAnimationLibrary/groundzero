@@ -3,6 +3,7 @@
    <separator label="Influence"/>
     <control>width</control>
     <control>falloff</control>
+    <control>anchorCount</control>
    <separator label="Curve"/>
     <control>point1</control>
     <control>out1</control>
@@ -14,6 +15,18 @@
     <control>out3</control>
     <control>in4</control>
     <control>point4</control>
+    <control>out4</control>
+    <control>in5</control>
+    <control>point5</control>
+    <control>out5</control>
+    <control>in6</control>
+    <control>point6</control>
+    <control>out6</control>
+    <control>in7</control>
+    <control>point7</control>
+    <control>out7</control>
+    <control>in8</control>
+    <control>point8</control>
    <separator label="Rest Pose"/>
     <control>restPoint1</control>
     <control>restOut1</control>
@@ -25,5 +38,17 @@
     <control>restOut3</control>
     <control>restIn4</control>
     <control>restPoint4</control>
+    <control>restOut4</control>
+    <control>restIn5</control>
+    <control>restPoint5</control>
+    <control>restOut5</control>
+    <control>restIn6</control>
+    <control>restPoint6</control>
+    <control>restOut6</control>
+    <control>restIn7</control>
+    <control>restPoint7</control>
+    <control>restOut7</control>
+    <control>restIn8</control>
+    <control>restPoint8</control>
   </page>
 </fxlayout>

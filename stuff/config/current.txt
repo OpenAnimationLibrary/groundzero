@@ -680,6 +680,15 @@
   <item>"STD_boneDeformerFx"	"Bone Deformer"	</item>
   <item>"STD_boneDeformerFx.inner"	"Inner Radius"	</item>
   <item>"STD_boneDeformerFx.outer"	"Outer Radius"	</item>
+  <item>"STD_boneDeformerFx.jointCount"	"Joint Count"	</item>
+  <item>"STD_boneDeformerFx.point6"	"Joint 6"	</item>
+  <item>"STD_boneDeformerFx.rest6"	"Rest Joint 6"	</item>
+  <item>"STD_boneDeformerFx.point7"	"Joint 7"	</item>
+  <item>"STD_boneDeformerFx.rest7"	"Rest Joint 7"	</item>
+  <item>"STD_boneDeformerFx.point8"	"Joint 8"	</item>
+  <item>"STD_boneDeformerFx.rest8"	"Rest Joint 8"	</item>
+  <item>"STD_boneDeformerFx.point9"	"Joint 9"	</item>
+  <item>"STD_boneDeformerFx.rest9"	"Rest Joint 9"	</item>
   <item>"STD_boneDeformerFx.point1"	"Joint 1"	</item>
   <item>"STD_boneDeformerFx.point2"	"Joint 2"	</item>
   <item>"STD_boneDeformerFx.point3"	"Joint 3"	</item>
@@ -758,6 +767,31 @@
   <item>"STD_curveDeformerFx"	"Curve Deformer"	</item>
   <item>"STD_curveDeformerFx.width"	"Width"	</item>
   <item>"STD_curveDeformerFx.falloff"	"Falloff"	</item>
+  <item>"STD_curveDeformerFx.anchorCount"	"Anchor Count"	</item>
+  <item>"STD_curveDeformerFx.point5"	"Point 5"	</item>
+  <item>"STD_curveDeformerFx.in5"	"In 5"	</item>
+  <item>"STD_curveDeformerFx.out5"	"Out 5"	</item>
+  <item>"STD_curveDeformerFx.restPoint5"	"Rest Point 5"	</item>
+  <item>"STD_curveDeformerFx.restIn5"	"Rest In 5"	</item>
+  <item>"STD_curveDeformerFx.restOut5"	"Rest Out 5"	</item>
+  <item>"STD_curveDeformerFx.point6"	"Point 6"	</item>
+  <item>"STD_curveDeformerFx.in6"	"In 6"	</item>
+  <item>"STD_curveDeformerFx.out6"	"Out 6"	</item>
+  <item>"STD_curveDeformerFx.restPoint6"	"Rest Point 6"	</item>
+  <item>"STD_curveDeformerFx.restIn6"	"Rest In 6"	</item>
+  <item>"STD_curveDeformerFx.restOut6"	"Rest Out 6"	</item>
+  <item>"STD_curveDeformerFx.point7"	"Point 7"	</item>
+  <item>"STD_curveDeformerFx.in7"	"In 7"	</item>
+  <item>"STD_curveDeformerFx.out7"	"Out 7"	</item>
+  <item>"STD_curveDeformerFx.restPoint7"	"Rest Point 7"	</item>
+  <item>"STD_curveDeformerFx.restIn7"	"Rest In 7"	</item>
+  <item>"STD_curveDeformerFx.restOut7"	"Rest Out 7"	</item>
+  <item>"STD_curveDeformerFx.point8"	"Point 8"	</item>
+  <item>"STD_curveDeformerFx.in8"	"In 8"	</item>
+  <item>"STD_curveDeformerFx.out8"	"Out 8"	</item>
+  <item>"STD_curveDeformerFx.restPoint8"	"Rest Point 8"	</item>
+  <item>"STD_curveDeformerFx.restIn8"	"Rest In 8"	</item>
+  <item>"STD_curveDeformerFx.restOut8"	"Rest Out 8"	</item>
   <item>"STD_curveDeformerFx.point1"	"Point 1"	</item>
   <item>"STD_curveDeformerFx.in1"	"In 1"	</item>
   <item>"STD_curveDeformerFx.out1"	"Out 1"	</item>

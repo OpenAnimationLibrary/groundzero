@@ -34,8 +34,13 @@
 // collapses the art around the joint, as linear blend skinning does; widen the
 // radii for a softer bend.
 //
+// Joint Count sets how many joints the chain has, from 2 to 9 (1 to 8
+// bones); 5 by default, which is what scenes saved before the count load
+// with. The extra joints continue the default line, and are kept when the
+// count shrinks.
+//
 // Limits: the warp is made on the rendered Source raster, so vector art is
-// resampled rather than deformed as strokes; the chain is fixed at 4 bones
+// resampled rather than deformed as strokes; the chain is a single branch
 // (the class supports trees of any size, for later use by game export). The
 // parameters and the deformer are made by deformerfx::BoneChainParams, which
 // a Bone layer of the Deformer Stack Fx shares.
@@ -43,7 +48,7 @@
 
 namespace {
 
-enum { BONE_COUNT = 4, JOINT_COUNT = BONE_COUNT + 1 };
+enum { MAX_JOINTS = 9, DEFAULT_JOINTS = 5 };
 
 }  // namespace
 
@@ -61,7 +66,8 @@ public:
 
     // By default, the joints are along a horizontal line from -200 to 200,
     // on the rest ones
-    m_chain.bind(this, "", JOINT_COUNT, 200.0);
+    m_chain.bind(this, "", MAX_JOINTS, 200.0, DEFAULT_JOINTS);
+    m_chain.bindCount(this, "jointCount", DEFAULT_JOINTS);
 
     enableComputeInFloat(true);
   }

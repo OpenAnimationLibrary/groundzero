@@ -26,16 +26,20 @@
 // The deformation applies in full within Width of the rest curve, falls
 // smoothly to nothing at Falloff, and the rest of the Source stays put.
 //
+// Anchor Count sets how many anchors the curve has, from 2 to 8; 4 by
+// default, which is what scenes saved before the count load with. The extra
+// anchors continue the default line, and are kept when the count shrinks.
+//
 // The warp is made on the rendered Source raster, so vector art is resampled
-// rather than deformed as strokes. The curve has 4 anchors; where it bends
-// more tightly than the Width the art folds over itself. The parameters and
+// rather than deformed as strokes. Where the curve bends more tightly than the
+// Width the art folds over itself. The parameters and
 // the deformer are made by deformerfx::CurveDeformerParams, which a Curve
 // layer of the Deformer Stack Fx shares.
 //==============================================================================
 
 namespace {
 
-enum { ANCHOR_COUNT = 4 };
+enum { MAX_ANCHORS = 8, DEFAULT_ANCHORS = 4 };
 
 // Half the length of the default curve: a straight line along the x axis
 const double c_defaultHalfLength = 200.0;
@@ -55,7 +59,8 @@ public:
     addInputPort("Source", m_input);
 
     // By default, the curve is a straight line across the origin
-    m_curve.bind(this, "", ANCHOR_COUNT, c_defaultHalfLength);
+    m_curve.bind(this, "", MAX_ANCHORS, c_defaultHalfLength, DEFAULT_ANCHORS);
+    m_curve.bindCount(this, "anchorCount", DEFAULT_ANCHORS);
 
     enableComputeInFloat(true);
   }
