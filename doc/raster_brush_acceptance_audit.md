@@ -1,5 +1,27 @@
 # PR 115 acceptance audit
 
+## Stabilization versus reference qualification
+
+The reduced phase keeps existing native and bounded experimental support, without
+claiming full Krita or Photoshop parity. Original-Krita acquisition/comparison is
+manual qualification; its complete matrix and fidelity thresholds remain intact.
+Automatic source-contract, native-metric, parser, engine, application, installed
+package and isolation checks remain required for stabilization.
+
+Observed reference failures at `d1c8d3895` in
+[run 42302134348](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42302134348):
+
+- Generated-curve comparison failed fidelity gates for 18 of 124 outcomes. These
+  are known unresolved fidelity defects; the candidates are not source-verified.
+- Automatic-spacing acquisition failed because the original application painted
+  no coverage. This is a capture failure, not evidence of candidate parity or a
+  demonstrated candidate renderer defect.
+
+This separation follows the reduced scope and does not turn either failure into
+a pass. A failure of a capability actually claimed by bounded support still needs
+a fix; an experimental label cannot excuse it. No comparison tolerance is relaxed.
+
+
 The scope was explicitly reduced on 2026-11-06 to stabilizing existing native
 brush support and already implemented bounded Krita candidates. Photoshop
 emulation and broader K/S compatibility research are future work. See the

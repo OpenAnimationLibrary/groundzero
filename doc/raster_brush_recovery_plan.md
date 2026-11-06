@@ -105,6 +105,19 @@ Required execution map (reuse the registered tests):
 | Native performance and import memory | Raster Brush Reference: native-metrics |
 | Full regressions, Qt6 application, vector compatibility | Linux Tests: Tests, Qt6, Compat; manually dispatch for this branch |
 
+Original-Krita acquisition and comparison run by manual dispatch for deferred
+reference qualification. The full matrix and thresholds remain unchanged; these
+runs are not replaced by internal tests or declared passing. Automatic source
+contract, native performance, parser, application and isolation gates remain.
+
+Known reference results at `d1c8d3895`: generatedcurves failed fidelity gates for
+18 of 124 candidate outcomes in run `42302134348`; these are unresolved observed
+fidelity defects, not merely missing evidence. Automatic-spacing acquisition
+failed because the original application painted no coverage; that result does
+not establish a candidate rendering defect. Neither source parity nor full Krita
+compatibility is claimed by this phase. Any violation of a capability actually
+claimed by the bounded support remains a stabilization defect.
+
 Compat covers vector/scene compatibility; it does not prove full-color MyPaint or
 TLV brush gestures. Preserve the source routing guards and use focused application
 coverage for switching back from a native brush to the legacy painting path.
