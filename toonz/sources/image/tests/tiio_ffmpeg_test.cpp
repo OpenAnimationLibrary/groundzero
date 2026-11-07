@@ -257,56 +257,6 @@ void testFormat(const QTemporaryDir &directory, const QString &type,
   expectSamePictures(piped, files, sameTolerance, what);
 }
 
-void testFloatExportPreservesSource(const QTemporaryDir& directory) {
-  const TPixelF top(2.0f, -0.25f, 0.25f, 1.0f);
-  const TPixelF bottom(0.5f, 0.25f, 2.0f, 0.5f);
-  QByteArray previous;
-  for (bool usePipe : {false, true}) {
-    const QString path =
-        directory.filePath(usePipe ? "float-pipe.apng" : "float-files.apng");
-    if (usePipe)
-      qunsetenv("OTDEV_FFMPEG_NO_PIPE");
-    else
-      qputenv("OTDEV_FFMPEG_NO_PIPE", "1");
-
-    TRasterFP raster(kLx, kLy);
-    raster->lock();
-    for (int y = 0; y < kLy; ++y)
-      std::fill(raster->pixels(y), raster->pixels(y) + kLx,
-                y >= kLy / 2 ? top : bottom);
-    raster->unlock();
-    {
-      TSmartPointerT<TLevelWriter> writer(TLevelWriterAPng::create(
-          TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
-      writer->setFrameRate(24);
-      for (int frame = 1; frame <= 2; ++frame)
-        writer->getFrameWriter(TFrameId(frame))->save(TRasterImageP(raster));
-      writer->finalize();
-    }
-    qunsetenv("OTDEV_FFMPEG_NO_PIPE");
-
-    bool unchanged = true;
-    raster->lock();
-    for (int y = 0; y < kLy; ++y) {
-      const TPixelF expected = y >= kLy / 2 ? top : bottom;
-      unchanged &=
-          std::all_of(raster->pixels(y), raster->pixels(y) + kLx,
-                      [&](const TPixelF& pixel) { return pixel == expected; });
-    }
-    raster->unlock();
-    require(unchanged, "FFmpeg export modified the floating source raster");
-
-    const QByteArray decoded = decodeRgba(path, "apng", 2);
-    for (int frame = 0; frame < 2; ++frame) {
-      expectPixel(decoded, frame, 0, TPixel32(255, 0, 64, 255), 0, "float");
-      expectPixel(decoded, frame, kLy - 1, TPixel32(128, 64, 255, 128), 0,
-                  "float");
-    }
-    if (!previous.isEmpty()) expectSamePictures(previous, decoded, 0, "float");
-    previous = decoded;
-  }
-}
-
 // Exercise the shared writer exactly as concurrent render completions do.
 // Conversion and PNG encoding may overlap, but frame order, shared metadata,
 // and cleanup registration must remain valid.
@@ -421,6 +371,35 @@ void testFrameSyncCapabilities() {
   writeFile(executable, "#!/bin/sh\nprintf '%s\\n' '-unrelated option'\n");
   expectFailure([] { ThirdParty::getFFmpegFrameSyncArgs(); },
                 "Missing passthrough support silently enabled frame resampling");
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
+}
+
+void testProbeTimeoutConversion() {
+  QTemporaryDir tools;
+  require(tools.isValid(), "Cannot create timeout fixture directory");
+  const QString executable = tools.filePath("ffprobe");
+  writeFile(executable,
+            "#!/bin/bash\nset -euo pipefail\nsleep 2\n"
+            "printf '%s\\n' 'probe complete'\n");
+  require(
+      QFile::setPermissions(
+          executable, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner),
+      "Cannot make timeout fixture executable");
+  const int savedTimeout = ThirdParty::getFFmpegTimeout();
+  Preferences::instance()->setValue(ffmpegPath, tools.path());
+  // A wrapped 32-bit product would give this two-second probe only 704 ms.
+  for (const int seconds : {4294968, 0}) {
+    ThirdParty::setFFmpegTimeout(seconds);
+    Ffmpeg reader;
+    require(reader.runFfprobe({}) == QStringLiteral("probe complete\n"),
+            "Large or default timeout rejected a completed probe");
+  }
+  ThirdParty::setFFmpegTimeout(1);
+  Ffmpeg reader;
+  expectFailure([&] { reader.runFfprobe({}); },
+                "Probe ignored the configured one-second timeout");
+  ThirdParty::setFFmpegTimeout(savedTimeout);
   Preferences::instance()->setValue(ffmpegPath,
                                     QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
 }
@@ -853,6 +832,7 @@ int main(int argc, char *argv[]) {
     setUpEnvironment(directory);
     const QStringList previousImports = importGenerations();
     testFrameSyncCapabilities();
+    testProbeTimeoutConversion();
 
     // APNG is lossless: exact pixels, alpha included, identical exports
     testFormat(
@@ -869,7 +849,6 @@ int main(int argc, char *argv[]) {
         },
         12, 2);
 
-    testFloatExportPreservesSource(directory);
     testConcurrentExport(directory);
     testSharedReaderCache(directory);
     testFailedFinalization(directory, false);

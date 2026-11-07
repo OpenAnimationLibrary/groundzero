@@ -36,12 +36,17 @@
 #include <QCryptographicHash>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include "tmsgcore.h"
 #include "thirdparty.h"
 
 Ffmpeg::Ffmpeg() {
-  int userTimeoutSec = ThirdParty::getFFmpegTimeout();
-  m_ffmpegTimeoutMs  = (userTimeoutSec > 0) ? userTimeoutSec * 1000 : 30000;
+  const int userTimeoutSec = ThirdParty::getFFmpegTimeout();
+  m_ffmpegTimeoutMs =
+      userTimeoutSec > 0
+          ? int(std::min<qint64>(qint64(userTimeoutSec) * 1000,
+                                 std::numeric_limits<int>::max()))
+          : 30000;
 
   m_intermediateFormat = "png";
   m_startNumber        = std::numeric_limits<int>::max();
