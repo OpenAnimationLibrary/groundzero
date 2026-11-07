@@ -19,6 +19,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
+#include <array>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -31,9 +32,46 @@ void require(bool condition, const std::string &message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+void verifyToolDirectory(const QString& configured, const QString& expected) {
+  Preferences::instance()->setValue(ffmpegPath, configured);
+  Preferences::instance()->setValue(rhubarbPath, configured);
+  const struct {
+    const char* name;
+    void (*run)(QProcess&, const QStringList&);
+  } tools[] = {{"ffmpeg", ThirdParty::runFFmpeg},
+               {"ffprobe", ThirdParty::runFFprobe},
+               {"rhubarb", ThirdParty::runRhubarb}};
+  for (const auto& tool : tools) {
+    QString executable = QString::fromLatin1(tool.name);
+#ifdef _WIN32
+    executable += ".exe";
+#endif
+    QProcess process;
+    tool.run(process, {"-version"});
+    const QString program = QDir::cleanPath(process.program());
+    if (process.waitForStarted(10000)) {
+      process.kill();
+      process.waitForFinished(5000);
+    }
+    require(
+        program == QDir(expected).filePath(executable),
+        std::string(tool.name) + " resolved the helper directory incorrectly");
+  }
+}
+
 TPixel32 pixelAt(int frame, bool top) {
   return top ? TPixel32(200, 30 + frame * 30, 50, 255)
              : TPixel32(20, 60, 180 + frame * 10, 255);
+}
+
+TPixelF hdrPixelAt(int frame, bool top) {
+  return top ? TPixelF(-0.25f, (30 + frame * 30) / 255.0f, 1.25f, 1.5f)
+             : TPixelF(1.5f, -0.5f, (180 + frame * 10) / 255.0f, 1.25f);
+}
+
+TPixel32 hdrOutputPixelAt(int frame, bool top) {
+  return top ? TPixel32(0, 30 + frame * 30, 255, 255)
+             : TPixel32(255, 0, 180 + frame * 10, 255);
 }
 
 void saveFrame(const TLevelWriterP &writer, int frame, int colorFrame) {
@@ -54,7 +92,8 @@ QByteArray readFile(const QString &path) {
   return bytes;
 }
 
-void verifyDecoded(const QString &ffmpeg, const QString &path) {
+void verifyDecoded(const QString& ffmpeg, const QString& path,
+                   TPixel32 (*expectedPixel)(int, bool) = pixelAt) {
   QProcess decoder;
   QStringList args = {"-v", "error", "-f", "apng", "-ignore_loop", "1",
                       "-i", path};
@@ -77,7 +116,7 @@ void verifyDecoded(const QString &ffmpeg, const QString &path) {
     for (int y = 0; y < height; ++y)
       for (int x = 0; x < width; ++x) {
         // FFmpeg raw RGBA starts at the top; native rasters start at the bottom.
-        const TPixel32 expected = pixelAt(frame, y < height / 2);
+        const TPixel32 expected = expectedPixel(frame, y < height / 2);
         const int offset = ((frame * height + y) * width + x) * 4;
         require(bytes[offset] == expected.r && bytes[offset + 1] == expected.g &&
                     bytes[offset + 2] == expected.b && bytes[offset + 3] == expected.m,
@@ -114,6 +153,39 @@ void exportAndAbort(const QDir &directory, const QString &ffmpeg, bool pipe) {
   qunsetenv("OTDEV_FFMPEG_NO_PIPE");
 }
 
+void exportHdr(const QDir& directory, const QString& ffmpeg, bool pipe) {
+  if (pipe)
+    qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+  else
+    qputenv("OTDEV_FFMPEG_NO_PIPE", "1");
+  const QString path =
+      directory.filePath(pipe ? "hdr-pipe.apng" : "hdr-images.apng");
+  std::array<TRasterFP, frameCount> sources;
+  {
+    TLevelWriterP writer{TFilePath(path)};
+    require(!!writer, "Cannot open the public APNG writer for HDR frames");
+    writer->setFrameRate(24);
+    for (int frame = 0; frame < frameCount; ++frame) {
+      sources[frame] = TRasterFP(width, height);
+      for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+          sources[frame]->pixels(y)[x] = hdrPixelAt(frame, y >= height / 2);
+      TImageWriterP frameWriter = writer->getFrameWriter(TFrameId(frame + 1));
+      require(!!frameWriter, "Public factory returned no HDR frame writer");
+      frameWriter->save(TRasterImageP(sources[frame]));
+    }
+    writer->finalize();
+  }
+  for (int frame = 0; frame < frameCount; ++frame)
+    for (int y = 0; y < height; ++y)
+      for (int x = 0; x < width; ++x)
+        require(
+            sources[frame]->pixels(y)[x] == hdrPixelAt(frame, y >= height / 2),
+            "APNG export modified the floating-point source pixels");
+  verifyDecoded(ffmpeg, path, hdrOutputPixelAt);
+  qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -142,12 +214,22 @@ int main(int argc, char **argv) {
     TEnv::setApplicationFullName("ffmpeg_public_test");
     require(QDir().mkpath(ToonzFolder::getMyModuleDir().getQString()),
             "Cannot create the settings folder");
+    verifyToolDirectory(QString(), QCoreApplication::applicationDirPath());
+    verifyToolDirectory(".", QCoreApplication::applicationDirPath());
+    verifyToolDirectory(
+        "./helpers with spaces",
+        QCoreApplication::applicationDirPath() + "/helpers with spaces");
+    verifyToolDirectory(directory.filePath("helpers with spaces"),
+                        directory.filePath("helpers with spaces"));
     Preferences::instance()->setValue(ffmpegPath, tools.absolutePath());
     Preferences::instance()->setValue(ffmpegMultiThread, false);
     initImageIo();
     exportAndAbort(directory, executable.absoluteFilePath(), true);
     exportAndAbort(directory, executable.absoluteFilePath(), false);
-    std::cout << "Public FFmpeg export, decode and abort checks passed\n";
+    exportHdr(directory, executable.absoluteFilePath(), true);
+    exportHdr(directory, executable.absoluteFilePath(), false);
+    std::cout << "Public FFmpeg export, HDR preservation, decode and abort "
+                 "checks passed\n";
     return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

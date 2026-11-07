@@ -257,6 +257,56 @@ void testFormat(const QTemporaryDir &directory, const QString &type,
   expectSamePictures(piped, files, sameTolerance, what);
 }
 
+void testFloatExportPreservesSource(const QTemporaryDir& directory) {
+  const TPixelF top(2.0f, -0.25f, 0.25f, 1.0f);
+  const TPixelF bottom(0.5f, 0.25f, 2.0f, 0.5f);
+  QByteArray previous;
+  for (bool usePipe : {false, true}) {
+    const QString path =
+        directory.filePath(usePipe ? "float-pipe.apng" : "float-files.apng");
+    if (usePipe)
+      qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+    else
+      qputenv("OTDEV_FFMPEG_NO_PIPE", "1");
+
+    TRasterFP raster(kLx, kLy);
+    raster->lock();
+    for (int y = 0; y < kLy; ++y)
+      std::fill(raster->pixels(y), raster->pixels(y) + kLx,
+                y >= kLy / 2 ? top : bottom);
+    raster->unlock();
+    {
+      TSmartPointerT<TLevelWriter> writer(TLevelWriterAPng::create(
+          TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
+      writer->setFrameRate(24);
+      for (int frame = 1; frame <= 2; ++frame)
+        writer->getFrameWriter(TFrameId(frame))->save(TRasterImageP(raster));
+      writer->finalize();
+    }
+    qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+
+    bool unchanged = true;
+    raster->lock();
+    for (int y = 0; y < kLy; ++y) {
+      const TPixelF expected = y >= kLy / 2 ? top : bottom;
+      unchanged &=
+          std::all_of(raster->pixels(y), raster->pixels(y) + kLx,
+                      [&](const TPixelF& pixel) { return pixel == expected; });
+    }
+    raster->unlock();
+    require(unchanged, "FFmpeg export modified the floating source raster");
+
+    const QByteArray decoded = decodeRgba(path, "apng", 2);
+    for (int frame = 0; frame < 2; ++frame) {
+      expectPixel(decoded, frame, 0, TPixel32(255, 0, 64, 255), 0, "float");
+      expectPixel(decoded, frame, kLy - 1, TPixel32(128, 64, 255, 128), 0,
+                  "float");
+    }
+    if (!previous.isEmpty()) expectSamePictures(previous, decoded, 0, "float");
+    previous = decoded;
+  }
+}
+
 // Exercise the shared writer exactly as concurrent render completions do.
 // Conversion and PNG encoding may overlap, but frame order, shared metadata,
 // and cleanup registration must remain valid.
@@ -819,6 +869,7 @@ int main(int argc, char *argv[]) {
         },
         12, 2);
 
+    testFloatExportPreservesSource(directory);
     testConcurrentExport(directory);
     testSharedReaderCache(directory);
     testFailedFinalization(directory, false);

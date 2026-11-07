@@ -194,7 +194,7 @@ void setFFmpegTimeout(int secs) {
 
 void runFFmpeg(QProcess &process, const QStringList &arguments) {
   QString dir = Preferences::instance()->getFfmpegPath();
-  if (dir.at(0) == '.')  // Relative path
+  if (dir.isEmpty() || dir.at(0) == '.')  // Relative path
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + FFMPEG_EXE, arguments);
@@ -204,7 +204,7 @@ void runFFmpeg(QProcess &process, const QStringList &arguments) {
 
 void runFFprobe(QProcess &process, const QStringList &arguments) {
   QString dir = Preferences::instance()->getFfmpegPath();
-  if (dir.at(0) == '.')  // Relative path
+  if (dir.isEmpty() || dir.at(0) == '.')  // Relative path
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + FFPROBE_EXE, arguments);
@@ -460,7 +460,7 @@ QString autodetectRhubarb() {
 
 void runRhubarb(QProcess &process, const QStringList &arguments) {
   QString dir = Preferences::instance()->getRhubarbPath();
-  if (dir.at(0) == '.')  // Relative path
+  if (dir.isEmpty() || dir.at(0) == '.')  // Relative path
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + RHUBARB_EXE, arguments);
