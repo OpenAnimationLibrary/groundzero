@@ -64,6 +64,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 
@@ -323,6 +324,122 @@ void reviewWidthManager(QAction *action, double strength, bool accept,
   if (failure) std::rethrow_exception(failure);
   require(visited, "width profile action bypassed its manager");
   require(warned == expectSourceWarning, "width manager source invalidation was not reported");
+}
+
+struct SwingUndoCase {
+  std::set<TFrameId> selected;
+  std::map<TFrameId, TFrameId> shifted;
+  std::map<TFrameId, double> inserted;
+};
+
+void checkSwingDrawing(TXshSimpleLevel* level, const TFrameId& fid,
+                       double opacity) {
+  TVectorImageP image = level->getFrame(fid, false);
+  require(image && image->getStrokeCount() == 2, "Swing lost drawing content");
+  require(image->getStroke(0)->getOpacity() == opacity,
+          "Swing changed an original or appended drawing's identity");
+}
+
+void checkSwingState(TXshSimpleLevel* level,
+                     const std::vector<TFrameId>& original,
+                     const SwingUndoCase& test, bool sync, bool applied) {
+  const SwingUndoCase unchanged;
+  const auto& changes      = applied ? test : unchanged;
+  const auto expectedCount = original.size() + changes.inserted.size();
+  require(level->getFrameCount() == static_cast<int>(expectedCount),
+          "Swing changed the number of original or appended drawings");
+  auto* xsheet = TApp::instance()->getCurrentXsheet()->getXsheet();
+  for (size_t i = 0; i < original.size(); ++i) {
+    const auto shifted = changes.shifted.find(original[i]);
+    const auto fid =
+        shifted != changes.shifted.end() ? shifted->second : original[i];
+    checkSwingDrawing(level, fid, (i + 1) / 10.0);
+    const auto cell = xsheet->getCell(static_cast<int>(i) * 2, 0);
+    require(cell.getSimpleLevel() == level,
+            "Swing changed an exposure's level");
+    require(cell.getFrameId() == (sync ? fid : original[i]),
+            "Swing changed an exposure's drawing ID");
+    require(xsheet->getCell(static_cast<int>(i) * 2 + 1, 0).isEmpty(),
+            "Swing changed an empty Xsheet cell");
+  }
+  for (const auto& [fid, opacity] : changes.inserted)
+    checkSwingDrawing(level, fid, opacity);
+}
+
+void swingUndoChecks() {
+  auto* app         = TApp::instance();
+  auto* level       = app->getCurrentScene()
+                          ->getScene()
+                          ->createNewLevel(PLI_XSHLEVEL, L"SwingUndoFixture")
+                          ->getSimpleLevel();
+  TPaletteP palette = new TPalette;
+  level->setPalette(palette.getPointer());
+  const std::vector<TFrameId> original = {
+      TFrameId(1),      TFrameId(1, "a"), TFrameId(1, "b"),
+      TFrameId(2),      TFrameId(2, "a"), TFrameId(3),
+      TFrameId(3, "a"), TFrameId(5),      TFrameId(7)};
+  auto* xsheet = app->getCurrentXsheet()->getXsheet();
+  for (size_t i = 0; i < original.size(); ++i) {
+    TVectorImageP image = drawing(palette.getPointer(), 1);
+    image->getStroke(0)->setOpacity((i + 1) / 10.0);
+    level->setFrame(original[i], image);
+    xsheet->setCell(static_cast<int>(i) * 2, 0, TXshCell(level, original[i]));
+  }
+  app->getCurrentLevel()->setLevel(level);
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  auto* undo = TUndoManager::manager();
+  undo->reset();
+  app->getCurrentScene()->setDirtyFlag(false);
+  std::set<TFrameId> selected;
+  FilmstripCmd::swing(level, selected);
+  selected.insert(TFrameId(1));
+  FilmstripCmd::swing(level, selected);
+  require(
+      undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+      "Swing recorded an edit for fewer than two selected drawings");
+  const std::vector<SwingUndoCase> cases = {
+      {{TFrameId(1), TFrameId(2)},
+       {{TFrameId(3), TFrameId(4)}},
+       {{TFrameId(3), .4}}},
+      {{TFrameId(1), TFrameId(1, "a")},
+       {{TFrameId(2, "a"), TFrameId(3, "a")},
+        {TFrameId(3, "a"), TFrameId(4, "a")}},
+       {{TFrameId(2, "a"), .2}}},
+      {{TFrameId(1), TFrameId(2), TFrameId(3, "a")},
+       {},
+       {{TFrameId(4, "a"), .7}, {TFrameId(5, "a"), .4}}},
+      {{TFrameId(1), TFrameId(3), TFrameId(5)},
+       {{TFrameId(7), TFrameId(8)}},
+       {{TFrameId(6), .8}, {TFrameId(7), .6}}}};
+  auto* preferences       = Preferences::instance();
+  const bool originalSync = preferences->isSyncLevelRenumberWithXsheetEnabled();
+  for (bool sync : {false, true}) {
+    for (const auto& test : cases) {
+      undo->reset();
+      preferences->setValue(syncLevelRenumberWithXsheet, sync, false);
+      bool appliedSync = sync;
+      selected         = test.selected;
+      FilmstripCmd::swing(level, selected);
+      require(selected == test.selected && undo->getHistoryCount() == 1,
+              "Swing changed the selection or recorded multiple edits");
+      for (int cycle = 0; cycle < 2; ++cycle) {
+        checkSwingState(level, original, test, appliedSync, true);
+        preferences->setValue(syncLevelRenumberWithXsheet, !appliedSync, false);
+        undo->undo();
+        checkSwingState(level, original, test, appliedSync, false);
+        appliedSync = !appliedSync;
+        undo->redo();
+      }
+      checkSwingState(level, original, test, appliedSync, true);
+      preferences->setValue(syncLevelRenumberWithXsheet, !appliedSync, false);
+      undo->undo();
+      checkSwingState(level, original, test, appliedSync, false);
+    }
+  }
+  preferences->setValue(syncLevelRenumberWithXsheet, originalSync, false);
+  undo->reset();
+  xsheet->clearCells(0, 0, static_cast<int>(original.size()) * 2);
+  app->getCurrentScene()->setDirtyFlag(false);
 }
 
 void filmstripInsertionUndoChecks(TXshSimpleLevel* level,
@@ -792,6 +909,7 @@ void nestedGroupChecks(TFilmstripSelection &frames) {
 
 void runVectorWorkflowNativeChecks() {
   filmstripUndoChecks();
+  swingUndoChecks();
   rasterInsertionUndoChecks();
   ungroupUndoChecks();
   auto *app = TApp::instance();

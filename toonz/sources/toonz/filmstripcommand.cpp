@@ -1926,24 +1926,25 @@ void FilmstripCmd::reverse(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
 //-----------------------------------------------------------------------------
 namespace {
 
-void performSwing(const TXshSimpleLevelP &sl,
-                  const std::set<TFrameId> &frames) {
-  if (!sl) return;
+std::vector<TFrameId> performSwing(const TXshSimpleLevelP& sl,
+                                   const std::set<TFrameId>& frames) {
+  if (!sl) return {};
   int count = int(frames.size()) - 1;
-  if (count <= 0) return;
+  if (count <= 0) return {};
   TFrameId lastFid     = *frames.rbegin();
   TFrameId insertPoint = lastFid + 1;
   std::set<TFrameId> framesToInsert;
   for (int i = 0; i < count; ++i) framesToInsert.insert(insertPoint + i);
 
   std::vector<TImageP> clonedImages;
-  for (auto k = frames.rbegin(); k != frames.rend(); ++k) {
+  clonedImages.reserve(count);
+  auto k = frames.rbegin();
+  for (int i = 0; i < count; ++i, ++k) {
     TImageP img = sl->getFrame(*k, false);
     clonedImages.push_back(img ? img->cloneImage() : nullptr);
   }
 
-  makeSpaceForFids(sl.getPointer(), framesToInsert);
-  assert(count == (int)clonedImages.size());
+  const auto originalFrames = makeSpaceForFids(sl.getPointer(), framesToInsert);
   for (int i = 0; i < count; ++i) {
     TImage *img = clonedImages[i].getPointer();
     if (img) sl->setFrame(insertPoint + i, img);
@@ -1951,6 +1952,7 @@ void performSwing(const TXshSimpleLevelP &sl,
   invalidateIcons(sl.getPointer(), framesToInsert);
   sl->setDirtyFlag(true);
   TApp::instance()->getCurrentLevel()->notifyLevelChange();
+  return originalFrames;
 }
 
 //-----------------------------------------------------------------------------
@@ -1959,11 +1961,18 @@ class FilmstripSwingUndo final : public TUndo {
   TXshSimpleLevelP m_level;
   std::set<TFrameId> m_frames;
   std::set<TFrameId> m_newFrames;
+  std::vector<TFrameId> m_originalFrames;
+  mutable bool m_updateXSheet;
 
 public:
-  FilmstripSwingUndo(const TXshSimpleLevelP &level,
-                     const std::set<TFrameId> &frames)
-      : m_level(level), m_frames(frames) {
+  FilmstripSwingUndo(const TXshSimpleLevelP& level,
+                     const std::set<TFrameId>& frames,
+                     std::vector<TFrameId> originalFrames)
+      : m_level(level)
+      , m_frames(frames)
+      , m_originalFrames(std::move(originalFrames))
+      , m_updateXSheet(
+            Preferences::instance()->isSyncLevelRenumberWithXsheetEnabled()) {
     int count = int(frames.size()) - 1;
     if (count <= 0) return;
     TFrameId lastFid     = *frames.rbegin();
@@ -1975,13 +1984,26 @@ public:
     TSelection *selection = TSelection::getCurrent();
     if (selection) selection->selectNone();
     removeFramesWithoutUndo(m_level, m_newFrames);
+    if (m_updateXSheet) {
+      std::vector<TFrameId> currentFrames;
+      m_level->getFids(currentFrames);
+      updateXSheet(m_level.getPointer(), currentFrames, m_originalFrames);
+    }
+    m_level->renumber(m_originalFrames);
+    m_level->setDirtyFlag(true);
+    TApp::instance()->getCurrentLevel()->notifyLevelChange();
   }
   void redo() const override {
     TSelection *selection = TSelection::getCurrent();
     if (selection) selection->selectNone();
+    m_updateXSheet =
+        Preferences::instance()->isSyncLevelRenumberWithXsheetEnabled();
     performSwing(m_level, m_frames);
   }
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    return static_cast<int>(sizeof(*this) +
+                            m_originalFrames.size() * sizeof(TFrameId));
+  }
 
   QString getHistoryString() override {
     return UiTranslations::text(QObject::tr("Swing  : Level %1"))
@@ -2000,9 +2022,11 @@ private:
 //-----------------------------------------------------------------------------
 
 void FilmstripCmd::swing(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
-  if (!sl || sl->isSubsequence() || sl->isReadOnly()) return;
-  performSwing(sl, frames);
-  TUndoManager::manager()->add(new FilmstripSwingUndo(sl, frames));
+  if (!sl || frames.size() < 2 || sl->isSubsequence() || sl->isReadOnly())
+    return;
+  auto originalFrames = performSwing(sl, frames);
+  TUndoManager::manager()->add(
+      new FilmstripSwingUndo(sl, frames, std::move(originalFrames)));
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
 }
 
