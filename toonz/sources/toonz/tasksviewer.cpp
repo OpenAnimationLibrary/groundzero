@@ -32,6 +32,10 @@
 #include <QTimer>
 #include <QComboBox>
 #include <QStringList>
+#include <QSignalBlocker>
+#include <QPointer>
+
+#include <exception>
 
 using namespace DVGui;
 
@@ -237,7 +241,7 @@ public:
 
 void TaskSheet::onAdded(bool) {
   QList<QListWidgetItem *> l;
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
 
   l = m_notAddedBox->selectedItems();
   if (l.isEmpty()) return;
@@ -255,7 +259,7 @@ void TaskSheet::onAdded(bool) {
 
 void TaskSheet::onRemoved(bool) {
   QList<QListWidgetItem *> l;
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
 
   l = m_addedBox->selectedItems();
   if (l.isEmpty()) return;
@@ -271,7 +275,7 @@ void TaskSheet::onRemoved(bool) {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::onAddedItemDoubleClicked(QListWidgetItem *item) {
-  if (!m_task || !item) return;
+  if (!item || !canEditCurrentTask()) return;
 
   auto* dependency = static_cast<DependencyItem*>(item);
   m_task->m_dependencies->add(dependency->m_taskId);
@@ -283,7 +287,7 @@ void TaskSheet::onAddedItemDoubleClicked(QListWidgetItem *item) {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::onRemovedItemDoubleClicked(QListWidgetItem *item) {
-  if (!m_task || !item) return;
+  if (!item || !canEditCurrentTask()) return;
 
   auto* dependency = static_cast<DependencyItem*>(item);
   m_task->m_dependencies->remove(dependency->m_taskId);
@@ -296,6 +300,12 @@ void TaskSheet::onRemovedItemDoubleClicked(QListWidgetItem *item) {
 
 void TaskSheet::update(TFarmTask *task) {
   m_task = task;
+  m_taskId = task ? task->m_id : QString();
+  const QSignalBlocker visibleBlocker(m_visible);
+  const QSignalBlocker overwriteBlocker(m_overwrite);
+  const QSignalBlocker multimediaBlocker(m_multimedia);
+  const QSignalBlocker threadsBlocker(m_threadsCombo);
+  const QSignalBlocker granularityBlocker(m_rasterGranularityCombo);
 
   while (m_addedBox->count()) delete m_addedBox->takeItem(0);
   while (m_notAddedBox->count()) delete m_notAddedBox->takeItem(0);
@@ -366,6 +376,7 @@ void TaskSheet::update(TFarmTask *task) {
     m_visible->setChecked(task->m_onlyVisible);
   }
 
+  setEditable(bc->canEditTask(task->m_id));
   int i;
 
   for (i = 0; i < task->m_dependencies->getTaskCount(); i++) {
@@ -388,21 +399,67 @@ void TaskSheet::update(TFarmTask *task) {
 
 //-----------------------------------------------------------------------------
 
-void TaskSheet::updateChunks(TFarmTask *task) {
-  TFarmTaskGroup *t = dynamic_cast<TFarmTaskGroup *>(task);
-
-  if (t) {
-    while (t->getTaskCount())
-      BatchesController::instance()->removeTask(t->getTask(0)->m_id);
-
-    t->changeChunkSize(t->m_chunkSize);
-    int i;
-    for (i = 0; i < t->getTaskCount(); i++)
-      BatchesController::instance()->addTask(t->getTask(i)->m_id,
-                                             t->getTask(i));
-
-    BatchesController::instance()->notify();
+bool TaskSheet::canEditCurrentTask() {
+  if (!m_task) {
+    m_viewer->startTimer();
+    return false;
   }
+  auto* controller = BatchesController::instance();
+  TFarmTask* task  = controller->getTask(m_taskId);
+  if (task == m_task && controller->canEditTask(m_taskId)) return true;
+  update(task);
+  m_viewer->startTimer();
+  return false;
+}
+
+//-----------------------------------------------------------------------------
+
+void TaskSheet::setEditable(bool editable) {
+  const QList<QWidget*> controls = {m_name,
+                                    m_priority,
+                                    m_from,
+                                    m_to,
+                                    m_step,
+                                    m_shrink,
+                                    m_chunkSize,
+                                    m_outputPath,
+                                    m_visible,
+                                    m_overwrite,
+                                    m_multimedia,
+                                    m_threadsCombo,
+                                    m_rasterGranularityCombo,
+                                    m_addedBox,
+                                    m_notAddedBox,
+                                    m_addDependency,
+                                    m_removeDependency};
+  for (QWidget* control : controls) control->setEnabled(editable);
+  if (m_task && isMovieType(m_task->m_outputPath.getType()))
+    m_chunkSize->setEnabled(false);
+}
+
+//-----------------------------------------------------------------------------
+
+void TaskSheet::applyChunkSettings(int from, int to, int chunkSize,
+                                   const TFilePath& outputPath) {
+  auto* controller     = BatchesController::instance();
+  const QString taskId = m_taskId;
+  bool refresh         = false;
+  QString error;
+  try {
+    refresh = !controller->setTaskChunkSettings(taskId, from, to, chunkSize,
+                                                outputPath);
+  } catch (const TException& exception) {
+    refresh = true;
+    error   = tr("Could not update the task's chunk settings.\n%1")
+                  .arg(QString::fromStdWString(exception.getMessage()));
+  } catch (const std::exception& exception) {
+    refresh = true;
+    error   = tr("Could not update the task's chunk settings.\n%1")
+                  .arg(QString::fromLocal8Bit(exception.what()));
+  }
+  if (refresh) update(controller->getTask(taskId));
+  m_viewer->startTimer();
+  if (!error.isEmpty()) DVGui::warning(error);
 }
 
 //-----------------------------------------------------------------------------
@@ -485,29 +542,17 @@ void inline create(A *&ret1, B *&ret2, QGridLayout *layout, QString name1,
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setChunkSize() {
-  if (!m_task) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
-
+  if (!canEditCurrentTask()) return;
   int val = m_chunkSize->text().toInt();
-  if (val < 1) {
+  if (val < 1)
     val = 1;
-    m_chunkSize->setText(QString::number(val));
-  } else if (val > m_task->m_stepCount) {
+  else if (val > m_task->m_stepCount)
     val = m_task->m_stepCount;
-    m_chunkSize->setText(QString::number(val));
-  }
-
-  if (m_task->m_chunkSize != val) {
-    m_task->m_chunkSize = val;
-    BatchesController::instance()->setDirtyFlag(true);
-
-    updateChunks(m_task);
-  }
-
-  m_viewer->startTimer();
+  m_chunkSize->setText(QString::number(val));
+  if (m_task->m_chunkSize != val)
+    applyChunkSettings(m_task->m_from, m_task->m_to, val, m_task->m_outputPath);
+  else
+    m_viewer->startTimer();
 }
 
 //-----------------------------------------------------------------------------
@@ -517,7 +562,7 @@ void TaskSheet::onFocusIn() { m_viewer->stopTimer(); }
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setName() {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
 
   m_task->m_name = m_name->text();
   m_commandLine->setText(m_task->getCommandLine());
@@ -531,11 +576,7 @@ void TaskSheet::setName() {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setFrom() {
-  if (!m_task) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
+  if (!canEditCurrentTask()) return;
 
   int val = m_from->text().toInt();
 
@@ -548,11 +589,9 @@ void TaskSheet::setFrom() {
   }
 
   if (m_task->m_from != val) {
-    m_task->m_from = val;
-    m_commandLine->setText(m_task->getCommandLine());
-    BatchesController::instance()->setDirtyFlag(true);
-
-    updateChunks(m_task);
+    applyChunkSettings(val, m_task->m_to, m_task->m_chunkSize,
+                       m_task->m_outputPath);
+    return;
   }
 
   m_viewer->startTimer();
@@ -561,11 +600,7 @@ void TaskSheet::setFrom() {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setTo() {
-  if (!m_task) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
+  if (!canEditCurrentTask()) return;
 
   int val = m_to->text().toInt();
 
@@ -578,11 +613,9 @@ void TaskSheet::setTo() {
   }
 
   if (m_task->m_to != val) {
-    m_task->m_to = val;
-    m_commandLine->setText(m_task->getCommandLine());
-    BatchesController::instance()->setDirtyFlag(true);
-
-    updateChunks(m_task);
+    applyChunkSettings(m_task->m_from, val, m_task->m_chunkSize,
+                       m_task->m_outputPath);
+    return;
   }
 
   m_viewer->startTimer();
@@ -591,11 +624,7 @@ void TaskSheet::setTo() {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setShrink() {
-  if (!m_task) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
+  if (!canEditCurrentTask()) return;
 
   int val = m_shrink->text().toInt();
   if (val < 1)
@@ -603,7 +632,6 @@ void TaskSheet::setShrink() {
   else if (m_task->m_shrink != val) {
     m_task->m_shrink = val;
     m_commandLine->setText(m_task->getCommandLine());
-    BatchesController::instance()->setDirtyFlag(true);
 
     // Update children tasks, if present.
     TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
@@ -611,6 +639,7 @@ void TaskSheet::setShrink() {
       for (int i = 0; i < taskGroup->getTaskCount(); ++i)
         taskGroup->getTask(i)->m_shrink = taskGroup->m_shrink;
     }
+    BatchesController::instance()->setDirtyFlag(true);
   }
 
   m_viewer->startTimer();
@@ -619,11 +648,7 @@ void TaskSheet::setShrink() {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setStep() {
-  if (!m_task) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
+  if (!canEditCurrentTask()) return;
 
   int val = m_step->text().toInt();
   if (val < 1)
@@ -631,7 +656,6 @@ void TaskSheet::setStep() {
   else if (m_task->m_step != val) {
     m_task->m_step = val;
     m_commandLine->setText(m_task->getCommandLine());
-    BatchesController::instance()->setDirtyFlag(true);
 
     // Update children tasks, if present.
     TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
@@ -639,6 +663,7 @@ void TaskSheet::setStep() {
       for (int i = 0; i < taskGroup->getTaskCount(); ++i)
         taskGroup->getTask(i)->m_step = taskGroup->m_step;
     }
+    BatchesController::instance()->setDirtyFlag(true);
   }
 
   m_viewer->startTimer();
@@ -647,11 +672,11 @@ void TaskSheet::setStep() {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setPriority() {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
 
   int val = m_priority->text().toInt();
   if (val < 0)
-    m_from->setText(QString::number(m_task->m_priority));
+    m_priority->setText(QString::number(m_task->m_priority));
   else {
     m_task->m_priority = val;
     BatchesController::instance()->setDirtyFlag(true);
@@ -662,7 +687,7 @@ void TaskSheet::setPriority() {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setVisible(int) {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
   if (m_task->m_onlyVisible == (m_visible->checkState() == Qt::Checked)) return;
 
   m_task->m_onlyVisible = (m_visible->checkState() == Qt::Checked);
@@ -673,7 +698,7 @@ void TaskSheet::setVisible(int) {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setOverwrite(int index) {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
   if (m_task->m_overwrite == (OverwriteBehavior)index) return;
 
   m_task->m_overwrite = (OverwriteBehavior)index;
@@ -684,16 +709,11 @@ void TaskSheet::setOverwrite(int index) {
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setMultimedia(int) {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
   if (m_task->m_multimedia == m_multimedia->currentIndex()) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
 
   m_task->m_multimedia = (m_multimedia->currentIndex());
   m_commandLine->setText(m_task->getCommandLine());
-  BatchesController::instance()->setDirtyFlag(true);
 
   // Update children tasks, if present.
   TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
@@ -702,22 +722,18 @@ void TaskSheet::setMultimedia(int) {
       taskGroup->getTask(i)->m_multimedia = taskGroup->m_multimedia;
   }
 
+  BatchesController::instance()->setDirtyFlag(true);
   m_viewer->startTimer();
 }
 
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setThreadsCombo(int) {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
   if (m_task->m_threadsIndex == m_threadsCombo->currentIndex()) return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
 
   m_task->m_threadsIndex = (m_threadsCombo->currentIndex());
   m_commandLine->setText(m_task->getCommandLine());
-  BatchesController::instance()->setDirtyFlag(true);
 
   // Update children tasks, if present.
   TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
@@ -726,23 +742,19 @@ void TaskSheet::setThreadsCombo(int) {
       taskGroup->getTask(i)->m_threadsIndex = taskGroup->m_threadsIndex;
   }
 
+  BatchesController::instance()->setDirtyFlag(true);
   m_viewer->startTimer();
 }
 
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setGranularityCombo(int) {
-  if (!m_task) return;
+  if (!canEditCurrentTask()) return;
   if (m_task->m_maxTileSizeIndex == m_rasterGranularityCombo->currentIndex())
     return;
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
-    return;
-  }
 
   m_task->m_maxTileSizeIndex = (m_rasterGranularityCombo->currentIndex());
   m_commandLine->setText(m_task->getCommandLine());
-  BatchesController::instance()->setDirtyFlag(true);
 
   // Update children tasks, if present.
   TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
@@ -751,43 +763,22 @@ void TaskSheet::setGranularityCombo(int) {
       taskGroup->getTask(i)->m_maxTileSizeIndex = taskGroup->m_maxTileSizeIndex;
   }
 
+  BatchesController::instance()->setDirtyFlag(true);
   m_viewer->startTimer();
 }
 
 //-----------------------------------------------------------------------------
 
 void TaskSheet::setOutput() {
-  if (!m_task) return;
-  if (m_task->m_outputPath == TFilePath(m_outputPath->text().toStdWString()))
-    return;
-
-  if (m_task->m_completionDate.isNull() && !m_task->m_startDate.isNull()) {
-    update(m_task);
+  if (!canEditCurrentTask()) return;
+  const TFilePath outputPath(m_outputPath->text().toStdWString());
+  if (m_task->m_outputPath == outputPath) {
+    m_viewer->startTimer();
     return;
   }
-
-  m_task->m_outputPath = TFilePath(m_outputPath->text().toStdWString());
-  m_commandLine->setText(m_task->getCommandLine());
-
-  TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
-
-  // Check chunk size consistency
-  if (taskGroup && !isMovieType(m_task->m_outputPath.getType())) {
-    m_chunkSize->setEnabled(true);
-    m_chunkSize->setText(QString::number(m_task->m_chunkSize));
-
-    // Update children outputPaths
-    for (int i = 0; i < taskGroup->getTaskCount(); ++i)
-      taskGroup->getTask(i)->m_outputPath = taskGroup->m_outputPath;
-  } else {
-    m_chunkSize->setEnabled(false);
-    m_chunkSize->setText(QString::number(m_task->m_stepCount));
-
-    setChunkSize();
-  }
-
-  BatchesController::instance()->setDirtyFlag(true);
-  m_viewer->startTimer();
+  const int chunkSize = isMovieType(outputPath.getType()) ? m_task->m_stepCount
+                                                          : m_task->m_chunkSize;
+  applyChunkSettings(m_task->m_from, m_task->m_to, chunkSize, outputPath);
 }
 
 //-----------------------------------------------------------------------------
@@ -931,11 +922,13 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
   layout->addWidget(m_notAddedBox, row++, 4, 1, 2,
                     Qt::AlignLeft | Qt::AlignTop);
 
-  QPushButton *removeBtn = new QPushButton(tr("Remove >>"));
-  layout->addWidget(removeBtn, row, 2, 1, 2, Qt::AlignRight | Qt::AlignTop);
+  m_removeDependency = new QPushButton(tr("Remove >>"));
+  layout->addWidget(m_removeDependency, row, 2, 1, 2,
+                    Qt::AlignRight | Qt::AlignTop);
 
-  QPushButton *addBtn = new QPushButton(tr("<< Add"));
-  layout->addWidget(addBtn, row++, 4, 1, 2, Qt::AlignLeft | Qt::AlignTop);
+  m_addDependency = new QPushButton(tr("<< Add"));
+  layout->addWidget(m_addDependency, row++, 4, 1, 2,
+                    Qt::AlignLeft | Qt::AlignTop);
 
   bool ret = true;
 
@@ -980,10 +973,10 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
         connect(m_notAddedBox, SIGNAL(itemDoubleClicked(QListWidgetItem *)),
                 this, SLOT(onAddedItemDoubleClicked(QListWidgetItem *)));
 
-  ret = ret &&
-        connect(removeBtn, SIGNAL(clicked(bool)), this, SLOT(onRemoved(bool)));
-  ret =
-      ret && connect(addBtn, SIGNAL(clicked(bool)), this, SLOT(onAdded(bool)));
+  ret = ret && connect(m_removeDependency, SIGNAL(clicked(bool)), this,
+                       SLOT(onRemoved(bool)));
+  ret = ret && connect(m_addDependency, SIGNAL(clicked(bool)), this,
+                       SLOT(onAdded(bool)));
 
   ret = ret && connect(m_threadsCombo, SIGNAL(currentIndexChanged(int)), this,
                        SLOT(setThreadsCombo(int)));
@@ -1186,98 +1179,92 @@ void TaskTreeModel::addCleanupTask(bool) {
 
 //------------------------------------------------------------------------------------------------------------------
 
+namespace {
+
+struct TaskSelection {
+  QStringList ids;
+  bool all;
+  bool empty;
+};
+
+TaskSelection snapshotTaskSelection(const TaskTreeView& view) {
+  const QModelIndexList indexes = view.getSelectedIndexes();
+  TaskSelection selection{QStringList(), indexes.empty(), indexes.empty()};
+  for (const QModelIndex& index : indexes) {
+    if (!index.isValid()) continue;
+    auto* item = static_cast<TaskTreeModel::Item*>(index.internalPointer());
+    if (item->getDepth() == 1) {
+      selection.all = true;
+      break;
+    }
+    if (TFarmTask* task = item->getTask())
+      if (!selection.ids.contains(task->m_id))
+        selection.ids.push_back(task->m_id);
+  }
+  return selection;
+}
+
+}  // namespace
+
 void TaskTreeModel::start(bool) {
+  const QPointer<TaskTreeModel> receiver(this);
   try {
+    const TaskSelection selection = snapshotTaskSelection(*m_view);
     TMsgCore::instance()->openConnection();
-    QModelIndexList indexList = m_view->getSelectedIndexes();
-    int i;
-
-    if (indexList.size() == 0)
-      BatchesController::instance()->startAll();
+    auto* controller = BatchesController::instance();
+    if (selection.all)
+      controller->startAll();
     else
-      for (i = 0; i < indexList.size(); i++) {
-        QModelIndex modelIndex = indexList.at(i);
-        if (!modelIndex.isValid()) continue;
-        TaskTreeModel::Item *item = (Item *)modelIndex.internalPointer();
-        if (item->getDepth() == 1)  // significa che ho selezionato la radice!
-        {
-          assert(indexList.size() == 1);
-          BatchesController::instance()->startAll();
-          break;
-        }
-
-        TFarmTask *task = item->getTask();
-        if (!task) continue;
-        BatchesController::instance()->start(task->m_id);
-      }
-  } catch (TException &e) {
-    DVGui::warning(QString::fromStdString(::to_string(e.getMessage())));
+      for (const QString& id : selection.ids) controller->start(id);
+  } catch (const TException& exception) {
+    DVGui::warning(QString::fromStdWString(exception.getMessage()));
+  } catch (const std::exception& exception) {
+    DVGui::warning(tr("Could not start the selected tasks.\n%1")
+                       .arg(QString::fromLocal8Bit(exception.what())));
   }
 
-  emit layoutChanged();
+  if (receiver) emit layoutChanged();
 }
 
 //------------------------------------------------------------------------------------------------------------------
 
 void TaskTreeModel::stop(bool) {
+  const QPointer<TaskTreeModel> receiver(this);
   try {
-    QModelIndexList indexList = m_view->getSelectedIndexes();
-    int i;
-    if (indexList.empty())
-      BatchesController::instance()->stopAll();
+    const TaskSelection selection = snapshotTaskSelection(*m_view);
+    auto* controller              = BatchesController::instance();
+    if (selection.all)
+      controller->stopAll();
     else
-      for (i = 0; i < indexList.size(); i++) {
-        QModelIndex modelIndex = indexList.at(i);
-        if (!modelIndex.isValid()) continue;
-        TaskTreeModel::Item *item = (Item *)modelIndex.internalPointer();
-        if (item->getDepth() == 1)  // significa che ho selezionato la radice!
-        {
-          assert(indexList.size() == 1);
-          BatchesController::instance()->stopAll();
-          break;
-        }
-        TFarmTask *task = item->getTask();
-        if (!task) continue;
-        BatchesController::instance()->stop(task->m_id);
-      }
-  } catch (TException &e) {
-    DVGui::warning(QString::fromStdString(::to_string(e.getMessage())));
+      for (const QString& id : selection.ids) controller->stop(id);
+  } catch (const TException& exception) {
+    DVGui::warning(QString::fromStdWString(exception.getMessage()));
+  } catch (const std::exception& exception) {
+    DVGui::warning(tr("Could not stop the selected tasks.\n%1")
+                       .arg(QString::fromLocal8Bit(exception.what())));
   }
 
-  emit layoutChanged();
+  if (receiver) emit layoutChanged();
 }
 
 //------------------------------------------------------------------------------------------------------------------
 
 void TaskTreeModel::remove(bool) {
-  QModelIndexList indexList = m_view->getSelectedIndexes();
+  const TaskSelection selection = snapshotTaskSelection(*m_view);
 
-  if (indexList.size() == 0) {
+  if (selection.empty) {
     if (DVGui::MsgBox(tr("Are you sure you want to remove ALL tasks?"),
                       tr("Remove All"), tr("Cancel")) > 1)
       return;
 
     BatchesController::instance()->removeAllTasks();
   } else {
-    QStringList taskIds;
-    bool removeAll = false;
-    for (const QModelIndex& modelIndex : indexList) {
-      if (!modelIndex.isValid()) continue;
-      auto* item = static_cast<Item*>(modelIndex.internalPointer());
-      if (item->getDepth() == 1) {
-        removeAll = true;
-        break;
-      }
-      if (TFarmTask* task = item->getTask()) taskIds.push_back(task->m_id);
-    }
-    // A selected group owns its chunks, which may also be selected.
-    // Keep identifiers before deleting any task or processing a modal warning.
-    if (removeAll)
+    if (selection.all)
       BatchesController::instance()->removeAllTasks();
     else
-      for (const QString& id : taskIds)
+      for (const QString& id : selection.ids)
         BatchesController::instance()->removeTask(id);
-    m_view->m_mainViewer->setSelected(nullptr);
+    m_view->m_mainViewer->update();
   }
 
   BatchesController::instance()->notify();

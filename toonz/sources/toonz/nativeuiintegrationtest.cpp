@@ -1,4 +1,5 @@
 #include "nativeuiintegrationtest.h"
+#include "batchtaskintegrationtest.h"
 #include "artistworkflowbenchmark.h"
 #include "mediacacheintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
@@ -683,20 +684,45 @@ void exerciseMovieBatchSetup() {
   const bool dirty  = controller->getDirtyFlag();
   const int count   = controller->getTaskCount();
   auto* preferences = Preferences::instance();
-  struct RestoreChunkSize {
-    int value;
-    ~RestoreChunkSize() {
-      Preferences::instance()->setValue(taskchunksize, value, false);
-    }
-  } restoreChunkSize{preferences->getDefaultTaskChunkSize()};
-  preferences->setValue(taskchunksize, 2, false);
   QTemporaryDir directory(QDir(testRoot).filePath("movie-batch-XXXXXX"));
   require(directory.isValid(), "movie batch fixture directory is unavailable");
+  const TFilePath scenePath(directory.filePath("movie-batch.tnz"));
+  const TFilePath batchScenePath = TSystem::toUNC(scenePath);
+  struct RestoreFixture {
+    BatchesController* controller;
+    TFilePath scenePath;
+    bool dirty;
+    int chunkSize;
+    bool finished = false;
+    void finish() {
+      if (finished) return;
+      QStringList ids;
+      for (int i = 0; i < controller->getTaskCount(); ++i) {
+        auto* group = dynamic_cast<TFarmTaskGroup*>(controller->getTask(i));
+        if (group && group->m_taskFilePath == scenePath)
+          ids.push_back(group->m_id);
+      }
+      for (const QString& id : ids) controller->removeTask(id);
+      controller->setDirtyFlag(dirty);
+      controller->notify();
+      Preferences::instance()->setValue(taskchunksize, chunkSize, false);
+      finished = true;
+    }
+    ~RestoreFixture() noexcept {
+      try {
+        finish();
+      } catch (...) {
+        std::cerr
+            << "native-ui-integration: FAIL: movie batch fixture cleanup failed"
+            << std::endl;
+      }
+    }
+  } restore{controller, batchScenePath, dirty,
+            preferences->getDefaultTaskChunkSize()};
+  preferences->setValue(taskchunksize, 2, false);
   ToonzScene scene;
   scene.setProject(
       TApp::instance()->getCurrentScene()->getScene()->getProject());
-  const TFilePath scenePath(directory.filePath("movie-batch.tnz"));
-  const TFilePath batchScenePath = TSystem::toUNC(scenePath);
   scene.setScenePath(scenePath);
   auto* level =
       scene.createNewLevel(PLI_XSHLEVEL, L"MovieBatch")->getSimpleLevel();
@@ -713,6 +739,17 @@ void exerciseMovieBatchSetup() {
         directory.filePath(QString("output.%1").arg(extension)));
     output->setPath(outputPath);
     scene.saveCopy(scenePath);
+    TFilePath expectedOutput = outputPath;
+#ifndef _WIN32
+    if (QString::fromLatin1(extension) == "avi")
+      expectedOutput = outputPath.withType("tif");
+#endif
+    ToonzScene loaded;
+    loaded.loadNoResources(batchScenePath);
+    const TFilePath effectiveOutput = loaded.decodeFilePath(
+        loaded.getProperties()->getOutputProperties()->getPath());
+    require(effectiveOutput == expectedOutput,
+            "saved movie batch output changed its platform compatibility path");
     controller->addComposerTask(scenePath);
     TFarmTaskGroup* group = nullptr;
     for (int i = 0; i < controller->getTaskCount(); ++i) {
@@ -723,8 +760,9 @@ void exerciseMovieBatchSetup() {
     require(group && group->m_stepCount == 5 && group->m_from == 1 &&
                 group->m_to == 5,
             "movie batch fixture did not load its saved frame range");
-    const bool imageSequence = QString::fromLatin1(extension) == "png";
-    require(group->m_outputPath == outputPath &&
+    const bool imageSequence = effectiveOutput.getType() == "png" ||
+                               effectiveOutput.getType() == "tif";
+    require(group->m_outputPath == effectiveOutput &&
                 group->m_chunkSize == (imageSequence ? 2 : 5) &&
                 group->getTaskCount() == (imageSequence ? 3 : 0),
             "movie batch was split into overlapping output jobs or image "
@@ -734,8 +772,7 @@ void exerciseMovieBatchSetup() {
     require(controller->getTaskCount() == count,
             "movie batch fixture did not retire its tasks");
   }
-  controller->setDirtyFlag(dirty);
-  controller->update();
+  restore.finish();
   checkpoint("workflow movie batch setup passed");
 }
 
@@ -1651,6 +1688,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
                 << animationError.toStdString() << std::endl;
       return 1;
     }
+    exerciseBatchTaskLifetime(testRoot);
     exerciseWorkflowSwitching(window);
     exerciseNativeUi(window);
     checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");

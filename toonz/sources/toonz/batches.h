@@ -5,6 +5,7 @@
 
 #include <QObject>
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
 #include <QString>
@@ -14,6 +15,14 @@
 #include "filebrowserpopup.h"
 
 class TFarmController;
+struct BatchExecutionState;
+struct BatchExecutionRecord;
+namespace BatchTaskExecution {
+struct Plan;
+struct Identity;
+struct Outcome;
+struct TestHooks;
+}  // namespace BatchTaskExecution
 
 //------------------------------------------------------------------------------
 
@@ -39,6 +48,22 @@ public:
   void addTask(const QString &id, TFarmTask *task, bool doUpdate = true);
   void removeTask(const QString &id);
   void removeAllTasks();
+  bool canEditTask(const QString& id) const;
+  bool setTaskChunkSize(const QString& id, int chunkSize);
+  bool setTaskChunkSettings(const QString& id, int from, int to, int chunkSize,
+                            const TFilePath& outputPath);
+
+#ifdef BUILD_UI_PORT_TESTS
+  void setExecutionTestHooks(
+      std::shared_ptr<BatchTaskExecution::TestHooks> hooks);
+  TThread::Executor& executionTestExecutor() { return m_localExecutor; }
+  size_t pendingExecutionCount() const;
+  quint64 taskGeneration() const;
+#endif
+
+  // Legacy farm messages have no run token. Deliver their values on this
+  // object's thread.
+  void postTaskProgress(const QString& id, bool successful);
 
   int getTaskCount() const;
   QString getTaskId(int index) const;
@@ -103,11 +128,30 @@ private:
   std::map<QString, QString> m_farmIdsTable;
   std::set<TaskTreeModel *> m_tasksTrees;
   TThread::Executor m_localExecutor;
+  std::unique_ptr<BatchExecutionState> m_execution;
 
   static BatchesController *m_instance;
 
 private:
   static inline QString taskBusyStr();
+  std::shared_ptr<BatchTaskExecution::Plan> captureTask(TFarmTask* task);
+  void startFarmTask(TFarmTask* task);
+  void suspendFarmTask(const QString& id);
+  void submitAllTasks();
+  void submitTask(std::shared_ptr<BatchTaskExecution::Plan> plan);
+  void applyOutcome(quint64 submission,
+                    const BatchTaskExecution::Outcome& outcome);
+  TFarmTask* liveTask(const BatchTaskExecution::Identity& identity) const;
+  void applyTaskOutcome(TFarmTask& task, const BatchExecutionRecord& record,
+                        const BatchTaskExecution::Outcome& outcome);
+  void retireTask(quint64 submission, bool failed);
+  void stopSubmission(quint64 submission);
+  void shutdownExecution();
+  bool tasksAreEditable() const;
+  void releaseTasks();
+  std::vector<std::unique_ptr<TFarmTask>> replaceChunks(
+      TFarmTaskGroup& group, int from, int to, int chunkSize,
+      const TFilePath& outputPath);
 };
 //-----------------------------------------------------------------------------
 class LoadTaskListPopup final : public FileBrowserPopup {
