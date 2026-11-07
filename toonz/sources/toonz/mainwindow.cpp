@@ -1253,10 +1253,18 @@ void MainWindow::requestRoomSetChange(QString profile) {
   if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
       IoCmd::isSceneTransitionInProgress())
     return;
-  const bool scheduled = !m_pendingWorkflow.isEmpty();
-  m_pendingWorkflow    = profile;
-  if (scheduled) return;
+  m_pendingWorkflow = profile;
+  schedulePendingWorkflowSwitch();
+}
+
+void MainWindow::schedulePendingWorkflowSwitch() {
+  if (m_pendingWorkflow.isEmpty() || m_workflowSwitchScheduled ||
+      m_isSwitchingWorkflows)
+    return;
+  m_workflowSwitchScheduled = true;
   QTimer::singleShot(0, this, [this]() {
+    m_workflowSwitchScheduled = false;
+    if (m_isSwitchingWorkflows) return;
     const QString profile = m_pendingWorkflow;
     m_pendingWorkflow.clear();
     switchWorkflow(profile);
@@ -1490,8 +1498,18 @@ void MainWindow::seeThroughWindow() {
 void MainWindow::onRoomTabChanged(int index) {
   if (m_isSwitchingWorkflows || index < 0 || index >= getRoomCount()) return;
   Room *room = getRoom(index);
-  if (room->notInitialized()) room->initialize();
-  m_stackedWidget->setCurrentIndex(index);
+  try {
+    if (room->notInitialized()) {
+      const QScopedValueRollback<bool> initializing(m_isSwitchingWorkflows,
+                                                    true);
+      room->initialize();
+    }
+    m_stackedWidget->setCurrentIndex(index);
+  } catch (...) {
+    schedulePendingWorkflowSwitch();
+    throw;
+  }
+  schedulePendingWorkflowSwitch();
 }
 
 void MainWindow::onCurrentRoomChanged(int newRoomIndex) {

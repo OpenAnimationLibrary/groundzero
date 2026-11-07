@@ -81,6 +81,7 @@ class MainWindow final : public QMainWindow {
   bool m_saveSettingsOnQuit;
   bool m_closeInProgress = false;
   bool m_isSwitchingWorkflows = false;
+  bool m_workflowSwitchScheduled = false;
   QString m_pendingWorkflow;
   bool m_startupPopupShown = false;
   bool m_wasMaximized      = false;
@@ -168,6 +169,7 @@ protected:
 private:
   /*!Must be call before readSettings().*/
   void defineActions();
+  void schedulePendingWorkflowSwitch();
   void switchWorkflow(const QString &profile);
   void updateWorkflowChecks();
   void clearWorkflowRooms();
