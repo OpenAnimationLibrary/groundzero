@@ -254,8 +254,8 @@ void checkSplitStrokeHistory(TTool* tool, TPalette* palette, int style,
                                               : L"SplitStrokeBlankFixture")
           ->getSimpleLevel();
   level->setPalette(palette);
-  const TVectorImageP first  = drawing(palette, style);
-  const TVectorImageP second = drawing(palette, 0);
+  TVectorImageP first  = drawing(palette, style);
+  TVectorImageP second = drawing(palette, 0);
   level->setFrame(TFrameId(1), first);
   level->setFrame(TFrameId(2), second);
   const int column = xsheet->getColumnCount();
