@@ -2,13 +2,57 @@
 
 Status: scoped source inventory and proposed CI work, following the user-requested
 memory review across artist workflows. No memory workload, local application build,
-leak detector, or baseline/mutation run has been executed by this lane. This document
-adds no prepared-fix count. The F01–F34 ledger and its exact-head evidence remain separate.
+leak detector, or baseline/mutation run has been executed by this lane. The repeated-memory
+protocol remains proposed; the ledger separately records prepared ownership repairs below.
+No memory-runtime or baseline/mutation evidence is claimed.
 
 The objective is to distinguish live artwork, intentionally retained caches/history,
 expired ownership, and allocator retention before changing memory policy. Each repair
 must preserve drawing identity, undo/redo, saved scenes and rendered output. Existing
 PR 133 cache-pressure work must be reviewed separately rather than duplicated.
+
+## Memory ownership fixture additions
+
+The memory follow-up has source/fixture diffs; runtime and baseline/mutation evidence remain
+pending. F38 is merge-exception double deletion and F40 is array-deleter mismatch, not measured
+normal-success growth. F36 releases builder metadata; F45/F46 retire progress UI, not the full
+render graph. See the measurement protocol below,
+[scene ownership review](audit_memory_ownership.md) and [LSan qualification](audit_image_cache_lsan.md).
+
+| ID | Priority | Prepared behavior | Authored cases |
+| --- | --- | --- | --- |
+| F35 | P1 | ChildStack owned-root teardown: Recover the owned root before deleting ancestor records; only that root is cleared or released. | `destroyWhileNested`, `closeBeforeDestruction`, `clearNavigationWhileNested`, `clearSceneWhileNested`; CI pending |
+| F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI pending |
+| F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
+| F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; CI pending |
+| F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; CI pending |
+| F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; CI pending |
+| F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; CI pending |
+| F43 | P2 | Failed and overlapping update-checker lifetime: Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return. | `checkUpdateCompletion`, `checkOverlappingUpdates`, `checkUpdateCycles`; CI pending |
+| F44 | P2 | Drawing snapshot shared cache ownership: A private shared lease removes owned snapshot IDs after the last clone releases them. | `checkClipboardClones`, `checkUndoOwner`, `checkTransferredGenerations`, `checkReplacementAndFailure`, `checkConsumingPaste`; CI pending |
+| F45 | P2 | Normal render progress startup and terminal ownership: Scope-own listener/build-progress objects through startup, then hand off only after start. | `checkNormalRenders`, `checkRealCancellation`, `checkNestedCancellation`, `checkHandoffAndLateMessage`, `checkNestedProgressDelivery`, `checkStartupFailure`; CI pending |
+| F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
+| F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
+| F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; CI pending |
+
+F37 owns returned conversions; exceptions inside factories remain outside scope. F38 drives a
+real throwing merge; normal null-target copy was not a leak. F40 value checks need mismatch
+instrumentation. F44 orphan snapshots were previously cleared at scene reset. F45 graph-build
+exceptions are source-only; early cancel is covered, active-window shutdown is not. F47 checks
+keys before undo/after reset, with pixel-checked undo/redo between, not each intermediate key.
+
+`childstack_lifetime` is a required 60-second reliability CTest on all three platforms.
+`timagecache` remains the existing functional target. Linux additionally links standalone
+LSan and runs the fixed/mutated/restored qualifier plus eight harness contracts in the same
+job. The mutation removes only the in-memory builder delete; require the functional sentinel,
+leak exit 23 and direct builder stack, then restored success. All execution remains pending;
+disk spill/constructor exceptions are not forced. No job or matrix axis was added.
+
+`exerciseUiMemoryOwnership`, `runDrawingCacheIntegrationTest` and
+`runRenderProgressNativeChecks` run through the existing native application driver under
+BUILD_UI_PORT_TESTS. Earlier build/runtime failures can prevent their checkpoints.
+F37/F39/F48 reference assertions and UI QPointers are owner evidence, not measured RSS.
 
 ## Existing measurements and limits
 
@@ -181,5 +225,9 @@ Two source-review items require resolution before adoption:
   policy questions; the proposed 15% threshold is not a leak gate.
 
 These are review-required items in a separate open PR, not prepared fixes or runtime findings
-in the F01–F34 register. New ownership findings from the active memory source lanes must be
+in this register. New ownership findings from the active memory source lanes must be
 recorded with their actual repair/fixture status before they change that register.
+
+Unfixed source boundaries are R17 plugin nested storage/per-host UI, R18 cache telemetry and
+R20 loader controller retirement. F49 controller work is a later batch. Nested malformed
+TIStream allocation remains F28's explicit residual. No all-workflow leak freedom is claimed.

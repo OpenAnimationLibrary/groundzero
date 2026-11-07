@@ -120,6 +120,20 @@ share a finding ID rather than inflating the count for each affected command.
 | F32 | P2 | Native raster clipboard data was mistaken for its external-image preview. Native payload now takes precedence, preserving type and content. | `toonz/cellselection.cpp`, actual MI_Paste across six indexed/full-color targets |
 | F33 | P1 | Cancelling an external-image paste discarded existing redo history when its undo block opened early. The block now starts only after preparation succeeds. | Same paste path; actual chooser Cancel checks history and subsequent redo identity/pixels |
 | F34 | P2 | Missing/malformed custom panels and malformed editor templates supplied null loader results to unchecked consumers. The factory now shows a plain-text error; the editor keeps the last valid template path/preview and checks command-preview reloads. | Custom panel manager/editor, real Room loading and template-slot fixture; valid MI_Undo binding retained |
+| F35 | P1 | ChildStack owned-root teardown: Recover the owned root before deleting ancestor records; only that root is cleared or released. | `destroyWhileNested`, `closeBeforeDestruction`, `clearNavigationWhileNested`, `clearSceneWhileNested`; CI pending |
+| F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI pending |
+| F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
+| F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; CI pending |
+| F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; CI pending |
+| F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; CI pending |
+| F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; CI pending |
+| F43 | P2 | Failed and overlapping update-checker lifetime: Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return. | `checkUpdateCompletion`, `checkOverlappingUpdates`, `checkUpdateCycles`; CI pending |
+| F44 | P2 | Drawing snapshot shared cache ownership: A private shared lease removes owned snapshot IDs after the last clone releases them. | `checkClipboardClones`, `checkUndoOwner`, `checkTransferredGenerations`, `checkReplacementAndFailure`, `checkConsumingPaste`; CI pending |
+| F45 | P2 | Normal render progress startup and terminal ownership: Scope-own listener/build-progress objects through startup, then hand off only after start. | `checkNormalRenders`, `checkRealCancellation`, `checkNestedCancellation`, `checkHandoffAndLateMessage`, `checkNestedProgressDelivery`, `checkStartupFailure`; CI pending |
+| F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
+| F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
+| F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; CI pending |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -144,8 +158,14 @@ The follow-up [Swing review](audit_swing_undo.md),
 [native crash investigation](audit_windows_crashes.md) record additional scenarios
 and distinguish prepared repairs from unresolved application crashes.
 The [scenario plan](audit_regression_scenarios.md) and
-[machine-readable ledger](audit_findings.json) track all 34 prepared findings,
+[machine-readable ledger](audit_findings.json) track all 48 prepared findings,
 stable residual IDs, platform limits, required mutations, and exact CI evidence.
+
+The memory follow-up has source/fixture diffs; runtime and baseline/mutation evidence remain
+pending. F38 is merge-exception double deletion and F40 is array-deleter mismatch, not measured
+normal-success growth. F36 releases builder metadata; F45/F46 retire progress UI, not the full
+render graph. See the [memory plan](audit_memory_lifetime.md),
+[scene ownership review](audit_memory_ownership.md) and [LSan qualification](audit_image_cache_lsan.md).
 
 ## Remaining risks and owner decisions
 
@@ -159,6 +179,7 @@ stable residual IDs, platform limits, required mutations, and exact CI evidence.
 | P2, source-confirmed | Linux packaging uses moving AppImage download URLs; Windows custom Qt and prebuilt-library downloads lack pinned digests. Optional Python/OS/Rust dependency inputs are not fully locked. | Obtain reviewed provenance and trusted digests before pinning native payloads; the action pins and npm lock do not resolve these inputs. |
 | P2, dated availability risk | Homebrew plans to disable `qt@5` on 2027-05-19 and `opencv@4` on 2027-07-09. | Select and qualify a supported acquisition path before those dates; migration needs native device, scene, and rendering evidence. |
 | P2, workflow/reproduction pending | F31–F33 address narrower split-Brush ownership, native clipboard precedence and Cancel history defects. Exact #5190 exposure/frame shifts and #2445 destination policy remain unverified. | Run the new fixtures, retain new-level/lettered-ID and mixed-column/gap/input gaps, and review OT-Dev PR280 before broader paste-policy changes. |
+| P2, memory source/qualification | R17 plugin parameter/per-host UI, R18 cache telemetry and R20 loader-controller ownership remain unresolved. | Preserve descriptor borrowers, trace thread/publication lifetime, and qualify the proposed repeated-memory protocol; no RAM improvement is established. |
 | Validation gap | Native Apple Silicon, tablet/DPI/audio, long sessions, complete scene key/FX equality, and all 132 upstream reports are not qualified here. | Use the prioritized reproduction queue and exact-build platform evidence; retain unverified status until supported. |
 
 The backlog inventory classifies 124 reports as unverified, three as source-confirmed, four
@@ -276,6 +297,22 @@ implementation/fixture objects and linked OpenToonz; macOS task compilation/link
 was not established. Neither job ran the new native or pixel cases. CI20/CI21 preserve that
 build failure; it is not a failed behavioral regression or evidence of a reporter defect.
 F30–F34 were prepared after this head and have no runtime evidence from these jobs.
+
+At PR head `49cf834fa27c6101ba01013ae6e63fe76f506c3c`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163)
+builds rejected two `const TVectorImageP` locals in the Brush fixture because its conversion
+operator is non-const. The prepared correction removes only those two qualifiers. OpenToonz
+did not link; native/reliability tests were skipped. Task/paste/panel object compilation and
+external-FX/probe links are compilation evidence only. Linux's separate SeExpr sanitizer graph
+passed; it does not qualify application memory paths. CI22/CI23 preserve the failure.
+F35–F48 postdate this head; no new owner fixture or cache LSan mutation has run.
+
+macOS also emitted existing vendored SuperLU platform-load-command and duplicate OpenEXR
+archive-link warnings. These remain unresolved dependency warnings, separate from the failure.
+For c208 Windows, the PR head was c20884ffb, while checkout/build used merge
+`27381fa6e2358d68df5370b1a4c75ee81321035b`. CI17–CI19 retain PR-head association; the ledger
+records checkout provenance separately from log lines 215/274.
 
 The workflow audit pins 121 external action uses and disables persisted credentials on
 25 checkouts. Offline zizmor's default scan passes with documented local exceptions; the

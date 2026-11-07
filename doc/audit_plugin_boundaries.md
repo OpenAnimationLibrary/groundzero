@@ -86,6 +86,25 @@ rendering path still need validation. Restricting configuration locations or
 introducing execution consent would affect existing workflows and requires a
 maintainer decision. No trust policy was changed in this patch.
 
+## Prepared ownership follow-up and residuals
+
+F39 owns external-FX input ports, including duplicate-name allocations; sixteen multi-port
+cycles and eight malformed loads assert upstream reference balance and final destruction.
+F40 corrects enum/spectrum array deleters; real sixteen-replacement setup/value checks still
+need allocation-mismatch instrumentation. F48 balances metadata references across eight real
+hosts with a destroy callback and eight without it. These fixtures are authored, not executed.
+
+R17 remains broader: nested descriptor/group arrays and copied strings lack complete ownership,
+and each create_host/notify appends raw UIPage/ParamView objects. This is per-host retention,
+not solely process-once registry storage. Existing Param objects borrow descriptor addresses;
+freeing old storage immediately would invalidate them. Process-lived global declarations and
+host-interface ownership need a separate publication/lifetime contract. F40/F48 do not repair
+these allocations or establish complete plugin cleanup.
+
+R20 tracks completed loader-controller loss and separate listener-branch quit/publication
+wiring. Ordinary startup occurs once; no per-frame RAM slope is established. Authorized F49
+controller work is a later batch and is not counted as prepared in this snapshot.
+
 ## Other inspected boundaries and limits
 
 Plugin package installation rejects symlinks, stages outside the scanned tree,

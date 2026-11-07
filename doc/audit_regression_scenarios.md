@@ -6,8 +6,9 @@ This plan preserves F01–F23 from the [main audit](codebase_audit_2026_11_07.md
 the integrated Swing/audio follow-ups as F24/F25, timeout conversion as F26, local batch
 lifetime/list ownership as F27/F28, external-FX pixels as F29, and Room/Brush/clipboard/custom-panel
 repairs as F30–F34.
+Prepared ownership follow-ups F35–F48 are recorded below; all new runtime evidence remains pending.
 R01/R02/R03/R08/R09 remain aliases for those same bugs, not additional unresolved defects.
-The ledger has 34 prepared findings and 11 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
+The ledger has 48 prepared findings and 14 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
 F27/F28/F29 retain explicit partial-scope and runtime qualifications in their open records.
 The companion [JSON ledger](audit_findings.json) contains affected paths, exact fixture names,
 platform limits, missing coverage and a targeted mutation proposal for each prepared fix.
@@ -127,6 +128,37 @@ compare smaller tiled/untiled outputs. This is a proposed fixture, not an execut
 | [F33](../toonz/sources/toonz/cellselection.cpp) P1 | Early undo block drops redo on Cancel → open only after preparation | Native paste then undo to count 1/index 0; cancel actual external-image chooser; old scene/history unchanged and redo restores original drawing/pixels | `checkExternalCancel`; runtime and baseline/mutation pending |
 | [F34](../toonz/sources/toonz/custompanelmanager.cpp) P2 | Unchecked loader null → panel fallback or preserved editor preview | Missing/malformed/valid Room panels; plain-text path/error, ownership/destruction, valid MI_Undo binding; malformed selection retains valid path/preview/fields; later command edit succeeds, then corrupted-file reload preserves preview pixels | `exerciseCustomPanelLoading`, `checkFallback`, `checkValidPanel`, `checkEditorFailure`, `checkCorruptedTemplate`; runtime pending, no W1 attribution |
 
+## Prepared memory ownership scenarios
+
+The memory follow-up has source/fixture diffs; runtime and baseline/mutation evidence remain
+pending. F38 is merge-exception double deletion and F40 is array-deleter mismatch, not measured
+normal-success growth. F36 releases builder metadata; F45/F46 retire progress UI, not the full
+render graph. See the [memory plan](audit_memory_lifetime.md),
+[scene ownership review](audit_memory_ownership.md) and [LSan qualification](audit_image_cache_lsan.md).
+
+| ID | Priority | Prepared invariant | Authored checks |
+| --- | --- | --- | --- |
+| F35 | P1 | ChildStack owned-root teardown: Recover the owned root before deleting ancestor records; only that root is cleared or released. | `destroyWhileNested`, `closeBeforeDestruction`, `clearNavigationWhileNested`, `clearSceneWhileNested`; CI pending |
+| F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI pending |
+| F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
+| F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; CI pending |
+| F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; CI pending |
+| F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; CI pending |
+| F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; CI pending |
+| F43 | P2 | Failed and overlapping update-checker lifetime: Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return. | `checkUpdateCompletion`, `checkOverlappingUpdates`, `checkUpdateCycles`; CI pending |
+| F44 | P2 | Drawing snapshot shared cache ownership: A private shared lease removes owned snapshot IDs after the last clone releases them. | `checkClipboardClones`, `checkUndoOwner`, `checkTransferredGenerations`, `checkReplacementAndFailure`, `checkConsumingPaste`; CI pending |
+| F45 | P2 | Normal render progress startup and terminal ownership: Scope-own listener/build-progress objects through startup, then hand off only after start. | `checkNormalRenders`, `checkRealCancellation`, `checkNestedCancellation`, `checkHandoffAndLateMessage`, `checkNestedProgressDelivery`, `checkStartupFailure`; CI pending |
+| F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
+| F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
+| F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; CI pending |
+
+F37 owns returned conversions; exceptions inside factories remain outside scope. F38 drives a
+real throwing merge; normal null-target copy was not a leak. F40 value checks need mismatch
+instrumentation. F44 orphan snapshots were previously cleared at scene reset. F45 graph-build
+exceptions are source-only; early cancel is covered, active-window shutdown is not. F47 checks
+keys before undo/after reset, with pixel-checked undo/redo between, not each intermediate key.
+
 ## Residual scenario queue
 
 These IDs remain separate from prepared fixes. A proposed or separately prepared follow-up
@@ -150,6 +182,9 @@ does not change their resolution. Full source paths and evidence distinctions ar
 | R14 P2 | Reproduce vector Brush exposure/frame shifts with exact reporter auto-create/hold/stretch/renumber/Break/Auto Group preferences (#5190). | F31 is a source-confirmed narrower variant with authored gestures, not exact reporter reproduction; navigation unchanged. |
 | R15 P2 | Native Apple Silicon, tablet/DPI/audio and bounded long sessions; compare saved state and output. | Actual device/backend evidence; offscreen tests are insufficient. |
 | R16 P2, PR 141 only | `exerciseSceneViewerContextOwners` directly constructs a viewer without factory title-bar initialization; use the factory before showing/querying it. | Source/debugger-supported defect and isolated fixture correction; absent from the edition baseline and not included in PR 142. |
+| R17 P2 | Plugin nested storage/per-host UI and descriptor borrowers | F40/F48 do not repair these owners; separate lifetime design needed. |
+| R18 P2 | Legacy cache units/range and disk/process accounting | No counter correction; disk methods return zero rather than measured usage. |
+| R20 P2 | Loader controller/thread/queued-publication retirement | Listener quit wiring/callers require separate qualification; F49 is a later wave. |
 
 R16 is traced at [PR 141 revision a0406ef, fixture line 411](https://github.com/OpenAnimationLibrary/groundzero/blob/a0406efc4a8f90a74d77bb5ddbab1d0d8aeabeeb/toonz/sources/toonz/nativeuiintegrationtest.cpp#L411).
 The reported [CDB job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42342872309/job/128314993429),
@@ -213,6 +248,22 @@ implementation/fixture objects and linked OpenToonz; macOS task compilation/link
 was not established. Neither job ran the new native or pixel cases. CI20/CI21 preserve that
 build failure; it is not a failed behavioral regression or evidence of a reporter defect.
 F30–F34 were prepared after this head and have no runtime evidence from these jobs.
+
+At PR head `49cf834fa27c6101ba01013ae6e63fe76f506c3c`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163)
+builds rejected two `const TVectorImageP` locals in the Brush fixture because its conversion
+operator is non-const. The prepared correction removes only those two qualifiers. OpenToonz
+did not link; native/reliability tests were skipped. Task/paste/panel object compilation and
+external-FX/probe links are compilation evidence only. Linux's separate SeExpr sanitizer graph
+passed; it does not qualify application memory paths. CI22/CI23 preserve the failure.
+F35–F48 postdate this head; no new owner fixture or cache LSan mutation has run.
+
+macOS also emitted existing vendored SuperLU platform-load-command and duplicate OpenEXR
+archive-link warnings. These remain unresolved dependency warnings, separate from the failure.
+For c208 Windows, the PR head was c20884ffb, while checkout/build used merge
+`27381fa6e2358d68df5370b1a4c75ee81321035b`. CI17–CI19 retain PR-head association; the ledger
+records checkout provenance separately from log lines 215/274.
 
 F29 requires old-scene before/after rendering because valid external-program output now
 changes the final tile. Exact-size 32-bit RGBA output is supported; smaller/larger/grayscale

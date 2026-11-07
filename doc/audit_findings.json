@@ -3,7 +3,7 @@
   "audit_date": "2026-11-07",
   "baseline_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
   "patch_revision": null,
-  "scope": "34 prepared findings plus 11 distinct residual/qualification records; five retained residual IDs alias F24/F25/F27/F28/F29. Not a complete defect inventory.",
+  "scope": "48 prepared findings plus 14 distinct residual/qualification records; five retained residual IDs alias F24/F25/F27/F28/F29. Not a complete defect inventory.",
   "review_order": [
     "architecture",
     "code_quality",
@@ -61,7 +61,10 @@
     "platforms": "doc/audit_platform_dependencies.md",
     "workflows": "doc/audit_workflow_security.md",
     "ci_topology": "doc/ci_audit_topology.md",
-    "pull_request": "https://github.com/OpenAnimationLibrary/groundzero/pull/142"
+    "pull_request": "https://github.com/OpenAnimationLibrary/groundzero/pull/142",
+    "memory": "doc/audit_memory_lifetime.md",
+    "memory_ownership": "doc/audit_memory_ownership.md",
+    "cache_leak_qualification": "doc/audit_image_cache_lsan.md"
   },
   "suites": {
     "psd": {
@@ -250,6 +253,72 @@
         "windows"
       ],
       "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Actual Room loader/factory and editor slots under isolated portable settings; repaired files are not automatically reloaded. Runtime pending."
+    },
+    "childstack": {
+      "path": "toonz/sources/toonzlib/tests/childstack_lifetime_test.cpp",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Required 60-second CTest; exact owner checks authored, runtime pending.",
+      "ctest": [
+        "childstack_lifetime"
+      ]
+    },
+    "image_cache": {
+      "path": "toonz/sources/common/tcache/tests/timagecache_test.cpp",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "64 RGBA32 and 64 CM32 removal cycles inspect pixels/IDs, not builder allocations; disk spill unforced.",
+      "ctest": [
+        "timagecache"
+      ]
+    },
+    "native_ui_memory": {
+      "path": "toonz/sources/toonz/uimemoryintegrationtest.cpp",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Native menu/About/local-file update owner assertions; no RAM measurement.",
+      "entry": "exerciseUiMemoryOwnership",
+      "runner": "ci-scripts/run_native_ui_test.py"
+    },
+    "native_render_progress": {
+      "path": "toonz/sources/toonz/renderprogressintegrationtest.inc",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Included in rendercommand under BUILD_UI_PORT_TESTS; early cancel only, graph-build throws source-only, active-window shutdown outside scope.",
+      "entry": "runRenderProgressNativeChecks",
+      "runner": "ci-scripts/run_native_ui_test.py"
+    },
+    "native_drawing_cache": {
+      "path": "toonz/sources/toonz/drawingcacheintegrationtest.cpp",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Native Filmstrip/cache-key cases; scene-session retention scope, no whole-process leak result.",
+      "entry": "runDrawingCacheIntegrationTest",
+      "runner": "ci-scripts/run_native_ui_test.py"
+    },
+    "image_cache_lsan": {
+      "path": "ci-scripts/qualify_image_cache_lsan.py",
+      "contract_tests": "ci-scripts/tests/test_image_cache_lsan.py",
+      "runner": "ci-scripts/qualify_image_cache_lsan.py",
+      "platforms": [
+        "linux"
+      ],
+      "limit": "Existing job; GNU/Clang fixture links standalone LSan. Fixed/mutated/restored builds and eight harness contracts authored, unexecuted."
     }
   },
   "findings": [
@@ -1552,13 +1621,17 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "fixture_compile_failure; follow_up_prepared",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI22",
+          "CI23"
+        ],
         "pending": [
           "Run the actual gesture cases on the exact integrated revision and baseline/mutation; no local runtime proof exists.",
           "The exact #5190 reporter preferences/video are not reproduced; R14 remains a broader unverified report.",
-          "New-level membership and lettered-ID variants remain fixture gaps. Unsplit, Auto Group and navigation behavior are unchanged."
+          "New-level membership and lettered-ID variants remain fixture gaps. Unsplit, Auto Group and navigation behavior are unchanged.",
+          "49cf Linux/macOS rejected const TVectorImageP locals first/second at fixture lines259/260 because conversion is non-const. Only those qualifiers are removed; no native/reliability run occurred."
         ],
         "mutation_proposal": "Restore frameCreated/levelCreated on every split record; the reverse-order undo must fail original drawing/exposure restoration."
       },
@@ -1694,6 +1767,604 @@
           "No trace attributes the unresolved W1 Qt text teardown crash to this null-result defect."
         ],
         "mutation_proposal": "Restore unchecked factory/selection/command-reload results, or commit the candidate path before loading; the corresponding missing/malformed or subsequent-edit assertion must fail while valid command binding stays covered."
+      }
+    },
+    {
+      "id": "F35",
+      "priority": "P1",
+      "title": "ChildStack owned-root teardown",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzlib/childstack.cpp",
+        "toonz/sources/toonzlib/tests/childstack_lifetime_test.cpp"
+      ],
+      "baseline_behavior": "Navigation borrows a child sheet without acquiring its reference. Destruction releases that current child instead of the owned root, losing the root and unbalancing the child owner. Clear while nested also clears the borrowed child and loses the root route.",
+      "patched_invariant": "Recover the owned root before deleting ancestor records; only that root is cleared or released. Borrowed child sheets retain their owning child-level references.",
+      "scenario": "Repeat 32 nested scene destroy, explicit close/destroy, navigation clear and scene clear cycles; use sheet observer refcounts and QPointer level destruction to distinguish owned root release from borrowed child release.",
+      "tests": [
+        {
+          "suite": "childstack",
+          "cases": [
+            "destroyWhileNested",
+            "closeBeforeDestruction",
+            "clearNavigationWhileNested",
+            "clearSceneWhileNested"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_ownership.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact-revision fixture and baseline/mutation on supported platforms; no RAM slope or leak-detector result exists.",
+          "The legacy setXsheet escape hatch has no production caller in the searched tree and is outside the fixture.",
+          "The childstack_lifetime target/60-second CTest and all three regression manifests are now integrated; registration is not runtime evidence."
+        ],
+        "mutation_proposal": "Restore teardown/clear against the current child; owned-root and borrowed-child reference assertions or level destruction sentinels must fail."
+      }
+    },
+    {
+      "id": "F36",
+      "priority": "P2",
+      "title": "Compressed cache ImageBuilder metadata ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/common/tcache/timagecache.cpp",
+        "toonz/sources/common/tcache/tests/timagecache_test.cpp",
+        "ci-scripts/qualify_image_cache_lsan.py",
+        "ci-scripts/tests/test_image_cache_lsan.py",
+        "toonz/sources/CMakeLists.txt"
+      ],
+      "baseline_behavior": "Compressed in-memory and on-disk cache items own cloned/allocated ImageBuilder metadata but delete only image information. Item destruction retains each builder allocation.",
+      "patched_invariant": "Both compressed-item destructors delete their uniquely owned builder before other owned metadata. Existing raster reconstruction and cache-removal behavior remains unchanged.",
+      "scenario": "Repeat 64 RGBA32 and 64 CM32 add/compress/read/remove cycles with exact pixels and absent-ID checks; a targeted leak-sanitizer comparison must separately detect the builder allocation leak.",
+      "tests": [
+        {
+          "suite": "image_cache",
+          "cases": [
+            "testRepeatedCompressedRemoval"
+          ]
+        },
+        {
+          "suite": "image_cache_lsan",
+          "cases": [
+            "qualify",
+            "remove_builder_delete",
+            "require_result"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_image_cache_lsan.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "The Linux fixed-to-mutated-to-restored LSan qualifier and eight harness contracts are authored/integrated but unexecuted. Require the functional sentinel plus direct builder allocation stack and leak exit23 for the one-delete mutation; neither a crash nor unrelated leak qualifies.",
+          "The new cycle does not force disk spill; on-disk builder cleanup needs its own runtime path.",
+          "This releases builder metadata, not leaked raster payloads. Constructor exception paths are unchanged."
+        ],
+        "mutation_proposal": "Remove the builder deletes independently and require the targeted LSan run to identify the allocation; unchanged pixel checks alone are not proof."
+      }
+    },
+    {
+      "id": "F37",
+      "priority": "P2",
+      "title": "Paste conversion temporary payload ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/cellselection.cpp",
+        "toonz/sources/tnztools/rasterselection.cpp",
+        "toonz/sources/toonz/rasterpasteintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Vector/raster conversion factories return new payloads that paste helpers only borrow and undo records clone. Callers lose the original payload after paste or Selection delegation, retaining its image/palette even after history reset.",
+      "patched_invariant": "Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. Clipboard-owned source data remains borrowed.",
+      "scenario": "Repeat four vector-to-indexed/full-color cycles in Xsheet and floating Selection paths, undo/redo/reset, and require source palette references return to baseline. Also exercise four indexed-to-vector and external-image cycles with output/undo checks.",
+      "tests": [
+        {
+          "suite": "native_raster_paste",
+          "cases": [
+            "checkStrokeConversionOwnership",
+            "undoConvertedRaster",
+            "checkRasterToVectorCycles",
+            "checkExternalRasterCycles"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact native cases and targeted baseline/mutation. Source-palette reference assertions detect retained converted raster payloads but remain unexecuted.",
+          "Indexed-to-vector and external-image cycles provide behavior checks, not complete allocation-release proof; retain LSan qualification for unexposed payload ownership.",
+          "Conversion factories allocating an object before an exception inside its initialization remain a separate deferred ownership boundary; this patch owns successfully returned payloads."
+        ],
+        "mutation_proposal": "Remove scoped ownership from each conversion path in turn; palette-reference balance or a targeted leak report must fail without weakening pixel/undo checks."
+      }
+    },
+    {
+      "id": "F38",
+      "priority": "P1",
+      "title": "Null-target palette ownership on merge failure",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/rasterimagedata.cpp",
+        "toonz/sources/common/tvrender/tpaletteutil.cpp",
+        "toonz/sources/toonz/rasterpasteintegrationtest.cpp"
+      ],
+      "baseline_behavior": "A unique_ptr temporary palette is passed as a raw pointer to mergePalette, whose const TPaletteP parameter acquires and releases an intrusive reference. On a merge exception that temporary deletes the palette, then unique_ptr deletes it again. Normal success reaches release() and is not a retained-palette leak.",
+      "patched_invariant": "Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model.",
+      "scenario": "For indexed and full-color payloads, call null-target getData eight times with pixel/DPI/geometry checks; then make real TSolidColorStyle::clone throw during merge four times and verify expected error plus unchanged source palette references/color.",
+      "tests": [
+        {
+          "suite": "native_raster_paste",
+          "cases": [
+            "checkNullTargetPaletteCopies",
+            "checkNullPaletteFailure"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the throwing-style cases and baseline/mutation with memory-error instrumentation; no local/CI result exists.",
+          "This is failure-path double deletion, not a demonstrated normal-success RAM-growth defect. Ordinary null-target copies are compatibility controls.",
+          "The fixture checks source palette preservation and drives the real merge error; exact temporary allocation/deallocation diagnosis requires retained sanitizer evidence."
+        ],
+        "mutation_proposal": "Restore unique_ptr plus success-only release and trigger the real style-clone exception; detect the invalid second deletion while fixed source/output controls remain."
+      }
+    },
+    {
+      "id": "F39",
+      "priority": "P2",
+      "title": "External-FX input-port graph ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/include/texternfx.h",
+        "toonz/sources/tnzbase/texternfx.cpp",
+        "toonz/sources/tnzbase/tests/externfx_process_test.cpp"
+      ],
+      "baseline_behavior": "External effects allocate input ports, but existing port tables borrow them and neither destructor deletes them. Each leaked port can retain its connected upstream effect graph.",
+      "patched_invariant": "A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. The existing raw port map/registration and duplicate-name behavior remain intact.",
+      "scenario": "Sixteen multi-port create/connect/destroy cycles, including duplicate input names and explicit disconnect, require upstream references return to baseline and final destruction occurs once. Eight malformed-load cycles after a port is created similarly release connected sources.",
+      "tests": [
+        {
+          "suite": "externfx",
+          "cases": [
+            "inputPortOwnership",
+            "failedLoadPortOwnership"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the exact ownership/refcount/destructor cases and baseline/mutation on all platforms; no graph-release or RAM result is inferred from source.",
+          "Existing external command trust, output-mode and process-timeout limits remain separate from port ownership."
+        ],
+        "mutation_proposal": "Remove the owning port vector while preserving functional port registration; upstream reference balance/final destructor assertions must fail."
+      }
+    },
+    {
+      "id": "F40",
+      "priority": "P1",
+      "title": "Plugin enum and spectrum array deleters",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/tests/plugin_probe_fixture.cpp",
+        "toonz/sources/toonzqt/tests/plugin_probe_test.cpp"
+      ],
+      "baseline_behavior": "Enum-label and spectrum arrays use new[] inside shared_ptr<void> without array deleters, so replacement destroys them through scalar delete.",
+      "patched_invariant": "Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior.",
+      "scenario": "A real fixture plugin replaces enum/spectrum parameter pages sixteen times during setup. Public creation then checks the final enum value/labels and spectrum colors after setup storage is gone.",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "setup",
+            "checkReplacedParameters"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the real module with allocation/deallocation mismatch instrumentation and an exact baseline/mutation; ordinary value checks alone do not diagnose scalar-vs-array delete.",
+          "Nested group/descriptor arrays, retained strings, existing Param descriptor borrows and global PluginInformation lifetime remain deferred in R17; this patch does not claim complete metadata cleanup."
+        ],
+        "mutation_proposal": "Restore the scalar deleters; ASan allocation/deallocation mismatch evidence must detect them while valid single/empty probe behavior remains checked."
+      }
+    },
+    {
+      "id": "F41",
+      "priority": "P2",
+      "title": "Custom-panel submenu retention during rebuild",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/custompanelmanager.cpp",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Clearing menu actions leaves QObject-owned submenu trees alive, so rebuilding the same custom-panel hierarchy retains old hidden submenus until their parent dies.",
+      "patched_invariant": "Delete owned direct submenus before clearing/rebuilding actions. Global registered command actions retain their identity.",
+      "scenario": "Build a real nested custom-panel menu and rebuild it five times; old submenu QPointers must clear, direct/recursive counts remain stable, and the same global QAction survives.",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "checkNestedMenus",
+            "checkMenuCycles"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run actual native cycles and baseline/mutation on the exact integrated revision.",
+          "Object ownership/count assertions are not process RAM measurements; other menu families remain outside this fixture."
+        ],
+        "mutation_proposal": "Remove direct submenu deletion before rebuild; old QPointers remain alive or submenu counts grow."
+      }
+    },
+    {
+      "id": "F42",
+      "priority": "P2",
+      "title": "About dialog retention after closing",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/mainwindow.cpp",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Each About action allocates a parent-owned modal dialog and contents without deleting them after exec returns; repeated close/open retains hidden dialogs until window destruction.",
+      "patched_invariant": "The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants.",
+      "scenario": "Invoke actual MI_About five times, acknowledge each real modal, and check the dialog plus every observed QObject descendant is destroyed and the window dialog count returns to its prior value.",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "checkAboutCycles"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run native modal ownership and baseline/mutation cases; no RSS improvement is measured.",
+          "The existing build-date preference behavior is unchanged by source, but the fixture does not independently toggle and persist that preference."
+        ],
+        "mutation_proposal": "Restore heap allocation without post-exec deletion; the dialog/child QPointers or baseline dialog count must fail."
+      }
+    },
+    {
+      "id": "F43",
+      "priority": "P2",
+      "title": "Failed and overlapping update-checker lifetime",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/mainwindow.cpp",
+        "toonz/sources/toonz/mainwindow.h",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp"
+      ],
+      "baseline_behavior": "An error returns before retiring the update checker and network manager. A shared last-checker member can also attribute an earlier completion to a later overlapping request.",
+      "patched_invariant": "Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return.",
+      "scenario": "Five cycles of missing, malformed and valid local-file update completion plus two overlapping errors; verify results and checker/network-manager QPointer retirement without Internet requests.",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "checkUpdateCompletion",
+            "checkOverlappingUpdates",
+            "checkUpdateCycles"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact-revision local-file cases and baseline/mutation; no live network or RAM qualification is claimed.",
+          "The available-update modal behavior is unchanged by source but is not separately exercised; valid fixture version 0.0.0 does not prompt."
+        ],
+        "mutation_proposal": "Return before cleanup on errors or use the shared latest-checker member; per-request completion or checker/manager retirement assertions must fail."
+      }
+    },
+    {
+      "id": "F44",
+      "priority": "P2",
+      "title": "Drawing snapshot shared cache ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/drawingdata.cpp",
+        "toonz/sources/toonz/drawingdata.h",
+        "toonz/sources/toonz/drawingcacheintegrationtest.cpp"
+      ],
+      "baseline_behavior": "DrawingData clones share image-cache keys, but destruction/releaseData never removes them. Clipboard replacement and retired undo entries leave orphan snapshots inside the scene session; scene reset eventually removes these non-scene-independent IDs.",
+      "patched_invariant": "A private shared lease removes owned snapshot IDs after the last clone releases them. Stage fresh aliases for transferred frames before publication, preserving source-ID reuse, shared source aliases, self-transfer and failure state. Public map/API and cloneImages=false behavior remain intact.",
+      "scenario": "Sixteen clipboard replacements; four actual Filmstrip copy/paste, clipboard-clear, undo/redo/reset cycles; eight transferred-generation cycles with distinct pixels and both release orders, shared alias, missing source, self-transfer and consuming-paste controls.",
+      "tests": [
+        {
+          "suite": "native_drawing_cache",
+          "cases": [
+            "checkClipboardClones",
+            "checkUndoOwner",
+            "checkTransferredGenerations",
+            "checkReplacementAndFailure",
+            "checkConsumingPaste"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_ownership.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact native cache-key/public-output assertions and baseline/mutation; no runtime or RAM slope is established.",
+          "Original retention is bounded by scene-cache reset; do not claim the same orphan keys survive every scene replacement.",
+          "Exact key disappearance and surviving clone pixels are ownership evidence, not whole-process leak freedom."
+        ],
+        "mutation_proposal": "Remove final-lease key cleanup or retire keys at the first clone destruction; repeated key retirement or surviving clipboard/undo pixel assertions must fail."
+      }
+    },
+    {
+      "id": "F45",
+      "priority": "P2",
+      "title": "Normal render progress startup and terminal ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/rendercommand.cpp",
+        "toonz/sources/toonz/renderprogressintegrationtest.inc",
+        "toonz/sources/toonz/renderprogressintegrationtest.h"
+      ],
+      "baseline_behavior": "Normal render progress dialogs remain hidden children of the main window after completion. Raw queued message targets prevent safe asynchronous retirement, and early construction failures leave startup progress ownership unclear.",
+      "patched_invariant": "Scope-own listener/build-progress objects through startup, then hand off only after start. Retire the listener after terminal notification and after active GUI callbacks unwind; queued messages use QPointer. Copy the cancel callback before invoking it so nested terminal completion cannot destroy its active target.",
+      "scenario": "Eight real 16x16 PNG renders check center pixels and dialog retirement; an early cancel publishes no frame. Exercise nested cancellation tokens, startup handoff, worker-posted/late messages, nested progress delivery and real zero-frame startup failure with listener alive during the modal error.",
+      "tests": [
+        {
+          "suite": "native_render_progress",
+          "cases": [
+            "checkNormalRenders",
+            "checkRealCancellation",
+            "checkNestedCancellation",
+            "checkHandoffAndLateMessage",
+            "checkNestedProgressDelivery",
+            "checkStartupFailure"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact native output/lifetime cases and baseline/mutations; no RSS or retained-render-payload reduction is claimed.",
+          "The real cancel case is early cancellation before admission, not arbitrary mid-render/encoder cancellation.",
+          "Graph-construction exception cleanup is source-reviewed only. MainWindow destruction with active workers is outside this lifetime contract.",
+          "These ownership cases do not reproduce or establish a fix for W1 Qt text teardown corruption."
+        ],
+        "mutation_proposal": "Restore parent-retained listener ownership, remove active-callback/handoff guards, or restore raw queued targets separately; retirement, nested-lifetime or late-message assertions must detect the corresponding defect."
+      }
+    },
+    {
+      "id": "F46",
+      "priority": "P2",
+      "title": "Multimedia render progress scoped ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/rendercommand.cpp",
+        "toonz/sources/toonz/renderprogressintegrationtest.inc",
+        "toonz/sources/toonz/renderprogressintegrationtest.h"
+      ],
+      "baseline_behavior": "Each multimedia render allocates an unparented progress dialog that is hidden but never destroyed after synchronous rendering returns. Queued messages retain raw dialog pointers.",
+      "patched_invariant": "Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target.",
+      "scenario": "Four actual two-column renders require two 16x16 output images with expected center colors and no surviving multimedia progress dialog. A saved late message is delivered after explicit listener destruction.",
+      "tests": [
+        {
+          "suite": "native_render_progress",
+          "cases": [
+            "checkMultimedia"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact native multimedia output/retirement and baseline/mutation cases; no RAM or complete render-graph cleanup claim is made.",
+          "Synchronous start return is the ownership boundary; active MainWindow destruction and other export modes need separate qualification."
+        ],
+        "mutation_proposal": "Remove scoped dialog ownership or restore raw late-message access; repeated listener inventory or late-delivery lifetime checks must fail."
+      }
+    },
+    {
+      "id": "F47",
+      "priority": "P2",
+      "title": "Floating-paste undo original-image cache ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/tnztools/rasterselection.cpp",
+        "toonz/sources/toonz/rasterpasteintegrationtest.cpp"
+      ],
+      "baseline_behavior": "UndoPasteFloatingSelection creates four private cache keys but its destructor removes only three, retaining the original floating image after history retirement.",
+      "patched_invariant": "Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact.",
+      "scenario": "Across four floating conversion cycles for indexed/full-color targets, observe one new old-floating key before undo, run pixel-checked undo/redo, reset history, and require that key is absent while prior-key inventory is unchanged.",
+      "tests": [
+        {
+          "suite": "native_raster_paste",
+          "cases": [
+            "oldFloatingCacheKeys",
+            "checkStrokeConversionOwnership",
+            "undoConvertedRaster"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact-revision cache-ID/history scenarios and baseline/mutation; no RAM measurement is claimed.",
+          "The fixture observes the new key before undo and after reset; successful intermediate undo/redo is pixel-checked but does not separately assert key presence at each intermediate step.",
+          "The existing approximate m_cachedSize omission is outside this cleanup change."
+        ],
+        "mutation_proposal": "Omit removal of m_oldFloatingImageId; the post-reset key-retirement assertion must fail without changing unrelated cached keys."
+      }
+    },
+    {
+      "id": "F48",
+      "priority": "P2",
+      "title": "Optional plugin destroy callback reference balance",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/pluginhost.h",
+        "toonz/sources/toonzqt/tests/plugin_probe_test.cpp"
+      ],
+      "baseline_behavior": "Host destruction releases its PluginInformation reference only when an optional destroy callback exists, retaining one reference per host without that callback.",
+      "patched_invariant": "Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering.",
+      "scenario": "Eight real host create/destroy cycles with callback present and eight absent; each must change metadata references baseline to baseline+1 and back while final parameters remain usable.",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "PluginHostLifetimeTest::check",
+            "checkReplacedParameters"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact real-module reference tests and baseline/mutation; no runtime or RAM measurement exists.",
+          "Registry/library process lifetime is unchanged. Per-host UIPage/ParamView allocations and descriptor/string storage remain R17; reference balance does not prove complete plugin cleanup."
+        ],
+        "mutation_proposal": "Move metadata release back inside the optional callback branch; callback-absent cycles must retain a reference and fail."
       }
     }
   ],
@@ -2266,6 +2937,99 @@
           "Do not attribute the separate edition Qt-text teardown failure R04 to this fixture."
         ]
       }
+    },
+    {
+      "id": "R17",
+      "priority": "P2",
+      "title": "Plugin parameter and per-host UI storage ownership",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/plugin_param_interface.h"
+      ],
+      "baseline_behavior": "Deep copy allocates unowned nested groups/descriptors and retains prior strings. Each create_host/notify also appends raw UIPage/ParamView allocations. Existing Param borrows descriptor addresses, preventing blanket old-storage deletion.",
+      "required_invariant": "Retain storage until its last borrower retires or constrain replacement before publication; give per-host UI objects explicit owners.",
+      "scenario": "Repeat real setup/replacement and host creation with live instances; check values and allocation lifetime.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "F40/F48 fix trait array deletion/reference balance only, not the per-host UI or nested arena retention.",
+          "Raw process-lived PluginInformation/declarations and host-interface ownership require a publication/factory contract."
+        ]
+      }
+    },
+    {
+      "id": "R18",
+      "priority": "P2",
+      "title": "Legacy image-cache telemetry units and range",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/include/timagecache.h",
+        "toonz/sources/common/tcache/timagecache.cpp"
+      ],
+      "baseline_behavior": "Header documents KB, but item sizes return bytes and aggregate uses int/UINT without scaling. Disk usage methods return zero.",
+      "required_invariant": "Document/check payload units and range separately from process memory; unavailable disk measurements must not imply observed zero.",
+      "scenario": "Test units and aggregate boundaries without huge allocations; observe actual keys/files separately.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "No counter correction prepared; totals are not reliable large-session process-memory evidence.",
+          "Vector data, other owners and allocator overhead are not represented."
+        ]
+      }
+    },
+    {
+      "id": "R20",
+      "priority": "P2",
+      "title": "Completed plugin-loader controller ownership",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp"
+      ],
+      "baseline_behavior": "Startup load_entries drops its controller pointer after wait succeeds; deleteLater retires Loader, not PluginLoadController.",
+      "required_invariant": "Retire controller/thread after completion and queued publication without deleting active threads.",
+      "scenario": "Observe actual startup controller destruction; trace listener/menu branch callers and quit wiring.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Ordinary startup invokes this once; no per-frame or measured RAM growth established.",
+          "Optional listener branch has different finish/quit wiring; callers and queued-result ownership require tracing.",
+          "No controller repair or fixture prepared."
+        ]
+      }
     }
   ],
   "follow_up_coverage": [
@@ -2418,10 +3182,25 @@
       "F32 native raster payload precedence",
       "F33 external-image Cancel preserves redo",
       "F34 custom panel factory/editor load failures",
-      "F29 BlueSource required virtual-method fixture compile correction"
+      "F29 BlueSource required virtual-method fixture compile correction",
+      "F35 ChildStack owned-root teardown",
+      "F36 Compressed cache ImageBuilder metadata ownership",
+      "F37 Paste conversion temporary payload ownership",
+      "F38 Null-target palette ownership on merge failure",
+      "F39 External-FX input-port graph ownership",
+      "F40 Plugin enum and spectrum array deleters",
+      "F41 Custom-panel submenu retention during rebuild",
+      "F42 About dialog retention after closing",
+      "F43 Failed and overlapping update-checker lifetime",
+      "F44 Drawing snapshot shared cache ownership",
+      "F45 Normal render progress startup and terminal ownership",
+      "F46 Multimedia render progress scoped ownership",
+      "F47 Floating-paste undo original-image cache ownership",
+      "F48 Optional plugin destroy callback reference balance"
     ],
     "final_patch_revision": null,
-    "latest_recorded_ci_revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b"
+    "latest_recorded_ci_revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
+    "memory_baseline_revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c"
   },
   "ci_test_evidence": [
     {
@@ -2994,6 +3773,46 @@
         "timestamp_utc": "2026-11-07T23:03:42Z"
       },
       "limit": "No native fixture or new pixel scenario ran. The required getPluginId override is prepared after this head. Task-source compilation/link completion was not established before Ninja stopped."
+    },
+    {
+      "id": "CI22",
+      "verification_state": "observed_failure",
+      "revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
+      "platform": "linux",
+      "configuration": "Build cel regression targets",
+      "scenario_or_test": "Brush fixture F31 compile",
+      "result": "failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500",
+      "failure": {
+        "path": "toonz/sources/toonz/brushworkflowintegrationtest.cpp",
+        "lines": [
+          259,
+          260
+        ],
+        "diagnostic": "const TVectorImageP first/second cannot convert to const TImageP& through non-const TVectorImageP::operator TImageP()"
+      },
+      "limit": "OpenToonz did not link; native/reliability skipped. Two fixture-local const qualifiers removed in prepared follow-up. No memory-runtime qualification."
+    },
+    {
+      "id": "CI23",
+      "verification_state": "observed_failure",
+      "revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
+      "platform": "macos",
+      "configuration": "Build",
+      "scenario_or_test": "Brush fixture F31 compile",
+      "result": "failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163",
+      "failure": {
+        "path": "toonz/sources/toonz/brushworkflowintegrationtest.cpp",
+        "lines": [
+          259,
+          260
+        ],
+        "diagnostic": "no viable conversion from const TVectorImageP to const TImageP through non-const conversion"
+      },
+      "limit": "OpenToonz did not link; native/reliability skipped. Two fixture-local const qualifiers removed in prepared follow-up. No memory-runtime qualification."
     }
   ],
   "initial_ci_result": {
@@ -3010,22 +3829,22 @@
     "status": "follow_up_fixes_prepared; new-head CI pending"
   },
   "latest_ci_result": {
-    "revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b",
+    "revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
     "linux": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500",
       "conclusion": "failure",
-      "first_failure": "F29 BlueSource fixture omits pure virtual TFx::getPluginId() const.",
-      "compiled": "Five task objects completed and OpenToonz linked.",
-      "native": "skipped"
+      "first_failure": "const TVectorImageP first/second cannot convert to const TImageP& through non-const TVectorImageP::operator TImageP()",
+      "native": "skipped",
+      "reliability": "skipped"
     },
     "macos": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163",
       "conclusion": "failure",
-      "first_failure": "F29 BlueSource fixture omits pure virtual TFx::getPluginId() const.",
-      "compiled": "Task object/link completion not established.",
-      "native": "skipped"
+      "first_failure": "no viable conversion from const TVectorImageP to const TImageP through non-const conversion",
+      "native": "skipped",
+      "reliability": "skipped"
     },
-    "scope": "CI20/CI21 record build failure, not runtime results. The fixture override and F30-F34 changes are prepared after this head. Windows exact-head status is tracked separately; no result inferred here."
+    "scope": "CI22/CI23 are fixture compile failures; two-local correction prepared. F35-F48 postdate this head; no memory fixture or LSan mutation result exists."
   },
   "prior_ci_results": [
     {
@@ -3053,6 +3872,38 @@
         "first_interruption": "Neural host qualification cancelled after superseding head; native application integration skipped.",
         "native": "not_reached"
       }
+    },
+    {
+      "revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b",
+      "linux": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608",
+        "conclusion": "failure",
+        "first_failure": "F29 BlueSource fixture omits pure virtual TFx::getPluginId() const.",
+        "compiled": "Five task objects completed and OpenToonz linked.",
+        "native": "skipped"
+      },
+      "macos": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210",
+        "conclusion": "failure",
+        "first_failure": "F29 BlueSource fixture omits pure virtual TFx::getPluginId() const.",
+        "compiled": "Task object/link completion not established.",
+        "native": "skipped"
+      },
+      "scope": "CI20/CI21 record build failure, not runtime results. The fixture override and F30-F34 changes are prepared after this head. Windows exact-head status is tracked separately; no result inferred here."
+    }
+  ],
+  "checkout_provenance": [
+    {
+      "pull_request_head": "c20884ffb45660f79a7f213329e5e9c1ff2dc479",
+      "checkout_revision": "27381fa6e2358d68df5370b1a4c75ee81321035b",
+      "base_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
+      "platform": "windows",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "log_lines": [
+        215,
+        274
+      ],
+      "limit": "CI17-CI19 retain PR-head association; actual checkout/build used this GitHub merge commit. Other platforms require their own checkout evidence."
     }
   ]
 }
