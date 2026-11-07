@@ -368,7 +368,8 @@ def select_diagnostic_suite(environment, suite):
     if suite is None:
         return
     if suite not in ("function-workflow", "cast-workflow", "combined-timing",
-                     "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch", "workflow-ui"):
+                     "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch",
+                     "workflow-switch-eager", "workflow-ui"):
         raise ValueError("Unknown native UI diagnostic suite")
     environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
 

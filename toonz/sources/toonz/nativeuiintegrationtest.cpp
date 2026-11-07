@@ -406,7 +406,7 @@ void exercisePanelTitleBarOwners() {
   checkpoint("native title bar owner lifetimes passed");
 }
 
-void exerciseWorkflowSwitching(QMainWindow *window) {
+void exerciseWorkflowSwitching(QMainWindow *window, bool diagnosticEagerOnly = false) {
   checkpoint("checking workflow menus and panel lifetimes");
   auto *main = qobject_cast<MainWindow *>(window);
   require(main, "workflow fixture has no main window");
@@ -696,6 +696,9 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
   // Exercise real lazy/eager panels, including Function Editor and pooled
   // floating Flipbooks, rather than testing a mock layout switch.
   for (bool lazy : {true, false}) {
+    // Explicit diagnostic only: preserve the full eager preset/room sequence
+    // within the verifier budget. Normal qualification still runs both passes.
+    if (diagnosticEagerOnly && lazy) continue;
     preferences->setValue(lazyLoadRooms, lazy);
     for (const auto &preset : WorkflowPresets::presets) {
 #if !defined(x64)
@@ -1315,6 +1318,9 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       } else if (diagnosticSuite == "workflow-switch") {
         exerciseWorkflowSwitching(window);
         std::cout << "workflow-switch-native: PASS" << std::endl;
+      } else if (diagnosticSuite == "workflow-switch-eager") {
+        exerciseWorkflowSwitching(window, true);
+        std::cout << "workflow-switch-eager-native: PASS" << std::endl;
       } else if (diagnosticSuite == "workflow-ui") {
         exerciseWorkflowSwitching(window);
         exerciseNativeUi(window);
