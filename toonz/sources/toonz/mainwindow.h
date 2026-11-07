@@ -18,7 +18,6 @@
 
 class QStackedWidget;
 class TPanel;
-class UpdateChecker;
 class ComboViewerPanel;
 class TopBar;
 //-----------------------------------------------------------------------------
@@ -87,7 +86,6 @@ class MainWindow final : public QMainWindow {
   bool m_wasMaximized      = false;
   int m_oldRoomIndex;
   QString m_currentRoomsChoice;
-  UpdateChecker *m_updateChecker;
 
   TopBar *m_topBar;
 

@@ -228,6 +228,10 @@ void CustomPanelManager::loadCustomPanelEntries() {
   DVMenuAction* menu = dynamic_cast<DVMenuAction*>(menuAct->menu());
   if (!menu) return;
 
+  // clear() removes submenu actions without destroying their owning menus.
+  const auto subMenus =
+      menu->findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly);
+  for (QMenu* subMenu : subMenus) delete subMenu;
   if (!menu->isEmpty()) menu->clear();
   m_menuPanelIds.clear();
 
