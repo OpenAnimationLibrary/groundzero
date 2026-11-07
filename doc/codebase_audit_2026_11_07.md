@@ -22,8 +22,8 @@ Linux coverage; additional platform/backend matrices move to scheduled or manual
 This is a change in qualification timing, not evidence that those configurations pass.
 See [the topology and coverage map](ci_audit_topology.md).
 
-Release readiness remains unestablished. Existing native application failures, queued-task
-lifetime, binary provenance, and platform qualification gaps require further work. A green
+Release readiness remains unestablished. Existing native application failures, batch-lifetime
+qualification, binary provenance, and platform evidence gaps require further work. A green
 build from a different run cannot establish that an intermittent crash is fixed.
 
 ## Scope and method
@@ -91,7 +91,7 @@ share a finding ID rather than inflating the count for each affected command.
 | F03 | P1 | Removing a selected task group freed a selected child before the selection loop read it. Removal snapshots IDs first and tolerates a missing parent. | `toonz/tasksviewer.cpp`, `toonz/batches.cpp`, native UI fixture |
 | F04 | P1 | A missing dependency dereferenced a null task; dependency items also retained borrowed pointers. Items now retain IDs and missing references remain removable. | `toonz/tasksviewer.cpp`, native UI fixture |
 | F05 | P1 | Deleted tasks left farm mappings, causing null dereferences or reuse of an old farm job. Removal retires mappings and polling checks existence before copying. | `toonz/batches.cpp`, native UI farm-boundary fixture |
-| F06 | P1 | A suspended group could be deleted while a child was waiting/running. Active descendants now block group deletion. | `toonz/batches.cpp`, native UI fixture; queued-worker caveat below |
+| F06 | P1 | A suspended group could be deleted while a child was waiting/running. Active descendants now block group deletion. | `toonz/batches.cpp`, native UI fixture; queued-worker lifetime is F27 |
 | F07 | P1 | Batch MP4/WebM/APNG jobs could split into chunks writing one movie destination. New tasks use the shared movie classifier. | `toonz/batches.cpp`, saved-scene batch fixture; upstream #4629 |
 | F08 | P1 | FFmpeg export clamped shared HDR source rasters in place. Conversion now leaves input untouched and uses the existing output clamp. | `image/ffmpeg/tiio_ffmpeg.cpp`, public FFmpeg fixture on all platforms; duplicate new direct HDR case consolidated with preserved alpha/reused-source assertions |
 | F09 | P2 | Painted deformation grids accepted invalid geometry/counts and converted brush bounds before clipping. Bounds are validated before integer operations. | `toonzlib/tdeformerstack.cpp`, `toonzlib/tests/deformer_test.cpp` |
@@ -112,6 +112,9 @@ share a finding ID rather than inflating the count for each affected command.
 | F24 | P1 | Filmstrip Swing undo left original drawings and synchronized exposures shifted. Its debug clone-count assertion also failed. Undo now restores identity and remembers the applied synchronization mode. | `toonz/filmstripcommand.cpp`, `swingUndoChecks`; numeric/lettered collisions, sparse selections, repeated cycles, preference changes before undo |
 | F25 | P2 | Audio import ignored its configured timeout, rejected already-finished successes, and retained stale data on failure. Its reader now uses a bounded wait, validates normal exit, clears failed output, and closes the process. | `toonzlib/thirdparty.cpp`, `verifyAudioLifecycle` and real WAV decoding in `ffmpeg_public` |
 | F26 | P2 | Image-side FFmpeg timeout conversion overflowed signed milliseconds for large valid preferences. Conversion now widens before multiplication and saturates while preserving the existing nonpositive fallback. | `image/ffmpeg/tiio_ffmpeg.cpp`, delayed fake-probe regression `testProbeTimeoutConversion` on non-MSVC builds |
+| F27 | P1 | Local runners borrowed task graphs after status allowed removal and accessed task/process state across threads. Immutable execution plans, pending identity records, queued outcomes and worker-owned processes now separate cancellation from retirement. | `toonz/batches.cpp`, `toonz/batchtaskexecution.cpp`, guarded task-sheet edits and gated native fixtures; runtime qualification pending |
+| F28 | P2 | Bulk clear/load dropped owner roots and discarded lists before failed replacement. Actual ownership-root cleanup and staged loading preserve prior state and historical pointer aliases. | `toonz/batches.cpp`, normal-owner/load fixtures; malformed nested extraction ownership remains deferred |
+| F29 | P2 | External-effect decoding replaced only a local pointer, leaving output pixels unapplied. Matching 32-bit RGBA output now copies into the existing tile; invalid size/type is rejected. | `tnzbase/texternfx.cpp`, public `externfx_process` pixel cases; old-scene comparisons and 64-bit/float destination support remain open |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -136,17 +139,17 @@ The follow-up [Swing review](audit_swing_undo.md),
 [native crash investigation](audit_windows_crashes.md) record additional scenarios
 and distinguish prepared repairs from unresolved application crashes.
 The [scenario plan](audit_regression_scenarios.md) and
-[machine-readable ledger](audit_findings.json) track all 26 prepared findings,
+[machine-readable ledger](audit_findings.json) track all 29 prepared findings,
 stable residual IDs, platform limits, required mutations, and exact CI evidence.
 
 ## Remaining risks and owner decisions
 
 | Priority / evidence | Remaining work | Recommended decision or evidence |
 | --- | --- | --- |
-| P1, source-confirmed | A queued/assigned `TaskRunner` can retain raw task or dependency pointers after status changes allow removal. Bulk clear/load replacement also leak owners. | Implement a retirement/borrow protocol before deleting bulk owners; see task lifetime design and deterministic CI cases. A child-status guard alone does not solve this. |
+| P1/P2, qualification and residual scope | F27/F28 prepare local batch lifetime and normal list ownership repairs. Nested malformed extraction can still leave an unattached child; legacy late progress and remote restart configuration remain outside the repair. | Run exact-revision gated native/real-child cases and leak detection. Preserve parser new-object/alias provenance before adding exception cleanup; see [task lifetime review](audit_task_lifetime.md). |
 | P1, observed CI failure | Native application qualification fails on the reviewed baseline and PR 141 for distinct reasons. | Baseline Windows reaches a Qt text-layout destructor during workspace teardown; its corrupting write is unresolved. PR 141 bypasses viewer initialization in its new fixture; a separate factory-based correction is prepared. Verify each failing path independently. |
 | Trust decision, exploitability unresolved | External-FX names select local XML without canonical containment; XML supplies executable commands. Scene resource aliases also intentionally resolve external paths. | Trace malicious-input fixtures and actual write/render paths, then decide trust restrictions while preserving explicitly selected external resources. No standalone scene RCE was demonstrated. |
-| P2, source-confirmed | Legacy external-FX output loading replaces only a local raster pointer, so decoded output is not assigned to the render tile. | Prepare a pixel-level fixture and review the compatibility impact before changing previously ineffective rendering. Process/decoder tests do not establish tile output. |
+| P2, rendering qualification | F29 applies previously discarded external-FX output to 32-bit tiles. Existing scenes can render differently; 64-bit/float destination tiles still return early. | Run new exact-pixel cases and baseline comparisons, compare old scenes, and address unsupported destination modes separately. The earlier process-test pass predates pixel publication. |
 | P2, evidence gap | Selected legacy Windows binaries lack a complete source/patch/build/digest record. | Inventory actual link inputs and establish reproducible rebuilds before targeted updates; do not infer CVE applicability from directory names. |
 | P2, source-confirmed | Linux packaging uses moving AppImage download URLs; Windows custom Qt and prebuilt-library downloads lack pinned digests. Optional Python/OS/Rust dependency inputs are not fully locked. | Obtain reviewed provenance and trusted digests before pinning native payloads; the action pins and npm lock do not resolve these inputs. |
 | P2, dated availability risk | Homebrew plans to disable `qt@5` on 2027-05-19 and `opencv@4` on 2027-07-09. | Select and qualify a supported acquisition path before those dates; migration needs native device, scene, and rendering evidence. |
@@ -206,8 +209,8 @@ owner review before merging the topology change; no repository settings were cha
 
 [CLAUDE.md](../CLAUDE.md) requires builds and tests to run in CI. No application builds,
 unit tests, integration tests, mutation tests, or manual artist sessions ran locally.
-New application fixtures are specifications awaiting execution, not evidence of
-runtime success. Static checks, source traces, and actual CI results are reported separately.
+Later batch-lifetime and external-FX pixel fixtures await execution. Earlier exact-revision
+results below cover only the named cases; static checks and source traces remain separate.
 
 The integrated local validation passed whitespace checks, changed-line C++ formatting,
 Ruby syntax and the 10/10 topology calculation, actionlint/ShellCheck across all workflows,
@@ -230,6 +233,25 @@ Windows exposed the `far` SDK macro collision in the deformer fixture and librar
 definitions leaking into the external-effect test. Linux's older ShellCheck also rejected
 an optional benchmark notice expression. Follow-up changes address these failures without
 disabling tests; their combined revision requires a new CI run. The source findings remain open.
+
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, task removal/missing dependencies,
+farm mapping removal, and active-child protection passed in both
+[Linux job 128545710903](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847476/job/128545710903) and
+[macOS job 128545825336](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336). These checkpoints cover F03–F06 at that revision.
+The Linux reporter passed all 22 cases and the budget suite passed 15 cases with 50 assertions.
+macOS passed all 22 required reliability CTests, including PSD, FFmpeg, deformer, Auto-Patch,
+external-process and plugin-probe cases. Linux reliability was skipped after the native failure;
+these macOS passes do not establish a Linux or Windows result.
+
+Both native jobs still failed `exerciseMovieBatchSetup`: the fixture expected saved AVI to
+remain a movie on every platform, but the non-Windows scene loader intentionally converts AVI
+to TIF because no AVI writer is registered. The prepared fixture checks the reloaded effective
+format, the existing platform conversion, and resulting movie/image chunking. It has not passed
+CI yet. Swing/vector workflows were not reached in either full native process. A secondary
+Quit assertion followed the failed fixture; each separately launched reviewed-clear Quit
+scenario passed. The [ledger](audit_findings.json) records log lines and artifact digests as
+CI10–CI16 without replacing the initial-head evidence. F27/F28 and F29 pixel publication were
+added after this revision and receive no runtime credit from it.
 
 The workflow audit pins 121 external action uses and disables persisted credentials on
 25 checkouts. Offline zizmor's default scan passes with documented local exceptions; the

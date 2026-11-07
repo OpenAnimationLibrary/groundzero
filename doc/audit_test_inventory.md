@@ -23,8 +23,9 @@ running after a failure.
 | Painted deformer weights and existing deformer behavior | `deformer`, under `BUILD_DEFORMER_TESTS` in [toonzlib CMake](../toonz/sources/toonzlib/CMakeLists.txt) | Explicitly enabled and required in all three platform PR manifests. |
 | Auto-Patch support dimensions and outline math | `autopatchoutline`, under `BUILD_AUTOPATCH_TESTS` in [stdfx CMake](../toonz/sources/stdfx/CMakeLists.txt) | Explicitly enabled and required in all three platform PR manifests. This is a standalone helper fixture, not a rendered-FX fixture. |
 | Native plugin ABI probe ranges | `plugin_probe_single`, `plugin_probe_empty`, under `BUILD_RELIABILITY_TESTS` in [toonzqt CMake](../toonz/sources/toonzqt/CMakeLists.txt) | Required in all three platform PR manifests; each mode has its own process and loads a real fixture module. |
-| External-effect process and output contracts | `externfx_process`, under `BUILD_RELIABILITY_TESTS` in [tnzbase CMake](../toonz/sources/tnzbase/CMakeLists.txt) | Required in all three platform PR manifests; Windows and POSIX execute different process branches. |
+| External-effect process and public-render output contracts | `externfx_process`, under `BUILD_RELIABILITY_TESTS` in [tnzbase CMake](../toonz/sources/tnzbase/CMakeLists.txt) | Required in all three platform PR manifests; Windows/POSIX process branches differ. Added public pixel cases await CI. |
 | Task removal, farm IDs, active children, movie batch setup | `exerciseWorkflowSwitching()` in [native UI integration](../toonz/sources/toonz/nativeuiintegrationtest.cpp), compiled into `OpenToonz` with `BUILD_UI_PORT_TESTS` | The platform workflows invoke `run_native_ui_test.py` explicitly. These cases are not independent CTest registrations. |
+| Batch execution lifetime, progress identity, list replacement and edit guards | `exerciseBatchTaskLifetime()` in [batch integration](../toonz/sources/toonz/batchtaskintegrationtest.cpp), with [TaskSheet guard cases](../toonz/sources/toonz/batchtaskviewintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native application driver on all three platforms; real executor gates and child-process mode. New runtime/checkpoint evidence is pending. |
 | Filmstrip insertion/duplicate/Each/Swing undo and ungroup undo | `runVectorWorkflowNativeChecks()` in [vector integration](../toonz/sources/toonz/vectorworkflowintegrationtest.cpp), same application build option | Explicit native application driver on all three platforms, with `--require-vector-workflows`. A CTest-only run does not execute these cases. |
 | CI diagnostic classification and API pagination | [test_ci_audit.py](../ci-scripts/tests/test_ci_audit.py), Python `unittest` discovery | Explicit Linux PR step with `-p test_ci_audit.py -v`; not a CTest target. |
 | Automatic-check budget and workflow parsing | [test_ci_budget.rb](../ci-scripts/tests/test_ci_budget.rb), Ruby Minitest | Explicit Linux PR step after the read-only budget checker; not a CTest target or a pre-commit test-suite invocation. |
@@ -59,10 +60,21 @@ is manual and build-only; it is not runtime qualification.
 | New weight-grid cases | **Keep** | Large brushes and erasers must affect all intended cells; remote/invalid brushes must not alter weights; invalid geometry/counts must not construct usable grids. Assertions inspect values and validity, not a chosen clipping implementation. |
 | Auto-Patch math and sizing | **Keep; extend at the FX boundary** | Brute-force distance comparisons, outline falloff, and seam/detail separation protect pixels. Boundary predicates protect conversions and allocations. They do not establish correct placement of the checks in the predictive render/cache lifecycle. |
 | Native plugin probe fixture versus Plugin Manager tests | **Keep both** | A real module exercises loader ABI entry ranges. The existing Qt 5/Qt 6 manager suites exercise policy/settings. One cannot replace the other. Single-entry acceptance and empty-range rejection are distinct. |
-| External-effect fixture | **Keep; extend failure branches later** | Uses real child processes, arguments, output files, and actionable failures. Windows handle-count and environment-expansion checks have no equivalent in the POSIX shell branch. |
+| External-effect fixture | **Keep and extend with public rendering** | Existing real process/error cases remain. New cases connect an actual source, validate exact extracted-tile pixels/alpha/orientation/borders/storage/position, and reject wrong dimensions or grayscale output. Windows handle-count/expansion checks remain distinct. |
 | Native task and undo fixtures | **Keep** | Multiple panels, parent/child selections, retired farm IDs, active-child rejection, preserved drawing IDs/content/exposures, independent inserted rasters, and nested groups exercise different state transitions. Repeated undo/redo cycles are intentional. |
+| Batch plan/retirement and view fixtures | **Keep alongside older Tasks cases** | Queued withdrawal, assigned/terminal retention, actual publication failures, selective cancellation, list transactions, identity callbacks and real child cleanup exercise different boundaries. Selected actual TaskSheet slots protect affected edits and idle compatibility. |
 | Python CI-auditor tests | **Keep** | Positive crash/error cases and benign checkpoint/cancellation-word controls prevent misleading diagnoses. Pagination and endpoint assertions concern the external GitHub boundary; they also prevent bounded requests from fetching unrelated history. |
 | Ruby CI-budget tests | **Keep and extend** | Includes, excludes, reusable nesting, event multiplicity, malformed/dynamic input, and cycle rejection are separate contracts. The CLI boundary case now accepts nine and ten checks and rejects eleven. |
+
+The new batch cases are authored, not locally executed. Retired-outcome replay exercises
+absent-record rejection; worker-progress replacement separately exercises incarnation checks.
+It does not independently isolate list generation or inject duplicate retirement. Exact counts
+cover runners and individual tasks; final group roots and newly loaded groups need leak detection.
+Serialized self-cycle/duplicate-child/shared-child cases check rejection and preserved list state;
+they do not prove partial nested parser cleanup or count each loaded allocation.
+The UI fixture invokes selected actual slots, but does not cover every handler or mouse/focus
+path. Application exit with an active child, nested malformed parser cleanup, and remote farm
+restart/configuration require separate qualification. See the [task review](audit_task_lifetime.md).
 
 No legacy test has been classified as obsolete solely because it is old, lengthy,
 or resembles a newer case. Retiring standalone workflow files during CI
@@ -114,6 +126,7 @@ test is not proof that a regression test catches its intended defect.
 | Auto-Patch predictive tiling | Add an actual FX/cache integration scenario before claiming this boundary is covered | A large predictive region that is later tiled must survive dry computation; each actual oversized tile must still fail before allocation. The helper-only fixture does not prove this lifecycle contract. |
 | Plugin function probes | Restore the `begin == end - 1` rejection | The valid single-entry function probe is rejected; the fixed tree loads it. The empty-range case must remain rejected in both trees. |
 | External effect | Restore ignored child exit/output checks separately | Nonzero exit or missing/corrupt output fails to produce the required actionable error; fixed process cases report it. |
+| External-effect pixels | Restore local-pointer-only output or omit type/size validation | Exact public-render destination pixels or invalid-output rejection fails; parent borders and tile storage/position remain checked. |
 | Task/undo state | Restore one ownership/cache-ID defect per run | The corresponding task retirement, drawing identity, exposure, aliasing, or group-depth assertion fails. Earlier crashes must not be mistaken for execution of later cases. |
 | CI auditor | Restore single-page reads or broad keyword classification separately | Second-page failure or benign checkpoint controls distinguish the changed behavior without live API calls. |
 | CI budget | Mutate matrix/event/reusable expansion or limit comparison | Synthetic workflow fixtures and CLI status identify incorrect totals/rejection; the new guard has no pre-existing production implementation to run as a historical baseline. |
@@ -150,9 +163,9 @@ ruby ci-scripts/tests/test_ci_budget.rb
 
 Outstanding evidence and follow-up work:
 
-- Execute the consolidated HDR case on all three platforms, retaining decoded
-  output and original-raster failure diagnostics. Tests have not established the
-  replacement's runtime equivalence yet.
+- Retain c208 macOS `ffmpeg_public` evidence for consolidated HDR/audio cases and
+  qualify Linux/Windows plus the final combined revision. Preserve decoded-output
+  and original-raster diagnostics; one platform pass is not full qualification.
 - Add actual Auto-Patch dry/compute integration coverage for the predictive-cache
   subdivision case. Old-scene image comparisons remain necessary; helper tests
   and generic Compat scenes cannot establish behavior for an unrepresented FX.
@@ -165,11 +178,15 @@ Outstanding evidence and follow-up work:
 - The external-effect fixture checks Windows process-handle stability but does
   not prove cleanup of arbitrarily long-running child/grandchild trees. Its
   command/output cases should remain separate from future timeout coverage.
+- Run F29's new public-render pixel cases and compare existing external-effect
+  scenes before/after. The c208 process-test pass predates these cases. Exact-size
+  RGBA32 publication leaves 64-bit/float destination support unresolved.
 - Plugin single/empty probe tests do not cover every malformed ABI descriptor,
   stale parameter handle, or nonzero-offset raster. Do not claim those paths
   are tested merely because the probe executable passes.
-- Execute the expanded CLI boundary case accepting nine and ten checks and
-  rejecting eleven. Keep malformed-input tests; parser success does not subsume them.
+- Preserve c208's expanded reporter/budget results and run targeted mutation
+  comparisons plus final combined-revision checks. Keep malformed-input tests;
+  parser success does not subsume them.
 - Preserve first-run failing CTest logs. The nightly workflow currently reruns
   failed tests to gather annotations; a later diagnostic result must not replace
   the original failure evidence or be treated as a retry that qualified the code.
@@ -189,5 +206,10 @@ At draft head `2758123e81050f45aaec2c105bb24a729cfd0f27`, the Linux CI steps for
 the 20 auditor tests and 15 budget tests passed in
 [job 128529701035](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551454/job/128529701035).
 That run predates the expanded budget boundary and the follow-up C++ fixtures.
-No numeric coverage, mutation score, cross-platform pass, or application rendering
-result is asserted here.
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, the later
+[Linux job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847476/job/128545710903) passed 22 reporter tests and 15 budget tests with 50 assertions;
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336) passed all 22 reliability CTests.
+Both platforms passed F03–F06 native checkpoints, then failed F07's AVI expectation.
+The effective-format fixture correction is prepared but unexecuted; Swing was not reached.
+Linux reliability was skipped. F27/F28 and F29 pixel cases were added afterward and remain
+pending. No coverage percentage, mutation score, or full platform qualification is claimed.
