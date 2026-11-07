@@ -817,6 +817,17 @@ static ImportResult importBrushProcessImpl(
   // result.json remain the only parent-visible diagnostics.
   process.setStandardOutputFile(QProcess::nullDevice());
   process.setStandardErrorFile(QProcess::nullDevice());
+#ifdef __linux__
+  // Integrated executables link OpenBLAS through tnzext. Its constructor can
+  // start a thread pool before main, before the worker can enter Landlock.
+  // Configure only this child, before exec, for both pthread and OpenMP builds.
+  // The single-thread precondition remains mandatory regardless of these hints.
+  QProcessEnvironment workerEnvironment = QProcessEnvironment::systemEnvironment();
+  workerEnvironment.insert("OPENBLAS_NUM_THREADS", "1");
+  workerEnvironment.insert("OPENBLAS_DEFAULT_NUM_THREADS", "1");
+  workerEnvironment.insert("OMP_NUM_THREADS", "1");
+  process.setProcessEnvironment(workerEnvironment);
+#endif
 #ifdef __APPLE__
   const QFileInfo requested(executable);
   if (!requested.isExecutable()) {

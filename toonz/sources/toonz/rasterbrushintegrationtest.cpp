@@ -212,7 +212,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         QCoreApplication::applicationFilePath(), package, importError);
     require(importError.isEmpty() && imported.complete &&
                 imported.records.size() == 1,
-            "packaged application brush import worker failed");
+            QString("packaged application brush import worker failed: %1")
+                .arg(importError).toUtf8().constData());
     checkpoint("creating disposable full-color level");
     auto app   = TApp::instance();
     auto scene = app->getCurrentScene()->getScene();

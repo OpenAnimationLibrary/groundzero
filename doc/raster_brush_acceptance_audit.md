@@ -2,6 +2,18 @@
 
 ## Current stabilization evidence
 
+At `8bbfb39cf`, the full Tests and Compat jobs passed; Qt6 compiled and
+passed 162 of 164 tests. The prior executor/renderer crashes no longer occurred.
+The remaining Qt6 preset/application failures report a worker with four threads
+before sandbox setup. The integrated build selects OpenBLAS, whose constructor
+can create threads before main. Linux worker launch now sets child-only
+OpenBLAS/OpenMP thread limits before exec, while preserving the single-thread
+precondition and all isolation requirements. The existing worker fixture requests
+four threads in its parent environment and checks import plus parent preservation.
+This fix still requires new-head runtime evidence. Windows general application
+integration also failed; its automatic crash diagnostic was still running at this
+checkpoint, so no cause or correction is inferred here.
+
 Latest qualification checkpoint, `cfea0b542`: all six parser configurations,
 import fuzzing and native metrics passed. Linux build-tree and installed brush
 application lifecycles passed in

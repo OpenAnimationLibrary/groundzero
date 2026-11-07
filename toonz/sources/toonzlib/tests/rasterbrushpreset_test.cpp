@@ -3952,7 +3952,34 @@ void testWorkerProcess() {
     source.setPixel(0, 0, qRgba(255, 0, 0, 128));
     source.setPixel(1, 0, qRgba(0, 255, 0, 255));
     require(source.save(pngPath, "PNG"), "cannot save editor tip fixture");
+#ifdef __linux__
+    // A child linked against threaded OpenBLAS must still enter isolation when
+    // the drawing application's environment requests numerical thread pools.
+    struct RestoreThreadEnvironment {
+      const char *name;
+      bool present;
+      QByteArray value;
+      explicit RestoreThreadEnvironment(const char *key)
+          : name(key), present(qEnvironmentVariableIsSet(key)), value(qgetenv(key)) {
+        require(qputenv(name, "4"), "cannot set worker thread-count fixture");
+      }
+      ~RestoreThreadEnvironment() {
+        if (present)
+          qputenv(name, value);
+        else
+          qunsetenv(name);
+      }
+    } openblasThreads("OPENBLAS_NUM_THREADS"),
+        openblasDefaultThreads("OPENBLAS_DEFAULT_NUM_THREADS"),
+        ompThreads("OMP_NUM_THREADS");
+#endif
     auto image = importBrushProcess(workerExecutable(), pngPath, error);
+#ifdef __linux__
+    require(qgetenv("OPENBLAS_NUM_THREADS") == "4" &&
+                qgetenv("OPENBLAS_DEFAULT_NUM_THREADS") == "4" &&
+                qgetenv("OMP_NUM_THREADS") == "4",
+            "worker launch changed the parent's thread-count environment");
+#endif
     require(error.isEmpty() && image.complete && image.records.size() == 1 &&
                 image.records.front().preset.tip.images.size() == 1,
             QString("worker PNG tip import failed: %1")
