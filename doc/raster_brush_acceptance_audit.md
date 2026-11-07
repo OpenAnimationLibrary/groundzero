@@ -2,6 +2,84 @@
 
 ## Current stabilization evidence
 
+Current implementation revision: `528347a88309e2e9eab1f623260b9ef10990b607`.
+The following results were checked directly against the workflow jobs:
+
+| Required evidence | Current result |
+|---|---|
+| Six OS/Qt parser configurations and import fuzzing | All seven jobs passed in [run 42320716570](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42320716570). |
+| Native metrics and automatic source-contract/cache validation | Both jobs passed in [run 42320716638](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42320716638). The manual Krita job was skipped, not passed. |
+| Full Tests, Qt6 and Compat | All three jobs passed in [run 42320745057](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42320745057). |
+| Linux actual and installed brush application | Both brush lifecycle steps passed in [run 42320716489](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42320716489). |
+| macOS actual and installed brush application | Both brush lifecycle steps and deployed brush-helper sandbox qualification passed in [run 42320716503](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42320716503). This qualifies the expanded-suite watchdog correction on macOS. |
+| Windows application and installed package | [Run 42320716725](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42320716725) completed with failures in general native application integration and the brush application test. The corrected FFmpeg installation step and compilation passed. The brush harness reports its 180-second timeout; the workflow-switch page-heap diagnostic timed out after 1500 seconds without a crash report. Both failures require diagnosis; installed qualification is not established. |
+
+Independent source review of `db4f07f80..528347a88` found no new blocking
+finding. The Windows retry still fails when required tools remain unavailable;
+the macOS watchdog correction preserves completion markers and all assertions.
+Neither correction changes product performance thresholds.
+
+Windows must still qualify the earlier workflow-switch teardown failure, actual
+brush lifecycle, and installed package. Completion also requires the final
+six-outcome evidence summary and integration-target review. This checkpoint does
+not declare the PR ready. No local builds or tests were run.
+
+The Windows brush log progresses through source editing, conversion, collection
+import and wet painting before its 180-second process timeout. The same expanded
+suite completed on macOS in 231.87 seconds. Commit `b66135429` therefore extends
+the existing 300-second macOS aggregate watchdog to Windows, with a 360-second
+outer CTest timeout; Linux remains at 180/240 seconds. Independent review found
+no blocking issue and confirmed all assertions, PASS requirements and performance
+limits remain intact. Windows completion under this correction is still unproven.
+
+The separate Windows workflow-switch failure occurs during room teardown, with
+different Qt-owned widgets appearing in the original and secondary crash stacks.
+Focused ownership review did not establish a concrete source defect. The page-heap
+replay passed the original failure point but timed out later without identifying
+an invalid access. A bounded first-chance debugger replay of the retained failing
+binaries is the next diagnostic step; no production crash fix is claimed.
+
+Retained-binary debugger qualification in
+[run 42331213317](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42331213317)
+passed all 36 cleanup harness tests and completed actual process/temporary-renderer
+cleanup using the bounded retry correction. Its successful diagnostic job does
+not clear the original application failure: CDB captured a first-chance access
+violation in Qt hash cleanup during FlipConsole toolbar retirement. Earlier
+captures identified invalid text-engine decoration-vector pointers during widget
+destruction. These differing sites do not establish the operation that caused the
+damage; the workflow-switch crash remains unresolved.
+
+The reviewed standard page-heap diagnostic at `6ce7d3591` is running separately in
+[run 42332081822](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42332081822).
+It requires GFlags configuration and runtime activation evidence, retains the
+first verifier/exception stop, and disables the image setting afterward. Its
+result is pending. Diagnostic-branch commits, including the Windows watchdog and
+cleanup corrections, are not yet part of PR #141's `528347a88` head.
+
+## Six-outcome demonstration checklist
+
+These are existing application cases, not a separate demo or a claim of final
+qualification. At `528347a88`, the complete brush suite passed in the Linux and
+macOS build-tree and installed jobs linked above. Windows and the final resulting
+revision still require complete passing executions.
+
+| User-visible demonstration | Existing application evidence |
+|---|---|
+| Paint, undo/cancel, save and reopen native dry/wet strokes | `rasterbrushintegrationtest.cpp`: actual brush tool/undo manager, frame/level rollback, PNG and scene reopening, native wet cases. |
+| Import a collection, select a member and reimport safely | Invoked `runRasterBrushCollectionImportIntegration`: picker/cancellation, conflict-safe installation, browser selection and painting. |
+| Try a brush without changing the drawing | Native editor scratchpad isolation/cancel and release/contact ownership/timer lifecycle checkpoints. |
+| Edit settings, cancel or save a separate preset | Invoked `runRasterBrushSourceEditorIntegration`; native Time/Distance persistence and same-name copy/duplicate-save cases. |
+| Inspect support and explicitly accept native conversion | Explicit source-to-native copy conversion and approximation acceptance/rejection checkpoints; installed editor classification. |
+| Export and reopen a portable preset, then repair resources | Combined portable resources, export defaults/resource-repair UI, edited wet shared-resource repair and repaint/undo cases. |
+
+The same application suite also paints with legacy MyPaint before and after native
+selection. Simulated pressure/tilt/rotation input is not physical-tablet evidence.
+Independent final scope review found no additional implementation omission in
+these six outcomes. The remote edition target was rechecked at `2e52fb78b`; final
+integration review and final-revision execution remain required before readiness.
+
+## Historical stabilization checkpoints
+
 At `db4f07f80`, all six parser configurations and import fuzzing passed in
 [run 42316235420](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316235420).
 Native metrics and source-contract checks passed in
