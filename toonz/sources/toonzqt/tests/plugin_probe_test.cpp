@@ -1,5 +1,8 @@
 #include "tenv.h"
 #include "tfx.h"
+#include "tfxparam.h"
+#include "tnotanimatableparam.h"
+#include "tspectrumparam.h"
 #include "toonzqt/pluginloader.h"
 #include "toonzqt/pluginmanager.h"
 
@@ -15,6 +18,24 @@
 namespace {
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
+}
+
+void checkReplacedParameters(TFx& effect) {
+  TIntEnumParamP choice(effect.getParams()->getParam("fixture_enum"));
+  TSpectrumParamP spectrum(effect.getParams()->getParam("fixture_spectrum"));
+  require(choice && choice->getValue() == 1 && choice->getItemCount() == 2,
+          "Repeated plugin setup lost the final enum descriptor");
+  int item = -1;
+  std::string caption;
+  choice->getItem(1, item, caption);
+  require(item == 1 && caption == "Second",
+          "Plugin enum labels did not survive setup storage destruction");
+  require(spectrum && spectrum->getKeyCount() == 2,
+          "Repeated plugin setup lost its spectrum descriptor");
+  const auto value = spectrum->getValue(0);
+  require(value.getKey(0).second == TPixel32::Red &&
+              value.getKey(1).second == TPixel32::Blue,
+          "Plugin spectrum colors did not survive setup storage destruction");
 }
 }  // namespace
 
@@ -52,6 +73,7 @@ int main(int argc, char** argv) {
     if (arguments[2] == "single") {
       require(loaded.loaded && loaded.error.isEmpty() && effect,
               "A function probe containing one effect was rejected");
+      checkReplacedParameters(*effect);
     } else {
       require(!loaded.loaded && !loaded.error.isEmpty() && !effect,
               "An empty function probe was accepted");
