@@ -21,6 +21,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Verify bounded Mesa cleanup contracts
+        run: python -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
       - uses: actions/download-artifact@v6
         with:
           artifact-ids: '13555851183'
@@ -115,7 +117,7 @@ jobs:
               # other threads, without depending on a saved exception context.
               commands = ("sxe av; g; .echo Retained workflow debugger stop; "
                           ".lastevent; .exr -1; r; u @rip-20 L30; ub @rip L20; "
-                          "kv 60; lm; ~* kb 8; q")
+                          "kv 60; dq @rbx L18; !heap -x @rbx; lm; ~* kb 8; q")
               command = [str(debugger), "-G", "-hd", "-sins", "-netsyms:no", "-noshell", "-lines",
                          "-y", str(root / "symbols") + ";" + str(root / "package"),
                          "-c", commands, str(executable), "--test-native-ui"]
