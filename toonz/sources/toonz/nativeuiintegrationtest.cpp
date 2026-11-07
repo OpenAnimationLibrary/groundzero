@@ -3,6 +3,9 @@
 #include "workflowlifetimeintegrationtest.h"
 #include "rasterpasteintegrationtest.h"
 #include "custompanelintegrationtest.h"
+#include "uimemoryintegrationtest.h"
+#include "renderprogressintegrationtest.h"
+#include "drawingcacheintegrationtest.h"
 #include "artistworkflowbenchmark.h"
 #include "mediacacheintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
@@ -1693,12 +1696,20 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
     }
     exerciseBatchTaskLifetime(testRoot);
     exerciseCustomPanelLoading();
+    exerciseUiMemoryOwnership(window);
     QString rasterPasteError;
     if (!runRasterPasteIntegrationTest(&rasterPasteError)) {
       std::cerr << "native-ui-integration: FAIL: raster paste: "
                 << rasterPasteError.toStdString() << std::endl;
       return 1;
     }
+    QString drawingCacheError;
+    if (!runDrawingCacheIntegrationTest(&drawingCacheError)) {
+      std::cerr << "native-ui-integration: FAIL: drawing cache: "
+                << drawingCacheError.toStdString() << std::endl;
+      return 1;
+    }
+    runRenderProgressNativeChecks();
     exerciseWorkflowRoomLifetime(window);
     exerciseWorkflowSwitching(window);
     exerciseNativeUi(window);

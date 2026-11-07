@@ -1116,6 +1116,12 @@ if(BUILD_UI_PORT_TESTS)
         rasterpasteintegrationtest.cpp rasterpasteintegrationtest.h)
     target_sources(OpenToonz PRIVATE
         custompanelintegrationtest.cpp custompanelintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        uimemoryintegrationtest.cpp uimemoryintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        renderprogressintegrationtest.inc renderprogressintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        drawingcacheintegrationtest.cpp drawingcacheintegrationtest.h)
     target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
     target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
     target_sources(OpenToonz PRIVATE functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)
