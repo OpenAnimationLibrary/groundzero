@@ -488,7 +488,6 @@ class RemovalFarmController final : public TFarmController {
 
 public:
   int submissions = 0;
-  int queries     = 0;
   int restarts    = 0;
   QStringList queriedIds;
 
@@ -508,7 +507,6 @@ public:
     return id;
   }
   void queryTaskInfo(const QString& id, TFarmTask& task) override {
-    ++queries;
     queriedIds.push_back(id);
     task.m_status = Suspended;
   }
@@ -544,6 +542,34 @@ void exerciseFarmTaskRemoval() {
   require(!controller->getTask(id) && !controller->getTask(chunkId),
           "farm removal fixture IDs already exist");
   RemovalFarmController farm;
+  struct RestoreTaskList {
+    BatchesController* controller;
+    QString id;
+    bool dirty;
+    bool finished = false;
+    void finish() {
+      if (finished) return;
+      if (TFarmTask* task = controller->getTask(id)) {
+        task->m_status = Suspended;
+        for (int i = 0; i < task->getTaskCount(); ++i)
+          task->getTask(i)->m_status = Suspended;
+        controller->removeTask(id);
+      }
+      controller->setDirtyFlag(dirty);
+      controller->notify();
+      finished = true;
+    }
+    ~RestoreTaskList() noexcept {
+      try {
+        finish();
+      } catch (...) {
+        std::cerr
+            << "native-ui-integration: FAIL: farm task fixture cleanup failed"
+            << std::endl;
+      }
+    }
+  } restore{controller, id, dirty};
+  controller->setDirtyFlag(false);
   auto* group = new TFarmTaskGroup(
       id, "Workflow farm removal", QString(), QString(), 1, 50,
       TFilePath(testRoot + "/workflow-farm-removal.cln"), Overwrite_Off, false);
@@ -554,15 +580,23 @@ void exerciseFarmTaskRemoval() {
   controller->addTask(id, group, false);
   controller->start(id);
   controller->update();
-  require(farm.submissions == 1 && farm.queries == 2,
+  require(farm.submissions == 1 && farm.queriedIds == QStringList({"1", "1.0"}),
           "farm fixture did not poll its group and chunk");
+  farm.queriedIds.clear();
   controller->removeTask(chunkId);
+  require(!controller->getTask(chunkId) && group->getTaskCount() == 0,
+          "removed chunk remained in its controller or group");
+  require(farm.queriedIds == QStringList({"1"}),
+          "removal notification did not poll only the remaining group");
   controller->update();
-  require(farm.queries == 3 && group->getTaskCount() == 0,
-          "removed chunk remained in its group or farm polling");
+  require(farm.queriedIds == QStringList({"1", "1"}),
+          "removed chunk remained in farm polling");
+  controller->setDirtyFlag(false);
+  farm.queriedIds.clear();
   controller->removeTask(id);
   controller->update();
-  require(farm.queries == 3 && controller->getTaskCount() == count,
+  require(farm.queriedIds.isEmpty() && !controller->getTask(id) &&
+              controller->getTaskCount() == count,
           "removed group remained in farm polling");
 
   for (int submission = 2; submission <= 3; ++submission) {
@@ -584,13 +618,15 @@ void exerciseFarmTaskRemoval() {
     require(farm.queriedIds.size() == 2 && farm.queriedIds.contains(farmId) &&
                 farm.queriedIds.contains(farmId + ".0"),
             "replacement tasks polled retired farm task IDs");
-    const int queries = farm.queries;
+    farm.queriedIds.clear();
     controller->removeTask(id);
     controller->update();
-    require(farm.queries == queries && controller->getTaskCount() == count,
+    require(farm.queriedIds.isEmpty() && !controller->getTask(id) &&
+                !controller->getTask(chunkId) &&
+                controller->getTaskCount() == count,
             "group removal left farm polling entries for its children");
   }
-  controller->setDirtyFlag(dirty);
+  restore.finish();
   checkpoint("workflow farm task removal passed");
 }
 

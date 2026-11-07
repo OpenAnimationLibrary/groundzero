@@ -454,8 +454,6 @@ void BatchesController::removeTask(const QString &id) {
     return;
   }
 
-  setDirtyFlag(true);
-
   if (!task->m_parentId.isEmpty()) {
     auto* parent = dynamic_cast<TFarmTaskGroup*>(getTask(task->m_parentId));
     if (parent) parent->removeTask(task);
@@ -484,6 +482,7 @@ void BatchesController::removeTask(const QString &id) {
   m_tasks.erase(id);
   m_farmIdsTable.erase(id);
   delete task;
+  setDirtyFlag(true);
 }
 
 //------------------------------------------------------------------------------
