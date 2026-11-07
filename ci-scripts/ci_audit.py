@@ -38,7 +38,8 @@ HINTS = [
         "remove the link or address named in the annotation (CLAUDE.md)",
     ),
     (
-        r": (fatal )?error:|error: ‘|undefined reference|ld returned|^FAILED:",
+        r": (fatal )?error:|error: ‘|\b(?:fatal )?error (?:C|LNK)\d{4}:|"
+        r"undefined reference|ld returned|^FAILED:",
         "compile or link error",
         COMPILER_TODO,
     ),
@@ -253,11 +254,16 @@ def audit_target(target):
         return 1
     bad = [r for r in runs if r["conclusion"] not in ("success", "skipped", "neutral")]
     pending = [r for r in bad if r["status"] != "completed"]
+    labels = {"success": "ok", "skipped": "skip", "neutral": "neutral"}
     for r in runs:
-        mark = "ok " if r not in bad else ("..." if r["status"] != "completed" else "FAIL")
-        print(f"  {mark:4} {r['name']}")
+        mark = labels.get(r["conclusion"], "..." if r["status"] != "completed" else "FAIL")
+        print(f"  {mark:7} {r['name']}")
     if not bad:
-        print("\nEvery check passed.")
+        counts = collections.Counter(r["conclusion"] for r in runs)
+        print(
+            f"\nChecks completed: {counts['success']} passed, "
+            f"{counts['skipped']} skipped, {counts['neutral']} neutral."
+        )
         return 0
     for r in bad:
         if r["status"] != "completed":

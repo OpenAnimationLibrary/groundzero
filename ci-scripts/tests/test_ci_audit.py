@@ -82,6 +82,26 @@ class ClassificationTests(unittest.TestCase):
     def test_native_regression_failure_is_not_a_compile_error(self):
         self.assertEqual(AUDIT.hint("[Native UI regression] status 1")[0], "a test failed")
 
+    def test_msvc_compiler_and_linker_diagnostics_require_an_error_code(self):
+        failures = (
+            r"D:\a\project\deformer_test.cpp(512,36): error C2059: syntax error: 'constant'",
+            r"D:\a\project\deformer_test.cpp(513,35): error C2143: missing ')' before ','",
+            "externfx_process_test.obj : error LNK2001: unresolved external symbol TParam",
+            r"D:\a\project\test.exe : fatal error LNK1120: 12 unresolved externals",
+        )
+        for text in failures:
+            with self.subTest(text=text):
+                self.assertEqual(AUDIT.hint(text)[0], "compile or link error")
+        for text in (
+            "C2059 and LNK2001 diagnostics documented",
+            "error C20590: unrelated identifier",
+            "error LNK200: truncated identifier",
+            "warning C4996: deprecated API",
+            r"D:\a\project\capture.cpp(512,36): checkpoint passed",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(AUDIT.hint(text)[0], "unknown")
+
 
 class AnnotationTests(unittest.TestCase):
     def test_failure_beyond_first_page_is_not_hidden_by_notices_or_warnings(self):
@@ -179,6 +199,19 @@ class TargetAuditTests(unittest.TestCase):
                 with mock.patch.object(AUDIT, "gh", return_value={"check_runs": checks}):
                     with contextlib.redirect_stdout(io.StringIO()):
                         self.assertEqual(AUDIT.audit_target("abcdef12"), 1)
+
+    def test_skipped_and_neutral_checks_are_not_reported_as_passes(self):
+        checks = [check(1), check(2, "skipped"), check(3, "neutral")]
+        output = io.StringIO()
+        with mock.patch.object(AUDIT, "gh", return_value={"check_runs": checks}):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(AUDIT.audit_target("abcdef12"), 0)
+        text = output.getvalue()
+        self.assertRegex(text, r"(?m)^\s+ok\s+check 1$")
+        self.assertRegex(text, r"(?m)^\s+skip\s+check 2$")
+        self.assertRegex(text, r"(?m)^\s+neutral\s+check 3$")
+        self.assertIn("1 passed, 1 skipped, 1 neutral", text)
+        self.assertNotIn("Every check passed", text)
 
 
 class RecentAuditTests(unittest.TestCase):
