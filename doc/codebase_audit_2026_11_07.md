@@ -103,7 +103,7 @@ share a finding ID rather than inflating the count for each affected command.
 | F15 | P2 | Windows PNG initialization checked a directory instead of the missing header; TIFF copying exceeded the advertised CMake minimum. Header checks and compatible copies are corrected. | `toonz/sources/CMakeLists.txt` |
 | F16 | P2 | External FX used an uninitialized POSIX argument buffer and unchecked Windows process/expansion results. Launch errors now have explicit handling and cleanup. | `tnzbase/texternfx.cpp`, external-process fixture |
 | F17 | P2 | Function-form native probes rejected a valid single-effect range. The loader accepts a nonempty range and has a real plugin-load fixture. | `toonzqt/pluginhost.cpp`, native probe fixtures |
-| F18 | P2 | CI diagnosis matched successful checkpoint substrings, hid failures among notices, and omitted later API pages. It now classifies actual failures and follows explicit paginated check/job links. | `ci-scripts/ci_audit.py`, 20 added Python cases |
+| F18 | P2 | CI diagnosis matched successful checkpoint substrings, hid failures among notices, and omitted later API pages. It now classifies actual failures and follows explicit paginated check/job links. | `ci-scripts/ci_audit.py`, 22 Python cases including MSVC and skipped-check reporting |
 | F19 | P2 | Independent PR workflows expanded to 31 checks. Consolidated coverage and a topology guard enforce the requested limit of ten. | Workflows, `ci-scripts/check_ci_budget.rb`, 15 added Ruby cases |
 | F20 | P2 | Mutable action references, checkout credentials, shell interpolation, and floating build tools weakened workflow provenance. Actions and tools are pinned and credentials/interpolation narrowed. | Workflows and locked stylesheet/wiki toolchain |
 | F21 | P2 | Windows packaging copied libmypaint dependency DLLs without an identified copy of their notice directory. Packaging now carries the supplied notice tree. | Windows workflow; archive inspection remains required |
@@ -219,6 +219,17 @@ Those two CI steps passed for initial draft head `2758123e8` in
 [Linux job 128529701035](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551454/job/128529701035).
 That evidence predates the follow-up application fixes and the expanded nine/ten/eleven-check
 CLI boundary case; it does not qualify the final combined head.
+
+The first full draft run produced exactly ten checks: four successful, three failed,
+and three skipped. Skipped installed-application jobs are not passes. macOS passed the
+`externfx_process`, `deformer`, `autopatchoutline`, `ffmpeg_public`, `tiio_psd`,
+`plugin_probe_single`, and `plugin_probe_empty` CTests at that first head.
+The [macOS native job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741)
+still failed the farm-removal scenario; Linux reported the same assertion.
+Windows exposed the `far` SDK macro collision in the deformer fixture and library export
+definitions leaking into the external-effect test. Linux's older ShellCheck also rejected
+an optional benchmark notice expression. Follow-up changes address these failures without
+disabling tests; their combined revision requires a new CI run. The source findings remain open.
 
 The workflow audit pins 121 external action uses and disables persisted credentials on
 25 checkouts. Offline zizmor's default scan passes with documented local exceptions; the

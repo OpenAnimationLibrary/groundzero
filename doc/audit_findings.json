@@ -215,9 +215,11 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI07"
+        ],
         "pending": [
           "Add Windows write/rename failure injection; inspect permissions and filesystem behavior.",
           "Capture failure against the truncating baseline and successful retry on the patched revision."
@@ -253,9 +255,11 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI07"
+        ],
         "pending": [
           "Confirm both pixel identities and frame count across repeated reads."
         ],
@@ -346,7 +350,7 @@
         "toonz/sources/toonz/batches.cpp"
       ],
       "baseline_behavior": "Removed local tasks leave farm IDs used by polling or by a replacement with the same local ID.",
-      "patched_invariant": "Removal retires mappings, and polling checks local existence before copying farm state.",
+      "patched_invariant": "Removal retires mappings, and polling checks local existence before copying farm state. Notify observers only after deletion and mapping retirement; notification polling must see surviving IDs only.",
       "scenario": "Submit group/child through the farm boundary fixture, remove and poll, then recreate the IDs and start again.",
       "tests": [
         {
@@ -472,9 +476,11 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI06"
+        ],
         "pending": [
           "Run the public HDR fixture in pipe and intermediate-image modes on all three platforms.",
           "The duplicate direct-class HDR case was consolidated into the public fixture; preserve exact source and decoded-channel assertions."
@@ -511,12 +517,15 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI04"
+        ],
         "pending": [
           "Run integer/float conversion sanitizers and existing ordinary painting cases.",
-          "Compare a saved painted deformation scene before and after the patch."
+          "Compare a saved painted deformation scene before and after the patch.",
+          "Compile the newly enabled Windows fixture after renaming variables that collide with the SDK far macro."
         ],
         "mutation_proposal": "Move clipping after the int cast or remove the cell-count guard; boundary cases must fail or trigger the sanitizer."
       }
@@ -551,9 +560,11 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI05"
+        ],
         "pending": [
           "Add an Fx fixture covering the actionable exception and predictive subdivision.",
           "Compare ordinary outline pixels and tile seams against the baseline."
@@ -707,9 +718,11 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI06"
+        ],
         "pending": [
           "Qualify debug Qt assertions and release path selection; reap any launched helper."
         ],
@@ -772,12 +785,15 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI03"
+        ],
         "pending": [
           "Add explicit assertions for temporary-file cleanup and a POSIX start failure.",
-          "Decoded tile assignment remains R08; this suite does not prove correct rendered pixels."
+          "Decoded tile assignment remains R08; this suite does not prove correct rendered pixels.",
+          "Relink the Windows fixture after making tnzbase DLL export definitions private to the library."
         ],
         "mutation_proposal": "Restore fixed expansion capacity or omit handle closure; expansion/handle-count assertions must fail."
       }
@@ -807,9 +823,12 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI08",
+          "CI09"
+        ],
         "pending": [
           "Run both probe modes; ensure the fixture is not installed in the application package."
         ],
@@ -828,7 +847,7 @@
       ],
       "baseline_behavior": "Success checkpoint substrings look like failures; notices bury errors and later API pages are omitted.",
       "patched_invariant": "Classify actual failures, retain distinct diagnostics and follow paginated checks/jobs without declaring pending or absent checks green.",
-      "scenario": "Feed checkpoint words plus real failures and failures beyond page one; verify endpoint errors and linked job IDs.",
+      "scenario": "Feed checkpoint words plus real failures and failures beyond page one; verify endpoint errors and linked job IDs. MSVC error codes classify as compile/link errors; skipped and neutral checks remain distinct from passes.",
       "tests": [
         {
           "suite": "ci_audit",
@@ -853,7 +872,8 @@
         ],
         "pending": [
           "All 20 cases passed at CI01's initial head; retain final combined-head evidence and separate live API observations.",
-          "Verify a generic exit code remains unclassified when no cause is available."
+          "Verify a generic exit code remains unclassified when no cause is available.",
+          "Run the expanded 22-case suite, including MSVC codes and skipped/neutral display, at the final head."
         ],
         "mutation_proposal": "Stop after the first API page or restore substring matches; the corresponding fixture must fail."
       }
@@ -1021,9 +1041,12 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI08",
+          "CI09"
+        ],
         "pending": [
           "Require a Qt 5 job and queued-publication warning capture; Qt 6 alone does not qualify the original defect."
         ],
@@ -1875,6 +1898,103 @@
       "artifact_or_log": "CI budget Ruby test step log",
       "evidence_source": "Coordinating audit's CI result report",
       "limit": "The later test_cli_enforces_ten_check_boundary change explicitly accepts nine/ten and rejects eleven; that follow-up still needs CI despite retaining 15 test methods."
+    },
+    {
+      "id": "CI03",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "externfx_process",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
+    },
+    {
+      "id": "CI04",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "deformer",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
+    },
+    {
+      "id": "CI05",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "autopatchoutline",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
+    },
+    {
+      "id": "CI06",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "ffmpeg_public",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
+    },
+    {
+      "id": "CI07",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "tiio_psd",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
+    },
+    {
+      "id": "CI08",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "plugin_probe_single",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
+    },
+    {
+      "id": "CI09",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "macos",
+      "configuration": "Intel macOS PR application build, reliability CTest step",
+      "scenario_or_test": "plugin_probe_empty",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551576/job/128529820741",
+      "artifact_or_log": "Test reliability and performance invariants step log",
+      "limit": "Initial draft head only. Later follow-ups and Windows/Linux qualification remain pending; the native application job failed a separate task scenario."
     }
-  ]
+  ],
+  "initial_ci_result": {
+    "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+    "total_checks": 10,
+    "success": 4,
+    "failure": 3,
+    "skipped": 3,
+    "failures": [
+      "Windows deformer fixture macro collision and external-effect test DLL export definitions",
+      "Linux/macOS farm-removal assertion and secondary failed-fixture Quit state",
+      "Linux ShellCheck SC2015 optional benchmark notice"
+    ],
+    "status": "follow_up_fixes_prepared; new-head CI pending"
+  }
 }

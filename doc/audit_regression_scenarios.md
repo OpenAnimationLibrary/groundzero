@@ -22,7 +22,7 @@ Neither document claims that every bug has been found or repaired.
 - **Reported / observed failure / qualification gap:** retain the distinction between an
   upstream symptom, a prior failed CI run, and missing evidence. An unknown crash cause stays unknown.
 
-Every ledger record remains **open**. Application regressions await CI; the prior native failures
+Every ledger record remains **open**. Final-head application regressions await CI; the prior native failures
 are failure evidence, not execution of the new regression cases. Static checks and live reporter
 inspection described in the main audit do not establish application behavior.
 Follow [CLAUDE.md](../CLAUDE.md): builds, tests and mutations run in CI, not locally.
@@ -48,7 +48,7 @@ The JSON `suites` map contains the repository-relative paths and exact CTest reg
 | Auto-Patch | [autopatchoutline_test.cpp](../toonz/sources/stdfx/tests/autopatchoutline_test.cpp), `autopatchoutline` | L/M/W; helpers only |
 | External FX | [externfx_process_test.cpp](../toonz/sources/tnzbase/tests/externfx_process_test.cpp), `externfx_process` | L/M/W; process and decode, not final tile pixels |
 | Native probes | [plugin_probe_test.cpp](../toonz/sources/toonzqt/tests/plugin_probe_test.cpp), `plugin_probe_single`, `plugin_probe_empty` | L/M/W; real private module; require Qt 5 coverage for F23 |
-| CI reporting | [test_ci_audit.py](../ci-scripts/tests/test_ci_audit.py), unittest discovery | Linux job; 20 boundary-mocked cases |
+| CI reporting | [test_ci_audit.py](../ci-scripts/tests/test_ci_audit.py), unittest discovery | Linux job; 22 boundary-mocked cases |
 | CI topology | [test_ci_budget.rb](../ci-scripts/tests/test_ci_budget.rb), Ruby test entry point | Linux job; 15 topology cases |
 
 Tasks and vector checks are application scenarios run through
@@ -103,7 +103,7 @@ compare smaller tiled/untiled outputs. This is a proposed fixture, not an execut
 
 | ID / priority | Baseline → patched invariant | Reproduction and observable result | Existing coverage / remaining gap |
 | --- | --- | --- | --- |
-| [F18](../ci-scripts/ci_audit.py) P2 | False substring causes/hidden later errors → actual failure classification and pagination | Success checkpoint words alongside real errors; check/job/annotation failures beyond page one | All 20 Python cases; retain pending/no-check and malformed-endpoint cases |
+| [F18](../ci-scripts/ci_audit.py) P2 | False substring causes/hidden later errors → actual failure classification and pagination | Success checkpoint words alongside real errors; check/job/annotation failures beyond page one | All 22 Python cases; retain pending/no-check, MSVC, skipped-check and malformed-endpoint cases |
 | [F19](../ci-scripts/check_ci_budget.rb) P2 | 31 worst-case automatic PR checks → maximum ten with mapped coverage | Reusable/matrix expansion, eleven-check rejection, cycles and invalid/dynamic shapes | All 15 Ruby cases; actual PR run and consolidated-step fault injection pending |
 | [F20](audit_workflow_security.md) P2 | Mutable inputs/credentials/interpolation/error masking → pins, scoped access and failure propagation | Scan workflows; controlled install/copy failure must stay failed despite later success | Static evidence in security report; runtime tool/action compatibility and isolated failure fixture pending |
 | [F21](../.github/workflows/workflow_windows.yml) P2 | DLL package lacks identified notice copy → required supplied notice tree shipped | Extract produced archive; match DLL list and seven nonempty notice/author files | Staging assertions exist; archive inspection and owner provenance review pending |
