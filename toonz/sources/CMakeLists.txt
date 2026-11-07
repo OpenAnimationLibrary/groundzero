@@ -1019,7 +1019,13 @@ if(BUILD_RELIABILITY_TESTS)
     add_test(NAME rasterallocation COMMAND rasterallocation_test)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
     target_link_libraries(timagecache_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
+        # Standalone LSan intercepts allocations from tnzcore too; only this
+        # test executable links the runtime. Shipping targets remain unchanged.
+        target_link_options(timagecache_test PRIVATE -fsanitize=leak)
+    endif()
     add_test(NAME timagecache COMMAND timagecache_test)
+    set_tests_properties(timagecache PROPERTIES TIMEOUT 120)
     add_executable(executor_submission_test common/tcore/tests/executor_submission_test.cpp)
     target_link_libraries(executor_submission_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME executor_submission COMMAND executor_submission_test)

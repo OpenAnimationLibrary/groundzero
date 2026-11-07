@@ -128,6 +128,21 @@ void testRefreshedAndRemappedHistory(TImageCache *cache) {
   cache->clear();
 }
 
+template <class Pixel>
+void testRepeatedCompressedRemoval(TImageCache* cache, const Pixel& first,
+                                   const Pixel& second) {
+  const std::string id = "repeated-compressed-image";
+  for (int cycle = 0; cycle < 64; ++cycle) {
+    const Pixel& expected = cycle % 2 ? second : first;
+    cache->add(id, makeImage(expected));
+    cache->compress(id);
+    expectImage(cache, id, expected);
+    cache->remove(id);
+    require(!cache->isCached(id) && !cache->get(id, false),
+            "removed compressed image survived a cache cycle");
+  }
+}
+
 void testIconPrefixRemap(TImageCache *cache) {
   const TPixel32 selected(17, 37, 57, 255);
   const TPixel32 unrelated(71, 73, 75, 255);
@@ -181,6 +196,10 @@ int main(int argc, char *argv[]) {
     cache->clear();
     testRefreshedAndRemappedHistory(cache);
     testIconPrefixRemap(cache);
+    testRepeatedCompressedRemoval(cache, TPixel32(10, 20, 30, 255),
+                                  TPixel32(200, 150, 100, 255));
+    testRepeatedCompressedRemoval(cache, TPixelCM32(1, 2, 255),
+                                  TPixelCM32(3, 4, 127));
     cache->clear(true);
     std::cout << "Image cache compression tests passed\n";
     return 0;

@@ -74,6 +74,9 @@ jobs:
     - name: Verify Unicode regression reporting
       run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
 
+    - name: Verify isolated image-cache leak qualification contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_image_cache_lsan.py -v
+
     - name: Install libraries
       id: libraries
       run: |
@@ -422,7 +425,16 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache childstack_lifetime levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+
+    - name: Qualify image-cache builder release with LeakSanitizer
+      if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
+      timeout-minutes: 40
+      env:
+        CCACHE_DIR: /home/runner/.ccache
+      run: >-
+        python3 ci-scripts/qualify_image_cache_lsan.py
+        --root . --build toonz/build --output toonz/build/image-cache-lsan
 
     - name: Upload reliability diagnostics
       if: always()
@@ -434,6 +446,7 @@ jobs:
           toonz/build/cast-workflow-metrics.json
           toonz/build/stdfx/fxrender-output
           toonz/build/image/ffmpeg-test-output
+          toonz/build/image-cache-lsan
         if-no-files-found: ignore
 
     # Keep successfully compiled objects even when a regression test fails.
