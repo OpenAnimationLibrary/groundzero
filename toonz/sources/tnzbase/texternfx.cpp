@@ -91,6 +91,32 @@ std::string runExternalProgram(const std::string& executable,
            std::to_string(exitCode) + ". Check the arguments and input files.";
   return std::string();
 }
+
+std::string readExternalOutput(const TFilePath& path, const TRaster32P& destination,
+                               const std::string& executable) {
+  const std::string context = "External effect program \"" + executable + "\" ";
+  try {
+    TRasterP decoded;
+    if (!TImageReader::load(path, decoded))
+      return context +
+             "did not produce a readable output image. "
+             "Check its output port and command arguments.";
+    TRaster32P output = decoded;
+    if (!output)
+      return context +
+             "did not produce a 32-bit RGBA output image. "
+             "Check its output format.";
+    if (output->getSize() != destination->getSize())
+      return context +
+             "produced an output image with different dimensions. "
+             "Keep the output dimensions equal to the input tile.";
+    destination->copy(output);
+  } catch (...) {
+    return "Cannot read the output image from external effect program \"" +
+           executable + "\". Check its output format and arguments.";
+  }
+  return std::string();
+}
 }  // namespace
 
 //=========================================================
@@ -336,19 +362,8 @@ void TExternalProgramFx::doCompute(TTile &tile, double frame,
   args                     = " " + args;
   std::string processError = runExternalProgram(executablePath, args);
 
-  if (processError.empty()) {
-    try {
-      TRasterP ras = tile.getRaster();
-      if (!TImageReader::load(outputTmpFile, ras))
-        processError = "External effect program \"" + executablePath +
-                       "\" did not produce a readable output image. "
-                       "Check its output port and command arguments.";
-    } catch (...) {
-      processError =
-          "Cannot read the output image from external effect program \"" +
-          executablePath + "\". Check its output format and arguments.";
-    }
-  }
+  if (processError.empty())
+    processError = readExternalOutput(outputTmpFile, ras, executablePath);
 
   // butto i file temporanei creati
   std::map<std::string, TFilePath>::const_iterator fileIt;

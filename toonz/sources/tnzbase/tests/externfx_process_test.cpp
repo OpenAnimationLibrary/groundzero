@@ -2,7 +2,9 @@
 #include "texception.h"
 #include "ttile.h"
 #include "tnzimage.h"
+#include "trenderer.h"
 
+#include <QColor>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -50,7 +52,123 @@ void expectFailure(const TFilePath& executable, const std::string& arguments,
   require(rejected, "Failed external effect had no actionable error");
 }
 
+int renderWorker(const QStringList& arguments) {
+  if (arguments.size() != 5) return 20;
+  const QImage input(arguments[2]);
+  require(input.size() == QSize(3, 2),
+          "External effect input tile changed size");
+  for (int y = 0; y < input.height(); ++y)
+    for (int x = 0; x < input.width(); ++x)
+      require(input.pixelColor(x, y) == QColor(Qt::blue),
+              "External effect input pixels were not rendered");
+  const QString mode = arguments[4];
+  const int width    = mode == "small" ? 2 : mode == "large" ? 4 : 3;
+  QImage output(
+      width, 2,
+      mode == "gray" ? QImage::Format_Grayscale8 : QImage::Format_ARGB32);
+  output.fill(mode == "gray" ? 127 : qRgba(255, 0, 0, 255));
+  if (mode == "pixels") {
+    output.setPixel(1, 0, qRgba(0, 255, 0, 128));
+    output.setPixel(2, 0, qRgba(0, 0, 0, 0));
+    output.setPixel(0, 1, qRgba(0, 255, 255, 255));
+    output.setPixel(1, 1, qRgba(255, 255, 0, 255));
+    output.setPixel(2, 1, qRgba(255, 0, 255, 255));
+  }
+  require(output.save(arguments[3], "PNG"),
+          "Cannot save rendered output fixture");
+  return 0;
+}
+
+class BlueSource final : public TRasterFx {
+public:
+  const TPersistDeclaration* getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings&, double) override { return true; }
+  std::string getAlias(double, const TRenderSettings&) const override {
+    return "external-output-blue-source";
+  }
+  bool doGetBBox(double, TRectD& box, const TRenderSettings&) override {
+    box = TRectD(11, -7, 14, -5);
+    return true;
+  }
+  void doCompute(TTile& tile, double, const TRenderSettings&) override {
+    TRaster32P raster = tile.getRaster();
+    require(bool(raster),
+            "External effect input requested an unsupported pixel type");
+    raster->fill(TPixel32::Blue);
+  }
+};
+
+void publicCompute(TRasterFx& effect, TTile& tile) {
+  TRenderer renderer;
+  const auto id = TRenderer::buildRenderId();
+  renderer.install(id);
+  renderer.declareRenderStart(id);
+  renderer.declareFrameStart(0);
+  try {
+    effect.compute(tile, 0, TRenderSettings());
+  } catch (...) {
+    renderer.declareFrameEnd(0);
+    renderer.declareRenderEnd(id);
+    renderer.uninstall();
+    throw;
+  }
+  renderer.declareFrameEnd(0);
+  renderer.declareRenderEnd(id);
+  renderer.uninstall();
+}
+
+void checkRenderedPixels(const TRaster32P& parent, bool success) {
+  const TPixel32 expected[2][3] = {
+      {TPixel32(0, 255, 255), TPixel32(255, 255, 0), TPixel32(255, 0, 255)},
+      {TPixel32::Red, TPixel32(0, 128, 0, 128), TPixel32::Transparent}};
+  for (int y = 0; y < parent->getLy(); ++y) {
+    for (int x = 0; x < parent->getLx(); ++x) {
+      const bool inside = x >= 1 && x <= 3 && y >= 1 && y <= 2;
+      TPixel32 pixel    = TPixel32::Green;
+      if (inside) pixel = success ? expected[y - 1][x - 1] : TPixel32::Blue;
+      require(
+          parent->pixels(y)[x] == pixel,
+          "External output pixels, alpha, orientation or tile border changed");
+    }
+  }
+}
+
+void publicRendering(const QString& executable) {
+  for (const char* mode : {"pixels", "small", "large", "gray"}) {
+    auto* effect = new TExternalProgramFx();
+    TRasterFxP owner(effect);
+    effect->setExecutable(TFilePath(executable),
+                          std::string("--render-fixture $in $out ") + mode);
+    effect->addPort("in", "png", true);
+    effect->addPort("out", "png", false);
+    effect->getInputPort(0)->setFx(new BlueSource());
+    TRaster32P parent(5, 4);
+    parent->fill(TPixel32::Green);
+    TRaster32P destination = parent->extract(1, 1, 3, 2);
+    TTile tile(destination, TPointD(11, -7));
+    const QString expectedError = QString::fromLatin1(mode) == "gray"
+                                      ? "32-bit RGBA"
+                                      : "different dimensions";
+    const bool success          = QString::fromLatin1(mode) == "pixels";
+    bool rejected               = false;
+    try {
+      publicCompute(*effect, tile);
+    } catch (const TException& error) {
+      rejected =
+          QString::fromStdWString(error.getMessage()).contains(expectedError);
+    }
+    require(rejected != success,
+            "External effect accepted an invalid output or rejected pixels");
+    require(tile.getRaster()->getRawData() == destination->getRawData() &&
+                tile.getRaster()->getSize() == destination->getSize() &&
+                tile.m_pos == TPointD(11, -7),
+            "External output replaced destination storage or tile coordinates");
+    checkRenderedPixels(parent, success);
+  }
+}
+
 int worker(const QStringList& arguments) {
+  if (arguments[1] == "--render-fixture") return renderWorker(arguments);
   if (arguments[1] == "--fail-fixture") return 7;
   if (arguments[1] == "--missing-fixture") return 0;
   if (arguments.size() == 3 && arguments[1] == "--corrupt-fixture") {
@@ -119,9 +237,8 @@ int main(int argc, char** argv) {
     const QStringList arguments = app.arguments();
     if (arguments.size() > 1) return worker(arguments);
     initImageIo();
-#ifdef _WIN32
+    TRenderer::initialize();
     const QString executable = QCoreApplication::applicationFilePath();
-#endif
     QTemporaryDir directory;
     require(directory.isValid(), "Cannot create external-effect fixture");
 #ifndef _WIN32
@@ -145,6 +262,7 @@ int main(int argc, char** argv) {
     expectFailure(TFilePath("/bin/sh"), "-c 'printf invalid > $out'",
                   "output image");
 #endif
+    publicRendering(executable);
     std::cout << "External effect process and output validation: PASS\n";
     return 0;
   } catch (const TException& error) {

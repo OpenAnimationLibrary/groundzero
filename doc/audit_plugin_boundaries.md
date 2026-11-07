@@ -30,30 +30,41 @@ not a claim that every extension or external application is safe.
 `externfx_process` exercises quoted arguments, successful PNG decoding, nonzero
 exits, missing output, and malformed output. Its Windows cases additionally
 cover expansion beyond 1,024 bytes, a missing executable, an oversized command,
-and handle counts across repeated launches. It does not claim that the decoded
-pixels are applied to the render tile.
+and handle counts across repeated launches. The added public-render cases connect
+a real raster source and apply an asymmetric PNG output to an extracted tile.
+They check exact colors, premultiplied alpha, orientation, destination storage,
+tile position and untouched surrounding pixels. Smaller, larger and grayscale
+outputs must report an error without copying output pixels into the destination.
 
 `plugin_probe_single` and `plugin_probe_empty` use a real native module through
 the public loader. They check both the recorded load result and whether the
 effect is available for creation. The fixture module is built beneath a private
 test directory and has no installation rule.
 
-Builds, baseline-failure checks, and runtime tests remain pending in CI, following
-the repository's prohibition on local builds and tests. Static formatting and
-whitespace checks are the local validation performed.
+The process and loader tests passed [macOS CI at `c20884ffb`](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336).
+The new F29 pixel publication cases and their baseline-failure checks remain pending in CI,
+following the repository's prohibition on local builds and tests. Static
+formatting and whitespace checks are the local validation performed.
 
-## Unresolved external-effect behavior
+## Prepared output repair and remaining external-effect limits
 
-**Decoded output is not applied to the render tile.**
-`TExternalProgramFx::doCompute` passes a local `TRasterP` to
-`TImageReader::load`. The implementation in
-`toonz/sources/common/timage_io/timage_io.cpp` replaces that local pointer with
-the decoded raster; it does not update the original tile's raster. The present
-patch checks the decode result but deliberately leaves assignment unchanged.
-Applying the output needs a separate rendering change, including the policy for
-output dimensions and pixel types. It would change scenes whose external
-effects currently leave their input pixels unchanged, so old-scene rendering
-must be compared before acceptance.
+**F29: 32-bit decoded output now updates the existing render tile.**
+`TImageReader::load` replaces its raster argument, so loading into a local pointer
+previously discarded the output pixels. The effect now checks that the decoded
+raster is 32-bit RGBA and exactly matches the requested tile dimensions, then
+copies it into the existing destination. This preserves the parent raster's
+storage when the renderer passes an extracted tile. It does not resize, crop,
+shift or replace the tile. Other decoded pixel types and mismatched dimensions
+produce explicit errors after temporary-file cleanup.
+
+This changes scenes whose external effects previously retained input pixels
+instead of the program's output. Existing external-effect scenes still need
+before/after render comparison. Unsupported output dimensions or grayscale
+images now fail instead of silently discarding valid decoded images. The
+existing early return for 64-bit and floating-point destination tiles remains
+unresolved; this change does not add support for those rendering modes.
+F29 retains R08 as a stable alias in the [open finding ledger](audit_findings.json);
+the earlier process-test pass does not validate these new pixel assertions.
 
 **Configuration trust needs a separate decision.** Scene deserialization accepts
 an external effect's executable path, argument string, and configuration name.
