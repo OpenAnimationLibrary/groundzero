@@ -1,17 +1,10 @@
 name: Preserve OT-Dev Edition
 
 on:
-  push:
-    branches:
-      - maintenance/upstream-first-transition
-    paths:
-      - .github/workflows/otdev_preservation.yml
-      - .github/ot-dev/prepare_preservation.py
-      - .github/ot-dev/preservation-2026-10-18.json
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 concurrency:
   group: otdev-preservation-2026-10-18
@@ -20,6 +13,9 @@ concurrency:
 jobs:
   Preserve:
     if: github.repository == 'OpenAnimationLibrary/opentoonz-dev'
+    permissions:
+      contents: write # Publish the verified preservation release.
+      actions: read # Retrieve the recorded Windows build artifact.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -27,8 +23,9 @@ jobs:
       GH_REPO: OpenAnimationLibrary/opentoonz-dev
       PRESERVATION_TAG: otdev-preserved-2026-10-18
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           lfs: false
 

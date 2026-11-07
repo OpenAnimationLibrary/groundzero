@@ -1,0 +1,10 @@
+{
+  "name": "groundzero-style-toolchain",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "less": "4.9.1",
+    "tiddlywiki": "5.4.1"
+  }
+}

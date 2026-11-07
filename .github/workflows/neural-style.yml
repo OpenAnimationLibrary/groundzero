@@ -1,11 +1,11 @@
 name: Neural style evaluation
 
 on:
-  pull_request:
+  # Native hosts remain PR gates. The additional runtime/architecture matrix
+  # qualifies the integration branch nightly and can be dispatched for a PR.
+  schedule:
+    - cron: '43 3 * * *'
   workflow_dispatch:
-  push:
-    branches:
-      - 'ci/reference-style-*'
 
 permissions:
   contents: read
@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
+          lfs: false
       - name: Install existing application math dependencies
         run: |
           sudo apt-get update -o Acquire::Retries=3
@@ -55,11 +55,11 @@ jobs:
           - label: LiteRT macOS ARM64
             runner: macos-15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
-      - uses: actions/setup-python@v6
+          lfs: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Check bounded publisher transfers
@@ -70,14 +70,14 @@ jobs:
         run: python ci-scripts/neural-style/evaluate.py
       - name: Retain measurements and license notices
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: neural-style-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
           path: neural-evaluation/report
           if-no-files-found: warn
       - name: Retain same-revision numerical reference
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: neural-style-golden-${{ github.sha }}
           path: neural-evaluation/report/golden.npz
@@ -89,14 +89,14 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
-      - uses: actions/setup-python@v6
+          lfs: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: neural-style-golden-${{ github.sha }}
           path: neural-golden
@@ -106,7 +106,7 @@ jobs:
         run: python ci-scripts/neural-style/evaluate.py --native-macos neural-golden/golden.npz
       - name: Retain Intel measurements and notices
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: neural-style-macOS-Intel-${{ github.sha }}
           path: neural-evaluation/report

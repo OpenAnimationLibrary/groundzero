@@ -2,8 +2,8 @@ name: Linux Tests
 
 # Builds with BUILD_TESTS=ON, runs every registered test with ctest, and builds
 # the Qt 6 port next to it. It never runs on pull requests, so pull requests
-# keep the single Linux Build check: it runs on pushes to the tier12 and
-# ci-tests/* branches, or by hand. Failures are reported as annotations of the
+# keep the Linux build and installed-package checks. It runs nightly or
+# by hand. Failures are reported as annotations of the
 # run (the log host is not reachable from every environment).
 #
 # Missing or differing FX references fail. Candidate images are uploaded for
@@ -12,11 +12,9 @@ name: Linux Tests
 # The Compat job builds the compat_regression tool from edition and from this
 # branch and fails if their outputs differ (doc/compat_regression.md).
 on:
+  schedule:
+    - cron: '3 3 * * *'
   workflow_dispatch:
-  push:
-    branches:
-      - tier12
-      - 'ci-tests/**'
 
 permissions:
   contents: read
@@ -36,7 +34,9 @@ jobs:
       LIBGL_ALWAYS_SOFTWARE: 1
       DEBIAN_FRONTEND: noninteractive
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Install libraries
       run: |
@@ -53,7 +53,7 @@ jobs:
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
 
-    - uses: actions/cache@v5
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-tests-${{ github.sha }}
@@ -65,7 +65,7 @@ jobs:
       run: |
         cd thirdparty/tiff-4.0.3
         CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
-        make -j $(nproc)
+        make -j "$(nproc)"
 
     - name: Build
       id: build
@@ -89,7 +89,7 @@ jobs:
         grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
           file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
           msg=${line#*error: }
-          file=${file#$prefix}; file=${file#../sources/}
+          file=${file#"$prefix"}; file=${file#../sources/}
           case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
           echo "::error file=${file},line=${lineno}::${msg}"
         done
@@ -136,7 +136,7 @@ jobs:
 
     - name: Upload test diagnostics and candidate FX images
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: regression-diagnostics
         path: |
@@ -164,12 +164,14 @@ jobs:
       LIBGL_ALWAYS_SOFTWARE: 1
       DEBIAN_FRONTEND: noninteractive
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        persist-credentials: false
         path: new
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        persist-credentials: false
         ref: edition
         path: base
 
@@ -190,14 +192,14 @@ jobs:
     - name: Set up caches
       run: mkdir -p /home/runner/.ccache-base /home/runner/.ccache-new
 
-    - uses: actions/cache@v5
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache-base
         key: ${{ runner.os }}-compat-base-${{ github.sha }}
         restore-keys: |
           ${{ runner.os }}-compat-base-
 
-    - uses: actions/cache@v5
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache-new
         key: ${{ runner.os }}-compat-new-${{ github.sha }}
@@ -223,7 +225,7 @@ jobs:
     - name: Build libtiff
       run: |
         for tree in base new; do
-          (cd "$tree/thirdparty/tiff-4.0.3" && CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig && make -j $(nproc))
+          (cd "$tree/thirdparty/tiff-4.0.3" && CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig && make -j "$(nproc)")
         done
 
     - name: Build
@@ -402,15 +404,21 @@ jobs:
 
     - name: Report the comparison
       if: ${{ !cancelled() && steps.compare.outcome != 'skipped' }}
+      env:
+        COMPAT_DIFFERENT: ${{ steps.compare.outputs.different }}
+        COMPAT_COMPARED: ${{ steps.compare.outputs.compared }}
+        COMPAT_PNGS: ${{ steps.compare.outputs.pngs }}
+        COMPAT_IDENTICAL: ${{ steps.compare.outputs.identical }}
+        COMPAT_FAILED: ${{ steps.run.outputs.failed }}
       run: |
-        different='${{ steps.compare.outputs.different }}'
-        echo "::notice title=Compat::${{ steps.compare.outputs.compared }} files compared (${{ steps.compare.outputs.pngs }} PNG), ${{ steps.compare.outputs.identical }} identical, ${different:-?} different"
+        different="$COMPAT_DIFFERENT"
+        echo "::notice title=Compat::${COMPAT_COMPARED} files compared (${COMPAT_PNGS} PNG), ${COMPAT_IDENTICAL} identical, ${different:-?} different"
         if [ -s differing.txt ]; then
           echo "::error title=Compat: ${different} differing files::$(sed -e 's/%/%25/g' differing.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
         fi
-        [ "$different" = 0 ] && [ '${{ steps.run.outputs.failed }}' = 0 ] || exit 1
+        [ "$different" = 0 ] && [ "$COMPAT_FAILED" = 0 ] || exit 1
 
-    - uses: actions/upload-artifact@v6
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: failure()
       with:
         name: compat-outputs
@@ -429,13 +437,15 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
     # The downloaded packages, so that a run after a successful one does not
     # depend on the mirror
     # (restore and save as separate steps: this job fails until the port is
     # done, and a failed job does not save its caches)
-    - uses: actions/cache/restore@v5
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/apt-archives
         key: ${{ runner.os }}-qt6-apt-${{ github.run_id }}
@@ -472,7 +482,7 @@ jobs:
         fi
         sudo chown -R "$(id -u)" /home/runner/apt-archives
 
-    - uses: actions/cache/save@v5
+    - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/apt-archives
         key: ${{ runner.os }}-qt6-apt-${{ github.run_id }}
@@ -480,7 +490,7 @@ jobs:
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
 
-    - uses: actions/cache@v5
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-qt6-${{ github.sha }}
@@ -491,7 +501,7 @@ jobs:
       run: |
         cd thirdparty/tiff-4.0.3
         CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
-        make -j $(nproc)
+        make -j "$(nproc)"
 
     # With the tests, which run below: the first step of running the
     # application with Qt 6 (master plan D1, roadmap F1)
@@ -525,7 +535,7 @@ jobs:
         grep -E ': (fatal )?error:' errors.txt | awk -F'error: ' '!seen[$2]++' | head -45 | while IFS= read -r line; do
           file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
           msg=${line#*error: }
-          file=${file#$prefix}; file=${file#../sources/}
+          file=${file#"$prefix"}; file=${file#../sources/}
           case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
           echo "::error file=${file},line=${lineno}::${msg}"
         done
