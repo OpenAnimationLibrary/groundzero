@@ -20,10 +20,15 @@ def main():
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
         mesa = os.environ.get("NATIVE_UI_MESA_RUNTIME") or os.environ.get("SEEXPR_TEST_MESA")
+        # The expanded Cocoa UI suite includes collection, conversion and editor
+        # dialogs as well as painting. A complete macOS run already took 162s;
+        # the original 180s watchdog cut off a later run still making progress.
+        # This is an aggregate liveness limit, not an engine performance budget.
+        timeout_seconds = 300 if sys.platform == "darwin" else 180
         with isolated_fixture(source, executable, Path(mesa) if mesa and os.name == "nt" else None) as (directory, environment):
             result = subprocess.run([str(executable), "--test-raster-brush"], cwd=directory,
                                     env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    timeout=180, encoding="utf-8", errors="replace")
+                                    timeout=timeout_seconds, encoding="utf-8", errors="replace")
             output, status = result.stdout, result.returncode
             if status == 0 and "raster-brush-integration: PASS" not in output:
                 output += "\nApplication exited without completing the brush workload.\n"

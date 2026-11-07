@@ -2,6 +2,41 @@
 
 ## Current stabilization evidence
 
+At `db4f07f80`, all six parser configurations and import fuzzing passed in
+[run 42316235420](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316235420).
+Native metrics and source-contract checks passed in
+[run 42316235354](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316235354).
+Full Tests, Compat and Qt6 passed in
+[run 42316255793](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316255793).
+The Qt6 log confirms 164/164 tests, including `rasterbrushpreset` and
+`rasterbrush_application`; this provides integrated runtime evidence for the
+child-only numerical-thread limits. Linux build-tree and installed brush
+lifecycles passed in
+[run 42316235434](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316235434).
+
+Windows did not reach compilation in
+[run 42316235442](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316235442):
+the Chocolatey FFmpeg feed returned HTTP 504, then exit zero with no package
+installed. The retry loop treated that exit code as success. The reviewed
+correction requires both FFmpeg tools before ending retries; execution evidence
+for the correction is pending. The earlier Windows workflow-switch crash also
+remains unresolved, since this run did not reach application integration.
+
+The macOS brush application step failed in
+[run 42316235439](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42316235439).
+The completed log reports the harness's 180-second aggregate timeout, with
+assertions still progressing through source painting, cancellation and canvas
+lifecycle cases. The preceding macOS pass at `8bbfb39cf` took 161.66 seconds.
+The original harness limit predates substantial suite expansion. The macOS-only
+aggregate watchdog is now 300 seconds, with a 360-second outer CTest limit;
+other platforms retain 180/240 seconds. Installed-package tests inherit the same
+runner. This correction requires a completed macOS run; no renderer defect is
+established by the timeout and no product performance threshold is changed. Neither macOS nor
+Windows installed qualification is established. These results qualify only their named revision;
+the final resulting commit still requires the plan's validation gates.
+
+Earlier checkpoints below are retained as history.
+
 At `8bbfb39cf`, the full Tests and Compat jobs passed; Qt6 compiled and
 passed 162 of 164 tests. The prior executor/renderer crashes no longer occurred.
 The remaining Qt6 preset/application failures report a worker with four threads
