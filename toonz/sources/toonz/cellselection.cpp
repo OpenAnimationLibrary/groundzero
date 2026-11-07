@@ -2122,11 +2122,11 @@ void TCellSelection::pasteCells() {
     }
   }
   // Raster Time
-  // See if an image was copied from outside OpenToonz
-  QImage clipImage = clipboard->image();
-  // See if the clipboard contains rasterData
   const RasterImageData *rasterImageData =
       dynamic_cast<const RasterImageData *>(mimeData);
+  // Native selections carry an image preview for other applications. Only
+  // treat that image as external data when there is no native raster payload.
+  QImage clipImage = rasterImageData ? QImage() : clipboard->image();
   // StrokesData also carries an image for other applications. Do not paste
   // that preview as a second raster drawing after pasting the vector strokes.
   if (!strokesData && (rasterImageData || clipImage.height() > 0)) {
@@ -2159,13 +2159,13 @@ void TCellSelection::pasteCells() {
       return;
     }
     // Convert non-plain raster data to strokes data
-    undoBlock.open();
     if (vi && clipImage.isNull()) {
       // Vector stuff
       TXshSimpleLevel *sl = xsh->getCell(r0, c0).getSimpleLevel();
       if (!sl) sl = xsh->getCell(r0 - 1, c0).getSimpleLevel();
       assert(sl);
       StrokesData *strokesData = rasterImageData->toStrokesData(sl->getScene());
+      undoBlock.open();
       pasteStrokesInCell(r0, c0, strokesData);
       // end strokes stuff
     } else {
@@ -2245,6 +2245,7 @@ void TCellSelection::pasteCells() {
         // rasterImageData holds all the info either way now.
       }
 
+      undoBlock.open();
       if (sl &&
           (sl->getType() == OVL_XSHLEVEL || sl->getType() == TZP_XSHLEVEL)) {
         // make selection always work on new raster cells
