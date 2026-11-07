@@ -410,8 +410,8 @@ void RasterFxPluginHost::notify() {
 }
 
 RasterFxPluginHost::~RasterFxPluginHost() {
-  if (pi_ && pi_->handler_->destroy) {
-    pi_->handler_->destroy(this);
+  if (pi_) {
+    if (pi_->handler_ && pi_->handler_->destroy) pi_->handler_->destroy(this);
     pi_->release();
   }
   inputs_.clear();

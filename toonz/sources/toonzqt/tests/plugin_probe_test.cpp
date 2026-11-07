@@ -5,6 +5,7 @@
 #include "tspectrumparam.h"
 #include "toonzqt/pluginloader.h"
 #include "toonzqt/pluginmanager.h"
+#include "pluginhost.h"
 
 #include <QApplication>
 #include <QDir>
@@ -38,6 +39,37 @@ void checkReplacedParameters(TFx& effect) {
           "Plugin spectrum colors did not survive setup storage destruction");
 }
 }  // namespace
+
+class PluginHostLifetimeTest {
+public:
+  static void check(const PluginDeclaration& declaration) {
+    PluginInformation* information = declaration.pi_;
+    require(
+        information && information->handler_ && information->handler_->destroy,
+        "Plugin lifetime fixture lacks its original destroy callback");
+    using DestroyCallback = decltype(information->handler_->destroy);
+    struct RestoreCallback {
+      PluginInformation* information;
+      DestroyCallback callback;
+      ~RestoreCallback() { information->handler_->destroy = callback; }
+    } restore{information, information->handler_->destroy};
+    const int references = information->ref_count_;
+    for (bool enabled : {true, false}) {
+      information->handler_->destroy = enabled ? restore.callback : nullptr;
+      for (int cycle = 0; cycle < 8; ++cycle) {
+        {
+          std::unique_ptr<TFx> effect(
+              PluginLoader::create_host("_plg_fixture_single_probe"));
+          require(effect && information->ref_count_ == references + 1,
+                  "Plugin host did not retain its metadata exactly once");
+          checkReplacedParameters(*effect);
+        }
+        require(information->ref_count_ == references,
+                "Plugin host destruction retained a metadata reference");
+      }
+    }
+  }
+};
 
 int main(int argc, char** argv) {
   QApplication app(argc, argv);
@@ -74,6 +106,10 @@ int main(int argc, char** argv) {
       require(loaded.loaded && loaded.error.isEmpty() && effect,
               "A function probe containing one effect was rejected");
       checkReplacedParameters(*effect);
+      const auto* declaration =
+          static_cast<const PluginDeclaration*>(effect->getDeclaration());
+      effect.reset();
+      PluginHostLifetimeTest::check(*declaration);
     } else {
       require(!loaded.loaded && !loaded.error.isEmpty() && !effect,
               "An empty function probe was accepted");

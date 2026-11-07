@@ -51,6 +51,7 @@ struct PluginDeclaration final : public TFxDeclaration {
   TPersist *create() const final override;
 
 private:
+  friend class PluginHostLifetimeTest;
   PluginInformation *pi_;
 };
 
