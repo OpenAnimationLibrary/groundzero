@@ -2078,10 +2078,10 @@ void TCellSelection::pasteCells() {
         img = cell.getImage(false);
     }
     undoBlock.open();
-    RasterImageData *rasterImageData = 0;
+    std::unique_ptr<RasterImageData> rasterImageData;
     if (TToonzImageP ti = img) {
-      rasterImageData = strokesData->toToonzImageData(ti);
-      pasteRasterImageInCell(r0, c0, rasterImageData);
+      rasterImageData.reset(strokesData->toToonzImageData(ti));
+      pasteRasterImageInCell(r0, c0, rasterImageData.get());
     } else if (TRasterImageP ri = img) {
       double dpix, dpiy;
       ri->getDpi(dpix, dpiy);
@@ -2091,8 +2091,8 @@ void TCellSelection::pasteCells() {
         dpiy        = dpi.y;
         ri->setDpi(dpix, dpiy);
       }
-      rasterImageData = strokesData->toFullColorImageData(ri);
-      pasteRasterImageInCell(r0, c0, rasterImageData);
+      rasterImageData.reset(strokesData->toFullColorImageData(ri));
+      pasteRasterImageInCell(r0, c0, rasterImageData.get());
     } else {
       // === VECTOR STROKES PASTE ===
       std::vector<int> indices;
@@ -2164,15 +2164,17 @@ void TCellSelection::pasteCells() {
       TXshSimpleLevel *sl = xsh->getCell(r0, c0).getSimpleLevel();
       if (!sl) sl = xsh->getCell(r0 - 1, c0).getSimpleLevel();
       assert(sl);
-      StrokesData *strokesData = rasterImageData->toStrokesData(sl->getScene());
+      std::unique_ptr<StrokesData> strokesData(
+          rasterImageData->toStrokesData(sl->getScene()));
       undoBlock.open();
-      pasteStrokesInCell(r0, c0, strokesData);
+      pasteStrokesInCell(r0, c0, strokesData.get());
       // end strokes stuff
     } else {
       TXshSimpleLevel *sl = xsh->getCell(r0, c0).getSimpleLevel();
       if (!sl && r0 > 0) sl = xsh->getCell(r0 - 1, c0).getSimpleLevel();
       bool newLevel = false;
       TRasterImageP ri(img);
+      std::unique_ptr<FullColorImageData> externalImageData;
 
       if (clipImage.height() > 0) {
         // This stuff is only if we have a pasted image from outside OpenToonz
@@ -2226,8 +2228,8 @@ void TCellSelection::pasteCells() {
         rects.push_back(TRectD(0.0 - clipImage.width() / 2,
                                0.0 - clipImage.height() / 2,
                                clipImage.width() / 2, clipImage.height() / 2));
-        FullColorImageData *qimageData = new FullColorImageData();
-        TPalette *p;
+        externalImageData.reset(new FullColorImageData());
+        TPaletteP p;
         if (!ri || !ri->getPalette() || newLevel)
           p = new TPalette();
         else
@@ -2238,9 +2240,9 @@ void TCellSelection::pasteCells() {
         } else {
           dim = TDimension(clipImage.width(), clipImage.height());
         }
-        qimageData->setData(ras, p, 120.0, 120.0, dim, rects, strokes,
-                            originalStrokes, aff);
-        rasterImageData = qimageData;
+        externalImageData->setData(ras, p, 120.0, 120.0, dim, rects, strokes,
+                                   originalStrokes, aff);
+        rasterImageData = externalImageData.get();
         // end of pasted from outside OpenToonz stuff
         // rasterImageData holds all the info either way now.
       }

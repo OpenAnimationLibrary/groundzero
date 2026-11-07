@@ -135,14 +135,13 @@ void ToonzImageData::getData(TRasterP &copiedRaster, double &dpiX, double &dpiY,
   transformation     = m_transformation;
   TRasterCM32P cmRas = copiedRaster;
 
-  // Manage temporary palette to avoid leak on early return
-  std::unique_ptr<TPalette> tempPalette;
+  TPaletteP tempPalette;
   if (!targetPalette) {
-    tempPalette.reset(new TPalette());
-    targetPalette = tempPalette.get();
+    tempPalette   = new TPalette();
+    targetPalette = tempPalette.getPointer();
   }
 
-  if (!cmRas) return;  // tempPalette cleans up automatically
+  if (!cmRas) return;
 
   std::set<int> usedStyles(m_usedStyles);
   TToonzImageP ti(cmRas, cmRas->getBounds());
@@ -152,8 +151,6 @@ void ToonzImageData::getData(TRasterP &copiedRaster, double &dpiX, double &dpiY,
   mergePalette(targetPalette, indexTable, m_palette, usedStyles);
   ToonzImageUtils::scrambleStyles(ti, indexTable);
   ti->setPalette(m_palette.getPointer());
-
-  if (tempPalette) tempPalette.release();  // ownership transferred to caller
 }
 
 //-------------------------------------------------------------------
@@ -279,10 +276,10 @@ void FullColorImageData::getData(TRasterP &copiedRaster, double &dpiX,
   if (!ras) return;
   if (!m_palette) return;
 
-  std::unique_ptr<TPalette> tempPalette;
+  TPaletteP tempPalette;
   if (!targetPalette) {
-    tempPalette.reset(new TPalette());
-    targetPalette = tempPalette.get();
+    tempPalette   = new TPalette();
+    targetPalette = tempPalette.getPointer();
   }
 
   std::set<int> usedStyles;
@@ -296,8 +293,6 @@ void FullColorImageData::getData(TRasterP &copiedRaster, double &dpiX,
   std::map<int, int> indexTable;
   mergePalette(targetPalette, indexTable, m_palette, usedStyles);
   ri->setPalette(m_palette.getPointer());
-
-  if (tempPalette) tempPalette.release();  // ownership transferred to caller
 }
 
 //-------------------------------------------------------------------

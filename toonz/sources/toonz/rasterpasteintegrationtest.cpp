@@ -5,10 +5,14 @@
 #include "nativeuiintegrationtest.h"
 #include "tapp.h"
 #include "tcolorstyles.h"
+#include "timagecache.h"
 #include "tpalette.h"
+#include "tsimplecolorstyles.h"
 #include "trasterimage.h"
 #include "ttoonzimage.h"
 #include "tundo.h"
+#include "tools/rasterselection.h"
+#include "tools/tool.h"
 #include "tools/toolhandle.h"
 #include "toonz/levelset.h"
 #include "toonz/preferences.h"
@@ -25,9 +29,11 @@
 #include "toonzqt/dvmimedata.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/rasterimagedata.h"
+#include "toonzqt/strokesdata.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QByteArray>
 #include <QClipboard>
 #include <QDialog>
 #include <QImage>
@@ -37,6 +43,8 @@
 
 #include <iostream>
 #include <memory>
+#include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -123,7 +131,8 @@ TRasterP makeRaster(int levelType, bool painted) {
   return raster;
 }
 
-void setNativeClipboard(int levelType, const TPaletteP& palette) {
+std::unique_ptr<RasterImageData> rasterPayload(int levelType,
+                                               const TPaletteP& palette) {
   std::unique_ptr<RasterImageData> data;
   if (levelType == TZP_XSHLEVEL)
     data.reset(new ToonzImageData);
@@ -134,6 +143,11 @@ void setNativeClipboard(int levelType, const TPaletteP& palette) {
                 {TRectD(-canvasSize / 2, -canvasSize / 2, canvasSize / 2,
                         canvasSize / 2)},
                 {}, {}, TAffine());
+  return data;
+}
+
+void setNativeClipboard(int levelType, const TPaletteP& palette) {
+  auto data = rasterPayload(levelType, palette);
   QImage preview(canvasSize, canvasSize, QImage::Format_ARGB32);
   preview.fill(Qt::red);
   data->setImageData(preview);
@@ -151,7 +165,9 @@ TXshSimpleLevel* makeLevel(int levelType, const TPaletteP& palette) {
                     ->getSimpleLevel();
   level->setPalette(palette.getPointer());
   TImageP image;
-  if (levelType == TZP_XSHLEVEL) {
+  if (levelType == PLI_XSHLEVEL) {
+    image = TVectorImageP(new TVectorImage);
+  } else if (levelType == TZP_XSHLEVEL) {
     TRasterCM32P raster = makeRaster(levelType, false);
     TToonzImageP drawing(raster, raster->getBounds());
     drawing->setDpi(dpi, dpi);
@@ -244,7 +260,7 @@ bool cancelExternalDialog(QDialog* dialog) {
 
 // The real Paste action is synchronous. This scoped timer handles only dialogs
 // opened by that call, and closes unexpected dialogs before reporting failure.
-void pasteCell(int row, int col, bool external) {
+void pasteCell(int row, int col, bool external, bool floating = false) {
   auto* app   = TApp::instance();
   auto* sheet = app->getCurrentXsheet()->getXsheet();
   app->getCurrentFrame()->setFrame(row);
@@ -252,14 +268,22 @@ void pasteCell(int row, int col, bool external) {
   app->getCurrentColumn()->setColumn(sheet->getColumn(col));
   app->getCurrentLevel()->setLevel(
       sheet->getCell(row, col).m_level.getPointer());
-  app->getCurrentTool()->setTool("T_Brush");
+  app->getCurrentTool()->setTool(floating ? "T_Selection" : "T_Brush");
   TCellSelection selection;
   struct ReleaseSelection {
-    TCellSelection& selection;
-    ~ReleaseSelection() { selection.makeNotCurrent(); }
-  } release{selection};
+    TSelection* selection;
+    ~ReleaseSelection() { selection->makeNotCurrent(); }
+  } release{&selection};
   selection.selectCell(row, col);
   selection.makeCurrent();
+  RasterSelection* rasterSelection = nullptr;
+  if (floating) {
+    rasterSelection = dynamic_cast<RasterSelection*>(
+        app->getCurrentTool()->getTool()->getSelection());
+    require(rasterSelection, "Raster Selection tool is unavailable");
+    rasterSelection->makeCurrent();
+    release.selection = rasterSelection;
+  }
   auto* action = CommandManager::instance()->getAction(MI_Paste);
   require(action && action->isEnabled(), "Xsheet Paste action is unavailable");
   int visited   = 0;
@@ -280,6 +304,210 @@ void pasteCell(int row, int col, bool external) {
   dialogs.stop();
   require(external ? visited == 1 && canceled : visited == 0,
           "native raster opened a dialog or external image lost its chooser");
+  if (floating) {
+    require(rasterSelection->isFloating(),
+            "Selection paste did not create a floating selection");
+    rasterSelection->selectNone();
+  }
+}
+
+TPaletteP setStrokeClipboard() {
+  TPaletteP palette   = makePalette();
+  TVectorImageP image = new TVectorImage;
+  image->setPalette(palette.getPointer());
+  auto* stroke =
+      new TStroke(std::vector<TThickPoint>{{-3, -2, 1}, {0, 2, 1}, {3, -1, 1}});
+  stroke->setStyle(1);
+  image->addStroke(stroke);
+  QApplication::clipboard()->setMimeData(new StrokesData(image.getPointer()));
+  return palette;
+}
+
+int paintedPixels(const TImageP& image) {
+  TToonzImageP indexed       = image;
+  TRasterImageP fullColor    = image;
+  TRasterCM32P indexedRaster = indexed ? indexed->getRaster() : TRasterCM32P();
+  TRaster32P colorRaster     = fullColor ? fullColor->getRaster() : TRasterP();
+  require(indexedRaster || colorRaster, "Converted paste has no raster");
+  TRasterP raster =
+      indexedRaster ? TRasterP(indexedRaster) : TRasterP(colorRaster);
+  require(raster->getSize() == TDimension(canvasSize, canvasSize),
+          "Converted paste changed the destination dimensions");
+  int painted = 0;
+  for (int y = 0; y < canvasSize; ++y)
+    for (int x = 0; x < canvasSize; ++x)
+      if (indexedRaster ? indexedRaster->pixels(y)[x] != TPixelCM32()
+                        : colorRaster->pixels(y)[x].m != 0)
+        ++painted;
+  return painted;
+}
+
+QByteArray rasterBytes(const TImageP& image) {
+  TToonzImageP indexed    = image;
+  TRasterImageP fullColor = image;
+  require(indexed || fullColor, "Converted raster redo lost its image");
+  TRasterP raster =
+      indexed ? TRasterP(indexed->getRaster()) : fullColor->getRaster();
+  raster->lock();
+  struct UnlockRaster {
+    TRasterP raster;
+    ~UnlockRaster() { raster->unlock(); }
+  } unlock{raster};
+  QByteArray bytes;
+  for (int row = 0; row < raster->getLy(); ++row)
+    bytes.append(reinterpret_cast<const char*>(raster->getRawData() +
+                                               row * raster->getWrap() *
+                                                   raster->getPixelSize()),
+                 raster->getLx() * raster->getPixelSize());
+  return bytes;
+}
+
+void undoConvertedRaster(const TXshCell& cell) {
+  auto* undo        = TUndoManager::manager();
+  const int painted = paintedPixels(cell.getImage(false));
+  require(painted > 0, "Converted raster paste produced no pixels");
+  const QByteArray expected = rasterBytes(cell.getImage(false));
+  const int entries         = undo->getCurrentHistoryIndex();
+  require(entries > 0, "Converted raster paste produced no undo history");
+  while (undo->getCurrentHistoryIndex() > 0)
+    require(undo->undo(), "Converted raster paste could not be undone");
+  checkPixels(cell, cell.getSimpleLevel()->getType(), false);
+  while (undo->getCurrentHistoryIndex() < entries)
+    require(undo->redo(), "Converted raster paste could not be redone");
+  require(rasterBytes(cell.getImage(false)) == expected,
+          "Converted raster redo changed pixels or palette indices");
+  while (undo->getCurrentHistoryIndex() > 0)
+    require(undo->undo(), "Converted raster cleanup could not undo");
+  checkPixels(cell, cell.getSimpleLevel()->getType(), false);
+  undo->reset();
+}
+
+std::set<std::string> oldFloatingCacheKeys() {
+  std::ostringstream inventory;
+  TImageCache::instance()->dump(inventory);
+  std::istringstream lines(inventory.str());
+  std::set<std::string> result;
+  std::string key;
+  while (std::getline(lines, key))
+    if (key.find("UndoPasteFloatingSelection_oldFloating_") == 0)
+      result.insert(key);
+  return result;
+}
+
+void checkStrokeConversionOwnership(int levelType, bool floating) {
+  resetScene();
+  auto* level = makeLevel(levelType, makePalette());
+  const TXshCell cell(level, TFrameId(1));
+  const TPaletteP sourcePalette = setStrokeClipboard();
+  const int references          = sourcePalette->getRefCount();
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    const auto before = oldFloatingCacheKeys();
+    pasteCell(0, 0, false, floating);
+    auto retained = oldFloatingCacheKeys();
+    for (const auto& key : before) retained.erase(key);
+    require(retained.size() == (floating ? 1u : 0u),
+            "Floating paste did not expose its owned undo image");
+    undoConvertedRaster(cell);
+    for (const auto& key : retained)
+      require(!TImageCache::instance()->isCached(key),
+              "Cleared floating paste history retained its original image");
+    require(oldFloatingCacheKeys() == before,
+            "Floating paste history cleanup changed unrelated undo images");
+    require(sourcePalette->getRefCount() == references,
+            "Cleared vector paste retained a converted raster payload");
+  }
+}
+
+void checkRasterToVectorCycles() {
+  resetScene();
+  auto* level = makeLevel(PLI_XSHLEVEL, makePalette());
+  const TXshCell cell(level, TFrameId(1));
+  auto* undo = TUndoManager::manager();
+  setNativeClipboard(TZP_XSHLEVEL, level->getPalette());
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    pasteCell(0, 0, false);
+    TVectorImageP image = cell.getImage(false);
+    require(image && image->getStrokeCount() > 0,
+            "Indexed paste did not convert to vector strokes");
+    const int strokes = image->getStrokeCount();
+    require(undo->undo() && image->getStrokeCount() == 0,
+            "Indexed-to-vector paste did not undo");
+    require(undo->redo() && image->getStrokeCount() == strokes,
+            "Indexed-to-vector paste did not redo");
+    require(undo->undo(), "Indexed-to-vector cleanup did not undo");
+    undo->reset();
+  }
+}
+
+void checkExternalRasterCycles() {
+  resetScene();
+  auto* level = makeLevel(OVL_XSHLEVEL, makePalette());
+  QImage image(canvasSize, canvasSize, QImage::Format_ARGB32);
+  image.fill(Qt::red);
+  QApplication::clipboard()->setImage(image);
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    pasteCell(0, 0, false);
+    undoConvertedRaster(TXshCell(level, TFrameId(1)));
+  }
+}
+
+void checkNullTargetPaletteCopies(int levelType) {
+  auto data = rasterPayload(levelType, makePalette());
+  for (int cycle = 0; cycle < 8; ++cycle) {
+    TRasterP raster;
+    double dpiX = 0, dpiY = 0;
+    std::vector<TRectD> rectangles;
+    std::vector<TStroke> strokes, original;
+    TAffine affine;
+    data->getData(raster, dpiX, dpiY, rectangles, strokes, original, affine,
+                  nullptr);
+    require(raster && raster->getSize() == TDimension(canvasSize, canvasSize) &&
+                dpiX == dpi && dpiY == dpi && rectangles.size() == 1,
+            "Palette-free raster copy lost its pixels or geometry");
+    if (levelType == OVL_XSHLEVEL) {
+      TRaster32P pixels = raster;
+      require(pixels && pixels->pixels(0)[0] == pixelAt(0, 0) &&
+                  pixels->pixels(0)[1] == pixelAt(1, 0),
+              "Palette-free fullcolor copy changed source pixels");
+    } else {
+      TRasterCM32P pixels = raster;
+      require(pixels && pixels->pixels(0)[0].getTone() == 0 &&
+                  pixels->pixels(0)[0].getInk() != 0,
+              "Palette-free indexed copy changed source coverage");
+    }
+  }
+}
+
+class ThrowingCloneStyle final : public TSolidColorStyle {
+public:
+  ThrowingCloneStyle() : TSolidColorStyle(TPixel32::Blue) {}
+  TColorStyle* clone() const override {
+    throw std::runtime_error("Fixture palette clone failure");
+  }
+};
+
+void checkNullPaletteFailure(int levelType) {
+  TPaletteP source = makePalette();
+  source->setStyle(1, new ThrowingCloneStyle);
+  auto data            = rasterPayload(levelType, source);
+  const int references = source->getRefCount();
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    TRasterP raster;
+    double dpiX = 0, dpiY = 0;
+    std::vector<TRectD> rectangles;
+    std::vector<TStroke> strokes, original;
+    TAffine affine;
+    bool rejected = false;
+    try {
+      data->getData(raster, dpiX, dpiY, rectangles, strokes, original, affine,
+                    nullptr);
+    } catch (const std::runtime_error& error) {
+      rejected = std::string(error.what()) == "Fixture palette clone failure";
+    }
+    require(rejected && source->getRefCount() == references &&
+                source->getStyle(1)->getMainColor() == TPixel32::Blue,
+            "Failed palette merge destroyed or retained its source palette");
+  }
 }
 
 void checkPasteCase(TXshSimpleLevel* level, int row, int col) {
@@ -372,6 +600,14 @@ void checkNativePasteTargets() {
   auto* fullColor = makeLevel(OVL_XSHLEVEL, makePalette());
   for (const auto& cell : {TPoint(0, 0), TPoint(0, 1), TPoint(1, 0)})
     checkPasteCase(fullColor, cell.y, cell.x);
+  for (int type : {TZP_XSHLEVEL, OVL_XSHLEVEL}) {
+    for (bool floating : {false, true})
+      checkStrokeConversionOwnership(type, floating);
+    checkNullTargetPaletteCopies(type);
+    checkNullPaletteFailure(type);
+  }
+  checkRasterToVectorCycles();
+  checkExternalRasterCycles();
 }
 }  // namespace
 
@@ -393,7 +629,7 @@ bool runRasterPasteIntegrationTest(QString* error) {
   if (!failure.isEmpty()) return false;
   std::cout
       << "raster-paste-native: PASS native payload precedence, six targets, "
-         "undo/redo and external Cancel"
+         "conversion ownership, undo/redo and external Cancel"
       << std::endl;
   return true;
 }
