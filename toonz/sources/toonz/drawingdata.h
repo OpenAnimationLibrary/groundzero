@@ -9,6 +9,7 @@
 
 #include <set>
 #include <vector>
+#include <memory>
 #include "timage.h"
 #include "tfilepath.h"
 
@@ -18,6 +19,9 @@
 //-----------------------------------------------------------------------------
 
 class DrawingData final : public DvMimeData {
+  struct CacheEntries;
+  std::shared_ptr<CacheEntries> m_cacheEntries;
+
 public:
   std::map<TFrameId, QString>
       m_imageSet;  // images are in the cache, the QString is the cache id
@@ -40,10 +44,11 @@ public:
 
   DrawingData() {}
 
-  DrawingData(const DrawingData *src)
-      : m_imageSet(src->m_imageSet)
-      , m_level(src->m_level)
-      , m_levelHooks(src->m_levelHooks) {}
+  DrawingData(const DrawingData* src)
+      : m_cacheEntries(src->m_cacheEntries)
+      , m_imageSet(src->m_imageSet)
+      , m_levelHooks(src->m_levelHooks)
+      , m_level(src->m_level) {}
 
   void releaseData() override;
   ~DrawingData();
@@ -61,7 +66,8 @@ public:
                              bool& keepOriginalPalette,
                              bool isRedo = false) const;
 
-  // Image must be put in cache before call this.
+  // Adopt temporary cached frames. Clones share the resulting snapshot lease;
+  // callers may reuse their original cache IDs after this transfer.
   void setFrames(const std::map<TFrameId, QString> &imageSet,
                  TXshSimpleLevel *level, const HookSet &levelHooks);
   // Return frameId contained in m_imageSet.
