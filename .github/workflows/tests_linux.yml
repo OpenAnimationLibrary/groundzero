@@ -132,7 +132,9 @@ jobs:
         # All benchmark lines in one notice: a step shows at most 10 notices
         cd toonz/build
         bench=$(xvfb-run -a ctest -V --timeout 900 -R '^(scenebench|seexpr_animation)$' 2>/dev/null | grep -o 'NOTICE:.*' | sed 's/^NOTICE: //' | head -60 | enc)
-        [ -n "$bench" ] && echo "::notice title=benchmark::${bench}" || true
+        if [ -n "$bench" ]; then
+          echo "::notice title=benchmark::${bench}"
+        fi
 
     - name: Upload test diagnostics and candidate FX images
       if: always()
