@@ -17,10 +17,16 @@
 #include "toonzrasterbrushtool.h"
 #include "mypainttoonzbrush.h"
 #include "toonz/mypaintbrushstyle.h"
+#include "toonz/rasterbrushpreset.h"
+#include "nativerasterbrush.h"
+#include <QTimer>
+#include <QPointer>
 #include <QElapsedTimer>
 #include <QStringList>
 
 #include <memory>
+#include <map>
+#include <set>
 
 //==============================================================
 
@@ -48,6 +54,13 @@ public:
   class TrackHandler : public TTrackHandler {
   public:
     MyPaintToonzBrush brush;
+    std::shared_ptr<RasterBrush::Surface> nativeSurface;
+    std::unique_ptr<RasterBrush::Stroke> nativeStroke;
+    bool nativeTiltObserved = false;
+    bool nativeDeferredTap = false, nativeSourceAirbrush = false,
+         nativeHasSample = false;
+    RasterBrush::Sample nativeLastSample;
+    int nativeSourceLastIndex = -1;
 
     TrackHandler(const TRaster32P &ras, RasterController &controller,
                  const mypaint::Brush &brush)
@@ -56,14 +69,40 @@ public:
 
 private:
   void updateCurrentStyle();
+  void initNativeAirbrushTimer();
   void applyClassicToonzBrushSettings(mypaint::Brush &mypaintBrush);
   void applyToonzBrushSettings(mypaint::Brush &mypaintBrush);
 
 public:
   FullColorBrushTool(std::string name);
+#ifdef BUILD_UI_PORT_TESTS
+  // Read-only qualification snapshot. No counters or behavior exist in
+  // production; keep timer dispatch and renderer consumption distinguishable.
+  QString nativeBrushTestState() const {
+    QStringList result{
+        QString("started=%1 timer=%2 failed=%3").arg(m_started)
+            .arg(bool(m_nativeAirbrushTimer && m_nativeAirbrushTimer->isActive()))
+            .arg(m_nativeStrokeFailed)};
+    auto append = [&](const char *label, const TTrackList &tracks) {
+      for (const auto &track : tracks) {
+        const auto *handler =
+            dynamic_cast<const TrackHandler *>(track->handler.getPointer());
+        result.append(QString("%1:points=%2 fixed=%3 final=%4 time=%5 dabs=%6")
+                          .arg(QString::fromLatin1(label)).arg(track->size())
+                          .arg(track->fixedSize()).arg(track->finished())
+                          .arg(track->size() ? track->back().time : 0, 0, 'g', 17)
+                          .arg(qulonglong(handler && handler->nativeStroke
+                                              ? handler->nativeStroke->dabCount()
+                                              : 0)));
+      }
+    };
+    append("input", m_inputmanager.getInputTracks());
+    append("output", m_inputmanager.getOutputTracks());
+    return result.join("; ");
+  }
+#endif
 
-  ToolType getToolType() const override
-    { return TTool::LevelWriteTool; }
+  ToolType getToolType() const override { return TTool::LevelWriteTool; }
   unsigned int getToolHints() const override;
 
   ToolOptionsBox *createOptionsBox() override;
@@ -77,6 +116,7 @@ public:
   bool askWrite(const TRect &rect) override;
 
   bool preLeftButtonDown() override;
+  bool keyDown(QKeyEvent *event) override;
   void leftButtonDown(const TPointD &pos, const TMouseEvent &e) override;
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
   void leftButtonUp(const TPointD &pos, const TMouseEvent &e) override;
@@ -117,9 +157,12 @@ public:
   void onColorStyleChanged();
 
   TMyPaintBrushStyle *getBrushStyle();
+  bool isNativeBrushActive() const { return bool(m_nativeRecord); }
 
 private:
   void updateModifiers();
+  void initNativePresets();
+  bool selectNativePreset();
   void commitStroke();
 
   enum MouseEventType { ME_DOWN, ME_DRAG, ME_UP, ME_MOVE };
@@ -150,6 +193,12 @@ protected:
   TBoolProperty m_assistants;
   TEnumProperty m_tip;  //!< Brush tip: round dab or an image of the library
   TEnumProperty m_preset;
+  TEnumProperty m_nativePreset;
+  std::shared_ptr<RasterBrush::Record> m_nativeRecord;
+  std::shared_ptr<RasterBrush::Surface> m_nativeSurface;
+  std::shared_ptr<RasterBrush::MemoryBudget> m_nativeMemory;
+  QPointer<QTimer> m_nativeAirbrushTimer;
+  std::map<TTrack::Id, std::set<int>> m_nativeTimerPoints;
 
   TPixel32 m_currentColor;
   bool m_enabledPressure;
@@ -177,6 +226,10 @@ protected:
   bool m_firstTime;
 
   bool m_started;
+  std::uint64_t m_nativeResolvedSeed = 1;
+  bool m_nativeStrokeFailed          = false;
+  bool m_nativePixelsChanged         = false;
+  bool m_nativeCreatedFrame = false, m_nativeCreatedLevel = false;
   TFrameId m_strokeFrameId;
   TXshSimpleLevelP m_strokeLevel;
 

@@ -354,35 +354,27 @@ TInputManager::getTrack(
   return createTrack(b, deviceId, touchId, ticks, hasPressure, hasTilt);
 }
 
-
-void
-TInputManager::addTrackPoint(
-  const TTrackP& track,
-  const TPointD &position,
-  double pressure,
-  const TPointD &tilt,
-  double time,
-  bool final )
-{
+void TInputManager::addTrackPoint(const TTrackP &track, const TPointD &position,
+                                  double pressure, const TPointD &tilt,
+                                  double time, bool final, double rotation,
+                                  bool hasRotation) {
   track->push_back(
-    TTrackPoint(
-      position,
-      pressure,
-      tilt,
-      (double)track->size(),
-      time,
-      0.0, // length will calculated inside of TTrack::push_back
-      final ),
-    true );
+      TTrackPoint(position, pressure, tilt, (double)track->size(), time,
+                  0.0,  // length will calculated inside of TTrack::push_back
+                  final, rotation, hasRotation),
+      true);
 }
-
 
 void
 TInputManager::touchTracks(bool finish) {
   for(TTrackList::const_iterator i = m_tracks.front().begin(); i != m_tracks.front().end(); ++i) {
     if (!(*i)->finished() && (*i)->size() > 0) {
       const TTrackPoint &p = (*i)->back();
-      addTrackPoint(*i, p.position, p.pressure, p.tilt, fixTicks(m_lastTicks)*TToolTimer::step, finish);
+      double time =
+          (double)(fixTicks(m_lastTicks) - (*i)->ticks()) * TToolTimer::step -
+          (*i)->rootTimeOffset;
+      addTrackPoint(*i, p.position, p.pressure, p.tilt, time, finish,
+                    p.rotation, p.hasRotation);
     }
   }
 }
@@ -480,34 +472,21 @@ TInputManager::clearModifiers() {
     removeModifier(getModifiersCount() - 1);
 }
 
-
-void
-TInputManager::trackEvent(
-  TInputState::DeviceId deviceId,
-  TInputState::TouchId touchId,
-  const TPointD &position,
-  const double pressure,
-  const TPointD &tilt,
-  bool hasPressure,
-  bool hasTilt,
-  bool final,
-  TTimerTicks ticks )
-{
+void TInputManager::trackEvent(TInputState::DeviceId deviceId,
+                               TInputState::TouchId touchId,
+                               const TPointD &position, const double pressure,
+                               const TPointD &tilt, bool hasPressure,
+                               bool hasTilt, bool final, TTimerTicks ticks,
+                               double rotation, bool hasRotation) {
   ticks = fixTicks(ticks);
   TTrackP track = getTrack(deviceId, touchId, ticks, hasPressure, hasTilt);
   if (!track->finished()) {
     ticks = fixTicks(ticks);
     double time = (double)(ticks - track->ticks())*TToolTimer::step - track->rootTimeOffset;
-    addTrackPoint(
-      track,
-      position,
-      pressure,
-      tilt,
-      time,
-      final );
+    addTrackPoint(track, position, pressure, tilt, time, final, rotation,
+                  hasRotation);
   }
 }
-
 
 bool
 TInputManager::keyEvent(

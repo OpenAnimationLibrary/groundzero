@@ -1104,6 +1104,19 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    target_sources(OpenToonz PRIVATE rasterbrushintegrationtest.cpp rasterbrushintegrationtest.h)
+    add_test(NAME rasterbrush_application
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../../ci-scripts/brush-reference/application_test.py"
+            "$<TARGET_FILE:OpenToonz>" "${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff"
+            --output "${CMAKE_BINARY_DIR}/rasterbrush-application-output.txt")
+    if(APPLE OR WIN32)
+        # Leave fixture setup/cleanup time around the native-dialog 300s watchdog.
+        set_tests_properties(rasterbrush_application PROPERTIES TIMEOUT 360)
+    else()
+        set_tests_properties(rasterbrush_application PROPERTIES TIMEOUT 240)
+    endif()
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
@@ -1258,4 +1271,17 @@ if(BUILD_SEEXPR_TESTS)
             --output "${CMAKE_BINARY_DIR}/seexpr-native-output.txt"
             --windows-crash-debugger)
     set_tests_properties(seexpr_native_application PROPERTIES TIMEOUT 360)
+endif()
+
+if(APPLE)
+    add_dependencies(OpenToonz rasterbrushimport-helper)
+    add_custom_command(TARGET OpenToonz POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:rasterbrushimport-helper>"
+            "$<TARGET_FILE_DIR:OpenToonz>/rasterbrushimport-helper"
+        VERBATIM)
+endif()
+
+if(WIN32)
+    add_dependencies(OpenToonz rasterbrushimport-helper)
 endif()

@@ -94,6 +94,11 @@ public:
   TPointD m_pos;  //!< Mouse position in window coordinates, bottom-left origin.
   double m_pressure;  //!< Pressure of the tablet pen (0.0 - 1.0) , or 1.0 for
                       //! pure mouse events.
+  // Optional tablet channels. Existing tools retain their current behavior;
+  // the native regular-raster engine opts into these explicitly.
+  TPointD m_tilt;
+  double m_rotation = 0;  // radians, screen coordinate orientation
+  bool m_hasTilt = false, m_hasRotation = false;
 
   ModifierMask m_modifiersMask;  //!< Bitmask specifying key modifiers applying
                                  //! on the event.

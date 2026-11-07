@@ -159,6 +159,8 @@ PaletteViewer::PaletteViewer(QWidget *parent, PaletteViewType viewType,
 
   m_paletteToolBar     = new QToolBar(toolBarWidget);
   m_savePaletteToolBar = new QToolBar(toolBarWidget);
+  m_paletteToolBar->setObjectName("PaletteToolBar");
+  m_savePaletteToolBar->setObjectName("PaletteSaveToolBar");
   createToolBar();
 
   QHBoxLayout *toolBarLayout = new QHBoxLayout(toolBarWidget);
@@ -213,7 +215,14 @@ PaletteViewer::PaletteViewer(QWidget *parent, PaletteViewType viewType,
 
 //-----------------------------------------------------------------------------
 
-PaletteViewer::~PaletteViewer() { delete m_changeStyleCommand; }
+PaletteViewer::~PaletteViewer() {
+  // QWidget deletes the toolbar layouts after QToolBar has lost its type.
+  // Release custom widget actions while their toolbar and palette ancestors
+  // are intact: releaseWidget() reparents them and invokes stylesheet callbacks.
+  m_paletteToolBar->clear();
+  m_savePaletteToolBar->clear();
+  delete m_changeStyleCommand;
+}
 
 //-----------------------------------------------------------------------------
 

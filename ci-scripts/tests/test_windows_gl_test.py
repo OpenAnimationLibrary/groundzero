@@ -556,11 +556,15 @@ class WindowsGlTest(unittest.TestCase):
             executable = root / "renderer.exe"
             executable.touch()
             (root / "tconverter.exe").touch()
-            with patch.object(native, "os", SimpleNamespace(name="nt")):
+            with patch.object(native, "os", SimpleNamespace(name="nt")), \
+                    patch.object(Path, "unlink") as unlink, \
+                    patch.object(native.time, "sleep") as sleep:
                 with self.assertRaisesRegex(RuntimeError, "retained"):
                     with native.windows_mesa_renderer(executable, runtime,
                                                       cleanup_allowed=lambda: False):
                         pass
+                unlink.assert_not_called()
+                sleep.assert_not_called()
             for name in ("opengl32.dll", "libgallium_wgl.dll", "renderer.exe.local", "tconverter.exe.local"):
                 self.assertTrue((root / name).is_file(), name)
 
@@ -602,8 +606,14 @@ class WindowsGlTest(unittest.TestCase):
                     raise failure
                 return original_unlink(path, *args, **kwargs)
 
+            clock = [0.0]
+            def sleep(seconds):
+                clock[0] += seconds
+
             with patch.object(native, "os", SimpleNamespace(name="nt")), \
                     patch.object(Path, "unlink", remove), \
+                    patch.object(native.time, "monotonic", side_effect=lambda: clock[0]), \
+                    patch.object(native.time, "sleep", side_effect=sleep), \
                     self.assertRaises(RuntimeError) as raised:
                 with native.windows_mesa_renderer(executable, runtime, cleanup_allowed=lambda: True):
                     self.assertTrue(failed.is_file())
@@ -611,16 +621,50 @@ class WindowsGlTest(unittest.TestCase):
             self.assertIn("opengl32.dll: PermissionError", message)
             self.assertIn("errno=13", message)
             self.assertIn("winerror=32", message)
+            self.assertIn("readonly=", message)
             self.assertIn("locked", message)
             self.assertNotIn(str(root), message)
             self.assertNotIn("\r", message)
             self.assertNotIn("\n", message)
             self.assertLess(len(message), 500)
             self.assertIs(raised.exception.__cause__, failure)
-            self.assertCountEqual(attempted, ["opengl32.dll", "libgallium_wgl.dll",
-                                              "renderer.exe.local", "tconverter.exe.local"])
+            self.assertEqual(set(attempted), {"opengl32.dll", "libgallium_wgl.dll",
+                                              "renderer.exe.local", "tconverter.exe.local"})
+            self.assertGreater(attempted.count("opengl32.dll"), 1)
+            self.assertAlmostEqual(clock[0], 2)
             self.assertTrue(failed.is_file())
             for name in ("libgallium_wgl.dll", "renderer.exe.local", "tconverter.exe.local"):
+                self.assertFalse((root / name).exists(), name)
+
+    def test_real_runtime_retries_transient_dll_locks_after_confirmed_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "runtime"; runtime.mkdir()
+            names = ("opengl32.dll", "libgallium_wgl.dll")
+            for name in names:
+                (runtime / name).write_bytes(b"test-only-placeholder")
+            executable = root / "renderer.exe"; executable.touch()
+            attempts = {name: 0 for name in names}
+            original_unlink = Path.unlink
+
+            def remove(path, *args, **kwargs):
+                if path.name in attempts:
+                    attempts[path.name] += 1
+                    if attempts[path.name] == 1:
+                        error = PermissionError(13, "image is still referenced")
+                        error.winerror = 5 if path.name == names[0] else 32
+                        raise error
+                return original_unlink(path, *args, **kwargs)
+
+            with patch.object(native, "os", SimpleNamespace(name="nt")), \
+                    patch.object(Path, "unlink", remove), \
+                    patch.object(native.time, "monotonic", return_value=0), \
+                    patch.object(native.time, "sleep") as sleep:
+                with native.windows_mesa_renderer(executable, runtime, cleanup_allowed=lambda: True):
+                    pass
+                self.assertEqual(sleep.call_count, 2)
+            self.assertEqual(attempts, {name: 2 for name in names})
+            for name in (*names, "renderer.exe.local"):
                 self.assertFalse((root / name).exists(), name)
 
 

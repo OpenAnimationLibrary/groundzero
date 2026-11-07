@@ -467,8 +467,8 @@ void bgeo(const QDir &dir) {
                 QByteArray(16, '\0'));
   // Truncation anywhere must fail, never load stale or uninitialized points.
   const QByteArray frame = bgeoFrame();
-  for (int size : {3, 20, 44, 50, 60, 70, frame.size() - 12, frame.size() - 6,
-                   frame.size() - 3})
+  for (int size : {3, 20, 44, 50, 60, 70, int(frame.size()) - 12, int(frame.size()) - 6,
+                   int(frame.size()) - 3})
     rejectAll(dir.filePath(QString("truncated-%1.bgeo").arg(size)),
               frame.left(size));
   QByteArray shortPoints = bgeoHeader(1000, 0, 0, 0, 0);
@@ -552,7 +552,7 @@ void mc(const QDir &dir) {
   rejectAll(dir.filePath("truncated-name.mc"), truncatedName + "a_id");
   rejectAll(dir.filePath("truncated-size.mc"),
             truncatedName + QByteArray("a_id\0\0\0\0", 8));
-  for (int size : {6, 30, 56, 70, 90, channels.size() + 50})
+  for (int size : {6, 30, 56, 70, 90, int(channels.size()) + 50})
     rejectAll(dir.filePath(QString("truncated-%1.mc").arg(size)),
               mcFile(channels).left(size));
   // The name buffer used to be read as an unterminated C string.
@@ -617,7 +617,7 @@ void pdc(const QDir &dir) {
   rejectAll(dir.filePath("many-attributes.pdc"), pdcHeader(1, 0x7fffffffu));
   rejectAll(dir.filePath("negative-particles.pdc"), pdcHeader(0xffffffffu, 0));
   rejectAll(dir.filePath("short-header.pdc"), pdcHeader(1, 0).left(20));
-  for (int size : {30, 40, 60, 100, 28 + body.size() - 1})
+  for (int size : {30, 40, 60, 100, 28 + int(body.size()) - 1})
     rejectAll(dir.filePath(QString("truncated-%1.pdc").arg(size)),
               (pdcHeader(2, 3) + body).left(size));
   QByteArray hugeName = pdcHeader(1, 1);

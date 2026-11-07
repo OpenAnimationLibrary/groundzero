@@ -1176,10 +1176,12 @@ void ExecutorImp::refreshAssignments() {
   // c) Try with the global queue
   int e, executorsCount = m_executorIdPool.acquiredSize();
 
-  int i, tasksCount = m_tasks.size();
+  // Keep the cursor after the next task to visit. erase() returns that same
+  // boundary, so never decrement begin() or end() of an empty queue.
   QMultiMap<int, RunnableP>::iterator it;
-  for (i = 0, e = 0, it = m_tasks.end() - 1;
-       i < tasksCount && e < executorsCount; ++i, --it) {
+  for (e = 0, it = m_tasks.end();
+       it != m_tasks.begin() && e < executorsCount;) {
+    --it;
     // std::cout<< "global tasks-refreshAss" << std::endl;
     // Take the task
     RunnableP task = it.value();
@@ -1250,10 +1252,10 @@ inline void Worker::takeTask() {
 
   int e, executorsCount = executorIdPool.acquiredSize();
 
-  int i, tasksCount = globalImp->m_tasks.size();
   QMultiMap<int, RunnableP>::iterator it;
-  for (i = 0, e = 0, it = globalImp->m_tasks.end() - 1;
-       i < tasksCount && e < executorsCount; ++i, --it) {
+  for (e = 0, it = globalImp->m_tasks.end();
+       it != globalImp->m_tasks.begin() && e < executorsCount;) {
+    --it;
     // std::cout<< "global tasks-takeTask" << std::endl;
     // Take the first task
     RunnableP task = it.value();

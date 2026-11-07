@@ -3,7 +3,7 @@ name: Windows Build
 # Reusable workflows inherit the caller's name, so include the platform.
 # Only superseded pull request builds may cancel an in-progress build.
 concurrency:
-  group: ${{ github.workflow }}-windows-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-windows-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}${{ github.event_name == 'workflow_dispatch' && inputs.native_page_heap && format('-pageheap-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
@@ -22,6 +22,10 @@ on:
       - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   workflow_dispatch:
     inputs:
+      native_page_heap:
+        description: Run the eager workflow diagnostic under verified standard page heap
+        type: boolean
+        default: false
       benchmark_bundle:
         description: Prepare an immutable scene benchmark bundle after validation
         type: boolean
@@ -145,9 +149,15 @@ jobs:
           if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
             for ($attempt = 1; $attempt -le 3; $attempt++) {
               choco install ffmpeg --yes --no-progress
-              if ($LASTEXITCODE -eq 0) { break }
+              $installExitCode = $LASTEXITCODE
+              # A feed timeout can leave Chocolatey reporting success with no
+              # package installed. Require the actual tools before ending retries.
+              $ffmpegReady = Get-Command ffmpeg -ErrorAction SilentlyContinue
+              $ffprobeReady = Get-Command ffprobe -ErrorAction SilentlyContinue
+              if ($installExitCode -eq 0 -and $ffmpegReady -and $ffprobeReady) { break }
+              Write-Output "FFmpeg installation attempt $attempt did not provide both tools (Chocolatey exit $installExitCode)."
               if ($attempt -eq 3) {
-                Write-Output "::error title=FFmpeg dependency installation::Chocolatey failed after three attempts; inspect the package-feed response above."
+                Write-Output "::error title=FFmpeg dependency installation::FFmpeg and ffprobe were not available after three attempts; inspect the package-feed response above."
                 throw "FFmpeg installation failed"
               }
               Start-Sleep -Seconds (10 * $attempt)
@@ -348,6 +358,7 @@ jobs:
           REM Create Opentoonz directory and copy files from RelWithDebInfo
           mkdir Opentoonz
           copy /Y RelWithDebInfo\*.* Opentoonz\
+          xcopy /Y /E /I RelWithDebInfo\brush-import-runtime Opentoonz\brush-import-runtime
           xcopy /Y /E /I licenses Opentoonz\licenses
           REM Copy required DLLs for proper functionality
           copy /Y ..\..\thirdparty\glut\3.7.6\lib\glut64.dll Opentoonz
@@ -366,6 +377,10 @@ jobs:
           del /Q Opentoonz\*.pdb  REM Remove .pdb files
           del /Q Opentoonz\vc_redist.x64.exe REM Remove vc_redist.x64.exe file
           
+          REM Qualify installed brush runtime without changing its permissions
+          python ..\..\ci-scripts\brush-parser\qualify_windows_helper.py Opentoonz\brush-import-runtime
+          if errorlevel 1 exit /b 1
+
           REM Create portablestuff directory and copy stuff folder
           mkdir Opentoonz\portablestuff
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
@@ -515,13 +530,16 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
-      # The crashes of the native test land in unrelated destructors while
-      # rooms are torn down: memory was damaged earlier. Rerun the workflow
-      # switch under the full page heap, which stops at the faulting access,
-      # and annotate the crash report it gives. Diagnostic only: it never
-      # changes the result, and it removes the page heap setting again.
-      - name: Diagnose the native failure under the page heap
-        if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' }}
+      # Replay eager room construction under verified standard page heap.
+      # CDB captures the first exception using bounded, prefetched OS symbols.
+      # The original acceptance result remains authoritative; cleanup is bounded.
+      - name: Diagnose the native workflow under the page heap
+        id: native_page_heap
+        if: >-
+          ${{ !cancelled() && steps.package.outcome == 'success' &&
+              (steps.ui_integration.outcome == 'failure' ||
+               (github.event_name == 'workflow_dispatch' && inputs.native_page_heap &&
+                success() && steps.ui_integration.outcome == 'success')) }}
         continue-on-error: true
         timeout-minutes: 30
         shell: cmd
@@ -529,7 +547,17 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/native_ui_page_heap.py toonz/build/Opentoonz/OpenToonz.exe stuff --suite workflow-switch --output toonz/build/ui-integration-page-heap.txt --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python ci-scripts/native_ui_page_heap.py toonz/build/Opentoonz/OpenToonz.exe stuff --suite workflow-switch-eager --symbols toonz/build/RelWithDebInfo --output toonz/build/ui-integration-page-heap.txt --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+
+      - name: Retain native page-heap diagnostic
+        if: ${{ always() && steps.native_page_heap.outcome != 'skipped' && steps.native_page_heap.outcome != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-page-heap-windows-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: toonz/build/ui-integration-page-heap.txt
+          retention-days: 3
+          if-no-files-found: warn
 
       - name: Measure native artist workloads
         id: artist_benchmark
@@ -612,6 +640,21 @@ jobs:
         if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/cadmium-tests-output.txt "Cadmium adapter regression"
 
+      - name: Test native raster brush application
+        id: raster_brush_application
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
+          ctest --test-dir toonz/build -C RelWithDebInfo --output-on-failure --no-tests=error -R "^rasterbrush_application$"
+
+      - name: Report raster brush application failure
+        if: ${{ failure() && steps.raster_brush_application.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/rasterbrush-application-output.txt "Raster brush application"
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
@@ -648,7 +691,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_psd tiio_exr_level
+          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission tgldisplaylistsmanager compressed_stream scenebench fxrender ffmpeg_public tiio_psd tiio_exr_level
 
       - name: Upload reliability diagnostics
         if: always()
