@@ -38,6 +38,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -216,6 +217,144 @@ void mouseStroke(TTool *tool, TPointD start, TPointD end) {
   event.m_buttons = Qt::NoButton;
   tool->leftButtonUp(end,event);
 }
+
+void mouseCornerStroke(TTool* tool) {
+  const TPointD corners[] = {{-60, -40}, {60, -40}, {60, 40}, {-60, 40}};
+  TMouseEvent event;
+  event.m_button  = Qt::LeftButton;
+  event.m_buttons = Qt::LeftButton;
+  tool->mouseMove(corners[0], event);
+  require(tool->preLeftButtonDown(),
+          "native Brush rejected the split-stroke gesture");
+  event.m_pos      = corners[0];
+  event.m_mousePos = QPointF(corners[0].x, corners[0].y);
+  tool->leftButtonDown(corners[0], event);
+  for (int segment = 1; segment < 4; ++segment) {
+    for (int step = 1; step <= 12; ++step) {
+      const TPointD point =
+          corners[segment - 1] +
+          (corners[segment] - corners[segment - 1]) * (double(step) / 12);
+      event.m_pos      = point;
+      event.m_mousePos = QPointF(point.x, point.y);
+      tool->leftButtonDrag(point, event);
+    }
+  }
+  event.m_buttons = Qt::NoButton;
+  tool->leftButtonUp(corners[3], event);
+}
+
+void checkSplitStrokeHistory(TTool* tool, TPalette* palette, int style,
+                             bool hold) {
+  auto* app    = TApp::instance();
+  auto* xsheet = app->getCurrentXsheet()->getXsheet();
+  auto* level =
+      app->getCurrentScene()
+          ->getScene()
+          ->createNewLevel(PLI_XSHLEVEL, hold ? L"SplitStrokeHoldFixture"
+                                              : L"SplitStrokeBlankFixture")
+          ->getSimpleLevel();
+  level->setPalette(palette);
+  const TVectorImageP first  = drawing(palette, style);
+  const TVectorImageP second = drawing(palette, 0);
+  level->setFrame(TFrameId(1), first);
+  level->setFrame(TFrameId(2), second);
+  const int column = xsheet->getColumnCount();
+  const TXshCell firstCell(level, TFrameId(1));
+  const TXshCell secondCell(level, TFrameId(2));
+  const TXshCell middle = hold ? firstCell : TXshCell();
+  xsheet->setCell(0, column, firstCell);
+  xsheet->setCell(1, column, middle);
+  xsheet->setCell(2, column, secondCell);
+  app->getCurrentColumn()->setColumnIndex(column);
+  app->getCurrentFrame()->setFrame(1);
+  app->getCurrentLevel()->setLevel(level);
+  app->getPaletteController()->getCurrentLevelPalette()->setPalette(palette,
+                                                                    style);
+  require(app->getCurrentTool()->getTool() == tool,
+          "split-stroke fixture did not retain the vector Brush");
+  tool->onEnter();
+  auto* undo = TUndoManager::manager();
+  undo->reset();
+  mouseCornerStroke(tool);
+  TVectorImageP inserted = level->getFrame(TFrameId(2), false);
+  require(inserted && inserted->getStrokeCount() > 1 &&
+              undo->getHistoryCount() == 1,
+          "Break gesture did not produce multiple strokes in one undo action");
+  const TVectorImageP saved = inserted->clone();
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    require(undo->undo(), "split-stroke undo action was unavailable");
+    require(level->getFrameCount() == 2 &&
+                TVectorImageP(level->getFrame(TFrameId(1), false)) == first &&
+                TVectorImageP(level->getFrame(TFrameId(2), false)) == second &&
+                !level->isFid(TFrameId(3)) &&
+                xsheet->getCell(0, column) == firstCell &&
+                xsheet->getCell(1, column) == middle &&
+                xsheet->getCell(2, column) == secondCell &&
+                xsheet->getCell(3, column).isEmpty(),
+            "split-stroke undo left a renumbered drawing or changed the "
+            "original exposures");
+    require(undo->redo(), "split-stroke redo action was unavailable");
+    require(level->getFrameCount() == 3 &&
+                TVectorImageP(level->getFrame(TFrameId(1), false)) == first &&
+                TVectorImageP(level->getFrame(TFrameId(3), false)) == second &&
+                xsheet->getCell(0, column) == firstCell &&
+                xsheet->getCell(1, column) == TXshCell(level, TFrameId(2)) &&
+                xsheet->getCell(2, column) == TXshCell(level, TFrameId(3)) &&
+                xsheet->getCell(3, column).isEmpty(),
+            "split-stroke creation or redo changed the original drawings or "
+            "exposures");
+    inserted = level->getFrame(TFrameId(2), false);
+    require(inserted && inserted->getStrokeCount() == saved->getStrokeCount(),
+            "split-stroke redo lost or duplicated a stroke");
+    for (int index = 0; index < int(saved->getStrokeCount()); ++index) {
+      std::vector<TThickPoint> expected, actual;
+      saved->getStroke(index)->getControlPoints(expected);
+      inserted->getStroke(index)->getControlPoints(actual);
+      require(actual == expected && inserted->getStroke(index)->getStyle() ==
+                                        saved->getStroke(index)->getStyle(),
+              "split-stroke redo changed stroke geometry or style");
+    }
+  }
+  undo->undo();
+  undo->reset();
+}
+
+void checkAutoCreatedSplitStrokes(TTool* tool, TPalette* palette, int style) {
+  checkpoint(
+      "split-stroke undo: blank and held exposures with automatic renumbering");
+  auto* preferences = Preferences::instance();
+  struct Restore {
+    Preferences* preferences;
+    std::vector<std::pair<PreferencesItemId, QVariant>> values;
+    ~Restore() {
+      for (const auto& value : values)
+        preferences->setValue(value.first, value.second, false);
+    }
+  } restore{preferences, {}};
+  for (const auto id : {EnableAutocreation, EnableCreationInHoldCells,
+                        EnableAutoStretch, EnableAutoRenumber, NumberingSystem,
+                        guidedDrawingType, guidedAutoInbetween})
+    restore.values.emplace_back(id, preferences->getItem(id).value);
+  for (const auto id : {EnableAutocreation, EnableCreationInHoldCells,
+                        EnableAutoStretch, EnableAutoRenumber})
+    preferences->setValue(id, true, false);
+  preferences->setValue(NumberingSystem, 0, false);
+  preferences->setValue(guidedDrawingType, 0, false);
+  preferences->setValue(guidedAutoInbetween, false, false);
+  enumValue(tool, "Paint:", 0);
+  enumValue(tool, "Range:", 0);
+  enumValue(tool, "Art Layer:", 0);
+  boolValue(tool, "Break", true);
+  for (const char* name : {"Pressure", "Snap", "Assistants", "Auto Close",
+                           "Auto Group", "Auto Fill"})
+    boolValue(tool, name, false);
+  doubleValue(tool, "Accuracy:", 100);
+  doubleValue(tool, "Smooth:", 0);
+  doubleValue(tool, "Fluid Width:", 0);
+  checkSplitStrokeHistory(tool, palette, style, false);
+  checkSplitStrokeHistory(tool, palette, style, true);
+}
+
 void acknowledgedWarning(const std::function<void()> &action) {
   bool shown = false;
   QTimer response;
@@ -514,5 +653,6 @@ void runBrushWorkflowNativeChecks() {
           "unsupported Brush width changed a drawing");
   size->setValue({10.,10.}); tool->onPropertyChanged("Size");
   undo->reset();
+  checkAutoCreatedSplitStrokes(tool, palette.getPointer(), red);
   checkpoint("PASS");
 }
