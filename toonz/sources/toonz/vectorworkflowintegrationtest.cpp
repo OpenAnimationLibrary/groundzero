@@ -12,6 +12,12 @@
 #include "toonzqt/tselectionhandle.h"
 #include "iocommand.h"
 #include "filmstripselection.h"
+#include "filmstripcommand.h"
+#include "toonzqt/dvmimedata.h"
+#include "ttoonzimage.h"
+#include <QClipboard>
+#include "tools/imagegrouping.h"
+#include "toonz/preferences.h"
 #include "tproperty.h"
 #include "tenv.h"
 #include <QComboBox>
@@ -319,6 +325,338 @@ void reviewWidthManager(QAction *action, double strength, bool accept,
   require(warned == expectSourceWarning, "width manager source invalidation was not reported");
 }
 
+void filmstripInsertionUndoChecks(TXshSimpleLevel* level,
+                                  const std::function<void()>& checkOriginal) {
+  auto* app    = TApp::instance();
+  auto* source = app->getCurrentScene()
+                     ->getScene()
+                     ->createNewLevel(PLI_XSHLEVEL, L"FilmstripPasteFixture")
+                     ->getSimpleLevel();
+  source->setPalette(level->getPalette());
+  const std::set<TFrameId> sourceFrames = {TFrameId(1), TFrameId(1, "a")};
+  for (const auto& fid : sourceFrames) {
+    TVectorImageP image = drawing(source->getPalette(), 1);
+    image->getStroke(0)->setOpacity(fid.getLetter().isEmpty() ? .7 : .8);
+    source->setFrame(fid, image);
+  }
+  auto* clipboard = QApplication::clipboard();
+  std::unique_ptr<QMimeData> savedClipboard(cloneData(clipboard->mimeData()));
+  auto* undo                        = TUndoManager::manager();
+  const std::set<TFrameId> inserted = {TFrameId(2, "a"), TFrameId(3, "a")};
+  for (bool fromClipboard : {false, true}) {
+    undo->reset();
+    std::set<TFrameId> target = {TFrameId(1, "b")};
+    if (fromClipboard) {
+      auto selected = sourceFrames;
+      FilmstripCmd::copy(source, selected);
+      FilmstripCmd::paste(level, target);
+      clipboard->clear();
+    } else {
+      require(FilmstripCmd::insertFramesFromLevel(source, sourceFrames, level,
+                                                  target),
+              "source-level insertion failed");
+    }
+    require(target == inserted && undo->getHistoryCount() == 1,
+            "paste changed the chosen insertion IDs");
+    for (int cycle = 0; cycle < 2; ++cycle) {
+      TVectorImageP first  = level->getFrame(TFrameId(2, "a"), false);
+      TVectorImageP second = level->getFrame(TFrameId(3, "a"), false);
+      require(
+          first && second && first->getStroke(0)->getOpacity() == .7 &&
+              second->getStroke(0)->getOpacity() == .8,
+          "paste redo changed target IDs or copied lettered drawing content");
+      undo->undo();
+      checkOriginal();
+      undo->redo();
+    }
+    undo->undo();
+    checkOriginal();
+  }
+  for (bool merge : {false, true}) {
+    undo->reset();
+    auto selected = sourceFrames;
+    FilmstripCmd::copy(source, selected);
+    if (merge)
+      FilmstripCmd::merge(level, selected);
+    else
+      FilmstripCmd::pasteInto(level, selected);
+    for (int cycle = 0; cycle < 2; ++cycle) {
+      TVectorImageP first  = level->getFrame(TFrameId(1), false);
+      TVectorImageP second = level->getFrame(TFrameId(1, "a"), false);
+      require(first && second && first->getStroke(0)->getOpacity() == .7 &&
+                  second->getStroke(0)->getOpacity() == .8,
+              "overwrite paste changed numbered or lettered drawing content");
+      undo->undo();
+      checkOriginal();
+      undo->redo();
+    }
+    undo->undo();
+    checkOriginal();
+  }
+  clipboard->setMimeData(savedClipboard.release());
+  undo->reset();
+  FilmstripCmd::insert(level, inserted, true);
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    for (const auto& fid : inserted) {
+      TVectorImageP image = level->getFrame(fid, false);
+      require(image && image->getStrokeCount() == 0,
+              "empty vector insertion redo did not restore blank drawings");
+    }
+    undo->undo();
+    checkOriginal();
+    undo->redo();
+  }
+  undo->undo();
+  checkOriginal();
+  undo->reset();
+}
+
+void rasterInsertionUndoChecks() {
+  auto* app   = TApp::instance();
+  auto* level = app->getCurrentScene()
+                    ->getScene()
+                    ->createNewLevel(TZP_XSHLEVEL, L"RasterInsertUndoFixture")
+                    ->getSimpleLevel();
+  TPaletteP palette = new TPalette;
+  level->setPalette(palette.getPointer());
+  level->getProperties()->setImageRes(TDimension(4, 4));
+  level->getProperties()->setImageDpi(TPointD(72., 72.));
+  const std::vector<TFrameId> original = {TFrameId(1), TFrameId(1, "a"),
+                                          TFrameId(2)};
+  for (size_t i = 0; i < original.size(); ++i) {
+    TRasterCM32P raster(4, 4);
+    raster->fill(TPixelCM32(1, 0, static_cast<int>(i)));
+    TToonzImageP image(raster, raster->getBounds());
+    image->setDpi(72., 72.);
+    level->setFrame(original[i], image);
+  }
+  auto* xsheet = app->getCurrentXsheet()->getXsheet();
+  for (size_t i = 0; i < original.size(); ++i)
+    xsheet->setCell(static_cast<int>(i) * 2, 0, TXshCell(level, original[i]));
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  app->getCurrentLevel()->setLevel(level);
+  auto* undo              = TUndoManager::manager();
+  auto* preferences       = Preferences::instance();
+  const bool originalSync = preferences->isSyncLevelRenumberWithXsheetEnabled();
+  for (bool sync : {false, true}) {
+    preferences->setValue(syncLevelRenumberWithXsheet, sync, false);
+    undo->reset();
+    FilmstripCmd::insert(level, {TFrameId(1), TFrameId(3)}, true);
+    for (int cycle = 0; cycle < 2; ++cycle) {
+      TToonzImageP first  = level->getFrame(TFrameId(1), false);
+      TToonzImageP second = level->getFrame(TFrameId(3), false);
+      require(first && second, "empty raster insertion lost a drawing");
+      first->getRaster()->pixels(0)[0] = TPixelCM32(1, 0, 0);
+      require(second->getRaster()->pixels(0)[0] == TPixelCM32(),
+              "empty raster insertion redo aliases independent drawings");
+      first->getRaster()->pixels(0)[0] = TPixelCM32();
+      undo->undo();
+      std::vector<TFrameId> restored;
+      level->getFids(restored);
+      require(restored == original,
+              "empty raster insertion undo changed drawing IDs");
+      for (size_t i = 0; i < original.size(); ++i) {
+        TToonzImageP image = level->getFrame(original[i], false);
+        require(
+            image && image->getRaster()->pixels(0)[0].getTone() ==
+                         static_cast<int>(i),
+            "empty raster insertion undo swapped lettered drawing contents");
+        require(xsheet->getCell(static_cast<int>(i) * 2, 0).getFrameId() ==
+                        original[i] &&
+                    xsheet->getCell(static_cast<int>(i) * 2 + 1, 0).isEmpty(),
+                "empty raster insertion undo changed exposures or empty cells");
+      }
+      undo->redo();
+    }
+    undo->undo();
+  }
+  preferences->setValue(syncLevelRenumberWithXsheet, originalSync, false);
+  undo->reset();
+  xsheet->clearCells(0, 0, static_cast<int>(original.size()) * 2);
+  app->getCurrentScene()->setDirtyFlag(false);
+}
+
+void eachHistoryUndoChecks(TXshSimpleLevel* level,
+                           const std::function<void()>& checkOriginal) {
+  auto* undo = TUndoManager::manager();
+  undo->reset();
+  std::vector<TFrameId> fids;
+  level->getFids(fids);
+  std::set<TFrameId> selected(fids.begin(), fids.end());
+  FilmstripCmd::each(level, selected, 3);
+  FilmstripCmd::insert(level, {TFrameId(1, "a"), TFrameId(1, "b")}, true);
+  selected = {TFrameId(1), TFrameId(1, "a"), TFrameId(1, "b")};
+  FilmstripCmd::each(level, selected, 3);
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    undo->undo();
+    TVectorImageP blank = level->getFrame(TFrameId(1, "a"), false);
+    require(blank && blank->getStrokeCount() == 0,
+            "Each undo confused two history entries for the same drawing ID");
+    undo->undo();
+    undo->undo();
+    checkOriginal();
+    undo->redo();
+    undo->redo();
+    undo->redo();
+  }
+  undo->undo();
+  undo->undo();
+  undo->undo();
+  checkOriginal();
+  undo->reset();
+}
+
+void filmstripUndoChecks() {
+  auto* app   = TApp::instance();
+  auto* level = app->getCurrentScene()
+                    ->getScene()
+                    ->createNewLevel(PLI_XSHLEVEL, L"FilmstripUndoFixture")
+                    ->getSimpleLevel();
+  TPaletteP palette = new TPalette;
+  level->setPalette(palette.getPointer());
+  const std::vector<TFrameId> originalFids = {
+      TFrameId(1), TFrameId(1, "a"), TFrameId(1, "b"),
+      TFrameId(2), TFrameId(2, "a"), TFrameId(3)};
+  auto* xsheet = app->getCurrentXsheet()->getXsheet();
+  for (size_t i = 0; i < originalFids.size(); ++i) {
+    TVectorImageP image = drawing(palette.getPointer(), 1);
+    image->getStroke(0)->setOpacity((i + 1) / 10.0);
+    level->setFrame(originalFids[i], image);
+    xsheet->setCell(static_cast<int>(i) * 2, 0,
+                    TXshCell(level, originalFids[i]));
+  }
+  app->getCurrentLevel()->setLevel(level);
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  auto* undo              = TUndoManager::manager();
+  auto* preferences       = Preferences::instance();
+  const bool originalSync = preferences->isSyncLevelRenumberWithXsheetEnabled();
+  auto checkOriginal      = [&] {
+    std::vector<TFrameId> fids;
+    level->getFids(fids);
+    require(fids == originalFids,
+            "filmstrip undo changed original drawing IDs");
+    for (size_t i = 0; i < fids.size(); ++i) {
+      TVectorImageP image = level->getFrame(fids[i], false);
+      require(image && image->getStroke(0)->getOpacity() == (i + 1) / 10.0,
+              "filmstrip undo swapped number-and-letter drawings");
+      require(
+          xsheet->getCell(static_cast<int>(i) * 2, 0).getFrameId() == fids[i] &&
+              xsheet->getCell(static_cast<int>(i) * 2 + 1, 0).isEmpty(),
+          "filmstrip undo changed original exposures or empty cells");
+    }
+  };
+  for (bool sync : {false, true}) {
+    preferences->setValue(syncLevelRenumberWithXsheet, sync, false);
+    filmstripInsertionUndoChecks(level, checkOriginal);
+    eachHistoryUndoChecks(level, checkOriginal);
+    for (bool multiple : {false, true}) {
+      undo->reset();
+      std::set<TFrameId> selected = {TFrameId(1, "a")};
+      if (multiple) selected.insert(TFrameId(1));
+      FilmstripCmd::duplicate(level, selected, true);
+      auto checkCopies = [&] {
+        TVectorImageP first = level->getFrame(TFrameId(2, "a"), false);
+        require(
+            first && first->getStroke(0)->getOpacity() == (multiple ? .1 : .2),
+            "duplicate reused a numbered drawing's cache entry");
+        if (multiple) {
+          TVectorImageP second = level->getFrame(TFrameId(3, "a"), false);
+          require(second && second->getStroke(0)->getOpacity() == .2,
+                  "duplicate lost the lettered drawing's image");
+        }
+      };
+      checkCopies();
+      undo->undo();
+      checkOriginal();
+      undo->redo();
+      checkCopies();
+      undo->undo();
+      checkOriginal();
+    }
+    undo->reset();
+    FilmstripCmd::addFrames(level, 1, 1, 1);
+    undo->undo();
+    checkOriginal();
+    undo->redo();
+    undo->undo();
+    checkOriginal();
+    undo->reset();
+    std::set<TFrameId> selected(originalFids.begin(), originalFids.end());
+    FilmstripCmd::each(level, selected, 3);
+    undo->undo();
+    checkOriginal();
+    undo->redo();
+    undo->undo();
+    checkOriginal();
+  }
+  preferences->setValue(syncLevelRenumberWithXsheet, originalSync, false);
+  undo->reset();
+  xsheet->clearCells(0, 0, static_cast<int>(originalFids.size()) * 2);
+  app->getCurrentScene()->setDirtyFlag(false);
+}
+
+void ungroupUndoChecks() {
+  auto* app         = TApp::instance();
+  auto* level       = app->getCurrentScene()
+                          ->getScene()
+                          ->createNewLevel(PLI_XSHLEVEL, L"UngroupUndoFixture")
+                          ->getSimpleLevel();
+  TPaletteP palette = new TPalette;
+  level->setPalette(palette.getPointer());
+  TVectorImageP image = new TVectorImage;
+  image->setPalette(palette.getPointer());
+  for (int i = 0; i < 7; ++i) {
+    auto* stroke = new TStroke(std::vector<TThickPoint>{
+        {0., i * 10., 1.}, {10., i * 10., 1.}, {20., i * 10., 1.}});
+    stroke->setStyle(1);
+    image->addStroke(stroke);
+  }
+  image->group(0, 2);
+  image->group(3, 2);
+  image->group(3, 4);
+  TVectorImageP original = image->cloneWithGroupContext();
+  level->setFrame(TFrameId(1), image);
+  app->getCurrentXsheet()->getXsheet()->setCell(0, 0,
+                                                TXshCell(level, TFrameId(1)));
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  app->getCurrentColumn()->setColumnIndex(0);
+  app->getCurrentFrame()->setFrame(0);
+  app->getCurrentLevel()->setLevel(level);
+  app->getCurrentTool()->setTool("T_Selection");
+  settle();
+  auto* selection = dynamic_cast<StrokeSelection*>(
+      app->getCurrentTool()->getTool()->getSelection());
+  require(selection, "ungroup fixture has no stroke selection");
+  selection->setImage(image);
+  selection->selectNone();
+  for (int i : {0, 1, 3, 4, 5, 6}) selection->select(i, true);
+  selection->makeCurrent();
+  auto* undo = TUndoManager::manager();
+  undo->reset();
+  selection->getGroupCommand()->ungroup();
+  require(undo->getHistoryCount() == 1, "ungroup failed to record one undo");
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    require(!image->isStrokeGrouped(0) && !image->isStrokeGrouped(5) &&
+                image->getGroupDepth(3) == 1,
+            "ungroup failed to remove separate parent groups");
+    undo->undo();
+    for (UINT i = 0; i < image->getStrokeCount(); ++i) {
+      require(*image->getStroke(i) == *original->getStroke(i) &&
+                  image->getGroupDepth(i) == original->getGroupDepth(i),
+              "ungroup undo changed strokes or nested group depth");
+      for (UINT j = 0; j < image->getStrokeCount(); ++j)
+        require(image->getCommonGroupDepth(i, j) ==
+                    original->getCommonGroupDepth(i, j),
+                "ungroup undo merged separate groups");
+    }
+    undo->redo();
+  }
+  undo->undo();
+  undo->reset();
+  selection->selectNone();
+  app->getCurrentScene()->setDirtyFlag(false);
+}
+
 void nestedGroupChecks(TFilmstripSelection &frames) {
   auto *app = TApp::instance();
   auto *level = app->getCurrentScene()->getScene()->createNewLevel(
@@ -453,6 +791,9 @@ void nestedGroupChecks(TFilmstripSelection &frames) {
 }
 
 void runVectorWorkflowNativeChecks() {
+  filmstripUndoChecks();
+  rasterInsertionUndoChecks();
+  ungroupUndoChecks();
   auto *app = TApp::instance();
   auto *scene = app->getCurrentScene()->getScene();
   auto *level = scene->createNewLevel(PLI_XSHLEVEL, L"VectorWorkflowFixture")->getSimpleLevel();

@@ -3920,10 +3920,12 @@ void TCellSelection::convertVectortoVector() {
 
   // This is where the copying actually happens
   // copy old frames to Toonz Raster
-  bool keepOriginalPalette;
-  bool success = data->getLevelFrames(
-      sl, newFrameIds, DrawingData::OVER_SELECTION, true, keepOriginalPalette,
-      true);  // setting is redo = true skips the
+  bool keepOriginalPalette = false;
+  bool success =
+      data->getLevelFrames(sl, newFrameIds, DrawingData::OVER_SELECTION, true,
+                           keepOriginalPalette,
+                           true)
+          .pasted;  // setting is redo = true skips the
   // question about the palette
   // get the new FrameIds
   std::vector<TFrameId> newFids;
@@ -3934,9 +3936,10 @@ void TCellSelection::convertVectortoVector() {
   data->setLevelFrames(sl, newFrameIds);
   if (Preferences::instance()->getKeepFillOnVectorSimplify())
     data->setKeepVectorFills(true);
-  success = data->getLevelFrames(
-      sourceSl, frameIdsSet, DrawingData::OVER_SELECTION, true,
-      keepOriginalPalette, true);  // setting is redo = true skips the
+  success =
+      data->getLevelFrames(sourceSl, frameIdsSet, DrawingData::OVER_SELECTION,
+                           true, keepOriginalPalette, true)
+          .pasted;  // setting is redo = true skips the
   // question about the palette
 
   // get clones of the new images for undo

@@ -21,6 +21,7 @@
 #include "vectorizerpopup.h"
 
 #include <QApplication>
+#include <utility>
 
 //=============================================================================
 // DrawingData
@@ -51,13 +52,6 @@ void shiftHooks(TXshSimpleLevel *sl, const TFrameId &startFrameId,
       }
     }
   }
-}
-
-//-----------------------------------------------------------------------------
-
-QString makeCacheId(UINT id, const TFrameId &fid) {
-  return "DrawingData" + QString::number(id) + "-" +
-         QString::number(fid.getNumber());
 }
 
 //-----------------------------------------------------------------------------
@@ -211,13 +205,11 @@ void DrawingData::setLevelFrames(TXshSimpleLevel *sl,
                                                      // it.
     if (!img) continue;
 
-    // Clone the image and store it in the image cache
-    QString id = makeCacheId(
-        (uintptr_t) this,
-        it->getNumber());  // Cloning is necessary since the user may
-    TImageCache::instance()->add(
-        id, img->cloneImage());  // modify and save the original AFTER the copy
-    m_imageSet[frameId] = id;    // has been done.
+    // The source may be edited or saved after copying.
+    const QString id =
+        QString::fromStdString(TImageCache::instance()->getUniqueId());
+    TImageCache::instance()->add(id, img->cloneImage());
+    m_imageSet[frameId] = id;
 
     for (i = 0; i < hookCount; i++) {
       Hook *levelHook = levelHooks->getHook(i);
@@ -245,10 +237,9 @@ void DrawingData::setLevelFrames(TXshSimpleLevel *sl,
 // setType : INSERT->InsertPaste,  OVER_FRAMEID->Merge,
 // OVER_SELECTION->PasteInto
 
-bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
-                                 std::set<TFrameId> &frames,
-                                 ImageSetType setType, bool cloneImages,
-                                 bool &keepOriginalPalette, bool isRedo) const {
+DrawingData::PasteResult DrawingData::getLevelFrames(
+    TXshSimpleLevel* sl, std::set<TFrameId>& frames, ImageSetType setType,
+    bool cloneImages, bool& keepOriginalPalette, bool isRedo) const {
   int slType = m_level->getType();
   if (m_imageSet.empty() || !sl ||
       (frames.empty() &&
@@ -258,7 +249,7 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
        (sl->getType() != TZP_XSHLEVEL ||
         slType != PLI_XSHLEVEL) &&  // ...unless they are of type PLI and TLV
        (sl->getType() != PLI_XSHLEVEL || slType != TZP_XSHLEVEL)))  //
-    return false;
+    return {};
 
   if (m_level.getPointer() == sl || isRedo) {
   }
@@ -279,7 +270,7 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
           QObject::tr("Keep original palette"), QObject::tr("Cancel"), 0);
 
       if (ret == 0 || ret == 3)
-        return false;
+        return {};
       else if (ret == 1)
         keepOriginalPalette = false;
       else
@@ -296,11 +287,12 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
   sl->getFids(oldFids);
 
   std::set<TFrameId> framesToInsert;
+  std::vector<TFrameId> originalFrames;
   if (setType == INSERT) {
     framesToInsert = frames;
-    getFrameIdToInsert(framesToInsert, sl, m_imageSet);
-    // faccio posto (se serve)
-    makeSpaceForFids(sl, framesToInsert);
+    // Redo already holds the frame IDs chosen by the original insertion.
+    if (!isRedo) getFrameIdToInsert(framesToInsert, sl, m_imageSet);
+    originalFrames = makeSpaceForFids(sl, framesToInsert);
     assert(sl->getFrameCount() == (int)oldFids.size());
   } else if (setType == OVER_SELECTION)
     framesToInsert = frames;
@@ -387,7 +379,7 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
   }
 
   QApplication::restoreOverrideCursor();
-  return true;
+  return {true, std::move(originalFrames)};
 }
 
 //-----------------------------------------------------------------------------

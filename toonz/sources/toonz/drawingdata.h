@@ -8,6 +8,7 @@
 #include "toonzqt/dvmimedata.h"
 
 #include <set>
+#include <vector>
 #include "timage.h"
 #include "tfilepath.h"
 
@@ -31,6 +32,12 @@ public:
   */
   enum ImageSetType { INSERT, OVER_FRAMEID, OVER_SELECTION };
 
+  struct PasteResult {
+    bool pasted = false;
+    // Original IDs ordered by the surviving drawings after an INSERT.
+    std::vector<TFrameId> originalFrames;
+  };
+
   DrawingData() {}
 
   DrawingData(const DrawingData *src)
@@ -49,9 +56,10 @@ public:
   // data -> filmstrip
   // Se setType == INSERT inserisce i frames nel livello se necessario spostando
   // verso il basso i preesistenti. Altrimenti sostituisce i frames.
-  bool getLevelFrames(TXshSimpleLevel *sl, std::set<TFrameId> &frames,
-                      ImageSetType setType, bool cloneImages,
-                      bool &keepOriginalPalette, bool isRedo = false) const;
+  PasteResult getLevelFrames(TXshSimpleLevel* sl, std::set<TFrameId>& frames,
+                             ImageSetType setType, bool cloneImages,
+                             bool& keepOriginalPalette,
+                             bool isRedo = false) const;
 
   // Image must be put in cache before call this.
   void setFrames(const std::map<TFrameId, QString> &imageSet,

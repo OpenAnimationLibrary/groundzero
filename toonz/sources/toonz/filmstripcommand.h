@@ -113,8 +113,8 @@ void renumberDrawing(TXshSimpleLevel *sl, const TFrameId &oldFid,
 // Operator overload for TFrameId
 TFrameId operator+(const TFrameId &fid, int d);
 
-// Utility function to make space for frame IDs in a level
-void makeSpaceForFids(TXshSimpleLevel *sl,
-                      const std::set<TFrameId> &framesToInsert);
+// Make space and return original frame IDs in the resulting drawing order.
+std::vector<TFrameId> makeSpaceForFids(
+    TXshSimpleLevel* sl, const std::set<TFrameId>& framesToInsert);
 
 #endif  // FILMSTRIPCOMMAND_H
