@@ -185,17 +185,23 @@ class CiBudgetTest < Minitest::Test
     end
   end
 
-  def test_cli_rejects_eleven_checks
+  def test_cli_enforces_ten_check_boundary
     Dir.mktmpdir('ci-budget-limit') do |root|
       directory = File.join(root, '.github/workflows')
       FileUtils.mkdir_p(directory)
-      jobs = (1..11).to_h { |index| ["check#{index}", {}] }
-      File.write(File.join(directory, 'pr.yml'), workflow(jobs).to_yaml)
       script = File.expand_path('../check_ci_budget.rb', __dir__)
-      output, result = Open3.capture2e(RbConfig.ruby, script, root)
-      refute result.success?
-      assert_includes output, 'Automatic PR checks: 11/10'
-      assert_includes output, 'maximum is 10'
+      [9, 10, 11].each do |count|
+        jobs = (1..count).to_h { |index| ["check#{index}", {}] }
+        File.write(File.join(directory, 'pr.yml'), workflow(jobs).to_yaml)
+        output, result = Open3.capture2e(RbConfig.ruby, script, root)
+        assert_equal count <= 10, result.success?, output
+        assert_includes output, "Automatic PR checks: #{count}/10"
+        if count > 10
+          assert_includes output, 'maximum is 10'
+        else
+          refute_includes output, '::error'
+        end
+      end
     end
   end
 end
