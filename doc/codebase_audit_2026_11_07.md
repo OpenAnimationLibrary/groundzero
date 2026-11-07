@@ -4,6 +4,10 @@ Audit baseline: `2e52fb78b70915925393290f32dc09a95a3927ec` on `edition`, Novembe
 Prepared with Codex assistance. This is an engineering source audit and remediation record,
 not an independent certification or a release approval.
 
+The integrated changes are published for validation in
+[draft PR 142](https://github.com/OpenAnimationLibrary/groundzero/pull/142).
+The draft status does not establish runtime correctness or readiness to merge.
+
 ## Assessment
 
 The immediate risks are artwork integrity, undo identity, and task lifetime. The audit found
@@ -89,7 +93,7 @@ share a finding ID rather than inflating the count for each affected command.
 | F05 | P1 | Deleted tasks left farm mappings, causing null dereferences or reuse of an old farm job. Removal retires mappings and polling checks existence before copying. | `toonz/batches.cpp`, native UI farm-boundary fixture |
 | F06 | P1 | A suspended group could be deleted while a child was waiting/running. Active descendants now block group deletion. | `toonz/batches.cpp`, native UI fixture; queued-worker caveat below |
 | F07 | P1 | Batch MP4/WebM/APNG jobs could split into chunks writing one movie destination. New tasks use the shared movie classifier. | `toonz/batches.cpp`, saved-scene batch fixture; upstream #4629 |
-| F08 | P1 | FFmpeg export clamped shared HDR source rasters in place. Conversion now leaves input untouched and uses the existing output clamp. | `image/ffmpeg/tiio_ffmpeg.cpp`, direct and public FFmpeg fixtures; public fixture also covers Windows |
+| F08 | P1 | FFmpeg export clamped shared HDR source rasters in place. Conversion now leaves input untouched and uses the existing output clamp. | `image/ffmpeg/tiio_ffmpeg.cpp`, public FFmpeg fixture on all platforms; duplicate new direct HDR case consolidated with preserved alpha/reused-source assertions |
 | F09 | P2 | Painted deformation grids accepted invalid geometry/counts and converted brush bounds before clipping. Bounds are validated before integer operations. | `toonzlib/tdeformerstack.cpp`, `toonzlib/tests/deformer_test.cpp` |
 | F10 | P2 | Auto-Patch outline support could overflow integer dimensions and allocation arithmetic. Unrepresentable requests now fail with an actionable error. | `stdfx/autopatchfx.cpp`, `stdfx/autopatchoutline.h`, helper fixture |
 | F11 | P1 | Lettered drawing renumbering changed sorted order, so undo restored the wrong images. Duplicate/Add/Paste/Insert preserve the inverse identity mapping. | `toonz/filmstripcommand.cpp`, `toonz/drawingdata.cpp`, vector workflow fixture; upstream #2426 |
@@ -105,6 +109,9 @@ share a finding ID rather than inflating the count for each affected command.
 | F21 | P2 | Windows packaging copied libmypaint dependency DLLs without an identified copy of their notice directory. Packaging now carries the supplied notice tree. | Windows workflow; archive inspection remains required |
 | F22 | P2 | Vector simplification passed an uninitialized palette choice into the raster/vector conversion round trip. The choice now matches the existing rasterization path. | `toonz/cellselection.cpp`; source-validated, palette round-trip execution pending |
 | F23 | P2 | Qt 5 queued plugin publication passed an unregistered custom pointer type across threads. The type is now declared and registered before loader execution. | `toonzqt/pluginhost.h/.cpp`, real native probe fixture |
+| F24 | P1 | Filmstrip Swing undo left original drawings and synchronized exposures shifted. Its debug clone-count assertion also failed. Undo now restores identity and remembers the applied synchronization mode. | `toonz/filmstripcommand.cpp`, `swingUndoChecks`; numeric/lettered collisions, sparse selections, repeated cycles, preference changes before undo |
+| F25 | P2 | Audio import ignored its configured timeout, rejected already-finished successes, and retained stale data on failure. Its reader now uses a bounded wait, validates normal exit, clears failed output, and closes the process. | `toonzlib/thirdparty.cpp`, `verifyAudioLifecycle` and real WAV decoding in `ffmpeg_public` |
+| F26 | P2 | Image-side FFmpeg timeout conversion overflowed signed milliseconds for large valid preferences. Conversion now widens before multiplication and saturates while preserving the existing nonpositive fallback. | `image/ffmpeg/tiio_ffmpeg.cpp`, delayed fake-probe regression `testProbeTimeoutConversion` on non-MSVC builds |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -124,17 +131,22 @@ The complete upstream inventory and historical reconciliation are in
 Workflow provenance and explicit scanner exceptions are in
 [the workflow security review](audit_workflow_security.md); plugin trust and output behavior
 are in [the plugin boundary review](audit_plugin_boundaries.md).
+The follow-up [Swing review](audit_swing_undo.md),
+[test lifecycle inventory](audit_test_inventory.md), and
+[native crash investigation](audit_windows_crashes.md) record additional scenarios
+and distinguish prepared repairs from unresolved application crashes.
+The [scenario plan](audit_regression_scenarios.md) and
+[machine-readable ledger](audit_findings.json) track all 26 prepared findings,
+stable residual IDs, platform limits, required mutations, and exact CI evidence.
 
 ## Remaining risks and owner decisions
 
 | Priority / evidence | Remaining work | Recommended decision or evidence |
 | --- | --- | --- |
 | P1, source-confirmed | A queued/assigned `TaskRunner` can retain raw task or dependency pointers after status changes allow removal. Bulk clear/load replacement also leak owners. | Implement a retirement/borrow protocol before deleting bulk owners; see task lifetime design and deterministic CI cases. A child-status guard alone does not solve this. |
-| P1, source-confirmed | Filmstrip Swing removes inserted drawings on undo without restoring shifted original IDs; its clone-count assertion also needs review. | Add a separate Swing mapping patch with sparse/lettered selections and repeated undo/redo fixtures; this operation is outside the prepared insertion fixes. |
-| P1, observed CI failure | Native application qualification still fails on the reviewed baseline and PR 141. | Obtain the original failing executable/stack; verify a specific fix on the same failing path. Do not infer repair from unrelated task tests. |
+| P1, observed CI failure | Native application qualification fails on the reviewed baseline and PR 141 for distinct reasons. | Baseline Windows reaches a Qt text-layout destructor during workspace teardown; its corrupting write is unresolved. PR 141 bypasses viewer initialization in its new fixture; a separate factory-based correction is prepared. Verify each failing path independently. |
 | Trust decision, exploitability unresolved | External-FX names select local XML without canonical containment; XML supplies executable commands. Scene resource aliases also intentionally resolve external paths. | Trace malicious-input fixtures and actual write/render paths, then decide trust restrictions while preserving explicitly selected external resources. No standalone scene RCE was demonstrated. |
 | P2, source-confirmed | Legacy external-FX output loading replaces only a local raster pointer, so decoded output is not assigned to the render tile. | Prepare a pixel-level fixture and review the compatibility impact before changing previously ineffective rendering. Process/decoder tests do not establish tile output. |
-| P2, source-confirmed | Audio import uses a fixed 30-second FFmpeg wait despite a configurable 600-second default. | Apply the existing bounded timeout policy with start/failure/timeout cleanup fixtures. This pass does not change audio timing. |
 | P2, evidence gap | Selected legacy Windows binaries lack a complete source/patch/build/digest record. | Inventory actual link inputs and establish reproducible rebuilds before targeted updates; do not infer CVE applicability from directory names. |
 | P2, source-confirmed | Linux packaging uses moving AppImage download URLs; Windows custom Qt and prebuilt-library downloads lack pinned digests. Optional Python/OS/Rust dependency inputs are not fully locked. | Obtain reviewed provenance and trusted digests before pinning native payloads; the action pins and npm lock do not resolve these inputs. |
 | P2, dated availability risk | Homebrew plans to disable `qt@5` on 2027-05-19 and `opencv@4` on 2027-07-09. | Select and qualify a supported acquisition path before those dates; migration needs native device, scene, and rendering evidence. |
@@ -194,8 +206,8 @@ owner review before merging the topology change; no repository settings were cha
 
 [CLAUDE.md](../CLAUDE.md) requires builds and tests to run in CI. No application builds,
 unit tests, integration tests, mutation tests, or manual artist sessions ran locally.
-Added tests are specifications awaiting execution, not evidence of runtime success.
-Static checks and read-only inspection are reported separately.
+New application fixtures are specifications awaiting execution, not evidence of
+runtime success. Static checks, source traces, and actual CI results are reported separately.
 
 The integrated local validation passed whitespace checks, changed-line C++ formatting,
 Ruby syntax and the 10/10 topology calculation, actionlint/ShellCheck across all workflows,
@@ -203,6 +215,10 @@ Ruff lint/format at the 100-character limit, ty, privacy scanning, and the two c
 pre-commit hooks. The whitespace hook checks the staged diff; the working diff was also
 checked separately. The new Python auditor was exercised against the live read-only APIs
 as described above. Its 20 unit cases and the 15 Ruby budget cases were not executed locally.
+Those two CI steps passed for initial draft head `2758123e8` in
+[Linux job 128529701035](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551454/job/128529701035).
+That evidence predates the follow-up application fixes and the expanded nine/ten/eleven-check
+CLI boundary case; it does not qualify the final combined head.
 
 The workflow audit pins 121 external action uses and disables persisted credentials on
 25 checkouts. Offline zizmor's default scan passes with documented local exceptions; the
@@ -228,5 +244,6 @@ Before release or an assertion that these bugs are resolved:
 
 Recommended review units are CI topology/diagnostics, workflow supply chain, PSD transactions,
 task controller safety, rendering bounds/ownership, drawing undo, and plugin/process fixes.
-Each unit should carry its own tests and a narrow explanation. No upstream bug was closed,
-no PR was published, and no release was approved by this audit preparation.
+Each unit should carry its own tests and a narrow explanation. Draft PR 142 groups these
+units as separate commits for Groundzero integration and CI. No upstream bug was closed
+and no release was approved by this audit preparation.

@@ -1,0 +1,1880 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-11-07",
+  "baseline_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
+  "patch_revision": null,
+  "scope": "26 prepared findings plus 14 distinct residual/qualification records; two retained residual IDs alias F24/F25. Not a complete defect inventory.",
+  "review_order": [
+    "architecture",
+    "code_quality",
+    "tests",
+    "performance"
+  ],
+  "definitions": {
+    "source_confirmed": "A defective source operation and reachable caller or violated invariant were traced; no runtime execution is implied.",
+    "patched": "A remedy exists in the prepared diff; compilation, regression success and baseline detection are not implied.",
+    "ci_verified": "A named scenario passed on an exact patch revision and named platform/configuration with linked CI evidence; record baseline or mutation failure separately. This never automatically closes the record.",
+    "observed_failure": "A linked prior CI run failed; its cause and applicability to a proposed fix remain to be established.",
+    "reported": "An upstream symptom is catalogued without current Groundzero reproduction.",
+    "needs_investigation": "A boundary was traced but impact, exploitability or intended policy remains unresolved.",
+    "qualification_gap": "Required platform, artifact or workflow evidence is missing.",
+    "priority": "P1 prioritizes crash/edit-loss/wrong-artwork risk or investigation of such risk; P2 narrower reliability or qualification work. Not CVSS.",
+    "resolution": "All records remain open. Only explicit review of required evidence and compatibility decisions may change resolution.",
+    "follow_up_patch": "A separately prepared patch is reported but is not part of the reviewed snapshot until its integration and exact revision are recorded.",
+    "tracked_in_finding": "Stable residual ID retained as an alias after a follow-up remedy joins the prepared findings; do not count it again or infer runtime closure."
+  },
+  "evidence_policy": {
+    "source_traces_are_runtime_simulations": false,
+    "local_builds_or_tests_run": false,
+    "static_validation_reference": "doc/codebase_audit_2026_11_07.md",
+    "static_checks_do_not_establish_runtime_success": true,
+    "pass_record_required_fields": [
+      "revision",
+      "platform",
+      "configuration",
+      "scenario_or_test",
+      "result",
+      "run_url",
+      "artifact_or_log"
+    ],
+    "closure_requires": [
+      "exact-patch regression pass",
+      "baseline or targeted mutation detects defect",
+      "required platform coverage",
+      "compatibility and owner decisions recorded"
+    ],
+    "proposed_tests": "Empty tests arrays and pending items describe missing coverage, not implemented features.",
+    "source_paths": "Repository-relative paths. For reported or coverage-gap records, paths identify candidate/qualification scope, not proof of a defect."
+  },
+  "references": {
+    "audit": "doc/codebase_audit_2026_11_07.md",
+    "upstream_inventory": "doc/upstream_bug_triage.md",
+    "upstream_snapshot": {
+      "total": 132,
+      "reported": 124,
+      "source_confirmed": 3,
+      "source_reviewed_unproven": 4,
+      "current_mitigation": 1
+    },
+    "task_lifetime": "doc/audit_task_lifetime.md",
+    "plugins": "doc/audit_plugin_boundaries.md",
+    "platforms": "doc/audit_platform_dependencies.md",
+    "workflows": "doc/audit_workflow_security.md",
+    "ci_topology": "doc/ci_audit_topology.md",
+    "pull_request": "https://github.com/OpenAnimationLibrary/groundzero/pull/142"
+  },
+  "suites": {
+    "psd": {
+      "path": "toonz/sources/image/tests/tiio_psd_test.cpp",
+      "ctest": [
+        "tiio_psd"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "RLIMIT_FSIZE failure injection is POSIX-only."
+    },
+    "ffmpeg_public": {
+      "path": "toonz/sources/image/tests/ffmpeg_public_test.cpp",
+      "ctest": [
+        "ffmpeg_public"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Requires an FFmpeg/ffprobe pair; helper resolution checks do not require Rhubarb."
+    },
+    "ffmpeg_direct": {
+      "path": "toonz/sources/image/tests/tiio_ffmpeg_test.cpp",
+      "ctest": [
+        "tiio_ffmpeg"
+      ],
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "limit": "Direct classes are not exported for the MSVC fixture."
+    },
+    "native_tasks": {
+      "path": "toonz/sources/toonz/nativeuiintegrationtest.cpp",
+      "runner": "ci-scripts/run_native_ui_test.py",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Application fixture, not a separately registered CTest; earlier native crashes can prevent reaching its checkpoints."
+    },
+    "native_vector": {
+      "path": "toonz/sources/toonz/vectorworkflowintegrationtest.cpp",
+      "runner": "ci-scripts/run_native_ui_test.py",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Require --require-vector-workflows and retain the native checkpoint log."
+    },
+    "deformer": {
+      "path": "toonz/sources/toonzlib/tests/deformer_test.cpp",
+      "ctest": [
+        "deformer"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Numeric fixtures do not establish complete old-scene rendering equivalence."
+    },
+    "autopatch": {
+      "path": "toonz/sources/stdfx/tests/autopatchoutline_test.cpp",
+      "ctest": [
+        "autopatchoutline"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Header helpers only; the Fx dry/compute and predictive subdivision paths need a separate fixture."
+    },
+    "externfx": {
+      "path": "toonz/sources/tnzbase/tests/externfx_process_test.cpp",
+      "ctest": [
+        "externfx_process"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Validates process/decoder outcomes, not assignment of decoded pixels to the tile."
+    },
+    "plugin_probe": {
+      "path": "toonz/sources/toonzqt/tests/plugin_probe_test.cpp",
+      "fixture": "toonz/sources/toonzqt/tests/plugin_probe_fixture.cpp",
+      "ctest": [
+        "plugin_probe_single",
+        "plugin_probe_empty"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "Private real native module; qualify Qt 5 and Qt 6 explicitly."
+    },
+    "ci_audit": {
+      "path": "ci-scripts/tests/test_ci_audit.py",
+      "runner": "python3 -m unittest discover -s ci-scripts/tests -p test_ci_audit.py -v",
+      "platforms": [
+        "linux"
+      ],
+      "limit": "Mocked API boundaries; live reporter observations are recorded separately in the main audit."
+    },
+    "ci_budget": {
+      "path": "ci-scripts/tests/test_ci_budget.rb",
+      "runner": "ruby ci-scripts/tests/test_ci_budget.rb",
+      "platforms": [
+        "linux"
+      ],
+      "limit": "Static topology model; observed historical/manual check totals are different quantities."
+    }
+  },
+  "findings": [
+    {
+      "id": "F01",
+      "priority": "P1",
+      "title": "PSD overwrite transaction",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/image/psd/tiio_psd.cpp"
+      ],
+      "baseline_behavior": "Opening the destination with wb truncates old artwork before a short write or close failure.",
+      "patched_invariant": "Publish only fully written, flushed temporary output; preserve the original on failure.",
+      "scenario": "Overwrite a red PSD with blue pixels under a 128-byte file-size limit, at 4x4 and 512x512; retry after restoring the limit.",
+      "tests": [
+        {
+          "suite": "psd",
+          "cases": [
+            "testFailedOverwrite",
+            "testUnwritableDestination"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Add Windows write/rename failure injection; inspect permissions and filesystem behavior.",
+          "Capture failure against the truncating baseline and successful retry on the patched revision."
+        ],
+        "mutation_proposal": "Restore fopen(path, wb) output, or remove checked flush on an affected Qt version; failed-overwrite preservation must fail."
+      }
+    },
+    {
+      "id": "F02",
+      "priority": "P2",
+      "title": "Independent PSD frame readers",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/image/psd/tiio_psd.cpp",
+        "toonz/sources/image/psd/tiio_psd.h"
+      ],
+      "baseline_behavior": "Constructing reader B overwrites the level reader's selected layer used by reader A and loadInfo.",
+      "patched_invariant": "Each reader retains its own layer ID; repeated metadata loading keeps the original level selection.",
+      "scenario": "Create red/blue layer readers before either loads, alternate loads, and reload level metadata.",
+      "tests": [
+        {
+          "suite": "psd",
+          "cases": [
+            "testIndependentFrameReaders"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Confirm both pixel identities and frame count across repeated reads."
+        ],
+        "mutation_proposal": "Restore the constructor's shared setLayerId update and shared-ID load; the interleaving case must fail."
+      }
+    },
+    {
+      "id": "F03",
+      "priority": "P1",
+      "title": "Selected group and child removal",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/tasksviewer.cpp",
+        "toonz/sources/toonz/batches.cpp"
+      ],
+      "baseline_behavior": "Deleting a selected group frees its selected child before the selection loop reads that child.",
+      "patched_invariant": "Snapshot selected IDs before deletion; stale selections and a missing parent are handled without dereferencing freed objects.",
+      "scenario": "Select a group and child in one Tasks panel while another panel selects the child; delete, then remove an orphan task.",
+      "tests": [
+        {
+          "suite": "native_tasks",
+          "cases": [
+            "exerciseTaskRemoval"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Require the task-removal checkpoint; inspect a sanitizer/PageHeap run for invalid accesses."
+        ],
+        "mutation_proposal": "Iterate selected raw task pointers after group deletion; the same selection fixture must detect invalid access."
+      }
+    },
+    {
+      "id": "F04",
+      "priority": "P1",
+      "title": "Missing and borrowed task dependencies",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/tasksviewer.cpp"
+      ],
+      "baseline_behavior": "Missing dependency lookup dereferences null and dependency items retain borrowed task pointers.",
+      "patched_invariant": "Dependency UI stores IDs and permits removal of missing references.",
+      "scenario": "Display a dependency ID absent from the controller, remove it by the dependency UI action, and check the owner's dependency list.",
+      "tests": [
+        {
+          "suite": "native_tasks",
+          "cases": [
+            "exerciseTaskRemoval"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Add deletion of a once-valid dependency while its panel remains open."
+        ],
+        "mutation_proposal": "Restore unconditional dependency pointer dereference; the missing-reference fixture must fail."
+      }
+    },
+    {
+      "id": "F05",
+      "priority": "P1",
+      "title": "Retired farm task mappings",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/batches.cpp"
+      ],
+      "baseline_behavior": "Removed local tasks leave farm IDs used by polling or by a replacement with the same local ID.",
+      "patched_invariant": "Removal retires mappings, and polling checks local existence before copying farm state.",
+      "scenario": "Submit group/child through the farm boundary fixture, remove and poll, then recreate the IDs and start again.",
+      "tests": [
+        {
+          "suite": "native_tasks",
+          "cases": [
+            "exerciseFarmTaskRemoval"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Retain queried remote IDs and submission/restart assertions; separately qualify a real farm controller."
+        ],
+        "mutation_proposal": "Keep an old mapping on removal; replacement must incorrectly restart/poll the retired remote task and fail."
+      }
+    },
+    {
+      "id": "F06",
+      "priority": "P1",
+      "title": "Active child deletion guard",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/batches.cpp"
+      ],
+      "baseline_behavior": "A suspended group is removable despite a Waiting or Running descendant.",
+      "patched_invariant": "Active descendants prevent group deletion; idle groups remain removable.",
+      "scenario": "Attempt group removal with each active child state, acknowledge the warning, stop the child, and remove again.",
+      "tests": [
+        {
+          "suite": "native_tasks",
+          "cases": [
+            "exerciseActiveChildRemoval"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Validate both active states and subsequent removal; R01 remains a separate queued-worker lifetime defect."
+        ],
+        "mutation_proposal": "Check only the parent's status; the active-child fixture must fail."
+      }
+    },
+    {
+      "id": "F07",
+      "priority": "P1",
+      "title": "Batch movie chunk classification",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/batches.cpp",
+        "toonz/sources/include/tlevel_io.h"
+      ],
+      "baseline_behavior": "New MP4/WebM/APNG tasks can split into chunks sharing one movie destination.",
+      "patched_invariant": "New movie tasks span the requested range; image sequences retain chunking.",
+      "scenario": "Save a five-frame scene with chunk preference two and add movie and PNG tasks through the controller.",
+      "tests": [
+        {
+          "suite": "native_tasks",
+          "cases": [
+            "exerciseMovieBatchSetup"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Decode a real five-frame batch export and compare all frames.",
+          "Load an old saved chunked movie task list; the creation fix does not migrate it."
+        ],
+        "mutation_proposal": "Restore the MOV/AVI/3GP-only classifier; new movie-task chunk assertions must fail."
+      }
+    },
+    {
+      "id": "F08",
+      "priority": "P1",
+      "title": "Shared HDR export input",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/image/ffmpeg/tiio_ffmpeg.cpp"
+      ],
+      "baseline_behavior": "Pipe and intermediate-image exports clamp the shared floating source in place.",
+      "patched_invariant": "Export preserves every source channel and clamps only the converted output.",
+      "scenario": "Export negative and above-one channels through both APNG paths, compare original rasters, and independently decode the output.",
+      "tests": [
+        {
+          "suite": "ffmpeg_public",
+          "cases": [
+            "exportHdr"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the public HDR fixture in pipe and intermediate-image modes on all three platforms.",
+          "The duplicate direct-class HDR case was consolidated into the public fixture; preserve exact source and decoded-channel assertions."
+        ],
+        "mutation_proposal": "Restore the in-place clamp loop in either path; source equality must fail even when output still matches."
+      }
+    },
+    {
+      "id": "F09",
+      "priority": "P2",
+      "title": "Deformation painting bounds",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzlib/tdeformerstack.cpp",
+        "toonz/sources/include/toonz/tdeformerstack.h"
+      ],
+      "baseline_behavior": "Invalid geometry/counts are accepted and brush bounds are cast before clipping.",
+      "patched_invariant": "Grid geometry and cell count are valid before indexing; finite oversized brushes are clipped before integer conversion.",
+      "scenario": "Use non-finite/overflowing/underflowing grids, a 65536x65536 count, damaged dimensions, remote and large finite brushes.",
+      "tests": [
+        {
+          "suite": "deformer",
+          "cases": [
+            "testWeightPaintingInvalidGeometry",
+            "testWeightPaintingLargeBrush"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run integer/float conversion sanitizers and existing ordinary painting cases.",
+          "Compare a saved painted deformation scene before and after the patch."
+        ],
+        "mutation_proposal": "Move clipping after the int cast or remove the cell-count guard; boundary cases must fail or trigger the sanitizer."
+      }
+    },
+    {
+      "id": "F10",
+      "priority": "P2",
+      "title": "Auto-Patch support arithmetic",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/stdfx/autopatchfx.cpp",
+        "toonz/sources/stdfx/autopatchoutline.h"
+      ],
+      "baseline_behavior": "Outline support can overflow int conversion, padded dimensions, or raster byte arithmetic.",
+      "patched_invariant": "Reject unrepresentable support and oversized actual compute tiles without rejecting a dry-pass region that can be subdivided.",
+      "scenario": "Exercise zero/fractional/invalid radii and 4/8/16-byte boundaries; separately declare a large dry-pass region and compute smaller tiles.",
+      "tests": [
+        {
+          "suite": "autopatch",
+          "cases": [
+            "testOutlineMargin",
+            "testOutlineSize",
+            "testInvalidOutlineSize"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Add an Fx fixture covering the actionable exception and predictive subdivision.",
+          "Compare ordinary outline pixels and tile seams against the baseline."
+        ],
+        "mutation_proposal": "Remove the radius bound to test helpers; separately reapply full-region byte rejection in dryCompute to test the proposed subdivision fixture."
+      }
+    },
+    {
+      "id": "F11",
+      "priority": "P1",
+      "title": "Drawing identity through insertion undo",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/filmstripcommand.cpp",
+        "toonz/sources/toonz/filmstripcommand.h",
+        "toonz/sources/toonz/drawingdata.cpp",
+        "toonz/sources/toonz/drawingdata.h"
+      ],
+      "baseline_behavior": "Renumbering lettered drawings changes sort order, so positional undo restores the wrong images.",
+      "patched_invariant": "Inverse frame-ID mappings restore original IDs, contents and exposures after Duplicate/Add/Paste/Insert.",
+      "scenario": "Use 1/1a/1b/2/2a/3 with distinct images, sparse exposures, both renumber-sync preferences, and repeated undo/redo.",
+      "tests": [
+        {
+          "suite": "native_vector",
+          "cases": [
+            "filmstripUndoChecks",
+            "filmstripInsertionUndoChecks",
+            "rasterInsertionUndoChecks"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Compare complete images, palettes, exposures and empty cells, not just representative stroke markers.",
+          "Swing is tracked separately as R03."
+        ],
+        "mutation_proposal": "Restore positional pairing after makeSpaceForFids; lettered-content restoration must fail."
+      }
+    },
+    {
+      "id": "F12",
+      "priority": "P1",
+      "title": "Undo cache identity and raster independence",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/filmstripcommand.cpp",
+        "toonz/sources/toonz/drawingdata.cpp",
+        "toonz/sources/toonz/drawingdata.h"
+      ],
+      "baseline_behavior": "Numeric-only/shared cache keys collide across lettered drawings or history entries; blank raster redo shares mutable images.",
+      "patched_invariant": "Drawing and history identities remain distinct; separate inserted raster drawings never alias.",
+      "scenario": "Duplicate numbered/lettered drawings, keep two Each history entries for reused IDs, and edit one of two blank redone rasters.",
+      "tests": [
+        {
+          "suite": "native_vector",
+          "cases": [
+            "filmstripUndoChecks",
+            "eachHistoryUndoChecks",
+            "rasterInsertionUndoChecks"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Exercise clipboard replacement and multiple undo entries within one session.",
+          "Verify both cached drawing identity and raster storage independence."
+        ],
+        "mutation_proposal": "Drop the frame suffix/history identity from a cache key, or reuse one blank raster on redo; the matching fixture must fail."
+      }
+    },
+    {
+      "id": "F13",
+      "priority": "P2",
+      "title": "Ungroup restores group partitions",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/tnztools/imagegrouping.cpp"
+      ],
+      "baseline_behavior": "Undoing Ungroup merges independent selected groups into one.",
+      "patched_invariant": "Undo restores each original group range and nested relationships.",
+      "scenario": "Ungroup separate groups including a nested child; undo/redo and compare stroke geometry, depth, and pairwise common group depth.",
+      "tests": [
+        {
+          "suite": "native_vector",
+          "cases": [
+            "ungroupUndoChecks"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Retain pairwise partition assertions and repeat undo/redo."
+        ],
+        "mutation_proposal": "Regroup the entire selected range on undo; group-partition assertions must fail."
+      }
+    },
+    {
+      "id": "F14",
+      "priority": "P2",
+      "title": "Empty helper directory preference",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzlib/thirdparty.cpp"
+      ],
+      "baseline_behavior": "Launch indexes an empty QString and resolves differently from helper discovery.",
+      "patched_invariant": "Empty and dot-relative preferences resolve from the application directory; absolute paths and spaces are preserved.",
+      "scenario": "Check ffmpeg, ffprobe and Rhubarb program selection for empty, dot, spaced relative and absolute directories.",
+      "tests": [
+        {
+          "suite": "ffmpeg_public",
+          "cases": [
+            "verifyToolDirectory"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Qualify debug Qt assertions and release path selection; reap any launched helper."
+        ],
+        "mutation_proposal": "Remove the empty-directory branch; debug launch or expected program-path assertions must fail."
+      }
+    },
+    {
+      "id": "F15",
+      "priority": "P2",
+      "title": "Clean Windows codec header configuration",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/CMakeLists.txt"
+      ],
+      "baseline_behavior": "PNG initialization checks the existing directory rather than its absent header; TIFF copies require a newer CMake than advertised.",
+      "patched_invariant": "Missing generated headers are copied with a minimum-compatible command; existing headers are preserved.",
+      "scenario": "Configure a clean Windows checkout without workflow header pre-copy, then configure with a marker in an existing header.",
+      "tests": [],
+      "platforms": [
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Add a configure fixture isolating these copies on the advertised minimum and CI CMake versions.",
+          "Do not infer minimum-version support of every fetched dependency from this fix."
+        ],
+        "mutation_proposal": "Restore the directory existence check or COPY_FILE; clean-header/minimum-version cases must fail."
+      }
+    },
+    {
+      "id": "F16",
+      "priority": "P2",
+      "title": "External-effect process failures",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/tnzbase/texternfx.cpp"
+      ],
+      "baseline_behavior": "POSIX execution concatenates an uninitialized buffer; Windows expansion/process failures use invalid handles and successful launches leak handles.",
+      "patched_invariant": "Prepared arguments are used; failed launch, exit and output decode report errors with temporary-file and handle cleanup.",
+      "scenario": "Run quoted arguments, nonzero exit, missing/corrupt output; on Windows expand 4096 bytes, reject missing/oversized commands and repeat launches.",
+      "tests": [
+        {
+          "suite": "externfx",
+          "cases": [
+            "expectFailure",
+            "windowsProcesses"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Add explicit assertions for temporary-file cleanup and a POSIX start failure.",
+          "Decoded tile assignment remains R08; this suite does not prove correct rendered pixels."
+        ],
+        "mutation_proposal": "Restore fixed expansion capacity or omit handle closure; expansion/handle-count assertions must fail."
+      }
+    },
+    {
+      "id": "F17",
+      "priority": "P2",
+      "title": "Single-effect native function probe",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp"
+      ],
+      "baseline_behavior": "A valid one-effect function range is rejected as empty.",
+      "patched_invariant": "One effect before its sentinel loads; a truly empty range remains rejected.",
+      "scenario": "Load the real private plugin fixture in single and empty modes and attempt public effect creation.",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": []
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run both probe modes; ensure the fixture is not installed in the application package."
+        ],
+        "mutation_proposal": "Restore the one-element range rejection; plugin_probe_single must fail while empty remains rejected."
+      }
+    },
+    {
+      "id": "F18",
+      "priority": "P2",
+      "title": "CI diagnosis and pagination",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "ci-scripts/ci_audit.py"
+      ],
+      "baseline_behavior": "Success checkpoint substrings look like failures; notices bury errors and later API pages are omitted.",
+      "patched_invariant": "Classify actual failures, retain distinct diagnostics and follow paginated checks/jobs without declaring pending or absent checks green.",
+      "scenario": "Feed checkpoint words plus real failures and failures beyond page one; verify endpoint errors and linked job IDs.",
+      "tests": [
+        {
+          "suite": "ci_audit",
+          "cases": [
+            "test_successful_checkpoint_words_are_not_network_or_cancellation",
+            "test_failure_beyond_first_page_is_not_hidden_by_notices_or_warnings",
+            "test_failure_on_second_check_page_prevents_a_false_green",
+            "test_actions_steps_use_linked_job_id_instead_of_check_id"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "validation": {
+        "status": "recorded_revision_pass_final_pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [
+          {
+            "evidence_id": "CI01"
+          }
+        ],
+        "pending": [
+          "All 20 cases passed at CI01's initial head; retain final combined-head evidence and separate live API observations.",
+          "Verify a generic exit code remains unclassified when no cause is available."
+        ],
+        "mutation_proposal": "Stop after the first API page or restore substring matches; the corresponding fixture must fail."
+      }
+    },
+    {
+      "id": "F19",
+      "priority": "P2",
+      "title": "Automatic PR check budget",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "ci-scripts/check_ci_budget.rb",
+        ".github/workflows/workflow_linux.yml",
+        ".github/workflows/tests_linux.yml"
+      ],
+      "baseline_behavior": "Independent automatic PR workflows expand to a conservative 31-check worst case.",
+      "patched_invariant": "At most ten automatic PR checks preserve mapped coverage and failure propagation.",
+      "scenario": "Count reusable/matrix expansion and test an eleven-check graph, cycles, dynamic matrices and invalid shapes.",
+      "tests": [
+        {
+          "suite": "ci_budget",
+          "cases": [
+            "test_cli_enforces_ten_check_boundary",
+            "test_multiplies_reusable_workflows_by_caller_matrix",
+            "test_rejects_reusable_cycles",
+            "test_rejects_dynamic_matrix_and_missing_or_external_workflows"
+          ]
+        }
+      ],
+      "platforms": [
+        "github_actions"
+      ],
+      "validation": {
+        "status": "earlier_revision_pass_followup_pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [
+          {
+            "evidence_id": "CI02"
+          }
+        ],
+        "pending": [
+          "The initial 15 cases passed at CI02; run the expanded nine/ten/eleven boundary case on the follow-up revision and inspect the complete PR update.",
+          "Fail one consolidated step deliberately and confirm later independent steps and diagnostics still execute; owner reviews retired required-check names."
+        ],
+        "mutation_proposal": "Ignore caller matrix multiplication or allow eleven checks; budget cases must fail."
+      }
+    },
+    {
+      "id": "F20",
+      "priority": "P2",
+      "title": "Workflow provenance and error propagation",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        ".github/workflows",
+        ".github/dependabot.yml",
+        "ci-scripts/style-toolchain/package-lock.json"
+      ],
+      "baseline_behavior": "Mutable actions, stored checkout credentials, shell interpolation and floating build tools weaken provenance; early CMD errors can be hidden.",
+      "patched_invariant": "Pinned actions/tools and scoped credentials are used; failed acquisition/copy steps propagate; interpolation stays data.",
+      "scenario": "Run workflow static scanners and isolated failure cases for dependency install/copy/extraction; inspect the resolved lock and artifact logs.",
+      "tests": [],
+      "platforms": [
+        "github_actions",
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Execute combined workflows with changed action majors and package tools.",
+          "Preserve documented scanner exceptions; qualify native payload provenance separately as R10/R11."
+        ],
+        "mutation_proposal": "Inject a failing intermediate Windows copy before a successful command; its step must remain failed. Use an isolated fixture, not publishing jobs."
+      }
+    },
+    {
+      "id": "F21",
+      "priority": "P2",
+      "title": "Windows dependency notice packaging",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        ".github/workflows/workflow_windows.yml",
+        "thirdparty/libmypaint/license"
+      ],
+      "baseline_behavior": "Packaging copies dependency DLLs without an identified copy of their supplied notice directory.",
+      "patched_invariant": "The archive contains the expected nonempty notice and author files alongside the corresponding shipped dependencies.",
+      "scenario": "Build the Windows archive, extract it and inspect the seven required notice/author files and the actual DLL list.",
+      "tests": [],
+      "platforms": [
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Inspect the produced archive, not only the staging tree.",
+          "Owner confirms notice/source obligations against actual binary provenance; no compliance conclusion is inferred."
+        ],
+        "mutation_proposal": "Omit the notice-tree copy or one required notice in a packaging fixture; presence assertions must fail."
+      }
+    },
+    {
+      "id": "F22",
+      "priority": "P2",
+      "title": "Vector simplification palette choice",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/cellselection.cpp",
+        "toonz/sources/toonz/rasterizecommand.cpp"
+      ],
+      "baseline_behavior": "Simplification passes an uninitialized palette choice into the raster/vector round trip.",
+      "patched_invariant": "The palette choice is initialized consistently with the existing rasterization path.",
+      "scenario": "Simplify a vector drawing with multiple palette styles, then undo/redo and save/reload; compare style IDs, colors and pixels.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Add a palette round-trip native fixture; current evidence is source-only.",
+          "Cover shared/external palettes and cancellation before claiming compatibility."
+        ],
+        "mutation_proposal": "Restore the uninitialized argument in a disposable CI mutation; detect with an uninitialized-read checker and the palette fixture."
+      }
+    },
+    {
+      "id": "F23",
+      "priority": "P2",
+      "title": "Queued native plugin publication",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/pluginhost.h"
+      ],
+      "baseline_behavior": "Qt 5 sends an unregistered custom pointer type across a queued thread connection.",
+      "patched_invariant": "The pointer meta-type is declared and registered before the loader publishes effects.",
+      "scenario": "Load the real single-effect fixture on Qt 5, process queued events and verify public creation succeeds without queued-type warnings.",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": []
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Require a Qt 5 job and queued-publication warning capture; Qt 6 alone does not qualify the original defect."
+        ],
+        "mutation_proposal": "Remove meta-type declaration/registration; the Qt 5 native probe must expose missing publication or its warning."
+      }
+    },
+    {
+      "id": "F24",
+      "priority": "P1",
+      "title": "Filmstrip Swing undo restoration",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/filmstripcommand.cpp",
+        "toonz/sources/toonz/vectorworkflowintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Swing undo removes appended drawings without restoring shifted original frame IDs; the cloning count also oversteps its intended count.",
+      "patched_invariant": "Clone exactly the appended drawing count and restore original frame identities and exposures, respecting the preference used by each operation.",
+      "scenario": "Swing empty/single, sparse and lettered selections with following drawings; compare IDs/content/exposures through repeated undo/redo and sync-preference changes.",
+      "tests": [
+        {
+          "suite": "native_vector",
+          "cases": [
+            "swingUndoChecks",
+            "checkSwingState"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "previous_record": "R03",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the new native cases on the combined revision and retain each assertion/checkpoint.",
+          "Compare original and appended content, empty cells and preference changes; verify no undo entry for fewer than two drawings."
+        ],
+        "mutation_proposal": "Remove original-frame restoration or restore the old clone loop bound; sparse/lettered Swing state checks must fail."
+      }
+    },
+    {
+      "id": "F25",
+      "priority": "P2",
+      "title": "Bounded FFmpeg audio lifecycle",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzlib/thirdparty.cpp",
+        "toonz/sources/image/tests/ffmpeg_public_test.cpp"
+      ],
+      "baseline_behavior": "Audio waits a fixed 30 seconds, ignores configured longer budgets, and does not consistently reject unsuccessful exits or clean up failed process state.",
+      "patched_invariant": "Use a bounded overflow-safe preference timeout, return data only on normal zero exit, and close/reap helpers with empty output on failure.",
+      "scenario": "Exercise unstarted/missing, running/already-finished success, partial nonzero/killed helpers, short/long/overflowing/zero timeout values, and a real spaced-path PCM WAV.",
+      "tests": [
+        {
+          "suite": "ffmpeg_public",
+          "cases": [
+            "verifyAudioLifecycle",
+            "verifyAudioDecode"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "previous_record": "R09",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run lifecycle and real PCM cases on all three platforms; assert closed channels, NotRunning and empty data on failures.",
+          "Verify one-second timeout versus two-second helper and five-second success without restoring the old 30-second constant."
+        ],
+        "mutation_proposal": "Restore fixed wait or ignore nonzero exit; configured-budget/partial-output cases must fail. Remove cleanup to fail closed-channel/process-state checks."
+      }
+    },
+    {
+      "id": "F26",
+      "priority": "P2",
+      "title": "FFmpeg constructor timeout conversion",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/image/ffmpeg/tiio_ffmpeg.cpp",
+        "toonz/sources/image/tests/tiio_ffmpeg_test.cpp"
+      ],
+      "baseline_behavior": "Multiplying a large positive timeout preference by 1000 in signed int can overflow before assigning the process wait budget.",
+      "patched_invariant": "Convert positive seconds in qint64 and saturate to INT_MAX milliseconds; preserve the existing 30-second fallback for non-positive video preferences.",
+      "scenario": "Fake ffprobe waits two seconds then emits its sentinel: 4294968-second and zero preferences succeed, while one second times out.",
+      "tests": [
+        {
+          "suite": "ffmpeg_direct",
+          "cases": [
+            "testProbeTimeoutConversion"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run tiio_ffmpeg on Linux/macOS and capture baseline or targeted overflow mutation detection.",
+          "Add equivalent public-API Windows coverage; the direct-class test is excluded from MSVC.",
+          "Keep the existing video non-positive fallback distinct from F25's bounded audio policy."
+        ],
+        "mutation_proposal": "Restore signed-int seconds*1000 conversion; the large-positive-budget sentinel case must fail or trigger integer-overflow instrumentation."
+      }
+    }
+  ],
+  "residuals": [
+    {
+      "id": "R01",
+      "priority": "P1",
+      "title": "Queued or finishing task borrows",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/batches.cpp",
+        "toonz/sources/include/tthread.h",
+        "toonz/sources/common/tcore/tthread.cpp"
+      ],
+      "baseline_behavior": "Queued/assigned TaskRunner objects and dependency traversal can retain raw pointers after display status permits removal.",
+      "required_invariant": "Retain every task, child and dependency borrow until the runner's final access; cancellation/status alone cannot permit deletion.",
+      "scenario": "Gate the active worker, queue a second task, stop/remove it, release the gate; also gate queue handoff and terminal-status publication.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_task_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Implement a retirement/borrow protocol covering dependencies and accepted-submission exceptions.",
+          "Add deterministic gated fixtures, then PageHeap/ASan runs; permit unrelated idle-task removal."
+        ]
+      }
+    },
+    {
+      "id": "R02",
+      "priority": "P2",
+      "title": "Bulk task owner leaks",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/batches.cpp",
+        "toonz/sources/toonzfarm/tfarm/tfarmtask.cpp"
+      ],
+      "baseline_behavior": "removeAllTasks and doLoad clear raw-pointer indexes without releasing owner roots.",
+      "required_invariant": "Release roots and their owned children exactly once after all outstanding borrows retire.",
+      "scenario": "Repeat clear/load with queued, active and idle groups; count root/child destruction and check replacement task IDs.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_task_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Resolve R01 before deleting owners.",
+          "Add leak/destructor-count and cancel-all lock-order fixtures; do not delete every indexed child independently."
+        ]
+      }
+    },
+    {
+      "id": "R03",
+      "priority": "P1",
+      "title": "Filmstrip Swing undo mapping",
+      "state": "tracked_in_finding",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/filmstripcommand.cpp"
+      ],
+      "baseline_behavior": "Swing undo removes inserted drawings without restoring shifted originals; its clone-count assertion also needs review.",
+      "required_invariant": "See F24 for the integrated follow-up invariant and scenarios.",
+      "scenario": "Swing sparse 1/1a/2a/3 drawings with unique content and existing following drawings; repeat undo/redo with renumber-sync both ways.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/codebase_audit_2026_11_07.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Follow F24; this ID is retained for stable references and does not count as a separate unresolved defect."
+        ]
+      },
+      "canonical_id": "F24",
+      "count_as_distinct_finding": false
+    },
+    {
+      "id": "R04",
+      "priority": "P1",
+      "title": "Baseline Windows native qualification failure",
+      "state": "observed_failure",
+      "resolution": "open",
+      "evidence_kind": "ci_failure_report",
+      "sources": [
+        ".github/workflows/workflow_windows.yml",
+        "ci-scripts/run_native_ui_test.py",
+        "toonz/sources/toonz/nativeuiintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Recorded Windows qualification includes historical status 3221226529 (0xC0000421); the linked later annotation reports status 1 and a 120-second workflow diagnostic timeout.",
+      "required_invariant": "A specific cause and fix are tied to the same failing executable, input and native path.",
+      "scenario": "Preserve the original failing executable/symbols and PageHeap/dump evidence; replay the same workflow path and retain original and diagnostic outcomes separately.",
+      "tests": [],
+      "platforms": [
+        "windows"
+      ],
+      "reference": "doc/codebase_audit_2026_11_07.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [
+          {
+            "kind": "reported_ci_failure",
+            "revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
+            "url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42297300171/job/128167284089",
+            "result": "failure",
+            "note": "Referenced by the main audit; later status 1 and diagnostic timeout. Historical PageHeap signature is a separate observation, not this patch's validation."
+          }
+        ],
+        "pending": [
+          "Recover exact failing SHA, command, dump and native stack before attributing a cause.",
+          "Add a minimal regression for the proven cause; unrelated task checkpoints or a later green build do not resolve it."
+        ]
+      },
+      "diagnostic_mitigation": {
+        "state": "patched_runtime_pending",
+        "sources": [
+          "ci-scripts/native_ui_page_heap.py",
+          "ci-scripts/tests/test_native_ui_page_heap.py",
+          ".github/workflows/workflow_windows.yml"
+        ],
+        "test_count": 8,
+        "cases": [
+          "test_preserves_existing_flags_types_and_unrelated_state",
+          "test_absent_values_are_removed_even_after_body_failure",
+          "test_partial_setup_failure_restores_written_values",
+          "test_restore_failure_is_reported_and_other_value_is_restored",
+          "test_verifier_stop_uses_one_bounded_cdb_process_and_local_symbols",
+          "test_timeout_preserves_flushed_text_and_restores_settings",
+          "test_missing_debugger_does_not_change_registry_or_launch_target",
+          "test_echoed_debugger_command_is_not_an_exception_witness"
+        ],
+        "invariant": "Bound the debugger, preserve original/timeout evidence, restore registry state and distinguish real exception evidence from echoed commands.",
+        "limit": "Diagnostic infrastructure correction with eight contracts in the existing Windows job; application root cause remains unknown and no runtime pass is claimed."
+      }
+    },
+    {
+      "id": "R05",
+      "priority": "P1",
+      "title": "PR 141 Linux/macOS native crashes",
+      "state": "observed_failure",
+      "resolution": "open",
+      "evidence_kind": "ci_failure_report",
+      "sources": [
+        ".github/workflows/workflow_linux.yml",
+        ".github/workflows/workflow_macos.yml",
+        "ci-scripts/run_native_ui_test.py"
+      ],
+      "baseline_behavior": "Recorded PR 141 native runs report SIGSEGV; R16 provides a source/debugger-supported fixture cause, while matching and verifying each platform's original failing path remains pending.",
+      "required_invariant": "The exact crash is diagnosed and its owning change is verified without duplicating pending GL/brush work.",
+      "scenario": "Recover PR 141's tested SHA and original stacks, run its failing native path, and compare a focused owner fix.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "reference": "doc/codebase_audit_2026_11_07.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [
+          {
+            "kind": "reported_ci_failure",
+            "revision": null,
+            "url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42342857600/job/128314492835",
+            "result": "failure",
+            "note": "PR 141 macOS; recover exact tested SHA."
+          },
+          {
+            "kind": "reported_ci_failure",
+            "revision": null,
+            "url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42342857517/job/128314174502",
+            "result": "failure",
+            "note": "PR 141 Linux; recover exact tested SHA."
+          }
+        ],
+        "pending": [
+          "Coordinate with PR 141 and preserve original crash evidence.",
+          "Record the qualified backend, OS, renderer and exact build rather than transferring evidence from another run.",
+          "R16 now provides a source/debugger-supported PR 141 fixture cause; tie each recorded Linux/macOS crash to that path and verify the correction before closing this record."
+        ]
+      }
+    },
+    {
+      "id": "R06",
+      "priority": "P1",
+      "title": "External-FX configuration trust",
+      "state": "needs_investigation",
+      "resolution": "open",
+      "evidence_kind": "source_trace_exploitability_unresolved",
+      "sources": [
+        "toonz/sources/tnzbase/texternfx.cpp"
+      ],
+      "baseline_behavior": "An external-effect name selects local XML without canonical containment; that XML supplies executable commands, but the end-to-end attacker path is unproven.",
+      "required_invariant": "An owner-approved trust rule preserves explicitly selected external effects and handles untrusted configuration selection.",
+      "scenario": "Trace deserialize, clone and initialize using a controlled adjacent XML fixture; establish which executable/arguments actually reach rendering.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Establish attacker control and reachable execution before making a security claim.",
+          "Decide containment/consent semantics and add allowed-workflow plus rejected-input fixtures before a policy change."
+        ]
+      }
+    },
+    {
+      "id": "R07",
+      "priority": "P1",
+      "title": "Scene alias destinations and external resources",
+      "state": "needs_investigation",
+      "resolution": "open",
+      "evidence_kind": "source_trace_exploitability_unresolved",
+      "sources": [
+        "toonz/sources/toonzlib/toonzscene.cpp"
+      ],
+      "baseline_behavior": "Alias resolution accepts parent-directory tails; legitimate scenes also reference external resources. An arbitrary overwrite was not demonstrated.",
+      "required_invariant": "An approved write-boundary policy distinguishes untrusted scene-selected destinations from explicit external-resource workflows.",
+      "scenario": "Trace decodeFilePath through save/rename/collect with parent segments, symlinks, existing files and valid external references.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/upstream_bug_triage.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Use an isolated malicious-input fixture and observe actual destination writes/prompts.",
+          "Obtain the compatibility decision before blanket containment restrictions; see upstream #7195 triage."
+        ]
+      }
+    },
+    {
+      "id": "R08",
+      "priority": "P2",
+      "title": "External-FX output never reaches tile",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/tnzbase/texternfx.cpp",
+        "toonz/sources/common/timage_io/timage_io.cpp"
+      ],
+      "baseline_behavior": "Output loading replaces a local raster pointer rather than assigning decoded pixels to the render tile.",
+      "required_invariant": "An approved rendering change applies valid decoded output with explicit dimension/pixel-type semantics.",
+      "scenario": "Run a helper writing a known red pixel over a blue tile; inspect the final tile, plus mismatched dimensions and pixel types.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Extend externfx_process or add a pixel-level fixture; current process/decode success is insufficient.",
+          "Compare old-scene output and obtain the compatibility decision before enabling previously ineffective effects."
+        ]
+      }
+    },
+    {
+      "id": "R09",
+      "priority": "P2",
+      "title": "Audio import timeout and process cleanup",
+      "state": "tracked_in_finding",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzlib/thirdparty.cpp",
+        "toonz/sources/sound/ffmpeg/tsio_ffmpeg.cpp",
+        "toonz/sources/toonzlib/preferences.cpp"
+      ],
+      "baseline_behavior": "Audio import waits a fixed 30 seconds despite the configurable 600-second default, and timeout returns before explicit close.",
+      "required_invariant": "See F25 for the integrated follow-up invariant and scenarios.",
+      "scenario": "Use a controlled helper and process boundary to cover start failure, nonzero exit, configured-budget success, timeout and no surviving process.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_platform_dependencies.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Follow F25; this ID is retained for stable references and does not count as a separate unresolved defect."
+        ]
+      },
+      "canonical_id": "F25",
+      "count_as_distinct_finding": false
+    },
+    {
+      "id": "R10",
+      "priority": "P2",
+      "title": "Native binary source-to-artifact provenance",
+      "state": "qualification_gap",
+      "resolution": "open",
+      "evidence_kind": "source_inventory",
+      "sources": [
+        "toonz/sources/CMakeLists.txt",
+        "thirdparty/libmypaint/download-all.sh",
+        "thirdparty/superlu/README.txt",
+        "thirdparty/openblas/README.txt"
+      ],
+      "baseline_behavior": "Selected Windows link archives lack a complete source, patch, compiler and artifact-digest record.",
+      "required_invariant": "Each distributed native input has reviewed source/patch provenance and a repeatable build or explicit owner disposition.",
+      "scenario": "Record actual release/debug link inputs and hashes, reconstruct one dependency at a time, and compare its package notices and ABI.",
+      "tests": [],
+      "platforms": [
+        "windows"
+      ],
+      "reference": "doc/audit_platform_dependencies.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Start with active TIFF/libmypaint and selected math/compression libraries; do not infer CVE applicability from directory names.",
+          "Keep notice-copy F21 distinct from binary provenance."
+        ]
+      }
+    },
+    {
+      "id": "R11",
+      "priority": "P2",
+      "title": "Native download and optional dependency reproducibility",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        ".github/workflows/workflow_linux.yml",
+        ".github/workflows/workflow_windows.yml",
+        "toonz/sources/CMakeLists.txt"
+      ],
+      "baseline_behavior": "AppImage URLs move; custom Qt/prebuilt downloads lack pinned digests; some Python/OS/Rust inputs remain unlocked.",
+      "required_invariant": "Reviewed native payload identities are verified before execution and qualification records the remaining package resolution.",
+      "scenario": "Inventory download URL, expected digest, source/build record and selected platform; reject a mismatched payload in an isolated acquisition fixture.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "windows",
+        "macos"
+      ],
+      "reference": "doc/audit_workflow_security.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Obtain trusted provenance/digests before adding pins.",
+          "Qualify optional dependency paths separately; action pins and npm integrity do not close native payload gaps."
+        ]
+      }
+    },
+    {
+      "id": "R12",
+      "priority": "P2",
+      "title": "macOS dependency availability deadlines",
+      "state": "qualification_gap",
+      "resolution": "open",
+      "evidence_kind": "dated_source_report",
+      "sources": [
+        ".github/workflows/workflow_macos.yml"
+      ],
+      "baseline_behavior": "The dated dependency audit records Homebrew disable dates of 2027-05-19 for qt@5 and 2027-07-09 for opencv@4.",
+      "required_invariant": "A supported, reproducible acquisition path is selected and qualified before the recorded deadlines.",
+      "scenario": "Recheck official formula status when scheduling migration, then install from the candidate source and run native/device/scene compatibility cases.",
+      "tests": [],
+      "platforms": [
+        "macos"
+      ],
+      "reference": "doc/audit_platform_dependencies.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Owner selects the supported acquisition path; do not assume a major-version migration is already approved.",
+          "Qualify Apple Silicon separately from Intel builds and preserve old-scene output."
+        ]
+      }
+    },
+    {
+      "id": "R13",
+      "priority": "P2",
+      "title": "Raster paste target selection",
+      "state": "reported",
+      "resolution": "open",
+      "evidence_kind": "upstream_report",
+      "sources": [
+        "toonz/sources/tnztools/rasterselection.cpp"
+      ],
+      "baseline_behavior": "Upstream #2445 reports pasting into the wrong raster target; current Groundzero reproduction remains unverified.",
+      "required_invariant": "An agreed target-selection rule preserves raster/Toonz-raster workflows and undo identity.",
+      "scenario": "Paste between raster and Toonz-raster levels with empty/existing cells and relevant preferences; record chosen level/type and undo behavior.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/upstream_bug_triage.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Confirm expected artist behavior and the actual active path before changing target selection."
+        ]
+      }
+    },
+    {
+      "id": "R14",
+      "priority": "P2",
+      "title": "Vector pencil undo navigation",
+      "state": "reported",
+      "resolution": "open",
+      "evidence_kind": "upstream_report",
+      "sources": [
+        "toonz/sources/tnztools/toonzvectorbrushtool.cpp"
+      ],
+      "baseline_behavior": "Upstream #5190 reports pencil undo navigation problems; current Groundzero reproduction remains unverified.",
+      "required_invariant": "Undo restores stroke content and agreed frame/level navigation without changing unrelated preferences.",
+      "scenario": "Draw with vector pencil across frames, navigate away, undo/redo with navigation-related preferences both ways, and record content plus current frame.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/upstream_bug_triage.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Verify the current pencil command path; the listed source is a candidate boundary, not a confirmed defect.",
+          "Capture an artist-approved expected navigation rule."
+        ]
+      }
+    },
+    {
+      "id": "R15",
+      "priority": "P2",
+      "title": "Native device and long-session qualification",
+      "state": "qualification_gap",
+      "resolution": "open",
+      "evidence_kind": "coverage_inventory",
+      "sources": [
+        ".github/workflows/workflow_macos.yml",
+        ".github/workflows/workflow_windows.yml",
+        "ci-scripts/run_native_ui_test.py"
+      ],
+      "baseline_behavior": "This audit has not qualified native Apple Silicon, tablet/DPI/audio devices, long sessions or full scene-key/FX equality.",
+      "required_invariant": "Named release configurations and representative workflows have reproducible evidence and recorded limits.",
+      "scenario": "Run bounded device sessions and long open/edit/save/reopen cycles on actual target hardware; compare scene state and rendered output.",
+      "tests": [],
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "reference": "doc/codebase_audit_2026_11_07.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Record OS/architecture, display scale, tablet/driver, audio device, graphics backend, fixture revision and elapsed workload.",
+          "An offscreen fixture or inventory count is not native device qualification."
+        ]
+      }
+    },
+    {
+      "id": "R16",
+      "priority": "P2",
+      "title": "PR 141 viewer fixture bypasses panel factory",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "reported_debugger_and_source_trace",
+      "sources": [
+        "toonz/sources/toonz/nativeuiintegrationtest.cpp",
+        "toonz/sources/toonz/tpanels.cpp",
+        "toonz/sources/toonz/viewerpane.h"
+      ],
+      "branch_scope": "PR 141 revision a0406efc4a8f90a74d77bb5ddbab1d0d8aeabeeb; exerciseSceneViewerContextOwners is absent from the reviewed edition baseline.",
+      "baseline_behavior": "The PR 141 fixture directly constructs SceneViewerPanel, bypassing title-bar initialization; getPreviewButtonStates then reads an uninitialized preview-button pointer.",
+      "required_invariant": "The fixture obtains its viewer through the normal panel factory and title-bar initialization path before showing or querying it.",
+      "scenario": "Run exerciseSceneViewerContextOwners using the PR 141 build and original diagnostic path; compare direct construction against the prepared factory-based fixture change.",
+      "tests": [],
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "reference": "https://github.com/OpenAnimationLibrary/groundzero/blob/a0406efc4a8f90a74d77bb5ddbab1d0d8aeabeeb/toonz/sources/toonz/nativeuiintegrationtest.cpp#L411",
+      "follow_up_patch": {
+        "state": "prepared_not_in_pr142",
+        "revision": null,
+        "evidence": "Isolated PR 141 fixture correction reported; no passing execution or branch publication claimed."
+      },
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "reported_debugger_failure",
+        "executed_evidence": [
+          {
+            "kind": "reported_ci_debugger_failure",
+            "revision": "a0406efc4a8f90a74d77bb5ddbab1d0d8aeabeeb",
+            "url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42342872309/job/128314993429",
+            "artifact_id": "13563883652",
+            "result": "failure",
+            "note": "Reported CDB getPreviewButtonStates+4 loads 0xc0c0c0c0c0c0c0c0 before a read at pointer+0x9d. Reported macOS/Linux stacks identify the same function; obtain each original artifact before attaching platform-specific closure evidence."
+          }
+        ],
+        "pending": [
+          "Integrate and run the factory-based fixture correction in PR 141, recording its exact revision.",
+          "Require the original native path/checkpoint and supported-platform evidence.",
+          "Do not attribute the separate edition Qt-text teardown failure R04 to this fixture."
+        ]
+      }
+    }
+  ],
+  "follow_up_coverage": [
+    {
+      "id": "C01",
+      "phase": "architecture",
+      "scope": [
+        "toonz/sources/toonzlib/toonzscene.cpp",
+        "toonz/sources/toonz/expressionreferencemanager.cpp"
+      ],
+      "bound": "Trace one save/load/collect route for each native level type and one expression-save case; retain valid external resources.",
+      "evidence": "Destination map, transaction boundaries, round-trip scene fixture and cancel/failure cases.",
+      "references": [
+        "R07",
+        "doc/upstream_bug_triage.md"
+      ]
+    },
+    {
+      "id": "C02",
+      "phase": "architecture",
+      "scope": [
+        "toonz/sources/toonz/keyframemover.cpp",
+        "toonz/sources/toonz/filmstripcommand.cpp",
+        "toonz/sources/toonz/mergecmapped.cpp"
+      ],
+      "bound": "Start with Swing, plastic alt-drag, TLV merge, and ordered FX-port undo; one minimal fixture per reported loss.",
+      "evidence": "Exact frame/key/palette/connection snapshots before edit, after edit, undo, redo and save/load.",
+      "references": [
+        "F24",
+        "doc/upstream_bug_triage.md"
+      ]
+    },
+    {
+      "id": "C03",
+      "phase": "code_quality",
+      "scope": [
+        "toonz/sources/image",
+        "toonz/sources/common/tiio",
+        "toonz/sources/common/psdlib"
+      ],
+      "bound": "Select active TIFF/TZP, EXR and PSD readers/writers; check lengths, allocations, cleanup and corrupt-input behavior before expanding codecs.",
+      "evidence": "Entry-point map plus bounded malformed/truncated fixtures; prove each format is linked on the tested platform.",
+      "references": [
+        "F01",
+        "F02",
+        "R10"
+      ]
+    },
+    {
+      "id": "C04",
+      "phase": "code_quality",
+      "scope": [
+        "toonz/sources/tnzbase/texternfx.cpp",
+        "toonz/sources/toonzqt/pluginmanager.cpp",
+        "toonz/sources/sound/ffmpeg/tsio_ffmpeg.cpp"
+      ],
+      "bound": "Review process lifetime, plugin/config trust and audio import boundaries separately; decide policy before adding restrictions.",
+      "evidence": "Launch/exit/timeout/cleanup fixtures, controlled native module, and approved compatibility rules.",
+      "references": [
+        "R06",
+        "R08",
+        "R09"
+      ]
+    },
+    {
+      "id": "C05",
+      "phase": "tests",
+      "scope": [
+        "toonz/sources/stdfx",
+        "toonz/sources/common/tfx",
+        "toonz/sources/common/tcache"
+      ],
+      "bound": "Use representative RGBA8/RGBA16/float scenes with alpha, deformation and tiled Auto-Patch; cover shared-input and cache invalidation boundaries.",
+      "evidence": "Baseline-versus-patch pixels and exact scene keys/FX topology; compare tiled and untiled output.",
+      "references": [
+        "F08",
+        "F09",
+        "F10",
+        "R15"
+      ]
+    },
+    {
+      "id": "C06",
+      "phase": "tests",
+      "scope": [
+        ".github/workflows",
+        "thirdparty",
+        "ci-scripts/run_native_ui_test.py"
+      ],
+      "bound": "Qualify one exact build per supported platform/backend, original native crash paths, package inputs and archive notices; then scheduled variants.",
+      "evidence": "Original stacks, symbols, run URLs/SHAs, installed package startup and dependency manifest.",
+      "references": [
+        "F20",
+        "F21",
+        "R04",
+        "R05",
+        "R10",
+        "R11",
+        "R12",
+        "R15"
+      ]
+    },
+    {
+      "id": "C07",
+      "phase": "performance",
+      "scope": [
+        "toonz/sources/common/tcache",
+        "toonz/sources/common/tfx",
+        "toonz/sources/sound",
+        "toonz/sources/toonz"
+      ],
+      "bound": "After correctness gates, measure a fixed long scene and repeated edit/undo/export workload against the same baseline/hardware; change one subsystem at a time.",
+      "evidence": "Warm/cold elapsed time, peak memory and retained memory after cleanup, workload duration and variance; investigate before optimizing.",
+      "references": [
+        "R01",
+        "R02",
+        "R09",
+        "R15"
+      ]
+    },
+    {
+      "id": "C08",
+      "phase": "tests",
+      "scope": [
+        "doc/upstream_bug_triage.md"
+      ],
+      "bound": "Reproduce the prioritized lost-edit/crash queue first in batches of at most ten reports; keep each upstream report's status separate.",
+      "evidence": "Minimal fixture, exact build/platform, expected/observed result and source attribution; link the existing 132-report inventory.",
+      "references": [
+        "doc/upstream_bug_triage.md"
+      ]
+    }
+  ],
+  "reviewed_integration": {
+    "initial_pr_head": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+    "followups_after_initial_head": [
+      "F24 Swing restoration",
+      "F25 audio lifecycle",
+      "F08 public HDR fixture consolidation",
+      "F19 nine/ten accepted, eleven rejected boundary coverage",
+      "F26 FFmpeg constructor timeout conversion",
+      "R04 Windows PageHeap/CDB diagnostic mitigation; not an application crash fix"
+    ],
+    "final_patch_revision": null
+  },
+  "ci_test_evidence": [
+    {
+      "id": "CI01",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "linux",
+      "configuration": "workflow_linux CI auditor unit-test step",
+      "scenario_or_test": "ci-scripts/tests/test_ci_audit.py (20 cases)",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551454/job/128529701035",
+      "artifact_or_log": "CI auditor unittest step log",
+      "evidence_source": "Coordinating audit's CI result report",
+      "limit": "Verifies this script suite at the initial head only; does not establish C++ behavior or final combined-head qualification."
+    },
+    {
+      "id": "CI02",
+      "verification_state": "ci_verified",
+      "revision": "2758123e81050f45aaec2c105bb24a729cfd0f27",
+      "platform": "linux",
+      "configuration": "workflow_linux CI budget step",
+      "scenario_or_test": "ci-scripts/tests/test_ci_budget.rb (15 cases at initial head)",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551454/job/128529701035",
+      "artifact_or_log": "CI budget Ruby test step log",
+      "evidence_source": "Coordinating audit's CI result report",
+      "limit": "The later test_cli_enforces_ten_check_boundary change explicitly accepts nine/ten and rejects eleven; that follow-up still needs CI despite retaining 15 test methods."
+    }
+  ]
+}
