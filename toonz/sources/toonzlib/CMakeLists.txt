@@ -699,6 +699,12 @@ if(BUILD_SCENECHECKER_TESTS)
 endif()
 
 if(BUILD_RELIABILITY_TESTS)
+    add_executable(childstack_lifetime_test tests/childstack_lifetime_test.cpp)
+    target_link_libraries(childstack_lifetime_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME childstack_lifetime COMMAND childstack_lifetime_test)
+    set_tests_properties(childstack_lifetime PROPERTIES TIMEOUT 60)
+
     add_executable(save_transaction_test tests/save_transaction_test.cpp)
     target_link_libraries(save_transaction_test PRIVATE
         toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)

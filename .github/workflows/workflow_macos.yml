@@ -341,7 +341,7 @@ jobs:
             fi
           done
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
-          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+          python3 ../../ci-scripts/run_regression_tests.py castworkflow childstack_lifetime rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
       - name: Upload reliability diagnostics
         if: always()
