@@ -202,3 +202,52 @@ result is disclosed here explicitly.
 [actionlint]: https://github.com/rhysd/actionlint/releases/tag/v1.7.12
 [zizmor]: https://github.com/zizmorcore/zizmor/releases/tag/v1.32.0
 [self-reference]: https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/
+
+## Windows native diagnostic follow-up
+
+The [baseline Windows failure][native-baseline] reached a Qt text destructor
+through workflow room teardown. Its full-page-heap replay exited with
+`0xC0000421` without the application's crash report. The existing artifact glob
+also omitted `ui-integration-page-heap.txt`. These are diagnostic gaps; the
+underlying application failure remains unresolved by this change. The separate
+bare `SceneViewerPanel` fixture failure observed on PR #141 is not evidence for
+the baseline Qt text failure's cause.
+
+The existing single page-heap replay now runs under CDB. It intercepts access
+violations, breakpoints, heap corruption, and verifier stops, then records the
+exception context, registers, stack, loaded modules, and other thread stacks.
+It uses the existing process capture and Windows job containment, with a
+maximum 1,500-second replay and the existing 15-second tree-retirement bound.
+Unconfirmed retirement retains fixture resources and is reported explicitly.
+Initial `!gflag`, `!heap`, and verifier-extension queries are omitted: an earlier
+retained diagnostic stalled before the application ran while issuing such
+queries. Registry configuration alone is labelled as unverified runtime
+activation, and CDB's exit status cannot qualify native acceptance.
+
+The helper snapshots and restores the exact values and types of the two IFEO
+values it owns, including after partial setup or capture failure. It preserves
+unrelated values and never deletes the entire image key. Restoration failures
+are reported individually. The Windows workflow now retains this text report
+and exposes the already-existing original-process dump/timeout text reports.
+Eight mocked-boundary contracts run in the existing Windows job; no PR checks
+or duplicate application replays are added. Later independent suites retain
+their existing conditions and the original native failure remains authoritative.
+
+This path requires access to create/query/set values in the 64-bit HKLM IFEO
+image key and an installed x64 Windows SDK CDB. Denied registry access or a
+missing debugger produces a diagnostic setup report; this change does not
+elevate permissions or install another debugger. CDB uses only local symbols,
+so absent Windows or Qt PDBs can limit symbol names. No new raw dump artifact
+is published. Microsoft documents the [CDB options][cdb-options] and why
+[verifier stops require debugger inspection][verifier-stops].
+
+Static Ruff, Windows-platform ty, actionlint, and the ten-check budget passed.
+The offline auditor scan retains the previously documented 15 informational
+findings and 32 narrow ignores, with no low, medium, or high findings. No local
+build or test was run. Windows execution, registry privileges, CDB stop capture,
+and the new contracts remain pending CI. PR #141 has an overlapping page-heap
+implementation; reconcile that proposal separately before combining changes.
+
+[native-baseline]: https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42297300171/job/128167284089
+[cdb-options]: https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/cdb-command-line-options
+[verifier-stops]: https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/application-verifier-debugging-application-verifier-stops
