@@ -22,13 +22,34 @@ production ownership or renderer correction between the failing and passing
 revisions. The changed diagnostic selector can alter binary layout without
 changing normal acceptance semantics.
 
-One explicit, opt-in heap investigation is pending in
+The explicit investigation in
 [run 42337776886](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42337776886)
-on the separate diagnostic revision `93785c6fa`. Its only change from the validated
-PR revision is workflow opt-in/concurrency/report retention. It uses the existing
-eager diagnostic and matching build symbols; it cannot substitute for acceptance.
-The PR remains a draft pending that evidence and final review. No causal crash fix
-or reference/device qualification is claimed.
+on diagnostic revision `93785c6fa` reproduced a native workflow teardown failure.
+That revision changes only workflow opt-in/concurrency/report retention relative
+to the passing PR revision. Its heap report captured verifier stop `0xD`
+("corrupted header") while growing the display-list proxy registry in
+`TGLDisplayListsManager::storeProxy`. The diagnostic step's successful exit is
+not an application pass. OS symbols loaded, and the report records both page-heap
+startup and a verifier heap stop; its separate `!gflag` check reported zero flags.
+
+Independent source reviews identified a matching corruption mechanism:
+`SceneViewer` destruction released every registered viewer context without
+invalidating the cached main display-list ID. Reattaching that erased slot can
+lead to a second erase. The invalid node's next index is `size_t(-2)`, so its
+32-byte node layout writes the previous-link field 48 bytes before the vector
+allocation. This exactly matches the verifier's reported header offset. The
+allocation-growth stack detects the damage; it does not identify the original
+write instruction.
+
+Per-viewer ownership, shared-ID retirement and manager retirement guards are
+implemented. The manager regression covers shared owners, duplicate/reentrant
+release, invalid IDs, slot reuse and allocation growth. An actual-viewer case
+covers peer destruction, context recreation, repeated retirement and surviving
+framebuffer rendering. These changes still require integrated review and CI;
+they are not yet qualified. The earlier
+cross-platform passes remain historical evidence at `d9490878b`; they do not
+close this reproduced defect. The PR remains a draft pending the fix, its review,
+and fresh required validation. No reference/device qualification is claimed.
 
 ## Previous qualification checkpoint
 

@@ -414,7 +414,7 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission tgldisplaylistsmanager compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
     - name: Upload reliability diagnostics
       if: always()

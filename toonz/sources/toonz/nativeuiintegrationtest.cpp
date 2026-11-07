@@ -39,6 +39,7 @@
 #include "tundo.h"
 #include "tpalette.h"
 #include "tvectorimage.h"
+#include "tgldisplaylistsmanager.h"
 #include "toonz/fullcolorpalette.h"
 #include "toonz/levelproperties.h"
 #include "toonz/preferences.h"
@@ -50,6 +51,7 @@
 #include "toonz/toonzfolders.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
+#include "toonz/ttoolhandle.h"
 #include "toonz/txshcell.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txsheet.h"
@@ -80,6 +82,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMouseEvent>
+#include <QOpenGLContext>
 #include <QPaintEvent>
 #include <QPixmap>
 #include <QPointer>
@@ -406,7 +409,98 @@ void exercisePanelTitleBarOwners() {
   checkpoint("native title bar owner lifetimes passed");
 }
 
+void exerciseSceneViewerContextOwners(QMainWindow *window) {
+  checkpoint("checking real SceneViewer context ownership");
+  auto *manager = TGLDisplayListsManager::instance();
+  QPointer<SceneViewer> originalViewer = TApp::instance()->getActiveViewer();
+  QPointer<QWidget> originalFocus = QApplication::focusWidget();
+  TTool *originalTool = TApp::instance()->getCurrentTool()->getTool();
+  struct RestoreViewer {
+    QPointer<SceneViewer> viewer;
+    QPointer<QWidget> focus;
+    TTool *tool;
+    QPointer<TToolViewer> toolViewer;
+    ~RestoreViewer() {
+      TApp::instance()->setActiveViewer(viewer.data());
+      if (focus) focus->setFocus();
+      if (tool) tool->setViewer(toolViewer.data());
+    }
+  } restore{originalViewer, originalFocus, originalTool,
+            originalTool ? originalTool->getViewer() : nullptr};
+  // Declared before the panels so exception unwinding retires their viewers
+  // before either temporary top-level host or the saved active viewer.
+  QWidget floatingHost;
+  floatingHost.resize(360, 300);
+  auto createPanel = [&]() {
+    auto panel = std::make_unique<SceneViewerPanel>(window);
+    panel->resize(320, 260);
+    panel->show();
+    settle();
+    return panel;
+  };
+  auto contextOf = [&](SceneViewer *viewer) {
+    require(viewer && viewer->isValid() && viewer->context(),
+            "real SceneViewer did not initialize its OpenGL context");
+    viewer->makeCurrent();
+    const TGlContext context = tglGetCurrentContext();
+    const int space = manager->displayListsSpaceId(context);
+    const bool registered = space >= 0 && manager->dlProxy(space);
+    viewer->doneCurrent();
+    require(registered, "live SceneViewer lost its display-list registration");
+    require(!viewer->grabFramebuffer().isNull(),
+            "live SceneViewer could not render its framebuffer");
+    return context;
+  };
+  auto first = createPanel();
+  auto survivor = createPanel();
+  auto *survivingViewer = survivor->findChild<SceneViewer *>();
+  const auto firstContext = contextOf(first->findChild<SceneViewer *>());
+  auto survivorContext = contextOf(survivingViewer);
+  require(firstContext != survivorContext,
+          "two real SceneViewers unexpectedly use the same native context");
+  const int survivorSpace = manager->displayListsSpaceId(survivorContext);
+  first.reset();
+  require(manager->displayListsSpaceId(firstContext) == -1 &&
+              manager->displayListsSpaceId(survivorContext) == survivorSpace,
+          "retiring one SceneViewer released another viewer's context");
+  require(contextOf(survivingViewer) == survivorContext,
+          "surviving SceneViewer changed context after its peer retired");
+
+  // Moving between top-level windows recreates a QOpenGLWidget context when
+  // global Qt context sharing is disabled, as in the application startup.
+  for (QWidget *parent : {&floatingHost, static_cast<QWidget *>(window)}) {
+    QPointer<QOpenGLContext> previous = survivingViewer->context();
+    const auto previousNative = survivorContext;
+    survivor->setParent(parent);
+    parent->show();
+    survivor->show();
+    settle();
+    survivorContext = contextOf(survivingViewer);
+    if (!QCoreApplication::testAttribute(Qt::AA_ShareOpenGLContexts))
+      require(previous.isNull(),
+              "viewer reparent did not recreate its Qt context");
+    if (previousNative != survivorContext)
+      require(manager->displayListsSpaceId(previousNative) == -1,
+              "recreated SceneViewer retained its obsolete native context");
+  }
+  for (int iteration = 0; iteration < 3; ++iteration) {
+    auto replacement = createPanel();
+    const auto replacementContext =
+        contextOf(replacement->findChild<SceneViewer *>());
+    replacement.reset();
+    require(manager->displayListsSpaceId(replacementContext) == -1,
+            "retired replacement viewer retained its context registration");
+    require(contextOf(survivingViewer) == survivorContext,
+            "repeated viewer retirement invalidated the surviving viewer");
+  }
+  survivor.reset();
+  require(manager->displayListsSpaceId(survivorContext) == -1,
+          "last fixture viewer retained its native context registration");
+  checkpoint("real SceneViewer context ownership passed");
+}
+
 void exerciseWorkflowSwitching(QMainWindow *window, bool diagnosticEagerOnly = false) {
+  exerciseSceneViewerContextOwners(window);
   checkpoint("checking workflow menus and panel lifetimes");
   auto *main = qobject_cast<MainWindow *>(window);
   require(main, "workflow fixture has no main window");

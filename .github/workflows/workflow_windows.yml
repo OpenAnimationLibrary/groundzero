@@ -691,7 +691,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_psd tiio_exr_level
+          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission tgldisplaylistsmanager compressed_stream scenebench fxrender ffmpeg_public tiio_psd tiio_exr_level
 
       - name: Upload reliability diagnostics
         if: always()

@@ -39,7 +39,8 @@ A finished milestone must cite the actual behavior and its evidence. More test
 files, metadata fields or documents do not independently count as a user feature.
 Required execution evidence at `d9490878b` is recorded in the acceptance audit.
 All three platforms passed actual and installed application qualification. Final
-readiness remains pending the explicit Windows heap investigation and evidence review.
+readiness remains pending the reproduced Windows context-lifetime defect fix,
+its focused regressions and fresh qualification; see the acceptance audit.
 
 ## Milestone 1: close the finite known-fix list
 
@@ -56,8 +57,9 @@ The refreshed edition revision `2e52fb78b` merges without conflicts. Source revi
 confirmed the native routing, application test entry and build registration are
 preserved. The scoped implementation and integration review are complete; final
 CI/runtime qualification passed at `d9490878b`. The prior Windows teardown
-crash has no established causal fix; the separate explicit heap investigation
-and final evidence review remain open.
+crash investigation now has a concrete erased-proxy double-retirement mechanism
+matching the verifier header offset. Its lifecycle fix and fresh validation remain
+open; earlier passes do not close the reproduced defect.
 
 These are the six known items. The first four are confirmed source-review defects;
 the last two are focused proof questions, not established production mismatches.
@@ -199,7 +201,8 @@ The published implementation is committed through `d9490878b`, incorporates
 edition `2e52fb78b`, and remains draft PR #141. Required checks passed on that
 revision. Diagnostic revision `93785c6fa` adds only workflow opt-in, concurrency
 and report retention on a separate branch. Preserve the implementation; remaining
-work resolves the earlier Windows crash uncertainty and reconciles final evidence.
+work fixes the reproduced Windows context-lifetime corruption and requalifies
+the resulting revision before final evidence review.
 Shared files have
 one writer at a time; reviewers can work in parallel without rebuilding existing
 components.
