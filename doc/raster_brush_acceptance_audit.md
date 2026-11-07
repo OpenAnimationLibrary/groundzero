@@ -49,12 +49,18 @@ captures identified invalid text-engine decoration-vector pointers during widget
 destruction. These differing sites do not establish the operation that caused the
 damage; the workflow-switch crash remains unresolved.
 
-The reviewed standard page-heap diagnostic at `6ce7d3591` is running separately in
+The standard page-heap diagnostic at `6ce7d3591` timed out after 900 seconds in
 [run 42332081822](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42332081822).
-It requires GFlags configuration and runtime activation evidence, retains the
-first verifier/exception stop, and disables the image setting afterward. Its
-result is pending. Diagnostic-branch commits, including the Windows watchdog and
-cleanup corrections, are not yet part of PR #141's `528347a88` head.
+Its runtime startup reported page heap enabled with flags `0x2`; GFlags also
+confirmed standard traces. The replay completed all lazy profiles and eager
+Tradigital/Cutout, then timed out loading eager StopMotion, before the earlier
+Default failure. No verifier stop identified the corrupting operation. Windows
+symbols were unavailable to `!gflag`/`!heap`; the log specifically reports missing
+`NtGlobalFlag` type information. Process cleanup and GFlags disable completed.
+The next diagnostic uses a separately named eager-only selector and bounded OS
+symbol acquisition; normal full acceptance remains unchanged. Diagnostic-branch
+commits, including the Windows watchdog and cleanup corrections, are not yet part
+of PR #141's `528347a88` head.
 
 ## Six-outcome demonstration checklist
 
