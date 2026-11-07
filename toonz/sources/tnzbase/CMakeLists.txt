@@ -175,13 +175,13 @@ if(BUILD_ENV_APPLE)
     add_dependencies(tnzbase tnzcore)
 endif()
 
-add_definitions(
-    -DTNZBASE_EXPORTS
-    -DTPARAM_EXPORTS
-    -DTXSHEET_EXPORTS
-    -DTFX_EXPORTS
-    -DTAPPTOOLS_EXPORTS
-    -DTTEST_EXPORTS
+target_compile_definitions(tnzbase PRIVATE
+    TNZBASE_EXPORTS
+    TPARAM_EXPORTS
+    TXSHEET_EXPORTS
+    TFX_EXPORTS
+    TAPPTOOLS_EXPORTS
+    TTEST_EXPORTS
 )
 
 message("subdir: tnzbase")

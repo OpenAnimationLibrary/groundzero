@@ -509,8 +509,8 @@ void testFreeFormRoundTrip() {
     }
 
   // The displacement is held at the border's value outside the lattice
-  TPointD border(100.0, 20.0), far(900.0, 20.0);
-  require(isClose(plain.deform(far, 0.0) - far,
+  TPointD border(100.0, 20.0), farPoint(900.0, 20.0);
+  require(isClose(plain.deform(farPoint, 0.0) - farPoint,
                   plain.deform(border, 0.0) - border, 1e-9),
           "free-form round trip: displacement not held outside");
 
@@ -1593,10 +1593,10 @@ void testShapeAwareBoneAndCage() {
     require(norm(bone.deform(p, 0.0) - (p + t)) < 0.15 * norm(t),
             "shape aware bone: the bone does not carry its segment");
   }
-  TPointD above(0.0, 12.0), far(0.0, 90.0);
-  require(
-      norm(bone.deform(above, 0.0) - above) > norm(bone.deform(far, 0.0) - far),
-      "shape aware bone: the influence does not fall with the distance");
+  TPointD above(0.0, 12.0), farPoint(0.0, 90.0);
+  require(norm(bone.deform(above, 0.0) - above) >
+              norm(bone.deform(farPoint, 0.0) - farPoint),
+          "shape aware bone: the influence does not fall with the distance");
 
   // A bone turned by 90 degrees about its head
   handles[0] = SaHandle::makeBone(TPointD(0.0, 0.0), TPointD(60.0, 0.0),
