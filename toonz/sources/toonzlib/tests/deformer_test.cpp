@@ -18,6 +18,7 @@
 #include "tvectorimage.h"
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -1226,6 +1227,59 @@ void testWeightPainting() {
 
 //------------------------------------------------------------------
 
+void testWeightPaintingInvalidGeometry() {
+  const double infinity       = std::numeric_limits<double>::infinity();
+  const double nan            = std::numeric_limits<double>::quiet_NaN();
+  const double largest        = (std::numeric_limits<double>::max)();
+  const double smallest       = std::numeric_limits<double>::denorm_min();
+  const TRectD invalidRects[] = {
+      TRectD(-infinity, 0.0, 1.0, 1.0), TRectD(0.0, 0.0, infinity, 1.0),
+      TRectD(0.0, nan, 1.0, 1.0), TRectD(-largest, 0.0, largest, 1.0),
+      TRectD(0.0, 0.0, smallest, 1.0)};
+  for (const TRectD& rect : invalidRects)
+    require(TDeformerWeightPainting::make(rect, 2, 2).isEmpty(),
+            "painting: invalid cell geometry is accepted");
+
+  const TRectD rect(0.0, 0.0, 1.0, 1.0);
+  require(TDeformerWeightPainting::make(rect, 65536, 65536).isEmpty(),
+          "painting: overflowing cell count is accepted");
+  TDeformerWeightPainting damaged = TDeformerWeightPainting::make(rect, 1, 1);
+  damaged.m_lx = damaged.m_ly = 65536;
+  require(damaged.isEmpty() && damaged.toString().empty(),
+          "painting: damaged grid dimensions are accepted");
+  require(TDeformerWeightPainting::fromString("1 1 1 -1e308 0 1e308 1 /w==")
+              .isEmpty(),
+          "painting: overflowing serialized rectangle is accepted");
+}
+
+//------------------------------------------------------------------
+
+void testWeightPaintingLargeBrush() {
+  TDeformerWeightPainting painting =
+      TDeformerWeightPainting::make(TRectD(-1.0, -1.0, 1.0, 1.0), 2, 2);
+  require(!painting.paint(TPointD(1e12, -1e12), 1.0, 1.0, 1.0),
+          "painting: a remote finite brush changes the grid");
+  require(painting.paint(TPointD(), 1e12, 1.0, 1.0),
+          "painting: a large finite brush misses the grid");
+  for (unsigned char value : painting.m_values)
+    require(value == 255, "painting: a large brush does not cover every cell");
+  require(painting.paint(TPointD(), 1e12, 0.0, 1.0),
+          "painting: a large finite eraser misses the grid");
+  for (unsigned char value : painting.m_values)
+    require(value == 0, "painting: a large eraser does not clear every cell");
+
+  const double infinity = std::numeric_limits<double>::infinity();
+  const double nan      = std::numeric_limits<double>::quiet_NaN();
+  require(!painting.paint(TPointD(infinity, 0.0), 1.0, 1.0, 1.0) &&
+              !painting.paint(TPointD(0.0, nan), 1.0, 1.0, 1.0) &&
+              !painting.paint(TPointD(), infinity, 1.0, 1.0),
+          "painting: a non-finite brush changes the grid");
+  require(painting.weightAt(TPointD()) == 0.0,
+          "painting: invalid brushes modified the weights");
+}
+
+//------------------------------------------------------------------
+
 // Deform Strokes: the deformers that the fxs pass down to the column
 void testStrokeDeformers() {
   TVectorImageP vi(new TVectorImage());
@@ -1699,6 +1753,8 @@ int main() {
     testVectorImage();
     testStrokeDeformers();
     testWeightPainting();
+    testWeightPaintingInvalidGeometry();
+    testWeightPaintingLargeBrush();
     testShapeAware();
     testStackCurveAndBone();
     testStackIdentityLayers();
