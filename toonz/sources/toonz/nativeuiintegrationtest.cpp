@@ -36,6 +36,10 @@
 #include "xsheetviewer.h"
 
 #include "tenv.h"
+#include "tfarmcontroller.h"
+#include "tmsgcore.h"
+#include "toutputproperties.h"
+#include "tsystem.h"
 #include "tundo.h"
 #include "tpalette.h"
 #include "tvectorimage.h"
@@ -45,6 +49,7 @@
 #include "toonz/levelset.h"
 #include "toonz/palettecontroller.h"
 #include "toonz/sceneresources.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzfolders.h"
@@ -66,15 +71,18 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QComboBox>
+#include <QDialog>
 #include <QDir>
 #include <QDirIterator>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
@@ -83,6 +91,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QSettings>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolBar>
@@ -405,6 +414,295 @@ void exercisePanelTitleBarOwners() {
   checkpoint("native title bar owner lifetimes passed");
 }
 
+void exerciseTaskRemoval(QMainWindow* window) {
+  auto* controller        = BatchesController::instance();
+  const bool dirty        = controller->getDirtyFlag();
+  const int count         = controller->getTaskCount();
+  const QString id        = "workflow-removal-task";
+  const QString chunkId   = id + ".chunk";
+  const QString missingId = "workflow-missing-dependency";
+  require(!controller->getTask(id) && !controller->getTask(chunkId) &&
+              !controller->getTask(missingId),
+          "task removal fixture IDs already exist");
+  auto* group = new TFarmTaskGroup(
+      id, "Workflow removal", QString(), QString(), 1, 50,
+      TFilePath(testRoot + "/workflow-removal.cln"), Overwrite_Off, false);
+  auto* chunk       = new TFarmTask(*group);
+  chunk->m_id       = chunkId;
+  chunk->m_parentId = id;
+  group->addTask(chunk);
+  group->m_dependencies->add(missingId);
+  controller->addTask(id, group, false);
+
+  auto panel = std::make_unique<TasksViewer>(window);
+  auto other = std::make_unique<TasksViewer>(window);
+  other->setSelected(chunk);
+  panel->setSelected(group);
+  QListWidgetItem* missing = nullptr;
+  for (auto* list : panel->m_taskSheet->findChildren<QListWidget*>())
+    for (int row = 0; row < list->count(); ++row)
+      if (list->item(row)->text().contains(missingId))
+        missing = list->item(row);
+  require(missing, "missing batch dependency was not displayed");
+  require(QMetaObject::invokeMethod(
+              panel->m_taskSheet, "onRemovedItemDoubleClicked",
+              Qt::DirectConnection, Q_ARG(QListWidgetItem*, missing)),
+          "missing batch dependency could not be removed");
+  require(group->m_dependencies->getTaskCount() == 0,
+          "removing a missing dependency did not update the task");
+
+  auto* model = qobject_cast<TaskTreeModel*>(panel->m_treeView->model());
+  require(model, "task removal fixture has no model");
+  const QModelIndex list = model->index(0, 0);
+  QModelIndex groupIndex;
+  for (int row = 0; row < model->rowCount(list); ++row) {
+    const QModelIndex index = model->index(row, 0, list);
+    if (index.data().toString() == group->m_name) groupIndex = index;
+  }
+  const QModelIndex chunkIndex = model->index(0, 0, groupIndex);
+  require(groupIndex.isValid() && chunkIndex.isValid(),
+          "task removal fixture has no group or chunk row");
+  auto* selection = panel->m_treeView->selectionModel();
+  selection->select(groupIndex, QItemSelectionModel::Select);
+  selection->select(chunkIndex, QItemSelectionModel::Select);
+  model->remove(false);
+  require(!controller->getTask(id) && !controller->getTask(chunkId) &&
+              controller->getTaskCount() == count,
+          "removing a selected group and chunk did not retire both tasks");
+  require(!other->m_taskSheet->getCurrentTask(),
+          "another Tasks panel retained its removed chunk selection");
+  auto* orphan       = new TFarmTask();
+  orphan->m_id       = chunkId;
+  orphan->m_parentId = missingId;
+  controller->addTask(chunkId, orphan, false);
+  controller->removeTask(chunkId);
+  require(!controller->getTask(chunkId),
+          "a task with a missing parent could not be removed");
+  controller->setDirtyFlag(dirty);
+  checkpoint("workflow task removal and missing dependencies passed");
+}
+
+class RemovalFarmController final : public TFarmController {
+  TFarmController* m_previous;
+  std::vector<QString> m_children;
+
+public:
+  int submissions = 0;
+  int queries     = 0;
+  int restarts    = 0;
+  QStringList queriedIds;
+
+  RemovalFarmController()
+      : m_previous(BatchesController::instance()->getController()) {
+    BatchesController::instance()->setController(this);
+  }
+  ~RemovalFarmController() override {
+    BatchesController::instance()->setController(m_previous);
+  }
+
+  QString addTask(const TFarmTask& task, bool) override {
+    const QString id = QString::number(++submissions);
+    m_children.clear();
+    for (int i = 0; i < task.getTaskCount(); ++i)
+      m_children.push_back(id + "." + QString::number(i));
+    return id;
+  }
+  void queryTaskInfo(const QString& id, TFarmTask& task) override {
+    ++queries;
+    queriedIds.push_back(id);
+    task.m_status = Suspended;
+  }
+  void getTasks(const QString&, std::vector<QString>& tasks) override {
+    tasks = m_children;
+  }
+  void restartTask(const QString&) override { ++restarts; }
+  void removeTask(const QString&) override {}
+  void suspendTask(const QString&) override {}
+  void activateTask(const QString&) override {}
+  void getTasks(std::vector<QString>&) override {}
+  void getTasks(const QString&, std::vector<TaskShortInfo>&) override {}
+  void queryTaskShortInfo(const QString&, QString&, QString&,
+                          TaskState&) override {}
+  void attachServer(const QString&, const QString&, int) override {}
+  void detachServer(const QString&, const QString&, int) override {}
+  void taskSubmissionError(const QString&, int) override {}
+  void taskProgress(const QString&, int, int, int, FrameState) override {}
+  void taskCompleted(const QString&, int) override {}
+  void getServers(std::vector<ServerIdentity>&) override {}
+  ServerState queryServerState2(const QString&) override { return Ready; }
+  void queryServerInfo(const QString&, ServerInfo&) override {}
+  void activateServer(const QString&) override {}
+  void deactivateServer(const QString&, bool) override {}
+};
+
+void exerciseFarmTaskRemoval() {
+  auto* controller      = BatchesController::instance();
+  const bool dirty      = controller->getDirtyFlag();
+  const int count       = controller->getTaskCount();
+  const QString id      = "workflow-farm-removal-task";
+  const QString chunkId = id + ".chunk";
+  require(!controller->getTask(id) && !controller->getTask(chunkId),
+          "farm removal fixture IDs already exist");
+  RemovalFarmController farm;
+  auto* group = new TFarmTaskGroup(
+      id, "Workflow farm removal", QString(), QString(), 1, 50,
+      TFilePath(testRoot + "/workflow-farm-removal.cln"), Overwrite_Off, false);
+  auto* chunk       = new TFarmTask(*group);
+  chunk->m_id       = chunkId;
+  chunk->m_parentId = id;
+  group->addTask(chunk);
+  controller->addTask(id, group, false);
+  controller->start(id);
+  controller->update();
+  require(farm.submissions == 1 && farm.queries == 2,
+          "farm fixture did not poll its group and chunk");
+  controller->removeTask(chunkId);
+  controller->update();
+  require(farm.queries == 3 && group->getTaskCount() == 0,
+          "removed chunk remained in its group or farm polling");
+  controller->removeTask(id);
+  controller->update();
+  require(farm.queries == 3 && controller->getTaskCount() == count,
+          "removed group remained in farm polling");
+
+  for (int submission = 2; submission <= 3; ++submission) {
+    group = new TFarmTaskGroup(
+        id, "Workflow farm resubmission", QString(), QString(), 1, 50,
+        TFilePath(testRoot + "/workflow-farm-removal.cln"), Overwrite_Off,
+        false);
+    chunk             = new TFarmTask(*group);
+    chunk->m_id       = chunkId;
+    chunk->m_parentId = id;
+    group->addTask(chunk);
+    controller->addTask(id, group, false);
+    controller->start(id);
+    require(farm.submissions == submission && farm.restarts == 0,
+            "a replacement task restarted the removed farm task");
+    farm.queriedIds.clear();
+    controller->update();
+    const QString farmId = QString::number(submission);
+    require(farm.queriedIds.size() == 2 && farm.queriedIds.contains(farmId) &&
+                farm.queriedIds.contains(farmId + ".0"),
+            "replacement tasks polled retired farm task IDs");
+    const int queries = farm.queries;
+    controller->removeTask(id);
+    controller->update();
+    require(farm.queries == queries && controller->getTaskCount() == count,
+            "group removal left farm polling entries for its children");
+  }
+  controller->setDirtyFlag(dirty);
+  checkpoint("workflow farm task removal passed");
+}
+
+void exerciseActiveChildRemoval() {
+  auto* controller      = BatchesController::instance();
+  const bool dirty      = controller->getDirtyFlag();
+  const QString id      = "workflow-active-child-task";
+  const QString chunkId = id + ".chunk";
+  require(!controller->getTask(id) && !controller->getTask(chunkId),
+          "active child fixture IDs already exist");
+  auto* group = new TFarmTaskGroup(
+      id, "Workflow active group", QString(), QString(), 1, 50,
+      TFilePath(testRoot + "/workflow-active-child.cln"), Overwrite_Off, false);
+  auto* chunk       = new TFarmTask(*group);
+  chunk->m_id       = chunkId;
+  chunk->m_name     = "Workflow active child";
+  chunk->m_parentId = id;
+  group->addTask(chunk);
+  controller->addTask(id, group, false);
+
+  for (TaskState state : {Waiting, Running}) {
+    chunk->m_status     = state;
+    bool warned         = false;
+    bool matchingDialog = true;
+    QObject callbacks;
+    QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &callbacks,
+                     [&](int, const QString& message) {
+                       warned |= message.contains("Workflow active child");
+                     });
+    QTimer::singleShot(0, &callbacks, [&]() {
+      auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      if (!dialog) return;
+      matchingDialog = false;
+      for (auto* label : dialog->findChildren<QLabel*>())
+        matchingDialog |= label->text().contains("Workflow active child");
+      dialog->reject();
+    });
+    controller->removeTask(id);
+    require(warned && matchingDialog && controller->getTask(id) == group &&
+                controller->getTask(chunkId) == chunk,
+            "removing a suspended group did not protect its active child");
+  }
+  chunk->m_status = Suspended;
+  controller->removeTask(id);
+  controller->setDirtyFlag(dirty);
+  controller->update();
+  require(!controller->getTask(id) && !controller->getTask(chunkId),
+          "an inactive group could not be removed after its child stopped");
+  checkpoint("workflow active batch child protection passed");
+}
+
+void exerciseMovieBatchSetup() {
+  auto* controller  = BatchesController::instance();
+  const bool dirty  = controller->getDirtyFlag();
+  const int count   = controller->getTaskCount();
+  auto* preferences = Preferences::instance();
+  struct RestoreChunkSize {
+    int value;
+    ~RestoreChunkSize() {
+      Preferences::instance()->setValue(taskchunksize, value, false);
+    }
+  } restoreChunkSize{preferences->getDefaultTaskChunkSize()};
+  preferences->setValue(taskchunksize, 2, false);
+  QTemporaryDir directory(QDir(testRoot).filePath("movie-batch-XXXXXX"));
+  require(directory.isValid(), "movie batch fixture directory is unavailable");
+  ToonzScene scene;
+  scene.setProject(
+      TApp::instance()->getCurrentScene()->getScene()->getProject());
+  const TFilePath scenePath(directory.filePath("movie-batch.tnz"));
+  const TFilePath batchScenePath = TSystem::toUNC(scenePath);
+  scene.setScenePath(scenePath);
+  auto* level =
+      scene.createNewLevel(PLI_XSHLEVEL, L"MovieBatch")->getSimpleLevel();
+  require(level, "movie batch fixture level could not be created");
+  level->setPath(TFilePath(directory.filePath("movie-batch.pli")));
+  level->setFrame(TFrameId(1), TVectorImageP(new TVectorImage));
+  require(scene.getXsheet()->setCell(4, 0, TXshCell(level, TFrameId(1))),
+          "movie batch fixture exposure could not be created");
+  auto* output = scene.getProperties()->getOutputProperties();
+  output->setRange(0, 4, 1);
+  for (const char* extension :
+       {"mov", "avi", "3gp", "mp4", "webm", "apng", "png"}) {
+    const TFilePath outputPath(
+        directory.filePath(QString("output.%1").arg(extension)));
+    output->setPath(outputPath);
+    scene.saveCopy(scenePath);
+    controller->addComposerTask(scenePath);
+    TFarmTaskGroup* group = nullptr;
+    for (int i = 0; i < controller->getTaskCount(); ++i) {
+      auto* candidate = dynamic_cast<TFarmTaskGroup*>(controller->getTask(i));
+      if (candidate && candidate->m_taskFilePath == batchScenePath)
+        group = candidate;
+    }
+    require(group && group->m_stepCount == 5 && group->m_from == 1 &&
+                group->m_to == 5,
+            "movie batch fixture did not load its saved frame range");
+    const bool imageSequence = QString::fromLatin1(extension) == "png";
+    require(group->m_outputPath == outputPath &&
+                group->m_chunkSize == (imageSequence ? 2 : 5) &&
+                group->getTaskCount() == (imageSequence ? 3 : 0),
+            "movie batch was split into overlapping output jobs or image "
+            "chunks changed");
+    const QString id = group->m_id;
+    controller->removeTask(id);
+    require(controller->getTaskCount() == count,
+            "movie batch fixture did not retire its tasks");
+  }
+  controller->setDirtyFlag(dirty);
+  controller->update();
+  checkpoint("workflow movie batch setup passed");
+}
+
 void exerciseWorkflowSwitching(QMainWindow *window) {
   checkpoint("checking workflow menus and panel lifetimes");
   auto *main = qobject_cast<MainWindow *>(window);
@@ -607,6 +905,10 @@ void exerciseWorkflowSwitching(QMainWindow *window) {
     controller->update();
   }
   checkpoint("workflow independent-task-panel checks passed");
+  exerciseTaskRemoval(window);
+  exerciseFarmTaskRemoval();
+  exerciseActiveChildRemoval();
+  exerciseMovieBatchSetup();
   // A style refresh must finish before unrelated queued room teardown runs.
   // ColorParameterSelector::clear used to process that teardown reentrantly,
   // allowing onStyleSwitched to continue through a destroyed editor.

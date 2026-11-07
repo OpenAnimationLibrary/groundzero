@@ -31,6 +31,7 @@
 #include <QToolBar>
 #include <QTimer>
 #include <QComboBox>
+#include <QStringList>
 
 using namespace DVGui;
 
@@ -226,10 +227,10 @@ bool containsTask(const TFarmTask::Dependencies &dependencies,
 
 class DependencyItem final : public QListWidgetItem {
 public:
-  TFarmTask *m_task;
+  TFarmTask::Id m_taskId;
 
-  DependencyItem(TFarmTask *task, QListWidget *w)
-      : QListWidgetItem(task->m_name, w), m_task(task) {}
+  DependencyItem(const TFarmTask::Id& id, const QString& name, QListWidget* w)
+      : QListWidgetItem(name, w), m_taskId(id) {}
 };
 
 //-----------------------------------------------------------------------------
@@ -243,9 +244,8 @@ void TaskSheet::onAdded(bool) {
 
   int i;
   for (i = 0; i < l.size(); i++) {
-    TFarmTask *t = ((DependencyItem *)l.at(i))->m_task;
-    assert(t);
-    m_task->m_dependencies->add(t->m_id);
+    auto* item = static_cast<DependencyItem*>(l.at(i));
+    m_task->m_dependencies->add(item->m_taskId);
   }
   BatchesController::instance()->setDirtyFlag(true);
   update(m_task);
@@ -261,9 +261,8 @@ void TaskSheet::onRemoved(bool) {
   if (l.isEmpty()) return;
   int i;
   for (i = 0; i < l.size(); i++) {
-    TFarmTask *t = ((DependencyItem *)l.at(i))->m_task;
-    assert(t);
-    m_task->m_dependencies->remove(t->m_id);
+    auto* item = static_cast<DependencyItem*>(l.at(i));
+    m_task->m_dependencies->remove(item->m_taskId);
   }
   BatchesController::instance()->setDirtyFlag(true);
   update(m_task);
@@ -274,9 +273,8 @@ void TaskSheet::onRemoved(bool) {
 void TaskSheet::onAddedItemDoubleClicked(QListWidgetItem *item) {
   if (!m_task || !item) return;
 
-  TFarmTask *t = ((DependencyItem *)item)->m_task;
-  assert(t);
-  m_task->m_dependencies->add(t->m_id);
+  auto* dependency = static_cast<DependencyItem*>(item);
+  m_task->m_dependencies->add(dependency->m_taskId);
 
   BatchesController::instance()->setDirtyFlag(true);
   update(m_task);
@@ -287,9 +285,8 @@ void TaskSheet::onAddedItemDoubleClicked(QListWidgetItem *item) {
 void TaskSheet::onRemovedItemDoubleClicked(QListWidgetItem *item) {
   if (!m_task || !item) return;
 
-  TFarmTask *t = ((DependencyItem *)item)->m_task;
-  assert(t);
-  m_task->m_dependencies->remove(t->m_id);
+  auto* dependency = static_cast<DependencyItem*>(item);
+  m_task->m_dependencies->remove(dependency->m_taskId);
 
   BatchesController::instance()->setDirtyFlag(true);
   update(m_task);
@@ -371,9 +368,13 @@ void TaskSheet::update(TFarmTask *task) {
 
   int i;
 
-  for (i = 0; i < task->m_dependencies->getTaskCount(); i++)
-    new DependencyItem(bc->getTask(task->m_dependencies->getTaskId(i)),
-                       m_addedBox);
+  for (i = 0; i < task->m_dependencies->getTaskCount(); i++) {
+    const auto id         = task->m_dependencies->getTaskId(i);
+    TFarmTask* dependency = bc->getTask(id);
+    const QString label =
+        dependency ? dependency->m_name : tr("%1 (missing)").arg(id);
+    new DependencyItem(id, label, m_addedBox);
+  }
 
   for (i = 0; i < bc->getTaskCount(); i++) {
     TFarmTaskGroup *tg;
@@ -381,7 +382,7 @@ void TaskSheet::update(TFarmTask *task) {
     if (!(tg = dynamic_cast<TFarmTaskGroup *>(t))) continue;
     if (tg->m_id == task->m_id) continue;
     if (containsTask(*task->m_dependencies, tg->m_id)) continue;
-    new DependencyItem(tg, m_notAddedBox);
+    new DependencyItem(tg->m_id, tg->m_name, m_notAddedBox);
   }
 }
 
@@ -1250,7 +1251,6 @@ void TaskTreeModel::stop(bool) {
 
 void TaskTreeModel::remove(bool) {
   QModelIndexList indexList = m_view->getSelectedIndexes();
-  int i;
 
   if (indexList.size() == 0) {
     if (DVGui::MsgBox(tr("Are you sure you want to remove ALL tasks?"),
@@ -1259,23 +1259,25 @@ void TaskTreeModel::remove(bool) {
 
     BatchesController::instance()->removeAllTasks();
   } else {
-    for (i = 0; i < indexList.size(); i++) {
-      QModelIndex modelIndex = indexList.at(i);
+    QStringList taskIds;
+    bool removeAll = false;
+    for (const QModelIndex& modelIndex : indexList) {
       if (!modelIndex.isValid()) continue;
-      TaskTreeModel::Item *item = (Item *)modelIndex.internalPointer();
-      if (item->getDepth() == 1)  // significa che ho selezionato la radice!
-      {
-        assert(indexList.size() == 1);
-        BatchesController::instance()->removeAllTasks();
+      auto* item = static_cast<Item*>(modelIndex.internalPointer());
+      if (item->getDepth() == 1) {
+        removeAll = true;
         break;
       }
-      TFarmTask *task = item->getTask();
-      if (!task) continue;
-      BatchesController::instance()->removeTask(task->m_id);
+      if (TFarmTask* task = item->getTask()) taskIds.push_back(task->m_id);
     }
-    TaskTreeView *p = (TaskTreeView *)QObject::parent();
-
-    p->m_mainViewer->setSelected(0);
+    // A selected group owns its chunks, which may also be selected.
+    // Keep identifiers before deleting any task or processing a modal warning.
+    if (removeAll)
+      BatchesController::instance()->removeAllTasks();
+    else
+      for (const QString& id : taskIds)
+        BatchesController::instance()->removeTask(id);
+    m_view->m_mainViewer->setSelected(nullptr);
   }
 
   BatchesController::instance()->notify();

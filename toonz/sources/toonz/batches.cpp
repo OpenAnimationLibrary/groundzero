@@ -13,6 +13,7 @@
 #include "tfarmstuff.h"
 #include "tenv.h"
 #include "toutputproperties.h"
+#include "tlevel_io.h"
 #include "trasterfx.h"
 #include "tasksviewer.h"
 #include "tapp.h"
@@ -296,12 +297,6 @@ void BatchesController::unregisterTasksTree(TaskTreeModel *tree) {
 
 //------------------------------------------------------------------------------
 
-inline bool isMovieType(std::string type) {
-  return (type == "mov" || type == "avi" || type == "3gp");
-}
-
-//------------------------------------------------------------------------------
-
 static int TaskCounter = 1;
 
 //------------------------------------------------------------------------------
@@ -438,23 +433,32 @@ QString BatchesController::taskBusyStr() {
 
 //------------------------------------------------------------------------------
 
+namespace {
+TFarmTask* activeTask(TFarmTask* task) {
+  if (task->m_status == Running || task->m_status == Waiting) return task;
+  auto* group = dynamic_cast<TFarmTaskGroup*>(task);
+  if (!group) return nullptr;
+  for (int i = 0; i < group->getTaskCount(); ++i)
+    if (TFarmTask* active = activeTask(group->getTask(i))) return active;
+  return nullptr;
+}
+}  // namespace
+
 void BatchesController::removeTask(const QString &id) {
   std::map<QString, TFarmTask *>::iterator it = m_tasks.find(id);
   if (it == m_tasks.end()) return;
 
   TFarmTask *task = it->second;
-  if (task->m_status == Running || task->m_status == Waiting) {
-    DVGui::warning(taskBusyStr().arg(task->m_name));
+  if (TFarmTask* active = activeTask(task)) {
+    DVGui::warning(taskBusyStr().arg(active->m_name));
     return;
   }
 
   setDirtyFlag(true);
 
   if (!task->m_parentId.isEmpty()) {
-    it                     = m_tasks.find(task->m_parentId);
-    TFarmTaskGroup *parent = dynamic_cast<TFarmTaskGroup *>(it->second);
-    assert(parent);
-    parent->removeTask(task);
+    auto* parent = dynamic_cast<TFarmTaskGroup*>(getTask(task->m_parentId));
+    if (parent) parent->removeTask(task);
   }
 
   TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(task);
@@ -473,20 +477,16 @@ void BatchesController::removeTask(const QString &id) {
       TFarmTask *subTask = taskGroup->getTask(i);
       assert(subTask);
       m_tasks.erase(subTask->m_id);
+      m_farmIdsTable.erase(subTask->m_id);
     }
   }
 
   m_tasks.erase(id);
+  m_farmIdsTable.erase(id);
   delete task;
 }
 
 //------------------------------------------------------------------------------
-
-namespace {
-void DeleteTask(const std::pair<QString, TFarmTask *> &mapItem) {
-  if (mapItem.second->m_parentId.isEmpty()) delete mapItem.second;
-}
-}  // namespace
 
 void BatchesController::removeAllTasks() {
   std::map<QString, TFarmTask *>::iterator tt, tEnd(m_tasks.end());
@@ -502,6 +502,7 @@ void BatchesController::removeAllTasks() {
   setDirtyFlag(false);
 
   m_tasks.clear();
+  m_farmIdsTable.clear();
   notify();
 }
 
@@ -990,9 +991,9 @@ void BatchesController::update() {
         QString batchesTaskId = it->first;
 
         TFarmTask *batchesTask = getTask(batchesTaskId);
-        TFarmTask farmTask     = *batchesTask;
 
         if (batchesTask) {
+          TFarmTask farmTask          = *batchesTask;
           QString batchesTaskParentId = batchesTask->m_parentId;
           m_controller->queryTaskInfo(farmTaskId, farmTask);
           int chunkSize            = batchesTask->m_chunkSize;
