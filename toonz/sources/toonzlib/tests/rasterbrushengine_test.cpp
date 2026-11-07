@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <sstream>
 #include <utility>
 using namespace RasterBrush;
 namespace {
@@ -3825,9 +3826,38 @@ void testSourceSymmetricTiltRotation() {
       require(b.add(input), b.error().c_str());
       sourceFixtureMotion(b, input);
       finishStroke(b);
-      require(same(tilted, barrel),
-              "source tilt normalization disagrees with measured orientation "
-              "class");
+      if (!same(tilted, barrel)) {
+        size_t mismatches = 0, first = 0;
+        for (size_t i = 0; i < tilted.pixels.size(); ++i) {
+          const auto &x = tilted.pixels[i], &y = barrel.pixels[i];
+          if (x.r != y.r || x.g != y.g || x.b != y.b || x.a != y.a) {
+            if (!mismatches) first = i;
+            ++mismatches;
+          }
+        }
+        const auto &x = tilted.pixels[first], &y = barrel.pixels[first];
+        std::ostringstream diagnostic;
+        diagnostic << "source tilt normalization disagrees with measured "
+                      "orientation class: sensor="
+                   << (sensor == Sensor::TiltX ? "TiltX" : "TiltY")
+                   << " degrees=" << degrees
+                   << " tiltDabs=" << a.dabCount()
+                   << " barrelDabs=" << b.dabCount()
+                   << " mismatches=" << mismatches
+                   << " first=(" << first % tilted.w << ',' << first / tilted.w
+                   << ')' << std::hexfloat
+                   << " tiltInput="
+                   << (sensor == Sensor::TiltX ? input.tiltX : input.tiltY)
+                   << " tiltNormalized="
+                   << std::abs(sensor == Sensor::TiltX ? input.tiltX : input.tiltY)
+                   << " barrelRadians=" << input.rotation
+                   << " barrelNormalized="
+                   << input.rotation / (2 * 3.14159265358979323846)
+                   << " tiltedRGBA=(" << x.r << ',' << x.g << ',' << x.b << ','
+                   << x.a << ") barrelRGBA=(" << y.r << ',' << y.g << ','
+                   << y.b << ',' << y.a << ')';
+        require(false, diagnostic.str().c_str());
+      }
       p.angle.mappings.front().sensor = sensor;
       p.tip.shape                     = Shape::Square;
       require(!validate(p).empty(), "unqualified source tilt shape admitted");

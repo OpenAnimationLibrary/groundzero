@@ -51,7 +51,7 @@
 #include "toonz/toonzfolders.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
-#include "toonz/ttoolhandle.h"
+#include "tools/toolhandle.h"
 #include "toonz/txshcell.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txsheet.h"
