@@ -1,0 +1,152 @@
+name: PR115 retained Windows crash diagnostic
+
+on:
+  push:
+    branches: [codex/pr115-windows-replay]
+    paths: [.github/workflows/pr115-windows-replay.yml]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  retained-crash:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: ci-scripts
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v6
+        with:
+          artifact-ids: '13555851183'
+          github-token: ${{ github.token }}
+          run-id: '42320716725'
+          path: retained
+          merge-multiple: true
+      - name: Verify and extract the retained failed runtime
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          python -u - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path, PurePosixPath
+          import zipfile
+
+          archives = list(Path("retained").glob("*.zip"))
+          if len(archives) != 1:
+              raise RuntimeError("Expected one retained native bundle")
+          root = Path("replay").resolve()
+          with zipfile.ZipFile(archives[0]) as archive:
+              manifest = json.loads(archive.read("manifest.json"))
+              if (manifest.get("schema") != 1 or
+                  manifest.get("source_sha") != "08a4b6fd12860cfb64c0845ac3d601cd77ab6d1f" or
+                  manifest.get("run_id") != "42320716725" or
+                  manifest.get("run_attempt") != "1" or
+                  manifest.get("native_outcome") != "failure"):
+                  raise RuntimeError("Unexpected retained runtime identity")
+              files = manifest["files"]
+              expected = {item["path"] for item in files}
+              if (len(expected) != len(files) or len(archive.namelist()) != len(expected) + 1 or
+                  set(archive.namelist()) != expected | {"manifest.json"}):
+                  raise RuntimeError("Retained archive inventory differs from its manifest")
+              for item in files:
+                  name = item["path"]
+                  path = PurePosixPath(name)
+                  if (path.is_absolute() or ".." in path.parts or ":" in name or
+                      "\\" in name or path.parts[0] not in ("package", "symbols", "mesa")):
+                      raise RuntimeError("Unexpected retained file path")
+                  destination = root.joinpath(*path.parts)
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  digest, size = hashlib.sha256(), 0
+                  with archive.open(name) as source, destination.open("xb") as target:
+                      for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                          size += len(chunk)
+                          if size > item["bytes"]:
+                              raise RuntimeError("Retained file exceeds manifest size")
+                          digest.update(chunk)
+                          target.write(chunk)
+                  if size != item["bytes"] or digest.hexdigest() != item["sha256"]:
+                      raise RuntimeError("Retained file checksum differs from manifest")
+              (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+          import sys
+          sys.path.insert(0, "ci-scripts")
+          from native_windows_bundle import pe_identity, pdb_identity
+          executable = root / "package" / "OpenToonz.exe"
+          binary = next(item for item in manifest["binaries"]
+                        if item["path"].lower() == "package/opentoonz.exe")
+          identity = pe_identity(executable)
+          if (not identity or not binary["symbols"] or
+              pdb_identity(root / binary["symbols"]) != identity[:2]):
+              raise RuntimeError("Retained executable does not have matching symbols")
+          print("Verified retained failed runtime, file checksums and executable/PDB identity.")
+          PY
+      - name: Ensure Windows debugger is available
+        shell: pwsh
+        run: ./ci-scripts/install_windows_debugger.ps1
+      - name: Capture the first access violation in the workflow switch
+        timeout-minutes: 18
+        shell: bash
+        run: |
+          python -u - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, "ci-scripts")
+          from run_native_ui_test import (decode_output, isolated_fixture,
+                                         run_captured_process, select_diagnostic_suite)
+          reports = Path("diagnostics")
+          reports.mkdir(exist_ok=True)
+          output, summary, exit_status = "", "Diagnostic did not launch.", 1
+          state = {"safe_to_release": True}
+          try:
+              root = Path("replay").resolve(strict=True)
+              executable = root / "package" / "OpenToonz.exe"
+              debugger = Path(os.environ["ProgramFiles(x86)"]) / "Windows Kits/10/Debuggers/x64/cdb.exe"
+              commands = ("sxe av; g; .echo Retained workflow debugger stop; "
+                          ".lastevent; .exr -1; lm; ~* kb 8; .ecxr; kv 60; q")
+              command = [str(debugger), "-G", "-hd", "-sins", "-netsyms:no", "-noshell", "-lines",
+                         "-y", str(root / "symbols") + ";" + str(root / "package"),
+                         "-c", commands, str(executable), "--test-native-ui"]
+              with isolated_fixture(root / "package" / "portablestuff", executable,
+                                    root / "mesa", runtime_state=state) as (directory, environment):
+                  select_diagnostic_suite(environment, "workflow-switch")
+                  result = run_captured_process(command, cwd=directory, environment=environment,
+                                                timeout=900, runtime_state=state)
+                  output = decode_output(result.stdout)
+                  summary = f"Retained workflow diagnostic: CDB exited with status {result.returncode}; inspect the exception record and stack."
+                  exit_status = 0 if result.returncode == 0 else 1
+          except subprocess.TimeoutExpired as error:
+              output = decode_output(error.stdout)
+              summary = "Retained workflow diagnostic timed out after 900 seconds; no completed diagnostic result."
+          except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+              output = output or decode_output(state.get("output", b""))
+              summary = "Retained workflow diagnostic failed: " + type(error).__name__ + ": " + str(error)
+              exit_status = 1
+          finally:
+              if not state["safe_to_release"]:
+                  exit_status = 1
+                  summary += " Process-tree cleanup was not confirmed."
+              summary += " This is diagnostic evidence only; the original native integration failure remains authoritative."
+              (reports / "workflow-debugger.txt").write_text(output + "\n" + summary + "\n", encoding="utf-8")
+              print(output, flush=True)
+              print("::warning title=Retained Windows diagnostic::" + summary.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"), flush=True)
+          raise SystemExit(exit_status)
+          PY
+      - name: Preserve diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pr115-retained-workflow-diagnostic
+          path: |
+            diagnostics/workflow-debugger.txt
+            replay/manifest.json
+          if-no-files-found: warn
+          retention-days: 3
