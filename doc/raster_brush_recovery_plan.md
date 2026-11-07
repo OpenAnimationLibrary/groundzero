@@ -37,7 +37,9 @@ integration target before review. Source wiring is not proof of successful execu
 
 A finished milestone must cite the actual behavior and its evidence. More test
 files, metadata fields or documents do not independently count as a user feature.
-Final integrated-commit execution evidence remains pending.
+Required execution evidence at `d9490878b` is recorded in the acceptance audit.
+All three platforms passed actual and installed application qualification. Final
+readiness remains pending the explicit Windows heap investigation and evidence review.
 
 ## Milestone 1: close the finite known-fix list
 
@@ -47,11 +49,15 @@ moves backwards; its paired-counter regression is authored. The preview/editor,
 collection workflow and opt-in boundary received a focused source review with no
 additional concrete defects found. The native zero-weight and alpha-lock cases
 needed no production renderer changes. Initial CI compilation exposed an importer
-diagnostic string-type error; those affected jobs did not reach the tests. Runtime qualification remains open.
+diagnostic string-type error; those affected jobs did not reach the tests. That
+earlier compilation failure was corrected; required runtime qualification
+passed at `d9490878b`, as recorded in the acceptance audit.
 The refreshed edition revision `2e52fb78b` merges without conflicts. Source review
 confirmed the native routing, application test entry and build registration are
 preserved. The scoped implementation and integration review are complete; final
-CI/runtime qualification is the next milestone and remains unproven.
+CI/runtime qualification passed at `d9490878b`. The prior Windows teardown
+crash has no established causal fix; the separate explicit heap investigation
+and final evidence review remain open.
 
 These are the six known items. The first four are confirmed source-review defects;
 the last two are focused proof questions, not established production mismatches.
@@ -189,9 +195,12 @@ original requirements for a possible later phase; it is not this phase's checkli
 
 Implementation has resumed against the six-item stabilization list. Use the independent
 `codex/pr115-raster-brush-recovery` branch; do not modify the other active checkout.
-The implementation is committed through `5fbe4267d`, with edition integration
-at `485eb7bb3`, and published as draft PR #141. Preserve that implementation;
-remaining changes address demonstrated qualification failures. Shared files have
+The published implementation is committed through `d9490878b`, incorporates
+edition `2e52fb78b`, and remains draft PR #141. Required checks passed on that
+revision. Diagnostic revision `93785c6fa` adds only workflow opt-in, concurrency
+and report retention on a separate branch. Preserve the implementation; remaining
+work resolves the earlier Windows crash uncertainty and reconciles final evidence.
+Shared files have
 one writer at a time; reviewers can work in parallel without rebuilding existing
 components.
 
