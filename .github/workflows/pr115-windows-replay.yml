@@ -93,15 +93,17 @@ jobs:
       - name: Ensure Windows debugger is available
         shell: pwsh
         run: ./ci-scripts/install_windows_debugger.ps1
-      - name: Capture the first access violation in the workflow switch
+      - name: Capture the first standard page-heap failure in the workflow switch
         timeout-minutes: 18
         shell: bash
         run: |
           python -u - <<'PY'
           import os
           from pathlib import Path
+          import re
           import subprocess
           import sys
+          import winreg
 
           sys.path.insert(0, "ci-scripts")
           from run_native_ui_test import (decode_output, isolated_fixture,
@@ -110,16 +112,46 @@ jobs:
           reports.mkdir(exist_ok=True)
           output, summary, exit_status = "", "Diagnostic did not launch.", 1
           state = {"safe_to_release": True}
+          setup_output, enable_attempted, gflags = "", False, None
+
+          def run_gflags(*arguments):
+              result = subprocess.run([str(gflags), *arguments], stdout=subprocess.PIPE,
+                                      stderr=subprocess.STDOUT, timeout=30)
+              text = decode_output(result.stdout)
+              print(text, flush=True)
+              if result.returncode:
+                  raise RuntimeError(f"GFlags {arguments[0]} returned {result.returncode}: " + text)
+              return text
+
           try:
               root = Path("replay").resolve(strict=True)
               executable = root / "package" / "OpenToonz.exe"
               debugger = Path(os.environ["ProgramFiles(x86)"]) / "Windows Kits/10/Debuggers/x64/cdb.exe"
+              gflags = debugger.with_name("gflags.exe")
+              if not gflags.is_file():
+                  raise RuntimeError("Windows SDK GFlags is unavailable; page heap was not configured")
+              enable_attempted = True
+              setup_output += run_gflags("/p", "/enable", executable.name)
+              query = run_gflags("/p")
+              setup_output += query
+              if not any("opentoonz.exe" in line.lower() and
+                         re.search(r"\(\s*traces\s*\)", line, re.IGNORECASE)
+                         for line in query.splitlines()):
+                  raise RuntimeError("GFlags did not confirm standard page heap (traces)")
+              key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\OpenToonz.exe"
+              with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0,
+                                  winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+                  for name in ("GlobalFlag", "PageHeapFlags"):
+                      value, kind = winreg.QueryValueEx(key, name)
+                      setup_output += f"GFlags registry {name}: type={kind}, value={value}\n"
               # The first replay's .ecxr was unavailable at the first-chance
               # stop. Capture the event thread's live state before enumerating
               # other threads, without depending on a saved exception context.
-              commands = ("sxe av; g; .echo Retained workflow debugger stop; "
-                          ".lastevent; .exr -1; r; u @rip-20 L30; ub @rip L20; "
-                          "kv 60; dq @rbx L18; !heap -x @rbx; lm; ~* kb 8; q")
+              commands = (".echo Runtime page-heap activation evidence; !gflag; !heap -p; "
+                          "sxe av; sxe bpe; sxe 0xc0000374; sxe 0xc0000421; g; "
+                          ".echo Retained workflow verifier stop; .lastevent; .exr -1; "
+                          "r; u @rip-20 L30; ub @rip L20; kv 60; !avrf; !heap -p; "
+                          "lm; ~* kb 8; q")
               command = [str(debugger), "-G", "-hd", "-sins", "-netsyms:no", "-noshell", "-lines",
                          "-y", str(root / "symbols") + ";" + str(root / "package"),
                          "-c", commands, str(executable), "--test-native-ui"]
@@ -131,19 +163,36 @@ jobs:
                   output = decode_output(result.stdout)
                   summary = f"Retained workflow diagnostic: CDB exited with status {result.returncode}; inspect the exception record and stack."
                   exit_status = 0 if result.returncode == 0 else 1
+                  runtime_flag = re.search(r"^\s*hpa\s+-\s+\S", output, re.IGNORECASE | re.MULTILINE)
+                  if runtime_flag:
+                      summary += " Runtime !gflag reported the page-heap flag; heap details are retained."
+                  else:
+                      summary += " Runtime page-heap activation was not confirmed by !gflag."
+                      exit_status = 1
           except subprocess.TimeoutExpired as error:
               output = decode_output(error.stdout)
-              summary = "Retained workflow diagnostic timed out after 900 seconds; no completed diagnostic result."
+              summary = f"Retained workflow diagnostic command timed out after {error.timeout} seconds; no completed diagnostic result."
           except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
               output = output or decode_output(state.get("output", b""))
               summary = "Retained workflow diagnostic failed: " + type(error).__name__ + ": " + str(error)
               exit_status = 1
           finally:
+              if enable_attempted:
+                  try:
+                      setup_output += run_gflags("/p", "/disable", "OpenToonz.exe")
+                      query = run_gflags("/p")
+                      setup_output += query
+                      if any("opentoonz.exe" in line.lower() and "enabled" in line.lower()
+                             for line in query.splitlines()):
+                          raise RuntimeError("GFlags still reports OpenToonz page heap enabled")
+                  except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                      summary += " Page-heap cleanup failed: " + str(error)
+                      exit_status = 1
               if not state["safe_to_release"]:
                   exit_status = 1
                   summary += " Process-tree cleanup was not confirmed."
               summary += " This is diagnostic evidence only; the original native integration failure remains authoritative."
-              (reports / "workflow-debugger.txt").write_text(output + "\n" + summary + "\n", encoding="utf-8")
+              (reports / "workflow-debugger.txt").write_text(setup_output + "\n" + output + "\n" + summary + "\n", encoding="utf-8")
               print(output, flush=True)
               print("::warning title=Retained Windows diagnostic::" + summary.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"), flush=True)
           raise SystemExit(exit_status)
