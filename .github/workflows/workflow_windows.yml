@@ -145,9 +145,15 @@ jobs:
           if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
             for ($attempt = 1; $attempt -le 3; $attempt++) {
               choco install ffmpeg --yes --no-progress
-              if ($LASTEXITCODE -eq 0) { break }
+              $installExitCode = $LASTEXITCODE
+              # A feed timeout can leave Chocolatey reporting success with no
+              # package installed. Require the actual tools before ending retries.
+              $ffmpegReady = Get-Command ffmpeg -ErrorAction SilentlyContinue
+              $ffprobeReady = Get-Command ffprobe -ErrorAction SilentlyContinue
+              if ($installExitCode -eq 0 -and $ffmpegReady -and $ffprobeReady) { break }
+              Write-Output "FFmpeg installation attempt $attempt did not provide both tools (Chocolatey exit $installExitCode)."
               if ($attempt -eq 3) {
-                Write-Output "::error title=FFmpeg dependency installation::Chocolatey failed after three attempts; inspect the package-feed response above."
+                Write-Output "::error title=FFmpeg dependency installation::FFmpeg and ffprobe were not available after three attempts; inspect the package-feed response above."
                 throw "FFmpeg installation failed"
               }
               Start-Sleep -Seconds (10 * $attempt)
