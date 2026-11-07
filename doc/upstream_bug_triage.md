@@ -121,11 +121,25 @@ The destructive outcome has not been established through the current guard.
 
 ### P2: navigation, input, output fidelity, and platform behavior
 
-The undo lane observed that `UndoPencil` leaves frame navigation commented out
-while other vector undo implementations navigate to the affected frame
-(`toonz/sources/tnztools/toolutils.cpp`), consistent with [5190][u5190].
-This is a source behavior difference; restoring navigation is a UX decision that
-needs a cross-level undo fixture.
+[5190][u5190] includes exposure/frame shifts during vector drawing undo; the
+commented navigation call in `UndoPencil` alone does not establish its cause.
+A narrower source-confirmed variant is now F31: with Brush Break enabled and Auto Group
+disabled, every split undo record claimed frame creation, but only the first retained
+renumber metadata. Reverse undo removed the frame before original IDs/exposures could be
+restored. The prepared fix gives creation ownership to the first record. Actual gesture
+fixtures cover blank and held exposures with auto-create/stretch/hold/renumber and three
+undo/redo cycles. They have not run, and the exact reporter settings/video, new-level
+membership and lettered-ID variants remain unverified. Navigation is unchanged; the
+inventory retains S and R14 remains open.
+
+[2445][u2445] remains an unverified destination/type policy report. F32/F33 address two
+narrower defects in `TCellSelection::pasteCells`: native `RasterImageData` must take precedence
+over its external-image preview, and external-image Cancel must preserve redo. The prepared
+MI_Paste fixture checks six indexed/full-color targets plus Cancel/history, not mixed-column,
+gap-lookup, keyboard activation, cross-process MIME or all conversion behavior. New-level
+size/DPI still follows preferences. The existing
+[OT-Dev PR280](https://github.com/OpenAnimationLibrary/opentoonz-dev/pull/280) proposes broader
+destination/PasteAs behavior; it was not imported here. R13 and this report remain open.
 
 For [6972][u6972], the file-safety lane found that active BMP decoding already
 differs from the older, unbuilt implementation implicated by the report. Do not

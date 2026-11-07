@@ -106,7 +106,7 @@ share a finding ID rather than inflating the count for each affected command.
 | F18 | P2 | CI diagnosis matched successful checkpoint substrings, hid failures among notices, and omitted later API pages. It now classifies actual failures and follows explicit paginated check/job links. | `ci-scripts/ci_audit.py`, 22 Python cases including MSVC and skipped-check reporting |
 | F19 | P2 | Independent PR workflows expanded to 31 checks. Consolidated coverage and a topology guard enforce the requested limit of ten. | Workflows, `ci-scripts/check_ci_budget.rb`, 15 added Ruby cases |
 | F20 | P2 | Mutable action references, checkout credentials, shell interpolation, and floating build tools weakened workflow provenance. Actions and tools are pinned and credentials/interpolation narrowed. | Workflows and locked stylesheet/wiki toolchain |
-| F21 | P2 | Windows packaging copied libmypaint dependency DLLs without an identified copy of their notice directory. Packaging now carries the supplied notice tree. | Windows workflow; archive inspection remains required |
+| F21 | P2 | Windows packaging copied libmypaint dependency DLLs without an identified copy of their notice directory. Packaging now carries the supplied notice tree. | Windows workflow; c208 staged notice check passed, extracted-archive/provenance review remains required |
 | F22 | P2 | Vector simplification passed an uninitialized palette choice into the raster/vector conversion round trip. The choice now matches the existing rasterization path. | `toonz/cellselection.cpp`; source-validated, palette round-trip execution pending |
 | F23 | P2 | Qt 5 queued plugin publication passed an unregistered custom pointer type across threads. The type is now declared and registered before loader execution. | `toonzqt/pluginhost.h/.cpp`, real native probe fixture |
 | F24 | P1 | Filmstrip Swing undo left original drawings and synchronized exposures shifted. Its debug clone-count assertion also failed. Undo now restores identity and remembers the applied synchronization mode. | `toonz/filmstripcommand.cpp`, `swingUndoChecks`; numeric/lettered collisions, sparse selections, repeated cycles, preference changes before undo |
@@ -115,6 +115,11 @@ share a finding ID rather than inflating the count for each affected command.
 | F27 | P1 | Local runners borrowed task graphs after status allowed removal and accessed task/process state across threads. Immutable execution plans, pending identity records, queued outcomes and worker-owned processes now separate cancellation from retirement. | `toonz/batches.cpp`, `toonz/batchtaskexecution.cpp`, guarded task-sheet edits and gated native fixtures; runtime qualification pending |
 | F28 | P2 | Bulk clear/load dropped owner roots and discarded lists before failed replacement. Actual ownership-root cleanup and staged loading preserve prior state and historical pointer aliases. | `toonz/batches.cpp`, normal-owner/load fixtures; malformed nested extraction ownership remains deferred |
 | F29 | P2 | External-effect decoding replaced only a local pointer, leaving output pixels unapplied. Matching 32-bit RGBA output now copies into the existing tile; invalid size/type is rejected. | `tnzbase/texternfx.cpp`, public `externfx_process` pixel cases; old-scene comparisons and 64-bit/float destination support remain open |
+| F30 | P1 | A pending workflow timer could delete a lazy Room inside its own initialization event loop. Initialization now holds the switching guard and reschedules the latest pending request afterward. | `toonz/mainwindow.cpp`, real Room/timer fixture; W4 is distinct from the unresolved eager-room W1 crash |
+| F31 | P1 | Each split vector Brush undo record claimed frame creation, so reverse undo erased the frame before the first record restored renumbered drawings. Only the first split now owns creation. | `tnztools/toonzvectorbrushtool.cpp`, real Break-on/Auto-Group-off gestures over blank and held exposures |
+| F32 | P2 | Native raster clipboard data was mistaken for its external-image preview. Native payload now takes precedence, preserving type and content. | `toonz/cellselection.cpp`, actual MI_Paste across six indexed/full-color targets |
+| F33 | P1 | Cancelling an external-image paste discarded existing redo history when its undo block opened early. The block now starts only after preparation succeeds. | Same paste path; actual chooser Cancel checks history and subsequent redo identity/pixels |
+| F34 | P2 | Missing/malformed custom panels and malformed editor templates supplied null loader results to unchecked consumers. The factory now shows a plain-text error; the editor keeps the last valid template path/preview and checks command-preview reloads. | Custom panel manager/editor, real Room loading and template-slot fixture; valid MI_Undo binding retained |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -139,7 +144,7 @@ The follow-up [Swing review](audit_swing_undo.md),
 [native crash investigation](audit_windows_crashes.md) record additional scenarios
 and distinguish prepared repairs from unresolved application crashes.
 The [scenario plan](audit_regression_scenarios.md) and
-[machine-readable ledger](audit_findings.json) track all 29 prepared findings,
+[machine-readable ledger](audit_findings.json) track all 34 prepared findings,
 stable residual IDs, platform limits, required mutations, and exact CI evidence.
 
 ## Remaining risks and owner decisions
@@ -153,7 +158,7 @@ stable residual IDs, platform limits, required mutations, and exact CI evidence.
 | P2, evidence gap | Selected legacy Windows binaries lack a complete source/patch/build/digest record. | Inventory actual link inputs and establish reproducible rebuilds before targeted updates; do not infer CVE applicability from directory names. |
 | P2, source-confirmed | Linux packaging uses moving AppImage download URLs; Windows custom Qt and prebuilt-library downloads lack pinned digests. Optional Python/OS/Rust dependency inputs are not fully locked. | Obtain reviewed provenance and trusted digests before pinning native payloads; the action pins and npm lock do not resolve these inputs. |
 | P2, dated availability risk | Homebrew plans to disable `qt@5` on 2027-05-19 and `opencv@4` on 2027-07-09. | Select and qualify a supported acquisition path before those dates; migration needs native device, scene, and rendering evidence. |
-| P2, workflow/reproduction pending | Raster paste target type (#2445) and vector pencil undo navigation (#5190) need artist-workflow fixtures. | Confirm desired behavior across levels and preferences before changing navigation or target selection. |
+| P2, workflow/reproduction pending | F31–F33 address narrower split-Brush ownership, native clipboard precedence and Cancel history defects. Exact #5190 exposure/frame shifts and #2445 destination policy remain unverified. | Run the new fixtures, retain new-level/lettered-ID and mixed-column/gap/input gaps, and review OT-Dev PR280 before broader paste-policy changes. |
 | Validation gap | Native Apple Silicon, tablet/DPI/audio, long sessions, complete scene key/FX equality, and all 132 upstream reports are not qualified here. | Use the prioritized reproduction queue and exact-build platform evidence; retain unverified status until supported. |
 
 The backlog inventory classifies 124 reports as unverified, three as source-confirmed, four
@@ -252,6 +257,25 @@ Quit assertion followed the failed fixture; each separately launched reviewed-cl
 scenario passed. The [ledger](audit_findings.json) records log lines and artifact digests as
 CI10–CI16 without replacing the initial-head evidence. F27/F28 and F29 pixel publication were
 added after this revision and receive no runtime credit from it.
+
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, the
+[Windows job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217)
+completed the full application build. Eight PageHeap boundary contracts, 35 process
+containment/capture cases (including controlled native crash/hang probes), two standalone
+Qt UI CTests, and seven staged dependency notice checks also passed. Neural qualification
+was then cancelled after the next head superseded this run; native application integration
+was skipped. Compilation and these bounded checks do not establish a W1 repair or task
+runtime success. CI17–CI19 retain these separately from the older failure evidence.
+
+At `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210)
+builds failed because F29's `BlueSource` fixture did not override the pure virtual
+`TFx::getPluginId() const`. The override is now prepared. Linux compiled the five task
+implementation/fixture objects and linked OpenToonz; macOS task compilation/link completion
+was not established. Neither job ran the new native or pixel cases. CI20/CI21 preserve that
+build failure; it is not a failed behavioral regression or evidence of a reporter defect.
+F30–F34 were prepared after this head and have no runtime evidence from these jobs.
 
 The workflow audit pins 121 external action uses and disables persisted credentials on
 25 checkouts. Offline zizmor's default scan passes with documented local exceptions; the

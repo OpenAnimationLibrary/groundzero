@@ -4,9 +4,10 @@ Baseline: `2e52fb78b70915925393290f32dc09a95a3927ec` (`edition`), 2026-11-07.
 The prepared fixes are under review in [PR 142](https://github.com/OpenAnimationLibrary/groundzero/pull/142).
 This plan preserves F01–F23 from the [main audit](codebase_audit_2026_11_07.md) and adds
 the integrated Swing/audio follow-ups as F24/F25, timeout conversion as F26, local batch
-lifetime/list ownership as F27/F28, and external-FX pixels as F29.
+lifetime/list ownership as F27/F28, external-FX pixels as F29, and Room/Brush/clipboard/custom-panel
+repairs as F30–F34.
 R01/R02/R03/R08/R09 remain aliases for those same bugs, not additional unresolved defects.
-The ledger has 29 prepared findings and 11 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
+The ledger has 34 prepared findings and 11 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
 F27/F28/F29 retain explicit partial-scope and runtime qualifications in their open records.
 The companion [JSON ledger](audit_findings.json) contains affected paths, exact fixture names,
 platform limits, missing coverage and a targeted mutation proposal for each prepared fix.
@@ -47,6 +48,10 @@ The JSON `suites` map contains the repository-relative paths and exact CTest reg
 | Tasks | [nativeuiintegrationtest.cpp](../toonz/sources/toonz/nativeuiintegrationtest.cpp), `exerciseTaskRemoval`, `exerciseFarmTaskRemoval`, `exerciseActiveChildRemoval`, `exerciseMovieBatchSetup` | L/M/W native application; keep each checkpoint, not just the runner exit |
 | Batch lifetime | [batchtaskintegrationtest.cpp](../toonz/sources/toonz/batchtaskintegrationtest.cpp), `exerciseBatchTaskLifetime`; [view guards](../toonz/sources/toonz/batchtaskviewintegrationtest.cpp) | L/M/W native application; gated real controller/executor plus real-child cases; runtime pending |
 | Vector/undo | [vectorworkflowintegrationtest.cpp](../toonz/sources/toonz/vectorworkflowintegrationtest.cpp), `runVectorWorkflowNativeChecks` | L/M/W native application; require `--require-vector-workflows` |
+| Lazy Room lifetime | [workflowlifetimeintegrationtest.cpp](../toonz/sources/toonz/workflowlifetimeintegrationtest.cpp), `exerciseWorkflowRoomLifetime` | L/M/W native application; real nested event loop and pending timer; W4, not W1 reproduction |
+| Split vector Brush | [brushworkflowintegrationtest.cpp](../toonz/sources/toonz/brushworkflowintegrationtest.cpp), `checkAutoCreatedSplitStrokes` via `runBrushWorkflowNativeChecks` | L/M/W native application; real gestures; new-level and lettered-ID cases missing |
+| Raster paste | [rasterpasteintegrationtest.cpp](../toonz/sources/toonz/rasterpasteintegrationtest.cpp), `runRasterPasteIntegrationTest` | L/M/W native application; actual MI_Paste and external chooser Cancel |
+| Custom panel loading | [custompanelintegrationtest.cpp](../toonz/sources/toonz/custompanelintegrationtest.cpp), `exerciseCustomPanelLoading` | L/M/W native application; real Room factory and editor slot; no automatic repaired-file reload |
 | Deformer | [deformer_test.cpp](../toonz/sources/toonzlib/tests/deformer_test.cpp), `deformer` | L/M/W; numeric fixtures |
 | Auto-Patch | [autopatchoutline_test.cpp](../toonz/sources/stdfx/tests/autopatchoutline_test.cpp), `autopatchoutline` | L/M/W; helpers only |
 | External FX | [externfx_process_test.cpp](../toonz/sources/tnzbase/tests/externfx_process_test.cpp), `externfx_process` | L/M/W; process/decode plus authored public tile-pixel cases; new pixels await CI |
@@ -86,7 +91,7 @@ compare smaller tiled/untiled outputs. This is a proposed fixture, not an execut
 | [F05](../toonz/sources/toonz/batches.cpp) P1 | Stale farm mapping → retired mapping and guarded polling | Remove child/group, poll, recreate local IDs and start; no old remote job reused | Tasks `exerciseFarmTaskRemoval`; real farm qualification separate |
 | [F06](../toonz/sources/toonz/batches.cpp) P1 | Suspended parent deletes active child → descendants block removal | Waiting and Running child both produce warning; stopped child then permits removal | Tasks `exerciseActiveChildRemoval`; queued-worker repair and validation tracked separately in F27 |
 | [F07](../toonz/sources/toonz/batches.cpp) P1 | Movie chunks overwrite shared output → one new movie task spans range | Five-frame scene, chunk preference two: movies stay whole, PNG splits | Tasks `exerciseMovieBatchSetup`; c208 failed the AVI expectation on L/M; effective-format fixture correction prepared, pending CI; real export/old task-list cases missing |
-| [F27](../toonz/sources/toonz/batchtaskexecution.cpp) P1 | Raw worker task borrows → immutable plans and controller-owned retirement | Gate queued/assigned/terminal work, cancel shared dependencies selectively, reject affected UI edits, replay retired outcomes/progress, exercise real process polling/reaping | Native `exerciseBatchTaskLifetime` plus `exerciseBatchTaskViewGuards`; exact cases and limits in [task review](audit_task_lifetime.md); CI/mutations pending |
+| [F27](../toonz/sources/toonz/batchtaskexecution.cpp) P1 | Raw worker task borrows → immutable plans and controller-owned retirement | Gate queued/assigned/terminal work, cancel shared dependencies selectively, reject affected UI edits, replay retired outcomes/progress, exercise real process polling/reaping | Native `exerciseBatchTaskLifetime` plus `exerciseBatchTaskViewGuards`, selected-tree start/stop, submission-error and chunk-collision editor cases; exact cases and limits in [task review](audit_task_lifetime.md); CI/mutations pending |
 | [F28](../toonz/sources/toonz/batches.cpp) P2 | Bulk owner loss/destructive failed load → root cleanup and staged replacement | Refuse active replacement; preserve prior list on failure; accept legacy pointer aliases and reject distinct duplicate IDs | `exerciseClearAndLoad`, `exerciseOwnershipRoots`, `exerciseLoadAliasesAndDuplicates`, `exerciseInvalidSerializedOwnership`; leak-detector evidence pending; nested malformed parser allocation gap remains |
 
 | ID / priority | Baseline → patched invariant | Reproduction and observable result | Existing coverage / remaining gap |
@@ -112,7 +117,15 @@ compare smaller tiled/untiled outputs. This is a proposed fixture, not an execut
 | [F18](../ci-scripts/ci_audit.py) P2 | False substring causes/hidden later errors → actual failure classification and pagination | Success checkpoint words alongside real errors; check/job/annotation failures beyond page one | All 22 Python cases; retain pending/no-check, MSVC, skipped-check and malformed-endpoint cases |
 | [F19](../ci-scripts/check_ci_budget.rb) P2 | 31 worst-case automatic PR checks → maximum ten with mapped coverage | Reusable/matrix expansion, eleven-check rejection, cycles and invalid/dynamic shapes | 15 cases/50 assertions passed c208; final-head and consolidated-step fault injection pending |
 | [F20](audit_workflow_security.md) P2 | Mutable inputs/credentials/interpolation/error masking → pins, scoped access and failure propagation | Scan workflows; controlled install/copy failure must stay failed despite later success | Static evidence in security report; runtime tool/action compatibility and isolated failure fixture pending |
-| [F21](../.github/workflows/workflow_windows.yml) P2 | DLL package lacks identified notice copy → required supplied notice tree shipped | Extract produced archive; match DLL list and seven nonempty notice/author files | Staging assertions exist; archive inspection and owner provenance review pending |
+| [F21](../.github/workflows/workflow_windows.yml) P2 | DLL package lacks identified notice copy → required supplied notice tree shipped | Extract produced archive; match DLL list and seven nonempty notice/author files | c208 staged notice assertions passed; extracted-archive inspection and owner provenance review pending |
+
+| ID / priority | Baseline → patched invariant | Reproduction and observable result | Existing coverage / remaining gap |
+| --- | --- | --- | --- |
+| [F30](../toonz/sources/toonz/mainwindow.cpp) P1 | Queued switch deletes initializing Room → hold guard and defer pending replacement | Queue two profiles, enter lazy Room initialization, observe nested callback with Room alive, then exactly one latest-profile switch | `exerciseWorkflowRoomLifetime`, `exercisePendingSwitch`; CI/lifetime instrumentation pending; separate W4 hazard, no W1 attribution |
+| [F31](../toonz/sources/tnztools/toonzvectorbrushtool.cpp) P1 | Every split claims creation → first record alone restores frame/renumber ownership | Actual Break-on/Auto-Group-off Brush gestures on blank/held exposures; three undo/redo cycles preserve original drawing identities/exposures and recreated geometry/style | `checkAutoCreatedSplitStrokes`, `checkSplitStrokeHistory`; no exact #5190 reproduction; new-level/lettered-ID variants missing |
+| [F32](../toonz/sources/toonz/cellselection.cpp) P2 | External preview displaces native payload → native raster precedence | Six indexed/full-color occupied/empty-row/empty-column MI_Paste targets with contrasting preview; verify type/pixels/DPI/undo/redo identity | `checkNativePasteTargets`, `checkPasteCase`; broader #2445 policy and cross-process MIME/conversion qualification remain open |
+| [F33](../toonz/sources/toonz/cellselection.cpp) P1 | Early undo block drops redo on Cancel → open only after preparation | Native paste then undo to count 1/index 0; cancel actual external-image chooser; old scene/history unchanged and redo restores original drawing/pixels | `checkExternalCancel`; runtime and baseline/mutation pending |
+| [F34](../toonz/sources/toonz/custompanelmanager.cpp) P2 | Unchecked loader null → panel fallback or preserved editor preview | Missing/malformed/valid Room panels; plain-text path/error, ownership/destruction, valid MI_Undo binding; malformed selection retains valid path/preview/fields; later command edit succeeds, then corrupted-file reload preserves preview pixels | `exerciseCustomPanelLoading`, `checkFallback`, `checkValidPanel`, `checkEditorFailure`, `checkCorruptedTemplate`; runtime pending, no W1 attribution |
 
 ## Residual scenario queue
 
@@ -133,8 +146,8 @@ does not change their resolution. Full source paths and evidence distinctions ar
 | R10 P2 | Inventory actual native release/debug link inputs and source/patch/build/artifact digests. | Rebuild/provenance evidence and owner disposition; notice copying is separate. |
 | R11 P2 | Reject a mismatched native payload before execution; record unresolved package resolution. | Trusted Qt/prebuilt/AppImage identities and optional dependency qualification. |
 | R12 P2 | Recheck recorded Homebrew deadlines, then qualify the selected acquisition path on target hardware. | Owner migration/acquisition decision; dated availability report is not today's build failure. |
-| R13 P2 | Reproduce raster paste target/type across level kinds, empty cells and preferences (#2445). | Artist-approved expected target and current-build reproduction. |
-| R14 P2 | Vector pencil across frames: navigate away, undo/redo and inspect content/current frame (#5190). | Confirm actual command path and intended navigation before changing behavior. |
+| R13 P2 | Reproduce raster paste target/type across level kinds, mixed columns, gaps and preferences (#2445). | F32/F33 cover narrower payload/Cancel defects; expected destination policy and OT-Dev PR280 review remain separate. |
+| R14 P2 | Reproduce vector Brush exposure/frame shifts with exact reporter auto-create/hold/stretch/renumber/Break/Auto Group preferences (#5190). | F31 is a source-confirmed narrower variant with authored gestures, not exact reporter reproduction; navigation unchanged. |
 | R15 P2 | Native Apple Silicon, tablet/DPI/audio and bounded long sessions; compare saved state and output. | Actual device/backend evidence; offscreen tests are insufficient. |
 | R16 P2, PR 141 only | `exerciseSceneViewerContextOwners` directly constructs a viewer without factory title-bar initialization; use the factory before showing/querying it. | Source/debugger-supported defect and isolated fixture correction; absent from the edition baseline and not included in PR 142. |
 
@@ -146,8 +159,8 @@ original artifact and verify the factory correction before claiming platform clo
 This is distinct from the unresolved edition Qt-text teardown failure in R04.
 R04 also tracks the integrated [PageHeap/CDB diagnostic mitigation](../ci-scripts/native_ui_page_heap.py)
 and [eight contract cases](../ci-scripts/tests/test_native_ui_page_heap.py): bounded debugger,
-registry restoration and retained timeout/exception evidence. They await the existing Windows
-job; improved diagnostics are not an additional application crash fix.
+registry restoration and retained timeout/exception evidence. The eight contracts passed on c208 Windows (CI18); runtime heap activation and W1 diagnosis
+remain separate. Improved diagnostics are not an additional application crash fix.
 
 F27's retired-outcome replay proves that an absent submission record rejects stale/duplicate
 outcomes. The separate worker-progress case checks per-task incarnation across replacement and
@@ -182,6 +195,25 @@ recorded. The prepared movie fixture correction verifies the reloaded format, in
 existing non-Windows AVI-to-TIF conversion, and awaits CI. F27/F28/F29 postdate this run.
 CI10–CI16 retain exact logs/artifacts alongside unchanged initial-head CI01–CI09.
 
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, the
+[Windows job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217)
+completed the full application build. Eight PageHeap boundary contracts, 35 process
+containment/capture cases (including controlled native crash/hang probes), two standalone
+Qt UI CTests, and seven staged dependency notice checks also passed. Neural qualification
+was then cancelled after the next head superseded this run; native application integration
+was skipped. Compilation and these bounded checks do not establish a W1 repair or task
+runtime success. CI17–CI19 retain these separately from the older failure evidence.
+
+At `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210)
+builds failed because F29's `BlueSource` fixture did not override the pure virtual
+`TFx::getPluginId() const`. The override is now prepared. Linux compiled the five task
+implementation/fixture objects and linked OpenToonz; macOS task compilation/link completion
+was not established. Neither job ran the new native or pixel cases. CI20/CI21 preserve that
+build failure; it is not a failed behavioral regression or evidence of a reporter defect.
+F30–F34 were prepared after this head and have no runtime evidence from these jobs.
+
 F29 requires old-scene before/after rendering because valid external-program output now
 changes the final tile. Exact-size 32-bit RGBA output is supported; smaller/larger/grayscale
 output is rejected, and the existing early return for 64-bit/float destinations remains.
@@ -208,6 +240,14 @@ fail against the defective baseline or a narrow intentional mutation. Examples:
   assertions must fail. Use leak instrumentation for freshly deserialized group roots.
 - F29: restore local-pointer-only decode or omit size/type rejection; exact destination pixels
   or invalid-output assertions must fail. Preserve parent borders and tile position/storage.
+
+- F30: remove the initialization guard or consume the blocked pending request; require lifetime
+  and eventual latest-profile assertions to detect the change.
+- F31: restore creation ownership to every split; original drawings/exposures must fail restoration.
+- F32/F33: prefer the external preview or open undo before the chooser; native-payload or
+  preserved-redo assertions must fail respectively.
+- F34: restore either unchecked loader result; its missing/malformed case must fail while valid
+  panel command binding stays covered.
 
 The ledger specifies a mutation proposal for every F record. Run mutations only in isolated
 CI revisions, retain the failure log, and restore the patch before final qualification.

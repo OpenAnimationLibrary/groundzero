@@ -141,6 +141,9 @@ slots; the repair does not expose new UI controls.
 | `exerciseTerminalRetention`, `exerciseStopAll` | Terminal display does not permit early removal; queued and assigned cancellation retire separately. |
 | `exerciseAffectedEdits` | Affected dependency/group edits are refused atomically while unrelated idle removal succeeds. |
 | `exerciseSubmissionFailure`, `exerciseWorkerException` | Real pre/post-publication failures and a worker-boundary throw release the tracked submission. |
+| `exerciseMultipleSelectedTasks` | Actual tree start/stop handles two selected roots while leaving an unselected task untouched; checks use a pre-mutation selection snapshot. |
+| `exerciseTaskTreeSubmissionFailure` | A standard exception from submission is reported through the actual tree start slot and leaves no pending submission. |
+| `exerciseChunkCollisionEditor` | A real chunk editor collision reports a warning and refreshes/restores the editor without replacing original children. |
 | `exerciseClearAndLoad`, `exerciseOwnershipRoots` | Active clear/load is refused; failed replacement preserves the list; counted task owners/children release once. |
 | `exerciseLoadAliasesAndDuplicates` | Historical flat child aliases retain one identity; conflicting duplicate IDs cannot replace the list. |
 | `exerciseInvalidSerializedOwnership` | Serialized self-cycle, duplicate-child and shared-child graphs are rejected while prior list identity, dirty state and owners remain intact. |
@@ -150,6 +153,10 @@ slots; the repair does not expose new UI controls.
 | `exerciseCapturedCommands`, `exerciseDependencyOrder`, `exerciseGroupCardinality` | Composer/cleanup arguments, repeated/diamond/suspended dependencies, and child cardinality remain compatible. |
 | `exerciseStartAllEligibility`, `exerciseRejectedCycles`, `exerciseCompletedStepFallback` | Whole-batch eligibility, rejection before publication, and nonzero-exit progress fallback are preserved. |
 | `exerciseRealProcessStartFailure`, `exerciseRealProcessAfterPoll`, `exerciseRealProcessCancellation` | Missing executable, later successful exit after a poll, and cancellation/reaping use real QProcess execution. |
+
+The selected-tree case checks behavior; it does not reproduce a TreeModel use-after-free.
+Selection items can be reused during refresh. Start/stop/remove snapshot IDs before mutation,
+and standard exceptions from start/stop/chunk edits now reach existing error reporting.
 
 Runner retirement/destruction and individual `CountedTask` destruction are counted.
 `TFarmTaskGroup` is final: its own destructor is not directly counted; group
@@ -193,3 +200,11 @@ root cause.
 [qt-unix]: https://github.com/qt/qtbase/blob/5.15/src/corelib/io/qprocess_unix.cpp#L775-L815
 [qt-windows]: https://github.com/qt/qtbase/blob/5.15/src/corelib/io/qprocess_win.cpp#L737-L770
 [qt-process]: https://github.com/qt/qtbase/blob/5.15/src/corelib/io/qprocess.cpp#L879-L1095
+
+At `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b`, the
+[Linux build](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608)
+compiled `tasksviewer.cpp`, `batchtaskexecution.cpp`, `batches.cpp` and both batch fixture
+sources without task-file diagnostics, and linked OpenToonz. The external-FX fixture target
+then left the overall build failed, so no task checkpoint ran. The matching macOS job also
+failed that fixture; task compile/link completion was not established there. This is bounded
+compilation evidence, not validation of plan execution, UI guards or lifetime behavior.

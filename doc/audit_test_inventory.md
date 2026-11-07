@@ -27,6 +27,10 @@ running after a failure.
 | Task removal, farm IDs, active children, movie batch setup | `exerciseWorkflowSwitching()` in [native UI integration](../toonz/sources/toonz/nativeuiintegrationtest.cpp), compiled into `OpenToonz` with `BUILD_UI_PORT_TESTS` | The platform workflows invoke `run_native_ui_test.py` explicitly. These cases are not independent CTest registrations. |
 | Batch execution lifetime, progress identity, list replacement and edit guards | `exerciseBatchTaskLifetime()` in [batch integration](../toonz/sources/toonz/batchtaskintegrationtest.cpp), with [TaskSheet guard cases](../toonz/sources/toonz/batchtaskviewintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native application driver on all three platforms; real executor gates and child-process mode. New runtime/checkpoint evidence is pending. |
 | Filmstrip insertion/duplicate/Each/Swing undo and ungroup undo | `runVectorWorkflowNativeChecks()` in [vector integration](../toonz/sources/toonz/vectorworkflowintegrationtest.cpp), same application build option | Explicit native application driver on all three platforms, with `--require-vector-workflows`. A CTest-only run does not execute these cases. |
+| Lazy Room pending workflow lifetime | `exerciseWorkflowRoomLifetime()` in [Room lifetime fixture](../toonz/sources/toonz/workflowlifetimeintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native driver on all three platforms; real lazy Room initialization and queued workflow timer. Runtime pending. |
+| Split vector Brush creation/renumber undo | `checkAutoCreatedSplitStrokes()` via `runBrushWorkflowNativeChecks()` in [Brush fixture](../toonz/sources/toonz/brushworkflowintegrationtest.cpp) | Existing native brush path on all three platforms; real gestures and repeated identity/exposure assertions. Runtime pending. |
+| Raster clipboard precedence and Cancel history | `runRasterPasteIntegrationTest()` in [paste fixture](../toonz/sources/toonz/rasterpasteintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native driver, actual MI_Paste, six targets and external-image chooser; not a separate CTest. |
+| Custom panel factory/editor loading | `exerciseCustomPanelLoading()` in [panel fixture](../toonz/sources/toonz/custompanelintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native driver with isolated portable settings, real Room load and editor template selection; not a separate CTest. |
 | CI diagnostic classification and API pagination | [test_ci_audit.py](../ci-scripts/tests/test_ci_audit.py), Python `unittest` discovery | Explicit Linux PR step with `-p test_ci_audit.py -v`; not a CTest target. |
 | Automatic-check budget and workflow parsing | [test_ci_budget.rb](../ci-scripts/tests/test_ci_budget.rb), Ruby Minitest | Explicit Linux PR step after the read-only budget checker; not a CTest target or a pre-commit test-suite invocation. |
 
@@ -63,10 +67,17 @@ is manual and build-only; it is not runtime qualification.
 | External-effect fixture | **Keep and extend with public rendering** | Existing real process/error cases remain. New cases connect an actual source, validate exact extracted-tile pixels/alpha/orientation/borders/storage/position, and reject wrong dimensions or grayscale output. Windows handle-count/expansion checks remain distinct. |
 | Native task and undo fixtures | **Keep** | Multiple panels, parent/child selections, retired farm IDs, active-child rejection, preserved drawing IDs/content/exposures, independent inserted rasters, and nested groups exercise different state transitions. Repeated undo/redo cycles are intentional. |
 | Batch plan/retirement and view fixtures | **Keep alongside older Tasks cases** | Queued withdrawal, assigned/terminal retention, actual publication failures, selective cancellation, list transactions, identity callbacks and real child cleanup exercise different boundaries. Selected actual TaskSheet slots protect affected edits and idle compatibility. |
+| Lazy Room and custom panel fixtures | **Keep** | A real nested initialization event loop/pending timer checks lifetime and latest-request delivery. Separate missing/malformed/valid Room panels and editor templates check failure handling, native command binding and ownership; subsequent field edits prove the last valid path is retained, and a corrupted command-preview reload preserves pixels. Neither fixture establishes the cause of W1. |
+| Split-stroke Brush fixture | **Extend existing Brush suite** | Actual gestures on blank and held exposures exercise creation/renumber ownership, exact original drawing identity, exposure restoration and recreated geometry/style over three cycles. Unsplit and Auto Group behavior is unchanged. |
+| Raster paste fixture | **Keep both payload and Cancel cases** | Six native indexed/full-color targets use a contrasting preview to distinguish payload selection. A genuine external Cancel preserves an existing redo branch and its drawing identity; it is not redundant with native paste success. |
 | Python CI-auditor tests | **Keep** | Positive crash/error cases and benign checkpoint/cancellation-word controls prevent misleading diagnoses. Pagination and endpoint assertions concern the external GitHub boundary; they also prevent bounded requests from fetching unrelated history. |
 | Ruby CI-budget tests | **Keep and extend** | Includes, excludes, reusable nesting, event multiplicity, malformed/dynamic input, and cycle rejection are separate contracts. The CLI boundary case now accepts nine and ten checks and rejects eleven. |
 
-The new batch cases are authored, not locally executed. Retired-outcome replay exercises
+The new batch cases are authored, not locally executed. `exerciseMultipleSelectedTasks`
+checks actual start/stop for two selected roots and an untouched control;
+`exerciseTaskTreeSubmissionFailure` reports a standard exception through the tree slot;
+`exerciseChunkCollisionEditor` preserves original children and restores the actual editor.
+The selection case is behavioral coverage, not a reproduced TreeModel crash. Retired-outcome replay exercises
 absent-record rejection; worker-progress replacement separately exercises incarnation checks.
 It does not independently isolate list generation or inject duplicate retirement. Exact counts
 cover runners and individual tasks; final group roots and newly loaded groups need leak detection.
@@ -128,6 +139,11 @@ test is not proof that a regression test catches its intended defect.
 | External effect | Restore ignored child exit/output checks separately | Nonzero exit or missing/corrupt output fails to produce the required actionable error; fixed process cases report it. |
 | External-effect pixels | Restore local-pointer-only output or omit type/size validation | Exact public-render destination pixels or invalid-output rejection fails; parent borders and tile storage/position remain checked. |
 | Task/undo state | Restore one ownership/cache-ID defect per run | The corresponding task retirement, drawing identity, exposure, aliasing, or group-depth assertion fails. Earlier crashes must not be mistaken for execution of later cases. |
+| Lazy Room replacement | Remove the initialization switching guard or consume the blocked pending request | Nested callback observes premature retirement or latest-request delivery fails; fixed case retains the Room until return and switches exactly once. |
+| Split vector Brush | Pass creation flags to every split undo record | Reverse undo fails original frame/exposure restoration; fixed three-cycle geometry and identity checks remain. |
+| Native raster paste | Prefer external QImage despite native RasterImageData | The contrasting preview prompts incorrectly or changes native type/pixels; fixed six targets retain native semantics. |
+| External-image Cancel | Open the undo block before payload/chooser preparation | Existing redo history disappears after Cancel; fixed case can redo the prior native drawing with the same identity. |
+| Custom panel loading | Restore unchecked factory/selection/command-preview loader results or commit a rejected template path | Missing/malformed or subsequent-command cases fail; valid binding and retained preview pixels remain control assertions. |
 | CI auditor | Restore single-page reads or broad keyword classification separately | Second-page failure or benign checkpoint controls distinguish the changed behavior without live API calls. |
 | CI budget | Mutate matrix/event/reusable expansion or limit comparison | Synthetic workflow fixtures and CLI status identify incorrect totals/rejection; the new guard has no pre-existing production implementation to run as a historical baseline. |
 
@@ -213,3 +229,26 @@ Both platforms passed F03–F06 native checkpoints, then failed F07's AVI expect
 The effective-format fixture correction is prepared but unexecuted; Swing was not reached.
 Linux reliability was skipped. F27/F28 and F29 pixel cases were added afterward and remain
 pending. No coverage percentage, mutation score, or full platform qualification is claimed.
+
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, the
+[Windows job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217)
+completed the full application build. Eight PageHeap boundary contracts, 35 process
+containment/capture cases (including controlled native crash/hang probes), two standalone
+Qt UI CTests, and seven staged dependency notice checks also passed. Neural qualification
+was then cancelled after the next head superseded this run; native application integration
+was skipped. Compilation and these bounded checks do not establish a W1 repair or task
+runtime success. CI17–CI19 retain these separately from the older failure evidence.
+
+At `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210)
+builds failed because F29's `BlueSource` fixture did not override the pure virtual
+`TFx::getPluginId() const`. The override is now prepared. Linux compiled the five task
+implementation/fixture objects and linked OpenToonz; macOS task compilation/link completion
+was not established. Neither job ran the new native or pixel cases. CI20/CI21 preserve that
+build failure; it is not a failed behavioral regression or evidence of a reporter defect.
+F30–F34 were prepared after this head and have no runtime evidence from these jobs.
+
+The new Room, Brush, clipboard and panel cases do not replace older fixtures. Before closure,
+run the exact combined revision and narrow mutations; retain new-level/lettered-ID Brush,
+mixed-column/gap/input paste, repaired-panel reload, and original W1 crash limitations.

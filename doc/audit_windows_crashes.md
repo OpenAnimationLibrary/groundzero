@@ -4,7 +4,8 @@
 
 This investigation separates the integration branch's workflow teardown crash,
 an independent alignment timeout, and a newer test-fixture crash in PR141.
-They require different fixes. A process exit code of 1 alone does not identify
+A separate source-confirmed lazy-Room lifetime hazard is now W4/F30; its prepared
+repair does not explain W1. These paths require separate evidence. A process exit code of 1 alone does not identify
 which failure occurred: the Windows crash reporter catches access violations
 and the test launcher subsequently reports that status.
 
@@ -148,6 +149,45 @@ evidence. Earlier review 5 correctly rejects changed source drawings and
 displays its explanatory warning, so removing that review behavior would
 weaken the tested contract.
 
+## W4: pending workflow replacement during lazy Room initialization
+
+**Priority:** P1, source-confirmed lifetime hazard. **Status:** F30 repair and fixture
+prepared; runtime and baseline/mutation evidence pending.
+
+[Room::initialize](../toonz/sources/toonz/mainwindow.cpp) calls
+`processEvents(ExcludeUserInputEvents)` before finishing its layout and settings work.
+A workflow-switch timer queued before this call can still run in that nested event loop.
+The previous callback could enter `switchWorkflow` and `clearWorkflowRooms`, deleting the
+same Room before initialization returned. W1 was observed with lazy loading disabled, so
+this source trace is not an attribution of its Qt text-engine corruption.
+
+The prepared `onRoomTabChanged` guard covers lazy initialization. A separate scheduled flag
+allows a blocked callback to leave the pending request intact, then schedule it after the
+initialization scope ends. Multiple requests already queued retain the latest profile.
+The existing rejection of new requests during an active switch remains unchanged.
+
+[exerciseWorkflowRoomLifetime](../toonz/sources/toonz/workflowlifetimeintegrationtest.cpp)
+uses the real Room, tab change and zero-delay timers: its nested callback must observe an
+alive initializing Room, initialization must finish before profile replacement, and exactly
+one later switch must select the latest requested profile. It restores the original profile,
+room and lazy preference. The fixture also checks eager restoration when originally eager;
+no local execution or lifetime instrumentation has run.
+
+## Later Windows build and diagnostic evidence
+
+The [c208 Windows job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217)
+at `c20884ffb45660f79a7f213329e5e9c1ff2dc479` passed step 31, `Build Opentoonz`.
+Step 13 passed eight mocked PageHeap registry/debugger-boundary contracts; step 15 passed
+35 original-process containment/capture cases including controlled native crash/hang probes;
+step 28 passed two standalone Qt UI CTests. Step 36 verified seven staged dependency notices.
+These results qualify their named boundaries and compilation, not full-application acceptance.
+
+The run was superseded by `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b` while step 38,
+`Qualify native neural host`, ran. That step was cancelled and step 45, `Test native
+application integration`, was skipped. No new W1/W3 result or task-runtime result came
+from this job, and F30 was prepared afterward. Ledger CI17–CI19 preserve this evidence
+without replacing the original crash observations.
+
 ## Differential CI verification
 
 Use separate disposable fixture state for each scenario and retain the exact
@@ -157,12 +197,14 @@ Additional diagnostics must not replace or turn a failing original result green.
 | Scenario | Comparison | Required evidence |
 | --- | --- | --- |
 | Workflow replacement | All-workflows and isolated workflow-switch; eager and lazy rooms | Original failure or pass, last profile/room, original exception stack; complete every preset transition. |
+| Lazy Room pending replacement | F30 guard versus narrow guard/pending-request mutation | Nested callback retains the initializing Room, then exactly one latest-profile switch occurs; collect lifetime instrumentation. This is W4, not W1 reproduction. |
 | Text-editor teardown | FileBrowser rename field, Xsheet rename field, toolbar numeric field | Object lifetime and thread evidence; first invalid write or free if the Qt member is corrupted. |
 | Viewer context ownership | Two real factory-created viewers; retire one, use survivor, reparent survivor | Preview buttons initialized; each live context remains registered; original pixel/context assertions retained. |
 | GL change isolation | Edition versus the existing PR141 ownership change with its fixture corrected | Determine whether the former W1 teardown point is reached and whether its signature persists. Do not infer causation from different early failures. |
 | Alignment review | Unchanged source, source mutation, frame switch, cancel, accept | Deadline stack and modal state; rejected reviews leave artwork/history unchanged; accepted preview matches applied output. |
 | Windows heap diagnosis | Normal run versus separately identified instrumented diagnostic | Confirm runtime instrumentation, capture first exception/verifier stop, preserve registry state, and report debugger timeouts explicitly. |
 
-No new application crash fix is claimed by this document. W2 has a concrete
-isolated fixture correction awaiting CI; W1 and W3 remain acceptance blockers
-requiring further runtime evidence.
+W4/F30 has a source-confirmed lifetime repair prepared with a real event-loop fixture;
+its runtime result remains pending. W2 has a separate fixture correction awaiting CI.
+W1 and W3 remain unresolved acceptance blockers; neither compilation nor the new W4
+source finding establishes their cause or resolution.

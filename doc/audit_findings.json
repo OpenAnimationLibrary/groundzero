@@ -3,7 +3,7 @@
   "audit_date": "2026-11-07",
   "baseline_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
   "patch_revision": null,
-  "scope": "29 prepared findings plus 11 distinct residual/qualification records; five retained residual IDs alias F24/F25/F27/F28/F29. Not a complete defect inventory.",
+  "scope": "34 prepared findings plus 11 distinct residual/qualification records; five retained residual IDs alias F24/F25/F27/F28/F29. Not a complete defect inventory.",
   "review_order": [
     "architecture",
     "code_quality",
@@ -206,6 +206,50 @@
         "windows"
       ],
       "limit": "Called from the gated exerciseAffectedEdits case; actual TaskSheet slots and controls, not every edit handler, mouse/focus delivery, or farm runtime."
+    },
+    "native_room": {
+      "path": "toonz/sources/toonz/workflowlifetimeintegrationtest.cpp",
+      "entry": "exerciseWorkflowRoomLifetime",
+      "runner": "ci-scripts/run_native_ui_test.py",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Real lazy Room initialization and pending workflow timer; not a reproduction or established fix of W1. Runtime pending."
+    },
+    "native_brush": {
+      "path": "toonz/sources/toonz/brushworkflowintegrationtest.cpp",
+      "entry": "runBrushWorkflowNativeChecks",
+      "runner": "ci-scripts/run_native_ui_test.py",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Actual Brush gestures with Break enabled and Auto Group disabled; new-level membership and lettered-ID cases remain missing. Runtime pending."
+    },
+    "native_raster_paste": {
+      "path": "toonz/sources/toonz/rasterpasteintegrationtest.cpp",
+      "entry": "runRasterPasteIntegrationTest",
+      "runner": "ci-scripts/run_native_ui_test.py",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Actual MI_Paste with six native payload targets and external Cancel; broader destination policy, serialized MIME and cross-level conversion remain unqualified. Runtime pending."
+    },
+    "native_custom_panel": {
+      "path": "toonz/sources/toonz/custompanelintegrationtest.cpp",
+      "entry": "exerciseCustomPanelLoading",
+      "runner": "ci-scripts/run_native_ui_test.py",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Actual Room loader/factory and editor slots under isolated portable settings; repaired files are not automatically reloaded. Runtime pending."
     }
   },
   "findings": [
@@ -1038,12 +1082,15 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "partial_packaging_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI19"
+        ],
         "pending": [
           "Inspect the produced archive, not only the staging tree.",
-          "Owner confirms notice/source obligations against actual binary provenance; no compliance conclusion is inferred."
+          "Owner confirms notice/source obligations against actual binary provenance; no compliance conclusion is inferred.",
+          "c208 Windows verified seven nonempty files in the staged package directory; this is not an extracted-archive inspection or binary provenance clearance."
         ],
         "mutation_proposal": "Omit the notice-tree copy or one required notice in a packaging fixture; presence assertions must fail."
       }
@@ -1287,7 +1334,10 @@
             "exerciseCompletedStepFallback",
             "exerciseRealProcessStartFailure",
             "exerciseRealProcessAfterPoll",
-            "exerciseRealProcessCancellation"
+            "exerciseRealProcessCancellation",
+            "exerciseMultipleSelectedTasks",
+            "exerciseTaskTreeSubmissionFailure",
+            "exerciseChunkCollisionEditor"
           ]
         },
         {
@@ -1320,9 +1370,13 @@
           "Retired-outcome replay proves absent-record rejection, not independent identity predicates or duplicate retirement delivery. Progress replacement independently exercises incarnation; generation is not isolated.",
           "Qualify active-process application shutdown and latched non-timeout process errors; authored real-child cases cover stop/reaping and successful completion after polling.",
           "Legacy external ID-only messages arriving after reuse remain uncorrelated. Existing remote restartTask does not resend edited local configuration.",
-          "UI guards cover selected name/dependency/chunk/thread slots and idle edits; all remaining handlers, mouse/focus delivery and actual farm behavior remain unqualified."
+          "UI guards cover selected name/dependency/chunk/thread slots and idle edits; all remaining handlers, mouse/focus delivery and actual farm behavior remain unqualified.",
+          "Selected-tree start/stop, standard-exception reporting and chunk-collision editor cases are authored; selection behavior is not a reproduced TreeModel crash. Linux 5e9c compiled task sources and linked OpenToonz, but no new native scenario ran."
         ],
-        "mutation_proposal": "Release an assigned record on cancellation or terminal display, omit queued withdrawal, or remove progress incarnation rejection; the corresponding gated lifetime/identity assertions must fail."
+        "mutation_proposal": "Release an assigned record on cancellation or terminal display, omit queued withdrawal, or remove progress incarnation rejection; the corresponding gated lifetime/identity assertions must fail.",
+        "compilation_evidence": [
+          "CI20"
+        ]
       }
     },
     {
@@ -1407,16 +1461,239 @@
       "previous_record": "R08",
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "pending",
+        "status": "fixture_compile_failure; follow_up_prepared",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          "CI20",
+          "CI21"
+        ],
         "pending": [
           "Run the new public-render cases on the exact integrated revision across Windows/Linux/macOS; c20884ffb externfx_process predates these cases and is not F29 evidence.",
           "Compare existing external-effect scenes before/after: previously ignored output now changes rendered artwork, and decoded size/type mismatches now report errors.",
           "The existing early return for 64-bit and floating-point destination tiles remains unresolved; this repair supports matching 32-bit RGBA destinations only.",
-          "Retain baseline/mutation pixel failures, and separately qualify temporary-file cleanup and existing shell/configuration trust behavior."
+          "Retain baseline/mutation pixel failures, and separately qualify temporary-file cleanup and existing shell/configuration trust behavior.",
+          "At 5e9c2f00 Linux/macOS builds rejected the BlueSource fixture for missing TFx::getPluginId() const. The override is now prepared; no pixel case ran on that head."
         ],
         "mutation_proposal": "Restore local-pointer-only output loading; exact public-render pixel assertions must fail. Omit size/type validation; invalid-output rejection cases must fail."
+      }
+    },
+    {
+      "id": "F30",
+      "priority": "P1",
+      "title": "Lazy Room initialization and pending workflow lifetime",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/mainwindow.cpp",
+        "toonz/sources/toonz/mainwindow.h",
+        "toonz/sources/toonz/workflowlifetimeintegrationtest.cpp"
+      ],
+      "baseline_behavior": "An already queued workflow switch can run inside Room::initialize processEvents, delete that same Room, and return into its unfinished initialization.",
+      "patched_invariant": "The initialization scope blocks workflow replacement. A separately tracked scheduled callback leaves the latest pending request intact while blocked, then schedules it after initialization returns.",
+      "scenario": "Queue two profile requests, enter real lazy initialization, observe the nested event loop without deleting the Room, and verify exactly one switch to the latest profile afterward.",
+      "tests": [
+        {
+          "suite": "native_room",
+          "cases": [
+            "exerciseWorkflowRoomLifetime",
+            "exercisePendingSwitch",
+            "waitForWorkflow"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run exact-revision lazy/eager workflow transitions with lifetime instrumentation; verify preference/profile restoration and latest-pending request delivery.",
+          "This is W4, a separate source-confirmed hazard. W1 occurred with lazy loading disabled and its corrupting write remains unknown.",
+          "New requests during an active switch remain rejected by the existing policy; the repair preserves requests already pending."
+        ],
+        "mutation_proposal": "Remove the initialization guard or consume the pending request in the blocked callback; the nested-lifetime or eventual-single-switch assertions must fail."
+      },
+      "reference": "doc/audit_windows_crashes.md"
+    },
+    {
+      "id": "F31",
+      "priority": "P1",
+      "title": "Split vector Brush undo creation ownership",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/tnztools/toonzvectorbrushtool.cpp",
+        "toonz/sources/tnztools/toolutils.cpp",
+        "toonz/sources/common/tcore/tundo.cpp",
+        "toonz/sources/toonz/brushworkflowintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Every split stroke undo record owns frame/level creation, but only the first captures automatic renumber metadata. Reverse undo deletes the new frame before the first record can restore original drawing IDs and exposures.",
+      "patched_invariant": "Only the first split record owns creation; later records remove their strokes first during undo, and the first record restores drawing identity/renumbering last. Redo creates the frame before later strokes.",
+      "scenario": "Use actual Brush gestures with Break on and Auto Group off over blank and held exposures, automatic create/stretch/hold/renumber and incremental numbering. Check frames 1/2 to 1/2/3 and three undo/redo cycles for exact original drawing identity/exposures and recreated stroke geometry/style.",
+      "tests": [
+        {
+          "suite": "native_brush",
+          "cases": [
+            "mouseCornerStroke",
+            "checkSplitStrokeHistory",
+            "checkAutoCreatedSplitStrokes"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the actual gesture cases on the exact integrated revision and baseline/mutation; no local runtime proof exists.",
+          "The exact #5190 reporter preferences/video are not reproduced; R14 remains a broader unverified report.",
+          "New-level membership and lettered-ID variants remain fixture gaps. Unsplit, Auto Group and navigation behavior are unchanged."
+        ],
+        "mutation_proposal": "Restore frameCreated/levelCreated on every split record; the reverse-order undo must fail original drawing/exposure restoration."
+      },
+      "reference": "doc/upstream_bug_triage.md"
+    },
+    {
+      "id": "F32",
+      "priority": "P2",
+      "title": "Native raster clipboard payload precedence",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/cellselection.cpp",
+        "toonz/sources/toonz/rasterpasteintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Native in-process RasterImageData can also expose a QImage preview. The paste path chooses that preview as external imagery, prompts for an external level type and discards native payload semantics.",
+      "patched_invariant": "Resolve native RasterImageData before external QImage. Native payload type/content is retained; genuine external images keep the existing chooser.",
+      "scenario": "Invoke actual MI_Paste for native indexed and full-color payloads with a deliberately different red preview, across occupied drawings, adjacent empty rows and empty columns. Compare pixels/type/DPI, one undo and redo drawing identity.",
+      "tests": [
+        {
+          "suite": "native_raster_paste",
+          "cases": [
+            "runRasterPasteIntegrationTest",
+            "checkNativePasteTargets",
+            "checkPasteCase",
+            "checkPixels"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run all six targets on the exact revision and baseline/mutation; no runtime success is claimed.",
+          "R13/#2445 destination policy, mixed columns, gap lookup and keyboard/tool activation remain unverified. OT-Dev PR280 has a broader destination/PasteAs proposal that was not imported.",
+          "Cross-process serialized MIME decoding and indexed/vector conversions are unchanged. New-level size/DPI still follows preferences; the fixture matches and restores them, not a sizing-policy fix."
+        ],
+        "mutation_proposal": "Restore external-preview precedence; the native paste must incorrectly prompt or produce the wrong payload/type."
+      },
+      "reference": "doc/upstream_bug_triage.md"
+    },
+    {
+      "id": "F33",
+      "priority": "P1",
+      "title": "External-image paste Cancel preserves redo",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/cellselection.cpp",
+        "toonz/sources/toonz/rasterpasteintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Opening an undo block before the external-image chooser discards the redo branch even when the user cancels without pasting.",
+      "patched_invariant": "Open the undo block only after external payload preparation succeeds or an actual vector paste begins; Cancel leaves history and scene state unchanged.",
+      "scenario": "Paste native pixels, undo to history count 1/index 0, then cancel a genuine external-image chooser. Check unchanged pixels/levels/palette/selection/history and redo the original native drawing with the same identity.",
+      "tests": [
+        {
+          "suite": "native_raster_paste",
+          "cases": [
+            "checkExternalCancel",
+            "pasteCell",
+            "checkPixels"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the actual modal Cancel/history case on the exact revision and baseline/mutation.",
+          "Other destination-policy and conversion cases are separate from this cancellation repair; R13 is not closed."
+        ],
+        "mutation_proposal": "Restore undoBlock.open before the external chooser; cancelling must lose the existing redo branch and fail history/redo assertions."
+      }
+    },
+    {
+      "id": "F34",
+      "priority": "P2",
+      "title": "Missing or malformed custom panel loading",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonz/custompanelmanager.cpp",
+        "toonz/sources/toonz/custompaneleditorpopup.cpp",
+        "toonz/sources/toonz/custompaneleditorpopup.h",
+        "toonz/sources/toonz/custompanelintegrationtest.cpp"
+      ],
+      "baseline_behavior": "The panel factory dereferences a null QUiLoader result for missing/malformed .ui files. The editor consumes null results during template selection or command-preview reload, and a failed template selection can leave its current path pointing at the rejected file.",
+      "patched_invariant": "The same TPanel retains identity/title/ownership and displays plain-text file/error/repair guidance on factory failure. Editor loadTemplate commits the current path only after successful preparation; failed selection restores the old selection and preview/fields. Command-preview reload checks its own loader result and preserves the last valid preview on malformed input. Valid command binding remains unchanged.",
+      "scenario": "Load missing, malformed and valid panels through real Room::load; verify ownership/destruction and MI_Undo QAction binding. Select a malformed template through the actual editor slot, require one warning and unchanged preview/fields, then change a command successfully using the retained valid path. Corrupt that selected file and change another command: require one new error and identical preview object/pixels.",
+      "tests": [
+        {
+          "suite": "native_custom_panel",
+          "cases": [
+            "exerciseCustomPanelLoading",
+            "loadRoom",
+            "checkFallback",
+            "checkValidPanel",
+            "retireRoom",
+            "selectTemplate",
+            "checkEditorFailure",
+            "changeEditorCommand",
+            "checkCorruptedTemplate"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the exact-revision Room and editor cases on all platforms; source/static checks are not runtime evidence.",
+          "Automatic repaired-file reload is not implemented. Missing-template open still returns early. The command-change error preserves preview pixels; it does not roll back command-field edits already made before reloading.",
+          "No trace attributes the unresolved W1 Qt text teardown crash to this null-result defect."
+        ],
+        "mutation_proposal": "Restore unchecked factory/selection/command-reload results, or commit the candidate path before loading; the corresponding missing/malformed or subsequent-edit assertion must fail while valid command binding stays covered."
       }
     }
   ],
@@ -1847,6 +2124,7 @@
       "resolution": "open",
       "evidence_kind": "upstream_report",
       "sources": [
+        "toonz/sources/toonz/cellselection.cpp",
         "toonz/sources/tnztools/rasterselection.cpp"
       ],
       "baseline_behavior": "Upstream #2445 reports pasting into the wrong raster target; current Groundzero reproduction remains unverified.",
@@ -1864,23 +2142,30 @@
         "baseline_detection": "not_yet_defined",
         "executed_evidence": [],
         "pending": [
-          "Confirm expected artist behavior and the actual active path before changing target selection."
+          "Confirm expected artist behavior and the actual active path before changing target selection.",
+          "F32/F33 address native preview precedence and Cancel history in narrower authored cases; the original #2445 destination/type policy is still unverified.",
+          "Review OT-Dev PR280 destination/PasteAs design before any broader behavior change; no part of that proposal is imported here."
         ]
-      }
+      },
+      "related_findings": [
+        "F32",
+        "F33"
+      ],
+      "related_proposal": "https://github.com/OpenAnimationLibrary/opentoonz-dev/pull/280"
     },
     {
       "id": "R14",
       "priority": "P2",
-      "title": "Vector pencil undo navigation",
+      "title": "Vector Brush undo exposure and frame shifts",
       "state": "reported",
       "resolution": "open",
       "evidence_kind": "upstream_report",
       "sources": [
         "toonz/sources/tnztools/toonzvectorbrushtool.cpp"
       ],
-      "baseline_behavior": "Upstream #5190 reports pencil undo navigation problems; current Groundzero reproduction remains unverified.",
-      "required_invariant": "Undo restores stroke content and agreed frame/level navigation without changing unrelated preferences.",
-      "scenario": "Draw with vector pencil across frames, navigate away, undo/redo with navigation-related preferences both ways, and record content plus current frame.",
+      "baseline_behavior": "Upstream #5190 describes undo across vector drawings and exposure/frame shifts. The exact reporter preferences/action sequence remain unverified; F31 identifies a narrower split-stroke ownership defect.",
+      "required_invariant": "Undo restores the original drawing identities and exposures under the agreed automatic-creation/renumber behavior; navigation changes require separate evidence.",
+      "scenario": "Reproduce the reporter workflow with exact auto-create/hold/stretch/renumber, Break and Auto Group preferences. Compare frame IDs, drawing identity, Xsheet exposures and current selection before and after undo/redo.",
       "tests": [],
       "platforms": [
         "linux",
@@ -1893,10 +2178,14 @@
         "baseline_detection": "not_yet_defined",
         "executed_evidence": [],
         "pending": [
-          "Verify the current pencil command path; the listed source is a candidate boundary, not a confirmed defect.",
-          "Capture an artist-approved expected navigation rule."
+          "F31 source tracing and authored Break-on/Auto-Group-off blank/held exposure cases are not an exact #5190 reproduction.",
+          "The commented navigation call alone does not establish this report's cause; navigation behavior is unchanged.",
+          "Qualify remaining new-level and lettered-ID variants and record the expected artist workflow."
         ]
-      }
+      },
+      "related_findings": [
+        "F31"
+      ]
     },
     {
       "id": "R15",
@@ -2122,10 +2411,17 @@
       "F27 local batch execution lifetime",
       "F28 batch list ownership and staged replacement",
       "F29 external-FX output pixel publication",
-      "F07 fixture honors saved AVI-to-TIF compatibility on non-Windows"
+      "F07 fixture honors saved AVI-to-TIF compatibility on non-Windows",
+      "F27 selected-tree start/stop, submission error and chunk collision UI coverage",
+      "F30 lazy Room pending-switch lifetime",
+      "F31 split vector Brush undo creation ownership",
+      "F32 native raster payload precedence",
+      "F33 external-image Cancel preserves redo",
+      "F34 custom panel factory/editor load failures",
+      "F29 BlueSource required virtual-method fixture compile correction"
     ],
     "final_patch_revision": null,
-    "latest_recorded_ci_revision": "c20884ffb45660f79a7f213329e5e9c1ff2dc479"
+    "latest_recorded_ci_revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b"
   },
   "ci_test_evidence": [
     {
@@ -2566,6 +2862,138 @@
           "text": "2026-11-07T22:33:16.8335010Z Required reviewed-clear lifecycle: PASS (status 0)."
         }
       ]
+    },
+    {
+      "id": "CI17",
+      "verification_state": "ci_verified",
+      "revision": "c20884ffb45660f79a7f213329e5e9c1ff2dc479",
+      "platform": "windows",
+      "configuration": "Windows application build",
+      "scenario_or_test": "Build Opentoonz (step 31)",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "limit": "Compilation only. Step 38 neural qualification was cancelled when 5e9c superseded this run; step 45 native integration was skipped. No W1, F27/F28 or new native runtime qualification.",
+      "log_lines": [
+        2165,
+        16414
+      ],
+      "subsequent_steps": [
+        {
+          "number": 38,
+          "name": "Qualify native neural host",
+          "conclusion": "cancelled"
+        },
+        {
+          "number": 45,
+          "name": "Test native application integration",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": "CI18",
+      "verification_state": "ci_verified",
+      "revision": "c20884ffb45660f79a7f213329e5e9c1ff2dc479",
+      "platform": "windows",
+      "configuration": "Windows diagnostic contracts and standalone Qt UI",
+      "scenario_or_test": "Eight PageHeap contracts; 35 containment/capture cases; two standalone UI CTests",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "limit": "PageHeap cases mock registry/debugger boundaries. Containment includes controlled native crash/hang probes; standalone Qt UI is not full-application acceptance. None establishes W1 repair.",
+      "steps": [
+        {
+          "number": 13,
+          "name": "Verify bounded page-heap diagnostic contracts",
+          "log_lines": [
+            620,
+            650
+          ]
+        },
+        {
+          "number": 15,
+          "name": "Verify original Windows process containment and crash capture",
+          "log_lines": [
+            670,
+            729
+          ]
+        },
+        {
+          "number": 28,
+          "name": "Test standalone UI targets",
+          "log_lines": [
+            2129,
+            2164
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CI19",
+      "verification_state": "ci_verified",
+      "revision": "c20884ffb45660f79a7f213329e5e9c1ff2dc479",
+      "platform": "windows",
+      "configuration": "Windows staged package notices",
+      "scenario_or_test": "Verify packaged libmypaint dependency notices (step 36)",
+      "result": "passed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+      "limit": "Seven nonempty notice/author files checked in the staged package directory; produced-archive extraction and actual binary provenance still require review.",
+      "log_lines": [
+        18978,
+        19009
+      ]
+    },
+    {
+      "id": "CI20",
+      "verification_state": "observed_failure",
+      "revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b",
+      "platform": "linux",
+      "configuration": "Build cel regression targets",
+      "scenario_or_test": "externfx_process BlueSource public-render fixture build (F29)",
+      "result": "failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608",
+      "failure": {
+        "path": "toonz/sources/tnzbase/tests/externfx_process_test.cpp",
+        "line": 144,
+        "message": "invalid new-expression of abstract class type BlueSource",
+        "cause": "BlueSource does not override TFx::getPluginId() const (tfx.h:462).",
+        "timestamp_utc": "2026-11-07T22:59:02Z"
+      },
+      "limit": "No native fixture or new pixel scenario ran. The required getPluginId override is prepared after this head. The five task objects compiled without task-file diagnostics and OpenToonz linked; this is compilation evidence only.",
+      "compiled_sources": [
+        "toonz/sources/toonz/tasksviewer.cpp",
+        "toonz/sources/toonz/batchtaskexecution.cpp",
+        "toonz/sources/toonz/batches.cpp",
+        "toonz/sources/toonz/batchtaskintegrationtest.cpp",
+        "toonz/sources/toonz/batchtaskviewintegrationtest.cpp"
+      ],
+      "application_link": {
+        "result": "OpenToonz link command completed; no link failure reported",
+        "timestamp_utc": "2026-11-07T22:59:58Z",
+        "log_line": "[2376/2378] Linking CXX executable bin/OpenToonz"
+      }
+    },
+    {
+      "id": "CI21",
+      "verification_state": "observed_failure",
+      "revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b",
+      "platform": "macos",
+      "configuration": "Build",
+      "scenario_or_test": "externfx_process BlueSource public-render fixture build (F29)",
+      "result": "failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210",
+      "failure": {
+        "path": "toonz/sources/tnzbase/tests/externfx_process_test.cpp",
+        "line": 144,
+        "message": "allocating an object of abstract class type BlueSource",
+        "cause": "BlueSource does not override TFx::getPluginId() const (tfx.h:462).",
+        "timestamp_utc": "2026-11-07T23:03:42Z"
+      },
+      "limit": "No native fixture or new pixel scenario ran. The required getPluginId override is prepared after this head. Task-source compilation/link completion was not established before Ninja stopped."
     }
   ],
   "initial_ci_result": {
@@ -2582,22 +3010,49 @@
     "status": "follow_up_fixes_prepared; new-head CI pending"
   },
   "latest_ci_result": {
-    "revision": "c20884ffb45660f79a7f213329e5e9c1ff2dc479",
+    "revision": "5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b",
     "linux": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847476/job/128545710903",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608",
       "conclusion": "failure",
-      "passed": "F03-F06 native checkpoints; reporter 22 cases; budget 15 cases/50 assertions.",
-      "first_failure": "F07 movie fixture assumed saved AVI remains AVI on non-Windows.",
-      "reliability": "skipped",
-      "swing": "not_reached"
+      "first_failure": "F29 BlueSource fixture omits pure virtual TFx::getPluginId() const.",
+      "compiled": "Five task objects completed and OpenToonz linked.",
+      "native": "skipped"
     },
     "macos": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210",
       "conclusion": "failure",
-      "passed": "F03-F06 native checkpoints and all 22 reliability CTests.",
-      "first_failure": "F07 movie fixture assumed saved AVI remains AVI on non-Windows.",
-      "swing": "not_reached"
+      "first_failure": "F29 BlueSource fixture omits pure virtual TFx::getPluginId() const.",
+      "compiled": "Task object/link completion not established.",
+      "native": "skipped"
     },
-    "scope": "Preserves initial-head evidence. F07 fixture correction, F27/F28 and F29 pixel publication require a later exact-revision CI run; no Windows result is supplied by this evidence set."
-  }
+    "scope": "CI20/CI21 record build failure, not runtime results. The fixture override and F30-F34 changes are prepared after this head. Windows exact-head status is tracked separately; no result inferred here."
+  },
+  "prior_ci_results": [
+    {
+      "revision": "c20884ffb45660f79a7f213329e5e9c1ff2dc479",
+      "linux": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847476/job/128545710903",
+        "conclusion": "failure",
+        "passed": "F03-F06 native checkpoints; reporter 22 cases; budget 15 cases/50 assertions.",
+        "first_failure": "F07 movie fixture assumed saved AVI remains AVI on non-Windows.",
+        "reliability": "skipped",
+        "swing": "not_reached"
+      },
+      "macos": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336",
+        "conclusion": "failure",
+        "passed": "F03-F06 native checkpoints and all 22 reliability CTests.",
+        "first_failure": "F07 movie fixture assumed saved AVI remains AVI on non-Windows.",
+        "swing": "not_reached"
+      },
+      "scope": "Preserves initial-head evidence. F07 fixture correction, F27/F28 and F29 pixel publication postdate this revision. Windows compilation and diagnostic results do not qualify native application behavior.",
+      "windows": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217",
+        "conclusion": "cancelled",
+        "passed": "Full application build; eight PageHeap contracts; 35 containment/capture cases; two standalone UI CTests; staged notice check.",
+        "first_interruption": "Neural host qualification cancelled after superseding head; native application integration skipped.",
+        "native": "not_reached"
+      }
+    }
+  ]
 }

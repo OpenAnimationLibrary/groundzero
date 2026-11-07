@@ -1110,6 +1110,12 @@ if(BUILD_UI_PORT_TESTS)
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE batchtaskintegrationtest.cpp batchtaskintegrationtest.h)
     target_sources(OpenToonz PRIVATE batchtaskviewintegrationtest.cpp batchtaskviewintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        workflowlifetimeintegrationtest.cpp workflowlifetimeintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        rasterpasteintegrationtest.cpp rasterpasteintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        custompanelintegrationtest.cpp custompanelintegrationtest.h)
     target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
     target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
     target_sources(OpenToonz PRIVATE functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)

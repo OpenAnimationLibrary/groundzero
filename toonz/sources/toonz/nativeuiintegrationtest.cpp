@@ -1,5 +1,8 @@
 #include "nativeuiintegrationtest.h"
 #include "batchtaskintegrationtest.h"
+#include "workflowlifetimeintegrationtest.h"
+#include "rasterpasteintegrationtest.h"
+#include "custompanelintegrationtest.h"
 #include "artistworkflowbenchmark.h"
 #include "mediacacheintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
@@ -1689,6 +1692,14 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       return 1;
     }
     exerciseBatchTaskLifetime(testRoot);
+    exerciseCustomPanelLoading();
+    QString rasterPasteError;
+    if (!runRasterPasteIntegrationTest(&rasterPasteError)) {
+      std::cerr << "native-ui-integration: FAIL: raster paste: "
+                << rasterPasteError.toStdString() << std::endl;
+      return 1;
+    }
+    exerciseWorkflowRoomLifetime(window);
     exerciseWorkflowSwitching(window);
     exerciseNativeUi(window);
     checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");

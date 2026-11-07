@@ -66,6 +66,14 @@ unresolved; this change does not add support for those rendering modes.
 F29 retains R08 as a stable alias in the [open finding ledger](audit_findings.json);
 the earlier process-test pass does not validate these new pixel assertions.
 
+At exact head `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b`, the
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210)
+builds rejected the new `BlueSource` fixture because it lacked the pure virtual
+`TFx::getPluginId() const` override. That fixture correction is now prepared; the
+failure prevented execution of the public pixel cases. It supplies no behavioral
+result for F29, and the earlier process-test pass still predates these cases.
+
 **Configuration trust needs a separate decision.** Scene deserialization accepts
 an external effect's executable path, argument string, and configuration name.
 Ordinary scene rendering clones the effect; `TExternalProgramFx::clone` rebuilds
