@@ -2,7 +2,9 @@
 
 ## Current stabilization evidence
 
-Current implementation revision: `528347a88309e2e9eab1f623260b9ef10990b607`.
+Completed validation checkpoint: `528347a88309e2e9eab1f623260b9ef10990b607`.
+Subsequent recovery commits require fresh qualification; results below do not
+qualify the latest branch head.
 The following results were checked directly against the workflow jobs:
 
 | Required evidence | Current result |
@@ -58,9 +60,11 @@ Default failure. No verifier stop identified the corrupting operation. Windows
 symbols were unavailable to `!gflag`/`!heap`; the log specifically reports missing
 `NtGlobalFlag` type information. Process cleanup and GFlags disable completed.
 The next diagnostic uses a separately named eager-only selector and bounded OS
-symbol acquisition; normal full acceptance remains unchanged. Diagnostic-branch
-commits, including the Windows watchdog and cleanup corrections, are not yet part
-of PR #141's `528347a88` head.
+symbol acquisition; normal full acceptance remains unchanged. Follow-up recovery commits include the
+Windows watchdog and cleanup corrections, eager selector, and symbol-enabled
+diagnostic. These require fresh CI qualification. The temporary workflow tied to
+the old retained artifact was removed; the main Windows build now owns the
+failure-triggered diagnostic.
 
 ## Six-outcome demonstration checklist
 
