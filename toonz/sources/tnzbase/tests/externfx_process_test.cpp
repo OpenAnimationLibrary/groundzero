@@ -82,6 +82,7 @@ int renderWorker(const QStringList& arguments) {
 class BlueSource final : public TRasterFx {
 public:
   const TPersistDeclaration* getDeclaration() const override { return nullptr; }
+  std::string getPluginId() const override { return {}; }
   bool canHandle(const TRenderSettings&, double) override { return true; }
   std::string getAlias(double, const TRenderSettings&) const override {
     return "external-output-blue-source";
