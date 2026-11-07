@@ -169,15 +169,17 @@ endif()
 if(BUILD_ENV_MSVC)
     # configure the third party libs (only once) to avoid manual copies
     message(STATUS "configure the third party libs")
-    if(NOT EXISTS"${SDKROOT}/libpng-1.6.21")
-        file(COPY "${SDKROOT}/libpng-1.6.21/scripts/pnglibconf.h.prebuilt" DESTINATION "${SDKROOT}/libpng-1.6.21")
-        file(RENAME "${SDKROOT}/libpng-1.6.21/pnglibconf.h.prebuilt" "${SDKROOT}/libpng-1.6.21/pnglibconf.h")
+    if(NOT EXISTS "${SDKROOT}/libpng-1.6.21/pnglibconf.h")
+        configure_file("${SDKROOT}/libpng-1.6.21/scripts/pnglibconf.h.prebuilt"
+                       "${SDKROOT}/libpng-1.6.21/pnglibconf.h" COPYONLY)
     endif()
     if(NOT EXISTS "${SDKROOT}/tiff-4.0.3/libtiff/tif_config.h")
-        file(COPY_FILE "${SDKROOT}/tiff-4.0.3/libtiff/tif_config.vc.h" "${SDKROOT}/tiff-4.0.3/libtiff/tif_config.h")
+        configure_file("${SDKROOT}/tiff-4.0.3/libtiff/tif_config.vc.h"
+                       "${SDKROOT}/tiff-4.0.3/libtiff/tif_config.h" COPYONLY)
     endif()
     if(NOT EXISTS "${SDKROOT}/tiff-4.0.3/libtiff/tiffconf.h")
-        file(COPY_FILE "${SDKROOT}/tiff-4.0.3/libtiff/tiffconf.vc.h" "${SDKROOT}/tiff-4.0.3/libtiff/tiffconf.h")
+        configure_file("${SDKROOT}/tiff-4.0.3/libtiff/tiffconf.vc.h"
+                       "${SDKROOT}/tiff-4.0.3/libtiff/tiffconf.h" COPYONLY)
     endif()
 endif()
 
