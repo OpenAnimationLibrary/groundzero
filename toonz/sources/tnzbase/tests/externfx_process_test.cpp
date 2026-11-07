@@ -3,6 +3,7 @@
 #include "ttile.h"
 #include "tnzimage.h"
 #include "trenderer.h"
+#include "tstream.h"
 
 #include <QColor>
 #include <QCoreApplication>
@@ -80,7 +81,13 @@ int renderWorker(const QStringList& arguments) {
 }
 
 class BlueSource final : public TRasterFx {
+  int* m_destroyed;
+
 public:
+  explicit BlueSource(int* destroyed = nullptr) : m_destroyed(destroyed) {}
+  ~BlueSource() override {
+    if (m_destroyed) ++*m_destroyed;
+  }
   const TPersistDeclaration* getDeclaration() const override { return nullptr; }
   std::string getPluginId() const override { return {}; }
   bool canHandle(const TRenderSettings&, double) override { return true; }
@@ -98,6 +105,66 @@ public:
     raster->fill(TPixel32::Blue);
   }
 };
+
+void inputPortOwnership() {
+  int destroyed = 0;
+  {
+    TRasterFxP source(new BlueSource(&destroyed));
+    const int references = source->getRefCount();
+    for (int cycle = 0; cycle < 16; ++cycle) {
+      {
+        TExternalProgramFx effect;
+        effect.addPort("first", "png", true);
+        effect.addPort("second", "png", true);
+        effect.addPort("out", "png", false);
+        effect.getInputPort(0)->setFx(source.getPointer());
+        effect.getInputPort(1)->setFx(source.getPointer());
+        require(source->getRefCount() == references + 2,
+                "External effect input ports did not retain their source");
+        effect.addPort("first", "png", true);
+        require(effect.getInputPortCount() == 2,
+                "Duplicate external input changed the registered port count");
+        if (cycle % 2) effect.getInputPort(1)->setFx(nullptr);
+      }
+      require(source->getRefCount() == references && destroyed == 0,
+              "Destroyed external effect retained its upstream source");
+    }
+  }
+  require(destroyed == 1,
+          "External input ownership leaked or destroyed its source twice");
+}
+
+void failedLoadPortOwnership(const QString& directory) {
+  const TFilePath path(QDir(directory).filePath("failed-port-load.xml"));
+  {
+    TOStream stream(path);
+    stream.openChild("ports");
+    stream.openCloseChild("port", {{"name", "in"}, {"ext", "png"}});
+    stream.closeChild();
+    stream.child("unexpected") << "invalid";
+  }
+  int destroyed = 0;
+  for (int cycle = 0; cycle < 8; ++cycle) {
+    TRasterFxP source(new BlueSource(&destroyed));
+    const int references = source->getRefCount();
+    {
+      TExternalProgramFx effect;
+      TIStream stream(path);
+      bool failed = false;
+      try {
+        effect.loadData(stream);
+      } catch (const TException&) {
+        failed = true;
+      }
+      require(failed && effect.getInputPortCount() == 1,
+              "Malformed external effect did not exercise a loaded input");
+      effect.getInputPort(0)->setFx(source.getPointer());
+    }
+    require(source->getRefCount() == references,
+            "Failed external effect load retained an input source");
+  }
+  require(destroyed == 8, "Failed external effect loads leaked sources");
+}
 
 void publicCompute(TRasterFx& effect, TTile& tile) {
   TRenderer renderer;
@@ -242,6 +309,8 @@ int main(int argc, char** argv) {
     const QString executable = QCoreApplication::applicationFilePath();
     QTemporaryDir directory;
     require(directory.isValid(), "Cannot create external-effect fixture");
+    inputPortOwnership();
+    failedLoadPortOwnership(directory.path());
 #ifndef _WIN32
     require(QDir::setCurrent(directory.path()),
             "Cannot enter external-effect fixture directory");

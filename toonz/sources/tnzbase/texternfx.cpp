@@ -14,6 +14,7 @@
 #include <vector>
 #include <cerrno>
 #include <cstring>
+#include <utility>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -203,9 +204,11 @@ void TExternalProgramFx::initialize(std::string name) {
 void TExternalProgramFx::addPort(std::string portName, std::string ext,
                                  bool isInput) {
   if (isInput) {
-    TRasterFxPort *port = new TRasterFxPort();
-    m_ports[portName]   = Port(portName, ext, port);
-    addInputPort(portName, *port);
+    std::unique_ptr<TRasterFxPort> port(new TRasterFxPort());
+    TRasterFxPort* input = port.get();
+    m_ownedPorts.push_back(std::move(port));
+    m_ports[portName] = Port(portName, ext, input);
+    addInputPort(portName, *input);
   } else
     m_ports[portName] = Port(portName, ext, 0);
 }
