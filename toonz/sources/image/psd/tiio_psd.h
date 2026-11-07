@@ -16,13 +16,10 @@ public:
   const TImageInfo *getImageInfo(TFrameId fid) override { return m_info; }
   const TImageInfo *getImageInfo() override { return m_info; }
 
-  void load(TRasterImageP &rasP, int shrinkX = 1, int shrinkY = 1,
+  void load(TRasterImageP& rasP, int layerId, int shrinkX = 1, int shrinkY = 1,
             TRect region = TRect());
   TDimension getSize() const { return TDimension(m_lx, m_ly); }
   TRect getBBox() const { return TRect(0, 0, m_lx - 1, m_ly - 1); }
-
-  void setLayerId(int layerId) { m_layerId = layerId; }
-  // int m_IOError;
 
 private:
   TFilePath m_path;

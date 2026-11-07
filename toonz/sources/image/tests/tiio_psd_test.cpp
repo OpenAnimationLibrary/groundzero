@@ -14,6 +14,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QString>
 #include <QTemporaryDir>
 
@@ -26,6 +27,11 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <csignal>
+#include <sys/resource.h>
+#endif
 
 namespace {
 
@@ -974,6 +980,44 @@ void testLayered8Bit(const TFilePath &dir) {
     }
 }
 
+void testIndependentFrameReaders(const TFilePath& dir) {
+  TRaster32P first(2, 2), second(2, 2);
+  first->fill(TPixel32(255, 0, 0, 255));
+  second->fill(TPixel32(0, 0, 255, 255));
+  std::vector<TLayeredPsdLayer> layers(2);
+  layers[0].m_name     = L"First";
+  layers[0].m_raster   = first;
+  layers[1].m_name     = L"Second";
+  layers[1].m_raster   = second;
+  const TFilePath path = dir + TFilePath("independent_frames.psd");
+  writeLayeredPsd(path, second, layers, 72.0, 72.0);
+
+  TLevelReaderP levelReader(path.withName(path.getName() + "#frames"));
+  require(levelReader->loadInfo()->getFrameCount() == 2,
+          "PSD frames import did not expose both layers");
+  TImageReaderP firstReader  = levelReader->getFrameReader(TFrameId(1));
+  TImageReaderP secondReader = levelReader->getFrameReader(TFrameId(2));
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    TRasterImageP firstImage  = firstReader->load();
+    TRasterImageP secondImage = secondReader->load();
+    require(!!firstImage && !!secondImage,
+            "PSD frame reader returned no image");
+    TRaster32P firstRaster  = firstImage->getRaster();
+    TRaster32P secondRaster = secondImage->getRaster();
+    require(!!firstRaster && !!secondRaster,
+            "PSD frame reader returned the wrong raster type");
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 2; ++x) {
+        require(firstRaster->pixels(y)[x] == first->pixels(y)[x],
+                "Creating another PSD frame reader changed the first frame");
+        require(secondRaster->pixels(y)[x] == second->pixels(y)[x],
+                "Interleaved PSD frame reads changed the second frame");
+      }
+    require(levelReader->loadInfo()->getFrameCount() == 2,
+            "Reading a PSD frame changed the level metadata");
+  }
+}
+
 void testLayered16Bit(const TFilePath &dir) {
   const int lx = 129, ly = 3;
   TRaster64P first(lx, ly), second(lx, ly), merged(lx, ly);
@@ -1038,6 +1082,101 @@ void testLayeredErrors(const TFilePath &dir) {
   if (file) std::fclose(file);
   require(file == nullptr, "A file was written for invalid layers");
 }
+
+void testUnwritableDestination(const TFilePath& dir) {
+  const TFilePath path = dir + TFilePath("directory.psd");
+  require(QDir().mkdir(path.getQString()),
+          "Cannot create the PSD test directory");
+  TRaster32P raster(1, 1);
+  raster->fill(TPixel32(255, 0, 0, 255));
+  std::vector<TLayeredPsdLayer> layers(1);
+  layers[0].m_name   = L"Layer";
+  layers[0].m_raster = raster;
+  bool rejected      = false;
+  try {
+    writeLayeredPsd(path, raster, layers, 72.0, 72.0);
+  } catch (const TImageException&) {
+    rejected = true;
+  }
+  require(rejected,
+          "Writing a PSD over a directory was reported as successful");
+  require(QDir(path.getQString()).exists(),
+          "The PSD writer removed a directory");
+}
+
+#if defined(__unix__) || defined(__APPLE__)
+class FileSizeLimit final {
+  struct rlimit m_previous;
+  using SignalHandler = void (*)(int);
+  SignalHandler m_previousHandler;
+
+public:
+  explicit FileSizeLimit(rlim_t bytes) {
+    require(getrlimit(RLIMIT_FSIZE, &m_previous) == 0,
+            "Cannot read the file-size limit");
+    m_previousHandler = std::signal(SIGXFSZ, SIG_IGN);
+    require(m_previousHandler != SIG_ERR, "Cannot ignore the file-size signal");
+    struct rlimit limit = m_previous;
+    limit.rlim_cur      = bytes;
+    if (setrlimit(RLIMIT_FSIZE, &limit) != 0) {
+      std::signal(SIGXFSZ, m_previousHandler);
+      throw std::runtime_error("Cannot set the PSD test file-size limit");
+    }
+  }
+
+  ~FileSizeLimit() {
+    const bool limitRestored = setrlimit(RLIMIT_FSIZE, &m_previous) == 0;
+    const bool handlerRestored =
+        std::signal(SIGXFSZ, m_previousHandler) != SIG_ERR;
+    if (!limitRestored || !handlerRestored) {
+      std::cerr << "Cannot restore the PSD test file-size limit or signal\n";
+      std::abort();
+    }
+  }
+};
+
+void testFailedOverwrite(const TFilePath& dir, int size) {
+  const TFilePath path =
+      dir + TFilePath("failed_overwrite_" + std::to_string(size) + ".psd");
+  TRaster32P raster(size, size);
+  raster->fill(TPixel32(255, 0, 0, 255));
+  std::vector<TLayeredPsdLayer> layers(1);
+  layers[0].m_name   = L"Original";
+  layers[0].m_raster = raster;
+  writeLayeredPsd(path, raster, layers, 72.0, 72.0);
+  const Bytes original                 = readFile(path);
+  const QFile::Permissions permissions = QFile::permissions(path.getQString());
+  const QDir outputDirectory(dir.getQString());
+  const QString entries =
+      outputDirectory.entryList(QDir::Files | QDir::Hidden).join('\n');
+
+  raster->fill(TPixel32(0, 0, 255, 255));
+  bool rejected = false;
+  {
+    FileSizeLimit limit(128);
+    try {
+      writeLayeredPsd(path, raster, layers, 72.0, 72.0);
+    } catch (const TImageException&) {
+      rejected = true;
+    }
+  }
+  require(rejected, "A failed PSD write was reported as successful");
+  require(readFile(path) == original,
+          "A failed PSD save destroyed the old file");
+  require(outputDirectory.entryList(QDir::Files | QDir::Hidden).join('\n') ==
+              entries,
+          "A failed PSD save left a temporary file behind");
+
+  writeLayeredPsd(path, raster, layers, 72.0, 72.0);
+  require(readFile(path) != original, "Retry did not replace the old PSD file");
+  require(QFile::permissions(path.getQString()) == permissions,
+          "PSD replacement changed file permissions");
+  TPSDReader reader(path);
+  TRaster32P reopened = loadLayer(reader, 0, size, size);
+  require(reopened->pixels(0)[0] == TPixel32(0, 0, 255, 255),
+          "PSD replacement did not persist the edited pixels");
+}
+#endif
 }  // namespace
 
 int main(int argc, char *argv[]) {
@@ -1063,8 +1202,14 @@ int main(int argc, char *argv[]) {
     testDamagedFiles(dir);
     testUnsupportedImage(dir);
     testLayered8Bit(dir);
+    testIndependentFrameReaders(dir);
     testLayered16Bit(dir);
     testLayeredErrors(dir);
+    testUnwritableDestination(dir);
+#if defined(__unix__) || defined(__APPLE__)
+    testFailedOverwrite(dir, 4);
+    testFailedOverwrite(dir, 512);
+#endif
     std::cout << "PSD writer tests passed\n";
     return 0;
   } catch (const TException &error) {

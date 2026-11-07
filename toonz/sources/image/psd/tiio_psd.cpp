@@ -4,14 +4,13 @@
 #include "timageinfo.h"
 #include "trop.h"
 #include "tpixelutils.h"
-#include "tfilepath_io.h"
 
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QString>
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdio>
 #include <vector>
 #if (defined(x64) || defined(__LP64__))
 #include "toonz/preferences.h"
@@ -80,13 +79,13 @@ TLevelReaderPsd::~TLevelReaderPsd() = default;
 
 //------------------------------------------------
 
-void TLevelReaderPsd::load(TRasterImageP &rasP, int shrinkX, int shrinkY,
-                           TRect region) {
+void TLevelReaderPsd::load(TRasterImageP& rasP, int layerId, int shrinkX,
+                           int shrinkY, TRect region) {
   QMutexLocker sl(&m_mutex);
   TRasterImageP img;
   m_psdreader->setShrink(shrinkX, shrinkY);
   m_psdreader->setRegion(region);
-  m_psdreader->load(img, m_layerId);  // if layerId==0 load Merged
+  m_psdreader->load(img, layerId);  // if layerId==0 load Merged
   rasP = img;
 }
 
@@ -119,38 +118,36 @@ TLevelReader *TLevelReaderPsd::create(const TFilePath &f) {
 
 class TImageReaderLayerPsd final : public TImageReader {
 public:
-  TImageReaderLayerPsd(const TFilePath &, int layerId, TLevelReaderPsd *lr,
-                       TImageInfo *info);
+  TImageReaderLayerPsd(const TFilePath&, int layerId, TLevelReaderPsd* lr,
+                       TImageInfo* info);
   ~TImageReaderLayerPsd() { m_lr->release(); }
 
 private:
   // not implemented
-  TImageReaderLayerPsd(const TImageReaderLayerPsd &);
-  TImageReaderLayerPsd &operator=(const TImageReaderLayerPsd &src);
+  TImageReaderLayerPsd(const TImageReaderLayerPsd&);
+  TImageReaderLayerPsd& operator=(const TImageReaderLayerPsd& src);
 
 public:
   TImageP load() override;
 
-  const TImageInfo *getImageInfo() const override { return m_info; }
+  const TImageInfo* getImageInfo() const override { return m_info; }
 
 private:
-  TPSDReader *m_psdreader;
-  TLevelReaderPsd *m_lr;
-  TImageInfo *m_info;
-  int m_layerId;
+  TLevelReaderPsd* m_lr;
+  TImageInfo* m_info;
+  const int m_layerId;
 };
 
-TImageReaderLayerPsd::TImageReaderLayerPsd(const TFilePath &path, int layerId,
-                                           TLevelReaderPsd *lr,
-                                           TImageInfo *info)
-    : TImageReader(path), m_lr(lr), m_layerId(layerId), m_info(info) {
-  m_lr->setLayerId(layerId);
+TImageReaderLayerPsd::TImageReaderLayerPsd(const TFilePath& path, int layerId,
+                                           TLevelReaderPsd* lr,
+                                           TImageInfo* info)
+    : TImageReader(path), m_lr(lr), m_info(info), m_layerId(layerId) {
   m_lr->addRef();
 }
 
 TImageP TImageReaderLayerPsd::load() {
   TRasterImageP rasP;
-  m_lr->load(rasP, m_shrink, m_shrink, m_region);
+  m_lr->load(rasP, m_layerId, m_shrink, m_shrink, m_region);
   return TRasterImageP(rasP);
 }
 
@@ -203,12 +200,15 @@ namespace {
 
 // PSD (version 1) stores every multi-byte value big-endian.
 class PsdOutput {
-  FILE *m_file;
+  QSaveFile& m_file;
 
 public:
-  explicit PsdOutput(FILE *file) : m_file(file) {}
+  explicit PsdOutput(QSaveFile& file) : m_file(file) {}
 
-  void put8(unsigned int value) { fputc((int)(value & 0xff), m_file); }
+  void put8(unsigned int value) {
+    const char byte = char(value & 0xff);
+    putBytes(&byte, 1);
+  }
   void put16(unsigned int value) {
     put8(value >> 8);
     put8(value);
@@ -220,11 +220,14 @@ public:
   void putZeros(std::uint64_t count) {
     for (std::uint64_t i = 0; i < count; ++i) put8(0);
   }
-  void putBytes(const char *data, size_t count) {
-    if (count) fwrite(data, 1, count, m_file);
+  void putBytes(const char* data, size_t count) {
+    if (count && m_file.write(data, qint64(count)) != qint64(count))
+      throw TImageException(
+          TFilePath(m_file.fileName()),
+          "Can't write PSD data: " + m_file.errorString().toStdString());
   }
-  void putBytes(const std::vector<unsigned char> &data) {
-    if (!data.empty()) fwrite(data.data(), 1, data.size(), m_file);
+  void putBytes(const std::vector<unsigned char>& data) {
+    putBytes(reinterpret_cast<const char*>(data.data()), data.size());
   }
 };
 
@@ -447,20 +450,23 @@ void writePsdLayerRecord(PsdOutput &out, int lx, int ly,
 
 // Writes a PSD file whose merged image is made of the channels `merged`, with
 // `layers` (bottom to top) in the layer section.
-void writePsdFile(const TFilePath &path, int lx, int ly, int depth,
+void writePsdFile(const TFilePath& path, int lx, int ly, int depth,
                   int compression, double dpix, double dpiy,
-                  const PsdChannelData *merged,
-                  const std::vector<PsdLayerData> &layers) {
+                  const PsdChannelData* merged,
+                  const std::vector<PsdLayerData>& layers) {
   // 2: layer count
   std::uint64_t layerInfoContent = 2;
-  for (const PsdLayerData &layer : layers) layerInfoContent += layer.size();
+  for (const PsdLayerData& layer : layers) layerInfoContent += layer.size();
   const std::uint64_t layerInfoSize = padTo4(layerInfoContent);
   const std::uint64_t layerMaskSize = 4 + layerInfoSize + 4;
   if (layerMaskSize > 0x7fffffffULL)
     throw TImageException(path, "Image too large for PSD files");
 
-  FILE *file = fopen(path, "wb");
-  if (!file) throw TImageException(path, "Can't write file");
+  QSaveFile file(path.getQString());
+  file.setDirectWriteFallback(false);
+  if (!file.open(QIODevice::WriteOnly))
+    throw TImageException(path, "Can't open PSD file for writing: " +
+                                    file.errorString().toStdString());
   PsdOutput out(file);
 
   // File header
@@ -519,9 +525,14 @@ void writePsdFile(const TFilePath &path, int lx, int ly, int depth,
   for (int c = 0; c < PsdChannelCount; ++c) out.putBytes(merged[c].rowCounts);
   for (int c = 0; c < PsdChannelCount; ++c) out.putBytes(merged[c].rows);
 
-  bool failed = ferror(file) != 0;
-  if (fclose(file) != 0) failed = true;
-  if (failed) throw TImageException(path, "Can't write file");
+  // Check buffered writes before commit, including on Qt versions whose commit
+  // does not retain errors from its final flush.
+  if (!file.flush())
+    throw TImageException(
+        path, "Can't flush PSD data: " + file.errorString().toStdString());
+  if (!file.commit())
+    throw TImageException(
+        path, "Can't commit PSD file: " + file.errorString().toStdString());
 }
 
 }  // namespace
