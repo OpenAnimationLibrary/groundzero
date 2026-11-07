@@ -1111,8 +1111,8 @@ if(BUILD_UI_PORT_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/../../../ci-scripts/brush-reference/application_test.py"
             "$<TARGET_FILE:OpenToonz>" "${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff"
             --output "${CMAKE_BINARY_DIR}/rasterbrush-application-output.txt")
-    if(APPLE)
-        # Leave fixture setup/cleanup time around the Cocoa suite's 300s watchdog.
+    if(APPLE OR WIN32)
+        # Leave fixture setup/cleanup time around the native-dialog 300s watchdog.
         set_tests_properties(rasterbrush_application PROPERTIES TIMEOUT 360)
     else()
         set_tests_properties(rasterbrush_application PROPERTIES TIMEOUT 240)
