@@ -153,6 +153,7 @@ private:
   // Helper methods
   QList<int> entryIdByObjName(const QString& objName);
   bool loadTemplateList();
+  bool loadTemplate(const QString& path);
   void createFields();
   void replaceObjectNames(QDomElement& element);
   void buildEntries(QWidget* customWidget);  // Create entries from UI file
@@ -188,7 +189,6 @@ protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
 
 protected slots:
-  void onTemplateSwitched();
   void onTemplateHeaderClicked();
   void onTemplateItemClicked(QTreeWidgetItem* item, int column);
   void onTemplateSearchTextChanged(const QString& text);

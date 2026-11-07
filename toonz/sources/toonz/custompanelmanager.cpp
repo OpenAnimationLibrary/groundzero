@@ -23,6 +23,7 @@
 #include <QMouseEvent>
 #include <QMenu>
 #include <QFileInfo>
+#include <QLabel>
 #include <algorithm>
 
 namespace {
@@ -270,11 +271,29 @@ TPanel* CustomPanelManager::createCustomPanel(const QString panelName,
   QUiLoader loader;
   QFile file(customPanelsFp.getQString());
 
-  file.open(QFile::ReadOnly);
-  QWidget* customWidget = loader.load(&file, panel);
+  QWidget* customWidget = nullptr;
+  QString error;
+  if (file.open(QFile::ReadOnly)) {
+    customWidget = loader.load(&file, panel);
+    if (!customWidget) error = loader.errorString();
+  } else {
+    error = file.errorString();
+  }
   file.close();
 
-  initializeControl(customWidget);
+  if (customWidget) {
+    initializeControl(customWidget);
+  } else {
+    auto* message = new QLabel(panel);
+    message->setTextFormat(Qt::PlainText);
+    message->setWordWrap(true);
+    message->setText(
+        QObject::tr(
+            "Unable to load custom panel:\n%1\n\n%2\n\n"
+            "Check the file or recreate it with the Custom Panel Editor.")
+            .arg(customPanelsFp.getQString(), error));
+    customWidget = message;
+  }
 
   UiTranslations::setLiteral(panel, "windowTitle",
       QFileInfo(customPanelsFp.getQString()).completeBaseName());
