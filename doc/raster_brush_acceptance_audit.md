@@ -2,6 +2,36 @@
 
 ## Current stabilization evidence
 
+PR implementation revision `d9490878b1a7ed6959158fe25660e1ab4895837e` completed
+required qualification on all three platforms:
+
+| Required gate | Evidence at this revision |
+|---|---|
+| Six OS/Qt parser configurations and import fuzzing | All seven jobs passed in [run 42333686368](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42333686368). |
+| Native metrics and source-contract/cache validation | Both automatic jobs passed in [run 42333686459](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42333686459); deferred original-Krita comparison was skipped, not passed. |
+| Full Tests, Qt6 and Compat | All three jobs passed in [run 42333736642](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42333736642). Qt6 passed 164/164 tests, including the actual brush application. |
+| Linux actual and installed application/brush lifecycle | Passed in [run 42333686455](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42333686455). |
+| macOS actual and installed application/brush lifecycle | Passed in [run 42333686389](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42333686389), including deployed brush-helper sandbox qualification. |
+| Windows actual and installed application/brush lifecycle | Passed in [run 42333686360](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42333686360). The build-tree brush suite completed in 209.06 seconds under the corrected 300-second watchdog. |
+
+The Windows log confirms both lazy and eager workflow sequences, including
+Default, and the full native integration completion marker. The installed native
+lifecycle also passed. These are valid acceptance results; they do not identify
+the cause of the earlier heap corruption. Independent delta review found no
+production ownership or renderer correction between the failing and passing
+revisions. The changed diagnostic selector can alter binary layout without
+changing normal acceptance semantics.
+
+One explicit, opt-in heap investigation is pending in
+[run 42337776886](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42337776886)
+on the separate diagnostic revision `93785c6fa`. Its only change from the validated
+PR revision is workflow opt-in/concurrency/report retention. It uses the existing
+eager diagnostic and matching build symbols; it cannot substitute for acceptance.
+The PR remains a draft pending that evidence and final review. No causal crash fix
+or reference/device qualification is claimed.
+
+## Previous qualification checkpoint
+
 Completed validation checkpoint: `528347a88309e2e9eab1f623260b9ef10990b607`.
 Subsequent recovery commits require fresh qualification; results below do not
 qualify the latest branch head.
