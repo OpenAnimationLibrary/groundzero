@@ -332,6 +332,7 @@ jobs:
 
     - name: Build application
       id: application_build
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
       working-directory: toonz/build
       run: |
         export CCACHE_DIR=/home/runner/.ccache
