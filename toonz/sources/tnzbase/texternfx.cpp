@@ -11,12 +11,87 @@
 #include "tfxparam.h"
 #include "tstream.h"
 
+#include <vector>
+#include <cerrno>
+#include <cstring>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/wait.h>
+#endif
+
 namespace {
 
 TFilePath getExternFxPath() {
   return TSystem::getBinDir() + "plugins" + "externFxs";
 }
+
+#ifdef _WIN32
+DWORD expandExternalArguments(const std::string& arguments,
+                              std::vector<char>& command) {
+  const DWORD required =
+      ExpandEnvironmentStringsA(arguments.c_str(), nullptr, 0);
+  if (required == 0) return GetLastError();
+  if (required == MAXDWORD) return ERROR_INSUFFICIENT_BUFFER;
+  const DWORD capacity = required + 1;
+  command.resize(capacity);
+  const DWORD written =
+      ExpandEnvironmentStringsA(arguments.c_str(), command.data(), capacity);
+  if (written == 0) return GetLastError();
+  return written > capacity ? ERROR_INSUFFICIENT_BUFFER : ERROR_SUCCESS;
 }
+#endif
+
+std::string runExternalProgram(const std::string& executable,
+                               const std::string& arguments) {
+#ifdef _WIN32
+  const auto failure = [&](const char* operation, DWORD code) {
+    return std::string("Cannot ") + operation + " external effect program \"" +
+           executable + "\" (Windows error " + std::to_string(code) +
+           "). Check the executable path, arguments and environment variables.";
+  };
+  std::vector<char> command;
+  const DWORD expansionError = expandExternalArguments(arguments, command);
+  if (expansionError != ERROR_SUCCESS)
+    return failure("expand arguments for", expansionError);
+
+  STARTUPINFOA startup = {};
+  GetStartupInfoA(&startup);
+  PROCESS_INFORMATION process = {};
+  if (!CreateProcessA(executable.c_str(), command.data(), nullptr, nullptr,
+                      TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+                      &process))
+    return failure("start", GetLastError());
+
+  std::string error;
+  DWORD exitCode = 0;
+  if (WaitForSingleObject(process.hProcess, INFINITE) == WAIT_FAILED)
+    error = failure("wait for", GetLastError());
+  else if (!GetExitCodeProcess(process.hProcess, &exitCode))
+    error = failure("read the exit status of", GetLastError());
+  CloseHandle(process.hThread);
+  CloseHandle(process.hProcess);
+  if (!error.empty()) return error;
+#else
+  const std::string command = executable + arguments;
+  const int status          = system(command.c_str());
+  if (status == -1)
+    return "Cannot start external effect program \"" + executable +
+           "\": " + std::strerror(errno) +
+           ". Check the executable path and arguments.";
+  if (!WIFEXITED(status))
+    return "External effect program \"" + executable +
+           "\" terminated abnormally. Check the executable and its input "
+           "files.";
+  const int exitCode = WEXITSTATUS(status);
+#endif
+  if (exitCode != 0)
+    return "External effect program \"" + executable + "\" exited with code " +
+           std::to_string(exitCode) + ". Check the arguments and input files.";
+  return std::string();
+}
+}  // namespace
 
 //=========================================================
 
@@ -258,78 +333,21 @@ void TExternalProgramFx::doCompute(TTile &tile, double frame,
 
     args.replace(i, m + 1, value);
   }
-  args = " " + args;  // aggiungo uno spazio per sicurezza
-  // ofstream os("C:\\temp\\butta.txt");
-  // os << args << endl;
+  args                     = " " + args;
+  std::string processError = runExternalProgram(executablePath, args);
 
-  // bisognerebbe calcolare le immagini dalla/e porta/e di input
-  // scrivere il/i valore/i nei files temporanei/o
-  // chiamare "m_executablePath args"
-  // e leggere l'immagine scritta in outputTmpFile
-  // poi cancellare tutto
-  std::string expandedargs;
-  char buffer[1024];
-#ifdef _WIN32
-  ExpandEnvironmentStrings(args.c_str(), buffer, 1024);
-
-  STARTUPINFO si;
-  PROCESS_INFORMATION pinfo;
-
-  GetStartupInfo(&si);
-
-  BOOL ret = CreateProcess(
-      (char *)executablePath.c_str(),           // name of executable module
-      buffer,                                   // command line string
-      NULL,                                     // SD
-      NULL,                                     // SD
-      TRUE,                                     // handle inheritance option
-      CREATE_NO_WINDOW, /*CREATE_NEW_CONSOLE*/  // creation flags
-      NULL,                                     // new environment block
-      NULL,                                     // current directory name
-      &si,                                      // startup information
-      &pinfo                                    // process information
-      );
-
-  if (!ret) DWORD err = GetLastError();
-
-  // aspetta che il processo termini
-  WaitForSingleObject(pinfo.hProcess, INFINITE);
-
-  DWORD exitCode;
-  ret = GetExitCodeProcess(pinfo.hProcess,  // handle to the process
-                           &exitCode);      // termination status
-
-#else
-  std::string cmdline = executablePath + buffer;
-  //    int exitCode =
-  system(cmdline.c_str());
-#endif
-  /*
-string name = m_executablePath.getName();
-TPixel32 color;
-if(name == "saturate") color = TPixel32::Magenta;
-else if(name == "over") color = TPixel32::Green;
-else color = TPixel32::Red;
-for(int iy=0;iy<ras->getLy();iy++)
-{
-TPixel32 *pix = ras->pixels(iy);
-TPixel32 *endPix = pix + ras->getLx();
-double x = tile.m_pos.x;
-double y = tile.m_pos.y + iy;
-while(pix<endPix)
- {
-  if(x*x+y*y<900) *pix = color;
-  else *pix = TPixel32(0,0,0,0);
-  ++pix;
-  x+=1.0;
- }
-}
-*/
-
-  try {
-    TRasterP ras = tile.getRaster();
-    TImageReader::load(outputTmpFile, ras);
-  } catch (...) {
+  if (processError.empty()) {
+    try {
+      TRasterP ras = tile.getRaster();
+      if (!TImageReader::load(outputTmpFile, ras))
+        processError = "External effect program \"" + executablePath +
+                       "\" did not produce a readable output image. "
+                       "Check its output port and command arguments.";
+    } catch (...) {
+      processError =
+          "Cannot read the output image from external effect program \"" +
+          executablePath + "\". Check its output format and arguments.";
+    }
   }
 
   // butto i file temporanei creati
@@ -344,6 +362,7 @@ while(pix<endPix)
       TSystem::deleteFile(outputTmpFile);
     } catch (...) {
     }
+  if (!processError.empty()) throw TException(processError);
 }
 
 //------------------------------------------------------------------

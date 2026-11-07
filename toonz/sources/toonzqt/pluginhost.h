@@ -3,6 +3,7 @@
 #ifndef TOONZ_STDFX_PLUGIN_HOST_H__
 #define TOONZ_STDFX_PLUGIN_HOST_H__
 #include <QThread>
+#include <QMetaType>
 #include <string>
 #include <memory>
 #include "tzeraryfx.h"
@@ -116,6 +117,8 @@ public:
   void add_ref();
   void release();
 };
+
+Q_DECLARE_METATYPE(PluginInformation*)
 
 class Loader final : public QObject {
   Q_OBJECT;

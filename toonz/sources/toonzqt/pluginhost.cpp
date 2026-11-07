@@ -1267,7 +1267,9 @@ static void release_interface(void *interf) {
   // All interfaces are static global, nothing to delete
 }
 
-Loader::Loader() {}
+Loader::Loader() {
+  qRegisterMetaType<PluginInformation*>("PluginInformation*");
+}
 
 void Loader::walkDirectory(const QString &path) {
   Q_UNUSED(path);
@@ -1376,9 +1378,6 @@ void Loader::doLoad(const QString &file) {
           else if (begin >= end)
             throw std::domain_error(
                 "invalid plugin information address (begin >= end)");
-          else if (begin == end - 1)
-            throw std::domain_error(
-                "invalid plugin information address (information is empty)");
           probinfo_begin = begin;
           probinfo_end   = end;
         } else {
