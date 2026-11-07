@@ -59,6 +59,10 @@
 #include <QUrl>
 #include <QStandardPaths>
 #include <QRegularExpression>  // Added to replace QRegExp
+#include <QPointer>
+#include <QTimer>
+
+#include <memory>
 
 //---------------------------------------------------------
 
@@ -383,11 +387,39 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
 
 class RenderListener final : public DVGui::ProgressDialog,
                              public MovieRenderer::Listener {
+#ifdef BUILD_UI_PORT_TESTS
+  friend class RenderProgressNativeChecks;
+#endif
   using FrameCaption = std::function<QString(int)>;
   const FrameCaption m_progressCaption;
   int m_frameCounter, m_totalFrames;
   std::function<void()> m_cancelRender;
   bool m_error;
+  bool m_terminalObserved = false;
+  bool m_handedOff        = false;
+  bool m_retirementQueued = false;
+  int m_activeGuiCalls    = 0;
+
+  void scheduleRetirement() {
+    if (!m_terminalObserved || !m_handedOff || m_retirementQueued) return;
+    m_retirementQueued = true;
+    QTimer::singleShot(0, this, [this]() {
+      m_retirementQueued = false;
+      if (m_activeGuiCalls == 0) delete this;
+    });
+  }
+
+  class GuiActivity final {
+    RenderListener& m_listener;
+
+  public:
+    explicit GuiActivity(RenderListener& listener) : m_listener(listener) {
+      ++m_listener.m_activeGuiCalls;
+    }
+    ~GuiActivity() {
+      if (--m_listener.m_activeGuiCalls == 0) m_listener.scheduleRetirement();
+    }
+  };
 
   static QString precomputingCaption(const QString &path, int steps,
                                     bool isPreview) {
@@ -400,7 +432,7 @@ class RenderListener final : public DVGui::ProgressDialog,
   }
 
   class Message final : public TThread::Message {
-    RenderListener *m_pb;
+    QPointer<RenderListener> m_pb;
     int m_frame;
     FrameCaption m_caption;
 
@@ -413,6 +445,8 @@ class RenderListener final : public DVGui::ProgressDialog,
         , m_caption(caption) {}
     TThread::Message *clone() const override { return new Message(*this); }
     void onDeliver() override {
+      if (!m_pb) return;
+      GuiActivity activity(*m_pb);
       if (m_frame == -2) {
         m_pb->setLabelText(
             QObject::tr("Finalizing render, please wait.", "RenderListener"));
@@ -463,6 +497,11 @@ public:
     show();
   }
 
+  void retireWhenFinished() {
+    m_handedOff = true;
+    scheduleRetirement();
+  }
+
   /*-- The following three functions are implementations of pure virtual
    * functions of MovieRenderer::Listener --*/
   bool onFrameCompleted(int frame) override {
@@ -486,6 +525,10 @@ public:
   void onSequenceFinished(const TFilePath &fp,
                           MovieRenderer::CompletionStatus status,
                           const std::wstring &error) override {
+    GuiActivity activity(*this);
+    // Terminal follows all worker callbacks, but cancel/progress delivery can
+    // still be on the GUI stack while their nested event processing completes.
+    m_terminalObserved = true;
     m_cancelRender = {};
     Message(this, -1).send();
     if (status != MovieRenderer::CompletionStatus::Canceled)
@@ -498,8 +541,10 @@ public:
   }
 
   void onCancel() override {
+    GuiActivity activity(*this);
     m_isCanceled = true;
-    if (m_cancelRender) m_cancelRender();
+    const auto cancelRender = m_cancelRender;
+    if (cancelRender) cancelRender();
     setLabelText(QObject::tr("Aborting render...", "RenderListener"));
     reset();
     hide();
@@ -601,19 +646,18 @@ void RenderCommand::rasterRender(bool isPreview) {
     movieRenderer.enablePrecomputing(true);
 
   /*-- Create progress dialog --*/
-  RenderListener *listener =
+  std::unique_ptr<RenderListener> listener(
       new RenderListener(movieRenderer.getCancelCallback(), m_fp,
-                         ((m_numFrames - 1) / m_step) + 1, isPreview);
+                         ((m_numFrames - 1) / m_step) + 1, isPreview));
   // The cancellation callback retains the render state after this temporary
   // wrapper disappears, including while the encoder finalizes its output.
-  movieRenderer.addListener(listener);
+  movieRenderer.addListener(listener.get());
 
   bool fieldRendering = rs.m_fieldPrevalence != TRenderSettings::NoField;
 
   /*-- Progress bar showing buildSceneFx progress --*/
-  QProgressBar *buildSceneProgressBar =
-      new QProgressBar(TApp::instance()->getMainWindow());
-  buildSceneProgressBar->setAttribute(Qt::WA_DeleteOnClose);
+  std::unique_ptr<QProgressBar> buildSceneProgressBar(
+      new QProgressBar(TApp::instance()->getMainWindow()));
   buildSceneProgressBar->setWindowFlags(Qt::SubWindow | Qt::Dialog);
   buildSceneProgressBar->setMinimum(0);
   buildSceneProgressBar->setMaximum(m_numFrames - 1);
@@ -646,11 +690,13 @@ void RenderCommand::rasterRender(bool isPreview) {
   }
   /*-- Close progress bar --*/
   buildSceneProgressBar->close();
+  buildSceneProgressBar.reset();
 
   // resetViewer(); //TODO cancella le immagini dell'eventuale render precedente
   // FileViewerPopupPool::instance()->getCurrent()->onClose();
 
   movieRenderer.start();
+  listener.release()->retireWhenFinished();
 }
 
 TPixel32 RenderCommand::m_priorBgColor;
@@ -670,6 +716,9 @@ void RenderCommand::resetBgColor() {
 
 class MultimediaProgressBar final : public DVGui::ProgressDialog,
                                     public MultimediaRenderer::Listener {
+#ifdef BUILD_UI_PORT_TESTS
+  friend class RenderProgressNativeChecks;
+#endif
   using FrameCaption = std::function<QString(int, int)>;
   const FrameCaption m_progressCaption;
   int m_frameCounter;
@@ -682,7 +731,7 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
   //----------------------------------------------------------
 
   class Message final : public TThread::Message {
-    MultimediaProgressBar *m_pb;
+    QPointer<MultimediaProgressBar> m_pb;
     int m_frame;
     int m_column;
     int m_pbValue;
@@ -701,6 +750,7 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
     TThread::Message *clone() const override { return new Message(*this); }
 
     void onDeliver() override {
+      if (!m_pb) return;
       if (m_pbValue == -1)
         m_pb->hide();
       else {
@@ -867,12 +917,12 @@ void RenderCommand::multimediaRender() {
   for (int i = 0; i < m_numFrames; ++i, m_r += m_stepd)
     multimediaRenderer.addFrame(m_r);
 
-  MultimediaProgressBar *listener =
-      new MultimediaProgressBar(&multimediaRenderer);
+  std::unique_ptr<MultimediaProgressBar> listener(
+      new MultimediaProgressBar(&multimediaRenderer));
   // Use modern syntax for connection
-  QObject::connect(listener, &MultimediaProgressBar::canceled,
+  QObject::connect(listener.get(), &MultimediaProgressBar::canceled,
                    &multimediaRenderer, &MultimediaRenderer::onCanceled);
-  multimediaRenderer.addListener(listener);
+  multimediaRenderer.addListener(listener.get());
 
   multimediaRenderer.start();
 }
@@ -997,3 +1047,7 @@ void RenderCommand::doRender(bool isPreview) {
 }
 
 //===================================================================
+
+#ifdef BUILD_UI_PORT_TESTS
+#include "renderprogressintegrationtest.inc"
+#endif
