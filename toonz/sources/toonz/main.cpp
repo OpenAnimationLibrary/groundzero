@@ -996,7 +996,32 @@ int main(int argc, char *argv[]) {
     QTimer::singleShot(0, &a, [&a, &w, nativeIconClearOnly] {
       // The required clear scenario has its own fresh terminal process. It
       // shares native preparation/startup but does not repeat artist suites.
-      a.exit(nativeIconClearOnly ? 0 : runNativeUiIntegrationTest(&w));
+      int result = nativeIconClearOnly ? 0 : runNativeUiIntegrationTest(&w);
+      // New/Load/Quit checks open native dialogs and dispatch GUI events.
+      // Finish them before exit() unwinds Cocoa's application event loop.
+      if (nativeIconClearOnly ||
+          !qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK")) {
+        try {
+          runIconLifecycleNativeChecks(nativeIconClearOnly
+              ? NativeIconQuitScenario::ClearReviewedScene
+              : NativeIconQuitScenario::PreserveReplacement);
+        } catch (const TException &error) {
+          const QString detail = QString::fromStdWString(error.getMessage()).left(1024)
+                                     .replace('\n', ' ').replace('\r', ' ');
+          std::cerr << "native-ui-integration: FAIL: icon lifecycle Toonz exception: "
+                    << detail.toStdString() << std::endl;
+          result = 1;
+        } catch (const std::exception &error) {
+          std::cerr << "native-ui-integration: FAIL: icon lifecycle: "
+                    << error.what() << std::endl;
+          result = 1;
+        } catch (...) {
+          std::cerr << "native-ui-integration: FAIL: unexpected icon lifecycle exception"
+                    << std::endl;
+          result = 1;
+        }
+      }
+      a.exit(result);
     });
 #endif
   nativeUiCheckpoint("entering native application event loop");
@@ -1009,30 +1034,6 @@ int main(int argc, char *argv[]) {
   int ret = a.exec();
   nativeUiCheckpoint("native application event loop returned");
 
-#ifdef BUILD_UI_PORT_TESTS
-  if (nativeUiTest &&
-      (nativeIconClearOnly || !qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"))) {
-    try {
-      runIconLifecycleNativeChecks(nativeIconClearOnly
-          ? NativeIconQuitScenario::ClearReviewedScene
-          : NativeIconQuitScenario::PreserveReplacement);
-    } catch (const TException &error) {
-      const QString detail = QString::fromStdWString(error.getMessage()).left(1024)
-                                 .replace('\n', ' ').replace('\r', ' ');
-      std::cerr << "native-ui-integration: FAIL: icon lifecycle Toonz exception: "
-                << detail.toStdString() << std::endl;
-      ret = 1;
-    } catch (const std::exception &error) {
-      std::cerr << "native-ui-integration: FAIL: icon lifecycle: "
-                << error.what() << std::endl;
-      ret = 1;
-    } catch (...) {
-      std::cerr << "native-ui-integration: FAIL: unexpected icon lifecycle exception"
-                << std::endl;
-      ret = 1;
-    }
-  }
-#endif
   // QCoreApplication::exit(), scripting and the native runner can leave the
   // event loop without entering MainWindow::closeEvent(). Retire thumbnail
   // workers while their scenes, GUI services and actions are still alive.
