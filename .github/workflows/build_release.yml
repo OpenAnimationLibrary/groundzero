@@ -19,16 +19,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
+  check-build:
     if: github.repository == 'OpenAnimationLibrary/groundzero'
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts/find_published_build.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Check for a published build of this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          published_tag=$(bash .github/scripts/find_published_build.sh)
+          if [[ -n "$published_tag" ]]; then
+            echo "Skipping builds for $GITHUB_SHA (already published as $published_tag)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  windows:
+    needs: check-build
+    if: needs.check-build.outputs.build == 'true'
     uses: ./.github/workflows/workflow_windows.yml
 
   macos:
-    if: github.repository == 'OpenAnimationLibrary/groundzero'
+    needs: check-build
+    if: needs.check-build.outputs.build == 'true'
     uses: ./.github/workflows/workflow_macos.yml
 
   linux:
-    if: github.repository == 'OpenAnimationLibrary/groundzero'
+    needs: check-build
+    if: needs.check-build.outputs.build == 'true'
     uses: ./.github/workflows/workflow_linux.yml
 
   release:
@@ -96,6 +125,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Rerunning failed jobs can reuse an earlier build check.
+          published_tag=$(bash .github/scripts/find_published_build.sh)
+          if [[ -n "$published_tag" ]]; then
+            echo "Skipping publication for $GITHUB_SHA (already published as $published_tag)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # The log host is not reachable from every environment, so every
           # command here reports its failure as an annotation (see CLAUDE.md).
           report() {

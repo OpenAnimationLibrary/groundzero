@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [edition]
     paths:
+      - '.github/scripts/find_published_build.sh'
       - '.github/scripts/release_notes.py'
       - '.github/scripts/test_release_notes.py'
       - '.github/workflows/build_release.yml'
@@ -12,6 +13,7 @@ on:
   push:
     branches: [edition]
     paths:
+      - '.github/scripts/find_published_build.sh'
       - '.github/scripts/release_notes.py'
       - '.github/scripts/test_release_notes.py'
       - '.github/workflows/build_release.yml'

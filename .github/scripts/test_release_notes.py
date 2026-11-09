@@ -221,6 +221,52 @@ class ReleaseNotesTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_build_check_skips_only_published_prereleases_for_the_commit(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / "workflows/build_release.yml").read_text(encoding="utf-8")
+        check = workflow.split("      - name: Check for a published build of this commit\n", 1)[1]
+        check = check.split("        run: |\n", 1)[1].split("\n  windows:", 1)[0]
+        script = "\n".join(line[10:] for line in check.splitlines())
+        tags = "\n".join([
+            f"{OTHER_SHA}\trefs/tags/build-1",
+            f"{SHA}\trefs/tags/build-2^{{}}",
+            f"{SHA}\trefs/tags/build-3",
+            f"{SHA}\trefs/tags/build-4",
+            f"{SHA}\trefs/tags/v0.0.0",
+        ])
+        unmatched = [release("build-1"), release("build-3", draft=True),
+                     release("v0.0.0", prerelease=False)]
+        for name, refs, pages, api_status, expected in (
+            ("no_matching_tag", "", [], 1, "build=true\n"),
+            ("no_published_match", tags, [unmatched], 0, "build=true\n"),
+            ("annotated_match", tags, [unmatched, [release("build-2")]], 0, ""),
+            ("lightweight_match", tags, [[release("build-4")]], 0, ""),
+            ("api_failure", tags, [], 1, None),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                git = directory / "git"
+                git.write_text('#!/bin/sh\nprintf "%s\\n" "$FAKE_TAGS"\n', encoding="utf-8")
+                git.chmod(0o755)
+                gh = directory / "gh"
+                gh.write_text('#!/bin/sh\nprintf "%s\\n" "$FAKE_RELEASES"\nexit "$FAKE_API_STATUS"\n',
+                              encoding="utf-8")
+                gh.chmod(0o755)
+                output = directory / "output"
+                output.touch()
+                summary = directory / "summary.md"
+                env = dict(os.environ, PATH=f"{directory}:{os.environ['PATH']}",
+                           FAKE_TAGS=refs, FAKE_RELEASES=json.dumps(pages),
+                           FAKE_API_STATUS=str(api_status), GITHUB_SHA=SHA,
+                           GITHUB_SERVER_URL="https://github.com", GITHUB_REPOSITORY=REPO,
+                           GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+                result = subprocess.run(["bash", "-c", script], cwd=root.parent, env=env,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, expected is not None, result.stderr)
+                self.assertEqual(output.read_text(encoding="utf-8"), expected or "")
+                if expected == "":
+                    self.assertIn("already published as build-", summary.read_text(encoding="utf-8"))
+
     def test_workflow_publication_with_fake_github(self):
         """Exercise the actual publisher shell and real helper against a fake gh."""
         root = Path(__file__).resolve().parents[1]
@@ -270,6 +316,7 @@ p.write_text(json.dumps(state))
             "legacy_draft": {"releases": [release("build-3", draft=True, body="Keep introduction"), release("build-2")]},
             "retry": {"releases": [release("build-3", draft=True, body=original), release("build-2")]},
             "published": {"releases": [release("build-3", body="Published notes")]},
+            "duplicate": {"releases": [release("build-2")]},
             "notes_failure": {"releases": [release("build-2")], "notes_failure": True},
             "upload_failure": {"releases": [release("build-2")], "upload_failure": True},
         }
@@ -282,15 +329,20 @@ p.write_text(json.dumps(state))
                 executable = directory / "gh"
                 executable.write_text(fake_gh, encoding="utf-8")
                 executable.chmod(0o755)
+                git = directory / "git"
+                git.write_text('#!/bin/sh\nprintf "%s\\n" "$FAKE_TAGS"\n', encoding="utf-8")
+                git.chmod(0o755)
                 (directory / ".github/scripts").mkdir(parents=True)
-                (directory / ".github/scripts/release_notes.py").write_text(
-                    (root / "scripts/release_notes.py").read_text(encoding="utf-8"), encoding="utf-8"
-                )
+                for filename in ("release_notes.py", "find_published_build.sh"):
+                    (directory / ".github/scripts" / filename).write_text(
+                        (root / "scripts" / filename).read_text(encoding="utf-8"), encoding="utf-8"
+                    )
                 (directory / "release-notes.md").write_text("Build details\n", encoding="utf-8")
                 (directory / "out").mkdir()
                 (directory / "out/package.zip").write_text("package", encoding="utf-8")
                 env = dict(os.environ, PATH=f"{directory}:{os.environ['PATH']}",
-                           FAKE_STATE=str(state_file), RELEASE_TAG="build-3", BUILD_SHA=SHA,
+                           FAKE_STATE=str(state_file), RELEASE_TAG="build-3", BUILD_SHA=SHA, GITHUB_SHA=SHA,
+                           FAKE_TAGS=f"{SHA}\trefs/tags/build-2" if name == "duplicate" else "",
                            GH_REPO=REPO, GITHUB_SERVER_URL="https://github.com",
                            GITHUB_REPOSITORY=REPO, GITHUB_STEP_SUMMARY=str(directory / "summary.md"))
                 result = subprocess.run(["bash", "-c", script], cwd=directory, env=env,
@@ -306,6 +358,9 @@ p.write_text(json.dumps(state))
                     self.assertTrue(current["draft"])
                 elif name == "published":
                     self.assertEqual(current["body"], "Published notes")
+                    self.assertEqual(len(final["calls"]), 1)
+                elif name == "duplicate":
+                    self.assertIsNone(current)
                     self.assertEqual(len(final["calls"]), 1)
                 else:
                     self.assertFalse(current["draft"])
