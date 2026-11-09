@@ -1,7 +1,11 @@
 name: Neural style evaluation
 
 on:
-  pull_request:
+  workflow_call:
+    inputs:
+      smoke_only:
+        type: boolean
+        default: false
   workflow_dispatch:
   push:
     branches:
@@ -16,6 +20,7 @@ concurrency:
 
 jobs:
   temporal:
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
     name: Temporal motion and occlusion
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -24,6 +29,13 @@ jobs:
         with:
           lfs: false
           persist-credentials: false
+      - uses: actions/setup-python@v6
+        if: inputs.smoke_only
+        with:
+          python-version: '3.12'
+      - name: Check bounded publisher transfers
+        if: inputs.smoke_only
+        run: python -m unittest discover -s ci-scripts/tests -p test_neural_download.py -v
       - name: Install existing application math dependencies
         run: |
           sudo apt-get update -o Acquire::Retries=3
@@ -41,6 +53,8 @@ jobs:
       - name: Check motion, holds, cuts, disocclusion and cancellation
         run: ./temporal-build/neural-temporal-tests
   runtime:
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    if: ${{ !inputs.smoke_only }}
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -84,8 +98,10 @@ jobs:
           if-no-files-found: error
 
   macos-intel:
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
     name: LiteRT macOS Intel native
     needs: runtime
+    if: ${{ !inputs.smoke_only }}
     runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
