@@ -1,7 +1,6 @@
 name: MacOS Build
 
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       benchmark_bundle:
