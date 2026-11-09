@@ -122,8 +122,8 @@ namespace {
 
 int l_mainDisplayListsSpaceId =
     -1;  //!< Display lists space id associated with SceneViewers
-std::set<TGlContext>
-    l_contexts;  //!< Stores every SceneViewer context (see ~SceneViewer)
+// Only these contexts retain the shared main-window display-list space.
+std::set<TGlContext> l_mainContexts;
 
 //-------------------------------------------------------------------------------
 
@@ -907,13 +907,9 @@ SceneViewer::~SceneViewer() {
   // notify FilmStripFrames and safely disconnect with this
   emit aboutToBeDestroyed();
 
+  if (context() && context()->isValid()) makeCurrent();
   if (m_fbo) delete m_fbo;
-
-  // release all the registered context (once when exit the software)
-  for (const auto &ctx : l_contexts) {
-    TGLDisplayListsManager::instance()->releaseContext(ctx);
-  }
-  l_contexts.clear();
+  onContextAboutToBeDestroyed();
 }
 
 //-------------------------------------------------------------------------------
@@ -1339,8 +1335,6 @@ void SceneViewer::onPreferenceChanged(const QString &prefName) {
       else
         m_lutCalibrator->cleanup();
       m_lutCalibrator->initialize();
-      connect(context(), &QOpenGLContext::aboutToBeDestroyed, this,
-              &SceneViewer::onContextAboutToBeDestroyed);
       if (m_lutCalibrator->isValid() && !m_fbo) {
         if (Preferences::instance()->is30bitDisplayEnabled()) {
           QOpenGLFramebufferObjectFormat format;
@@ -1361,20 +1355,15 @@ void SceneViewer::initializeGL() {
 
   registerContext();
 
-  // release the textures of the experimental GPU compositing (if any) while
-  // the context can still be made current
-  connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, [this]() {
-    makeCurrent();
-    Stage::RasterPainter::releaseGpuTextures();
-    doneCurrent();
-  });
+  // Keep cleanup independent of color calibration and disconnect it before
+  // QOpenGLWidget's base destructor can destroy the context.
+  m_contextDestroyConnection =
+      connect(context(), &QOpenGLContext::aboutToBeDestroyed, this,
+              &SceneViewer::onContextAboutToBeDestroyed, Qt::DirectConnection);
 
   // to be computed once through the software
-  if (m_lutCalibrator && !m_lutCalibrator->isInitialized()) {
+  if (m_lutCalibrator && !m_lutCalibrator->isInitialized())
     m_lutCalibrator->initialize();
-    connect(context(), &QOpenGLContext::aboutToBeDestroyed, this,
-            &SceneViewer::onContextAboutToBeDestroyed);
-  }
 
   // glClearColor(1.0,1.0,1.0,1);
   glClear(GL_COLOR_BUFFER_BIT);
@@ -3696,52 +3685,65 @@ void SceneViewer::releaseFBO() {
 //-----------------------------------------------------------------------------
 
 void SceneViewer::onContextAboutToBeDestroyed() {
-  if (!m_lutCalibrator) return;
-  makeCurrent();
-  m_lutCalibrator->cleanup();
-  doneCurrent();
-  disconnect(context(), &QOpenGLContext::aboutToBeDestroyed, this,
-             &SceneViewer::onContextAboutToBeDestroyed);
+  disconnect(m_contextDestroyConnection);
+  m_contextDestroyConnection = QMetaObject::Connection();
+
+  const bool canMakeCurrent = context() && context()->isValid();
+  if (canMakeCurrent) {
+    makeCurrent();
+    Stage::RasterPainter::releaseGpuTextures();
+    if (m_lutCalibrator) m_lutCalibrator->cleanup();
+  }
+  // Texture-storage observers must release their resources while this context
+  // is still current. Never release another viewer's registration here.
+  unregisterContext();
+  if (canMakeCurrent) doneCurrent();
+}
+
+//-----------------------------------------------------------------------------
+
+void SceneViewer::unregisterContext() {
+  const TGlContext oldContext = m_currentContext;
+  m_currentContext           = TGlContext();
+  if (oldContext == TGlContext()) return;
+
+  // Clear the cached ID before releaseContext notifies observers: the final
+  // release destroys this display-list space and its slot may be reused.
+  if (l_mainContexts.erase(oldContext) && l_mainContexts.empty())
+    l_mainDisplayListsSpaceId = -1;
+  TGLDisplayListsManager::instance()->releaseContext(oldContext);
 }
 
 //-----------------------------------------------------------------------------
 // called from SceneViewer::initializeGL()
 
 void SceneViewer::registerContext() {
-  // release the old context, if any
-  // this will be happen when dock / float the viewer panel.
-  bool hasOldContext;
-#ifdef _WIN32
-  hasOldContext =
-      (m_currentContext.first != nullptr && m_currentContext.second != nullptr);
-#else
-  hasOldContext = m_currentContext != nullptr;
-#endif
-  if (hasOldContext) {
-    int ret = l_contexts.erase(m_currentContext);
-    if (ret)
-      TGLDisplayListsManager::instance()->releaseContext(m_currentContext);
-  }
+  disconnect(m_contextDestroyConnection);
+  m_contextDestroyConnection = QMetaObject::Connection();
+  unregisterContext();
 
-  // then, register context and the space Id correspondent to it.
-  int displayListId;
-  if (TApp::instance()->getMainWindow() &&
+  const TGlContext tglContext = tglGetCurrentContext();
+#ifdef _WIN32
+  if (!tglContext.first || !tglContext.second) return;
+#else
+  if (!tglContext) return;
+#endif
+
+  const bool sharesMainSpace =
+      TApp::instance()->getMainWindow() &&
       TApp::instance()->getMainWindow()->isAncestorOf(this) &&
-      QThread::currentThread() == qGuiApp->thread()) {
-    // obtain displaySpaceId for main thread
+      QThread::currentThread() == qGuiApp->thread();
+  int displayListId;
+  if (sharesMainSpace) {
     if (l_mainDisplayListsSpaceId == -1)
       l_mainDisplayListsSpaceId =
           TGLDisplayListsManager::instance()->storeProxy(new DummyProxy);
-
     displayListId = l_mainDisplayListsSpaceId;
-  }
-  // for the other cases (such as for floating viewer), it can't share the
-  // context so
-  // obtain different id
-  else
+  } else {
     displayListId =
         TGLDisplayListsManager::instance()->storeProxy(new DummyProxy);
-  TGlContext tglContext(tglGetCurrentContext());
+  }
   TGLDisplayListsManager::instance()->attachContext(displayListId, tglContext);
-  l_contexts.insert(tglContext);
+  m_currentContext = tglContext;
+  if (sharesMainSpace) l_mainContexts.insert(tglContext);
 }

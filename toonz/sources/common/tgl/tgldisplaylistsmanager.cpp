@@ -17,6 +17,7 @@ namespace {
 struct ProxyReference {
   TGLDisplayListsProxy *m_proxy;
   int m_refCount;
+  bool m_retiring = false;
 
   ProxyReference(TGLDisplayListsProxy *proxy) : m_proxy(proxy), m_refCount() {}
 };
@@ -31,6 +32,23 @@ namespace {
 
 tcg::list<ProxyReference> m_proxies;
 std::map<TGlContext, int> m_proxyIdsByContext;
+
+bool validProxyId(int id) {
+  return id >= 0 && static_cast<size_t>(id) < m_proxies.nodesCount() &&
+         m_proxies.isValid(id);
+}
+
+// Keep the slot occupied through callbacks and proxy destruction: either may
+// register another context and grow the indexed list.
+struct ProxyRetirement {
+  int m_id;
+  ~ProxyRetirement() {
+    TGLDisplayListsProxy *proxy = m_proxies[m_id].m_proxy;
+    m_proxies[m_id].m_proxy = nullptr;
+    delete proxy;
+    m_proxies.erase(m_id);
+  }
+};
 
 }  // namespace
 
@@ -52,8 +70,11 @@ int TGLDisplayListsManager::storeProxy(TGLDisplayListsProxy *proxy) {
 //-----------------------------------------------------------------------------------
 
 void TGLDisplayListsManager::attachContext(int dlSpaceId, TGlContext context) {
-  m_proxyIdsByContext.insert(std::make_pair(context, dlSpaceId));
-  ++m_proxies[dlSpaceId].m_refCount;
+  if (!validProxyId(dlSpaceId) || m_proxies[dlSpaceId].m_retiring) return;
+  // A context has one registration. Repeated or conflicting attaches must not
+  // acquire another reference without a corresponding mapping.
+  if (m_proxyIdsByContext.insert(std::make_pair(context, dlSpaceId)).second)
+    ++m_proxies[dlSpaceId].m_refCount;
 }
 
 //-----------------------------------------------------------------------------------
@@ -61,22 +82,24 @@ void TGLDisplayListsManager::attachContext(int dlSpaceId, TGlContext context) {
 void TGLDisplayListsManager::releaseContext(TGlContext context) {
   std::map<TGlContext, int>::iterator it = m_proxyIdsByContext.find(context);
 
-  assert(it != m_proxyIdsByContext.end());
   if (it == m_proxyIdsByContext.end()) return;
 
-  int dlSpaceId = it->second;
-  if (--m_proxies[dlSpaceId].m_refCount <= 0) {
-    // Notify observers first
-    observers_container::const_iterator ot, oEnd = observers().end();
-    for (ot = observers().begin(); ot != oEnd; ++ot)
-      static_cast<Observer *>(*ot)->onDisplayListDestroyed(dlSpaceId);
-
-    // Then, destroy stuff
-    if (!m_proxies[dlSpaceId].m_proxy) delete m_proxies[dlSpaceId].m_proxy;
-    m_proxies.erase(dlSpaceId);
-  }
-
+  const int dlSpaceId = it->second;
+  // Remove admission before notifying observers. A callback can release the
+  // same context again, or register a replacement with the same native handle.
   m_proxyIdsByContext.erase(it);
+  if (!validProxyId(dlSpaceId) || m_proxies[dlSpaceId].m_retiring) return;
+  if (--m_proxies[dlSpaceId].m_refCount > 0) return;
+
+  m_proxies[dlSpaceId].m_retiring = true;
+  ProxyRetirement retirement{dlSpaceId};
+  // dlProxy(id) remains available while textures are destroyed by observers.
+  // Do not retain a reference into m_proxies across these callbacks.
+  const observers_container snapshot = observers();
+  for (auto *observer : snapshot) {
+    if (observers().find(observer) != observers().end())
+      static_cast<Observer *>(observer)->onDisplayListDestroyed(dlSpaceId);
+  }
 }
 
 //-----------------------------------------------------------------------------------
@@ -89,5 +112,5 @@ int TGLDisplayListsManager::displayListsSpaceId(TGlContext context) {
 //-----------------------------------------------------------------------------------
 
 TGLDisplayListsProxy *TGLDisplayListsManager::dlProxy(int dlSpaceId) {
-  return m_proxies[dlSpaceId].m_proxy;
+  return validProxyId(dlSpaceId) ? m_proxies[dlSpaceId].m_proxy : nullptr;
 }
