@@ -432,7 +432,9 @@ void exerciseSceneViewerContextOwners(QMainWindow *window) {
   QWidget floatingHost;
   floatingHost.resize(360, 300);
   auto createPanel = [&]() {
-    auto panel = std::make_unique<SceneViewerPanel>(window);
+    // The factory installs the preview controls used when the viewer activates.
+    std::unique_ptr<TPanel> panel(
+        TPanelFactory::createPanel(window, "SceneViewer"));
     panel->resize(320, 260);
     panel->show();
     settle();
