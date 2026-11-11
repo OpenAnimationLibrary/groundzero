@@ -3,6 +3,7 @@
 #ifndef PALETTECMD_INCLUDED
 #define PALETTECMD_INCLUDED
 
+#include <functional>
 #include <set>
 #include <vector>
 #include <utility>
@@ -34,6 +35,11 @@ DVAPI bool areStylesUsed(const std::set<TXshSimpleLevel *> levels,
                          const std::vector<int> styleIds);
 
 namespace PaletteCmd {
+
+DVAPI bool editStyleAnimation(TPalette *palette, int styleId,
+                              const TPalette::StyleAnimation &keys,
+                              const QString &history,
+                              std::function<void(TPalette *)> notify);
 
 // Atomic, undoable update of unlinked solid colors; preserves IDs and alpha.
 // Locked/animated palettes and invalid or duplicate IDs reject the whole batch.

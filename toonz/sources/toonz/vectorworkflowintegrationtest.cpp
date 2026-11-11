@@ -526,6 +526,23 @@ void runVectorWorkflowNativeChecks() {
   palette->setKeyframe(gradientId, 0);
   palette->getStyle(gradientId)->setMainColor(TPixel32::Blue);
   palette->setKeyframe(gradientId, 10);
+  const int colorId = palette->addStyle(TPixel32::Black);
+  palette->getPage(0)->addStyle(colorId);
+  const TPaletteKeyInterpolation linearLight{
+      TPaletteKeyInterpolation::Timing::Linear,
+      TPaletteKeyInterpolation::Space::LinearLight};
+  palette->setKeyframe(colorId, 0, linearLight);
+  palette->getStyle(colorId)->setMainColor(TPixel32::White);
+  palette->setKeyframe(colorId, 10);
+  const auto checkColorInterpolation = [&](const TPalette &sample) {
+    require(
+        sample.getStyleAnimation(colorId).at(0).interpolation == linearLight,
+        "linear-light key metadata did not survive");
+    require(sample.sampleStyle(colorId, 5)->getMainColor() ==
+                TPixel32(188, 188, 188),
+            "linear-light black to white midpoint");
+  };
+  checkColorInterpolation(*palette);
   palette->setFrame(5);
   // Establish an actually saved, clean drawing. A test that starts with a
   // modified image cannot detect the canceled dialog's old writable readback.
@@ -534,6 +551,22 @@ void runVectorWorkflowNativeChecks() {
   const TFilePath gradientPath(gradientStorage.filePath("gradient-choices.pli"));
   level->setPath(gradientPath,true);
   level->setDirtyFlag(true); palette->setDirtyFlag(true); level->save();
+  {
+    TLevelReaderP reader{gradientPath};
+    const TLevelP saved = reader->loadInfo();
+    require(saved && saved->getPalette(), "embedded palette unavailable");
+    checkColorInterpolation(*saved->getPalette());
+
+    const TFilePath tpl(gradientStorage.filePath("interpolation.tpl"));
+    {
+      TOStream output{tpl};
+      palette->saveData(output);
+    }
+    TPaletteP restored = new TPalette;
+    TIStream input{tpl};
+    restored->loadData(input);
+    checkColorInterpolation(*restored);
+  }
   palette->setFrame(5); // Preview an interpolated appearance, not an endpoint.
   auto *images = ImageManager::instance();
   const auto firstId = level->getImageId(TFrameId(1)), secondId = level->getImageId(TFrameId(2));

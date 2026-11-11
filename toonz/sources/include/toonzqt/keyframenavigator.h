@@ -1,5 +1,9 @@
 #pragma once
 
+#include <functional>
+
+class QMenu;
+
 #ifndef KEYFRAMENAVIGATOR_INCLUDED
 #define KEYFRAMENAVIGATOR_INCLUDED
 
@@ -173,6 +177,11 @@ public:
 
   TPaletteHandle *getPaletteHandle() const { return m_paletteHandle; }
 
+  // The options belong to the key at the beginning of the segment.
+  static void addInterpolationActions(
+      QMenu &menu, TPalette *palette, int styleId, int frame,
+      const std::function<void(TPalette *)> &notify);
+
 public slots:
   void setPaletteHandle(TPaletteHandle *paletteHandle) {
     m_paletteHandle = paletteHandle;
@@ -191,6 +200,7 @@ protected:
 
   void showEvent(QShowEvent *) override;
   void hideEvent(QHideEvent *) override;
+  void contextMenuEvent(QContextMenuEvent *) override;
 };
 
 //=============================================================================

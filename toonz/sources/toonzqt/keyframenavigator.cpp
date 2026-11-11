@@ -9,6 +9,8 @@
 #include "toonz/tstageobjectkeyframe.h"
 #include "toonz/stageobjectutil.h"
 #include "toonz/tapplication.h"
+#include "toonz/palettecmd.h"
+#include "toonz/preferences.h"
 
 #include "tpixelutils.h"
 #include "tfx.h"
@@ -28,6 +30,9 @@
 
 #include <QAction>
 #include <QMouseEvent>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QPointer>
 
 using namespace std;
 
@@ -305,29 +310,14 @@ void ViewerKeyframeNavigator::hideEvent(QHideEvent *e) {
 namespace {
 //-----------------------------------------------------------------------------
 
-class UndoPaletteSetKeyFrame final : public TUndo {
-  int m_frame;
-  int m_styleId;
-  TPaletteHandle *m_paletteHandle;
-
-public:
-  UndoPaletteSetKeyFrame(int styleId, int frame, TPaletteHandle *paletteHandle)
-      : m_frame(frame), m_styleId(styleId), m_paletteHandle(paletteHandle) {}
-
-  void undo() const override { setKeyFrame(); }
-  void redo() const override { setKeyFrame(); }
-  int getSize() const override { return sizeof(*this); }
-
-protected:
-  void setKeyFrame() const {
-    TPalette *palette = m_paletteHandle->getPalette();
-    if (palette->isKeyframe(m_styleId, m_frame))
-      palette->clearKeyframe(m_styleId, m_frame);
-    else
-      palette->setKeyframe(m_styleId, m_frame);
-    m_paletteHandle->notifyPaletteChanged();
-  }
-};
+std::function<void(TPalette *)> paletteKeyNotifier(TPaletteHandle *handle) {
+  return [handle = QPointer<TPaletteHandle>(handle)](TPalette *palette) {
+    if (handle && handle->getPalette() == palette) {
+      handle->notifyPaletteChanged();
+      handle->notifyColorStyleChanged(false);
+    }
+  };
+}
 //-----------------------------------------------------------------------------
 }  // namespace
 //=============================================================================
@@ -391,15 +381,78 @@ bool PaletteKeyframeNavigator::isKeyframe() const {
 
 void PaletteKeyframeNavigator::toggle() {
   TPalette *palette = getPalette();
-  if (!palette) return;
+  const int styleId = getStyleIndex(), frame = getCurrentFrame();
+  if (!palette || palette->isLocked() || styleId <= 0 ||
+      styleId >= palette->getStyleCount() || frame < 0)
+    return;
 
-  int styleId = getStyleIndex(), frame = getCurrentFrame();
+  auto keys = palette->getStyleAnimation(styleId);
+  if (!keys.erase(frame))
+    keys.emplace(frame,
+                 TPalette::StyleKey{
+                     TColorStyleP(palette->getStyle(styleId)->clone()), {}});
+  PaletteCmd::editStyleAnimation(palette, styleId, keys, tr("Set Palette Key"),
+                                 paletteKeyNotifier(m_paletteHandle));
+}
 
-  std::unique_ptr<UndoPaletteSetKeyFrame> undo(
-      new UndoPaletteSetKeyFrame(styleId, frame, m_paletteHandle));
-  undo->redo();
+void PaletteKeyframeNavigator::addInterpolationActions(
+    QMenu &menu, TPalette *palette, int styleId, int frame,
+    const std::function<void(TPalette *)> &notify) {
+  if (!palette || palette->isLocked()) return;
+  const auto keys = palette->getStyleAnimation(styleId);
+  const auto next = keys.upper_bound(frame);
+  if (next == keys.begin() || next == keys.end()) return;
+  const auto key        = std::prev(next);
+  const auto addOptions = [&](const QString &title, auto field,
+                              const auto &options) {
+    auto *submenu = menu.addMenu(title);
+    for (const auto &[value, name] : options) {
+      auto *action = submenu->addAction(name);
+      action->setCheckable(true);
+      action->setChecked(key->second.interpolation.*field == value);
+      QObject::connect(action, &QAction::triggered, submenu,
+                       [owner = TPaletteP(palette), styleId, frame = key->first,
+                        field, value, notify, title] {
+                         auto keys      = owner->getStyleAnimation(styleId);
+                         const auto key = keys.find(frame);
+                         if (key == keys.end() || std::next(key) == keys.end())
+                           return;
+                         key->second.interpolation.*field = value;
+                         PaletteCmd::editStyleAnimation(
+                             owner.getPointer(), styleId, keys, title, notify);
+                       });
+    }
+  };
 
-  TUndoManager::manager()->add(undo.release());
+  using Timing                              = TPaletteKeyInterpolation::Timing;
+  const std::pair<Timing, QString> timing[] = {
+      {Timing::Linear, tr("Linear")},
+      {Timing::Hold, tr("Hold")},
+      {Timing::EaseIn, tr("Ease In")},
+      {Timing::EaseOut, tr("Ease Out")},
+      {Timing::EaseInOut, tr("Ease In/Out")}};
+  addOptions(tr("Interpolation to Next Key"), &TPaletteKeyInterpolation::timing,
+             timing);
+  if (Preferences::instance()->getBoolValue(
+          EnablePaletteKeyColorSpaceInterpolation)) {
+    using Space                              = TPaletteKeyInterpolation::Space;
+    const std::pair<Space, QString> spaces[] = {
+        {Space::PaletteRgb, tr("Palette RGB")},
+        {Space::LinearLight, tr("Linear Light (sRGB)")}};
+    addOptions(tr("Color Interpolation Space"),
+               &TPaletteKeyInterpolation::space, spaces);
+  }
+}
+
+void PaletteKeyframeNavigator::contextMenuEvent(QContextMenuEvent *event) {
+  QMenu menu(this);
+  addInterpolationActions(menu, getPalette(), getStyleIndex(),
+                          getCurrentFrame(),
+                          paletteKeyNotifier(m_paletteHandle));
+  if (menu.isEmpty())
+    KeyframeNavigator::contextMenuEvent(event);
+  else
+    menu.exec(event->globalPos());
 }
 
 //-----------------------------------------------------------------------------

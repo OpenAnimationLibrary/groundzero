@@ -51,6 +51,7 @@ enum PreferencesItemId {
   restoreViewerViewFromLastSession,
   togglePanelWithShortcut,
   RestoreStyleEditorTab,
+  EnablePaletteKeyColorSpaceInterpolation,
 
   //----------
   // Visualization
