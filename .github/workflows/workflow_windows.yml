@@ -158,8 +158,8 @@ jobs:
         run: |
           @echo on
           mkdir thirdparty\qt
-          curl -fsSL -o Qt5.15.2_wintab.zip https://github.com/shun-iwasawa/qt5/releases/download/v5.15.2_wintab/Qt5.15.2_wintab.zip
-          7z x Qt5.15.2_wintab.zip
+          curl -fsSL --retry 4 --retry-connrefused --connect-timeout 20 --retry-max-time 180 --max-time 180 -o Qt5.15.2_wintab.zip https://github.com/shun-iwasawa/qt5/releases/download/v5.15.2_wintab/Qt5.15.2_wintab.zip || exit /b 1
+          7z x Qt5.15.2_wintab.zip || exit /b 1
           move Qt5.15.2_wintab\5.15.2_wintab thirdparty\qt
         shell: cmd
 
@@ -171,7 +171,7 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP "groundzero-native-mesa-26.2.4"
           New-Item -ItemType Directory -Path $root -Force | Out-Null
           $archive = Join-Path $root "mesa3d-26.2.4-release-msvc.7z"
-          curl.exe -fSL --retry 2 --retry-delay 2 --max-time 90 -o $archive https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
+          curl.exe -fsSL --retry 4 --retry-connrefused --connect-timeout 20 --retry-max-time 150 --max-time 90 -o $archive https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
           if ($LASTEXITCODE -ne 0) { throw "Could not download the pinned native UI renderer" }
           $expected = "351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695"
           if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
@@ -190,7 +190,7 @@ jobs:
       - name: Install third-party prebuilt libs (LFS workaround)
         run: |
           @echo on
-          curl -fsSL -o thirdparty-libs.zip https://github.com/andeon/opentoonz-thirdparty-libs/releases/download/prebuilt-libs-v1/thirdparty-libs.zip
+          curl -fsSL --retry 4 --retry-connrefused --connect-timeout 20 --retry-max-time 180 --max-time 180 -o thirdparty-libs.zip https://github.com/andeon/opentoonz-thirdparty-libs/releases/download/prebuilt-libs-v1/thirdparty-libs.zip || exit /b 1
           7z x -y thirdparty-libs.zip
         shell: cmd    
 
