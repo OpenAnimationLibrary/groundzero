@@ -162,6 +162,9 @@ TApp::TApp()
   connect(m_paletteController->getCurrentLevelPalette(),
           &TPaletteHandle::paletteChanged, this, &TApp::onPaletteChanged);
   connect(m_paletteController->getCurrentLevelPalette(),
+          &TPaletteHandle::showStyleInFunctionEditor, this,
+          &TApp::showPaletteStyleInFunctionEditor);
+  connect(m_paletteController->getCurrentLevelPalette(),
           &TPaletteHandle::colorStyleSwitched, this,
           &TApp::onLevelColorStyleSwitched);
   connect(m_paletteController->getCurrentLevelPalette(),
@@ -708,6 +711,29 @@ static void notifyPaletteChanged(TXshSimpleLevel *simpleLevel) {
     for (int i = 0; i < (int)fids.size(); i++)
       IconGenerator::instance()->invalidate(simpleLevel, fids[i]);
   }
+}
+
+//-----------------------------------------------------------------------------
+
+void TApp::notifyPaletteKeyframesChanged(TPalette *palette) {
+  palette->setDirtyFlag(true);
+  auto *levelPaletteHandle = m_paletteController->getCurrentLevelPalette();
+  if (levelPaletteHandle->getPalette() == palette &&
+      getCurrentPalette()->getPalette() == palette) {
+    levelPaletteHandle->notifyColorStyleChanged(false, false);
+  } else {
+    onPaletteChanged();
+    auto *levels = getCurrentScene()->getScene()->getLevelSet();
+    for (int i = 0; i < levels->getLevelCount(); ++i) {
+      auto *simple = levels->getLevel(i)->getSimpleLevel();
+      if (simple && simple->getPalette() == palette)
+        notifyPaletteChanged(simple);
+    }
+  }
+  if (levelPaletteHandle->getPalette() == palette)
+    levelPaletteHandle->notifyPaletteDirtyFlagChanged();
+  getCurrentScene()->notifySceneChanged();
+  emit paletteKeyframesChanged();
 }
 
 //-----------------------------------------------------------------------------

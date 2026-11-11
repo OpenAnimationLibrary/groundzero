@@ -5,7 +5,6 @@
 
 // TnzCore includes
 #include "tcommon.h"
-#include "tdoubleparam.h"
 #include "saveloadqsettings.h"
 
 // TnzLib includes
@@ -18,6 +17,8 @@
 // Qt includes
 #include <QSplitter>
 #include <QSettings>
+#include <QStringList>
+#include <memory>
 
 #include <string>
 
@@ -36,6 +37,7 @@
 //    Forward declarations
 
 class TParam;
+class FunctionKeyTrack;
 class TDoubleParam;
 class TXsheetHandle;
 class TObjectHandle;
@@ -43,6 +45,7 @@ class TFxHandle;
 class TColumnHandle;
 class TStageObject;
 class TSceneHandle;
+class ToonzScene;
 
 class FrameNavigator;
 class FunctionTreeView;
@@ -115,6 +118,12 @@ public:
   //! the parameter
   //! will be added
   //! to.
+
+  void showKeyTrack(const QString &id, const QString &folder,
+                    const QString &name, const QStringList &components,
+                    std::shared_ptr<FunctionKeyTrack> track);
+  void refreshKeyTracks();
+  int currentFrame() const { return m_localFrame.getFrame(); }
 
   void setFocusColumnsOrGraph();
   void clearFocusColumnsAndGraph();
@@ -199,6 +208,13 @@ private:
   // Current objects
 
   TDoubleParam *m_curve;
+  struct ExposedTrack {
+    QString id, folder, name;
+    QStringList components;
+    std::shared_ptr<FunctionKeyTrack> source;
+  };
+  ToonzScene *m_trackScene = nullptr;
+  std::vector<ExposedTrack> m_exposedTracks;
   FunctionSelection *m_selection;
 
   // The fx and the structure of its parameters when its material channels

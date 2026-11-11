@@ -8,17 +8,20 @@
 
 #include <QToolBar>
 class FunctionPanel;
+class FunctionSelection;
 class TFrameHandle;
 class FrameNavigator;
 
 class DVAPI FunctionKeyframeNavigator final : public KeyframeNavigator {
   Q_OBJECT
   TDoubleParamP m_curve;
+  FunctionSelection *m_selection = nullptr;
 
 public:
   FunctionKeyframeNavigator(QWidget *parent);
 
   void setCurve(TDoubleParam *curve);
+  void setSelection(FunctionSelection *selection) { m_selection = selection; }
 
 protected:
   bool hasNext() const override;

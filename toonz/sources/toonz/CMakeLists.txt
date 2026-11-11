@@ -314,6 +314,7 @@ set(SOURCES
     previewfxmanager.cpp
     ruler.cpp
     scanlist.cpp
+    functioneditorpalette.cpp
     tapp.cpp
     toolbar.cpp
     batchserversviewer.cpp

@@ -50,6 +50,7 @@ class DVAPI FunctionSelection final : public QObject, public TSelection {
   // assert(m_selectedSegment<0 || m_selectedKeyframes.size()==1)
 
   TFrameHandle *m_frameHandle;
+  FunctionTreeModel *m_model = nullptr;
   ColumnToCurveMapper *m_columnToCurveMapper;
 
   int getCurveIndex(TDoubleParam *curve) const;
@@ -108,6 +109,14 @@ public:
     return m_columnToCurveMapper ? m_columnToCurveMapper->getCurve(columnIndex)
                                  : 0;
   }
+
+  void setModel(FunctionTreeModel *model) { m_model = model; }
+  std::shared_ptr<FunctionKeyTrack> keyTrack(TDoubleParam *curve,
+                                             int *component = nullptr) const;
+  bool editKeyTrack(TDoubleParam *curve,
+                    const std::vector<FunctionKeyTrack::Edit> &edits);
+  bool hasKeyTracks() const;
+  double valueAt(TDoubleParam *curve, double frame) const;
 
   void enableCommands() override;
   bool hasLockedCurves() const;
