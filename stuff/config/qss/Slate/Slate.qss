@@ -1323,7 +1323,7 @@ QTabBar QToolButton:disabled {
   border-color: #24262a;
   border-top-color: transparent;
   border-bottom-color: #3b3e42;
-  background-image: url("../Default/imgs/white/misc/tab-accent-toonboom.svg");
+  background-image: url("../Default/imgs/white/misc/tab-accent-slate.svg");
   background-repeat: repeat-x;
   background-position: top left;
 }
@@ -2531,7 +2531,7 @@ FlipSlider {
   qproperty-PBColorMarginTop: 3;
   qproperty-PBColorMarginRight: 1;
   qproperty-PBColorMarginBottom: 3;
-  qproperty-PBMarker: url('../Default/imgs/white/flipslider/flipmarker-toonboom.svg');
+  qproperty-PBMarker: url('../Default/imgs/white/flipslider/flipmarker-slate.svg');
   qproperty-PBMarkerMarginLeft: 4;
   qproperty-PBMarkerMarginRight: 4;
   qproperty-notStartedColor: hsl(0, 45%, 40%);

@@ -1,5 +1,7 @@
 <fxlayout>
   <page name="Free-Form Deformer">
+   <separator label="Vector Art"/>
+    <control>deformStrokes</control>
    <separator label="Rest Rectangle"/>
     <control>center</control>
     <control>width</control>

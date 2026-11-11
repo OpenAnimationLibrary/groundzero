@@ -34,16 +34,25 @@
 // collapses the art around the joint, as linear blend skinning does; widen the
 // radii for a softer bend.
 //
+// Joint Count sets how many joints the chain has, from 2 to 9 (1 to 8
+// bones); 5 by default, which is what scenes saved before the count load
+// with. The extra joints continue the default line, and are kept when the
+// count shrinks.
+//
 // Limits: the warp is made on the rendered Source raster, so vector art is
-// resampled rather than deformed as strokes; the chain is fixed at 4 bones
+// resampled rather than deformed as strokes; the chain is a single branch
 // (the class supports trees of any size, for later use by game export). The
 // parameters and the deformer are made by deformerfx::BoneChainParams, which
 // a Bone layer of the Deformer Stack Fx shares.
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 namespace {
 
-enum { BONE_COUNT = 4, JOINT_COUNT = BONE_COUNT + 1 };
+enum { MAX_JOINTS = 9, DEFAULT_JOINTS = 5 };
 
 }  // namespace
 
@@ -53,15 +62,18 @@ class BoneDeformerFx final : public TStandardRasterFx, public TDeformerSource {
   FX_PLUGIN_DECLARATION(BoneDeformerFx)
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   deformerfx::BoneChainParams m_chain;
 
 public:
   BoneDeformerFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     // By default, the joints are along a horizontal line from -200 to 200,
     // on the rest ones
-    m_chain.bind(this, "", JOINT_COUNT, 200.0);
+    m_chain.bind(this, "", MAX_JOINTS, 200.0, DEFAULT_JOINTS);
+    m_chain.bindCount(this, "jointCount", DEFAULT_JOINTS);
 
     enableComputeInFloat(true);
   }
@@ -78,7 +90,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -93,6 +106,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the bones at frame, for Bake Deformers into Vector Level
   // (see TDeformerSource)
   std::shared_ptr<const TDeformer> makeDeformer(
@@ -110,6 +126,10 @@ bool BoneDeformerFx::doGetBBox(double frame, TRectD &bBox,
     bBox = TRectD();
     return false;
   }
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
@@ -146,6 +166,11 @@ void BoneDeformerFx::transform(double frame, int port,
                                const TRenderSettings &infoOnOutput,
                                TRectD &rectOnInput,
                                TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -155,6 +180,7 @@ void BoneDeformerFx::transform(double frame, int port,
 int BoneDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
                                          const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -164,6 +190,12 @@ int BoneDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
 void BoneDeformerFx::doCompute(TTile &tile, double frame,
                                const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   // The deformer is built in the render's space, which differs from the fx's
   // by a similarity (see canHandle()).

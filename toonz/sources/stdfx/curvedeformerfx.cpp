@@ -26,16 +26,24 @@
 // The deformation applies in full within Width of the rest curve, falls
 // smoothly to nothing at Falloff, and the rest of the Source stays put.
 //
+// Anchor Count sets how many anchors the curve has, from 2 to 8; 4 by
+// default, which is what scenes saved before the count load with. The extra
+// anchors continue the default line, and are kept when the count shrinks.
+//
 // The warp is made on the rendered Source raster, so vector art is resampled
-// rather than deformed as strokes. The curve has 4 anchors; where it bends
-// more tightly than the Width the art folds over itself. The parameters and
+// rather than deformed as strokes. Where the curve bends more tightly than the
+// Width the art folds over itself. The parameters and
 // the deformer are made by deformerfx::CurveDeformerParams, which a Curve
 // layer of the Deformer Stack Fx shares.
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 namespace {
 
-enum { ANCHOR_COUNT = 4 };
+enum { MAX_ANCHORS = 8, DEFAULT_ANCHORS = 4 };
 
 // Half the length of the default curve: a straight line along the x axis
 const double c_defaultHalfLength = 200.0;
@@ -48,14 +56,17 @@ class CurveDeformerFx final : public TStandardRasterFx, public TDeformerSource {
   FX_PLUGIN_DECLARATION(CurveDeformerFx)
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   deformerfx::CurveDeformerParams m_curve;
 
 public:
   CurveDeformerFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     // By default, the curve is a straight line across the origin
-    m_curve.bind(this, "", ANCHOR_COUNT, c_defaultHalfLength);
+    m_curve.bind(this, "", MAX_ANCHORS, c_defaultHalfLength, DEFAULT_ANCHORS);
+    m_curve.bindCount(this, "anchorCount", DEFAULT_ANCHORS);
 
     enableComputeInFloat(true);
   }
@@ -72,7 +83,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -87,6 +99,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the curve at frame, for Bake Deformers into Vector Level
   // (see TDeformerSource)
   std::shared_ptr<const TDeformer> makeDeformer(
@@ -104,6 +119,10 @@ bool CurveDeformerFx::doGetBBox(double frame, TRectD &bBox,
     bBox = TRectD();
     return false;
   }
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
@@ -140,6 +159,11 @@ void CurveDeformerFx::transform(double frame, int port,
                                 const TRenderSettings &infoOnOutput,
                                 TRectD &rectOnInput,
                                 TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -149,6 +173,7 @@ void CurveDeformerFx::transform(double frame, int port,
 int CurveDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
                                           const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -158,6 +183,12 @@ int CurveDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
 void CurveDeformerFx::doCompute(TTile &tile, double frame,
                                 const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   // The deformer is built in the render's space, which differs from the fx's
   // by a similarity (see canHandle()).

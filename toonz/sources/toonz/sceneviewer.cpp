@@ -74,6 +74,7 @@
 #include "tpalette.h"
 #include "tropcm.h"
 #include "tgl.h"
+#include "tglbatch.h"
 #include "tvectorgl.h"
 #include "tofflinegl.h"
 #include "tstopwatch.h"
@@ -1821,13 +1822,13 @@ void SceneViewer::drawOverlay() {
       glColor3d(1.0, 0.0, 0.0);
 
       // border
-      glBegin(GL_LINE_STRIP);
-      glVertex2d(rect.x0, rect.y0);
-      glVertex2d(rect.x0, rect.y1 - m_pixelSize);
-      glVertex2d(rect.x1 - m_pixelSize, rect.y1 - m_pixelSize);
-      glVertex2d(rect.x1 - m_pixelSize, rect.y0);
-      glVertex2d(rect.x0, rect.y0);
-      glEnd();
+      tgl::Batch border;
+      border.lineStrip({TPointD(rect.x0, rect.y0),
+                        TPointD(rect.x0, rect.y1 - m_pixelSize),
+                        TPointD(rect.x1 - m_pixelSize, rect.y1 - m_pixelSize),
+                        TPointD(rect.x1 - m_pixelSize, rect.y0),
+                        TPointD(rect.x0, rect.y0)});
+      border.draw();
 
       glPopMatrix();
     }
@@ -2058,31 +2059,23 @@ static void drawFpsGraph(int t0, int t1) {
   glLoadIdentity();
   glColor3d(0, 0, 0);
   glRectd(x0, y0, x1, y1);
-  glColor3d(0, 0.5, 1);
-  glBegin(GL_LINE_STRIP);
-  glVertex2d(x0, y0);
-  glVertex2d(x1, y0);
-  glVertex2d(x1, y1);
-  glVertex2d(x0, y1);
-  glVertex2d(x0, y0);
-  glEnd();
-  glColor3d(0.5, 0.5, 0.5);
-  glBegin(GL_LINES);
-  for (int y = y0 + 5; y < y1; y += 20) {
-    glVertex2d(x0, y);
-    glVertex2d(x1, y);
-  }
+  tgl::Batch batch;
+  batch.color(TPixelD(0, 0.5, 1));
+  batch.lineStrip({TPointD(x0, y0), TPointD(x1, y0), TPointD(x1, y1),
+                   TPointD(x0, y1), TPointD(x0, y0)});
+  batch.color(TPixelD(0.5, 0.5, 0.5));
+  for (int y = y0 + 5; y < y1; y += 20)
+    batch.line(TPointD(x0, y), TPointD(x1, y));
   int i = 0;
   for (const auto &time : times) {
     double x = x1 - i++;
-    glColor3d(1, 0, 0);
-    glVertex2d(x, y0);
-    glVertex2d(x, y0 + 5 + time.first / 5);
-    glColor3d(0, 1, 0);
-    glVertex2d(x, y0 + 5 + time.first / 5);
-    glVertex2d(x, y0 + 5 + time.second / 5);
+    batch.color(TPixelD(1, 0, 0));
+    batch.line(TPointD(x, y0), TPointD(x, y0 + 5 + time.first / 5));
+    batch.color(TPixelD(0, 1, 0));
+    batch.line(TPointD(x, y0 + 5 + time.first / 5),
+               TPointD(x, y0 + 5 + time.second / 5));
   }
-  glEnd();
+  batch.draw();
   glPopMatrix();
 }
 
@@ -3535,10 +3528,12 @@ void drawSpline(const TAffine &viewMatrix, const TRect &clipRect, bool camera3d,
   double strokeLength = stroke->getLength();
   int n               = (int)(5 + (strokeLength / pixelSize) * 0.1);
 
-  glBegin(GL_LINE_STRIP);
+  tgl::Batch batch;
+  batch.begin(tgl::Primitive::LineStrip);
   for (int i = 0; i < n; i++)
-    tglVertex(stroke->getPoint((double)i / (double)(n - 1)));
-  glEnd();
+    batch.vertex(stroke->getPoint((double)i / (double)(n - 1)));
+  batch.end();
+  batch.draw();
   glDisable(GL_LINE_STIPPLE);
   int cpCount = stroke->getControlPointCount();
   for (int i = 0; i * 4 < cpCount; i++) {

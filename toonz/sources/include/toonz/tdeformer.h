@@ -100,6 +100,11 @@ public:
   //! null when the fx leaves its Source unchanged at frame.
   virtual std::shared_ptr<const TDeformer> makeDeformer(
       double frame, const TAffine &placement) const = 0;
+
+  //! Returns whether the fx has Deform Strokes on: it deforms the strokes of
+  //! a Toonz Vector Source, rather than its rendered image, when the Source
+  //! allows it (see toonz/strokedeformerdata.h).
+  virtual bool deformsStrokes() const { return false; }
 };
 
 //================================================================================================

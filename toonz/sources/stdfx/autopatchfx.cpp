@@ -4,6 +4,7 @@
 #include "tparamuiconcept.h"
 #include "ttzpimagefx.h"
 #include "trop.h"
+#include "autopatchoutline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -66,6 +67,15 @@
 // takes precedence and the Joint Region is then ignored. Joint Radius 0, the
 // default, switches the region off, so old scenes render as before.
 //
+// Outline Only: the joint found from the pieces themselves. The seam is
+// Top's outline where it crosses Bottom's paint, while Top's detail lines
+// have Top's paint on both sides. With Outline Only on, r is also multiplied
+// by how close the pixel is to the outside of Top (where Top renders
+// transparent): 1 within Outline Width, antialiased to 0 one pixel further
+// (autopatchoutline.h). A standard arm rig then needs no Mask and no Joint
+// Point; detail lines closer to the outline than Outline Width are still
+// patched. Off by default, so old scenes render as before.
+//
 // Enable Patch (on by default) off outputs the plain Top over Bottom. This
 // is the way to see the pieces unpatched while keeping both of them: the
 // render graph's own handling of a disabled fx (the eye / Enable toggle)
@@ -118,11 +128,38 @@ struct JointRegion {
 
 //------------------------------------------------------------------------------
 
+// Returns the Outline Only weights of the tile's pixels, from Top rendered
+// whole over the tile enlarged by margin pixels on each side
+template <class PIXEL>
+std::vector<float> outlineWeights(const TRasterPT<PIXEL> &top, int margin,
+                                  const TDimension &size, double width) {
+  const double transparent = 0.02 * PIXEL::maxChannelValue;
+  const int w = top->getLx(), h = top->getLy();
+  std::vector<unsigned char> outside(w * h);
+  top->lock();
+  for (int y = 0; y < h; ++y) {
+    const PIXEL *pix = top->pixels(y);
+    for (int x = 0; x < w; ++x, ++pix) outside[y * w + x] = pix->m <= transparent;
+  }
+  top->unlock();
+
+  const std::vector<float> all = autopatch::outlineWeights(outside, w, h, width);
+  std::vector<float> weights(size.lx * size.ly, 0.0f);
+  if (all.empty()) return weights;
+  for (int y = 0; y < size.ly; ++y)
+    std::copy(all.begin() + (y + margin) * w + margin,
+              all.begin() + (y + margin) * w + margin + size.lx,
+              weights.begin() + y * size.lx);
+  return weights;
+}
+
+//------------------------------------------------------------------------------
+
 template <class PIXEL>
 void applyPatch(const TRasterPT<PIXEL> &ras, const TRasterPT<PIXEL> &patch,
                 const TRasterPT<PIXEL> &bottomPaint,
                 const TRasterPT<PIXEL> &topLines, const TRasterPT<PIXEL> &mask,
-                const JointRegion &region) {
+                const JointRegion &region, const float *outline) {
   typedef typename PIXEL::Channel Channel;
   const double maxValue = PIXEL::maxChannelValue;
   // Rounding for integer channels only
@@ -148,6 +185,7 @@ void applyPatch(const TRasterPT<PIXEL> &ras, const TRasterPT<PIXEL> &patch,
           r *= std::min(std::max(maskPix->m / maxValue, 0.0), 1.0);
         else if (region.m_active && r > 0.0)
           r *= region.weight(x, y);
+        if (outline) r *= outline[y * ras->getLx() + x];
       }
       if (maskPix) ++maskPix;
       if (r <= 0.0) continue;
@@ -177,23 +215,37 @@ class AutoPatchFx final : public TStandardRasterFx {
   TBoolParamP m_enablePatch;
   TPointParamP m_jointPoint;
   TDoubleParamP m_jointRadius, m_softness;
+  TBoolParamP m_outlineOnly;
+  TDoubleParamP m_outlineWidth;
+
+  // Outline Only: the margin, in pixels, of Top's render around a tile
+  int outlineMargin(double frame, const TRenderSettings &ri) const {
+    const double scale = sqrt(fabs(ri.m_affine.det()));
+    return (int)std::ceil(m_outlineWidth->getValue(frame) * scale) + 2;
+  }
 
 public:
   AutoPatchFx()
       : m_enablePatch(true)
       , m_jointPoint(TPointD(0.0, 0.0))
       , m_jointRadius(0.0)
-      , m_softness(10.0) {
+      , m_softness(10.0)
+      , m_outlineOnly(false)
+      , m_outlineWidth(10.0) {
     m_jointPoint->getX()->setMeasureName("fxLength");
     m_jointPoint->getY()->setMeasureName("fxLength");
     m_jointRadius->setMeasureName("fxLength");
     m_softness->setMeasureName("fxLength");
     m_jointRadius->setValueRange(0, (std::numeric_limits<double>::max)());
     m_softness->setValueRange(0, (std::numeric_limits<double>::max)());
+    m_outlineWidth->setMeasureName("fxLength");
+    m_outlineWidth->setValueRange(0, (std::numeric_limits<double>::max)());
     bindParam(this, "enablePatch", m_enablePatch);
     bindParam(this, "jointPoint", m_jointPoint);
     bindParam(this, "jointRadius", m_jointRadius);
     bindParam(this, "softness", m_softness);
+    bindParam(this, "outlineOnly", m_outlineOnly);
+    bindParam(this, "outlineWidth", m_outlineWidth);
     addInputPort("Top", m_top);
     addInputPort("Bottom", m_bottom);
     addInputPort("Mask", m_mask);
@@ -254,6 +306,10 @@ void AutoPatchFx::doDryCompute(TRectD &rect, double frame,
   m_top->dryCompute(rect, frame, paintInfo);
   m_top->dryCompute(rect, frame, filteredSettings(info, false));
   if (m_mask.isConnected()) m_mask->dryCompute(rect, frame, info);
+  if (m_outlineOnly->getValue()) {
+    TRectD outlineRect = rect.enlarge(outlineMargin(frame, info));
+    m_top->dryCompute(outlineRect, frame, info);
+  }
 }
 
 //------------------------------------------------------------------------------
@@ -296,6 +352,29 @@ void AutoPatchFx::doCompute(TTile &tile, double frame,
   TRasterP patch             = bottomPaint->clone();
   TRop::over(patch, topPaintTile.getRaster());
 
+  // Outline Only: the outside of Top, around the tile
+  std::vector<float> outline;
+  if (m_outlineOnly->getValue()) {
+    const int margin   = outlineMargin(frame, ri);
+    const double width = m_outlineWidth->getValue(frame) *
+                         sqrt(fabs(ri.m_affine.det()));
+    TTile wholeTopTile;
+    m_top->allocateAndCompute(
+        wholeTopTile, pos - TPointD(margin, margin),
+        TDimension(size.lx + 2 * margin, size.ly + 2 * margin), ras, frame,
+        ri);
+    const TRasterP wholeTop = wholeTopTile.getRaster();
+    if (TRaster32P top32 = wholeTop)
+      outline = outlineWeights<TPixel32>(top32, margin, size, width);
+    else if (TRaster64P top64 = wholeTop)
+      outline = outlineWeights<TPixel64>(top64, margin, size, width);
+    else if (TRasterFP topF = wholeTop)
+      outline = outlineWeights<TPixelF>(topF, margin, size, width);
+    else
+      throw TException("Auto-Patch: unsupported pixel type");
+  }
+  const float *outlinePtr = outline.empty() ? nullptr : outline.data();
+
   TTile maskTile;
   TRasterP mask;
   JointRegion region;
@@ -315,11 +394,14 @@ void AutoPatchFx::doCompute(TTile &tile, double frame,
   }
 
   if (TRaster32P ras32 = ras)
-    applyPatch<TPixel32>(ras32, patch, bottomPaint, topLines, mask, region);
+    applyPatch<TPixel32>(ras32, patch, bottomPaint, topLines, mask, region,
+                         outlinePtr);
   else if (TRaster64P ras64 = ras)
-    applyPatch<TPixel64>(ras64, patch, bottomPaint, topLines, mask, region);
+    applyPatch<TPixel64>(ras64, patch, bottomPaint, topLines, mask, region,
+                         outlinePtr);
   else if (TRasterFP rasF = ras)
-    applyPatch<TPixelF>(rasF, patch, bottomPaint, topLines, mask, region);
+    applyPatch<TPixelF>(rasF, patch, bottomPaint, topLines, mask, region,
+                        outlinePtr);
   else
     throw TException("Auto-Patch: unsupported pixel type");
 }

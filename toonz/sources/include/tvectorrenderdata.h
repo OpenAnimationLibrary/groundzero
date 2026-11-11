@@ -100,6 +100,9 @@ public:
   // tools/artlayer.h): bit 0 Line Art, 1 Colour Art, 2 Underlay, 3 Overlay.
   // Never set when rendering.
   int m_hiddenRoleMask = 0;
+  // The scene frame drawn, for the styles that change with the frame (the
+  // Boil of Texture styles), or -1 when unknown, as for icons.
+  int m_frame = -1;
   //!  \deprecated  Use the above individual options instead.
   //!  \todo  Remove it ASAP.
 public:

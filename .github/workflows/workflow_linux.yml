@@ -3,8 +3,6 @@ name: Linux Build
 on:
   workflow_dispatch:
   workflow_call:
-  # Every pull request, also one stacked on another branch
-  pull_request:
   # Also check edition itself after each merge: pull requests that each build
   # on their own can still break the build together.
   push:

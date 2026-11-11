@@ -1,5 +1,7 @@
 #include "themeapplication.h"
 
+#include "toonz/themenames.h"
+
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
@@ -276,12 +278,34 @@ int main(int argc, char **argv) {
            [&](const QString &) { ++overrideWrites; },
            [](const QString &) {}});
       const QStringList shipped = installed.availableThemes();
-      for (const QString &required : {QString("Animate"), QString("Blue"),
-           QString("Clay"), QString("Dark"), QString("Darker"),
-           QString("Default-Green"), QString("Default"), QString("Light"),
-           QString("Neutral"), QString("Premiere"), QString("ToonBoom"),
-           QString("Synthwave")})
+      for (const QString &required :
+           {QString("Blue"), QString("Charcoal"), QString("Clay"),
+            QString("Dark"), QString("Darker"), QString("Default-Green"),
+            QString("Default"), QString("Light"), QString("Midnight"),
+            QString("Neutral"), QString("Slate"), QString("Synthwave")})
         require(shipped.contains(required), "a shipped theme is missing its QSS asset");
+      // A saved preference that names a renamed theme selects the new name
+      require(installedThemeName(QString("ToonBoom"), shipped) ==
+                      QString("Slate") &&
+                  installedThemeName(QString("Animate"), shipped) ==
+                      QString("Charcoal") &&
+                  installedThemeName(QString("Premiere"), shipped) ==
+                      QString("Midnight"),
+              "a renamed theme does not select its new name");
+      require(installedThemeName(QString("Synthwave"), shipped) ==
+                  QString("Synthwave"),
+              "an installed theme was not kept");
+      require(installedThemeName(QString("Missing"), shipped) ==
+                      QString("Default") &&
+                  installedThemeName(QString("ToonBoom"),
+                                     QStringList{QString("Default")}) ==
+                      QString("Default"),
+              "a theme that is not installed does not select Default");
+      require(installedThemeName(
+                  QString("ToonBoom"),
+                  QStringList{QString("ToonBoom"), QString("Slate")}) ==
+                  QString("ToonBoom"),
+              "an installed theme with an old name was replaced");
       std::unique_ptr<QMenu> roomA(createQuickThemeMenu(installed, nullptr));
       std::unique_ptr<QMenu> roomB(createQuickThemeMenu(installed, nullptr));
       QComboBox nativePreferences;

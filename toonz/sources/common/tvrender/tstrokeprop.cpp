@@ -275,7 +275,7 @@ void OutlineStrokeProp::draw(const TVectorRenderData &rd) {
     }
 
     if (rd.m_antiAliasing)
-      m_colorStyle->drawStroke(cf, &m_outline, m_stroke);
+      m_colorStyle->drawStrokeAtFrame(cf, &m_outline, m_stroke, rd.m_frame);
     else
       m_colorStyle->drawAliasedStroke(cf, &m_outline, m_stroke);
   }

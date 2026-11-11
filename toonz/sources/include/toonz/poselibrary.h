@@ -7,6 +7,7 @@
 #include "toonz/tstageobjectid.h"
 
 #include <QString>
+#include <QByteArray>
 
 #include <string>
 #include <vector>
@@ -57,6 +58,9 @@ public:
   struct Pose {
     QString m_name;
     std::vector<Entry> m_entries;
+    //! A small PNG of the viewer when the pose was added, shown in the Rig
+    //! Library. Empty for poses saved before thumbnails existed.
+    QByteArray m_thumbnail;
   };
 
 public:

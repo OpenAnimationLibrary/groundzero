@@ -119,6 +119,13 @@ public:
 
   virtual void drawStroke(const TColorFunction *cf, TStrokeOutline *outline,
                           const TStroke *stroke) const = 0;
+  //! Draws the stroke at the scene frame drawn, -1 when unknown. For the
+  //! styles that change with the frame; the others draw as drawStroke().
+  virtual void drawStrokeAtFrame(const TColorFunction *cf,
+                                 TStrokeOutline *outline,
+                                 const TStroke *stroke, int frame) const {
+    drawStroke(cf, outline, stroke);
+  }
   // draw aliased stroke. currently reimplemented by TSolidColorStyle only
   virtual void drawAliasedStroke(const TColorFunction *cf,
                                  TStrokeOutline *outline,

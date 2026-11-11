@@ -23,6 +23,10 @@
 // rather than deformed as strokes. To stack it with other deformers, see the
 // Deformer Stack Fx, which shares its envelope parameters and render code
 // (deformerfxcommon.h).
+//
+// With Deform Strokes on, a Toonz Vector Source is deformed as strokes,
+// live: the fx passes its deformer to the column, which deforms a copy of
+// the drawing before drawing it (toonz/strokedeformerdata.h).
 //==============================================================================
 
 class EnvelopeDeformerFx final : public TStandardRasterFx,
@@ -30,11 +34,13 @@ class EnvelopeDeformerFx final : public TStandardRasterFx,
   FX_PLUGIN_DECLARATION(EnvelopeDeformerFx)
 
   TRasterFxPort m_input;
+  deformerfx::StrokeMode m_strokes;
   deformerfx::EnvelopeParams m_envelope;
 
 public:
   EnvelopeDeformerFx() {
     addInputPort("Source", m_input);
+    m_strokes.bind(this);
 
     // By default, the envelope is a square around the origin, with a point on
     // each corner and on the middle of each side.
@@ -55,7 +61,8 @@ public:
   // The deformation is invariant under similarities only: let the other
   // parts of the affine be applied on the result.
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return false;
+    // Deform Strokes: the column draws the strokes with any affine
+    return m_strokes.applies(m_input, frame);
   }
 
   int getMemoryRequirement(const TRectD &rect, double frame,
@@ -70,6 +77,9 @@ private:
                        const TRenderSettings &ri);
 
 public:
+  // Deform Strokes (see TDeformerSource)
+  bool deformsStrokes() const override { return m_strokes.isOn(); }
+
   // The deformer of the envelope at frame, for Bake Deformers into Vector
   // Level (see TDeformerSource)
   std::shared_ptr<const TDeformer> makeDeformer(
@@ -92,6 +102,10 @@ bool EnvelopeDeformerFx::doGetBBox(double frame, TRectD &bBox,
     bBox = TRectD();
     return false;
   }
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, info, strokeInfo))
+    return m_input->doGetBBox(frame, bBox, strokeInfo);
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
 
@@ -131,6 +145,11 @@ void EnvelopeDeformerFx::transform(double frame, int port,
                                    const TRenderSettings &infoOnOutput,
                                    TRectD &rectOnInput,
                                    TRenderSettings &infoOnInput) {
+  if (m_strokes.settings(this, m_input, frame, infoOnOutput, infoOnInput)) {
+    rectOnInput = rectOnOutput;
+    return;
+  }
+
   infoOnInput = infoOnOutput;
   rectOnInput = getSourceRect(frame, rectOnOutput, infoOnOutput);
 }
@@ -140,6 +159,7 @@ void EnvelopeDeformerFx::transform(double frame, int port,
 int EnvelopeDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
                                              const TRenderSettings &info) {
   if (!m_input.isConnected()) return 0;
+  if (m_strokes.applies(m_input, frame)) return 0;
 
   return TRasterFx::memorySize(getSourceRect(frame, rect, info), info.m_bpp);
 }
@@ -149,6 +169,12 @@ int EnvelopeDeformerFx::getMemoryRequirement(const TRectD &rect, double frame,
 void EnvelopeDeformerFx::doCompute(TTile &tile, double frame,
                                    const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
+
+  TRenderSettings strokeInfo;
+  if (m_strokes.settings(this, m_input, frame, ri, strokeInfo)) {
+    m_input->compute(tile, frame, strokeInfo);
+    return;
+  }
 
   std::vector<TPointD> rest, deformed;
   m_envelope.getEnvelopes(frame, rest, deformed);

@@ -12,6 +12,9 @@
 #include "tdoubleparam.h"
 #include "tparamset.h"
 
+// TnzLib includes
+#include "toonz/tstageobjectid.h"
+
 // Qt includes
 #include <QObject>
 
@@ -83,6 +86,10 @@ public:
 
   virtual void draw(bool picking) = 0;
 
+  //! Returns whether the gadget is drawn and dragged in the stage's space,
+  //! rather than in the space of the current fx's column.
+  virtual bool isInWorldSpace() const { return false; }
+
   virtual void leftButtonDown(const TPointD &pos, const TMouseEvent &) {}
   virtual void leftButtonDrag(const TPointD &pos, const TMouseEvent &) {}
   virtual void leftButtonUp() {}
@@ -134,7 +141,12 @@ public:
   void clearGadgets();
 
   TAffine getMatrix();
-
+  //! The matrix of the gadgets in the stage's space (isInWorldSpace())
+  TAffine getWorldMatrix();
+  //! The position of a stage object in the stage's space, at the frame
+  TPointD getObjectPosition(const TStageObjectId &id);
+  //! Lets the viewers and panels follow a master controller's new value
+  void notifyControllerChanged(bool dragging);
   void draw(bool picking = false);
 
   void selectById(unsigned int id);
@@ -164,6 +176,7 @@ public slots:
 
 private:
   FxGadget *allocateGadget(const TParamUIConcept &uiConcept);
+  void addControllerGadgets();
 };
 
 #endif

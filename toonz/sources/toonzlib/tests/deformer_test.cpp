@@ -11,6 +11,7 @@
 #include "toonz/tdeformer.h"
 #include "toonz/tdeformerstack.h"
 #include "toonz/tfreeformdeformer.h"
+#include "toonz/strokedeformerdata.h"
 #include "traster.h"
 
 #include "tstroke.h"
@@ -1136,6 +1137,158 @@ void testVectorImage() {
   }
 }
 
+//------------------------------------------------------------------
+
+// Painted weights: the grid, its text form and its use in a stack
+void testWeightPainting() {
+  TDeformerWeightPainting painting =
+      TDeformerWeightPainting::make(TRectD(-100.0, -100.0, 100.0, 100.0), 20, 20);
+  require(!painting.isEmpty(), "painting: not made");
+  require(painting.weightAt(TPointD()) == 0.0, "painting: not blank");
+  require(TDeformerWeightPainting::make(TRectD(), 4, 4).isEmpty(),
+          "painting: made over an empty rect");
+
+  // Painting at full strength sets the center, not what is out of reach
+  for (int k = 0; k < 4; ++k)
+    painting.paint(TPointD(-50.0, -50.0), 30.0, 1.0, 1.0);
+  require(std::fabs(painting.weightAt(TPointD(-55.0, -55.0)) - 1.0) < 0.05,
+          "painting: the center is not painted");
+  require(painting.weightAt(TPointD(50.0, 50.0)) == 0.0,
+          "painting: painted out of reach");
+  require(painting.weightAt(TPointD(500.0, 0.0)) == 0.0,
+          "painting: weight outside the rect");
+  require(!painting.paint(TPointD(500.0, 500.0), 30.0, 1.0, 1.0),
+          "painting: changed by a stroke outside");
+
+  // Erasing brings it back
+  for (int k = 0; k < 8; ++k)
+    painting.paint(TPointD(-50.0, -50.0), 30.0, 0.0, 1.0);
+  require(painting.weightAt(TPointD(-55.0, -55.0)) < 0.01,
+          "painting: not erased");
+
+  // A low strength still reaches the target
+  for (int k = 0; k < 200; ++k)
+    painting.paint(TPointD(50.0, 50.0), 40.0, 1.0, 0.05);
+  require(painting.weightAt(TPointD(55.0, 55.0)) > 0.95,
+          "painting: small steps stall");
+
+  // The text form
+  const std::string text = painting.toString();
+  TDeformerWeightPainting read = TDeformerWeightPainting::fromString(text);
+  require(read.m_lx == 20 && read.m_ly == 20 &&
+              read.m_values == painting.m_values &&
+              read.m_rect == painting.m_rect,
+          "painting: the text does not round trip");
+  require(TDeformerWeightPainting::fromString("").isEmpty() &&
+              TDeformerWeightPainting::fromString("1 2 2 0 0 1 1 AAA").isEmpty() &&
+              TDeformerWeightPainting::fromString("2 1 1 0 0 1 1 AA==").isEmpty(),
+          "painting: bad text is read");
+  require(TDeformerWeightPainting().toString().empty(),
+          "painting: an empty painting is written");
+
+  // In a stack: a translation applies where painted only
+  std::vector<TPointD> moved = square();
+  for (TPointD &p : moved) p += TPointD(10.0, 0.0);
+  std::shared_ptr<const TDeformer> translate(
+      new TEnvelopeDeformer(square(), moved));
+  std::shared_ptr<const TDeformerWeightPainting> shared(
+      new TDeformerWeightPainting(painting));
+
+  TDeformerWeightMap map =
+      TDeformerWeightMap::makeUniform(1.0).withPainting(shared, TAffine());
+  require(map.isPainted() && !map.isUniform(),
+          "painting: the map is still uniform");
+  require(std::fabs(map.weightAt(TPointD(55.0, 55.0)) -
+                    shared->weightAt(TPointD(55.0, 55.0))) < 1e-12,
+          "painting: the map does not use the painting");
+  require(map.weightAt(TPointD(-90.0, 90.0)) == 0.0,
+          "painting: weight where nothing is painted");
+
+  // The painting follows the plane: a plane scaled by 2 reads it at half
+  TDeformerWeightMap scaled = TDeformerWeightMap::makeUniform(1.0).withPainting(
+      shared, TScale(0.5));
+  require(std::fabs(scaled.weightAt(TPointD(110.0, 110.0)) -
+                    shared->weightAt(TPointD(55.0, 55.0))) < 1e-12,
+          "painting: the plane's affine is not used");
+
+  TDeformerStack stack;
+  stack.addLayer(translate, map);
+  require(isClose(stack.deform(TPointD(-90.0, 90.0), 0.0),
+                  TPointD(-90.0, 90.0), 1e-9),
+          "painting: an unpainted point moved");
+  const TPointD q = stack.deform(TPointD(55.0, 55.0), 0.0);
+  require(q.x > 59.0, "painting: a painted point did not move");
+  TPointD back;
+  require(stack.undeform(q, 0.0, back) &&
+              isClose(back, TPointD(55.0, 55.0), 1e-3),
+          "painting: the inverse misses");
+}
+
+//------------------------------------------------------------------
+
+// Deform Strokes: the deformers that the fxs pass down to the column
+void testStrokeDeformers() {
+  TVectorImageP vi(new TVectorImage());
+  std::vector<TThickPoint> points = {TThickPoint(0.0, 0.0, 2.0),
+                                     TThickPoint(10.0, 20.0, 3.0),
+                                     TThickPoint(30.0, 0.0, 4.0)};
+  vi->addStroke(new TStroke(points));
+
+  // The outer fx translates, the one nearest to the column doubles
+  std::vector<TPointD> moved = square(), doubled = square();
+  for (TPointD &p : moved) p += TPointD(5.0, -3.0);
+  for (TPointD &p : doubled) p = 2.0 * p;
+  std::shared_ptr<const TDeformer> translate(
+      new TEnvelopeDeformer(square(), moved));
+  std::shared_ptr<const TDeformer> scale(
+      new TEnvelopeDeformer(square(), doubled));
+
+  std::vector<TRasterFxRenderDataP> data;
+  require(applyStrokeDeformers(vi, data, 0.0).getPointer() ==
+              vi.getPointer(),
+          "strokes: the drawing is copied without deformers");
+
+  data.push_back(TRasterFxRenderDataP(
+      new TStrokeDeformerRenderData(translate, "outer")));
+  data.push_back(
+      TRasterFxRenderDataP(new TStrokeDeformerRenderData(scale, "inner")));
+  require(hasStrokeDeformers(data), "strokes: the deformers are not found");
+
+  TVectorImageP deformed = applyStrokeDeformers(vi, data, 0.0);
+  require(deformed && deformed.getPointer() != vi.getPointer(),
+          "strokes: the drawing is not copied");
+  for (int i = 0; i < 3; ++i) {
+    TThickPoint p = deformed->getStroke(0)->getControlPoint(i);
+    TThickPoint o = vi->getStroke(0)->getControlPoint(i);
+    require(isClose(TPointD(p.x, p.y),
+                    2.0 * TPointD(points[i].x, points[i].y) +
+                        TPointD(5.0, -3.0),
+                    1e-4),
+            "strokes: the deformers are not applied from the column up");
+    require(std::fabs(p.thick - points[i].thick) < 1e-9,
+            "strokes: the thickness changed");
+    require(isClose(TPointD(o.x, o.y), TPointD(points[i].x, points[i].y),
+                    1e-12),
+            "strokes: the level's drawing was deformed");
+  }
+
+  // The bounds hold the deformed drawing
+  TRectD bounds = strokeDeformedBounds(
+      vi->getBBox(), vi->getStroke(0)->getMaxThickness(), data, 0.0);
+  TRectD box = deformed->getBBox();
+  require(bounds.contains(box), "strokes: the bounds miss the drawing");
+  require(strokeDeformedBounds(vi->getBBox(), 4.0,
+                               std::vector<TRasterFxRenderDataP>(), 0.0) ==
+              vi->getBBox(),
+          "strokes: bounds change without deformers");
+
+  // The cache tells deformers apart by their keys
+  TStrokeDeformerRenderData a(translate, "k"), b(scale, "k"),
+      c(translate, "other");
+  require(a == b && !(a == c), "strokes: the keys are not compared");
+  require(a.toString() != c.toString(), "strokes: the keys are not written");
+}
+
 }  // namespace
 
 //------------------------------------------------------------------
@@ -1544,6 +1697,8 @@ int main() {
     testTriangleAffine();
     testSmoothBend();
     testVectorImage();
+    testStrokeDeformers();
+    testWeightPainting();
     testShapeAware();
     testStackCurveAndBone();
     testStackIdentityLayers();

@@ -7,7 +7,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -514,6 +513,22 @@ jobs:
           retention-days: 3
           compression-level: 0
           if-no-files-found: error
+
+      # The crashes of the native test land in unrelated destructors while
+      # rooms are torn down: memory was damaged earlier. Rerun the workflow
+      # switch under the full page heap, which stops at the faulting access,
+      # and annotate the crash report it gives. Diagnostic only: it never
+      # changes the result, and it removes the page heap setting again.
+      - name: Diagnose the native failure under the page heap
+        if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 30
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          python ci-scripts/native_ui_page_heap.py toonz/build/Opentoonz/OpenToonz.exe stuff --suite workflow-switch --output toonz/build/ui-integration-page-heap.txt --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Measure native artist workloads
         id: artist_benchmark

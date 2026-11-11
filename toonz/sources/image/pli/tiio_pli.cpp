@@ -156,6 +156,23 @@ public:
     }
   }
 
+  // The extra settings of the style (TColorStyle::getExtraSettingNames()),
+  // after its record and its Trail values. Older versions leave them unread.
+  void readExtraSettings(TColorStyle *style) {
+    const std::string prefix = "style-setting-v1:";
+    while (m_count + 1 < int(m_stream->size())) {
+      const TStyleParam &marker = (*m_stream)[m_count];
+      const TStyleParam &value  = (*m_stream)[m_count + 1];
+      if (marker.m_type != TStyleParam::SP_STRING ||
+          value.m_type != TStyleParam::SP_STRING ||
+          marker.m_string.compare(0, prefix.size(), prefix) != 0)
+        return;
+      style->setExtraSetting(marker.m_string.substr(prefix.size()),
+                             value.m_string);
+      m_count += 2;
+    }
+  }
+
   VersionNumber versionNumber() const override { return m_version; }
 };
 
@@ -172,6 +189,11 @@ void saveStyleWithTrailCycle(const TColorStyle *style,
   if (multiplier != 1.0)
     stream << std::string("trail-size-multiplier-v1")
            << QString::number(multiplier, 'g', 17).toStdString();
+  for (const std::string &name : style->getExtraSettingNames()) {
+    const std::string value = style->getExtraSetting(name);
+    if (!value.empty())
+      stream << std::string("style-setting-v1:" + name) << value;
+  }
 }
 
 //---------------------------------------------------------------------------
@@ -860,6 +882,7 @@ TPalette *readPalette(GroupTag *paletteTag, int majorVersion,
     PliInputStream chan(&params, majorVersion, minorVersion);
     TColorStyle *style = TColorStyle::load(chan);  // leggo params
     chan.readTrailCycle(style);
+    chan.readExtraSettings(style);
     assert(id > 0);
     if (id < palette->getStyleCount()) {
       if (frame > -1) {

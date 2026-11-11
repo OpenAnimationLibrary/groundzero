@@ -958,6 +958,7 @@ void SchematicViewer::setApplication(TApplication *app) {
   m_stageScene->setColumnHandle(app->getCurrentColumn());
   m_stageScene->setSceneHandle(app->getCurrentScene());
   m_stageScene->setFrameHandle(app->getCurrentFrame());
+  m_stageScene->setApplication(app);
 
   m_fxScene->setApplication(app);
 }

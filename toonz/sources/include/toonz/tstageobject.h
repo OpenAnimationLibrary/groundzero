@@ -600,6 +600,15 @@ of the position of the viewer in the sequence.
 */
   void enableCycle(bool on);
 
+  //! The widget of a master controller (toonz/mastercontroller.h): the mode
+  //! chosen, a MasterController::Widget, or -1 when none was chosen.
+  int getControllerWidget() const { return m_controllerWidget; }
+  //! The controller giving the Y of the controller's pad, if one was chosen.
+  TStageObjectId getControllerPadY() const { return m_controllerPadY; }
+  //! Sets the widget of the controller and the Y controller of its pad. They
+  //! are saved only once a widget is chosen.
+  void setControllerWidget(int widget, const TStageObjectId &padY);
+
   /*!
 Gets local placement of the object taking care of translation, rotation, shear
 and scale
@@ -713,6 +722,9 @@ private:
 
   bool m_cycleEnabled;
 
+  int m_controllerWidget;            //!< See getControllerWidget()
+  TStageObjectId m_controllerPadY;   //!< See getControllerPadY()
+
   TAffine m_localPlacement;
   TAffine m_absPlacement;
 
@@ -823,6 +835,8 @@ public:
   double m_noScaleZ;
   TPointD m_center, m_offset;
   std::string m_name;
+  int m_controllerWidget;
+  TStageObjectId m_controllerPadY;
 
   TStageObjectParams();
   TStageObjectParams(TStageObjectParams *data);

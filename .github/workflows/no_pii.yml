@@ -17,8 +17,9 @@ on:
         description: Pull request to scan at this branch commit
         required: true
         type: number
+  workflow_call:
   pull_request:
-    types: [opened, edited, reopened, synchronize]
+    types: [edited]
 
 permissions:
   contents: read

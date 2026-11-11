@@ -1245,7 +1245,8 @@ bool SeExprEditor::importPreset(const QByteArray &data, QString *error) {
       (value.contains("displacement") || value.contains("opacity")))
     return fail(tr("This preset requires an Expression Surface geometry host."));
   const auto controls = value.value("controls").toArray();
-  if (controls.size() > 512) return fail(tr("The preset has too many controls."));
+  // The effect accepts at most 128 active controls.
+  if (controls.size() > 128) return fail(tr("The preset has too many controls."));
   std::set<QString> identifiers, names;
   for (const auto &entry : controls) {
     const auto control = entry.toObject();

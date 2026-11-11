@@ -39,7 +39,8 @@ class MasterControllerPad;
     Each row can show its controller as a slider, as a 2D pad (which sets two
     controllers at once) or as a pose blend (a slider whose controller drives
     the weights of two offset layers made from two poses, see onBindPoses()).
-    The widget mode is a property of the panel, not of the scene.         */
+    The widget chosen is saved with the controller's pegbar, and the Animate
+    tool draws the same widget in the viewer (toonz/mastercontroller.h).  */
 
 class MasterControllersPane final : public QFrame {
   Q_OBJECT
@@ -64,11 +65,6 @@ class MasterControllersPane final : public QFrame {
   QLabel *m_emptyLabel;
   std::vector<Row> m_rows;
   Controllers m_controllers;
-
-  // The widget mode of the controllers, and the controller giving the Y of
-  // their pad. The ones not listed get the defaults.
-  std::map<TStageObjectId, int> m_modes;
-  std::map<TStageObjectId, TStageObjectId> m_padY;
 
   // Slider or pad drag state: the keyframe setters are created on the first
   // move, so that clicking the handle without moving it does not set a key.
@@ -101,6 +97,8 @@ private:
 
   int getMode(const TStageObjectId &id) const;
   TStageObjectId getPadY(const TStageObjectId &id) const;
+  void setWidget(const TStageObjectId &id, int mode,
+                 const TStageObjectId &padY);
   void applyMode(const Row &row, int mode) const;
   bool hasPoseBlendLayers(const TStageObjectId &id) const;
   void bindPoses(const TStageObjectId &preselected);

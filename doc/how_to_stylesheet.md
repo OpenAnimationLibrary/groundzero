@@ -54,9 +54,9 @@ less/themes/others/darker-theme.less
 less/themes/others/clay-theme.less
 less/themes/others/neutral-theme.less
 less/themes/others/light-theme.less
-less/themes/others/animate-theme.less
-less/themes/others/toonboom-theme.less
-less/themes/others/premiere-theme.less
+less/themes/others/charcoal-theme.less
+less/themes/others/slate-theme.less
+less/themes/others/midnight-theme.less
 less/themes/others/synthwave-theme.less
 ```
 
@@ -71,7 +71,7 @@ $ python3 ci-scripts/compile_qss.py
 
 To compile a single theme, name it:
 ```
-$ python3 ci-scripts/compile_qss.py Animate
+$ python3 ci-scripts/compile_qss.py Charcoal
 ```
 
 To check that the committed `.qss` files match their LESS sources without
@@ -167,14 +167,16 @@ To reuse styles from another class you can reference another class as a mixin:
 | `Clay` | `themes/others/clay-theme.less` | Warm grey with a terracotta highlight. |
 | `Neutral` | `themes/others/neutral-theme.less` | Flat mid grey, black text, classic blue menus. |
 | `Light` | `themes/others/light-theme.less` | Light grey with black text. |
-| `Animate` | `themes/others/animate-theme.less` | In the manner of Adobe Animate's dark interface: charcoal panels on a darker frame, blue selection, rounded controls, regular weight labels, light exposed frames with dark text in the Xsheet. |
-| `ToonBoom` | `themes/others/toonboom-theme.less` | In the manner of Toon Boom Harmony's dark interface: cool charcoal, teal selection and tab accent, flat controls, light Xsheet cells coloured by layer type (drawings blue-grey, pegs green, camera yellow, effects rose, sound tan). |
-| `Premiere` | `themes/others/premiere-theme.less` | In the manner of Adobe Premiere Pro's dark interface: near-black frame with slightly lighter panels, lavender-blue selection, flat square controls, and an Xsheet styled like a sequence with white text on mid-saturated clip colours and a blue playhead. |
+| `Charcoal` | `themes/others/charcoal-theme.less` | Charcoal panels on a darker frame, blue selection, rounded controls, regular weight labels, light exposed frames with dark text in the Xsheet. |
+| `Slate` | `themes/others/slate-theme.less` | Cool charcoal, teal selection and tab accent, flat controls, light Xsheet cells coloured by layer type (drawings blue-grey, pegs green, camera yellow, effects rose, sound tan). |
+| `Midnight` | `themes/others/midnight-theme.less` | Near-black frame with slightly lighter panels, lavender-blue selection, flat square controls, and an Xsheet styled like a sequence with white text on mid-saturated clip colours and a blue playhead. |
 | `Synthwave` | `themes/others/synthwave-theme.less` | Navy panels, magenta selections, cyan workspace tabs, yellow active titles and checkboxes, and cyan/magenta timeline icons. |
 
-The `Animate`, `ToonBoom` and `Premiere` themes only borrow the colour
-schemes; the panel layout is unchanged. Their flip marker and tab accent
-images live beside the other shared assets in `Default/imgs/white`.
+The `Charcoal`, `Slate` and `Midnight` themes change colours only; the panel
+layout is unchanged. Their flip marker and tab accent images live beside the
+other shared assets in `Default/imgs/white`. They were named `Animate`,
+`ToonBoom` and `Premiere` before: a saved preference that names an old theme
+selects the renamed one (`include/toonz/themenames.h`).
 
 # Creating New Themes
 It's possible to create custom themes.
