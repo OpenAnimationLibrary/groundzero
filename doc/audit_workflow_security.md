@@ -54,7 +54,8 @@ This differs from the pre-consolidation scan because four workflows were removed
 - Added actionlint and zizmor steps to the existing Linux job. Each runs after
   native packaging even when unrelated checks fail, reports its own failures,
   and retains its log. Both release archives are SHA-256 checked before
-  extraction; the workflow still creates only ten automatic PR checks.
+  extraction. The ten-job budget covers baseline validation. The edition
+  wrapper reports that result and runs path-gated advisory jobs afterward.
 
 The application behavior and invocation of legacy external effects are reviewed
 separately from workflow security. New fixtures must be included with this patch.
@@ -192,7 +193,7 @@ result is disclosed here explicitly.
   remain in that offline scan. No claim of a clean auditor-persona result is made.
   Online vulnerability and commit-provenance audits were not executed by zizmor;
   action commit resolution was checked separately through primary GitHub APIs.
-- `ruby ci-scripts/check_ci_budget.rb`: 10/10 potential automatic PR checks
+- `ruby ci-scripts/check_ci_budget.rb`: 10/10 baseline PR validation jobs
   (Windows four, macOS three, Linux two, No PII one).
 - npm lock resolution and `npm audit --audit-level=moderate`: no vulnerabilities
   reported for the locked toolchain at audit time. No package scripts ran.

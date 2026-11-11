@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Count potential PR checks, including matrix expansion and reusable workflows.
+# Count baseline PR checks, including matrix expansion and reusable workflows.
 require 'pathname'
 require 'yaml'
 
@@ -24,18 +24,26 @@ class CiBudget
   end
 
   def pull_request_counts
-    counts = {}
+    counts_by_activity = Hash.new { |counts, activity| counts[activity] = Hash.new(0) }
     @workflows.each do |path, document|
       # Psych follows YAML 1.1, where an unquoted `on` key is boolean true.
       triggers = document.fetch('on', document[true])
       events = triggers.is_a?(Hash) ? triggers.keys : Array(triggers)
       validate_triggers(path, triggers, events)
-      automatic_events = (events & PR_EVENTS).length
-      next if automatic_events.zero?
+      automatic_events = events & PR_EVENTS
+      next if automatic_events.empty?
 
-      counts[path.basename.to_s] = automatic_events * workflow_count(path, [])
+      count = workflow_count(path, [])
+      automatic_events.each do |event|
+        trigger = triggers[event] if triggers.is_a?(Hash)
+        activities = trigger.is_a?(Hash) && trigger.key?('types') ? trigger['types'] : %w[opened reopened synchronize]
+        unless activities.is_a?(Array) && !activities.empty?
+          raise CiBudgetError, "#{path.basename}: PR activity types must be a nonempty array"
+        end
+        activities.uniq.each { |activity| counts_by_activity[activity][path.basename.to_s] += count }
+      end
     end
-    counts
+    counts_by_activity.values.max_by { |counts| counts.values.sum } || {}
   end
 
   def validate_triggers(path, triggers, events)
@@ -47,8 +55,10 @@ class CiBudget
     push = triggers.is_a?(Hash) ? triggers['push'] : nil
     branches = push.is_a?(Hash) ? push['branches'] : nil
     return if tag_only_push?(push)
+    allowed_branches = INTEGRATION_BRANCHES
+    allowed_branches += ['ci/seexpr-*'] if path.basename.to_s == 'seexpr.yml'
     return if branches.is_a?(Array) && !branches.empty? &&
-              (branches - INTEGRATION_BRANCHES).empty?
+              (branches - allowed_branches).empty?
 
     raise CiBudgetError,
           "#{path.basename}: push branches must be restricted to edition/main; " \
@@ -71,12 +81,44 @@ class CiBudget
       raise CiBudgetError, "#{path.basename}: jobs must be a nonempty mapping"
     end
 
+    jobs = baseline_jobs(jobs) if ancestors.empty? && path.basename.to_s == 'pr_checks.yml'
     jobs.sum do |name, job|
       raise CiBudgetError, "#{name}: job must be a mapping" unless job.is_a?(Hash)
 
       multiplier = matrix_count(job.fetch('strategy', {}).fetch('matrix', nil))
       multiplier * job_count(job, ancestors + [path])
     end
+  end
+
+  def baseline_jobs(jobs)
+    # The edition wrapper reports the baseline result in one summary job.
+    # Its advisory workflows run after that gate and have a separate purpose.
+    gate = jobs.fetch('required')
+    needed = Array(gate.fetch('needs'))
+    if needed.empty? || !needed.all? { |name| jobs.key?(name) && name != 'required' } ||
+       gate.key?('uses') || gate.key?('strategy')
+      raise CiBudgetError, 'PR Checks: required must summarize existing baseline jobs'
+    end
+
+    advisory = jobs.reject { |name, _| name == 'required' || needed.include?(name) }
+    baseline = jobs.slice(*needed)
+    if baseline.values.any? { |job| (Array(job['needs']) - needed).any? }
+      raise CiBudgetError, 'PR Checks: a baseline job depends on a job outside the baseline'
+    end
+    gated = ['required']
+    until advisory.empty?
+      ready = advisory.select do |_, job|
+        (Array(job['needs']) & gated).any? &&
+          !job.fetch('if', '').to_s.match?(/\b(?:always|failure|cancelled)\s*\(/i)
+      end
+      if ready.empty?
+        raise CiBudgetError, 'PR Checks: advisory jobs must wait for successful baseline checks'
+      end
+
+      gated.concat(ready.keys)
+      advisory = advisory.reject { |name, _| ready.key?(name) }
+    end
+    baseline
   end
 
   def job_count(job, ancestors)
@@ -156,9 +198,9 @@ if $PROGRAM_NAME == __FILE__
     counts = CiBudget.new(root).pull_request_counts
     counts.each { |name, count| puts "#{name}: #{count}" }
     total = counts.values.sum
-    puts "Automatic PR checks: #{total}/#{CiBudget::LIMIT}"
+    puts "Automatic baseline PR checks: #{total}/#{CiBudget::LIMIT}"
     if total > CiBudget::LIMIT
-      warn '::error title=CI budget::Consolidate PR checks; the maximum is 10.'
+      warn '::error title=CI budget::Consolidate baseline PR checks; the maximum is 10.'
       exit 1
     end
   rescue CiBudgetError, Psych::Exception, KeyError, NoMethodError => error

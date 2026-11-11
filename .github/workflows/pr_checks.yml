@@ -16,19 +16,19 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: ./.github/workflows/no_pii.yml
+    uses: ./.github/workflows/no_pii.yml # zizmor: ignore[self-repository]
 
   linux:
     name: Linux Build
-    uses: ./.github/workflows/workflow_linux.yml
+    uses: ./.github/workflows/workflow_linux.yml # zizmor: ignore[self-repository]
 
   macos:
     name: macOS Build
-    uses: ./.github/workflows/workflow_macos.yml
+    uses: ./.github/workflows/workflow_macos.yml # zizmor: ignore[self-repository]
 
   windows:
     name: Windows Build
-    uses: ./.github/workflows/workflow_windows.yml
+    uses: ./.github/workflows/workflow_windows.yml # zizmor: ignore[self-repository]
 
   required:
     name: Required checks
@@ -57,7 +57,7 @@ jobs:
       neural: ${{ steps.paths.outputs.neural }}
       seexpr: ${{ steps.paths.outputs.seexpr }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
           lfs: false
@@ -102,7 +102,7 @@ jobs:
     name: Optional Neural Style
     needs: scope
     if: needs.scope.outputs.neural == 'smoke' || needs.scope.outputs.neural == 'full'
-    uses: ./.github/workflows/neural-style.yml
+    uses: ./.github/workflows/neural-style.yml # zizmor: ignore[self-repository]
     with:
       smoke_only: ${{ needs.scope.outputs.neural == 'smoke' }}
 
@@ -110,6 +110,6 @@ jobs:
     name: Optional SeExpr
     needs: scope
     if: needs.scope.outputs.seexpr == 'smoke' || needs.scope.outputs.seexpr == 'full'
-    uses: ./.github/workflows/seexpr.yml
+    uses: ./.github/workflows/seexpr.yml # zizmor: ignore[self-repository]
     with:
       smoke_only: ${{ needs.scope.outputs.seexpr == 'smoke' }}

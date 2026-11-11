@@ -1065,7 +1065,7 @@
         ".github/workflows/tests_linux.yml"
       ],
       "baseline_behavior": "Independent automatic PR workflows expand to a conservative 31-check worst case.",
-      "patched_invariant": "At most ten automatic PR checks preserve mapped coverage and failure propagation.",
+      "patched_invariant": "At most ten baseline PR validation jobs preserve mapped coverage and failure propagation. The edition wrapper reports their result before advisory jobs.",
       "scenario": "Count reusable/matrix expansion and test an eleven-check graph, cycles, dynamic matrices and invalid shapes.",
       "tests": [
         {

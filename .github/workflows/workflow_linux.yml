@@ -37,7 +37,7 @@ jobs:
       with:
         persist-credentials: false
 
-    - name: Enforce the ten-check pull request budget
+    - name: Enforce the baseline pull request budget
       run: |
         ruby ci-scripts/check_ci_budget.rb
         ruby ci-scripts/tests/test_ci_budget.rb

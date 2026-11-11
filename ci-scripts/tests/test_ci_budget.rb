@@ -52,6 +52,17 @@ class CiBudgetTest < Minitest::Test
     end
   end
 
+  def test_counts_only_workflows_that_run_for_the_same_activity
+    workflows = {
+      'build.yml' => workflow({ 'build' => {}, 'smoke' => {} }),
+      'scan.yml' => { 'on' => { 'pull_request' => { 'types' => ['edited'] } },
+                      'jobs' => { 'scan' => {} } }
+    }
+    with_workflows(workflows) do |budget|
+      assert_equal({ 'build.yml' => 2 }, budget.pull_request_counts)
+    end
+  end
+
   def test_counts_each_pull_request_event
     document = workflow({ 'check' => {} })
     document['on']['pull_request_target'] = nil
@@ -185,6 +196,33 @@ class CiBudgetTest < Minitest::Test
     end
   end
 
+  def test_edition_wrapper_counts_baseline_and_requires_advisory_gate
+    jobs = {
+      'linux' => { 'runs-on' => 'ubuntu-latest' },
+      'required' => { 'needs' => ['linux'], 'runs-on' => 'ubuntu-latest' },
+      'scope' => { 'needs' => 'required', 'runs-on' => 'ubuntu-latest' },
+      'optional' => { 'needs' => 'scope', 'uses' => './.github/workflows/optional.yml' }
+    }
+    optional = workflow({
+      'dynamic' => { 'strategy' => { 'matrix' => '${{ fromJSON(inputs.matrix) }}' } }
+    }, 'workflow_call')
+    with_workflows({ 'pr_checks.yml' => workflow(jobs), 'optional.yml' => optional }) do |budget|
+      assert_equal({ 'pr_checks.yml' => 1 }, budget.pull_request_counts)
+    end
+
+    jobs['optional']['if'] = 'always()'
+    with_workflows({ 'pr_checks.yml' => workflow(jobs), 'optional.yml' => optional }) do |budget|
+      assert_raises(CiBudgetError) { budget.pull_request_counts }
+    end
+  end
+
+  def test_allows_dedicated_seexpr_qualification_branch
+    document = { 'on' => { 'push' => { 'branches' => ['edition', 'ci/seexpr-*'] } } }
+    with_workflows({ 'seexpr.yml' => document }) do |budget|
+      assert_empty budget.pull_request_counts
+    end
+  end
+
   def test_cli_enforces_ten_check_boundary
     Dir.mktmpdir('ci-budget-limit') do |root|
       directory = File.join(root, '.github/workflows')
@@ -195,7 +233,7 @@ class CiBudgetTest < Minitest::Test
         File.write(File.join(directory, 'pr.yml'), workflow(jobs).to_yaml)
         output, result = Open3.capture2e(RbConfig.ruby, script, root)
         assert_equal count <= 10, result.success?, output
-        assert_includes output, "Automatic PR checks: #{count}/10"
+        assert_includes output, "Automatic baseline PR checks: #{count}/10"
         if count > 10
           assert_includes output, 'maximum is 10'
         else

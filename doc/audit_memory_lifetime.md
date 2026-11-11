@@ -167,7 +167,7 @@ metrics into one "RAM" value.
 
 The Linux, macOS and Windows application jobs already invoke the native driver and artist
 benchmark. Add bounded memory-lifetime cases as steps within those existing jobs when
-implemented, preserving the maximum of ten automatic PR checks. Retain each scenario's
+implemented, preserving the maximum of ten baseline PR validation jobs. Retain each scenario's
 result and artifacts even if another step fails. A step added to a workflow is still pending
 until its exact binary reaches the named checkpoint.
 
