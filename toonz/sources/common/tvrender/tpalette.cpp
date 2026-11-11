@@ -730,11 +730,16 @@ void TPalette::saveData(TOStream &os) {
           for (kt = animation.begin(); kt != kEnd; ++kt) {
             int frame = kt->first;
 
-            TColorStyle *cs = kt->second.getPointer();
+            TColorStyle *cs = kt->second.style.getPointer();
             assert(cs);
 
             attributes.clear();
             attributes["frame"] = std::to_string(frame);
+            const auto options  = kt->second.interpolation;
+            if (options.timing != TPaletteKeyInterpolation::Timing::Linear)
+              attributes["timing"] = std::to_string(int(options.timing));
+            if (options.space != TPaletteKeyInterpolation::Space::PaletteRgb)
+              attributes["colorSpace"] = std::to_string(int(options.space));
             const auto trailMode = TrailStyles::getMode(cs);
             if (trailMode != TrailCycle::Mode::Off)
               attributes["trailCycle"] = std::to_string(int(trailMode));
@@ -754,7 +759,7 @@ void TPalette::saveData(TOStream &os) {
             os.openChild("keyframe", attributes);
             {
               StyleWriter w(os, sat->first);
-              kt->second->save(w);
+              kt->second.style->save(w);
             }
             os.closeChild();
           }
@@ -922,7 +927,15 @@ void TPalette::loadData(TIStream &is) {
             } else
               throw TException("palette, expected <keyframe> tag");
 
-            animation[frame] = cs;
+            TPaletteKeyInterpolation interpolation;
+            int value = 0;
+            if (is.getTagParam("timing", value))
+              interpolation.timing =
+                  TPaletteKeyInterpolation::timingFromValue(value);
+            if (is.getTagParam("colorSpace", value))
+              interpolation.space =
+                  TPaletteKeyInterpolation::spaceFromValue(value);
+            animation[frame] = {TColorStyleP(cs), interpolation};
             is.closeChild();
           }
 
@@ -996,23 +1009,7 @@ void TPalette::assign(const TPalette *src, bool isFromStudioPalette) {
   m_refImg     = !!src->m_refImg ? src->m_refImg->cloneImage() : TImageP();
   m_refImgPath = src->m_refImgPath;
 
-  StyleAnimationTable::iterator it;
-  StyleAnimation::iterator j;
-  for (it = m_styleAnimationTable.begin(); it != m_styleAnimationTable.end();
-       ++it) {
-    // for(j = it->second.begin(); j != it->second.end(); ++j)
-    //   delete j->second;
-    it->second.clear();
-  }
-  m_styleAnimationTable.clear();
-  StyleAnimationTable::const_iterator cit;
-  for (cit = src->m_styleAnimationTable.begin();
-       cit != src->m_styleAnimationTable.end(); ++cit) {
-    StyleAnimation animation = cit->second;
-    for (j = animation.begin(); j != animation.end(); j++)
-      j->second = j->second->clone();
-    m_styleAnimationTable[cit->first] = cit->second;
-  }
+  m_styleAnimationTable = src->m_styleAnimationTable;
   m_globalName         = src->getGlobalName();
   m_shortcuts          = src->m_shortcuts;
   m_currentFrame       = src->m_currentFrame;
@@ -1109,51 +1106,71 @@ int TPalette::getFrame() const { return m_currentFrame; }
 
 //-------------------------------------------------------------------
 
-void TPalette::setFrame(int frame) {
-  QMutexLocker muLock(&m_mutex);
+namespace {
+void evaluatePaletteStyle(TColorStyle &style,
+                          const TPalette::StyleAnimation &keys, double frame) {
+  assert(!keys.empty());
 
+  // Trail Cycle is a drawing default, not an animated appearance parameter.
+  const auto trailMode  = TrailStyles::getMode(&style);
+  const int trailOffset = TrailStyles::getFrameOffset(&style);
+  const auto right      = frame <= keys.begin()->first ? keys.begin()
+                          : frame > keys.rbegin()->first
+                              ? keys.end()
+                              : keys.lower_bound(int(std::ceil(frame)));
+  if (right == keys.begin()) {
+    style.copy(*right->second.style);
+  } else {
+    const auto left = std::prev(right);
+    if (right == keys.end()) {
+      style.copy(*left->second.style);
+    } else {
+      const auto interpolation = left->second.interpolation;
+      const double fraction =
+          (frame - left->first) / (double(right->first) - left->first);
+      style.assignBlend(*left->second.style, *right->second.style,
+                        interpolation.weight(fraction), interpolation.space);
+    }
+  }
+  TrailStyles::setMode(&style, trailMode);
+  TrailStyles::setFrameOffset(&style, trailOffset);
+}
+}  // namespace
+
+void TPalette::setFrame(int frame) {
+  TThread::MutexLocker lock(&m_mutex);
   if (m_currentFrame == frame) return;
 
   m_currentFrame = frame;
+  for (const auto &[styleId, keys] : m_styleAnimationTable)
+    evaluatePaletteStyle(*getStyle(styleId), keys, frame);
+}
 
-  StyleAnimationTable::iterator sat, saEnd = m_styleAnimationTable.end();
-  for (sat = m_styleAnimationTable.begin(); sat != saEnd; ++sat) {
-    StyleAnimation &animation = sat->second;
-    assert(!animation.empty());
+TPalette::StyleAnimation TPalette::getStyleAnimation(int styleId) const {
+  TThread::MutexLocker lock(&m_mutex);
+  const auto found = m_styleAnimationTable.find(styleId);
+  return found == m_styleAnimationTable.end() ? StyleAnimation{}
+                                              : found->second;
+}
 
-    // Retrieve the associated style to interpolate
-    int styleId = sat->first;
-    assert(0 <= styleId && styleId < getStyleCount());
+TColorStyleP TPalette::sampleStyle(int styleId, double frame) const {
+  TThread::MutexLocker lock(&m_mutex);
+  TColorStyleP style(getStyle(styleId)->clone());
+  const auto found = m_styleAnimationTable.find(styleId);
+  if (found != m_styleAnimationTable.end() && std::isfinite(frame))
+    evaluatePaletteStyle(*style, found->second, frame);
+  return style;
+}
 
-    TColorStyle *cs = getStyle(styleId);
-    assert(cs);
-
-    // Trail Cycle is a drawing default, not an animated appearance parameter.
-    const auto trailMode  = TrailStyles::getMode(cs);
-    const int trailOffset = TrailStyles::getFrameOffset(cs);
-
-    // Build the keyframes interval containing frame
-    StyleAnimation::iterator j0, j1;
-
-    j1 = animation.lower_bound(
-        frame);  // j1 is the first element:  j1->first >= frame
-    if (j1 == animation.begin())
-      cs->copy(*j1->second);
-    else {
-      j0 = j1, --j0;
-      assert(j0->first <= frame);
-
-      if (j1 == animation.end())
-        cs->copy(*j0->second);
-      else {
-        assert(frame <= j1->first);
-
-        cs->assignBlend(*j0->second, *j1->second,
-                        (frame - j0->first) / double(j1->first - j0->first));
-      }
-    }
-    TrailStyles::setMode(cs, trailMode);
-    TrailStyles::setFrameOffset(cs, trailOffset);
+void TPalette::replaceStyleAnimation(int styleId, const StyleAnimation &keys,
+                                     const TColorStyle &unkeyedStyle) {
+  TThread::MutexLocker lock(&m_mutex);
+  if (keys.empty()) {
+    m_styleAnimationTable.erase(styleId);
+    getStyle(styleId)->copy(unkeyedStyle);
+  } else {
+    m_styleAnimationTable[styleId] = keys;
+    evaluatePaletteStyle(*getStyle(styleId), keys, m_currentFrame);
   }
 }
 
@@ -1187,21 +1204,16 @@ int TPalette::getKeyframe(int styleId, int index) const {
 
 //-------------------------------------------------------------------
 
-void TPalette::setKeyframe(int styleId, int frame) {
+void TPalette::setKeyframe(
+    int styleId, int frame,
+    std::optional<TPaletteKeyInterpolation> interpolation) {
   assert(styleId >= 0 && styleId < getStyleCount());
   assert(frame >= 0);
 
-  StyleAnimationTable::iterator sat = m_styleAnimationTable.find(styleId);
-
-  if (sat == m_styleAnimationTable.end())
-    sat =
-        m_styleAnimationTable.insert(std::make_pair(styleId, StyleAnimation()))
-            .first;
-
-  assert(sat != m_styleAnimationTable.end());
-
-  StyleAnimation &animation = sat->second;
-  animation[frame]          = getStyle(styleId)->clone();
+  TThread::MutexLocker lock(&m_mutex);
+  auto &key = m_styleAnimationTable[styleId][frame];
+  key.style = getStyle(styleId)->clone();
+  if (interpolation) key.interpolation = *interpolation;
 }
 
 //-------------------------------------------------------------------
@@ -1209,6 +1221,7 @@ void TPalette::setKeyframe(int styleId, int frame) {
 void TPalette::clearKeyframe(int styleId, int frame) {
   assert(0 <= styleId && styleId < getStyleCount());
   assert(0 <= frame);
+  TThread::MutexLocker lock(&m_mutex);
   StyleAnimationTable::iterator it = m_styleAnimationTable.find(styleId);
   if (it == m_styleAnimationTable.end()) return;
   StyleAnimation &animation  = it->second;
