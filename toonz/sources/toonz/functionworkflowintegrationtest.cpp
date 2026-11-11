@@ -917,6 +917,9 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     FunctionViewer *viewer = nullptr;
     for (auto *widget : QApplication::allWidgets()) if (auto *candidate = qobject_cast<FunctionViewer *>(widget)) if (candidate->isVisible()) { viewer = candidate; break; }
     require(viewer && viewer->getXsheetHandle() == app->getCurrentXsheet(), "Native Function Editor did not attach application handles");
+    auto *panel = qobject_cast<TPanel *>(viewer->window());
+    require(panel && panel->isFloating(),
+            "Native Function Editor did not open as a floating panel");
     auto *tree = viewer->findChild<FunctionTreeView *>(); auto *graph = viewer->findChild<FunctionPanel *>();
     require(tree && graph, "Native Function Editor tree/graph missing"); graph->show(); graph->resize(800, 400); settle();
     find(tree, angle)->setIsActive(true); find(tree, offset)->setIsActive(true);
@@ -1084,7 +1087,11 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     ownerRemovalDialogs(viewer, tree, graph, xsheet, level, source, directory);
     runFunctionRigBenchmarkIntegrationTest(viewer);
     panelLifetimeDialogs(source, native, directory);
-    app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); viewer->hide();
+    app->getCurrentScene()->setDirtyFlag(false);
+    TUndoManager::manager()->reset();
+    viewer->hide();
+    panel->dismissFloatingPanel();
+    delete panel;
     std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, saved-set rename, target-range retiming, scene roundtrip)\n";
     return true;
   } catch (const std::exception &problem) { if (error) *error = QString::fromUtf8(problem.what()); }
