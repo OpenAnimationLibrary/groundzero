@@ -14,7 +14,12 @@ Windows ZIP, macOS DMG, Linux AppImage tarball, and SHA-256 checksums.
 The workflow must be merged into the default branch for the schedule and
 manual control to become available.
 
-Each run receives a unique `build-<run ID>` tag pointing to the built commit.
+Scheduled and manual runs skip all three platform builds if a published
+`build-<run ID>` prerelease already points to the exact commit. Drafts and
+artifact-only runs do not count as published builds.
+
+Each published run receives a unique `build-<run ID>` tag pointing to the
+built commit.
 Download filenames omit the redundant `build-` prefix, for example
 `OpenToonz-groundzero-40809511313-Windows-x64.zip`. The macOS, Linux, and
 checksum files use the same shorter prefix. The manual **Publish Release**
@@ -56,10 +61,9 @@ Draft retries retain the original notes and baseline, even if another release
 has since appeared. Legacy drafts receive a changelog once. An already published
 Build and Release run remains unchanged on rerun.
 
-If the source commit is unchanged, the notes say **No source changes since the
-previous release**; the daily release still publishes. If there is no previous
-release in that channel, the notes identify it as the initial release and link
-to the source commit. They do not generate a changelog spanning imported history.
+If there is no previous release in that channel, the notes identify it as the
+initial release and link to the source commit. They do not generate a changelog
+spanning imported history.
 If previous releases exist but none is an ancestor, or any required API request
 fails, publication stops rather than using an unrelated or incomplete comparison.
 

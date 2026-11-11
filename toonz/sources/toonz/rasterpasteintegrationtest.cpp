@@ -336,7 +336,7 @@ int paintedPixels(const TImageP& image) {
   int painted = 0;
   for (int y = 0; y < canvasSize; ++y)
     for (int x = 0; x < canvasSize; ++x)
-      if (indexedRaster ? indexedRaster->pixels(y)[x] != TPixelCM32()
+      if (indexedRaster ? !(indexedRaster->pixels(y)[x] == TPixelCM32())
                         : colorRaster->pixels(y)[x].m != 0)
         ++painted;
   return painted;

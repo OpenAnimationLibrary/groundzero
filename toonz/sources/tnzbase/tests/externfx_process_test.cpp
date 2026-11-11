@@ -14,6 +14,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #ifdef _WIN32
@@ -141,7 +142,7 @@ void failedLoadPortOwnership(const QString& directory) {
     stream.openChild("ports");
     stream.openCloseChild("port", {{"name", "in"}, {"ext", "png"}});
     stream.closeChild();
-    stream.child("unexpected") << "invalid";
+    stream.child("unexpected") << std::string("invalid");
   }
   int destroyed = 0;
   for (int cycle = 0; cycle < 8; ++cycle) {
