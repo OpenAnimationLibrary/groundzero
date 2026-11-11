@@ -162,17 +162,26 @@ TThread::RunnableP taskFor(const std::vector<TThread::RunnableP> &before,
 }
 
 void expireSceneRetirements(TSceneHandle *handle) {
-  // Deliver the actual retirement timer path deterministically, without a
-  // three-second sleep or bypassing its destruction/generation semantics.
   const auto timers = handle->findChildren<QTimer *>(
       "sceneRetirement", Qt::FindDirectChildrenOnly);
+  int pending = timers.size();
+  if (!pending) return;
+
+  // Let Qt deliver both the timeout and DeferredDelete in an event loop.
+  // This also works after the fixture's application event loop has returned.
+  QEventLoop loop;
+  QTimer deadline;
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
   for (auto *timer : timers) {
-    QPointer<QTimer> live = timer;
-    require(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection),
-            "Cannot deliver native scene retirement timer");
-    if (live) QCoreApplication::sendPostedEvents(live, QEvent::DeferredDelete);
-    require(!live, "Native scene retirement timer did not finish");
+    QObject::connect(timer, &QObject::destroyed, &loop, [&]() {
+      if (--pending == 0) loop.quit();
+    });
+    timer->start(0);
   }
+  deadline.start(10000);
+  loop.exec(QEventLoop::ExcludeUserInputEvents);
+  require(pending == 0, "Native scene retirement timer did not finish");
 }
 
 void sceneRetentionChecks() {
