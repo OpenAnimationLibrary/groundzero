@@ -16,6 +16,7 @@
 #include "toonz/palettecontroller.h"
 #include "toonzqt/tselectionhandle.h"
 #include "iocommand.h"
+#include "pane.h"
 #include "filmstripselection.h"
 #include "tproperty.h"
 #include "tenv.h"
@@ -579,6 +580,14 @@ void runVectorWorkflowNativeChecks() {
   require(red->isKeyframe(0) && !red->isKeyframe(2),
           "palette key undo did not refresh Curve Editor");
   undo->reset();
+  // Close the floating panel before the subsequent Function Editor suite.
+  QPointer<TPanel> palettePanel =
+      qobject_cast<TPanel *>(paletteEditor->parentWidget());
+  require(palettePanel && palettePanel->isFloating() && palettePanel->close(),
+          "Could not close the floating palette key editor");
+  settle();
+  require(!palettePanel || !palettePanel->isVisible(),
+          "The floating palette key editor remained visible");
 
   palette->setFrame(5);
   // Establish an actually saved, clean drawing. A test that starts with a
