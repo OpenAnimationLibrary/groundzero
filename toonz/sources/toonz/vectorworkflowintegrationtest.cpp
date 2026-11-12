@@ -9,8 +9,14 @@
 #include "tools/widthprofilemanager.h"
 #include "tools/vectoralignmentpreview.h"
 #include "tools/vectorimagesnapshot.h"
+#include "toonzqt/functionkeytrack.h"
+#include "toonzqt/functionselection.h"
+#include "toonzqt/functionviewer.h"
+#include "toonz/tpalettehandle.h"
+#include "toonz/palettecontroller.h"
 #include "toonzqt/tselectionhandle.h"
 #include "iocommand.h"
+#include "pane.h"
 #include "filmstripselection.h"
 #include "tproperty.h"
 #include "tenv.h"
@@ -543,6 +549,46 @@ void runVectorWorkflowNativeChecks() {
             "linear-light black to white midpoint");
   };
   checkColorInterpolation(*palette);
+  auto *levelPaletteHandle =
+      app->getPaletteController()->getCurrentLevelPalette();
+  emit levelPaletteHandle->showStyleInFunctionEditor(palette.getPointer(),
+                                                     colorId);
+  settle();
+  FunctionViewer *paletteEditor = nullptr;
+  for (auto *widget : QApplication::allWidgets()) {
+    auto *viewer = qobject_cast<FunctionViewer *>(widget);
+    if (!viewer || !viewer->isVisible()) continue;
+    auto *curve = viewer->getCurrentChannelCurve();
+    if (viewer->getSelection()->keyTrack(curve)) {
+      paletteEditor = viewer;
+      break;
+    }
+  }
+  require(paletteEditor, "palette RGBA track did not open in Function Editor");
+  auto *red              = paletteEditor->getCurrentChannelCurve();
+  auto *paletteSelection = paletteEditor->getSelection();
+  require(paletteSelection->valueAt(red, 5) == 188,
+          "Curve Editor must sample palette interpolation");
+  require(paletteSelection->editKeyTrack(red, {{0, 2, 32}}),
+          "Curve Editor palette key edit");
+  const auto edited = palette->getStyleAnimation(colorId);
+  require(!edited.count(0) && edited.at(2).style->getMainColor().r == 32 &&
+              edited.at(2).interpolation == linearLight,
+          "palette key edit lost timing, color or segment options");
+  require(undo->undo(), "palette key edit did not create an undo step");
+  checkColorInterpolation(*palette);
+  require(red->isKeyframe(0) && !red->isKeyframe(2),
+          "palette key undo did not refresh Curve Editor");
+  undo->reset();
+  // Close the floating panel before the subsequent Function Editor suite.
+  QPointer<TPanel> palettePanel =
+      qobject_cast<TPanel *>(paletteEditor->parentWidget());
+  require(palettePanel && palettePanel->isFloating() && palettePanel->close(),
+          "Could not close the floating palette key editor");
+  settle();
+  require(!palettePanel || !palettePanel->isVisible(),
+          "The floating palette key editor remained visible");
+
   palette->setFrame(5);
   // Establish an actually saved, clean drawing. A test that starts with a
   // modified image cannot detect the canceled dialog's old writable readback.

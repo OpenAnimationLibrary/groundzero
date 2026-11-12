@@ -446,9 +446,29 @@ void FunctionViewerPanel::attachHandles() {
   m_functionViewer->setFxHandle(app->getCurrentFx());
   m_functionViewer->setColumnHandle(app->getCurrentColumn());
   m_functionViewer->setSceneHandle(app->getCurrentScene());
+  auto *palette = app->getPaletteController()->getCurrentLevelPalette();
+  connect(app, &TApp::paletteKeyframesChanged, m_functionViewer,
+          &FunctionViewer::refreshKeyTracks, Qt::UniqueConnection);
+  connect(palette, &TPaletteHandle::paletteChanged, m_functionViewer,
+          &FunctionViewer::refreshKeyTracks, Qt::UniqueConnection);
+  connect(palette, &TPaletteHandle::colorStyleChangedOnMouseRelease,
+          m_functionViewer, &FunctionViewer::refreshKeyTracks,
+          Qt::UniqueConnection);
+  connect(palette, &TPaletteHandle::paletteSwitched, m_functionViewer,
+          &FunctionViewer::refreshKeyTracks, Qt::UniqueConnection);
 }
 
 void FunctionViewerPanel::detachHandles() {
+  auto *app = TApp::instance();
+  disconnect(app, &TApp::paletteKeyframesChanged, m_functionViewer,
+             &FunctionViewer::refreshKeyTracks);
+  auto *palette = app->getPaletteController()->getCurrentLevelPalette();
+  disconnect(palette, &TPaletteHandle::paletteChanged, m_functionViewer,
+             &FunctionViewer::refreshKeyTracks);
+  disconnect(palette, &TPaletteHandle::colorStyleChangedOnMouseRelease,
+             m_functionViewer, &FunctionViewer::refreshKeyTracks);
+  disconnect(palette, &TPaletteHandle::paletteSwitched, m_functionViewer,
+             &FunctionViewer::refreshKeyTracks);
   m_functionViewer->setXsheetHandle(0);
   m_functionViewer->setFrameHandle(0);
   m_functionViewer->setObjectHandle(0);

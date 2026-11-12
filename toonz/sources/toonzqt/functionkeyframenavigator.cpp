@@ -4,6 +4,7 @@
 
 // TnzQt includes
 #include "toonzqt/framenavigator.h"
+#include "toonzqt/functionselection.h"
 
 // TnzLib includes
 #include "toonz/tframehandle.h"
@@ -47,8 +48,17 @@ bool FunctionKeyframeNavigator::isKeyframe() const {
 
 void FunctionKeyframeNavigator::toggle() {
   if (!m_curve) return;
-  int frame    = getCurrentFrame();
-  double value = m_curve->getValue(frame);
+  int frame = getCurrentFrame();
+  if (m_selection && m_selection->keyTrack(m_curve.getPointer())) {
+    FunctionKeyTrack::Edit edit;
+    if (m_curve->isKeyframe(frame))
+      edit.from = frame;
+    else
+      edit.to = frame;
+    m_selection->editKeyTrack(m_curve.getPointer(), {edit});
+    update();
+    return;
+  }
   if (m_curve->isKeyframe(frame))
     KeyframeSetter::removeKeyframeAt(m_curve.getPointer(), frame);
   else {

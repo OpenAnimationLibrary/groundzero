@@ -120,7 +120,8 @@ MovePointDragTool::MovePointDragTool(FunctionPanel *panel, TDoubleParam *curve)
     FunctionTreeModel *model = panel->getModel();
     for (int i = 0; i < model->getActiveChannelCount(); i++) {
       FunctionTreeModel::Channel *channel = model->getActiveChannel(i);
-      if (channel && channel->getParam()) {
+      if (channel && channel->getParam() &&
+          !panel->getSelection()->keyTrack(channel->getParam())) {
         TDoubleParam *curve    = channel->getParam();
         KeyframeSetter *setter = new KeyframeSetter(curve);
         m_setters.push_back(setter);
@@ -441,7 +442,8 @@ void MoveGroupHandleDragTool::click(QMouseEvent *e) {
   FunctionTreeModel *model = m_panel->getModel();
   for (int i = 0; i < model->getActiveChannelCount(); i++) {
     FunctionTreeModel::Channel *channel = model->getActiveChannel(i);
-    if (channel && channel->getParam()) {
+    if (channel && channel->getParam() &&
+        !m_panel->getSelection()->keyTrack(channel->getParam())) {
       TDoubleParam *curve    = channel->getParam();
       int kIndex             = curve->getClosestKeyframe(m_keyframePosition);
       KeyframeSetter *setter = new KeyframeSetter(curve, kIndex);
