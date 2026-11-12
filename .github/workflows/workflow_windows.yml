@@ -26,6 +26,11 @@ on:
         type: boolean
         default: false
   workflow_call:
+    inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,10 +79,14 @@ jobs:
           path: recorder-test-decoder
 
   CadmiumRuntime:
+    if: ${{ !inputs.baseline_only }}
     uses: ./.github/workflows/cadmium_runtime.yml
 
   Windows:
     needs: [RecorderEncoder, CadmiumRuntime]
+    if: >-
+      ${{ !cancelled() && needs.RecorderEncoder.result == 'success' &&
+          (inputs.baseline_only || needs.CadmiumRuntime.result == 'success') }}
     runs-on: windows-2025
     env:
       # QT related variable
@@ -228,6 +237,7 @@ jobs:
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
 
       - name: Prepare software OpenGL for native SeExpr acceptance
+        if: ${{ !inputs.baseline_only }}
         timeout-minutes: 5
         shell: pwsh
         run: ./ci-scripts/seexpr/install_mesa_windows.ps1
@@ -318,6 +328,7 @@ jobs:
         shell: cmd
 
       - name: Verify benchmark harness contracts
+        if: ${{ !inputs.baseline_only }}
         run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
       - name: Verify native lifecycle harness contracts
@@ -374,6 +385,7 @@ jobs:
         shell: cmd
 
       - name: Install optional Cadmium worker
+        if: ${{ !inputs.baseline_only }}
         id: install_worker
         uses: actions/download-artifact@v6
         with:
@@ -381,6 +393,7 @@ jobs:
           path: toonz/build/Opentoonz
 
       - name: Qualify native neural host
+        if: ${{ !inputs.baseline_only }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -390,7 +403,7 @@ jobs:
           python ci-scripts/neural-style/host.py
 
       - name: Retain reference style qualification and visual examples
-        if: always()
+        if: ${{ !inputs.baseline_only && always() }}
         uses: actions/upload-artifact@v7
         with:
           name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
@@ -398,6 +411,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Test particle cache integration
+        if: ${{ !inputs.baseline_only }}
         id: particle_tests
         shell: cmd
         run: |
@@ -416,7 +430,7 @@ jobs:
 
       - name: Test cel effects
         id: cel_tests
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -431,7 +445,7 @@ jobs:
 
       - name: Test Cadmium adapters
         id: cadmium_tests
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -532,7 +546,7 @@ jobs:
 
       - name: Measure native artist workloads
         id: artist_benchmark
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         timeout-minutes: 8
         shell: cmd
         run: |
@@ -613,7 +627,7 @@ jobs:
 
       - name: Test SeExpr native integration
         id: seexpr_tests
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"

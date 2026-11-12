@@ -8,6 +8,11 @@ on:
         type: boolean
         default: false
   workflow_call:
+    inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ concurrency:
 
 jobs:
   neural-oracle:
+    if: ${{ !inputs.baseline_only }}
     name: macOS neural reference fixture
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -40,6 +46,7 @@ jobs:
           if-no-files-found: error
   macOS:
     needs: neural-oracle
+    if: ${{ !cancelled() && (inputs.baseline_only || needs.neural-oracle.result == 'success') }}
     timeout-minutes: 180 # Stop job if it exceeds expected build time
     # GHA are sunsetting support for macOS 13 (Intel & Apple Silicon/arm) & will be fully unsupported on (December 4th 2025),
     # See: https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/ & https://github.com/actions/runner-images/issues/13046
@@ -160,15 +167,17 @@ jobs:
           key: ${{ runner.os }}-${{ github.sha }}
 
       - uses: actions/download-artifact@v6
+        if: ${{ !inputs.baseline_only }}
         with:
           name: macos-neural-oracle-${{ github.sha }}
           path: neural-golden
 
       - name: Qualify native neural host
+        if: ${{ !inputs.baseline_only }}
         run: python ci-scripts/neural-style/host.py
 
       - name: Retain reference style qualification and visual examples
-        if: always()
+        if: ${{ !inputs.baseline_only && always() }}
         uses: actions/upload-artifact@v7
         with:
           name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
@@ -187,6 +196,7 @@ jobs:
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
       - name: Test particle cache integration
+        if: ${{ !inputs.baseline_only }}
         id: particle_tests
         working-directory: toonz/build
         run: |
@@ -198,6 +208,7 @@ jobs:
         run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
 
       - name: Verify benchmark harness contracts
+        if: ${{ !inputs.baseline_only }}
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
       - name: Verify native lifecycle harness contracts
@@ -211,7 +222,7 @@ jobs:
 
       - name: Test SeExpr native integration
         id: seexpr_tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.build.outcome == 'success' }}
         run: |
           set -o pipefail
           # Native test executables and the original tcomposer live outside
@@ -258,7 +269,7 @@ jobs:
 
       - name: Measure native artist workloads
         id: artist_benchmark
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.build.outcome == 'success' }}
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
