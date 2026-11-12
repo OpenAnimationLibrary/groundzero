@@ -1515,6 +1515,11 @@ ComboViewerPanelContainer::ComboViewerPanelContainer(QWidget *parent)
                      this, SLOT(updateTabFocus()));
   assert(ret);
 }
+ComboViewerPanelContainer::~ComboViewerPanelContainer() {
+  // Deactivate the playback console while its toolbar is still intact.
+  m_comboViewer->hide();
+}
+
 // Reimplementation of TPanel::widgetInThisPanelIsFocused
 bool ComboViewerPanelContainer::widgetInThisPanelIsFocused() {
   return m_comboViewer->hasFocus();
@@ -1559,6 +1564,11 @@ SceneViewerPanelContainer::SceneViewerPanelContainer(QWidget *parent)
 
   m_sceneViewer->initializeTitleBar(getTitleBar());
 }
+SceneViewerPanelContainer::~SceneViewerPanelContainer() {
+  // Deactivate the playback console while its toolbar is still intact.
+  m_sceneViewer->hide();
+}
+
 // Reimplementation of TPanel::widgetInThisPanelIsFocused
 bool SceneViewerPanelContainer::widgetInThisPanelIsFocused() {
   return m_sceneViewer->hasFocus();

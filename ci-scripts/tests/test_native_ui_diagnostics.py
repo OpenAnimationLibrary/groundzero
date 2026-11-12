@@ -612,6 +612,27 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 if result_kind == "launch-error":
                     self.assertIn("OSError: LLDB launch denied", report)
 
+    def test_eager_workflow_selector_cannot_replace_full_qualification(self):
+        selected = {}
+        runner.select_diagnostic_suite(selected, "workflow-switch-eager")
+        self.assertEqual(selected["GROUNDZERO_NATIVE_UI_SUITE"], "workflow-switch-eager")
+
+        def response(suite, command, options):
+            if suite is not None:
+                return self.passed(suite, command)
+            return subprocess.CompletedProcess(command, 0,
+                "workflow-switch-eager-native: PASS\n"
+                "native-ui-diagnostic: PASS workflow-switch-eager\n" +
+                "\n".join(ICON_LIFECYCLE_LINES) + "\n")
+
+        # An inherited selector is cleared for the mandatory application run.
+        # Even an otherwise successful eager diagnostic cannot qualify it.
+        with mock.patch.dict(os.environ, selected):
+            status, calls, output = self.invoke(response)
+        self.assertEqual(status, 1)
+        self.assertEqual([call[0] for call in calls], [None, *SUITES])
+        self.assertNotIn("workflow-switch-eager", [call[0] for call in calls])
+
     def test_unknown_diagnostic_selector_is_rejected(self):
         environment = {}
         with self.assertRaises(ValueError):

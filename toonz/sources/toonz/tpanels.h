@@ -295,6 +295,7 @@ class ComboViewerPanelContainer final : public StyleShortcutSwitchablePanel {
 
 public:
   ComboViewerPanelContainer(QWidget *parent);
+  ~ComboViewerPanelContainer() override;
   // reimplementation of TPanel::widgetInThisPanelIsFocused
   bool widgetInThisPanelIsFocused() override;
 
@@ -314,6 +315,7 @@ class SceneViewerPanelContainer final : public StyleShortcutSwitchablePanel {
 
 public:
   SceneViewerPanelContainer(QWidget *parent);
+  ~SceneViewerPanelContainer() override;
   // reimplementation of TPanel::widgetInThisPanelIsFocused
   bool widgetInThisPanelIsFocused() override;
 

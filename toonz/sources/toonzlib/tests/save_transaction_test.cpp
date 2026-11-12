@@ -275,12 +275,12 @@ void streamChannelOwnership(const QDir &dir) {
     require(output.checkStatus(), "child destruction closed the parent channel");
   }
   QXmlStreamReader nested(bytesOf(nestedPath));
-  require(nested.readNextStartElement() && nested.name() == "root",
+  require(nested.readNextStartElement() && nested.name() == QStringLiteral("root"),
           "nested stream lost its root");
-  require(nested.readNextStartElement() && nested.name() == "first" &&
+  require(nested.readNextStartElement() && nested.name() == QStringLiteral("first") &&
               nested.readElementText().trimmed() == "19",
           "nested stream lost its first child");
-  require(nested.readNextStartElement() && nested.name() == "second" &&
+  require(nested.readNextStartElement() && nested.name() == QStringLiteral("second") &&
               nested.readElementText().trimmed() == "23",
           "child destruction prevented subsequent writes");
   while (!nested.atEnd()) nested.readNext();
@@ -306,7 +306,7 @@ void streamChannelOwnership(const QDir &dir) {
     output.closeChild();
   }
   QXmlStreamReader moved(bytesOf(movedPath));
-  require(moved.readNextStartElement() && moved.name() == "root" &&
+  require(moved.readNextStartElement() && moved.name() == QStringLiteral("root") &&
               moved.readElementText().trimmed() == "31",
           "move assignment lost the replacement channel");
   while (!moved.atEnd()) moved.readNext();

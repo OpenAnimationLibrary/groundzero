@@ -311,8 +311,22 @@ void testSceneCheck(Console &console) {
          "len([i for i in cs.check(unusedStyles=True) "
          "if i['kind'] == 'missingDrawing'])",
          "0\n");
-  // the stuff folder of the test has no default palettes
-  expect(console, "print(cs.newLevel('Vector', 'V').palette)", "None\n");
+  // No palette file exists in this test's stuff folder. Vector levels use
+  // the native fallback palette. A truly empty Level still has no palette.
+  expect(console, "print(opentoonz.Level().palette)", "None\n");
+  run(console, "cv = cs.newLevel('Vector', 'V'); vp = cv.palette");
+  expect(console,
+         "(vp['name'], [(st['id'], st['name'], st['color'], st['page'], "
+         "st['used']) for st in vp['styles']])",
+         "('V', [(0, 'color_0', '#00ffffff', 0, False), "
+         "(1, 'color_1', '#ff000000', 0, False)])\n");
+  run(console,
+      "vp['name'] = 'changed'; vp['styles'][1]['color'] = '#ffff0000'; "
+      "vp['styles'][1]['used'] = True; vp['styles'].append({'id': 2})");
+  expect(console,
+         "(cv.palette['name'], cv.palette['styles'][1]['color'], "
+         "cv.palette['styles'][1]['used'], len(cv.palette['styles']))",
+         "('V', '#ff000000', False, 2)\n");
 }
 
 void testRunFile(Console &console, const QString &dirPath) {

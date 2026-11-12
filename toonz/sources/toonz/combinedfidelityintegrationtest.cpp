@@ -133,7 +133,7 @@ QList<QByteArray> embedded(const QByteArray &svg, const QString &mime) {
     if (!xml.isStartElement()) continue;
     for (const auto &attribute : xml.attributes()) {
       const QString value = attribute.value().toString();
-      if (attribute.name() == "href" && value.startsWith(prefix))
+      if (attribute.name() == QStringLiteral("href") && value.startsWith(prefix))
         result.append(QByteArray::fromBase64(value.mid(prefix.size()).toLatin1()));
     }
   }
@@ -167,8 +167,8 @@ QImage renderFirstVectorAsset(const QByteArray &document) {
     xml.readNext();
     if (!xml.isStartElement()) continue;
     const auto attrs = xml.attributes();
-    if (xml.name() == "svg") size = QSize(attrs.value("width").toInt(), attrs.value("height").toInt());
-    if (xml.name() == "image") {
+    if (xml.name() == QStringLiteral("svg")) size = QSize(attrs.value("width").toInt(), attrs.value("height").toInt());
+    if (xml.name() == QStringLiteral("image")) {
       const QString href = attrs.value("href").toString();
       const QString prefix = "data:image/svg+xml;base64,";
       if (href.startsWith(prefix)) assets.insert(attrs.value("id").toString(),
@@ -176,7 +176,7 @@ QImage renderFirstVectorAsset(const QByteArray &document) {
            QRectF(attrs.value("x").toDouble(), attrs.value("y").toDouble(),
                   attrs.value("width").toDouble(), attrs.value("height").toDouble())});
     }
-    if (xml.name() == "use" && used.isEmpty()) {
+    if (xml.name() == QStringLiteral("use") && used.isEmpty()) {
       used = attrs.value("href").toString().mid(1);
       opacity = attrs.value("opacity").toDouble();
     }

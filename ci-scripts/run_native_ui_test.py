@@ -119,18 +119,38 @@ def windows_mesa_renderer(executable, runtime, cleanup_allowed=None):
                 "Temporary Mesa renderer retained: renderer descendants may still be running")
         cleanup_error = None
         cleanup_details = []
+        # An exited process can leave an image/file reference briefly pending.
+        # Retry only our created files after the caller has confirmed tree exit;
+        # a shared deadline bounds cleanup even if several DLLs remain locked.
+        retry_deadline = time.monotonic() + 2 if cleanup_allowed is not None else None
         for path in reversed(created):
             try:
-                path.unlink()
+                while True:
+                    try:
+                        path.unlink()
+                        break
+                    except OSError as error:
+                        remaining = (retry_deadline - time.monotonic()
+                                     if retry_deadline is not None else 0)
+                        if (getattr(error, "winerror", None) not in (5, 32) or
+                                remaining <= 0):
+                            raise
+                        time.sleep(min(0.05, remaining))
             except OSError as error:
                 cleanup_error = error
                 # The runner reports str(error), not its chained traceback.
                 # Keep bounded OS evidence without exposing the full path.
                 reason = str(error.strerror or type(error).__name__)
                 reason = reason.replace("\r", " ").replace("\n", " ")[:240]
+                try:
+                    attributes = getattr(path.stat(), "st_file_attributes", None)
+                    readonly = str(bool(attributes & 1)).lower() if attributes is not None else "unknown"
+                except OSError:
+                    readonly = "unknown"
                 cleanup_details.append(
                     f"{path.name[:128]}: {type(error).__name__} "
-                    f"(errno={error.errno}, winerror={getattr(error, 'winerror', None)}): {reason}")
+                    f"(errno={error.errno}, winerror={getattr(error, 'winerror', None)}, "
+                    f"readonly={readonly}): {reason}")
         if cleanup_error is not None:
             raise RuntimeError("Temporary Mesa renderer cleanup failed: " +
                                "; ".join(cleanup_details)) from cleanup_error
@@ -348,7 +368,8 @@ def select_diagnostic_suite(environment, suite):
     if suite is None:
         return
     if suite not in ("function-workflow", "cast-workflow", "combined-timing",
-                     "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch", "workflow-ui"):
+                     "combined-cast-vector", "combined-fidelity", "vector-renderer", "workflow-switch",
+                     "workflow-switch-eager", "workflow-ui"):
         raise ValueError("Unknown native UI diagnostic suite")
     environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
 

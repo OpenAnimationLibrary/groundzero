@@ -15,8 +15,8 @@ TTrack::Id TTrack::m_lastId = 0;
 //*****************************************************************************************
 
 TAffine TTrackTransform::makeTiltTransform(const TAffine &a) {
-  double l1 = a.a11*a.a11 + a.a21*a.a22;
-  double l2 = a.a11*a.a11 + a.a21*a.a22;
+  double l1 = a.a11*a.a11 + a.a21*a.a21;
+  double l2 = a.a12*a.a12 + a.a22*a.a22;
   double l = std::max(l1, l2);
   double k = l > TConsts::epsilon*TConsts::epsilon ? 1/sqrt(l) : 0;
   return TAffine( a.a11*k, a.a12*k, 0,

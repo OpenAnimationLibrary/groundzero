@@ -24,6 +24,7 @@
 #include <iostream>
 #ifdef BUILD_UI_PORT_TESTS
 #include "nativeuiintegrationtest.h"
+#include "rasterbrushintegrationtest.h"
 #include "iconlifecycleintegrationtest.h"
 #endif
 
@@ -46,6 +47,7 @@
 
 // TnzLib includes
 #include "toonz/preferences.h"
+#include "toonz/rasterbrushimport.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/tproject.h"
 #include "toonz/studiopalette.h"
@@ -286,8 +288,20 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  if (argc > 1 &&
+      (QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker" ||
+       QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-tips-worker")) {
+    if (argc != 4) return 2;
+    QCoreApplication worker(argc, argv);
+    // Qt reconstructs Windows arguments from the Unicode command line.
+    const QStringList arguments = worker.arguments();
+    return arguments.at(1) == "--raster-brush-import-tips-worker"
+               ? RasterBrush::runAbrTipImportWorker(arguments.at(2), arguments.at(3))
+               : RasterBrush::runImportWorker(arguments.at(2), arguments.at(3));
+  }
   PluginManager::takeLaunchArguments(argc, argv);
   bool nativeUiTest = false;
+  bool rasterBrushTest = false;
 #ifdef BUILD_UI_PORT_TESTS
   bool nativeIconClearOnly = false;
   for (int index = 1; index < argc; ++index) {
@@ -300,6 +314,15 @@ int main(int argc, char *argv[]) {
       nativeUiTest = true;
       nativeIconClearOnly = argument == "--test-native-icon-clear";
       argc = 1;
+      break;
+    }
+    if (QString::fromLocal8Bit(argv[index]) == "--test-raster-brush") {
+      if (argc != 2) {
+        std::cerr << "Raster brush test mode accepts no other arguments.\n";
+        return 2;
+      }
+      rasterBrushTest = true;
+      argc            = 1;
       break;
     }
   }
@@ -319,7 +342,8 @@ int main(int argc, char *argv[]) {
     }
   }
 #endif
-  const bool nativeIntegrationTest = nativeUiTest || seexprNativeTest;
+  const bool nativeIntegrationTest =
+      nativeUiTest || seexprNativeTest || rasterBrushTest;
 
   const auto nativeUiCheckpoint = [nativeUiTest](const char *stage) {
     if (nativeUiTest)
@@ -408,7 +432,7 @@ int main(int argc, char *argv[]) {
   QApplication a(argc, argv);
   nativeUiCheckpoint("QApplication constructed");
 #ifdef BUILD_UI_PORT_TESTS
-  if (nativeUiTest) {
+  if (nativeUiTest || rasterBrushTest) {
     QString error;
     if (!prepareNativeUiIntegrationTest(&error)) {
       std::cerr << error.toStdString() << std::endl;
@@ -998,6 +1022,9 @@ int main(int argc, char *argv[]) {
       // shares native preparation/startup but does not repeat artist suites.
       a.exit(nativeIconClearOnly ? 0 : runNativeUiIntegrationTest(&w));
     });
+  if (rasterBrushTest)
+    QTimer::singleShot(0, &a,
+                       [&a, &w] { a.exit(runRasterBrushIntegrationTest(&w)); });
 #endif
   nativeUiCheckpoint("entering native application event loop");
 #ifdef BUILD_SEEXPR_TESTS
