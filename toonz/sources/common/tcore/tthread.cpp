@@ -626,15 +626,13 @@ void Worker::run() {
     if (!m_task) {
       onFinish();
 
-      if (!m_exit && !shutdownVar) {
-        // Put the worker to sleep
+      // onFinish() temporarily releases the transition mutex after listing
+      // this worker as idle. A submitter can assign a task and wake it before
+      // it starts waiting, so check the task under the mutex first.
+      while (!m_task && !m_exit && !shutdownVar)
         m_waitCondition.wait(sl.mutex());
 
-        // Upon thread destruction the wait condition is implicitly woken up.
-        // If this is the case, m_task == 0 and we return.
-        if (!m_task || shutdownVar) return;
-      } else
-        return;
+      if (!m_task || shutdownVar) return;
     }
   }
 }

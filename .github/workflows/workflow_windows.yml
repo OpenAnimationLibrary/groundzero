@@ -26,6 +26,11 @@ on:
         type: boolean
         default: false
   workflow_call:
+    inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,10 +79,14 @@ jobs:
           path: recorder-test-decoder
 
   CadmiumRuntime:
+    if: ${{ !inputs.baseline_only }}
     uses: ./.github/workflows/cadmium_runtime.yml
 
   Windows:
     needs: [RecorderEncoder, CadmiumRuntime]
+    if: >-
+      ${{ !cancelled() && needs.RecorderEncoder.result == 'success' &&
+          (inputs.baseline_only || needs.CadmiumRuntime.result == 'success') }}
     runs-on: windows-2025
     env:
       # QT related variable
@@ -158,8 +167,8 @@ jobs:
         run: |
           @echo on
           mkdir thirdparty\qt
-          curl -fsSL -o Qt5.15.2_wintab.zip https://github.com/shun-iwasawa/qt5/releases/download/v5.15.2_wintab/Qt5.15.2_wintab.zip
-          7z x Qt5.15.2_wintab.zip
+          curl -fsSL --retry 4 --retry-connrefused --connect-timeout 20 --retry-max-time 180 --max-time 180 -o Qt5.15.2_wintab.zip https://github.com/shun-iwasawa/qt5/releases/download/v5.15.2_wintab/Qt5.15.2_wintab.zip || exit /b 1
+          7z x Qt5.15.2_wintab.zip || exit /b 1
           move Qt5.15.2_wintab\5.15.2_wintab thirdparty\qt
         shell: cmd
 
@@ -171,7 +180,7 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP "groundzero-native-mesa-26.2.4"
           New-Item -ItemType Directory -Path $root -Force | Out-Null
           $archive = Join-Path $root "mesa3d-26.2.4-release-msvc.7z"
-          curl.exe -fSL --retry 2 --retry-delay 2 --max-time 90 -o $archive https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
+          curl.exe -fsSL --retry 4 --retry-connrefused --connect-timeout 20 --retry-max-time 150 --max-time 90 -o $archive https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
           if ($LASTEXITCODE -ne 0) { throw "Could not download the pinned native UI renderer" }
           $expected = "351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695"
           if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
@@ -190,7 +199,7 @@ jobs:
       - name: Install third-party prebuilt libs (LFS workaround)
         run: |
           @echo on
-          curl -fsSL -o thirdparty-libs.zip https://github.com/andeon/opentoonz-thirdparty-libs/releases/download/prebuilt-libs-v1/thirdparty-libs.zip
+          curl -fsSL --retry 4 --retry-connrefused --connect-timeout 20 --retry-max-time 180 --max-time 180 -o thirdparty-libs.zip https://github.com/andeon/opentoonz-thirdparty-libs/releases/download/prebuilt-libs-v1/thirdparty-libs.zip || exit /b 1
           7z x -y thirdparty-libs.zip
         shell: cmd    
 
@@ -228,6 +237,7 @@ jobs:
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
 
       - name: Prepare software OpenGL for native SeExpr acceptance
+        if: ${{ !inputs.baseline_only }}
         timeout-minutes: 5
         shell: pwsh
         run: ./ci-scripts/seexpr/install_mesa_windows.ps1
@@ -318,6 +328,7 @@ jobs:
         shell: cmd
 
       - name: Verify benchmark harness contracts
+        if: ${{ !inputs.baseline_only }}
         run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
       - name: Verify native lifecycle harness contracts
@@ -374,23 +385,24 @@ jobs:
         shell: cmd
 
       - name: Install optional Cadmium worker
+        if: ${{ !inputs.baseline_only }}
         id: install_worker
         uses: actions/download-artifact@v6
         with:
           name: cadmium-runtime-windows-x64
           path: toonz/build/Opentoonz
 
-      - name: Qualify native neural host
+      - name: Prepare native Neural Style component
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
-          python ci-scripts/neural-style/host.py
+          python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
       - name: Retain reference style qualification and visual examples
-        if: always()
+        if: ${{ !inputs.baseline_only && always() }}
         uses: actions/upload-artifact@v7
         with:
           name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
@@ -398,6 +410,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Test particle cache integration
+        if: ${{ !inputs.baseline_only }}
         id: particle_tests
         shell: cmd
         run: |
@@ -416,7 +429,7 @@ jobs:
 
       - name: Test cel effects
         id: cel_tests
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -431,7 +444,7 @@ jobs:
 
       - name: Test Cadmium adapters
         id: cadmium_tests
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -532,7 +545,7 @@ jobs:
 
       - name: Measure native artist workloads
         id: artist_benchmark
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         timeout-minutes: 8
         shell: cmd
         run: |
@@ -613,7 +626,7 @@ jobs:
 
       - name: Test SeExpr native integration
         id: seexpr_tests
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ !inputs.baseline_only && !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -757,6 +770,7 @@ jobs:
 
   InstalledApplication:
     needs: Windows
+    if: ${{ !cancelled() && needs.Windows.result == 'success' }}
     uses: ./.github/workflows/seexpr-package-smoke.yml
     with:
       platform: windows

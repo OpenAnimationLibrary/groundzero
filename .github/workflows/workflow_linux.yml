@@ -3,6 +3,11 @@ name: Linux Build
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: false
   # Also check edition itself after each merge: pull requests that each build
   # on their own can still break the build together.
   push:
@@ -110,11 +115,11 @@ jobs:
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
-    - name: Qualify native neural host
-      run: python ci-scripts/neural-style/host.py
+    - name: Prepare native Neural Style component
+      run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
     - name: Retain reference style qualification and visual examples
-      if: always()
+      if: ${{ !inputs.baseline_only && always() }}
       uses: actions/upload-artifact@v7
       with:
         name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
@@ -122,6 +127,7 @@ jobs:
         if-no-files-found: warn
 
     - name: Test particle cache integration
+      if: ${{ !inputs.baseline_only }}
       id: particle_tests
       working-directory: toonz/build
       run: |
@@ -133,6 +139,7 @@ jobs:
       run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
 
     - name: Generate particle cache example project
+      if: ${{ !inputs.baseline_only }}
       id: particle_demo
       timeout-minutes: 10
       working-directory: toonz/build
@@ -145,6 +152,7 @@ jobs:
       run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-demo-output.txt
 
     - name: Upload particle cache example project
+      if: ${{ !inputs.baseline_only }}
       uses: actions/upload-artifact@v6
       with:
         name: particle-cache-examples-${{ runner.os }}-${{ matrix.compiler }}
@@ -152,6 +160,7 @@ jobs:
         if-no-files-found: error
 
     - name: Test cel effects
+      if: ${{ !inputs.baseline_only }}
       id: cel_tests
       working-directory: toonz/build
       run: |
@@ -159,7 +168,7 @@ jobs:
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
 
     - name: Test Cadmium adapters
-      if: ${{ !cancelled() && hashFiles('toonz/build/bin/cadmium_toonzraster_test') != '' }}
+      if: ${{ !inputs.baseline_only && !cancelled() && hashFiles('toonz/build/bin/cadmium_toonzraster_test') != '' }}
       working-directory: toonz/build
       run: |
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --no-tests=error -R '^cadmium_'
@@ -221,7 +230,7 @@ jobs:
 
     - name: Measure native artist workloads
       id: artist_benchmark
-      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      if: ${{ !inputs.baseline_only && !cancelled() && steps.native_targets.outcome == 'success' }}
       run: |
         QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --artist-benchmark --output toonz/build/artist-workload-output.txt
 
@@ -321,7 +330,7 @@ jobs:
 
     - name: Test SeExpr native integration
       id: seexpr_tests
-      if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
+      if: ${{ !inputs.baseline_only && !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       env:
         SEEXPR_LINUX_CORE_DIRECTORY: ${{ github.workspace }}/toonz/build/seexpr-native-cores
@@ -379,6 +388,7 @@ jobs:
         if-no-files-found: warn
 
     - name: Measure SeExpr full-resolution rendering
+      if: ${{ !inputs.baseline_only }}
       id: seexpr_performance
       timeout-minutes: 10
       working-directory: toonz/build
@@ -483,9 +493,14 @@ jobs:
         # portable-mode testing.
         cp -r appdir/usr/share/opentoonz/stuff artifact/portablestuff
 
-        wget -q -c --tries=5 --timeout=60 --waitretry=10 'https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage'
-        wget -q -c --tries=5 --timeout=60 --waitretry=10 'https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage'
-        wget -q -c --tries=5 --timeout=60 --waitretry=10 'https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage'
+        download_appimage_tool() {
+          wget --no-verbose --continue --tries=5 --timeout=60 --waitretry=10 \
+            --retry-on-host-error --retry-on-http-error=429,500,502,503,504 "$1"
+        }
+
+        download_appimage_tool 'https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage'
+        download_appimage_tool 'https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage'
+        download_appimage_tool 'https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage'
         chmod 755 linuxdeploy-x86_64.AppImage
         chmod 755 linuxdeploy-plugin-qt-x86_64.AppImage
         chmod 755 linuxdeploy-plugin-appimage-x86_64.AppImage
