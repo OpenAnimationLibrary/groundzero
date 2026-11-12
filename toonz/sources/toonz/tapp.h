@@ -249,6 +249,11 @@ protected slots:
 
   void onPaletteChanged();
   void onLevelColorStyleChanged();
+  void showPaletteStyleInFunctionEditor(TPalette *palette, int styleId);
+
+public:
+  void notifyPaletteKeyframesChanged(TPalette *palette);
+private slots:
   void onLevelColorStyleSwitched();
 
   void autosave();
@@ -265,6 +270,7 @@ signals:
   // NOTE: For now QEvent::TabletLeaveProximity is NOT detected on Windows. See
   // QTBUG-53628.
   void tabletLeft();
+  void paletteKeyframesChanged();
 
   void
   activeViewerChanged();  // TODO: put widgets-related stuffs in some new handle

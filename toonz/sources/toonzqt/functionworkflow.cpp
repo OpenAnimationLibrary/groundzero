@@ -147,6 +147,11 @@ QDoubleSpinBox *number(QWidget *parent, double value, double low = -1.e9,
   return field;
 }
 void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
+  if (viewer->getSelection()->hasKeyTracks()) {
+    workflowMessage(viewer, QMessageBox::Information, tr("Edit Function Keys"),
+                    tr("Edit palette keys in the graph or spreadsheet."));
+    return;
+  }
   const QPointer<FunctionViewer> guardedViewer(viewer);
   const QPointer<FunctionPanel> guardedGraph(graph);
   auto savedComparison = graph->comparisonState();
@@ -559,6 +564,7 @@ public:
 };
 
 void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
+  if (graph->getModel()->keyTrack(viewer->getCurrentChannelCurve())) return;
   const QPointer<FunctionViewer> guardedViewer(viewer);
   const QPointer<FunctionPanel> guardedGraph(graph);
   auto savedComparison = graph->comparisonState();
@@ -783,7 +789,9 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     auto targets = curves(selected(viewer->getSelection()));
     if (targets.empty() && viewer->getCurrentChannelCurve()) targets.push_back(viewer->getCurrentChannelCurve());
     bool lock = false; for (const auto &curve : targets) if (!curve->isEditorLocked()) lock = true;
-    for (const auto &curve : targets) curve->setEditorLocked(lock);
+    for (const auto &curve : targets)
+      if (!graph->getModel()->keyTrack(curve.getPointer()))
+        curve->setEditorLocked(lock);
     graph->update(); tree->update(); viewer->onCurveSelected(viewer->getCurrentChannelCurve());
   });
   auto *interpolationButton = button(tr("Interpolation")); interpolationButton->setObjectName("FunctionInterpolation");
@@ -794,24 +802,53 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     {"Speed In / Speed Out", TDoubleKeyframe::SpeedInOut}, {"Ease In / Ease Out", TDoubleKeyframe::EaseInOut},
     {"Ease In / Ease Out %", TDoubleKeyframe::EaseInOutPercentage}, {"Exponential", TDoubleKeyframe::Exponential}};
   for (auto mode : modes) interpolation->addAction(tr(mode.first), widget, [=]() { viewer->getSelection()->setSegmentType(mode.second); })->setData(int(mode.second));
-  for (bool link : {true, false}) interpolation->addAction(link ? tr("Link selected handles") : tr("Unlink selected handles"), widget, [=]() {
-    auto selection = selected(viewer->getSelection()); if (viewer->getSelection()->hasLockedCurves()) return;
-    TUndoManager::manager()->beginBlock();
-    for (const auto &entry : selection) for (int k : entry.indices) { KeyframeSetter setter(entry.curve.getPointer(), k); if (link) setter.linkHandles(); else setter.unlinkHandles(); }
-    TUndoManager::manager()->endBlock(); graph->update();
-  })->setObjectName(link ? "FunctionLinkHandles" : "FunctionUnlinkHandles");
-  interpolation->addAction(tr("Reset selected handles"), widget, [=]() {
-    auto selection = selected(viewer->getSelection()); if (viewer->getSelection()->hasLockedCurves()) return;
-    TUndoManager::manager()->beginBlock();
-    for (const auto &entry : selection) for (int k : entry.indices) {
-      KeyframeSetter setter(entry.curve.getPointer(), k);
-      if (setter.isSpeedInOut(k - 1)) setter.setSpeedIn(TPointD(-5, 0));
-      else if (setter.isEaseInOut(k - 1)) setter.setEaseIn(5);
-      if (setter.isSpeedInOut(k)) setter.setSpeedOut(TPointD(5, 0));
-      else if (setter.isEaseInOut(k)) setter.setEaseOut(5);
-    }
-    TUndoManager::manager()->endBlock(); graph->update();
-  })->setObjectName("FunctionResetHandles");
+  for (bool link : {true, false})
+    interpolation
+        ->addAction(
+            link ? tr("Link selected handles") : tr("Unlink selected handles"),
+            widget,
+            [=]() {
+              auto selection = selected(viewer->getSelection());
+              if (viewer->getSelection()->hasLockedCurves() ||
+                  viewer->getSelection()->hasKeyTracks())
+                return;
+              TUndoManager::manager()->beginBlock();
+              for (const auto &entry : selection)
+                for (int k : entry.indices) {
+                  KeyframeSetter setter(entry.curve.getPointer(), k);
+                  if (link)
+                    setter.linkHandles();
+                  else
+                    setter.unlinkHandles();
+                }
+              TUndoManager::manager()->endBlock();
+              graph->update();
+            })
+        ->setObjectName(link ? "FunctionLinkHandles" : "FunctionUnlinkHandles");
+  interpolation
+      ->addAction(tr("Reset selected handles"), widget,
+                  [=]() {
+                    auto selection = selected(viewer->getSelection());
+                    if (viewer->getSelection()->hasLockedCurves() ||
+                        viewer->getSelection()->hasKeyTracks())
+                      return;
+                    TUndoManager::manager()->beginBlock();
+                    for (const auto &entry : selection)
+                      for (int k : entry.indices) {
+                        KeyframeSetter setter(entry.curve.getPointer(), k);
+                        if (setter.isSpeedInOut(k - 1))
+                          setter.setSpeedIn(TPointD(-5, 0));
+                        else if (setter.isEaseInOut(k - 1))
+                          setter.setEaseIn(5);
+                        if (setter.isSpeedInOut(k))
+                          setter.setSpeedOut(TPointD(5, 0));
+                        else if (setter.isEaseInOut(k))
+                          setter.setEaseOut(5);
+                      }
+                    TUndoManager::manager()->endBlock();
+                    graph->update();
+                  })
+      ->setObjectName("FunctionResetHandles");
   auto snapshots = std::make_shared<std::vector<std::pair<TDoubleParamP, TDoubleParamP>>>();
   auto capturedDisplay = std::make_shared<FunctionPanel::ComparisonState>();
   auto captureGeneration = std::make_shared<unsigned long long>(0);
@@ -861,7 +898,12 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     if (!liveViewer || !liveGraph || !liveTree || *captureGeneration != generation || snapshots->empty()) return;
     QSet<TDoubleParam *> present; for (auto *channel : tree->channels()) present.insert(channel->getParam());
     for (const auto &snapshot : *snapshots) if (!present.contains(snapshot.first.getPointer())) { workflowMessage(viewer, QMessageBox::Warning, tr("Restore Curves"), tr("A captured channel no longer belongs to this scene. Capture a new comparison.")); return; }
-    Ops::Plan plan = Ops::planRestore(*snapshots);
+    std::vector<std::pair<TDoubleParamP, TDoubleParamP>> restorable;
+    for (const auto &snapshot : *snapshots)
+      if (!graph->getModel()->keyTrack(snapshot.first.getPointer()))
+        restorable.push_back(snapshot);
+    if (restorable.empty()) return;
+    Ops::Plan plan = Ops::planRestore(restorable);
     QString error; if (!Ops::apply(plan, tr("Restore Comparison Curves"), error)) workflowMessage(viewer, QMessageBox::Warning, tr("Restore Curves"), error);
     else if (plan.changes.empty()) return;
     else { viewer->getSelection()->selectNone(); viewer->emitCurveChanged(); graph->refreshNormalization(); graph->update(); }

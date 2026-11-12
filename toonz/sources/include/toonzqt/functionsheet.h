@@ -78,6 +78,7 @@ class FunctionSheetCellViewer final : public Spreadsheet::CellPanel {
   FunctionSheet *m_sheet;
   DVGui::LineEdit *m_lineEdit;
   int m_editRow, m_editCol;
+  TDoubleParamP m_editCurve;
 
   // for mouse dragging to adjust the value
   double m_currentValue = 0.0;
