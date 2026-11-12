@@ -563,13 +563,18 @@ jobs:
         if: ${{ !cancelled() && steps.ui_integration.outcome == 'failure' && steps.package.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 30
-        # Preserve cmd logging and exit handling; fixed paths and environment only.
-        shell: cmd # zizmor: ignore[misfeature]
+        shell: pwsh
         run: |
-          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
-          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
-          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/native_ui_page_heap.py toonz/build/Opentoonz/OpenToonz.exe stuff --suite workflow-switch --symbols toonz/build/RelWithDebInfo --output toonz/build/ui-integration-page-heap.txt --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          $ErrorActionPreference = 'Stop'
+          # A debugger can leave the diagnostic Mesa DLLs locked after exit.
+          # Keep them out of the package used by benchmarks and release checks.
+          $diagnostic = Join-Path $env:RUNNER_TEMP "groundzero-page-heap-$([guid]::NewGuid())"
+          Copy-Item -LiteralPath 'toonz/build/Opentoonz' -Destination $diagnostic -Recurse
+          $env:PATH = "$diagnostic;$env:QT_PATH\bin;$env:PATH"
+          $env:QT_PLUGIN_PATH = "$env:QT_PATH\plugins"
+          $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$env:QT_PATH\plugins\platforms"
+          python ci-scripts/native_ui_page_heap.py (Join-Path $diagnostic 'OpenToonz.exe') stuff --suite workflow-switch --symbols toonz/build/RelWithDebInfo --output toonz/build/ui-integration-page-heap.txt --windows-mesa $env:NATIVE_UI_MESA_RUNTIME
+          exit $LASTEXITCODE
 
       - name: Measure native artist workloads
         id: artist_benchmark

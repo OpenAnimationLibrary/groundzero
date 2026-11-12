@@ -2,13 +2,14 @@
 #include "texception.h"
 #include "ttile.h"
 #include "tnzimage.h"
+#include "tthread.h"
 #include "trenderer.h"
 #include "tstream.h"
 
 #include <QColor>
-#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
 #include <QImage>
 #include <QTemporaryDir>
 
@@ -168,7 +169,8 @@ void failedLoadPortOwnership(const QString& directory) {
 }
 
 void publicCompute(TRasterFx& effect, TTile& tile) {
-  TRenderer renderer;
+  TRenderer renderer(1);
+  renderer.enablePrecomputing(false);
   const auto id = TRenderer::buildRenderId();
   renderer.install(id);
   renderer.declareRenderStart(id);
@@ -301,10 +303,11 @@ void windowsProcesses(const QString& executable, const QString& directory) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  QCoreApplication app(argc, argv);
+  QGuiApplication app(argc, argv);
   try {
     const QStringList arguments = app.arguments();
     if (arguments.size() > 1) return worker(arguments);
+    TThread::init();
     initImageIo();
     TRenderer::initialize();
     const QString executable = QCoreApplication::applicationFilePath();

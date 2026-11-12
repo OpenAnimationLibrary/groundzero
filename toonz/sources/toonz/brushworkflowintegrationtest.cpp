@@ -350,7 +350,11 @@ void checkAutoCreatedSplitStrokes(TTool* tool, TPalette* palette, int style) {
     boolValue(tool, name, false);
   doubleValue(tool, "Accuracy:", 100);
   doubleValue(tool, "Smooth:", 0);
-  doubleValue(tool, "Fluid Width:", 0);
+  auto* fluidWidth = dynamic_cast<TIntProperty*>(
+      tool->getProperties(0)->getProperty("Fluid Width:"));
+  require(fluidWidth, "native Brush Fluid Width option is missing");
+  fluidWidth->setValue(0);
+  tool->onPropertyChanged("Fluid Width:");
   checkSplitStrokeHistory(tool, palette, style, false);
   checkSplitStrokeHistory(tool, palette, style, true);
 }

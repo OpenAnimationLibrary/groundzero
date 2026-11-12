@@ -97,6 +97,9 @@ public:
     m_uiPixmap = uiPixmap;
     update();
   }
+#ifdef BUILD_UI_PORT_TESTS
+  const QPixmap& uiPixmapForTest() const { return m_uiPixmap; }
+#endif
 
 protected:
   void paintEvent(QPaintEvent* event) override;

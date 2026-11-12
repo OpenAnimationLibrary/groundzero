@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
     testRepeatedCompressedRemoval(cache, TPixelCM32(1, 2, 255),
                                   TPixelCM32(3, 4, 127));
     cache->clear(true);
-    std::cout << "Image cache compression tests passed\n";
+    std::cout << "Image cache compression tests passed" << std::endl;
     return 0;
   } catch (const std::exception &error) {
     cache->clear(true);

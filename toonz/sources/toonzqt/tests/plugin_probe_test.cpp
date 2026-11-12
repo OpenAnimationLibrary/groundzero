@@ -3,6 +3,7 @@
 #include "tfxparam.h"
 #include "tnotanimatableparam.h"
 #include "tspectrumparam.h"
+#include "tthread.h"
 #include "toonzqt/pluginloader.h"
 #include "toonzqt/pluginmanager.h"
 #include "pluginhost.h"
@@ -73,6 +74,7 @@ public:
 
 int main(int argc, char** argv) {
   QApplication app(argc, argv);
+  TThread::init();
   try {
     const QStringList arguments = app.arguments();
     require(arguments.size() == 3,

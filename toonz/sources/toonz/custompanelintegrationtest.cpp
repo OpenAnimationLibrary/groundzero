@@ -159,9 +159,11 @@ void checkCorruptedTemplate(CustomPanelEditorPopup& editor,
                             const QTemporaryDir& directory, int& warningCount,
                             const QString& warning) {
   auto* area = editor.findChild<UiPreviewArea*>();
-  require(area && area->widget(), "custom panel editor lost its valid preview");
-  QPointer<QWidget> preview = area->widget();
-  const QImage before       = preview->grab().toImage();
+  require(area, "custom panel editor has no preview area");
+  QPointer<UiPreviewWidget> preview =
+      qobject_cast<UiPreviewWidget*>(area->widget());
+  require(preview, "custom panel editor lost its valid preview");
+  const QImage before = preview->uiPixmapForTest().toImage();
   require(!before.isNull(), "custom panel fixture captured an empty preview");
   writeFile(directory.filePath("valid.ui"),
             "<ui version=\"4.0\"><widget class=\"QWidget\"></ui>");
@@ -172,7 +174,7 @@ void checkCorruptedTemplate(CustomPanelEditorPopup& editor,
                   directory.filePath("valid.ui")),
           "externally corrupted template did not report its loading error");
   require(preview && area->widget() == preview.data() &&
-              preview->grab().toImage() == before,
+              preview->uiPixmapForTest().toImage() == before,
           "externally corrupted template changed the last valid preview");
 }
 
