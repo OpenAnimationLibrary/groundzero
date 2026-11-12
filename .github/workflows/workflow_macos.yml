@@ -172,9 +172,8 @@ jobs:
           name: macos-neural-oracle-${{ github.sha }}
           path: neural-golden
 
-      - name: Qualify native neural host
-        if: ${{ !inputs.baseline_only }}
-        run: python ci-scripts/neural-style/host.py
+      - name: Prepare native Neural Style component
+        run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
       - name: Retain reference style qualification and visual examples
         if: ${{ !inputs.baseline_only && always() }}
@@ -495,6 +494,7 @@ jobs:
 
   InstalledApplication:
     needs: macOS
+    if: ${{ !cancelled() && needs.macOS.result == 'success' }}
     uses: ./.github/workflows/seexpr-package-smoke.yml
     with:
       platform: macos

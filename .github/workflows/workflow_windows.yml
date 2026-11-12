@@ -392,15 +392,14 @@ jobs:
           name: cadmium-runtime-windows-x64
           path: toonz/build/Opentoonz
 
-      - name: Qualify native neural host
-        if: ${{ !inputs.baseline_only }}
+      - name: Prepare native Neural Style component
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
-          python ci-scripts/neural-style/host.py
+          python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
       - name: Retain reference style qualification and visual examples
         if: ${{ !inputs.baseline_only && always() }}
@@ -771,6 +770,7 @@ jobs:
 
   InstalledApplication:
     needs: Windows
+    if: ${{ !cancelled() && needs.Windows.result == 'success' }}
     uses: ./.github/workflows/seexpr-package-smoke.yml
     with:
       platform: windows

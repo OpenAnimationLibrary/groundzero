@@ -100,8 +100,9 @@ def download(url, target, limit):
 
 
 def main():
+    package_only = sys.argv[1:] == ["--package-only"]
     native_only = len(sys.argv) == 3 and sys.argv[1] == "--native-macos"
-    if len(sys.argv) != 1 and not native_only:
+    if len(sys.argv) != 1 and not (native_only or package_only):
         raise RuntimeError("Unexpected evaluation arguments")
     if native_only and sys.platform != "darwin":
         raise RuntimeError("Universal C API qualification requires macOS")
@@ -110,6 +111,7 @@ def main():
     if ROOT.exists():
         raise RuntimeError("Evaluation directory must be fresh")
     REPORT.mkdir(parents=True)
+    (REPORT / "licenses").mkdir()
     WHEELS.mkdir()
     MODELS.mkdir()
     requirements = Path(__file__).with_name("requirements.txt")
@@ -120,6 +122,8 @@ def main():
     packages = json.loads(Path(__file__).with_name("wheels.json").read_text())
     selected = []
     for package in packages:
+        if package_only and (sys.platform == "darwin" or package["name"] != "ai-edge-litert"):
+            continue
         if native_only and package["name"] != "numpy":
             continue
         if package["only_windows"] and os.name != "nt":
@@ -166,22 +170,25 @@ def main():
                     destination = REPORT / "licenses" / path.stem / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(archive.read(member))
-    venv.EnvBuilder(with_pip=True).create(ROOT / "venv")
-    python = ROOT / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    command([python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--no-index",
-             "--find-links", WHEELS, "--only-binary=:all:", "--require-hashes", "-r", requirements])
-    command([python, "-m", "pip", "check"])
-    installed = size(ROOT / "venv")
-    if size(ROOT) > MAX_STORAGE:
-        raise RuntimeError("Installed runtime exceeds the 500 MiB workspace budget")
-    if not native_only:
-        command([python, "-c", "from ai_edge_litert.interpreter import Interpreter; print('LiteRT interpreter import succeeded')"])
-    metadata = {"runtime": "LiteRT C API" if native_only else "ai-edge-litert",
+    installed = 0
+    if not package_only:
+        venv.EnvBuilder(with_pip=True).create(ROOT / "venv")
+        python = ROOT / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        command([python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--no-index",
+                 "--find-links", WHEELS, "--only-binary=:all:", "--require-hashes", "-r", requirements])
+        command([python, "-m", "pip", "check"])
+        installed = size(ROOT / "venv")
+        if size(ROOT) > MAX_STORAGE:
+            raise RuntimeError("Installed runtime exceeds the 500 MiB workspace budget")
+        if not native_only:
+            command([python, "-c", "from ai_edge_litert.interpreter import Interpreter; print('LiteRT interpreter import succeeded')"])
+    metadata = {"runtime": "LiteRT C API" if native_only or package_only else "ai-edge-litert",
                 "version": "2.3.0", "python": "3.12 (test driver)",
                 "wheel_download_bytes": downloaded, "installed_bytes": installed,
                 "installed_bytes_excludes": "CI-provided Python interpreter; not a standalone product footprint",
                 "workspace_bytes": size(ROOT), "wheels": wheels,
-                "scope": "Synthetic inference evaluation only; no product or temporal qualification"}
+                "scope": ("Native component packaging" if package_only else
+                          "Synthetic inference evaluation only; no product or temporal qualification")}
     (REPORT / "runtime.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     models = []
     for kind in ("prediction", "transfer"):
@@ -210,7 +217,7 @@ def main():
     measurements = {key: metadata[key] for key in
                     ("runtime", "version", "wheel_download_bytes", "installed_bytes",
                      "installed_bytes_excludes", "workspace_bytes", "total_download_bytes")}
-    measurements["runtime_libraries"] = wheels[0]["native_libraries"] if not native_only else []
+    measurements["runtime_libraries"] = wheels[0]["native_libraries"] if wheels and not native_only else []
     print("::notice title=Neural runtime measurements::" + json.dumps(measurements), flush=True)
     native = REPORT / "native-package"
     native.mkdir()
@@ -281,13 +288,15 @@ def main():
         path = native / filename
         package[role] = {"file": filename, "bytes": path.stat().st_size, "sha256": digest(path)}
     (native / "package.json").write_text(json.dumps(package, indent=2), encoding="utf-8")
-    if native_only:
-        command([python, Path(__file__).with_name("native_macos.py"), REPORT, native.resolve(), golden])
-    else:
-        command([python, Path(__file__).with_name("smoke.py"), MODELS, REPORT, native.resolve()])
+    if not package_only:
+        if native_only:
+            command([python, Path(__file__).with_name("native_macos.py"), REPORT, native.resolve(), golden])
+        else:
+            command([python, Path(__file__).with_name("smoke.py"), MODELS, REPORT, native.resolve()])
     metadata["workspace_bytes"] = size(ROOT) + golden_bytes
     metadata["native_package_bytes"] = size(native)
-    metadata["measurement_scope"] = "After native build and inference; before wheel cleanup"
+    metadata["measurement_scope"] = ("After native build; before wheel cleanup" if package_only else
+                                     "After native build and inference; before wheel cleanup")
     (REPORT / "provenance.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     shutil.copy2(REPORT / "provenance.json", native / "provenance.json")
     print("::notice title=Final neural package measurements::" + json.dumps({

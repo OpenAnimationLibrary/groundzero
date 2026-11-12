@@ -115,9 +115,8 @@ jobs:
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
-    - name: Qualify native neural host
-      if: ${{ !inputs.baseline_only }}
-      run: python ci-scripts/neural-style/host.py
+    - name: Prepare native Neural Style component
+      run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
     - name: Retain reference style qualification and visual examples
       if: ${{ !inputs.baseline_only && always() }}
