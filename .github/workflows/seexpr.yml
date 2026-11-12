@@ -6,10 +6,14 @@ on:
       smoke_only:
         type: boolean
         default: false
+  # The optional LLVM/Python SDK matrix also qualifies edition nightly.
+  schedule:
+    - cron: '23 3 * * *'
   workflow_dispatch:
   push:
     branches:
       - 'ci/seexpr-*'
+      - edition
 
 permissions:
   contents: read
@@ -41,17 +45,19 @@ jobs:
             {"label": "macOS LLVM 14", "runner": "macos-15-intel", "backend": "llvm14"}
           ]') }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
-      - uses: actions/setup-python@v6
+          lfs: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Install Python UI qualification dependency
         shell: bash
+        env:
+          SEEXPR_QT_API: ${{ matrix.qt_api || 'pyqt5' }}
         run: |
-          if [ '${{ matrix.qt_api }}' = 'pyqt6' ]; then
+          if [ "$SEEXPR_QT_API" = 'pyqt6' ]; then
             python -m pip install --disable-pip-version-check --retries 3 PyQt6==6.7.1
           else
             python -m pip install --disable-pip-version-check --retries 3 PyQt5==5.15.11
@@ -71,7 +77,7 @@ jobs:
       - name: Cache pinned LLVM 14 development SDK
         id: llvm_cache
         if: matrix.backend == 'llvm14' && runner.os != 'Linux'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/seexpr-llvm14-sdk
           key: seexpr-llvm14-sdk-v1-${{ matrix.runner }}-${{ runner.arch }}-${{ hashFiles('ci-scripts/seexpr/install_llvm.py') }}
@@ -83,7 +89,7 @@ jobs:
           python ci-scripts/seexpr/install_llvm.py 2>&1 | tee seexpr-llvm-dependency.log
       - name: Save installed LLVM 14 development SDK
         if: matrix.backend == 'llvm14' && runner.os != 'Linux' && steps.llvm_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/seexpr-llvm14-sdk
           key: ${{ steps.llvm_cache.outputs.cache-primary-key }}
@@ -107,9 +113,11 @@ jobs:
       - name: Configure interpreter qualification
         if: matrix.backend == 'interpreter'
         shell: bash
+        env:
+          SEEXPR_QT_API: ${{ matrix.qt_api || 'pyqt5' }}
         run: |
           set -o pipefail
-          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DBUILD_SEEXPR_PYTHON_UI_TESTS=ON -DSEEXPR_PYTHON_QT_API=${{ matrix.qt_api || 'pyqt5' }} 2>&1 | tee seexpr-configure.log
+          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DBUILD_SEEXPR_PYTHON_UI_TESTS=ON -DSEEXPR_PYTHON_QT_API="$SEEXPR_QT_API" 2>&1 | tee seexpr-configure.log
       - name: Configure LLVM qualification
         if: matrix.backend == 'llvm14'
         shell: bash
@@ -132,10 +140,12 @@ jobs:
       - name: Install and qualify the standalone SDK
         id: installed_sdk
         shell: bash
+        env:
+          SEEXPR_BACKEND: ${{ matrix.backend }}
         run: |
           set -o pipefail
           sdk_dependency=()
-          if [ "${{ matrix.backend }}" = llvm14 ]; then
+          if [ "$SEEXPR_BACKEND" = llvm14 ]; then
             sdk_dependency=("-DLLVM_DIR=$LLVM_DIR")
           fi
           cmake --install seexpr-build --config RelWithDebInfo --prefix "$GITHUB_WORKSPACE/seexpr-sdk" 2>&1 | tee seexpr-sdk-install.log
@@ -163,7 +173,7 @@ jobs:
       # Only delivery is retried; an unsuccessful final attempt still fails CI.
       - name: Upload qualified native SDK
         id: upload_native_sdk
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         continue-on-error: true
         with:
@@ -178,7 +188,7 @@ jobs:
       - name: Retry qualified native SDK upload
         id: upload_native_sdk_retry
         if: ${{ !cancelled() && steps.upload_native_sdk.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         continue-on-error: true
         with:
@@ -192,7 +202,7 @@ jobs:
         run: sleep 30
       - name: Final qualified native SDK upload attempt
         if: ${{ !cancelled() && steps.upload_native_sdk_retry.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         with:
           name: SeExpr-SDK-${{ runner.os }}-${{ matrix.backend }}-${{ matrix.qt_api || 'pyqt5' }}-${{ github.sha }}
@@ -204,14 +214,14 @@ jobs:
         run: |
           cp stuff/doc/LICENSE/LICENSE_seexpr.txt seexpr-build/seexpr-python/LICENSE_seexpr.txt
       - name: Upload qualified Python SDK
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SeExpr-Python-${{ runner.os }}-${{ matrix.backend }}-${{ matrix.qt_api || 'pyqt5' }}-${{ github.sha }}
           path: seexpr-build/seexpr-python
           if-no-files-found: error
       - name: Retain qualification diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SeExpr-reports-${{ runner.os }}-${{ matrix.backend }}-${{ matrix.qt_api || 'pyqt5' }}-${{ github.sha }}
           path: |
@@ -235,11 +245,11 @@ jobs:
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1:strict_string_checks=1
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
-      - uses: actions/setup-python@v6
+          lfs: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Install sanitizer qualification dependencies
@@ -266,7 +276,7 @@ jobs:
         run: python ci-scripts/seexpr/report.py seexpr-sanitizer-configure.log seexpr-sanitizer-build.log seexpr-sanitizer-tests.log
       - name: Retain sanitizer qualification diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SeExpr-sanitizer-reports-${{ github.sha }}
           path: |

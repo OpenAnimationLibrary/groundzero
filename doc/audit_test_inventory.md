@@ -1,0 +1,313 @@
+# Audit regression inventory and lifecycle decisions
+
+This inventory reviews the working-tree audit changes against
+`2e52fb78b70915925393290f32dc09a95a3927ec`, on November 7, 2026. It covers the
+changed C++ fixtures, the new Python CI-auditor contracts, the new Ruby CI-budget
+contracts, their registration, and their workflow callers. It is a source review,
+not a measured coverage report or evidence that CI has passed. Builds, tests,
+fault injection, and differential runs were not performed locally, as required by
+[CLAUDE.md](../CLAUDE.md).
+
+## Registration and configured execution
+
+"Required" below means a workflow names the test or invokes its driver. It does
+not mean that the workflow has executed successfully. The application workflows
+also have build/dependency conditions that can prevent later test steps from
+running after a failure.
+
+| Regression family | Registration or entry point | Configured CI execution |
+| --- | --- | --- |
+| PSD persistence and independent readers | `tiio_psd`, under `BUILD_PSD_TESTS` in [image CMake](../toonz/sources/image/CMakeLists.txt) | Required by Linux, macOS, and Windows PR regression manifests. Write-failure injection is compiled only on POSIX. |
+| Public FFmpeg export, HDR preservation, helper paths, audio lifecycle | `ffmpeg_public`, under `BUILD_FFMPEG_TESTS`, conditional on `find_program(ffmpeg)` | Required by all three platform PR manifests. Missing registration fails the named manifest. |
+| Direct FFmpeg export/import/cache lifecycle | `tiio_ffmpeg`, same option, additionally excluded on MSVC | Required on Linux and macOS; intentionally absent from the Windows list because direct writer classes are not exported there. |
+| Painted deformer weights and existing deformer behavior | `deformer`, under `BUILD_DEFORMER_TESTS` in [toonzlib CMake](../toonz/sources/toonzlib/CMakeLists.txt) | Explicitly enabled and required in all three platform PR manifests. |
+| Auto-Patch support dimensions and outline math | `autopatchoutline`, under `BUILD_AUTOPATCH_TESTS` in [stdfx CMake](../toonz/sources/stdfx/CMakeLists.txt) | Explicitly enabled and required in all three platform PR manifests. This is a standalone helper fixture, not a rendered-FX fixture. |
+| Native plugin ABI probe ranges | `plugin_probe_single`, `plugin_probe_empty`, under `BUILD_RELIABILITY_TESTS` in [toonzqt CMake](../toonz/sources/toonzqt/CMakeLists.txt) | Required in all three platform PR manifests; each mode has its own process and loads a real fixture module. |
+| External-effect process and public-render output contracts | `externfx_process`, under `BUILD_RELIABILITY_TESTS` in [tnzbase CMake](../toonz/sources/tnzbase/CMakeLists.txt) | Required in all three platform PR manifests; Windows/POSIX process branches differ. Added public pixel cases await CI. |
+| Task removal, farm IDs, active children, movie batch setup | `exerciseWorkflowSwitching()` in [native UI integration](../toonz/sources/toonz/nativeuiintegrationtest.cpp), compiled into `OpenToonz` with `BUILD_UI_PORT_TESTS` | The platform workflows invoke `run_native_ui_test.py` explicitly. These cases are not independent CTest registrations. |
+| Batch execution lifetime, progress identity, list replacement and edit guards | `exerciseBatchTaskLifetime()` in [batch integration](../toonz/sources/toonz/batchtaskintegrationtest.cpp), with [TaskSheet guard cases](../toonz/sources/toonz/batchtaskviewintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native application driver on all three platforms; real executor gates and child-process mode. New runtime/checkpoint evidence is pending. |
+| Filmstrip insertion/duplicate/Each/Swing undo and ungroup undo | `runVectorWorkflowNativeChecks()` in [vector integration](../toonz/sources/toonz/vectorworkflowintegrationtest.cpp), same application build option | Explicit native application driver on all three platforms, with `--require-vector-workflows`. A CTest-only run does not execute these cases. |
+| Lazy Room pending workflow lifetime | `exerciseWorkflowRoomLifetime()` in [Room lifetime fixture](../toonz/sources/toonz/workflowlifetimeintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native driver on all three platforms; real lazy Room initialization and queued workflow timer. Runtime pending. |
+| Split vector Brush creation/renumber undo | `checkAutoCreatedSplitStrokes()` via `runBrushWorkflowNativeChecks()` in [Brush fixture](../toonz/sources/toonz/brushworkflowintegrationtest.cpp) | Existing native brush path on all three platforms; real gestures and repeated identity/exposure assertions. Runtime pending. |
+| Raster clipboard precedence and Cancel history | `runRasterPasteIntegrationTest()` in [paste fixture](../toonz/sources/toonz/rasterpasteintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native driver, actual MI_Paste, six targets and external-image chooser; not a separate CTest. |
+| Custom panel factory/editor loading | `exerciseCustomPanelLoading()` in [panel fixture](../toonz/sources/toonz/custompanelintegrationtest.cpp), under `BUILD_UI_PORT_TESTS` | Existing native driver with isolated portable settings, real Room load and editor template selection; not a separate CTest. |
+| CI diagnostic classification and API pagination | [test_ci_audit.py](../ci-scripts/tests/test_ci_audit.py), Python `unittest` discovery | Explicit Linux PR step with `-p test_ci_audit.py -v`; not a CTest target. |
+| Automatic-check budget and workflow parsing | [test_ci_budget.rb](../ci-scripts/tests/test_ci_budget.rb), Ruby Minitest | Explicit Linux PR step after the read-only budget checker; not a CTest target or a pre-commit test-suite invocation. |
+
+The required platform lists are in [Linux Build](../.github/workflows/workflow_linux.yml),
+[MacOS Build](../.github/workflows/workflow_macos.yml), and
+[Windows Build](../.github/workflows/workflow_windows.yml).
+[run_regression_tests.py](../ci-scripts/run_regression_tests.py) enumerates CTest
+registrations first, fails for missing required names, and checks JUnit for
+missing, failed, or skipped cases. Keep these checks: a broad regex or successful
+build alone would not establish execution of the required fixtures.
+
+The nightly/manual [Linux Tests](../.github/workflows/tests_linux.yml) workflow
+configures `BUILD_TESTS=ON` for Qt 5 and Qt 6 and runs all registered CTest cases.
+Its Qt 6 dependency installation does not explicitly install FFmpeg, so FFmpeg
+registration depends on runner availability. A green full CTest run cannot prove
+that a conditionally unregistered suite existed. Neither full CTest invocation
+substitutes for the platform workflows' explicit native application driver.
+The separate [experimental Qt 6 workflow](../.github/workflows/workflow_linux_qt6.yml)
+is manual and build-only; it is not runtime qualification.
+
+## Keep, extend, replace, and remove
+
+| Family | Decision | Behavior protected and reason |
+| --- | --- | --- |
+| Existing PSD format fixtures | **Keep** | Eight- and sixteen-bit pixels, Unicode layer names, single-pixel images, bitmap/gray imports, malformed files, and layered output remain distinct from transactional saving. |
+| New PSD transaction/reader cases | **Keep and extend later** | Interleaved readers retain their own layer identity; failed overwrites preserve prior bytes and remove temporary files; retries persist edited pixels. Both small and larger payload cases remain. They do not independently inject every open/write/flush/rename failure. |
+| New duplicate HDR case in the direct FFmpeg suite | **Replace and remove that function only** | Its partial-alpha and repeated-source invariants now live in the public fixture described below. No established direct-suite case or target is removed. |
+| Existing direct FFmpeg suite | **Keep** | MP4 tolerance, concurrent completion, cache leases, metadata batching, replacement/incomplete-cache handling, finalization errors, cancellation, abort, cleanup, and retry cases protect different observable outcomes. |
+| Public FFmpeg fixture | **Extend** | Retains public factory construction, row/channel/frame ordering, abort behavior, helper-directory resolution, and alpha values above one. Adds fractional alpha and repeated export of one source raster before removing duplicate HDR coverage. |
+| Existing deformer geometry/render tests | **Keep** | Identity, inverse, raster warp, stroke thickness, source-image immutability, stack order, and serialized painting round trips do not duplicate new invalid-input checks. |
+| New weight-grid cases | **Keep** | Large brushes and erasers must affect all intended cells; remote/invalid brushes must not alter weights; invalid geometry/counts must not construct usable grids. Assertions inspect values and validity, not a chosen clipping implementation. |
+| Auto-Patch math and sizing | **Keep; extend at the FX boundary** | Brute-force distance comparisons, outline falloff, and seam/detail separation protect pixels. Boundary predicates protect conversions and allocations. They do not establish correct placement of the checks in the predictive render/cache lifecycle. |
+| Native plugin probe fixture versus Plugin Manager tests | **Keep both** | A real module exercises loader ABI entry ranges. The existing Qt 5/Qt 6 manager suites exercise policy/settings. One cannot replace the other. Single-entry acceptance and empty-range rejection are distinct. |
+| External-effect fixture | **Keep and extend with public rendering** | Existing real process/error cases remain. New cases connect an actual source, validate exact extracted-tile pixels/alpha/orientation/borders/storage/position, and reject wrong dimensions or grayscale output. Windows handle-count/expansion checks remain distinct. |
+| Native task and undo fixtures | **Keep** | Multiple panels, parent/child selections, retired farm IDs, active-child rejection, preserved drawing IDs/content/exposures, independent inserted rasters, and nested groups exercise different state transitions. Repeated undo/redo cycles are intentional. |
+| Batch plan/retirement and view fixtures | **Keep alongside older Tasks cases** | Queued withdrawal, assigned/terminal retention, actual publication failures, selective cancellation, list transactions, identity callbacks and real child cleanup exercise different boundaries. Selected actual TaskSheet slots protect affected edits and idle compatibility. |
+| Lazy Room and custom panel fixtures | **Keep** | A real nested initialization event loop/pending timer checks lifetime and latest-request delivery. Separate missing/malformed/valid Room panels and editor templates check failure handling, native command binding and ownership; subsequent field edits prove the last valid path is retained, and a corrupted command-preview reload preserves pixels. Neither fixture establishes the cause of W1. |
+| Split-stroke Brush fixture | **Extend existing Brush suite** | Actual gestures on blank and held exposures exercise creation/renumber ownership, exact original drawing identity, exposure restoration and recreated geometry/style over three cycles. Unsplit and Auto Group behavior is unchanged. |
+| Raster paste fixture | **Keep both payload and Cancel cases** | Six native indexed/full-color targets use a contrasting preview to distinguish payload selection. A genuine external Cancel preserves an existing redo branch and its drawing identity; it is not redundant with native paste success. |
+| Python CI-auditor tests | **Keep** | Positive crash/error cases and benign checkpoint/cancellation-word controls prevent misleading diagnoses. Pagination and endpoint assertions concern the external GitHub boundary; they also prevent bounded requests from fetching unrelated history. |
+| Ruby CI-budget tests | **Keep and extend** | Includes, excludes, reusable nesting, event multiplicity, malformed/dynamic input, and cycle rejection are separate contracts. The CLI boundary case now accepts nine and ten checks and rejects eleven. |
+
+The new batch cases are authored, not locally executed. `exerciseMultipleSelectedTasks`
+checks actual start/stop for two selected roots and an untouched control;
+`exerciseTaskTreeSubmissionFailure` reports a standard exception through the tree slot;
+`exerciseChunkCollisionEditor` preserves original children and restores the actual editor.
+The selection case is behavioral coverage, not a reproduced TreeModel crash. Retired-outcome replay exercises
+absent-record rejection; worker-progress replacement separately exercises incarnation checks.
+It does not independently isolate list generation or inject duplicate retirement. Exact counts
+cover runners and individual tasks; final group roots and newly loaded groups need leak detection.
+Serialized self-cycle/duplicate-child/shared-child cases check rejection and preserved list state;
+they do not prove partial nested parser cleanup or count each loaded allocation.
+The UI fixture invokes selected actual slots, but does not cover every handler or mouse/focus
+path. Application exit with an active child, nested malformed parser cleanup, and remote farm
+restart/configuration require separate qualification. See the [task review](audit_task_lifetime.md).
+
+No legacy test has been classified as obsolete solely because it is old, lengthy,
+or resembles a newer case. Retiring standalone workflow files during CI
+consolidation is not removal of the suites moved into Linux Build.
+
+### HDR replacement evidence
+
+Before consolidation, the new direct test checked floating pixels with alpha
+`0.5`, exported the same raster twice, compared decoded rows, and compared pipe
+versus intermediate-image output. The new public fixture initially used alpha
+greater than one. Deleting either case without moving those inputs would have
+lost a distinct boundary.
+
+The public fixture now retains its original above-one-alpha cases in frames zero
+and one. Frames two and three use the direct fixture's exact inputs:
+
+| Region | Floating RGBA | Expected decoded RGBA |
+| --- | --- | --- |
+| Top | `(2, -0.25, 0.25, 1)` | `(255, 0, 64, 255)` |
+| Bottom | `(0.5, 0.25, 2, 0.5)` | `(128, 64, 255, 128)` |
+
+The last frame reuses the preceding raster without repainting it. After
+finalization, every source pixel must still equal its original floating value.
+Both export paths independently decode to the same expected pixels at every
+position, which also checks parity, frame order, and orientation. The public
+factory makes these assertions available on Windows as well as Linux/macOS.
+
+The expected alpha is `128`, not a rescaled or unpremultiplied channel value:
+[TRop conversion](../toonz/sources/common/trop/tconvert.cpp) clamps each channel
+and rounds `value * 255 + 0.5`; the existing FFmpeg pipe and ARGB32 intermediate
+paths pass those channel values through. No production pixel conversion was
+changed by this test consolidation. Runtime equivalence remains pending in CI.
+
+## Memory ownership fixture additions
+
+The memory follow-up has source/fixture diffs; runtime and baseline/mutation evidence remain
+pending. F38 is merge-exception double deletion and F40 is array-deleter mismatch, not measured
+normal-success growth. F36 releases builder metadata; F45/F46 retire progress UI, not the full
+render graph. See the [memory plan](audit_memory_lifetime.md),
+[scene ownership review](audit_memory_ownership.md) and [LSan qualification](audit_image_cache_lsan.md).
+
+| ID | Priority | Prepared behavior | Authored cases |
+| --- | --- | --- | --- |
+| F35 | P1 | ChildStack owned-root teardown: Recover the owned root before deleting ancestor records; only that root is cleared or released. | `destroyWhileNested`, `closeBeforeDestruction`, `clearNavigationWhileNested`, `clearSceneWhileNested`; CI pending |
+| F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI pending |
+| F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
+| F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; CI pending |
+| F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; CI pending |
+| F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; CI pending |
+| F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; CI pending |
+| F43 | P2 | Failed and overlapping update-checker lifetime: Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return. | `checkUpdateCompletion`, `checkOverlappingUpdates`, `checkUpdateCycles`; CI pending |
+| F44 | P2 | Drawing snapshot shared cache ownership: A private shared lease removes owned snapshot IDs after the last clone releases them. | `checkClipboardClones`, `checkUndoOwner`, `checkTransferredGenerations`, `checkReplacementAndFailure`, `checkConsumingPaste`; CI pending |
+| F45 | P2 | Normal render progress startup and terminal ownership: Scope-own listener/build-progress objects through startup, then hand off only after start. | `checkNormalRenders`, `checkRealCancellation`, `checkNestedCancellation`, `checkHandoffAndLateMessage`, `checkNestedProgressDelivery`, `checkStartupFailure`; CI pending |
+| F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
+| F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
+| F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; CI pending |
+
+F37 owns returned conversions; exceptions inside factories remain outside scope. F38 drives a
+real throwing merge; normal null-target copy was not a leak. F40 value checks need mismatch
+instrumentation. F44 orphan snapshots were previously cleared at scene reset. F45 graph-build
+exceptions are source-only; early cancel is covered, active-window shutdown is not. F47 checks
+keys before undo/after reset, with pixel-checked undo/redo between, not each intermediate key.
+
+`childstack_lifetime` is a required 60-second reliability CTest on all three platforms.
+`timagecache` remains the existing functional target. Linux additionally links standalone
+LSan and runs the fixed/mutated/restored qualifier plus eight harness contracts in the same
+job. The mutation removes only the in-memory builder delete; require the functional sentinel,
+leak exit 23 and direct builder stack, then restored success. All execution remains pending;
+disk spill/constructor exceptions are not forced. No job or matrix axis was added.
+
+`exerciseUiMemoryOwnership`, `runDrawingCacheIntegrationTest` and
+`runRenderProgressNativeChecks` run through the existing native application driver under
+BUILD_UI_PORT_TESTS. Earlier build/runtime failures can prevent their checkpoints.
+F37/F39/F48 reference assertions and UI QPointers are owner evidence, not measured RSS.
+
+## Differential proof plan
+
+Use the same tests and runner/toolchain on the fixed tree and a disposable tree
+with one production defect restored. Keep fixture registration and dependencies
+identical. Record the expected assertion or sanitizer report, exit status, and
+logs for each tree. Compilation failure, an unrelated early crash, or a missing
+test is not proof that a regression test catches its intended defect.
+
+| Scenario | Defect to restore in the disposable comparison | Expected distinguishing evidence |
+| --- | --- | --- |
+| HDR export | Restore one in-place float-clamp path at a time | Source-preservation assertion fails for the affected path; fixed output still matches the expected decoded pixels. |
+| PSD overwrite failure | Restore truncating destination writes | POSIX size-limit case detects changed original bytes or incorrectly reported success; fixed tree preserves bytes and retry succeeds. |
+| PSD interleaved readers | Restore shared mutable frame/layer selection | First reader returns another layer after second-reader construction; fixed readers retain their colors through repeated metadata reads. |
+| Painted weights | Restore cast-before-clipping and unchecked grid geometry separately | Large brush fails to cover the grid, invalid geometry is accepted, or sanitizer reports conversion/count overflow; fixed cases retain the ordinary round-trip behavior. |
+| Auto-Patch size guards | Disable a predicate check while retaining the new helper API | Existing helper boundary cases detect accepted impossible dimensions. Do not count failure to compile a new helper against an older header as behavioral proof. |
+| Auto-Patch predictive tiling | Add an actual FX/cache integration scenario before claiming this boundary is covered | A large predictive region that is later tiled must survive dry computation; each actual oversized tile must still fail before allocation. The helper-only fixture does not prove this lifecycle contract. |
+| Plugin function probes | Restore the `begin == end - 1` rejection | The valid single-entry function probe is rejected; the fixed tree loads it. The empty-range case must remain rejected in both trees. |
+| External effect | Restore ignored child exit/output checks separately | Nonzero exit or missing/corrupt output fails to produce the required actionable error; fixed process cases report it. |
+| External-effect pixels | Restore local-pointer-only output or omit type/size validation | Exact public-render destination pixels or invalid-output rejection fails; parent borders and tile storage/position remain checked. |
+| Task/undo state | Restore one ownership/cache-ID defect per run | The corresponding task retirement, drawing identity, exposure, aliasing, or group-depth assertion fails. Earlier crashes must not be mistaken for execution of later cases. |
+| Lazy Room replacement | Remove the initialization switching guard or consume the blocked pending request | Nested callback observes premature retirement or latest-request delivery fails; fixed case retains the Room until return and switches exactly once. |
+| Split vector Brush | Pass creation flags to every split undo record | Reverse undo fails original frame/exposure restoration; fixed three-cycle geometry and identity checks remain. |
+| Native raster paste | Prefer external QImage despite native RasterImageData | The contrasting preview prompts incorrectly or changes native type/pixels; fixed six targets retain native semantics. |
+| External-image Cancel | Open the undo block before payload/chooser preparation | Existing redo history disappears after Cancel; fixed case can redo the prior native drawing with the same identity. |
+| Custom panel loading | Restore unchecked factory/selection/command-preview loader results or commit a rejected template path | Missing/malformed or subsequent-command cases fail; valid binding and retained preview pixels remain control assertions. |
+| CI auditor | Restore single-page reads or broad keyword classification separately | Second-page failure or benign checkpoint controls distinguish the changed behavior without live API calls. |
+| CI budget | Mutate matrix/event/reusable expansion or limit comparison | Synthetic workflow fixtures and CLI status identify incorrect totals/rejection; the new guard has no pre-existing production implementation to run as a historical baseline. |
+
+The Python tests mock GitHub/subprocess boundaries rather than replacing the
+classification logic. Ruby tests write temporary workflow documents and include
+a real CLI process. Native plugin and external-effect tests load/run real fixture
+artifacts. The farm controller is an external-service fake; native application
+state transitions and undo operations remain real.
+
+## CI commands and outstanding qualification
+
+Run these only in configured CI builds, preserving the platform workflow's Qt,
+library-path, display, and debugger environment. The commands below are a focused
+subset; they do not replace the existing platform manifests.
+
+```sh
+cd toonz/build
+python3 ../../ci-scripts/run_regression_tests.py \
+  deformer autopatchoutline tiio_psd ffmpeg_public \
+  externfx_process plugin_probe_single plugin_probe_empty
+```
+
+Linux uses its Xvfb/software-GL wrapper. Windows uses `python` with
+`--config RelWithDebInfo`. Run the retained `tiio_ffmpeg` target on non-MSVC
+builds. Native task and undo cases require the existing platform
+`run_native_ui_test.py` step with its required-workflow flags; they are not covered
+by the subset above.
+
+```sh
+python3 -m unittest discover -s ci-scripts/tests -p test_ci_audit.py -v
+ruby ci-scripts/tests/test_ci_budget.rb
+```
+
+Outstanding evidence and follow-up work:
+
+- Retain c208 macOS `ffmpeg_public` evidence for consolidated HDR/audio cases and
+  qualify Linux/Windows plus the final combined revision. Preserve decoded-output
+  and original-raster diagnostics; one platform pass is not full qualification.
+- Add actual Auto-Patch dry/compute integration coverage for the predictive-cache
+  subdivision case. Old-scene image comparisons remain necessary; helper tests
+  and generic Compat scenes cannot establish behavior for an unrepresented FX.
+- Add Windows PSD write/commit failure injection and explicit rename/flush
+  failure scenarios. POSIX `RLIMIT_FSIZE` is not proof of Windows filesystem
+  behavior or every transaction failure stage.
+- Qualify full native UI task/undo workflows under Qt 6. The configured Qt 6
+  CTest jobs alone do not run this application driver. The macOS PR application
+  job is Intel; unrelated ARM runtime matrices do not qualify these C++ changes.
+- The external-effect fixture checks Windows process-handle stability but does
+  not prove cleanup of arbitrarily long-running child/grandchild trees. Its
+  command/output cases should remain separate from future timeout coverage.
+- Run F29's new public-render pixel cases and compare existing external-effect
+  scenes before/after. The c208 process-test pass predates these cases. Exact-size
+  RGBA32 publication leaves 64-bit/float destination support unresolved.
+- Plugin single/empty probe tests do not cover every malformed ABI descriptor,
+  stale parameter handle, or nonzero-offset raster. Do not claim those paths
+  are tested merely because the probe executable passes.
+- Preserve c208's expanded reporter/budget results and run targeted mutation
+  comparisons plus final combined-revision checks. Keep malformed-input tests;
+  parser success does not subsume them.
+- Preserve first-run failing CTest logs. The nightly workflow currently reruns
+  failed tests to gather annotations; a later diagnostic result must not replace
+  the original failure evidence or be treated as a retry that qualified the code.
+
+Follow-up fixtures retain the existing execution paths: `verifyAudioLifecycle`
+and `verifyAudioDecode` run within `ffmpeg_public`; `swingUndoChecks` runs within
+`runVectorWorkflowNativeChecks`. Their process, timeout, drawing, and exposure
+scenarios are recorded in the scenario ledger and Swing report.
+`testProbeTimeoutConversion` extends the retained direct FFmpeg suite with a
+delayed helper, large timeout conversion, default fallback, and short-timeout rejection.
+It is configured for Linux/macOS; an equivalent Windows public case remains missing.
+The eight page-heap contracts run early in the existing Windows application job,
+before native compilation. They mock the registry/process boundaries and do not prove
+that CDB or runtime heap instrumentation works on the runner.
+
+At draft head `2758123e81050f45aaec2c105bb24a729cfd0f27`, the Linux CI steps for
+the 20 auditor tests and 15 budget tests passed in
+[job 128529701035](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42414551454/job/128529701035).
+That run predates the expanded budget boundary and the follow-up C++ fixtures.
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, the later
+[Linux job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847476/job/128545710903) passed 22 reporter tests and 15 budget tests with 50 assertions;
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336) passed all 22 reliability CTests.
+Both platforms passed F03–F06 native checkpoints, then failed F07's AVI expectation.
+The effective-format fixture correction is prepared but unexecuted; Swing was not reached.
+Linux reliability was skipped. F27/F28 and F29 pixel cases were added afterward and remain
+pending. No coverage percentage, mutation score, or full platform qualification is claimed.
+
+At `c20884ffb45660f79a7f213329e5e9c1ff2dc479`, the
+[Windows job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847544/job/128546431217)
+completed the full application build. Eight PageHeap boundary contracts, 35 process
+containment/capture cases (including controlled native crash/hang probes), two standalone
+Qt UI CTests, and seven staged dependency notice checks also passed. Neural qualification
+was then cancelled after the next head superseded this run; native application integration
+was skipped. Compilation and these bounded checks do not establish a W1 repair or task
+runtime success. CI17–CI19 retain these separately from the older failure evidence.
+
+At `5e9c2f00ccabd48f8f6b80748b924e1f9ea4a23b`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881641/job/128554892608) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42422881533/job/128554992210)
+builds failed because F29's `BlueSource` fixture did not override the pure virtual
+`TFx::getPluginId() const`. The override is now prepared. Linux compiled the five task
+implementation/fixture objects and linked OpenToonz; macOS task compilation/link completion
+was not established. Neither job ran the new native or pixel cases. CI20/CI21 preserve that
+build failure; it is not a failed behavioral regression or evidence of a reporter defect.
+F30–F34 were prepared after this head and have no runtime evidence from these jobs.
+
+The new Room, Brush, clipboard and panel cases do not replace older fixtures. Before closure,
+run the exact combined revision and narrow mutations; retain new-level/lettered-ID Brush,
+mixed-column/gap/input paste, repaired-panel reload, and original W1 crash limitations.
+
+At PR head `49cf834fa27c6101ba01013ae6e63fe76f506c3c`,
+[Linux](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500) and
+[macOS](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163)
+builds rejected two `const TVectorImageP` locals in the Brush fixture because its conversion
+operator is non-const. The prepared correction removes only those two qualifiers. OpenToonz
+did not link; native/reliability tests were skipped. Task/paste/panel object compilation and
+external-FX/probe links are compilation evidence only. Linux's separate SeExpr sanitizer graph
+passed; it does not qualify application memory paths. CI22/CI23 preserve the failure.
+F35–F48 postdate this head; no new owner fixture or cache LSan mutation has run.
+
+macOS also emitted existing vendored SuperLU platform-load-command and duplicate OpenEXR
+archive-link warnings. These remain unresolved dependency warnings, separate from the failure.
+For c208 Windows, the PR head was c20884ffb, while checkout/build used merge
+`27381fa6e2358d68df5370b1a4c75ee81321035b`. CI17–CI19 retain PR-head association; the ledger
+records checkout provenance separately from log lines 215/274.

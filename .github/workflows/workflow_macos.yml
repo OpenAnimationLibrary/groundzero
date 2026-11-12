@@ -24,16 +24,16 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
-      - uses: actions/setup-python@v6
+          lfs: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Generate same-revision numerical oracle
         run: python ci-scripts/neural-style/evaluate.py
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-neural-oracle-${{ github.sha }}
           path: neural-evaluation/report/golden.npz
@@ -50,13 +50,15 @@ jobs:
     # TODO: Change macOS GHA Runner Image to (Apple Silicon) based image on/prior to sunsetting of `macos-15-intel` (x86_64) runner image (August 2027)
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Clean Python symlinks
         run: |
           # Remove potentially conflicting Python symlinks
           find /usr/local/bin -type l \( -name "python*" -o -name "pip*" -o -name "2to3*" -o -name "idle*" -o -name "pydoc*" \) \
-            -exec sh -c 'file -b {} | grep -q "symbolic link to .*Python.framework" && echo "Removing {}" && rm {}' \;
+            -exec sh -c 'file -b "$1" | grep -q "symbolic link to .*Python.framework" && printf "Removing %s\n" "$1" && rm -- "$1"' sh {} \;
           # Ensure Homebrew Python is properly linked
           for py_version in python@3.11 python@3.12 python@3.13 python@3.14; do
             if brew list --versions $py_version >/dev/null; then
@@ -87,7 +89,7 @@ jobs:
           brew unlink qt@5 || true
           brew link qt@5 || true
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
 
@@ -111,7 +113,7 @@ jobs:
         run: |
           export PATH="/usr/local/opt/ccache/libexec:$PATH"
           mkdir -p /Users/runner/.ccache
-      - uses: actions/cache/restore@v5
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: compiler_cache
         with:
           path: /Users/runner/.ccache
@@ -122,7 +124,7 @@ jobs:
         run: |
           cd thirdparty/tiff-4.0.3
           CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-lzma
-          make -j $(sysctl -n hw.ncpu)
+          make -j "$(sysctl -n hw.ncpu)"
           make install  # Ensures CMake finds the installed lib (avoid linking issues)
       - name: Build
         id: build
@@ -135,13 +137,13 @@ jobs:
           cd build
           cmake ../sources -G Ninja \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DQT_PATH=$(brew --prefix qt@5)/lib \
-            -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
-            -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
-            -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
+            -DQT_PATH="$(brew --prefix qt@5)/lib" \
+            -DQt5_DIR="$(brew --prefix qt@5)/lib/cmake/Qt5" \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@5)/lib/cmake/Qt5" \
+            -DOpenCV_DIR="$(brew --prefix opencv@4)/lib/cmake/opencv4" \
             -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON \
             -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON \
-            -DBUILD_RELIABILITY_TESTS=ON \
+            -DBUILD_RELIABILITY_TESTS=ON -DBUILD_DEFORMER_TESTS=ON -DBUILD_AUTOPATCH_TESTS=ON \
             -DBUILD_STREAM_TESTS=ON \
             -DBUILD_SCENEBENCH_TESTS=ON \
             -DBUILD_FXRENDER_TESTS=ON \
@@ -151,15 +153,15 @@ jobs:
             -DBUILD_SEEXPR_TESTS=ON \
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
-          ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+          ninja -j "$(sysctl -n hw.ncpu)" 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
       - name: Preserve compiled objects
         if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: macos-neural-oracle-${{ github.sha }}
           path: neural-golden
@@ -169,7 +171,7 @@ jobs:
 
       - name: Retain reference style qualification and visual examples
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
           path: neural-evaluation/report
@@ -180,7 +182,8 @@ jobs:
         working-directory: toonz/build
         run: |
           set -o pipefail
-          export DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          export DYLD_LIBRARY_PATH
           QT_QPA_PLATFORM=offscreen python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
       - name: Report native UI failures
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
@@ -273,7 +276,7 @@ jobs:
       - name: Upload artist workflow evidence
         id: upload_artist_evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         continue-on-error: true
         with:
@@ -290,7 +293,7 @@ jobs:
       - name: Retry artist workflow evidence upload
         id: upload_artist_evidence_retry
         if: ${{ !cancelled() && steps.upload_artist_evidence.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         continue-on-error: true
         with:
@@ -306,7 +309,7 @@ jobs:
         run: sleep 30
       - name: Final artist workflow evidence upload attempt
         if: ${{ !cancelled() && steps.upload_artist_evidence_retry.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         with:
           name: artist-workflow-macos
@@ -337,11 +340,11 @@ jobs:
             fi
           done
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
-          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+          python3 ../../ci-scripts/run_regression_tests.py castworkflow childstack_lifetime rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
       - name: Upload reliability diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-reliability-results
           path: |
@@ -369,7 +372,7 @@ jobs:
           grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
             file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
             msg=${line#*error: }
-            file=${file#$prefix}; file=${file#../sources/}
+            file=${file#"$prefix"}; file=${file#../sources/}
             case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
             echo "::error file=${file},line=${lineno}::${msg}"
           done
@@ -416,7 +419,7 @@ jobs:
 
       - name: Upload optional benchmark bundle
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-input-macos
           path: benchmark-input.tar.gz
@@ -444,7 +447,7 @@ jobs:
       # required, so a package that never uploads still fails the job.
       - name: Upload macOS package
         id: upload_macos
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         continue-on-error: true
         with:
@@ -459,7 +462,7 @@ jobs:
       - name: Retry macOS package upload
         id: upload_macos_retry
         if: ${{ !cancelled() && steps.upload_macos.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         continue-on-error: true
         with:
@@ -473,7 +476,7 @@ jobs:
         run: sleep 30
       - name: Final macOS package upload attempt
         if: ${{ !cancelled() && steps.upload_macos_retry.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         with:
           name: Opentoonz-${{ runner.os }}-${{ github.sha }}
@@ -484,7 +487,8 @@ jobs:
 
   InstalledApplication:
     needs: macOS
-    uses: ./.github/workflows/seexpr-package-smoke.yml
+    # Same revision; actionlint 1.7.12 does not support the newer $/ syntax.
+    uses: ./.github/workflows/seexpr-package-smoke.yml # zizmor: ignore[self-repository]
     with:
       platform: macos
       artifact_name: Opentoonz-macOS-${{ github.sha }}

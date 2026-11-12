@@ -36,12 +36,17 @@
 #include <QCryptographicHash>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include "tmsgcore.h"
 #include "thirdparty.h"
 
 Ffmpeg::Ffmpeg() {
-  int userTimeoutSec = ThirdParty::getFFmpegTimeout();
-  m_ffmpegTimeoutMs  = (userTimeoutSec > 0) ? userTimeoutSec * 1000 : 30000;
+  const int userTimeoutSec = ThirdParty::getFFmpegTimeout();
+  m_ffmpegTimeoutMs =
+      userTimeoutSec > 0
+          ? int(std::min<qint64>(qint64(userTimeoutSec) * 1000,
+                                 std::numeric_limits<int>::max()))
+          : 30000;
 
   m_intermediateFormat = "png";
   m_startNumber        = std::numeric_limits<int>::max();
@@ -186,25 +191,7 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     if (!raster32)
       throw TImageException(m_path, "Failed to allocate raster for FFmpeg");
 
-    // float (16 bytes/pixel), do clamp
-    if (bpp == 16) {
-      TRasterPT<TPixelF> rasterFloat(raster);
-      if (rasterFloat) {
-        rasterFloat->lock();
-        for (int y = 0; y < ly; ++y) {
-          TPixelF *pix = rasterFloat->pixels(y);
-          for (int x = 0; x < lx; ++x, ++pix) {
-            pix->r = tcrop(pix->r, 0.0f, 1.0f);
-            pix->g = tcrop(pix->g, 0.0f, 1.0f);
-            pix->b = tcrop(pix->b, 0.0f, 1.0f);
-            pix->m = tcrop(pix->m, 0.0f, 1.0f);
-          }
-        }
-        rasterFloat->unlock();
-      }
-    }
-
-    // Convert to 32-bit ARGB
+    // Conversion clamps floating channels without modifying the source.
     try {
       TRop::convert(raster32, raster);
     } catch (...) {
@@ -362,23 +349,7 @@ QByteArray makePipeFrame(const TRasterP &raster, int lx, int ly) {
   TRaster32P raster32 = raster;
   if (!raster32) {
     raster32 = TRaster32P(raster->getLx(), raster->getLy());
-    // float (16 bytes/pixel), clamp like createIntermediateImage()
-    if (raster->getPixelSize() == 16) {
-      TRasterPT<TPixelF> rasterFloat(raster);
-      if (rasterFloat) {
-        rasterFloat->lock();
-        for (int y = 0; y < rasterFloat->getLy(); ++y) {
-          TPixelF *pix = rasterFloat->pixels(y);
-          for (int x = 0; x < rasterFloat->getLx(); ++x, ++pix) {
-            pix->r = tcrop(pix->r, 0.0f, 1.0f);
-            pix->g = tcrop(pix->g, 0.0f, 1.0f);
-            pix->b = tcrop(pix->b, 0.0f, 1.0f);
-            pix->m = tcrop(pix->m, 0.0f, 1.0f);
-          }
-        }
-        rasterFloat->unlock();
-      }
-    }
+    // Conversion clamps floating channels without modifying the source.
     TRop::convert(raster32, raster);
   }
 

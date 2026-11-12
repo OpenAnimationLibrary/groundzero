@@ -1149,23 +1149,23 @@ void MainWindow::onUpgradeTabPro() {}
 //-----------------------------------------------------------------------------
 
 void MainWindow::onAbout() {
-  QLabel *label  = new QLabel();
+  DVGui::Dialog dialog(this, true);
+  QLabel* label  = new QLabel(&dialog);
   QPixmap pixmap = QIcon(":Resources/splash.svg").pixmap(QSize(610, 344));
   pixmap.setDevicePixelRatio(getDevicePixelRatio(this));
   label->setPixmap(pixmap);
 
-  DVGui::Dialog *dialog = new DVGui::Dialog(this, true);
-  dialog->setWindowTitle(tr("About Groundzero"));
-  dialog->setTopMargin(0);
-  dialog->addWidget(label);
+  dialog.setWindowTitle(tr("About Groundzero"));
+  dialog.setTopMargin(0);
+  dialog.addWidget(label);
   QHBoxLayout *hLay = new QHBoxLayout();
   {
     QString name = QString::fromStdString(TEnv::getApplicationFullName());
     name += " (built " __DATE__ " " __TIME__ ")";
-    hLay->addWidget(new QLabel(name, dialog));
+    hLay->addWidget(new QLabel(name, &dialog));
 
-    QCheckBox *showDateCheckBox =
-        new QCheckBox(tr("Show build date in title"), dialog);
+    QCheckBox* showDateCheckBox =
+        new QCheckBox(tr("Show build date in title"), &dialog);
     showDateCheckBox->setChecked(ShowBuildDateInTitle);
     connect(showDateCheckBox, &QCheckBox::stateChanged, [=](int state) {
       bool show            = (state == Qt::Checked);
@@ -1174,13 +1174,13 @@ void MainWindow::onAbout() {
     });
     hLay->addWidget(showDateCheckBox);
   }
-  dialog->addLayout(hLay);
+  dialog.addLayout(hLay);
 
-  QPushButton *button = new QPushButton(tr("Close"), dialog);
+  QPushButton* button = new QPushButton(tr("Close"), &dialog);
   button->setDefault(true);
-  dialog->addButtonBarWidget(button);
-  connect(button, SIGNAL(clicked()), dialog, SLOT(accept()));
-  dialog->exec();
+  dialog.addButtonBarWidget(button);
+  connect(button, SIGNAL(clicked()), &dialog, SLOT(accept()));
+  dialog.exec();
 }
 
 //-----------------------------------------------------------------------------
@@ -1253,10 +1253,18 @@ void MainWindow::requestRoomSetChange(QString profile) {
   if (m_isSwitchingWorkflows || m_closeInProgress || !m_saveSettingsOnQuit ||
       IoCmd::isSceneTransitionInProgress())
     return;
-  const bool scheduled = !m_pendingWorkflow.isEmpty();
-  m_pendingWorkflow    = profile;
-  if (scheduled) return;
+  m_pendingWorkflow = profile;
+  schedulePendingWorkflowSwitch();
+}
+
+void MainWindow::schedulePendingWorkflowSwitch() {
+  if (m_pendingWorkflow.isEmpty() || m_workflowSwitchScheduled ||
+      m_isSwitchingWorkflows)
+    return;
+  m_workflowSwitchScheduled = true;
   QTimer::singleShot(0, this, [this]() {
+    m_workflowSwitchScheduled = false;
+    if (m_isSwitchingWorkflows) return;
     const QString profile = m_pendingWorkflow;
     m_pendingWorkflow.clear();
     switchWorkflow(profile);
@@ -1490,8 +1498,18 @@ void MainWindow::seeThroughWindow() {
 void MainWindow::onRoomTabChanged(int index) {
   if (m_isSwitchingWorkflows || index < 0 || index >= getRoomCount()) return;
   Room *room = getRoom(index);
-  if (room->notInitialized()) room->initialize();
-  m_stackedWidget->setCurrentIndex(index);
+  try {
+    if (room->notInitialized()) {
+      const QScopedValueRollback<bool> initializing(m_isSwitchingWorkflows,
+                                                    true);
+      room->initialize();
+    }
+    m_stackedWidget->setCurrentIndex(index);
+  } catch (...) {
+    schedulePendingWorkflowSwitch();
+    throw;
+  }
+  schedulePendingWorkflowSwitch();
 }
 
 void MainWindow::onCurrentRoomChanged(int newRoomIndex) {
@@ -2029,22 +2047,23 @@ void MainWindow::checkForUpdates() {
   // against a string
   QString updateUrl("http://opentoonz.github.io/opentoonz-version.txt");
 
-  m_updateChecker = new UpdateChecker(updateUrl);
-  connect(m_updateChecker, SIGNAL(done(bool)), this,
-          SLOT(onUpdateCheckerDone(bool)));
+  auto* checker = new UpdateChecker(updateUrl);
+  checker->setParent(this);
+  connect(checker, SIGNAL(done(bool)), this, SLOT(onUpdateCheckerDone(bool)));
 }
 //-----------------------------------------------------------------------------
 
 void MainWindow::onUpdateCheckerDone(bool error) {
-  if (error) {
-    // Get the last update date
-    return;
-  }
+  auto* checker = qobject_cast<UpdateChecker*>(sender());
+  if (!checker) return;
+  const QString latestVersion = checker->getLatestVersion();
+  disconnect(checker, nullptr, this, nullptr);
+  checker->deleteLater();
+  if (error) return;
 
   int const software_version =
       get_version_code_from(TEnv::getApplicationVersion());
-  int const latest_version =
-      get_version_code_from(m_updateChecker->getLatestVersion().toStdString());
+  int const latest_version = get_version_code_from(latestVersion.toStdString());
   if (software_version < latest_version) {
     QStringList buttons;
     buttons.push_back(QObject::tr("Visit Web Site"));
@@ -2064,9 +2083,6 @@ void MainWindow::onUpdateCheckerDone(bool error) {
       QDesktopServices::openUrl(QObject::tr("https://opentoonz.github.io/e/"));
     }
   }
-
-  disconnect(m_updateChecker);
-  m_updateChecker->deleteLater();
 }
 
 //-----------------------------------------------------------------------------

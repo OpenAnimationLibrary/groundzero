@@ -219,9 +219,15 @@ class AutoPatchFx final : public TStandardRasterFx {
   TDoubleParamP m_outlineWidth;
 
   // Outline Only: the margin, in pixels, of Top's render around a tile
-  int outlineMargin(double frame, const TRenderSettings &ri) const {
+  int outlineMargin(double frame, const TRenderSettings& ri) const {
     const double scale = sqrt(fabs(ri.m_affine.det()));
-    return (int)std::ceil(m_outlineWidth->getValue(frame) * scale) + 2;
+    const int margin =
+        autopatch::outlineMargin(m_outlineWidth->getValue(frame) * scale);
+    if (margin < 0)
+      throw TException(
+          "Auto-Patch: invalid outline support; reduce Outline "
+          "Width or render scale to a finite, non-negative value");
+    return margin;
   }
 
 public:
@@ -307,7 +313,8 @@ void AutoPatchFx::doDryCompute(TRectD &rect, double frame,
   m_top->dryCompute(rect, frame, filteredSettings(info, false));
   if (m_mask.isConnected()) m_mask->dryCompute(rect, frame, info);
   if (m_outlineOnly->getValue()) {
-    TRectD outlineRect = rect.enlarge(outlineMargin(frame, info));
+    const int margin   = outlineMargin(frame, info);
+    TRectD outlineRect = rect.enlarge(margin);
     m_top->dryCompute(outlineRect, frame, info);
   }
 }
@@ -355,14 +362,18 @@ void AutoPatchFx::doCompute(TTile &tile, double frame,
   // Outline Only: the outside of Top, around the tile
   std::vector<float> outline;
   if (m_outlineOnly->getValue()) {
-    const int margin   = outlineMargin(frame, ri);
-    const double width = m_outlineWidth->getValue(frame) *
-                         sqrt(fabs(ri.m_affine.det()));
+    const int margin = outlineMargin(frame, ri);
+    if (!autopatch::canRenderOutline(size.lx, size.ly, margin,
+                                     ras->getPixelSize()))
+      throw TException(
+          "Auto-Patch: outline raster exceeds supported dimensions; "
+          "reduce Outline Width or render scale");
+    const double width =
+        m_outlineWidth->getValue(frame) * sqrt(fabs(ri.m_affine.det()));
     TTile wholeTopTile;
     m_top->allocateAndCompute(
         wholeTopTile, pos - TPointD(margin, margin),
-        TDimension(size.lx + 2 * margin, size.ly + 2 * margin), ras, frame,
-        ri);
+        TDimension(size.lx + 2 * margin, size.ly + 2 * margin), ras, frame, ri);
     const TRasterP wholeTop = wholeTopTile.getRaster();
     if (TRaster32P top32 = wholeTop)
       outline = outlineWeights<TPixel32>(top32, margin, size, width);

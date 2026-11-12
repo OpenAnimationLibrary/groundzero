@@ -680,6 +680,8 @@ public:
       TImageCache::instance()->remove(m_imageId);
     if (TImageCache::instance()->isCached(m_floatingImageId))
       TImageCache::instance()->remove(m_floatingImageId);
+    if (TImageCache::instance()->isCached(m_oldFloatingImageId))
+      TImageCache::instance()->remove(m_oldFloatingImageId);
     if (TImageCache::instance()->isCached(m_undoImageId))
       TImageCache::instance()->remove(m_undoImageId);
   }
@@ -1458,7 +1460,7 @@ void RasterSelection::pasteSelection() {
     m_oldPalette = m_currentImage->getPalette()->clone();
   if (stData) {
     if (TToonzImageP ti = m_currentImage)
-      riData = stData->toToonzImageData(ti);
+      transferredData.reset(stData->toToonzImageData(ti));
     else {
       TRasterImageP ri = m_currentImage;
       assert(ri);
@@ -1471,8 +1473,9 @@ void RasterSelection::pasteSelection() {
         dpiy = dpi.y;
         ri->setDpi(dpix, dpiy);
       }
-      riData = stData->toFullColorImageData(ri);
+      transferredData.reset(stData->toFullColorImageData(ri));
     }
+    riData = transferredData.get();
   }
 
   if (!riData && clipImage.height() > 0 &&

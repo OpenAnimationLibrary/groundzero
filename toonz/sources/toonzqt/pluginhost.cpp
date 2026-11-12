@@ -410,8 +410,8 @@ void RasterFxPluginHost::notify() {
 }
 
 RasterFxPluginHost::~RasterFxPluginHost() {
-  if (pi_ && pi_->handler_->destroy) {
-    pi_->handler_->destroy(this);
+  if (pi_) {
+    if (pi_->handler_ && pi_->handler_->destroy) pi_->handler_->destroy(this);
     pi_->release();
   }
   inputs_.clear();
@@ -829,7 +829,8 @@ bool RasterFxPluginHost::setParamStructure(int n, toonz_param_page_t *p,
           if (dst_desc.traits_tag == TOONZ_PARAM_TYPE_ENUM) {
             dst_desc.traits.e.def = src_desc.traits.e.def;
             int enums = dst_desc.traits.e.enums = src_desc.traits.e.enums;
-            auto a = std::shared_ptr<void>(new char *[enums]);
+            auto a = std::shared_ptr<void>(new char*[enums],
+                                           std::default_delete<char*[]>());
             param_resources.push_back(a);
             dst_desc.traits.e.array = static_cast<const char **>(a.get());
             for (int i = 0; i < enums; i++)
@@ -837,8 +838,10 @@ bool RasterFxPluginHost::setParamStructure(int n, toonz_param_page_t *p,
                   patch_string(src_desc.traits.e.array[i]);
           } else if (dst_desc.traits_tag == TOONZ_PARAM_TYPE_SPECTRUM) {
             int points = dst_desc.traits.g.points = src_desc.traits.g.points;
-            auto ptr                              = std::shared_ptr<void>(
-                new toonz_param_traits_spectrum_t::valuetype[points]);
+            using SpectrumPoint = toonz_param_traits_spectrum_t::valuetype;
+            auto ptr =
+                std::shared_ptr<void>(new SpectrumPoint[points],
+                                      std::default_delete<SpectrumPoint[]>());
             param_resources.push_back(ptr);
             dst_desc.traits.g.array =
                 static_cast<toonz_param_traits_spectrum_t::valuetype *>(
@@ -1267,7 +1270,9 @@ static void release_interface(void *interf) {
   // All interfaces are static global, nothing to delete
 }
 
-Loader::Loader() {}
+Loader::Loader() {
+  qRegisterMetaType<PluginInformation*>("PluginInformation*");
+}
 
 void Loader::walkDirectory(const QString &path) {
   Q_UNUSED(path);
@@ -1376,9 +1381,6 @@ void Loader::doLoad(const QString &file) {
           else if (begin >= end)
             throw std::domain_error(
                 "invalid plugin information address (begin >= end)");
-          else if (begin == end - 1)
-            throw std::domain_error(
-                "invalid plugin information address (information is empty)");
           probinfo_begin = begin;
           probinfo_end   = end;
         } else {

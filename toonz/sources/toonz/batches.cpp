@@ -7,12 +7,14 @@
 #include "tsystem.h"
 #include "mainwindow.h"
 #include "batches.h"
+#include "batchtaskexecution.h"
 #include "tthreadmessage.h"
 #include "tfarmexecutor.h"
 #include "tstream.h"
 #include "tfarmstuff.h"
 #include "tenv.h"
 #include "toutputproperties.h"
+#include "tlevel_io.h"
 #include "trasterfx.h"
 #include "tasksviewer.h"
 #include "tapp.h"
@@ -25,18 +27,27 @@
 #include "toonzqt/gutil.h"
 
 #include <QString>
-#include <QProcess>
+#include <QCoreApplication>
+#include <QPointer>
+#include <QThread>
+#include <climits>
+#include <functional>
+#include <memory>
+#include <stdexcept>
 #include <QHostInfo>
 
 namespace {
 
-class NotifyMessage final : public TThread::Message {
+class BatchCallbackMessage final : public TThread::Message {
+  std::function<void()> m_callback;
+
 public:
-  NotifyMessage() {}
-
-  void onDeliver() override { BatchesController::instance()->update(); }
-
-  TThread::Message *clone() const override { return new NotifyMessage(*this); }
+  explicit BatchCallbackMessage(std::function<void()> callback)
+      : m_callback(std::move(callback)) {}
+  void onDeliver() override { m_callback(); }
+  TThread::Message* clone() const override {
+    return new BatchCallbackMessage(*this);
+  }
 };
 
 }  // namespace
@@ -134,157 +145,640 @@ bool SaveTaskListPopup::execute() {
 }
 
 //------------------------------------------------------------------------------
-QMutex TasksMutex;
-std::map<QString, QProcess *> RunningTasks;
-
-class TaskRunner final : public TThread::Runnable {
-public:
-  TaskRunner(TFarmTask *task, int localControllerPort)
-      : m_task(task), m_localControllerPort(localControllerPort) {}
-
-  void run() override;
-
-  int taskLoad() override;
-
-  void doRun(TFarmTask *task);
-
-  void runCleanup() { BatchesController::instance()->notify(); }
-
-  TFarmTask *m_task;
-  int m_localControllerPort;
+struct BatchExecutionRecord {
+  std::shared_ptr<const BatchTaskExecution::Plan> plan;
+  std::shared_ptr<BatchTaskExecution::Control> control;
+  TThread::RunnableP runnable;
 };
 
-void TaskRunner::run() { doRun(m_task); }
+struct BatchExecutionState {
+  quint64 generation      = 1;
+  quint64 nextIncarnation = 1;
+  quint64 nextSubmission  = 1;
+  std::shared_ptr<const std::map<QString, BatchTaskExecution::Identity>>
+      progressIdentities = std::make_shared<
+          const std::map<QString, BatchTaskExecution::Identity>>();
+  std::map<QString, quint64> incarnations;
+  std::map<quint64, BatchExecutionRecord> records;
+  std::map<quint64, std::set<quint64>> members;
+  bool closing = false;
+#ifdef BUILD_UI_PORT_TESTS
+  std::shared_ptr<BatchTaskExecution::TestHooks> hooks;
+#endif
+};
 
-int TaskRunner::taskLoad() {
-  // We assume that CPU control is under the user's responsibility about
-  // tcomposer tasks - so they don't figure in CPU consumption calculations.
-  return 0;
+namespace {
+using BatchTaskExecution::Identity;
+using BatchTaskExecution::Node;
+using BatchTaskExecution::Outcome;
+using BatchTaskExecution::Plan;
+
+std::shared_ptr<const std::map<QString, Identity>> taskIdentities(
+    const std::map<QString, quint64>& incarnations, quint64 generation) {
+  auto identities = std::make_shared<std::map<QString, Identity>>();
+  for (const auto& entry : incarnations)
+    identities->emplace(entry.first,
+                        Identity{entry.first, generation, entry.second});
+  return identities;
 }
 
-/*QString getFarmAddress()
-{
-if (BatchesController::instance()->getController())
-  {
-  QString dummystr, address;
-  int dummyint;
-  TFarmStuff::getControllerData(dummystr, address, dummyint);
+void collectTasks(TFarmTask* task, std::map<QString, TFarmTask*>& tasks) {
+  if (!task || task->m_id.isEmpty() || !tasks.emplace(task->m_id, task).second)
+    throw TException("Task list contains an empty or duplicate task ID");
+  if (auto* group = dynamic_cast<TFarmTaskGroup*>(task))
+    for (int i = 0; i < group->getTaskCount(); ++i)
+      collectTasks(group->getTask(i), tasks);
+}
 
-  return address;
+std::vector<TFarmTask*> taskRoots(const std::map<QString, TFarmTask*>& tasks) {
+  std::set<TFarmTask*> children;
+  for (const auto& entry : tasks)
+    if (auto* group = dynamic_cast<TFarmTaskGroup*>(entry.second))
+      for (int i = 0; i < group->getTaskCount(); ++i)
+        children.insert(group->getTask(i));
+  std::vector<TFarmTask*> roots;
+  roots.reserve(tasks.size());
+  for (const auto& entry : tasks)
+    if (!children.count(entry.second)) roots.push_back(entry.second);
+  return roots;
+}
+
+std::vector<std::unique_ptr<TFarmTask>> taskOwners(
+    const std::map<QString, TFarmTask*>& tasks) {
+  const auto roots = taskRoots(tasks);
+  std::vector<std::unique_ptr<TFarmTask>> owners;
+  owners.reserve(roots.size());
+  for (auto* root : roots) owners.emplace_back(root);
+  return owners;
+}
+
+struct PreparedTask {
+  QString id;
+  TaskState status;
+  int successful;
+  int failed;
+  QDateTime start;
+  QDateTime completion;
+  QString caller;
+  explicit PreparedTask(const TFarmTask& task)
+      : id(task.m_id)
+      , status(task.m_status)
+      , successful(task.m_successfullSteps)
+      , failed(task.m_failedSteps)
+      , start(task.m_startDate)
+      , completion(task.m_completionDate)
+      , caller(task.m_callerMachineName) {}
+  void restore(TFarmTask& task) const {
+    task.m_status            = status;
+    task.m_successfullSteps  = successful;
+    task.m_failedSteps       = failed;
+    task.m_startDate         = start;
+    task.m_completionDate    = completion;
+    task.m_callerMachineName = caller;
   }
-else return  "127.0.0.1"; //localHost
-}*/
+};
 
-void TaskRunner::doRun(TFarmTask *task) {
-  // Suspended tasks are not executed. (Should only waiting ones be executed?)
-  if (task->m_status == Suspended) return;
+class PlanBuilder {
+  BatchesController& m_controller;
+  const BatchExecutionState& m_state;
+  std::shared_ptr<Plan> m_plan = std::make_shared<Plan>();
+  std::map<TFarmTask*, size_t> m_indices;
+  std::set<TFarmTask*> m_visiting;
+  std::set<TFarmTask*> m_protected;
 
-  if (task->m_dependencies && task->m_dependencies->getTaskCount() != 0) {
-    task->m_status = Waiting;
-    int depCount   = task->m_dependencies->getTaskCount();
-    for (int i = 0; i < depCount; ++i) {
-      QString depTaskId  = task->m_dependencies->getTaskId(i);
-      TFarmTask *depTask = BatchesController::instance()->getTask(depTaskId);
-      if (depTask) {
-        doRun(depTask);
+  Identity identity(TFarmTask* task) const {
+    return {task->m_id, m_state.generation,
+            m_state.incarnations.at(task->m_id)};
+  }
+  void protect(TFarmTask* task) {
+    if (!m_protected.insert(task).second) return;
+    m_plan->affected.push_back(identity(task));
+    if (auto* group = dynamic_cast<TFarmTaskGroup*>(task))
+      for (int i = 0; i < group->getTaskCount(); ++i)
+        protect(group->getTask(i));
+  }
+  void captureEdges(TFarmTask* task, size_t index) {
+    if (task->m_dependencies)
+      for (int i = 0; i < task->m_dependencies->getTaskCount(); ++i)
+        if (auto* dependency =
+                m_controller.getTask(task->m_dependencies->getTaskId(i))) {
+          const size_t child = capture(dependency);
+          m_plan->nodes[index].dependencies.push_back(child);
+        }
+    if (task->getTaskCount() > 1) {
+      for (int i = 0; i < task->getTaskCount(); ++i) {
+        const size_t child = capture(task->getTask(i));
+        m_plan->nodes[index].children.push_back(child);
+      }
+    } else {
+      m_plan->nodes[index].command = {task->m_id, task->getCommandLinePrgName(),
+                                      task->getCommandLineArgumentsList()};
+    }
+  }
+
+  size_t capture(TFarmTask* task) {
+    if (m_visiting.count(task))
+      throw TException("Batch task dependencies contain a cycle");
+    auto found = m_indices.find(task);
+    if (found != m_indices.end()) return found->second;
+    protect(task);
+    Node node;
+    node.identity       = identity(task);
+    node.eligible       = task->m_status != Suspended;
+    const qint64 frames = qint64(task->m_to) - task->m_from + 1;
+    if (node.eligible && (frames < 1 || frames > INT_MAX))
+      throw TException("Batch task frame range is invalid");
+    node.frameCount    = node.eligible ? int(frames) : 0;
+    node.stepCount     = task->m_stepCount;
+    const size_t index = m_plan->nodes.size();
+    m_indices.emplace(task, index);
+    m_plan->nodes.push_back(node);
+    if (!node.eligible) return index;
+    m_visiting.insert(task);
+    captureEdges(task, index);
+    m_visiting.erase(task);
+    return index;
+  }
+
+public:
+  PlanBuilder(BatchesController& controller, const BatchExecutionState& state)
+      : m_controller(controller), m_state(state) {}
+  std::shared_ptr<Plan> build(TFarmTask* root) {
+    m_plan->root = capture(root);
+    return m_plan;
+  }
+};
+
+std::vector<std::unique_ptr<TFarmTask>> prepareChunks(const TFarmTask& task,
+                                                      int from, int to,
+                                                      int size,
+                                                      const TFilePath& output) {
+  std::vector<std::unique_ptr<TFarmTask>> children;
+  const qint64 frames = qint64(to) - from + 1;
+  const qint64 count  = (frames + size - 1) / size;
+  if (count <= 1) return children;
+  children.reserve(size_t(count));
+  qint64 first = from;
+  for (qint64 i = 1; i <= count; ++i) {
+    const int last     = int(std::min(first + size - 1, qint64(to)));
+    const QString name = task.m_name + " " +
+                         QString::number(first).rightJustified(2, QChar('0')) +
+                         "-" +
+                         QString::number(last).rightJustified(2, QChar('0'));
+    auto child         = std::make_unique<TFarmTask>(
+        task.m_id + "." + QString::number(i).rightJustified(2, QChar('0')),
+        name, true, task.m_user, task.m_hostName, int(last - first + 1),
+        task.m_priority, task.m_taskFilePath, output, int(first), last,
+        task.m_step, task.m_shrink, task.m_multimedia, size,
+        task.m_threadsIndex, task.m_maxTileSizeIndex, Overwrite_Off, false);
+    child->m_parentId       = task.m_id;
+    child->m_status         = Suspended;
+    child->m_submissionDate = QDateTime::currentDateTime();
+    children.push_back(std::move(child));
+    first = qint64(last) + 1;
+  }
+  return children;
+}
+
+std::vector<std::unique_ptr<TFarmTask>> replaceGroupChildren(
+    TFarmTaskGroup& group, std::vector<std::unique_ptr<TFarmTask>>& children) {
+  const int oldCount = group.getTaskCount();
+  std::vector<std::unique_ptr<TFarmTask>> retired;
+  retired.reserve(size_t(oldCount));
+  size_t attached = 0;
+  try {
+    for (const auto& child : children) {
+      group.addTask(child.get());
+      ++attached;
+    }
+  } catch (...) {
+    for (size_t i = 0; i < attached; ++i) group.removeTask(children[i].get());
+    throw;
+  }
+  for (int i = 0; i < oldCount; ++i) {
+    TFarmTask* child = group.getTask(0);
+    group.removeTask(child);
+    retired.emplace_back(child);
+  }
+  for (auto& child : children) child.release();
+  return retired;
+}
+
+bool validChunkRange(int from, int to, int chunkSize) {
+  const qint64 frames = qint64(to) - from + 1;
+  return chunkSize > 0 && frames >= 1 && frames <= INT_MAX;
+}
+
+bool chunkSettingsChanged(const TFarmTask& task, int from, int to,
+                          int chunkSize) {
+  return task.m_from != from || task.m_to != to ||
+         task.m_chunkSize != chunkSize;
+}
+
+class TaskListReader {
+  std::map<TFarmTask*, std::unique_ptr<TFarmTask>> m_roots;
+  std::set<TFarmTask*> m_seen;
+  std::set<TFarmTask*> m_visiting;
+  std::map<TFarmTask*, TFarmTaskGroup*> m_parents;
+  std::map<QString, TFarmTask*> m_tasks;
+
+  bool claimChild(TFarmTaskGroup& group, TFarmTask* child) {
+    if (!child || m_visiting.count(child) || m_parents.count(child)) {
+      group.removeTask(child);
+      return false;
+    }
+    m_parents.emplace(child, &group);
+    auto root = m_roots.find(child);
+    if (root != m_roots.end()) {
+      root->second.release();
+      m_roots.erase(root);
+    }
+    return true;
+  }
+
+  bool scanOwners(TFarmTask* task) {
+    if (!m_seen.insert(task).second) return true;
+    m_visiting.insert(task);
+    bool valid = true;
+    if (auto* group = dynamic_cast<TFarmTaskGroup*>(task)) {
+      int i = 0;
+      while (i < group->getTaskCount()) {
+        auto* child = group->getTask(i);
+        if (!claimChild(*group, child)) {
+          valid = false;
+          continue;
+        }
+        valid = scanOwners(child) && valid;
+        ++i;
       }
     }
+    m_visiting.erase(task);
+    return valid;
   }
 
-  task->m_successfullSteps = task->m_failedSteps = 0;
-  task->m_completionDate                         = QDateTime();
-
-  task->m_status    = Running;
-  task->m_server    = TSystem::getHostName();
-  task->m_startDate = QDateTime::currentDateTime();
-
-  NotifyMessage().send();
-
-  int count = task->getTaskCount();
-  if (count > 1) {
-    // Launch each subtask
-    for (int i = 0; i < task->getTaskCount(); i++) {
-      if (task->m_status == Suspended) break;
-
-      doRun(task->getTask(i));
+  void index(TFarmTask* task) {
+    if (task->m_id.isEmpty())
+      throw TException("Task list contains an empty task ID");
+    auto found = m_tasks.find(task->m_id);
+    if (found != m_tasks.end()) {
+      if (found->second != task)
+        throw TException("Task list contains conflicting duplicate task IDs");
+      return;
     }
+    m_tasks.emplace(task->m_id, task);
+    if (auto* group = dynamic_cast<TFarmTaskGroup*>(task))
+      for (int i = 0; i < group->getTaskCount(); ++i) index(group->getTask(i));
+  }
 
-    // Check their status
-    task->m_status           = Completed;
-    task->m_successfullSteps = task->m_to - task->m_from + 1;
-    task->m_completionDate   = QDateTime::currentDateTime();
-    for (int i = 0; i < task->getTaskCount(); i++) {
-      if (task->getTask(i)->m_status == Aborted) task->m_status = Aborted;
+  void adopt(TPersist* value) {
+    if (!value) return;
+    auto* task = dynamic_cast<TFarmTask*>(value);
+    if (!task) {
+      delete value;
+      throw TException("Task list contains an unexpected object type");
     }
-
-    NotifyMessage().send();
-
-    return;
+    if (m_seen.count(task))
+      return;  // Historical files repeat TPersist pointer references.
+    m_roots.emplace(task, std::unique_ptr<TFarmTask>(task));
+    if (!scanOwners(task))
+      throw TException("Task list contains repeated or cyclic ownership");
+    index(task);
   }
 
-  // int exitCode;
-
-  /*QString commandline = task->getCommandLine();
-
-commandline += " -farm ";
-commandline += QString::number(m_localControllerPort) + "@localhost";
-commandline += " -id " + task->m_id;*/
-
-  QProcess *process = new QProcess();
-  std::map<QString, QProcess *>::iterator it;
-
-  {
-    QMutexLocker sl(&TasksMutex);
-    if ((it = RunningTasks.find(task->m_id)) != RunningTasks.end()) {
-      it->second->kill();
-      RunningTasks.erase(task->m_id);
+public:
+  void read(TIStream& stream) {
+    TPersist* value = nullptr;
+    try {
+      stream >> value;
+    } catch (...) {
+      adopt(value);
+      throw;
     }
-
-    RunningTasks[task->m_id] = process;
+    adopt(value);
   }
-
-  process->setProgram(task->getCommandLinePrgName());
-  process->setArguments(task->getCommandLineArgumentsList());
-  process->start();
-  process->waitForFinished(-1);
-
-  {
-    QMutexLocker sl(&TasksMutex);
-    RunningTasks.erase(task->m_id);
+  const std::map<QString, TFarmTask*>& tasks() const { return m_tasks; }
+  void release() {
+    for (auto& root : m_roots) root.second.release();
+    m_roots.clear();
   }
-  // exitCode = QProcess::execute(task->getCommandLine());
+};
 
-  int error     = process->error();
-  bool statusOK = (error == QProcess::UnknownError) &&
-                  (process->exitCode() == 0 ||
-                   task->m_successfullSteps == task->m_stepCount);
-
-  if (statusOK) {
-    task->m_status           = Completed;
-    task->m_successfullSteps = task->m_to - task->m_from + 1;
-  } else {
-    task->m_status      = Aborted;
-    task->m_failedSteps = task->m_to - task->m_from + 1;
+void readTaskListContents(TIStream& stream, TaskListReader& tasks) {
+  std::string tag;
+  while (stream.matchTag(tag)) {
+    if (tag == "generator")
+      stream.getString();
+    else if (tag == "batch")
+      while (!stream.eos()) tasks.read(stream);
+    else
+      throw TException(tag + ": unexpected task list tag");
+    if (!stream.matchEndTag()) throw TException(tag + ": missing end tag");
   }
+  if (!stream.matchEndTag()) throw TException("tnzbatches: missing end tag");
+}
 
-  task->m_completionDate = QDateTime::currentDateTime();
+void readTaskList(const TFilePath& path, TaskListReader& tasks) {
+  TIStream stream(path);
+  if (!stream)
+    throw TException(path.getWideString() + L": Cannot open task list");
+  std::string tag;
+  if (!stream.matchTag(tag) || tag != "tnzbatches")
+    throw TException("Bad task list format");
+  readTaskListContents(stream, tasks);
+}
 
-  NotifyMessage().send();
+std::vector<PreparedTask> prepareStart(TFarmTask& task) {
+  std::vector<TFarmTask*> prepared{&task};
+  if (task.getTaskCount() > 1)
+    for (int i = 0; i < task.getTaskCount(); ++i)
+      prepared.push_back(task.getTask(i));
+  std::vector<PreparedTask> previous;
+  for (auto* entry : prepared) previous.emplace_back(*entry);
+  for (auto* entry : prepared) {
+    entry->m_status      = Waiting;
+    entry->m_failedSteps = entry->m_successfullSteps = 0;
+    entry->m_completionDate = entry->m_startDate = QDateTime();
+    entry->m_callerMachineName                   = QHostInfo().localHostName();
+  }
+  return previous;
+}
+
+std::vector<PreparedTask> prepareAllTasks(
+    const std::map<QString, TFarmTask*>& tasks) {
+  std::vector<PreparedTask> previous;
+  for (const auto& entry : tasks) previous.emplace_back(*entry.second);
+  for (const auto& entry : tasks) entry.second->m_status = Waiting;
+  return previous;
+}
+
+void cancelNodes(const BatchExecutionRecord& record,
+                 const std::map<QString, TFarmTask*>& tasks) {
+  for (size_t i = 0; i < record.plan->nodes.size(); ++i)
+    if (tasks.count(record.plan->nodes[i].identity.id))
+      record.control->nodes[i]->store(true);
+}
+
+void retireMembership(BatchesController& controller, BatchExecutionState& state,
+                      quint64 submission, const Identity& identity,
+                      bool failed) {
+  auto members = state.members.find(identity.incarnation);
+  if (members != state.members.end()) {
+    members->second.erase(submission);
+    if (members->second.empty()) state.members.erase(members);
+  }
+  auto* task = controller.getTask(identity.id);
+  if (failed && task &&
+      (task->m_status == Waiting || task->m_status == Running)) {
+    task->m_status         = Aborted;
+    task->m_completionDate = QDateTime::currentDateTime();
+  }
+}
+
+void recordProgress(TFarmTask& task, bool successful) {
+  if (successful)
+    ++task.m_successfullSteps;
+  else
+    ++task.m_failedSteps;
+}
+
+void restorePrepared(BatchesController& controller,
+                     const BatchExecutionState& state,
+                     const std::vector<PreparedTask>& previous) {
+  for (const auto& saved : previous) {
+    auto incarnation = state.incarnations.find(saved.id);
+    if (incarnation != state.incarnations.end() &&
+        !state.members.count(incarnation->second))
+      saved.restore(*controller.getTask(saved.id));
+  }
+}
+
+void setRunning(TFarmTask& task, const Outcome& outcome) {
+  task.m_successfullSteps = task.m_failedSteps = 0;
+  task.m_completionDate                        = QDateTime();
+  task.m_status                                = Running;
+  task.m_server                                = outcome.host;
+  task.m_startDate                             = outcome.time;
+}
+
+bool successfulOutcome(BatchesController& controller, const TFarmTask& task,
+                       const Plan& plan, const Outcome& outcome) {
+  if (outcome.process.failed || outcome.process.canceled) return false;
+  const Node& node = plan.nodes[outcome.node];
+  if (outcome.kind == Outcome::ProcessFinished)
+    return outcome.process.exitCode == 0 ||
+           task.m_successfullSteps == node.stepCount;
+  for (size_t child : node.children) {
+    auto* childTask = controller.getTask(plan.nodes[child].identity.id);
+    if (childTask && childTask->m_status == Aborted) return false;
+  }
+  return true;
+}
+
+void finishTask(BatchesController& controller, TFarmTask& task,
+                const Plan& plan, const Outcome& outcome) {
+  const bool success = successfulOutcome(controller, task, plan, outcome);
+  task.m_status      = success ? Completed : Aborted;
+  if (success || outcome.kind == Outcome::GroupFinished)
+    task.m_successfullSteps = plan.nodes[outcome.node].frameCount;
+  else
+    task.m_failedSteps = plan.nodes[outcome.node].frameCount;
+  task.m_completionDate = outcome.time;
+}
+
+}  // namespace
+
+BatchesController::BatchesController()
+    : m_dirtyFlag(false)
+    , m_localControllerPortNumber(0)
+    , m_controller(nullptr)
+    , m_execution(new BatchExecutionState) {
+  connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this,
+          &BatchesController::shutdownExecution);
 }
 
 //------------------------------------------------------------------------------
+
+BatchesController::~BatchesController() {
+  shutdownExecution();
+  auto owners = taskOwners(m_tasks);
+  m_tasks.clear();
+}
+
+std::shared_ptr<Plan> BatchesController::captureTask(TFarmTask* task) {
+  auto plan        = PlanBuilder(*this, *m_execution).build(task);
+  plan->submission = m_execution->nextSubmission++;
+#ifdef BUILD_UI_PORT_TESTS
+  if (m_execution->hooks)
+    plan->hooks =
+        std::make_shared<BatchTaskExecution::TestHooks>(*m_execution->hooks);
+#endif
+  return plan;
+}
+
+void BatchesController::submitTask(std::shared_ptr<Plan> plan) {
+  const quint64 id = plan->submission;
+  QPointer<BatchesController> receiver(this);
+  auto publish = [receiver, id
+#ifdef BUILD_UI_PORT_TESTS
+                  ,
+                  hooks = plan->hooks
+#endif
+  ](const Outcome& outcome) {
+    auto replay = [receiver, id, outcome] {
+      BatchCallbackMessage([receiver, id, outcome] {
+        if (receiver) receiver->applyOutcome(id, outcome);
+      }).send();
+    };
+    replay();
+#ifdef BUILD_UI_PORT_TESTS
+    if (hooks && hooks->terminalPosted &&
+        (outcome.kind == Outcome::ProcessFinished ||
+         outcome.kind == Outcome::GroupFinished))
+      hooks->terminalPosted(replay);
+#endif
+  };
+  auto control =
+      std::make_shared<BatchTaskExecution::Control>(plan->nodes.size());
+  auto runnable =
+      BatchTaskExecution::makeRunner(plan, control, std::move(publish));
+  m_execution->records.emplace(id,
+                               BatchExecutionRecord{plan, control, runnable});
+  bool accepted = false;
+  try {
+    for (const auto& task : plan->affected)
+      m_execution->members[task.incarnation].insert(id);
+    connect(
+        runnable.getPointer(), &TThread::Runnable::finished, this,
+        [control] { control->complete(); }, Qt::DirectConnection);
+    connect(
+        runnable.getPointer(), &TThread::Runnable::exception, this,
+        [control] { control->complete(); }, Qt::DirectConnection);
+    connect(
+        runnable.getPointer(), &TThread::Runnable::finished, this,
+        [this, id] { retireTask(id, false); }, Qt::QueuedConnection);
+    connect(
+        runnable.getPointer(), &TThread::Runnable::exception, this,
+        [this, id] { retireTask(id, true); }, Qt::QueuedConnection);
+    connect(
+        runnable.getPointer(), &TThread::Runnable::canceled, this,
+        [control] { control->canceled.store(true); }, Qt::DirectConnection);
+    m_localExecutor.addTask(runnable, accepted);
+  } catch (...) {
+    if (accepted)
+      stopSubmission(id);
+    else
+      retireTask(id, false);
+    throw;
+  }
+}
+
+TFarmTask* BatchesController::liveTask(const Identity& identity) const {
+  if (identity.generation != m_execution->generation) return nullptr;
+  const auto incarnation = m_execution->incarnations.find(identity.id);
+  if (incarnation == m_execution->incarnations.end()) return nullptr;
+  if (incarnation->second != identity.incarnation) return nullptr;
+  return getTask(identity.id);
+}
+
+void BatchesController::applyOutcome(quint64 submission,
+                                     const Outcome& outcome) {
+  auto found = m_execution->records.find(submission);
+  if (found == m_execution->records.end()) return;
+  const auto& plan = *found->second.plan;
+  if (outcome.node >= plan.nodes.size()) return;
+  TFarmTask* task = liveTask(plan.nodes[outcome.node].identity);
+  if (!task) return;
+  applyTaskOutcome(*task, found->second, outcome);
+  notify();
+}
+
+void BatchesController::applyTaskOutcome(TFarmTask& task,
+                                         const BatchExecutionRecord& record,
+                                         const Outcome& outcome) {
+  switch (outcome.kind) {
+  case Outcome::WaitingForDependencies:
+    if (!record.control->isCanceled(outcome.node)) task.m_status = Waiting;
+    break;
+  case Outcome::Started:
+    if (!record.control->isCanceled(outcome.node)) setRunning(task, outcome);
+    break;
+  case Outcome::ProcessFinished:
+  case Outcome::GroupFinished:
+    finishTask(*this, task, *record.plan, outcome);
+    break;
+  }
+}
+
+void BatchesController::retireTask(quint64 submission, bool failed) {
+  auto found = m_execution->records.find(submission);
+  if (found == m_execution->records.end()) return;
+  auto record = std::move(found->second);
+  m_execution->records.erase(found);
+  for (const auto& identity : record.plan->affected)
+    retireMembership(*this, *m_execution, submission, identity, failed);
+#ifdef BUILD_UI_PORT_TESTS
+  if (record.plan->hooks && record.plan->hooks->retired)
+    record.plan->hooks->retired(submission);
+#endif
+  notify();
+}
+
+void BatchesController::stopSubmission(quint64 submission) {
+  auto found = m_execution->records.find(submission);
+  if (found == m_execution->records.end()) return;
+  auto record = found->second;
+  record.control->canceled.store(true);
+  for (const auto& identity : record.plan->affected)
+    if (auto* task = getTask(identity.id))
+      if (task->m_status == Waiting) task->m_status = Suspended;
+  if (m_localExecutor.withdrawQueuedTask(record.runnable))
+    retireTask(submission, false);
+}
+
+void BatchesController::shutdownExecution() {
+  m_execution->closing = true;
+  const auto records   = m_execution->records;
+  for (const auto& record : records) stopSubmission(record.first);
+  for (const auto& record : records) {
+    if (!m_execution->records.count(record.first)) continue;
+    record.second.control->wait();
+    retireTask(record.first, true);
+  }
+}
+
+void BatchesController::postTaskProgress(const QString& id, bool successful) {
+  const auto identities = std::atomic_load(&m_execution->progressIdentities);
+  const auto found      = identities->find(id);
+  if (found == identities->end()) return;
+  const Identity identity = found->second;
+  QPointer<BatchesController> receiver(this);
+  BatchCallbackMessage([receiver, identity, successful] {
+    if (!receiver || receiver->m_execution->closing) return;
+    auto* task = receiver->liveTask(identity);
+    if (!task) return;
+    recordProgress(*task, successful);
+    if (auto* parent = receiver->getTask(task->m_parentId))
+      recordProgress(*parent, successful);
+    receiver->notify();
+  }).send();
+}
+
+#ifdef BUILD_UI_PORT_TESTS
+void BatchesController::setExecutionTestHooks(
+    std::shared_ptr<BatchTaskExecution::TestHooks> hooks) {
+  m_execution->hooks = std::move(hooks);
+}
+size_t BatchesController::pendingExecutionCount() const {
+  return m_execution->records.size();
+}
+quint64 BatchesController::taskGeneration() const {
+  return m_execution->generation;
+}
+#endif
+
 //------------------------------------------------------------------------------
 
-BatchesController::BatchesController()
-    : m_controller(0), m_filepath(), m_dirtyFlag(false) {}
-
-//------------------------------------------------------------------------------
-
-BatchesController::~BatchesController() {}
-
-//------------------------------------------------------------------------------
-
-void BatchesController::registerTasksTree(TaskTreeModel *tree) {
+void BatchesController::registerTasksTree(TaskTreeModel* tree) {
   m_tasksTrees.insert(tree);
 }
 
@@ -292,12 +786,6 @@ void BatchesController::registerTasksTree(TaskTreeModel *tree) {
 
 void BatchesController::unregisterTasksTree(TaskTreeModel *tree) {
   m_tasksTrees.erase(tree);
-}
-
-//------------------------------------------------------------------------------
-
-inline bool isMovieType(std::string type) {
-  return (type == "mov" || type == "avi" || type == "3gp");
 }
 
 //------------------------------------------------------------------------------
@@ -406,25 +894,26 @@ void BatchesController::addComposerTask(const TFilePath &_taskFilePath) {
 /*--- id はタスクを追加するごとにインクリメントされる数字 ---*/
 void BatchesController::addTask(const QString &id, TFarmTask *task,
                                 bool doUpdate) {
-#ifdef _DEBUG
-  std::map<QString, TFarmTask *>::iterator it = m_tasks.find(id);
-// assert(it == m_tasks.end());
-#endif
   if (task->m_id.isEmpty()) task->m_id = id;
-
-  task->m_status         = Suspended;
-  task->m_submissionDate = QDateTime::currentDateTime();
-
-  m_tasks.insert(std::make_pair(id, task));
-
-  int count = task->getTaskCount();
-  if (count == 1 && task->getTask(0) == task) return;
-
-  for (int i = 0; i < count; ++i) {
-    TFarmTask *subtask = task->getTask(i);
-    assert(subtask);
-    addTask(subtask->m_id, subtask);
+  std::map<QString, TFarmTask*> added;
+  collectTasks(task, added);
+  for (const auto& entry : added)
+    if (m_tasks.count(entry.first))
+      throw TException("Task ID already exists in the batch list");
+  auto tasks        = m_tasks;
+  auto incarnations = m_execution->incarnations;
+  for (const auto& entry : added) {
+    tasks.emplace(entry);
+    incarnations.emplace(entry.first, m_execution->nextIncarnation++);
   }
+  auto identities = taskIdentities(incarnations, m_execution->generation);
+  for (const auto& entry : added) {
+    entry.second->m_status         = Suspended;
+    entry.second->m_submissionDate = QDateTime::currentDateTime();
+  }
+  m_tasks.swap(tasks);
+  m_execution->incarnations.swap(incarnations);
+  std::atomic_store(&m_execution->progressIdentities, std::move(identities));
   if (doUpdate) update();
 }
 
@@ -438,71 +927,151 @@ QString BatchesController::taskBusyStr() {
 
 //------------------------------------------------------------------------------
 
-void BatchesController::removeTask(const QString &id) {
-  std::map<QString, TFarmTask *>::iterator it = m_tasks.find(id);
-  if (it == m_tasks.end()) return;
+namespace {
+TFarmTask* activeTask(TFarmTask* task) {
+  if (task->m_status == Running || task->m_status == Waiting) return task;
+  auto* group = dynamic_cast<TFarmTaskGroup*>(task);
+  if (!group) return nullptr;
+  for (int i = 0; i < group->getTaskCount(); ++i)
+    if (TFarmTask* active = activeTask(group->getTask(i))) return active;
+  return nullptr;
+}
+}  // namespace
 
-  TFarmTask *task = it->second;
-  if (task->m_status == Running || task->m_status == Waiting) {
-    DVGui::warning(taskBusyStr().arg(task->m_name));
+void BatchesController::suspendFarmTask(const QString& id) {
+  if (!m_controller) return;
+  auto found = m_farmIdsTable.find(id);
+  if (found != m_farmIdsTable.end()) m_controller->suspendTask(found->second);
+}
+
+void BatchesController::removeTask(const QString& id) {
+  TFarmTask* task = getTask(id);
+  if (!task) return;
+  if (!canEditTask(id)) {
+    TFarmTask* active = activeTask(task);
+    DVGui::warning(taskBusyStr().arg(active ? active->m_name : task->m_name));
     return;
   }
-
-  setDirtyFlag(true);
-
-  if (!task->m_parentId.isEmpty()) {
-    it                     = m_tasks.find(task->m_parentId);
-    TFarmTaskGroup *parent = dynamic_cast<TFarmTaskGroup *>(it->second);
-    assert(parent);
-    parent->removeTask(task);
+  std::map<QString, TFarmTask*> removed;
+  collectTasks(task, removed);
+  auto incarnations = m_execution->incarnations;
+  for (const auto& entry : removed) incarnations.erase(entry.first);
+  auto identities = taskIdentities(incarnations, m_execution->generation);
+  if (dynamic_cast<TFarmTaskGroup*>(task)) suspendFarmTask(id);
+  for (const auto& entry : m_tasks)
+    if (auto* group = dynamic_cast<TFarmTaskGroup*>(entry.second))
+      group->removeTask(task);
+  for (const auto& entry : removed) {
+    m_tasks.erase(entry.first);
+    m_farmIdsTable.erase(entry.first);
   }
-
-  TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(task);
-  if (taskGroup) {
-    if (m_controller) {
-      // si sta usando la farm
-      std::map<QString, QString>::iterator it = m_farmIdsTable.find(id);
-      if (it != m_farmIdsTable.end()) {
-        m_controller->suspendTask(it->second);
-      }
-    }
-
-    // rimuove i subtask
-    int taskCount = taskGroup->getTaskCount();
-    for (int i = 0; i < taskCount; ++i) {
-      TFarmTask *subTask = taskGroup->getTask(i);
-      assert(subTask);
-      m_tasks.erase(subTask->m_id);
-    }
-  }
-
-  m_tasks.erase(id);
-  delete task;
+  m_execution->incarnations.swap(incarnations);
+  std::atomic_store(&m_execution->progressIdentities, std::move(identities));
+  std::unique_ptr<TFarmTask> owner(task);
+  m_dirtyFlag = true;
+  update();
 }
 
 //------------------------------------------------------------------------------
 
-namespace {
-void DeleteTask(const std::pair<QString, TFarmTask *> &mapItem) {
-  if (mapItem.second->m_parentId.isEmpty()) delete mapItem.second;
+void BatchesController::releaseTasks() {
+  auto identities = taskIdentities({}, m_execution->generation + 1);
+  auto owners     = taskOwners(m_tasks);
+  m_tasks.clear();
+  m_farmIdsTable.clear();
+  m_execution->incarnations.clear();
+  ++m_execution->generation;
+  std::atomic_store(&m_execution->progressIdentities, std::move(identities));
+  m_filepath  = TFilePath();
+  m_dirtyFlag = false;
+  notify();
 }
-}  // namespace
+
+bool BatchesController::tasksAreEditable() const {
+  if (!m_execution->records.empty()) return false;
+  for (const auto& entry : m_tasks)
+    if (activeTask(entry.second)) return false;
+  return true;
+}
+
+bool BatchesController::canEditTask(const QString& id) const {
+  auto* task = getTask(id);
+  if (!task || m_execution->closing || activeTask(task)) return false;
+  std::map<QString, TFarmTask*> affected;
+  collectTasks(task, affected);
+  for (const auto& entry : affected) {
+    auto incarnation = m_execution->incarnations.find(entry.first);
+    if (incarnation != m_execution->incarnations.end() &&
+        m_execution->members.count(incarnation->second))
+      return false;
+  }
+  return true;
+}
+
+bool BatchesController::setTaskChunkSize(const QString& id, int chunkSize) {
+  auto* task = getTask(id);
+  return task && setTaskChunkSettings(id, task->m_from, task->m_to, chunkSize,
+                                      task->m_outputPath);
+}
+
+std::vector<std::unique_ptr<TFarmTask>> BatchesController::replaceChunks(
+    TFarmTaskGroup& group, int from, int to, int chunkSize,
+    const TFilePath& outputPath) {
+  auto children     = prepareChunks(group, from, to, chunkSize, outputPath);
+  auto tasks        = m_tasks;
+  auto incarnations = m_execution->incarnations;
+  std::map<QString, TFarmTask*> removed;
+  for (int i = 0; i < group.getTaskCount(); ++i)
+    collectTasks(group.getTask(i), removed);
+  for (const auto& entry : removed) {
+    tasks.erase(entry.first);
+    incarnations.erase(entry.first);
+  }
+  for (const auto& child : children) {
+    if (!tasks.emplace(child->m_id, child.get()).second)
+      throw TException(
+          "A replacement chunk ID is already used by another task");
+    incarnations.emplace(child->m_id, m_execution->nextIncarnation++);
+  }
+  auto identities = taskIdentities(incarnations, m_execution->generation);
+  auto retired    = replaceGroupChildren(group, children);
+  m_tasks.swap(tasks);
+  m_execution->incarnations.swap(incarnations);
+  for (const auto& entry : removed) m_farmIdsTable.erase(entry.first);
+  std::atomic_store(&m_execution->progressIdentities, std::move(identities));
+  return retired;
+}
+
+bool BatchesController::setTaskChunkSettings(const QString& id, int from,
+                                             int to, int chunkSize,
+                                             const TFilePath& outputPath) {
+  TFarmTask* task = getTask(id);
+  if (!task || !canEditTask(id) || !validChunkRange(from, to, chunkSize))
+    return false;
+  std::vector<std::unique_ptr<TFarmTask>> retired;
+  if (auto* group = dynamic_cast<TFarmTaskGroup*>(task)) {
+    if (chunkSettingsChanged(*task, from, to, chunkSize))
+      retired = replaceChunks(*group, from, to, chunkSize, outputPath);
+    for (int i = 0; i < group->getTaskCount(); ++i)
+      group->getTask(i)->m_outputPath = outputPath;
+  }
+  task->m_from       = from;
+  task->m_to         = to;
+  task->m_chunkSize  = chunkSize;
+  task->m_outputPath = outputPath;
+  m_dirtyFlag        = true;
+  notify();
+  return true;
+}
 
 void BatchesController::removeAllTasks() {
-  std::map<QString, TFarmTask *>::iterator tt, tEnd(m_tasks.end());
-  for (tt = m_tasks.begin(); tt != tEnd; ++tt) {
-    TFarmTask *task = tt->second;
-    if (task->m_status == Running || task->m_status == Waiting) {
-      DVGui::warning(taskBusyStr().arg(task->m_name));
-      return;
-    }
+  if (!tasksAreEditable()) {
+    DVGui::warning(
+        tr("Stop submitted tasks and wait for them to finish before clearing "
+           "the list."));
+    return;
   }
-
-  m_filepath = TFilePath();
-  setDirtyFlag(false);
-
-  m_tasks.clear();
-  notify();
+  releaseTasks();
 }
 
 //------------------------------------------------------------------------------
@@ -589,96 +1158,53 @@ void BatchesController::getTasks(const QString &parentId,
 
 //------------------------------------------------------------------------------
 
+void BatchesController::submitAllTasks() {
+  std::multimap<int, TFarmTask*> ordered;
+  for (auto it = m_tasks.rbegin(); it != m_tasks.rend(); ++it)
+    ordered.emplace(it->second->m_priority, it->second);
+  std::vector<std::shared_ptr<Plan>> plans;
+  for (auto it = ordered.rbegin(); it != ordered.rend(); ++it)
+    if (it->second->m_parentId.isEmpty())
+      plans.push_back(captureTask(it->second));
+  for (auto& plan : plans) submitTask(plan);
+}
+
 void BatchesController::startAll() {
-  // viene usata la farm <==> m_controller != 0
-  if (!m_controller) {
-    // uso una multimap per ordinare rispetto alla priority
-    std::multimap<int, TFarmTask *> tasksByPriority;
-
-    std::map<QString, TFarmTask *>::reverse_iterator it = m_tasks.rbegin();
-    // uso il reverse iterator anche qui altrimenti se ho task con priorita'
-    // uguale li esegue dall'ultimo al primo
-    for (; it != m_tasks.rend(); ++it) {
-      TFarmTask *task = it->second;
-      tasksByPriority.insert(std::make_pair(task->m_priority, task));
-    }
-
-    std::multimap<int, TFarmTask *>::reverse_iterator it2 =
-        tasksByPriority.rbegin();
-    for (; it2 != tasksByPriority.rend(); ++it2) {
-      TFarmTask *task = it2->second;
-      assert(task);
-      task->m_status = Waiting;
-      if (task->m_parentId.isEmpty())
-        m_localExecutor.addTask(
-            new TaskRunner(task, m_localControllerPortNumber));
-    }
-  } else {
-    std::map<QString, TFarmTask *>::const_iterator it = m_tasks.begin();
-    for (; it != m_tasks.end(); ++it) {
-      TFarmTask *task = it->second;
-      assert(task);
-      if (task->m_parentId.isEmpty()) start(task->m_id);
-    }
+  if (m_controller) {
+    for (const auto& entry : m_tasks)
+      if (entry.second->m_parentId.isEmpty()) start(entry.first);
+    return;
   }
-
+  if (!tasksAreEditable() || m_execution->closing) {
+    DVGui::warning(
+        tr("Stop submitted tasks and wait for them to finish before starting "
+           "the list."));
+    return;
+  }
+  const auto previous = prepareAllTasks(m_tasks);
+  try {
+    submitAllTasks();
+  } catch (...) {
+    restorePrepared(*this, *m_execution, previous);
+    notify();
+    throw;
+  }
   notify();
 }
 
 //------------------------------------------------------------------------------
 
-void BatchesController::start(const QString &taskId) {
-  QString computerName = QHostInfo().localHostName();
+void BatchesController::startFarmTask(TFarmTask* task) {
+  std::map<QString, QString>::iterator ktor = m_farmIdsTable.find(task->m_id);
+  if (ktor != m_farmIdsTable.end()) {
+    QString farmTaskId = ktor->second;
+    m_controller->restartTask(farmTaskId);
 
-  std::map<QString, TFarmTask *>::const_iterator it = m_tasks.find(taskId);
-  assert(it != m_tasks.end());
-  TFarmTask *task = it->second;
-  assert(task);
-  task->m_status      = Waiting;
-  task->m_failedSteps = task->m_successfullSteps = 0;
-  task->m_completionDate = task->m_startDate = QDateTime();
-  task->m_callerMachineName                  = computerName;
-  int count                                  = task->getTaskCount();
-  if (count > 1)
-    for (int i = 0; i < count; ++i) {
-      TFarmTask *subtask = task->getTask(i);
-      assert(subtask);
-      subtask->m_status      = Waiting;
-      subtask->m_failedSteps = subtask->m_successfullSteps = 0;
-      subtask->m_completionDate = subtask->m_startDate = QDateTime();
-      subtask->m_callerMachineName                     = computerName;
-    }
+    if (dynamic_cast<TFarmTaskGroup*>(task)) {
+      std::vector<QString> subtasks;
+      m_controller->getTasks(farmTaskId, subtasks);
 
-  // viene usata la farm <==> m_controller != 0
-  if (!m_controller) {
-    m_localExecutor.addTask(new TaskRunner(task, m_localControllerPortNumber));
-  } else {
-    std::map<QString, QString>::iterator ktor = m_farmIdsTable.find(taskId);
-    if (ktor != m_farmIdsTable.end()) {
-      QString farmTaskId = ktor->second;
-      m_controller->restartTask(farmTaskId);
-
-      if (dynamic_cast<TFarmTaskGroup *>(task)) {
-        std::vector<QString> subtasks;
-        m_controller->getTasks(farmTaskId, subtasks);
-
-        if (!subtasks.empty()) {
-          assert((int)subtasks.size() == task->getTaskCount());
-
-          std::vector<QString>::iterator jtor = subtasks.begin();
-          for (int i = 0; i < task->getTaskCount(); ++i, ++jtor)
-            m_farmIdsTable.insert(
-                std::make_pair(task->getTask(i)->m_id, *jtor));
-        }
-      }
-    } else {
-      bool suspended = false;
-      QString id     = m_controller->addTask(*task, suspended);
-      m_farmIdsTable.insert(std::make_pair(task->m_id, id));
-
-      if (dynamic_cast<TFarmTaskGroup *>(task)) {
-        std::vector<QString> subtasks;
-        m_controller->getTasks(id, subtasks);
+      if (!subtasks.empty()) {
         assert((int)subtasks.size() == task->getTaskCount());
 
         std::vector<QString>::iterator jtor = subtasks.begin();
@@ -686,89 +1212,85 @@ void BatchesController::start(const QString &taskId) {
           m_farmIdsTable.insert(std::make_pair(task->getTask(i)->m_id, *jtor));
       }
     }
+  } else {
+    bool suspended = false;
+    QString id     = m_controller->addTask(*task, suspended);
+    m_farmIdsTable.insert(std::make_pair(task->m_id, id));
+
+    if (dynamic_cast<TFarmTaskGroup*>(task)) {
+      std::vector<QString> subtasks;
+      m_controller->getTasks(id, subtasks);
+      assert((int)subtasks.size() == task->getTaskCount());
+
+      std::vector<QString>::iterator jtor = subtasks.begin();
+      for (int i = 0; i < task->getTaskCount(); ++i, ++jtor)
+        m_farmIdsTable.insert(std::make_pair(task->getTask(i)->m_id, *jtor));
+    }
+  }
+}
+
+void BatchesController::start(const QString& taskId) {
+  TFarmTask* task = getTask(taskId);
+  if (!task) return;
+  if (!m_controller && !canEditTask(taskId)) {
+    DVGui::warning(taskBusyStr().arg(task->m_name));
+    return;
+  }
+  const auto previous = prepareStart(*task);
+  try {
+    if (m_controller)
+      startFarmTask(task);
+    else
+      submitTask(captureTask(task));
+  } catch (...) {
+    restorePrepared(*this, *m_execution, previous);
+    notify();
+    throw;
   }
   notify();
 }
 
 //------------------------------------------------------------------------------
 
-void BatchesController::stop(const QString &taskId) {
-  std::map<QString, TFarmTask *>::const_iterator it = m_tasks.find(taskId);
-  if (it == m_tasks.end()) return;
-
-  TFarmTask *task = it->second;
-  assert(task);
-
-  // Update the task status
-  if (task->m_status == Waiting) task->m_status = Suspended;
-
-  // Local farm <==> m_controller != 0
+void BatchesController::stop(const QString& taskId) {
+  auto* task = getTask(taskId);
+  if (!task) return;
+  std::map<QString, TFarmTask*> affected;
+  collectTasks(task, affected);
+  for (const auto& entry : affected)
+    if (entry.second->m_status == Waiting) entry.second->m_status = Suspended;
   if (!m_controller) {
-    QMutexLocker sl(&TasksMutex);
-    std::map<QString, QProcess *>::iterator it;
-
-    // Kill the associated process if any
-    if ((it = RunningTasks.find(task->m_id)) != RunningTasks.end()) {
-      it->second->kill();
-      RunningTasks.erase(task->m_id);
-    }
-
-    // Do the same for child tasks
-    int count = task->getTaskCount();
-    if (count > 1) {
-      for (int i = 0; i < count; ++i) {
-        TFarmTask *subtask = task->getTask(i);
-        if (subtask->m_status == Waiting) subtask->m_status = Suspended;
-        if ((it = RunningTasks.find(subtask->m_id)) != RunningTasks.end()) {
-          it->second->kill();
-          RunningTasks.erase(subtask->m_id);
-        }
+    const auto records = m_execution->records;
+    for (const auto& entry : records) {
+      const auto& plan = *entry.second.plan;
+      if (plan.nodes[plan.root].identity.id == taskId) {
+        stopSubmission(entry.first);
+        continue;
       }
+      cancelNodes(entry.second, affected);
     }
   } else {
-    std::map<QString, QString>::iterator it = m_farmIdsTable.find(task->m_id);
-    if (it != m_farmIdsTable.end()) {
-      QString farmId = it->second;
-      m_controller->suspendTask(farmId);
-    }
+    suspendFarmTask(taskId);
   }
   notify();
 }
-
-//------------------------------------------------------------------------------
 
 void BatchesController::stopAll() {
   if (!m_controller) {
-    // Stop all running QProcesses
-    QMutexLocker sl(&TasksMutex);
-
-    std::map<QString, QProcess *>::iterator it;
-    for (it = RunningTasks.begin(); it != RunningTasks.end(); ++it)
-      it->second->kill();
-
-    RunningTasks.clear();
-    m_localExecutor.cancelAll();
+    const auto records = m_execution->records;
+    for (const auto& entry : records) stopSubmission(entry.first);
   } else {
-    // Suspend all farmIds
-    std::map<QString, QString>::iterator it;
-    for (it = m_farmIdsTable.begin(); it != m_farmIdsTable.end(); ++it) {
-      QString farmId = it->second;
-      m_controller->suspendTask(farmId);
-    }
+    for (const auto& entry : m_farmIdsTable)
+      m_controller->suspendTask(entry.second);
   }
-
-  // Update all waiting task status
-  std::map<QString, TFarmTask *>::iterator jt;
-  for (jt = m_tasks.begin(); jt != m_tasks.end(); ++jt) {
-    if (jt->second->m_status == Waiting) jt->second->m_status = Suspended;
-  }
-
+  for (const auto& entry : m_tasks)
+    if (entry.second->m_status == Waiting) entry.second->m_status = Suspended;
   notify();
 }
 
 //------------------------------------------------------------------------------
 
-void BatchesController::onExit(bool &ret) {
+void BatchesController::onExit(bool& ret) {
   int answer = 0;
 
   if (m_dirtyFlag)
@@ -801,64 +1323,50 @@ void BatchesController::loadTask(bool isRenderTask) {
 
 //------------------------------------------------------------------------------
 
-void BatchesController::doLoad(const TFilePath &fp) {
+void BatchesController::doLoad(const TFilePath& fp) {
+  if (!tasksAreEditable()) {
+    DVGui::warning(
+        tr("Stop submitted tasks and wait for them to finish before loading "
+           "another list."));
+    return;
+  }
   if (m_dirtyFlag) {
-    int ret =
-        DVGui::MsgBox(QString(tr("The current task list has been modified.\nDo "
-                                 "you want to save your changes?")),
+    const int answer =
+        DVGui::MsgBox(tr("The current task list has been modified.\nDo you "
+                         "want to save your changes?"),
                       tr("Save"), tr("Discard"), tr("Cancel"));
-    if (ret == 1)
+    if (answer == 1)
       save();
-    else if (ret == 3 || ret == 0)
+    else if (answer == 3 || answer == 0)
       return;
   }
-
-  setDirtyFlag(false);
-
-  m_tasks.clear();
-  m_farmIdsTable.clear();
-
-  try {
-    TIStream is(fp);
-    if (is) {
-    } else
-      throw TException(fp.getWideString() + L": Can't open file");
-
-    m_filepath = fp;
-
-    std::string tagName = "";
-    if (!is.matchTag(tagName)) throw TException("Bad file format");
-
-    if (tagName == "tnzbatches") {
-      std::string rootTagName = tagName;
-      std::string v           = is.getTagAttribute("version");
-      while (is.matchTag(tagName)) {
-        if (tagName == "generator") {
-          std::string program = is.getString();
-        } else if (tagName == "batch") {
-          while (!is.eos()) {
-            TPersist *p = 0;
-            is >> p;
-            TFarmTask *task = dynamic_cast<TFarmTask *>(p);
-            if (task) addTask(task->m_id, task, false);
-          }
-        } else {
-          throw TException(tagName + " : unexpected tag");
-        }
-
-        if (!is.matchEndTag()) throw TException(tagName + " : missing end tag");
-      }
-      if (!is.matchEndTag())
-        throw TException(rootTagName + " : missing end tag");
-    } else {
-      throw TException("Bad file format");
-    }
-  } catch (TException &e) {
-    throw e;
-  } catch (...) {
-    throw TException("Loading error.");
+  if (!tasksAreEditable()) {
+    DVGui::warning(
+        tr("Submitted tasks must finish before replacing the task list."));
+    return;
   }
-  update();
+  TaskListReader loaded;
+  readTaskList(fp, loaded);
+  auto tasks = loaded.tasks();
+  std::map<QString, quint64> incarnations;
+  for (const auto& entry : tasks) {
+    incarnations.emplace(entry.first, m_execution->nextIncarnation++);
+    entry.second->m_status         = Suspended;
+    entry.second->m_submissionDate = QDateTime::currentDateTime();
+  }
+  auto identities  = taskIdentities(incarnations, m_execution->generation + 1);
+  const auto roots = taskRoots(m_tasks);
+  std::vector<std::unique_ptr<TFarmTask>> previousOwners;
+  previousOwners.reserve(roots.size());
+  m_filepath = fp;
+  for (auto* root : roots) previousOwners.emplace_back(root);
+  loaded.release();
+  m_tasks.swap(tasks);
+  m_execution->incarnations.swap(incarnations);
+  m_farmIdsTable.clear();
+  ++m_execution->generation;
+  std::atomic_store(&m_execution->progressIdentities, std::move(identities));
+  m_dirtyFlag = false;
   notify();
 }
 
@@ -990,9 +1498,9 @@ void BatchesController::update() {
         QString batchesTaskId = it->first;
 
         TFarmTask *batchesTask = getTask(batchesTaskId);
-        TFarmTask farmTask     = *batchesTask;
 
         if (batchesTask) {
+          TFarmTask farmTask          = *batchesTask;
           QString batchesTaskParentId = batchesTask->m_parentId;
           m_controller->queryTaskInfo(farmTaskId, farmTask);
           int chunkSize            = batchesTask->m_chunkSize;
@@ -1158,25 +1666,7 @@ void MyLocalController::queryTaskShortInfo(const QString &id, QString &parentId,
 void MyLocalController::taskProgress(const QString &taskId, int step,
                                      int stepCount, int frameNumber,
                                      FrameState state) {
-  TFarmTask *task = BatchesController::instance()->getTask(taskId);
-  assert(task);
-
-  if (state == FrameDone)
-    ++task->m_successfullSteps;
-  else
-    ++task->m_failedSteps;
-
-  if (task->m_parentId != "") {
-    TFarmTask *taskParent =
-        BatchesController::instance()->getTask(task->m_parentId);
-    assert(taskParent);
-    if (state == FrameDone)
-      ++taskParent->m_successfullSteps;
-    else
-      ++taskParent->m_failedSteps;
-  }
-
-  NotifyMessage().send();
+  BatchesController::instance()->postTaskProgress(taskId, state == FrameDone);
 }
 
 void MyLocalController::taskCompleted(const QString &taskId, int exitCode) {}

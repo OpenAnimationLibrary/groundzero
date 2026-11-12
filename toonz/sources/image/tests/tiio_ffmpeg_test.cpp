@@ -375,6 +375,35 @@ void testFrameSyncCapabilities() {
                                     QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
 }
 
+void testProbeTimeoutConversion() {
+  QTemporaryDir tools;
+  require(tools.isValid(), "Cannot create timeout fixture directory");
+  const QString executable = tools.filePath("ffprobe");
+  writeFile(executable,
+            "#!/bin/bash\nset -euo pipefail\nsleep 2\n"
+            "printf '%s\\n' 'probe complete'\n");
+  require(
+      QFile::setPermissions(
+          executable, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner),
+      "Cannot make timeout fixture executable");
+  const int savedTimeout = ThirdParty::getFFmpegTimeout();
+  Preferences::instance()->setValue(ffmpegPath, tools.path());
+  // A wrapped 32-bit product would give this two-second probe only 704 ms.
+  for (const int seconds : {4294968, 0}) {
+    ThirdParty::setFFmpegTimeout(seconds);
+    Ffmpeg reader;
+    require(reader.runFfprobe({}) == QStringLiteral("probe complete\n"),
+            "Large or default timeout rejected a completed probe");
+  }
+  ThirdParty::setFFmpegTimeout(1);
+  Ffmpeg reader;
+  expectFailure([&] { reader.runFfprobe({}); },
+                "Probe ignored the configured one-second timeout");
+  ThirdParty::setFFmpegTimeout(savedTimeout);
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
+}
+
 void testFailedFinalization(const QTemporaryDir &directory, bool usePipe) {
   const QString path = directory.filePath(usePipe ? "failed-pipe.apng"
                                                  : "failed-files.apng");
@@ -803,6 +832,7 @@ int main(int argc, char *argv[]) {
     setUpEnvironment(directory);
     const QStringList previousImports = importGenerations();
     testFrameSyncCapabilities();
+    testProbeTimeoutConversion();
 
     // APNG is lossless: exact pixels, alpha included, identical exports
     testFormat(

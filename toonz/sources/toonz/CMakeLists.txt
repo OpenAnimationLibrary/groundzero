@@ -198,6 +198,7 @@ endif()
 
 set(HEADERS
     activechecks.h
+    batchtaskexecution.h
     cadmiumtypes.h
     cadmiumsource.h
     cadmiumcolor.h
@@ -465,6 +466,7 @@ set(SOURCES
     frameheadgadget.cpp
     onionskinmaskgui.cpp
     batches.cpp
+    batchtaskexecution.cpp
     tfarmstuff.cpp
     cleanuppaletteviewer.cpp
     cleanuppopup.cpp
@@ -1106,6 +1108,20 @@ endif()
 if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
+    target_sources(OpenToonz PRIVATE batchtaskintegrationtest.cpp batchtaskintegrationtest.h)
+    target_sources(OpenToonz PRIVATE batchtaskviewintegrationtest.cpp batchtaskviewintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        workflowlifetimeintegrationtest.cpp workflowlifetimeintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        rasterpasteintegrationtest.cpp rasterpasteintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        custompanelintegrationtest.cpp custompanelintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        uimemoryintegrationtest.cpp uimemoryintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        renderprogressintegrationtest.inc renderprogressintegrationtest.h)
+    target_sources(OpenToonz PRIVATE
+        drawingcacheintegrationtest.cpp drawingcacheintegrationtest.h)
     target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
     target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
     target_sources(OpenToonz PRIVATE functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)

@@ -175,13 +175,13 @@ if(BUILD_ENV_APPLE)
     add_dependencies(tnzbase tnzcore)
 endif()
 
-add_definitions(
-    -DTNZBASE_EXPORTS
-    -DTPARAM_EXPORTS
-    -DTXSHEET_EXPORTS
-    -DTFX_EXPORTS
-    -DTAPPTOOLS_EXPORTS
-    -DTTEST_EXPORTS
+target_compile_definitions(tnzbase PRIVATE
+    TNZBASE_EXPORTS
+    TPARAM_EXPORTS
+    TXSHEET_EXPORTS
+    TFX_EXPORTS
+    TAPPTOOLS_EXPORTS
+    TTEST_EXPORTS
 )
 
 message("subdir: tnzbase")
@@ -229,4 +229,17 @@ if(BUILD_SEEXPR_TESTS)
     target_link_libraries(seexpr_native_animcurve_test tnzbase)
     add_test(NAME seexpr_native_animcurve COMMAND seexpr_native_animcurve_test)
     set_tests_properties(seexpr_native_animcurve PROPERTIES TIMEOUT 120)
+endif()
+
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(externfx_process_test tests/externfx_process_test.cpp)
+    target_link_libraries(externfx_process_test PRIVATE tnzbase tnzcore image
+        Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME externfx_process COMMAND externfx_process_test)
+    set_tests_properties(externfx_process PROPERTIES TIMEOUT 30)
+    if(APPLE)
+        set_tests_properties(externfx_process PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
+    elseif(WIN32)
+        set_tests_properties(externfx_process PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    endif()
 endif()

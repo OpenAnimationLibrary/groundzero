@@ -1,8 +1,8 @@
 name: Native process contracts
 
 on:
-  push:
-    branches: [ci/native-process-qualification]
+  schedule:
+    - cron: '53 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -18,15 +18,15 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          lfs: false
           persist-credentials: false
+          lfs: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /ci-scripts/
             /toonz/sources/toonzpreview/tests/run_thumbnail_test.py
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Ensure original crash debugger is available
@@ -56,7 +56,7 @@ jobs:
       - name: Retain text evidence
         id: evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 2
         continue-on-error: true
         with:
@@ -71,7 +71,7 @@ jobs:
           overwrite: true
       - name: Retry text evidence delivery
         if: ${{ !cancelled() && steps.evidence.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 2
         with:
           name: native-process-contracts-${{ github.sha }}

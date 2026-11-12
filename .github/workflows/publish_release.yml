@@ -12,8 +12,7 @@ on:
         required: true
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 # Serialize both publication routes while selecting a changelog baseline.
 concurrency:
@@ -23,6 +22,9 @@ concurrency:
 jobs:
   publish:
     if: github.repository == 'OpenAnimationLibrary/groundzero'
+    permissions:
+      contents: write # Update the selected release and attach its artifacts.
+      actions: read # Download the explicitly selected successful build artifacts.
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -31,7 +33,7 @@ jobs:
       RUN_IDS: ${{ inputs.run_ids }}
     steps:
       - name: Check out release tooling
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -76,7 +78,7 @@ jobs:
               *)          echo "::warning::unrecognised artifact $name" ;;
             esac
           done
-          (cd out && sha256sum * > "${base}-SHA256SUMS.txt")
+          (cd out && sha256sum ./* > "${base}-SHA256SUMS.txt")
           ls -la out
 
       - name: Upload to release

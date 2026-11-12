@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - edition
-      - 'ci/seexpr-*'
 
 permissions:
   contents: read
@@ -25,6 +24,7 @@ jobs:
     # backward compatible only, so an AppImage built on 24.04 requires
     # GLIBC_2.38 / GLIBCXX_3.4.32 and will not start on 22.04 (see #7001).
     runs-on: ubuntu-22.04
+    timeout-minutes: 240
     strategy:
       matrix:
         compiler: [gcc]
@@ -33,9 +33,16 @@ jobs:
             cc: gcc
             cxx: g++
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
-    - uses: actions/setup-python@v6
+    - name: Enforce the baseline pull request budget
+      run: |
+        ruby ci-scripts/check_ci_budget.rb
+        ruby ci-scripts/tests/test_ci_budget.rb
+
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: '3.12'
 
@@ -59,10 +66,17 @@ jobs:
     - name: Verify bounded desktop GL launcher
       run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
 
+    - name: Verify CI failure classification and pagination
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_ci_audit.py -v
+
     - name: Verify Unicode regression reporting
       run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
 
+    - name: Verify isolated image-cache leak qualification contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_image_cache_lsan.py -v
+
     - name: Install libraries
+      id: libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,
         # which left this step hanging for up to an hour: use the main Ubuntu
@@ -73,7 +87,7 @@ jobs:
         ok=0
         for attempt in 1 2 3; do
           if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
-             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache bison flex gdb python3-dev libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qttranslations5-l10n qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache bison flex gdb python3-dev libboost-all-dev qtbase5-dev qt6-base-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qttranslations5-l10n qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
           echo "::warning title=apt::attempt $attempt failed, retrying"
           sleep 20
         done
@@ -82,7 +96,7 @@ jobs:
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
 
-    - uses: actions/cache/restore@v5
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
@@ -94,28 +108,31 @@ jobs:
       run: |
         cd thirdparty/tiff-4.0.3
         CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
-        make -j $(nproc)
+        make -j "$(nproc)"
 
     - name: Build cel regression targets
       id: native_targets
+      env:
+        C_COMPILER: ${{ matrix.cc }}
+        CXX_COMPILER: ${{ matrix.cxx }}
       run: |
         export CCACHE_DIR=/home/runner/.ccache
-        export CC="ccache ${{ matrix.cc }}"
-        export CXX="ccache ${{ matrix.cxx }}"
+        export CC="ccache $C_COMPILER"
+        export CXX="ccache $CXX_COMPILER"
         cd toonz
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_EXR_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER="$CXX_COMPILER" -DCMAKE_C_COMPILER="$C_COMPILER" -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_DEFORMER_TESTS=ON -DBUILD_AUTOPATCH_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_EXR_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
-        ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test externfx_process_test plugin_probe_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
     - name: Qualify native neural host
       run: python ci-scripts/neural-style/host.py
 
     - name: Retain reference style qualification and visual examples
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
         path: neural-evaluation/report
@@ -145,7 +162,7 @@ jobs:
       run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-demo-output.txt
 
     - name: Upload particle cache example project
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: particle-cache-examples-${{ runner.os }}-${{ matrix.compiler }}
         path: toonz/build/particlecache-examples
@@ -191,15 +208,14 @@ jobs:
           ulimit -S -c 0
           cleanup_status=0
           if [ "$native_core_pattern_recorded" = 1 ]; then
-            timeout --kill-after=2s 8s sudo -n sysctl -w "kernel.core_pattern=$native_core_previous_pattern" >/dev/null
-            if [ "$?" -ne 0 ]; then
+            if ! timeout --kill-after=2s 8s sudo -n sysctl -w \
+                "kernel.core_pattern=$native_core_previous_pattern" >/dev/null; then
               printf 'Original core kernel-pattern restoration failed.\n' >> "$native_core_report"
               cleanup_status=1
             fi
           fi
           # Raw cores are never uploaded, including when collection/setup fails.
-          rm -f -- "$native_core_directory"/core.*
-          if [ "$?" -ne 0 ] || ! rmdir -- "$native_core_directory"; then
+          if ! rm -f -- "$native_core_directory"/core.* || ! rmdir -- "$native_core_directory"; then
             printf 'Original raw core directory cleanup failed.\n' >> "$native_core_report"
             cleanup_status=1
           fi
@@ -231,7 +247,7 @@ jobs:
 
     - name: Upload artist workflow evidence
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: artist-workflow-linux-${{ matrix.cxx }}
         path: |
@@ -256,7 +272,7 @@ jobs:
 
     - name: Upload native animation workflow diagnostics
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: animation-workflow-linux
         path: toonz/build/ui-integration-output*.txt
@@ -286,7 +302,7 @@ jobs:
 
     - name: Retain native UI diagnostics
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: Native-UI-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
         path: |
@@ -309,10 +325,15 @@ jobs:
 
     - name: Report cel test failures
       if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
-      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt --outcome '${{ steps.cel_tests.outcome }}'
+      env:
+        CEL_TEST_OUTCOME: ${{ steps.cel_tests.outcome }}
+      run: >-
+        python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
+        --outcome "$CEL_TEST_OUTCOME"
 
     - name: Build application
       id: application_build
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
       working-directory: toonz/build
       run: |
         export CCACHE_DIR=/home/runner/.ccache
@@ -367,7 +388,7 @@ jobs:
 
     - name: Retain SeExpr native diagnostics
       if: ${{ always() && steps.seexpr_tests.outcome != 'skipped' }}
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: SeExpr-native-diagnostics-${{ github.sha }}
         path: |
@@ -392,7 +413,7 @@ jobs:
 
     - name: Retain SeExpr performance measurements
       if: ${{ always() && steps.seexpr_performance.outcome != 'skipped' }}
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: SeExpr-performance-${{ github.sha }}
         path: toonz/build/seexpr-performance.txt
@@ -402,11 +423,20 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache childstack_lifetime levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+
+    - name: Qualify image-cache builder release with LeakSanitizer
+      if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
+      timeout-minutes: 40
+      env:
+        CCACHE_DIR: /home/runner/.ccache
+      run: >-
+        python3 ci-scripts/qualify_image_cache_lsan.py
+        --root . --build toonz/build --output toonz/build/image-cache-lsan
 
     - name: Upload reliability diagnostics
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: linux-reliability-results
         path: |
@@ -414,12 +444,13 @@ jobs:
           toonz/build/cast-workflow-metrics.json
           toonz/build/stdfx/fxrender-output
           toonz/build/image/ffmpeg-test-output
+          toonz/build/image-cache-lsan
         if-no-files-found: ignore
 
     # Keep successfully compiled objects even when a regression test fails.
     - name: Save compiler cache
       if: always()
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
@@ -458,7 +489,7 @@ jobs:
         grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
           file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
           msg=${line#*error: }
-          file=${file#$prefix}; file=${file#../sources/}
+          file=${file#"$prefix"}; file=${file#../sources/}
           case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
           echo "::error file=${file},line=${lineno}::${msg}"
         done
@@ -467,6 +498,8 @@ jobs:
         done
 
     - name: Create Artifact
+      env:
+        ARTIFACT_NAME: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
       run: |
         cd toonz/build
         sudo ninja install
@@ -510,18 +543,239 @@ jobs:
         --executable=appdir/usr/bin/tfarmcontroller \
         --executable=appdir/usr/bin/tfarmserver
         mv OpenToonz*.AppImage artifact/OpenToonz.AppImage
-        ARTIFACT_NAME=Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
-        mv artifact ${ARTIFACT_NAME}
-        tar zcf ${ARTIFACT_NAME}.tar.gz ${ARTIFACT_NAME}
+        mv artifact "$ARTIFACT_NAME"
+        tar zcf "$ARTIFACT_NAME.tar.gz" "$ARTIFACT_NAME"
 
-    - uses: actions/upload-artifact@v6
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
         path: toonz/build/Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}.tar.gz
 
+    # Independent suites run after native packaging and also after unrelated
+    # failures. Consolidation must not prevent their diagnostics from running.
+    - name: Lint GitHub Actions workflows
+      if: ${{ !cancelled() }}
+      timeout-minutes: 5
+      run: |
+        set -euo pipefail
+        audit_tools="$RUNNER_TEMP/groundzero-workflow-actionlint"
+        mkdir -p "$audit_tools"
+        release="https://github.com/rhysd/actionlint/releases/download/v1.7.12"
+        curl --fail --location --silent --show-error --retry 2 --max-time 90 \
+          "$release/actionlint_1.7.12_linux_amd64.tar.gz" \
+          --output "$audit_tools/actionlint.tar.gz"
+        printf '%s  %s\n' \
+          '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
+          "$audit_tools/actionlint.tar.gz" | sha256sum --check --strict
+        tar -xzf "$audit_tools/actionlint.tar.gz" -C "$audit_tools" actionlint
+        command -v shellcheck >/dev/null
+        if ! "$audit_tools/actionlint" -color=false \
+          2>&1 | tee workflow-actionlint.log; then
+          echo '::error title=Workflow lint::actionlint or ShellCheck reported a workflow error'
+          exit 1
+        fi
+
+    - name: Audit GitHub Actions security
+      if: ${{ !cancelled() }}
+      timeout-minutes: 5
+      run: |
+        set -euo pipefail
+        audit_tools="$RUNNER_TEMP/groundzero-workflow-zizmor"
+        mkdir -p "$audit_tools"
+        release="https://github.com/zizmorcore/zizmor/releases/download/v1.32.0"
+        curl --fail --location --silent --show-error --retry 2 --max-time 90 \
+          "$release/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
+          --output "$audit_tools/zizmor.tar.gz"
+        printf '%s  %s\n' \
+          'bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b' \
+          "$audit_tools/zizmor.tar.gz" | sha256sum --check --strict
+        tar -xzf "$audit_tools/zizmor.tar.gz" -C "$audit_tools" zizmor
+        if ! "$audit_tools/zizmor" --offline .github/workflows .github/dependabot.yml \
+          2>&1 | tee workflow-zizmor.log; then
+          echo '::error title=Workflow security::zizmor reported an unsuppressed security finding'
+          exit 1
+        fi
+
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      id: node_runtime
+      if: ${{ !cancelled() }}
+      with:
+        node-version: '22'
+        package-manager-cache: false
+
+    - name: Install locked stylesheet and wiki tools
+      id: style_toolchain
+      if: ${{ !cancelled() && steps.node_runtime.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        npm ci --prefix ci-scripts/style-toolchain --ignore-scripts --no-fund
+        echo "$GITHUB_WORKSPACE/ci-scripts/style-toolchain/node_modules/.bin" >> "$GITHUB_PATH"
+
+    - name: Test release notes
+      id: release_notes
+      if: ${{ !cancelled() }}
+      run: |
+        set -euo pipefail
+        python3 -m unittest discover -s .github/scripts -p test_release_notes.py -v \
+          2>&1 | tee release-notes.log
+
+    - name: Validate and build the reference wiki
+      id: reference_wiki
+      if: ${{ !cancelled() && steps.style_toolchain.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        node doc/production-journal/validate-reference-pack.mjs 2>&1 | tee reference-wiki.log
+        tiddlywiki doc/production-journal --build index \
+          2>&1 | tee -a reference-wiki.log
+
+    # Compare before generating review artifacts so generation cannot repair
+    # stale committed output and turn the gate green.
+    - name: Check committed stylesheets
+      id: qss_check
+      if: ${{ !cancelled() && steps.style_toolchain.outcome == 'success' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 ci-scripts/compile_qss.py --check 2>&1 | tee qss-check.log
+
+    - name: Report stale stylesheets
+      if: ${{ failure() && steps.qss_check.outcome == 'failure' }}
+      run: |
+        set -euo pipefail
+        awk '/^STALE / {print $2}' qss-check.log | while IFS= read -r file; do
+          echo "::error file=${file},title=Stale stylesheet::Run ci-scripts/compile_qss.py and commit the generated QSS"
+        done
+        echo '::error title=QSS Check::Committed stylesheets must match their LESS sources'
+        {
+          echo "## Stylesheet comparison"
+          echo '```'
+          cat qss-check.log
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Generate stylesheet review artifacts
+      if: ${{ !cancelled() && steps.qss_check.outcome != 'skipped' }}
+      run: python3 ci-scripts/compile_qss.py
+
+    - name: Retain stylesheet review artifacts
+      if: ${{ !cancelled() && steps.qss_check.outcome != 'skipped' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: generated-native-stylesheets
+        path: |
+          stuff/config/qss/*/*.qss
+          qss-check.log
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Plugin Manager Qt 5 regressions
+      id: plugin_qt5
+      if: ${{ !cancelled() && steps.libraries.outcome == 'success' }}
+      timeout-minutes: 10
+      shell: bash
+      run: |
+        set -euo pipefail
+        cmake -S toonz/sources/toonz/tests/pluginmanager -B plugin-manager-qt5 -G Ninja \
+          -DPLUGIN_MANAGER_QT_MAJOR=5 2>&1 | tee plugin-manager-qt5.log
+        cmake --build plugin-manager-qt5 2>&1 | tee -a plugin-manager-qt5.log
+        ctest --test-dir plugin-manager-qt5 --output-on-failure --no-tests=error \
+          --output-junit results.xml 2>&1 | tee -a plugin-manager-qt5.log
+
+    - name: Plugin Manager Qt 6 regressions
+      id: plugin_qt6
+      if: ${{ !cancelled() && steps.libraries.outcome == 'success' }}
+      timeout-minutes: 10
+      shell: bash
+      run: |
+        set -euo pipefail
+        cmake -S toonz/sources/toonz/tests/pluginmanager -B plugin-manager-qt6 -G Ninja \
+          -DPLUGIN_MANAGER_QT_MAJOR=6 2>&1 | tee plugin-manager-qt6.log
+        cmake --build plugin-manager-qt6 2>&1 | tee -a plugin-manager-qt6.log
+        ctest --test-dir plugin-manager-qt6 --output-on-failure --no-tests=error \
+          --output-junit results.xml 2>&1 | tee -a plugin-manager-qt6.log
+
+    - name: PureRef import regression
+      id: pureref_tests
+      if: ${{ !cancelled() && steps.libraries.outcome == 'success' }}
+      timeout-minutes: 10
+      shell: bash
+      run: |
+        set -euo pipefail
+        cmake -S toonz/sources/toonz/tests/pureref -B pureref-build -G Ninja \
+          -DQT_DIR=/usr/lib/x86_64-linux-gnu/cmake/Qt5 2>&1 | tee pureref-build.log
+        cmake --build pureref-build 2>&1 | tee -a pureref-build.log
+        ctest --test-dir pureref-build --output-on-failure --no-tests=error \
+          --output-junit results.xml 2>&1 | tee -a pureref-build.log
+
+    - name: Neural temporal motion and occlusion
+      id: temporal_tests
+      if: ${{ !cancelled() && steps.libraries.outcome == 'success' }}
+      timeout-minutes: 15
+      shell: bash
+      run: |
+        set -euo pipefail
+        cmake -S toonz/sources/neuralstyle/temporal-tests -B temporal-build \
+          -DCMAKE_BUILD_TYPE=Release 2>&1 | tee temporal-build.log
+        cmake --build temporal-build --parallel 2 2>&1 | tee -a temporal-build.log
+        ./temporal-build/neural-temporal-tests 2>&1 | tee -a temporal-build.log
+
+    - name: SeExpr address and undefined behavior sanitizers
+      id: sanitizer_tests
+      if: ${{ !cancelled() && steps.libraries.outcome == 'success' }}
+      timeout-minutes: 25
+      shell: bash
+      env:
+        ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1:strict_string_checks=1
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      run: |
+        set -euo pipefail
+        cmake -S ci-scripts/seexpr -B seexpr-sanitizer -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          -DSEEXPR_QUALIFY_SANITIZERS=ON -DBUILD_SEEXPR_PYTHON=OFF \
+          2>&1 | tee seexpr-sanitizer.log
+        cmake --build seexpr-sanitizer --config RelWithDebInfo --parallel 4 \
+          2>&1 | tee -a seexpr-sanitizer.log
+        ctest --test-dir seexpr-sanitizer -C RelWithDebInfo --output-on-failure \
+          --output-junit results.xml --no-tests=error --timeout 120 \
+          2>&1 | tee -a seexpr-sanitizer.log
+
+    - name: Report consolidated suite failures
+      if: >-
+        ${{ failure() && (steps.plugin_qt5.outcome == 'failure' ||
+          steps.plugin_qt6.outcome == 'failure' ||
+          steps.pureref_tests.outcome == 'failure' || steps.temporal_tests.outcome == 'failure' ||
+          steps.sanitizer_tests.outcome == 'failure' || steps.release_notes.outcome == 'failure' ||
+          steps.reference_wiki.outcome == 'failure') }}
+      run: >-
+        python ci-scripts/seexpr/report.py plugin-manager-qt5.log plugin-manager-qt6.log
+        pureref-build.log temporal-build.log seexpr-sanitizer.log
+        release-notes.log reference-wiki.log
+
+    - name: Retain consolidated suite diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: Linux-consolidated-suites-${{ github.sha }}
+        path: |
+          plugin-manager-qt*.log
+          plugin-manager-qt*/results.xml
+          plugin-manager-qt*/Testing/Temporary/LastTest.log
+          pureref-build.log
+          pureref-build/results.xml
+          pureref-build/Testing/Temporary/LastTest.log
+          temporal-build.log
+          seexpr-sanitizer.log
+          seexpr-sanitizer/results.xml
+          seexpr-sanitizer/Testing/Temporary/LastTest.log
+          release-notes.log
+          reference-wiki.log
+          workflow-actionlint.log
+          workflow-zizmor.log
+        if-no-files-found: ignore
+
   InstalledApplication:
     needs: Ubuntu
-    uses: ./.github/workflows/seexpr-package-smoke.yml
+    # Same revision; actionlint 1.7.12 does not support the newer $/ syntax.
+    uses: ./.github/workflows/seexpr-package-smoke.yml # zizmor: ignore[self-repository]
     with:
       platform: linux
       artifact_name: Opentoonz-Linux-gcc-${{ github.sha }}

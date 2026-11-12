@@ -19,8 +19,26 @@
 #include "toonz/toonzscene.h"
 #include "toonz/sceneproperties.h"
 #include "vectorizerpopup.h"
+#include "texception.h"
 
 #include <QApplication>
+#include <utility>
+
+struct DrawingData::CacheEntries {
+  std::set<QString> ids;
+
+  ~CacheEntries() {
+    for (const auto& id : ids) TImageCache::instance()->remove(id);
+  }
+
+  QString add(const TImageP& image) {
+    const QString id =
+        QString::fromStdString(TImageCache::instance()->getUniqueId());
+    ids.insert(id);
+    TImageCache::instance()->add(id, image);
+    return id;
+  }
+};
 
 //=============================================================================
 // DrawingData
@@ -51,13 +69,6 @@ void shiftHooks(TXshSimpleLevel *sl, const TFrameId &startFrameId,
       }
     }
   }
-}
-
-//-----------------------------------------------------------------------------
-
-QString makeCacheId(UINT id, const TFrameId &fid) {
-  return "DrawingData" + QString::number(id) + "-" +
-         QString::number(fid.getNumber());
 }
 
 //-----------------------------------------------------------------------------
@@ -192,12 +203,13 @@ void DrawingData::setLevelFrames(TXshSimpleLevel *sl,
                                  std::set<TFrameId> &frames) {
   if (!sl || frames.empty()) return;
 
-  m_level = sl;
-  m_imageSet.clear();
+  auto entries = std::make_shared<CacheEntries>();
+  std::map<TFrameId, QString> images;
+  HookSet hooks(m_levelHooks);
 
   std::set<TFrameId>::iterator it;
 
-  HookSet *levelHooks = m_level->getHookSet();
+  HookSet* levelHooks = sl->getHookSet();
   int i, hookCount = levelHooks->getHookCount();
 
   for (it = frames.begin(); it != frames.end(); ++it) {
@@ -211,25 +223,24 @@ void DrawingData::setLevelFrames(TXshSimpleLevel *sl,
                                                      // it.
     if (!img) continue;
 
-    // Clone the image and store it in the image cache
-    QString id = makeCacheId(
-        (uintptr_t) this,
-        it->getNumber());  // Cloning is necessary since the user may
-    TImageCache::instance()->add(
-        id, img->cloneImage());  // modify and save the original AFTER the copy
-    m_imageSet[frameId] = id;    // has been done.
+    // The source may be edited or saved after copying.
+    images[frameId] = entries->add(img->cloneImage());
 
     for (i = 0; i < hookCount; i++) {
       Hook *levelHook = levelHooks->getHook(i);
       if (!levelHook || levelHook->isEmpty()) continue;
 
-      Hook *copiedHook            = m_levelHooks.getHook(i);
-      if (!copiedHook) copiedHook = m_levelHooks.addHook();
+      Hook* copiedHook = hooks.getHook(i);
+      if (!copiedHook) copiedHook = hooks.addHook();
 
       copiedHook->setAPos(frameId, levelHook->getAPos(frameId));
       copiedHook->setBPos(frameId, levelHook->getBPos(frameId));
     }
   }
+  m_levelHooks = hooks;
+  m_imageSet.swap(images);
+  m_cacheEntries.swap(entries);
+  m_level = sl;
 }
 
 //-----------------------------------------------------------------------------
@@ -245,10 +256,9 @@ void DrawingData::setLevelFrames(TXshSimpleLevel *sl,
 // setType : INSERT->InsertPaste,  OVER_FRAMEID->Merge,
 // OVER_SELECTION->PasteInto
 
-bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
-                                 std::set<TFrameId> &frames,
-                                 ImageSetType setType, bool cloneImages,
-                                 bool &keepOriginalPalette, bool isRedo) const {
+DrawingData::PasteResult DrawingData::getLevelFrames(
+    TXshSimpleLevel* sl, std::set<TFrameId>& frames, ImageSetType setType,
+    bool cloneImages, bool& keepOriginalPalette, bool isRedo) const {
   int slType = m_level->getType();
   if (m_imageSet.empty() || !sl ||
       (frames.empty() &&
@@ -258,7 +268,7 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
        (sl->getType() != TZP_XSHLEVEL ||
         slType != PLI_XSHLEVEL) &&  // ...unless they are of type PLI and TLV
        (sl->getType() != PLI_XSHLEVEL || slType != TZP_XSHLEVEL)))  //
-    return false;
+    return {};
 
   if (m_level.getPointer() == sl || isRedo) {
   }
@@ -279,7 +289,7 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
           QObject::tr("Keep original palette"), QObject::tr("Cancel"), 0);
 
       if (ret == 0 || ret == 3)
-        return false;
+        return {};
       else if (ret == 1)
         keepOriginalPalette = false;
       else
@@ -296,11 +306,12 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
   sl->getFids(oldFids);
 
   std::set<TFrameId> framesToInsert;
+  std::vector<TFrameId> originalFrames;
   if (setType == INSERT) {
     framesToInsert = frames;
-    getFrameIdToInsert(framesToInsert, sl, m_imageSet);
-    // faccio posto (se serve)
-    makeSpaceForFids(sl, framesToInsert);
+    // Redo already holds the frame IDs chosen by the original insertion.
+    if (!isRedo) getFrameIdToInsert(framesToInsert, sl, m_imageSet);
+    originalFrames = makeSpaceForFids(sl, framesToInsert);
     assert(sl->getFrameCount() == (int)oldFids.size());
   } else if (setType == OVER_SELECTION)
     framesToInsert = frames;
@@ -387,7 +398,7 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
   }
 
   QApplication::restoreOverrideCursor();
-  return true;
+  return {true, std::move(originalFrames)};
 }
 
 //-----------------------------------------------------------------------------
@@ -460,13 +471,35 @@ TImageP DrawingData::getImage(QString imageId, TXshSimpleLevel *sl,
 
 void DrawingData::setFrames(const std::map<TFrameId, QString> &imageSet,
                             TXshSimpleLevel *level, const HookSet &levelHooks) {
-  m_levelHooks = levelHooks;
-  m_imageSet.clear();
-
   assert(!imageSet.empty());
-
-  m_imageSet = imageSet;
-  m_level    = level;
+  auto entries = std::make_shared<CacheEntries>();
+  std::map<TFrameId, QString> images;
+  std::map<QString, QString> transferredIds;
+  HookSet hooks(levelHooks);
+  auto* cache = TImageCache::instance();
+  for (const auto& [frame, sourceId] : imageSet) {
+    auto [it, inserted] = transferredIds.emplace(sourceId, QString());
+    if (inserted) {
+      TImageP image = cache->get(sourceId, false);
+      if (!image)
+        throw TException(L"Cannot capture drawing: cache entry " +
+                         sourceId.toStdWString() +
+                         L" is missing. Copy the drawing again.");
+      it->second = entries->add(image);
+    }
+    images.emplace(frame, it->second);
+  }
+  const auto previousEntries = m_cacheEntries;
+  m_levelHooks               = hooks;
+  m_imageSet.swap(images);
+  m_cacheEntries.swap(entries);
+  m_level = level;
+  for (const auto& transfer : transferredIds) {
+    const auto& sourceId = transfer.first;
+    // Reusing this object's own snapshots must not invalidate a live clone.
+    if (!previousEntries || previousEntries->ids.count(sourceId) == 0)
+      cache->remove(sourceId);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -477,20 +510,11 @@ void DrawingData::getFrames(std::set<TFrameId> &frames) const {
 
 //-----------------------------------------------------------------------------
 
-DrawingData::~DrawingData() {
-  // cannot do that here! if you have cloned this class, the images in the cache
-  // are still used...
-  // int i;
-  // for(i=0; i<m_imageSet.size(); i++)
-  //  TImageCache::instance()->remove(m_imageSet[i]);
-}
+DrawingData::~DrawingData() = default;
 
 //-----------------------------------------------------------------------------
 
 void DrawingData::releaseData() {
-  // do it when you're sure you no t need images anymore... (for example in an
-  // undo destructor)
-  // int i;
-  // for(i=0; i<m_imageSet.size(); i++)
-  //  TImageCache::instance()->remove(m_imageSet[i]);
+  m_imageSet.clear();
+  m_cacheEntries.reset();
 }
