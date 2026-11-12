@@ -15,6 +15,7 @@
 #include "tpalette.h"
 
 #include <memory>
+#include <mutex>
 #include <sstream>
 
 PERSIST_IDENTIFIER(TPalette, "palette")
@@ -274,9 +275,9 @@ TPalette::~TPalette() {
 //-------------------------------------------------------------------
 
 TPalette *TPalette::clone() const {
-  TPalette *palette = new TPalette;
+  auto palette = std::make_unique<TPalette>();
   palette->assign(this);
-  return palette;
+  return palette.release();
 }
 
 //-------------------------------------------------------------------
@@ -313,6 +314,7 @@ int TPalette::getFirstUnpagedStyle() const {
  * palette, the new style will be appended to the end of the list.
  */
 int TPalette::addStyle(TColorStyle *style) {
+  TThread::MutexLocker lock(&m_mutex);
   const int styleId = int(m_styles.size());
   // Duplicate inputs are borrowed from this palette, not newly owned styles.
   for (int i = 0; i < styleId; ++i)
@@ -339,6 +341,7 @@ int TPalette::addStyle(const TPixel32 &color) {
 //-------------------------------------------------------------------
 
 void TPalette::setStyle(int styleId, TColorStyle *style) {
+  TThread::MutexLocker lock(&m_mutex);
   int styleCount = getStyleCount();
 
   // A style already held by this palette is borrowed, even when the target
@@ -968,6 +971,8 @@ void TPalette::loadData(TIStream &is) {
  */
 void TPalette::assign(const TPalette *src, bool isFromStudioPalette) {
   if (!src || src == this) return;
+  // Thumbnail workers copy the palette while the editor updates its keys.
+  std::scoped_lock lock(m_mutex, src->m_mutex);
   int i;
   m_isCleanupPalette = src->isCleanupPalette();
   // for(i=0;i<getStyleCount();i++) delete getStyle(i);
@@ -1207,12 +1212,13 @@ int TPalette::getKeyframe(int styleId, int index) const {
 void TPalette::setKeyframe(
     int styleId, int frame,
     std::optional<TPaletteKeyInterpolation> interpolation) {
+  TThread::MutexLocker lock(&m_mutex);
   assert(styleId >= 0 && styleId < getStyleCount());
   assert(frame >= 0);
 
-  TThread::MutexLocker lock(&m_mutex);
+  TColorStyleP style(getStyle(styleId)->clone());
   auto &key = m_styleAnimationTable[styleId][frame];
-  key.style = getStyle(styleId)->clone();
+  key.style = style;
   if (interpolation) key.interpolation = *interpolation;
 }
 
