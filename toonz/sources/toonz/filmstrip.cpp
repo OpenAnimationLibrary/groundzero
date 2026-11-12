@@ -3119,6 +3119,7 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
   connect(m_previewTimer, &QTimer::timeout, this, &InbetweenDialog::refreshPreview);
   connect(this, &QDialog::finished, this, [this](int) {
     m_previewTimer->stop();
+    m_previewValid = false;
     m_firstImage = m_lastImage = TVectorImageP();
     m_manualPairs.clear(); m_zones.clear();
     for (auto *preview : {m_firstPreview, m_resultPreview, m_lastPreview})
@@ -3244,8 +3245,12 @@ void InbetweenDialog::refreshPreview() {
 }
 
 void InbetweenDialog::accept() {
-  m_previewTimer->stop();
-  refreshPreview();
+  // Apply the completed preflight for these options. Only a pending option
+  // change needs to be checked synchronously before keyboard acceptance.
+  if (m_previewTimer->isActive()) {
+    m_previewTimer->stop();
+    refreshPreview();
+  }
   if (m_previewValid) DVGui::Dialog::accept();
 }
 
