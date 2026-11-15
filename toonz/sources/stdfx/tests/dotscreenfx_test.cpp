@@ -82,6 +82,12 @@ void set(TFx &fx, const std::string &name, double value) {
   param->setDefaultValue(value);
 }
 
+void setPoint(TFx &fx, const std::string &name, TPointD value) {
+  TPointParamP param = TParamP(fx.getParams()->getParam(name));
+  require(bool(param), "No point parameter " + name);
+  param->setDefaultValue(value);
+}
+
 template <class Pixel>
 int bitsOf() {
   return std::is_same<Pixel, TPixelF>::value    ? 128
@@ -197,10 +203,17 @@ void testFx() {
   set(fx, "mode2", 0);    // Set
   set(fx, "low2", 0);
   set(fx, "high2", 0);
+  set(fx, "source2", 0);  // Input
   const TRasterPT<Pixel> unplugged = render(TPointD(-128, -16), 256, 32, 0);
   require(approx(alpha(unplugged, 128, 16), 1) &&
               approx(alpha(unplugged, 135, 16), 1),
           "A modifier without its input changed the dots");
+  // A ramp needs no input: opacity 0 everywhere
+  set(fx, "source2", 1);
+  const TRasterPT<Pixel> ramped = render(TPointD(-128, -16), 256, 32, 0);
+  require(alpha(ramped, 128, 16) == 0 && alpha(ramped, 28, 16) == 0,
+          "A modifier on a ramp did nothing without an input");
+  set(fx, "source2", 0);
 
   set(fx, "aspectRandom", 0.25);
   require(fx.settings(0).aspectRandom == 0.25,
@@ -251,6 +264,101 @@ void testRotationModifier() {
   }
 }
 
+// The first modifier's halftone on its built-in ramps, with nothing
+// connected: a ramp is a control image of that grey, tied to the scene
+template <class Pixel>
+void testRamps() {
+  TFxP holder = new DotScreenFx;
+  auto &fx    = static_cast<DotScreenFx &>(*holder);
+  set(fx, "spacing", 20);
+  set(fx, "angle", 0);
+  set(fx, "size", 1);
+  TRenderSettings settings;
+  settings.m_bpp = bitsOf<Pixel>();
+  auto alpha     = [](const TRasterPT<Pixel> &raster, int x, int y) {
+    return pixelOf(raster, x, y).m;
+  };
+
+  // Black at x = -90 to white at x = 90, as the Ramp input. Output pixel
+  // (x, y) is centred on world (x - 127.5, y - 15.5).
+  set(fx, "source1", 1);  // Linear Ramp
+  setPoint(fx, "rampStart1", TPointD(-90, 0));
+  setPoint(fx, "rampEnd1", TPointD(90, 0));
+  const TRasterPT<Pixel> linear =
+      renderTile<Pixel>(fx, settings, TPointD(-128, -16), 256, 32);
+  require(approx(alpha(linear, 28, 16), 1) && approx(alpha(linear, 35, 16), 1),
+          "A linear ramp's start did not give a full dot");
+  require(approx(alpha(linear, 128, 16), 1) &&
+              approx(alpha(linear, 135, 16), 0),
+          "A linear ramp's middle did not give half a dot");
+  require(approx(alpha(linear, 228, 16), 0), "A linear ramp's end gave a dot");
+
+  // An image of the same ramp on Source gives the same dots, but for the
+  // image's quantization; with the ramp chosen the image is not read
+  TFxP ramp = new Ramp;
+  require(fx.connect("Source", ramp.getPointer()), "Cannot connect Source");
+  set(fx, "source1", 0);  // Input
+  const TRasterPT<Pixel> image =
+      renderTile<Pixel>(fx, settings, TPointD(-128, -16), 256, 32);
+  TFxP disc = new Disc;
+  fx.disconnect("Source");
+  require(fx.connect("Source", disc.getPointer()), "Cannot connect the disc");
+  set(fx, "source1", 1);
+  const TRasterPT<Pixel> ignored =
+      renderTile<Pixel>(fx, settings, TPointD(-128, -16), 256, 32);
+  fx.disconnect("Source");
+  for (int y = 0; y < 32; ++y)
+    for (int x = 0; x < 256; ++x) {
+      require(approx(alpha(linear, x, y), alpha(image, x, y), 0.03),
+              "A linear ramp differs from an image of it");
+      require(ignored->pixels(y)[x] == linear->pixels(y)[x],
+              "A modifier on a ramp read its input");
+    }
+
+  // A full dot at the centre, none from 100 units away, the same in every
+  // direction. Output pixel (x, y) is centred on world (x - 127.5,
+  // y - 127.5).
+  set(fx, "source1", 2);  // Radial Ramp
+  setPoint(fx, "rampStart1", TPointD(0, 0));
+  setPoint(fx, "rampEnd1", TPointD(60, 80));
+  const TRasterPT<Pixel> radial =
+      renderTile<Pixel>(fx, settings, TPointD(-128, -128), 256, 256);
+  require(approx(alpha(radial, 128, 128), 1) &&
+              approx(alpha(radial, 135, 128), 1),
+          "A radial ramp's centre did not give a full dot");
+  // The dots 60 from the centre have radius 4: a point 2.5 beyond such a
+  // dot's centre is covered, one 5.5 beyond is not
+  const int covered[4][2] = {{190, 128}, {65, 128}, {128, 190}, {128, 65}};
+  const int beyond[4][2]  = {{193, 128}, {62, 128}, {128, 193}, {128, 62}};
+  for (int k = 0; k < 4; ++k)
+    require(approx(alpha(radial, covered[k][0], covered[k][1]), 1) &&
+                approx(alpha(radial, beyond[k][0], beyond[k][1]), 0),
+            "A radial ramp does not shrink the dots with the distance");
+  require(approx(alpha(radial, 228, 128), 0) &&
+              approx(alpha(radial, 128, 228), 0),
+          "A radial ramp's end gave a dot");
+
+  // A tile is that part of the whole frame, turned and scaled too
+  const TRasterPT<Pixel> part =
+      renderTile<Pixel>(fx, settings, TPointD(-128 + 37, -128 + 141), 53, 29);
+  for (int y = 0; y < 29; ++y)
+    for (int x = 0; x < 53; ++x)
+      require(part->pixels(y)[x] == radial->pixels(y + 141)[x + 37],
+              "A ramp's tile differs from the whole frame");
+  settings.m_affine = TRotation(30) * TScale(1.5);
+  const TRasterPT<Pixel> turned =
+      renderTile<Pixel>(fx, settings, TPointD(-192, -192), 384, 384);
+  const TRasterPT<Pixel> corner =
+      renderTile<Pixel>(fx, settings, TPointD(-192 + 211, -192 + 59), 47, 31);
+  for (int y = 0; y < 31; ++y)
+    for (int x = 0; x < 47; ++x) {
+      const TPixelD a = pixelOf(corner, x, y),
+                    b = pixelOf(turned, x + 211, y + 59);
+      require(approx(a.r, b.r, 1e-6) && approx(a.m, b.m, 1e-6),
+              "A turned ramp's tile differs from the whole frame");
+    }
+}
+
 // The FX draws under rotation and uniform scale; the renderer applies any
 // other transform to its result
 void testHandledTransforms() {
@@ -284,10 +392,13 @@ int main(int argc, char **argv) {
     testFx<TPixelF>();
     testRotationModifier<TPixel32>();
     testRotationModifier<TPixelF>();
+    testRamps<TPixel32>();
+    testRamps<TPixel64>();
+    testRamps<TPixelF>();
     testHandledTransforms();
     std::cout << "PASS: dot screen plain dots, halftone, tiles, invert, scale, "
-                 "rotation, transparent input, rotation modifier, handled "
-                 "transforms, cache keys and pixel depths\n";
+                 "rotation, transparent input, rotation modifier, ramps, "
+                 "handled transforms, cache keys and pixel depths\n";
     return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString()

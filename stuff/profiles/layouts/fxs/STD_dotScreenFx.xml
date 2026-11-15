@@ -25,18 +25,33 @@
   </page>
   <page name="Modifiers">
     <separator label="Modifier 1 (Source)"/>
+    <control>source1</control>
+    <vbox modeSensitive="source1" mode="1,2">
+      <control>rampStart1</control>
+      <control>rampEnd1</control>
+    </vbox>
     <control>target1</control>
     <control>mode1</control>
     <control>low1</control>
     <control>high1</control>
     <control>invert1</control>
     <separator label="Modifier 2 (Control2)"/>
+    <control>source2</control>
+    <vbox modeSensitive="source2" mode="1,2">
+      <control>rampStart2</control>
+      <control>rampEnd2</control>
+    </vbox>
     <control>target2</control>
     <control>mode2</control>
     <control>low2</control>
     <control>high2</control>
     <control>invert2</control>
     <separator label="Modifier 3 (Control3)"/>
+    <control>source3</control>
+    <vbox modeSensitive="source3" mode="1,2">
+      <control>rampStart3</control>
+      <control>rampEnd3</control>
+    </vbox>
     <control>target3</control>
     <control>mode3</control>
     <control>low3</control>

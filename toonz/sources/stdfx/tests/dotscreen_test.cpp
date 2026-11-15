@@ -535,6 +535,114 @@ void testAspectRandomness() {
   require(changed, "Aspect randomness changed no dot");
 }
 
+// A modifier whose source is a ramp from (x0, y0) to (x1, y1)
+Modifier fromRamp(Source source, double x0, double y0, double x1, double y1) {
+  Modifier m;
+  m.source = source;
+  m.startX = x0;
+  m.startY = y0;
+  m.endX   = x1;
+  m.endY   = y1;
+  return m;
+}
+
+// A ramp drives a modifier without a control image: black at its start
+// point, white at its end point, opaque everywhere
+void testRamps() {
+  auto clamp  = [](double v) { return std::max(0.0, std::min(1.0, v)); };
+  bool read   = false;
+  auto unread = [&](int, double, double) {
+    read = true;
+    return Rgba();
+  };
+  // Dots of size 1 multiplied by the ramp: radius 0 at black, 5 at white
+  auto requireRadii = [&](Modifier m, auto grey, const std::string &what) {
+    Settings s;
+    s.spacing      = 10;
+    s.size         = 1;
+    m.target       = Target::Size;
+    s.modifiers[1] = m;
+    const Grid g   = build(s, -120, -60, 120, 60, unread);
+    require(!read, "A ramp read a control image: " + what);
+    for (const Dot &dot : g.dots)
+      require(approx(dot.radius, 5 * grey(dot.x, dot.y)) && dot.color.a == 1,
+              "The dots do not follow the ramp: " + what);
+  };
+  requireRadii(fromRamp(Source::LinearRamp, -100, 0, 100, 0),
+               [&](double x, double) { return clamp((x + 100) / 200); },
+               "a level linear ramp");
+  // Projected on the line from the start to the end, 30 by 40
+  requireRadii(fromRamp(Source::LinearRamp, 10, 20, 40, 60),
+               [&](double x, double y) {
+                 return clamp(((x - 10) * 30 + (y - 20) * 40) / 2500);
+               },
+               "a slanted linear ramp");
+  requireRadii(fromRamp(Source::RadialRamp, 10, 20, 40, 60),
+               [&](double x, double y) {
+                 return clamp(std::hypot(x - 10, y - 20) / 50);
+               },
+               "a radial ramp");
+  auto white = [](double, double) { return 1.0; };
+  requireRadii(fromRamp(Source::LinearRamp, 10, 20, 10, 20), white,
+               "a linear ramp of no length");
+  requireRadii(fromRamp(Source::RadialRamp, 10, 20, 10, 20), white,
+               "a radial ramp of no length");
+  // Black before the start, white beyond the end
+  const Modifier level = fromRamp(Source::LinearRamp, -100, 0, 100, 0);
+  const Modifier round = fromRamp(Source::RadialRamp, 0, 0, 30, 40);
+  require(rampStrength(level, -300, 7) == 0 &&
+              rampStrength(level, 300, -7) == 1 &&
+              rampStrength(round, 0, 0) == 0 &&
+              rampStrength(round, -60, 80) == 1,
+          "A ramp leaves 0 to 1 beyond its ends");
+
+  // Invert and Colour read a ramp as they read a grey control image
+  Settings s;
+  s.spacing             = 10;
+  s.size                = 1;
+  s.modifiers[0]        = fromRamp(Source::RadialRamp, 10, 20, 40, 60);
+  s.modifiers[0].target = Target::Size;
+  s.modifiers[0].invert = true;
+  const Grid inverse    = build(s, 10, 20, 10, 20, unread);
+  // The dot of cell (1, 2), at the ramp's centre
+  const Dot &centre = inverse.dots[std::size_t(2 - inverse.j0) *
+                                       inverse.columns +
+                                   std::size_t(1 - inverse.i0)];
+  require(approx(centre.x, 10) && approx(centre.y, 20) &&
+              approx(centre.radius, 5),
+          "Invert did not swap a ramp's ends");
+  s.modifiers[0]        = fromRamp(Source::LinearRamp, -200, 0, 200, 0);
+  s.modifiers[0].target = Target::Colour;  // all of the ramp's colour
+  const Grid grey       = build(s, -250, -10, 250, 10, unread);
+  for (const Dot &dot : grey.dots) {
+    const double v = clamp((dot.x + 200) / 400);
+    require(approx(dot.color.r, v) && approx(dot.color.g, v) &&
+                approx(dot.color.b, v) && dot.color.a == 1,
+            "A colour modifier did not take a ramp's grey");
+  }
+  require(!read, "A ramp read a control image");
+
+  // Ramps belong to the scene, not to the region drawn
+  Settings tiled;
+  tiled.spacing             = 9;
+  tiled.angle               = 0.4;
+  tiled.jitter              = 0.8;
+  tiled.shape               = Shape::Diamond;
+  tiled.aspect              = 2;
+  tiled.size                = 1.4;
+  tiled.modifiers[0]        = fromRamp(Source::LinearRamp, -40, -30, 50, 20);
+  tiled.modifiers[0].target = Target::Size;
+  tiled.modifiers[0].mode   = Mode::Set;
+  tiled.modifiers[0].high   = 1.9;
+  tiled.modifiers[1]        = fromRamp(Source::RadialRamp, 20, 0, 20, 35);
+  tiled.modifiers[1].target = Target::Rotation;
+  tiled.modifiers[1].mode   = Mode::Offset;
+  tiled.modifiers[1].high   = 2;
+  // and a control image beside them
+  tiled.modifiers[2] = {Target::Opacity, Mode::Set, 0.2, 1, false};
+  requireSameTiles(tiled, "ramps");
+}
+
 void testInvalid() {
   auto rejects = [](const Settings &s) {
     try {
@@ -589,10 +697,11 @@ int main() {
     testLargeDot();
     testRandomness();
     testAspectRandomness();
+    testRamps();
     testInvalid();
     std::cout << "PASS: dot screen areas, lattice, search window, tiling, "
                  "reach, modifiers, transparent controls, large dots, "
-                 "randomness, aspect randomness and limits\n";
+                 "randomness, aspect randomness, ramps and limits\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

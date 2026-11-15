@@ -29,20 +29,34 @@ size, aspect and opacity: they shrink, narrow and fade dots, never grow them.
 as they were. <b>Hold</b> redraws the random values every that many frames,
 and <b>Seed</b> picks them.</p>
 <h2>Modifiers</h2>
-<p>Each of the three modifiers reads one input at the centre of every dot:
-Source, Control2 or Control3. <b>Changes</b> picks what it drives: Size,
-Aspect, Rotation, Opacity or Colour; Off ignores the input. The input's
+<p>Each of the three modifiers reads a control at the centre of every dot.
+<b>Control</b> picks it: Input reads the modifier's input (Source, Control2
+or Control3), Linear Ramp and Radial Ramp are built in and need nothing
+connected. <b>Changes</b> picks what the modifier drives: Size, Aspect,
+Rotation, Opacity or Colour; Off ignores the control. The control's
 brightness picks a value between <b>At Black</b> and <b>At White</b>, and
 <b>By</b> says what that value does: Set replaces the dot's value, Multiply
 scales it, Add adds to it. A rotation to Set or Add is in degrees; Multiply
 takes a plain factor, so 2 doubles the rotation. <b>Invert</b> swaps black and
-white. For Colour, each dot takes the input's colour at its centre, as far as
-<b>At White</b> allows (1 takes it fully).</p>
+white. For Colour, each dot takes the control's colour at its centre, as far
+as <b>At White</b> allows (1 takes it fully).</p>
 <p>Transparent areas of a modifier's input get no dots, whatever the modifier
 changes, so a halftone of a drawing on a transparent level stays inside the
 drawing. Where the input is partly transparent the dots fade with it; its
 brightness there is that of its own colour, not darkened by the
-transparency.</p>
+transparency. A modifier set to Input with nothing connected does
+nothing.</p>
+<h2>Ramps</h2>
+<p>A ramp is an opaque grey, black at <b>Ramp Start</b> and white at
+<b>Ramp End</b>, which the settings show when Control is a ramp. A Linear
+Ramp runs along the line from the start to the end and is the same across
+it: it is black before the start and white beyond the end. A Radial Ramp is
+black at the start, its centre, and grows lighter with the distance from it,
+white from the distance of the end on. When the two points are the same the
+ramp is white everywhere. A ramp ignores the modifier's input, even when one
+is connected, and is tied to the scene like the dots. Each modifier's two
+points can be dragged in the viewer (shown as Start and End for each of the
+three modifiers); dragging the line between them moves both.</p>
 <p>The first modifier starts as Size, Multiply, 1 at black and 0 at white,
 which is a halftone of Source.</p>
 <h2>Presets</h2>
@@ -53,7 +67,10 @@ colours from Source) and Polka Dots.</p>
 Spacing for a finer screen. <b>Coloured dots:</b> connect the same image to
 Control2 and set Modifier 2 to Colour. <b>Diagonal stripes:</b> Shape Line,
 Angle 45, Size 0.5. <b>Mosaic:</b> Shape Square, Angle 0, Size 1, Modifier 1
-on Colour with At White 1.</p>
+on Colour with At White 1. <b>Fading screen:</b> with nothing connected, set
+Modifier 1's Control to Linear Ramp and drag its points: the dots are full at
+the start and vanish at the end. Radial Ramp gives dots that shrink away from
+a centre.</p>
 <h2>Notes</h2>
 <p>Every value except Invert can be animated. 8-bit, 16-bit and floating-point
 renders are supported. The dots are tied to the scene, not to the render tiles

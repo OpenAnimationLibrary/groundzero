@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "tparamuiconcept.h"
 #include "tpixelutils.h"
 #include "dotscreen.h"
 
@@ -15,11 +16,11 @@
 #include <vector>
 
 // Dot Screen: a lattice of dots. Up to three modifiers each read a control
-// image at every dot's centre and change the dot's size, aspect, rotation,
-// opacity or colour; where a modifier's image is transparent there are no
-// dots. With an image on Source and the first modifier on Size it is a
-// halftone; without inputs it is a plain pattern. The math is in
-// dotscreen.h.
+// image, or a built-in linear or radial ramp, at every dot's centre and
+// change the dot's size, aspect, rotation, opacity or colour; where a
+// modifier's image is transparent there are no dots. With an image on Source
+// and the first modifier on Size it is a halftone; without inputs it is a
+// plain pattern. The math is in dotscreen.h.
 //
 // The helpers are in a named namespace: DotScreenFx has external linkage, so
 // a type it uses, such as the lambda in doCompute() that holds the control
@@ -118,8 +119,10 @@ class DotScreenFx final : public TStandardRasterFx {
   TPixelParamP m_color, m_color2;
   TDoubleParamP m_target[DotScreen::modifierCount],
       m_mode[DotScreen::modifierCount], m_low[DotScreen::modifierCount],
-      m_high[DotScreen::modifierCount];
+      m_high[DotScreen::modifierCount], m_source[DotScreen::modifierCount];
   TBoolParamP m_invert[DotScreen::modifierCount];
+  TPointParamP m_rampStart[DotScreen::modifierCount],
+      m_rampEnd[DotScreen::modifierCount];
 
   static DotScreen::Rgba colour(const TPixelParamP &param, double frame) {
     const TPixelD c = param->getValueD(frame);
@@ -129,9 +132,51 @@ class DotScreenFx final : public TStandardRasterFx {
     const double scale = std::sqrt(std::abs(affine.det()));
     return std::isfinite(scale) && scale > 0 ? scale : 0.0;
   }
+  // Whether modifier k reads its input: a ramp reads none
   bool uses(int k, double frame) const {
+    using DotScreenFxDetail::discrete;
     return m_control[k].isConnected() &&
-           DotScreenFxDetail::discrete(m_target[k]->getValue(frame), 5) != 0;
+           discrete(m_target[k]->getValue(frame), 5) != 0 &&
+           DotScreen::Source(discrete(m_source[k]->getValue(frame), 2)) ==
+               DotScreen::Source::Input;
+  }
+  // Makes and binds the parameters of modifier k
+  void addModifier(int k) {
+    // The first modifier makes a halftone of whatever is on Source: dark
+    // gives a full dot, white and transparent give none
+    m_target[k] = TDoubleParamP(k == 0 ? 1.0 : 0.0);
+    m_mode[k]   = TDoubleParamP(1.0);
+    m_low[k]    = TDoubleParamP(k == 0 ? 1.0 : 0.0);
+    m_high[k]   = TDoubleParamP(k == 0 ? 0.0 : 1.0);
+    m_invert[k] = TBoolParamP(false);
+    // Each modifier reads its input unless it is set to a ramp
+    m_source[k]    = TDoubleParamP(0.0);
+    m_rampStart[k] = TPointParamP(TPointD(-200.0, 0.0));
+    m_rampEnd[k]   = TPointParamP(TPointD(200.0, 0.0));
+    m_target[k]->setValueRange(0, 5);
+    m_target[k]->setUIChoices(
+        {"Off", "Size", "Aspect", "Rotation", "Opacity", "Colour"});
+    m_mode[k]->setValueRange(0, 2);
+    m_mode[k]->setUIChoices({"Set", "Multiply", "Add"});
+    m_low[k]->setValueRange(-100000, 100000);
+    m_low[k]->setUISliderRange(0, 2);
+    m_high[k]->setValueRange(-100000, 100000);
+    m_high[k]->setUISliderRange(0, 2);
+    m_source[k]->setValueRange(0, 2);
+    m_source[k]->setUIChoices({"Input", "Linear Ramp", "Radial Ramp"});
+    for (TPointParamP *point : {&m_rampStart[k], &m_rampEnd[k]}) {
+      (*point)->getX()->setMeasureName("fxLength");
+      (*point)->getY()->setMeasureName("fxLength");
+    }
+    const std::string n = std::to_string(k + 1);
+    bindParam(this, "target" + n, m_target[k]);
+    bindParam(this, "mode" + n, m_mode[k]);
+    bindParam(this, "low" + n, m_low[k]);
+    bindParam(this, "high" + n, m_high[k]);
+    bindParam(this, "invert" + n, m_invert[k]);
+    bindParam(this, "source" + n, m_source[k]);
+    bindParam(this, "rampStart" + n, m_rampStart[k]);
+    bindParam(this, "rampEnd" + n, m_rampEnd[k]);
   }
   // The margin, in output pixels, that a control image is read beyond a tile
   int halo(const DotScreen::Settings &s, const TRenderSettings &info) const {
@@ -175,8 +220,16 @@ public:
       m.low    = bounded(m_low[k]->getValue(frame), -100000, 100000);
       m.high   = bounded(m_high[k]->getValue(frame), -100000, 100000);
       m.invert = m_invert[k]->getValue();
-      // A modifier without its input does nothing
-      if (!m_control[k].isConnected()) m.target = DotScreen::Target::None;
+      m.source = DotScreen::Source(discrete(m_source[k]->getValue(frame), 2));
+      const TPointD start = m_rampStart[k]->getValue(frame);
+      const TPointD end   = m_rampEnd[k]->getValue(frame);
+      m.startX            = bounded(start.x, -1e9, 1e9);
+      m.startY            = bounded(start.y, -1e9, 1e9);
+      m.endX              = bounded(end.x, -1e9, 1e9);
+      m.endY              = bounded(end.y, -1e9, 1e9);
+      // A modifier on its input does nothing without it; a ramp needs none
+      if (m.source == DotScreen::Source::Input && !m_control[k].isConnected())
+        m.target = DotScreen::Target::None;
       // A rotation to set or add is entered in degrees; a factor is not
       if (m.target == DotScreen::Target::Rotation &&
           m.mode != DotScreen::Mode::Scale) {
@@ -258,31 +311,18 @@ public:
     bindParam(this, "opacityRandom", m_opacityRandom);
     bindParam(this, "hold", m_hold);
     bindParam(this, "seed", m_seed);
-    for (int k = 0; k < DotScreen::modifierCount; ++k) {
-      // The first modifier makes a halftone of whatever is on Source: dark
-      // gives a full dot, white and transparent give none
-      m_target[k] = TDoubleParamP(k == 0 ? 1.0 : 0.0);
-      m_mode[k]   = TDoubleParamP(1.0);
-      m_low[k]    = TDoubleParamP(k == 0 ? 1.0 : 0.0);
-      m_high[k]   = TDoubleParamP(k == 0 ? 0.0 : 1.0);
-      m_invert[k] = TBoolParamP(false);
-      m_target[k]->setValueRange(0, 5);
-      m_target[k]->setUIChoices(
-          {"Off", "Size", "Aspect", "Rotation", "Opacity", "Colour"});
-      m_mode[k]->setValueRange(0, 2);
-      m_mode[k]->setUIChoices({"Set", "Multiply", "Add"});
-      m_low[k]->setValueRange(-100000, 100000);
-      m_low[k]->setUISliderRange(0, 2);
-      m_high[k]->setValueRange(-100000, 100000);
-      m_high[k]->setUISliderRange(0, 2);
-      const std::string n = std::to_string(k + 1);
-      bindParam(this, "target" + n, m_target[k]);
-      bindParam(this, "mode" + n, m_mode[k]);
-      bindParam(this, "low" + n, m_low[k]);
-      bindParam(this, "high" + n, m_high[k]);
-      bindParam(this, "invert" + n, m_invert[k]);
-    }
+    for (int k = 0; k < DotScreen::modifierCount; ++k) addModifier(k);
     enableComputeInFloat(true);
+  }
+  // The start and end points of each modifier's ramp
+  void getParamUIs(TParamUIConcept *&concepts, int &length) override {
+    concepts = new TParamUIConcept[length = DotScreen::modifierCount];
+    for (int k = 0; k < DotScreen::modifierCount; ++k) {
+      concepts[k].m_type  = TParamUIConcept::LINEAR_RANGE;
+      concepts[k].m_label = "Ramp " + std::to_string(k + 1);
+      concepts[k].m_params.push_back(m_rampStart[k]);
+      concepts[k].m_params.push_back(m_rampEnd[k]);
+    }
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   // The dots are drawn under rotation and uniform scale; any other transform

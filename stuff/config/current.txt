@@ -1437,16 +1437,25 @@
   <item>"STD_dotScreenFx.low1" "At Black" </item>
   <item>"STD_dotScreenFx.high1" "At White" </item>
   <item>"STD_dotScreenFx.invert1" "Invert" </item>
+  <item>"STD_dotScreenFx.source1" "Control" </item>
+  <item>"STD_dotScreenFx.rampStart1" "Ramp Start" </item>
+  <item>"STD_dotScreenFx.rampEnd1" "Ramp End" </item>
   <item>"STD_dotScreenFx.target2" "Changes" </item>
   <item>"STD_dotScreenFx.mode2" "By" </item>
   <item>"STD_dotScreenFx.low2" "At Black" </item>
   <item>"STD_dotScreenFx.high2" "At White" </item>
   <item>"STD_dotScreenFx.invert2" "Invert" </item>
+  <item>"STD_dotScreenFx.source2" "Control" </item>
+  <item>"STD_dotScreenFx.rampStart2" "Ramp Start" </item>
+  <item>"STD_dotScreenFx.rampEnd2" "Ramp End" </item>
   <item>"STD_dotScreenFx.target3" "Changes" </item>
   <item>"STD_dotScreenFx.mode3" "By" </item>
   <item>"STD_dotScreenFx.low3" "At Black" </item>
   <item>"STD_dotScreenFx.high3" "At White" </item>
   <item>"STD_dotScreenFx.invert3" "Invert" </item>
+  <item>"STD_dotScreenFx.source3" "Control" </item>
+  <item>"STD_dotScreenFx.rampStart3" "Ramp Start" </item>
+  <item>"STD_dotScreenFx.rampEnd3" "Ramp End" </item>
   <item>"STD_watercolourFx" "Watercolour" </item>
   <item>"STD_watercolourFx.wobble" "Edge Wobble" </item>
   <item>"STD_watercolourFx.wobbleSize" "Wobble Size" </item>

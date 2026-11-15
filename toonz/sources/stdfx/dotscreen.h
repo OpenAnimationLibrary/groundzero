@@ -1,10 +1,11 @@
 #pragma once
 
 // Dot Screen: a lattice of dots whose size, aspect, rotation, opacity and
-// colour can each be driven by a control image. A Grid holds the dots that
-// can touch a region; sample() returns the premultiplied colour at a point.
-// A dot depends only on its lattice cell and on the control images at the
-// cell's centre, so any tiling of the frame gives the same picture.
+// colour can each be driven by a control image or a built-in ramp. A Grid
+// holds the dots that can touch a region; sample() returns the premultiplied
+// colour at a point. A dot depends only on its lattice cell and on the
+// control images and ramps at its centre, so any tiling of the frame gives
+// the same picture.
 
 #include <algorithm>
 #include <cmath>
@@ -31,6 +32,7 @@ struct Rgba {
 enum class Shape { Round, Square, Diamond, Line };
 enum class Target { None, Size, Aspect, Rotation, Opacity, Colour };
 enum class Mode { Set, Scale, Offset };
+enum class Source { Input, LinearRamp, RadialRamp };
 
 // The control image's luminance at a dot (of its straight colour, 0 to 1)
 // picks a value between low and high. That value replaces the property,
@@ -38,11 +40,17 @@ enum class Mode { Set, Scale, Offset };
 // control image's colour the dot takes. A modifier with a target also
 // multiplies the dot's opacity by the control image's alpha, so a
 // transparent area of the control image gets no dots.
+//
+// With a ramp as its source the control image is an opaque grey, black at
+// the start point and white at the end point (see rampStrength()), in the
+// coordinates of the dot centres.
 struct Modifier {
   Target target = Target::None;
   Mode mode     = Mode::Scale;
   double low = 0, high = 1;
-  bool invert = false;
+  bool invert   = false;
+  Source source = Source::Input;
+  double startX = -200, startY = 0, endX = 200, endY = 0;
 };
 
 struct Settings {
@@ -186,7 +194,8 @@ inline void validate(const Settings &s) {
             finite(s.aspectRandom) && finite(s.rotationRandom) &&
             finite(s.opacityRandom);
   for (const Modifier &m : s.modifiers)
-    ok = ok && finite(m.low) && finite(m.high);
+    ok = ok && finite(m.low) && finite(m.high) && finite(m.startX) &&
+         finite(m.startY) && finite(m.endX) && finite(m.endY);
   for (const Rgba *c : {&s.colorA, &s.colorB})
     ok = ok && finite(c->r) && finite(c->g) && finite(c->b) && finite(c->a);
   if (!ok) throw std::invalid_argument("Dot Screen: invalid settings");
@@ -210,7 +219,9 @@ inline double extent(const Settings &s, double radius, double aspect) {
 
 // How far from a point the control images and the lattice are read: the
 // largest dot that the settings and the modifiers on Size and Aspect can
-// make, and how far jitter and stagger can move a dot from its cell
+// make, and how far jitter and stagger can move a dot from its cell. A
+// modifier gives a value between low and high whatever its source, so a
+// ramp moves the margin no more than a control image would.
 inline double reach(const Settings &s) {
   validate(s);
   using detail::Range;
@@ -231,6 +242,22 @@ inline double reach(const Settings &s) {
       s.stagger - std::floor(s.stagger) + 0.5 * detail::unit(s.jitter);
   // With a little room for rounding
   return (dot + moved * s.spacing) * (1 + 1e-9);
+}
+
+// The grey, 0 to 1, of a modifier's ramp at a point. A linear ramp goes from
+// the start point to the end point along the line between them, and is
+// constant across it; a radial ramp grows with the distance from the start
+// point and is white from the distance of the end point on. When the two
+// points coincide the ramp is white everywhere.
+inline double rampStrength(const Modifier &m, double x, double y) {
+  const double dx = m.endX - m.startX, dy = m.endY - m.startY;
+  const double px = x - m.startX, py = y - m.startY;
+  if (m.source == Source::RadialRamp) {
+    const double radius = std::hypot(dx, dy);
+    return radius > 0 ? detail::unit(std::hypot(px, py) / radius) : 1.0;
+  }
+  const double squared = dx * dx + dy * dy;
+  return squared > 0 ? detail::unit((px * dx + py * dy) / squared) : 1.0;
 }
 
 namespace detail {
@@ -303,9 +330,16 @@ Dot place(const Grid &g, int i, int j, Control &control) {
   dot.y = (dot.column * g.sine + v * g.cosine) * s.spacing;
 
   Look l = look(s, i, j);
-  for (int k = 0; k < modifierCount; ++k)
-    if (s.modifiers[k].target != Target::None)
-      modify(l, s.modifiers[k], control(k, dot.x, dot.y));
+  for (int k = 0; k < modifierCount; ++k) {
+    const Modifier &m = s.modifiers[k];
+    if (m.target == Target::None) continue;
+    if (m.source == Source::Input) {
+      modify(l, m, control(k, dot.x, dot.y));
+    } else {
+      const double grey = rampStrength(m, dot.x, dot.y);
+      modify(l, m, Rgba{grey, grey, grey, 1});
+    }
+  }
   dot.radius = 0.5 * s.spacing * std::max(0.0, std::min(maxSize, l.size));
   dot.aspect = std::max(minAspect, std::min(maxAspect, l.aspect));
   dot.cosine  = std::cos(s.angle + l.rotation);
@@ -319,7 +353,7 @@ Dot place(const Grid &g, int i, int j, Control &control) {
 
 // The dots that can touch the rectangle. control(k, x, y) returns the
 // premultiplied colour of control image k at a point; it is called only for
-// modifiers that have a target.
+// modifiers that have a target and take their source from the input.
 template <class Control>
 Grid build(const Settings &settings, double minX, double minY, double maxX,
            double maxY, Control &&control) {
