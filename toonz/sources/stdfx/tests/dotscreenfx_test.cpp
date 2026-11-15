@@ -202,6 +202,10 @@ void testFx() {
               approx(alpha(unplugged, 135, 16), 1),
           "A modifier without its input changed the dots");
 
+  set(fx, "aspectRandom", 0.25);
+  require(fx.settings(0).aspectRandom == 0.25,
+          "Aspect randomness does not reach the dots");
+
   // The cache key follows the held seed
   require(fx.getAlias(0, settings) == fx.getAlias(5, settings),
           "A still screen has a different cache key on another frame");

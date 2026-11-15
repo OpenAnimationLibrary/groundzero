@@ -113,7 +113,8 @@ class DotScreenFx final : public TStandardRasterFx {
   TRasterFxPort m_control[DotScreen::modifierCount];
   TDoubleParamP m_spacing, m_angle, m_stagger, m_jitter, m_shape, m_size,
       m_aspect, m_rotation, m_opacity, m_softness, m_colorRandom,
-      m_sizeRandom, m_rotationRandom, m_opacityRandom, m_hold, m_seed;
+      m_sizeRandom, m_aspectRandom, m_rotationRandom, m_opacityRandom, m_hold,
+      m_seed;
   TPixelParamP m_color, m_color2;
   TDoubleParamP m_target[DotScreen::modifierCount],
       m_mode[DotScreen::modifierCount], m_low[DotScreen::modifierCount],
@@ -161,6 +162,7 @@ public:
     s.colorB   = colour(m_color2, frame);
     s.colorRandom    = bounded(m_colorRandom->getValue(frame), 0, 1);
     s.sizeRandom     = bounded(m_sizeRandom->getValue(frame), 0, 1);
+    s.aspectRandom   = bounded(m_aspectRandom->getValue(frame), 0, 1);
     s.rotationRandom = bounded(m_rotationRandom->getValue(frame), 0, 1);
     s.opacityRandom  = bounded(m_opacityRandom->getValue(frame), 0, 1);
     s.seed           = DotScreen::frameSeed(
@@ -206,6 +208,7 @@ public:
       , m_softness(0.0)
       , m_colorRandom(0.0)
       , m_sizeRandom(0.0)
+      , m_aspectRandom(0.0)
       , m_rotationRandom(0.0)
       , m_opacityRandom(0.0)
       , m_hold(0.0)
@@ -230,7 +233,7 @@ public:
     m_aspect->setValueRange(DotScreen::minAspect, DotScreen::maxAspect);
     for (TDoubleParamP *share :
          {&m_stagger, &m_jitter, &m_opacity, &m_colorRandom, &m_sizeRandom,
-          &m_rotationRandom, &m_opacityRandom})
+          &m_aspectRandom, &m_rotationRandom, &m_opacityRandom})
       (*share)->setValueRange(0, 1);
     m_hold->setValueRange(0, 1000);
     m_hold->setUISliderRange(0, 12);
@@ -250,6 +253,7 @@ public:
     bindParam(this, "color2", m_color2);
     bindParam(this, "colorRandom", m_colorRandom);
     bindParam(this, "sizeRandom", m_sizeRandom);
+    bindParam(this, "aspectRandom", m_aspectRandom);
     bindParam(this, "rotationRandom", m_rotationRandom);
     bindParam(this, "opacityRandom", m_opacityRandom);
     bindParam(this, "hold", m_hold);

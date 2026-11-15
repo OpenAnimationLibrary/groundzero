@@ -1427,6 +1427,7 @@
   <item>"STD_dotScreenFx.color2" "Second Colour" </item>
   <item>"STD_dotScreenFx.colorRandom" "Colour Randomness" </item>
   <item>"STD_dotScreenFx.sizeRandom" "Size Randomness" </item>
+  <item>"STD_dotScreenFx.aspectRandom" "Aspect Randomness" </item>
   <item>"STD_dotScreenFx.rotationRandom" "Rotation Randomness" </item>
   <item>"STD_dotScreenFx.opacityRandom" "Opacity Randomness" </item>
   <item>"STD_dotScreenFx.hold" "Hold (Frames)" </item>

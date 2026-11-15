@@ -198,6 +198,7 @@ void testTiling() {
   s.angle          = 0.4;
   s.jitter         = 0.8;
   s.sizeRandom     = 0.6;
+  s.aspectRandom   = 0.7;
   s.rotationRandom = 1;
   s.opacityRandom  = 0.5;
   s.colorRandom    = 1;
@@ -266,17 +267,13 @@ double measuredExtent(const Grid &g, const Dot &dot, double limit) {
 
 // reach() bounds every dot the modifiers can make, with the cells that
 // jitter and stagger move it by; the grid's reach bounds its own dots
-void requireReach(const Settings &s, double size, double aspect,
-                  const std::string &what) {
+Grid requireBounded(const Settings &s, const std::string &what) {
   const Grid g       = build(s, -110, 0, 110, 0, ramp);
   const double bound = reach(s);
-  bool largest       = false;
   for (int row = 0; row < g.rows; ++row)
     for (int col = 0; col < g.columns; ++col) {
       const Dot &dot = g.dots[std::size_t(row) * g.columns + col];
       if (!(dot.radius > 0)) continue;
-      largest = largest || (approx(dot.radius, 0.5 * s.spacing * size) &&
-                            approx(dot.aspect, aspect));
       // How far the dot is from its cell, in cells
       const double u = dot.column - g.i0 - col;
       const double v =
@@ -288,6 +285,19 @@ void requireReach(const Settings &s, double size, double aspect,
       require(measured + moved <= bound,
               "A dot reaches beyond reach(): " + what);
     }
+  return g;
+}
+
+// As requireBounded(), and the bound is met: a dot is as large as the
+// modifiers allow
+void requireReach(const Settings &s, double size, double aspect,
+                  const std::string &what) {
+  const Grid g = requireBounded(s, what);
+  bool largest = false;
+  for (const Dot &dot : g.dots)
+    largest = largest || (dot.radius > 0 &&
+                          approx(dot.radius, 0.5 * s.spacing * size) &&
+                          approx(dot.aspect, aspect));
   require(largest, "No dot is as large as the modifiers allow: " + what);
 }
 
@@ -316,14 +326,31 @@ void testReach() {
   // The FX's halftone: 1 at black, 0 at white
   Settings halftone     = s;
   halftone.modifiers[0] = {Target::Size, Mode::Scale, 1, 0, false};
+  // Aspect randomness narrows a dot, which a negative factor turns into the
+  // widest one: aspects from 1.5 up to nearly 3.5
+  Settings flipped     = s;
+  flipped.aspectRandom = 1;
+  flipped.modifiers[0] = {Target::Aspect, Mode::Scale, -2, -2, false};
+  flipped.modifiers[1] = {Target::Aspect, Mode::Offset, 3.5, 3.5, false};
   for (Shape shape :
        {Shape::Round, Shape::Square, Shape::Diamond, Shape::Line}) {
     const std::string name = "shape " + std::to_string(int(shape));
-    for (Settings *t : {&set, &scale, &negative, &halftone}) t->shape = shape;
+    for (Settings *t : {&set, &scale, &negative, &halftone, &flipped})
+      t->shape = shape;
     requireReach(set, maxSize, maxAspect, name + ", Set");
     requireReach(scale, maxSize, maxAspect, name + ", Multiply and Add");
     requireReach(negative, maxSize, maxAspect, name + ", negative factors");
     requireReach(halftone, halftone.size, 1, name + ", halftone");
+    const Grid wide =
+        requireBounded(flipped, name + ", random aspect, negative factor");
+    double widest = 0;
+    for (const Dot &dot : wide.dots) widest = std::max(widest, dot.aspect);
+    require(widest > 3, "Aspect randomness did not widen the flipped dots");
+    // Randomness only narrows a dot, so it leaves the margin as it was
+    Settings narrowed     = halftone;
+    narrowed.aspectRandom = 1;
+    require(reach(narrowed) == reach(halftone),
+            "Aspect randomness grew reach(): " + name);
     // Dots that cannot grow are read over a smaller margin; a line is
     // always a cell long
     require(reach(halftone) <
@@ -472,6 +499,42 @@ void testRandomness() {
   require(moved, "Another seed gave the same screen");
 }
 
+// Aspect randomness narrows each dot by a share from its own random stream
+// and leaves everything else, the other random streams included, as it was
+void testAspectRandomness() {
+  Settings s;
+  s.spacing        = 10;
+  s.aspect         = 2;
+  s.jitter         = 1;
+  s.stagger        = 0.5;
+  s.sizeRandom     = 1;
+  s.rotationRandom = 1;
+  s.opacityRandom  = 1;
+  s.colorRandom    = 1;
+  s.colorB         = Rgba{1, 0.5, 0, 0.5};
+  Settings narrowed     = s;
+  narrowed.aspectRandom = 0.5;
+  const Grid a = plain(s), b = plain(narrowed);
+  require(a.dots.size() == b.dots.size() && a.i0 == b.i0 && a.j0 == b.j0,
+          "Aspect randomness changed the lattice");
+  bool changed = false;
+  for (int row = 0; row < a.rows; ++row)
+    for (int col = 0; col < a.columns; ++col) {
+      const std::size_t k = std::size_t(row) * a.columns + col;
+      const Dot &p = a.dots[k], &q = b.dots[k];
+      require(p.x == q.x && p.y == q.y && p.radius == q.radius &&
+                  p.cosine == q.cosine && p.sine == q.sine &&
+                  p.color.r == q.color.r && p.color.g == q.color.g &&
+                  p.color.b == q.color.b && p.color.a == q.color.a,
+              "Aspect randomness changed another property");
+      const double share = random(s.seed, a.i0 + col, a.j0 + row, Aspect);
+      require(p.aspect == 2 && approx(q.aspect, 2 * (1 - 0.5 * share)),
+              "Aspect randomness does not take its own share of the aspect");
+      changed = changed || q.aspect < p.aspect - 0.1;
+    }
+  require(changed, "Aspect randomness changed no dot");
+}
+
 void testInvalid() {
   auto rejects = [](const Settings &s) {
     try {
@@ -525,10 +588,11 @@ int main() {
     testTransparentControl();
     testLargeDot();
     testRandomness();
+    testAspectRandomness();
     testInvalid();
     std::cout << "PASS: dot screen areas, lattice, search window, tiling, "
                  "reach, modifiers, transparent controls, large dots, "
-                 "randomness and limits\n";
+                 "randomness, aspect randomness and limits\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

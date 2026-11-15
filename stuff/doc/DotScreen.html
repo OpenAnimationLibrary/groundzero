@@ -21,9 +21,13 @@ round dot touches its neighbours. <b>Aspect</b> is width over height,
 <b>Rotation</b> turns each dot on top of the lattice angle, and <b>Edge
 Softness</b> blurs the dot's edge. Each dot takes a colour between
 <b>Colour</b> and <b>Second Colour</b>, as far as <b>Colour Randomness</b>
-allows. The randomness amounts shrink, turn and fade dots at random;
-<b>Hold</b> redraws the random values every that many frames, and <b>Seed</b>
-picks them.</p>
+allows. <b>Size Randomness</b>, <b>Aspect Randomness</b> and <b>Opacity
+Randomness</b> take a random share, up to that amount, away from each dot's
+size, aspect and opacity: they shrink, narrow and fade dots, never grow them.
+<b>Rotation Randomness</b> turns each dot either way, by up to half a turn at
+1. Each amount has its own random values, so changing one leaves the others
+as they were. <b>Hold</b> redraws the random values every that many frames,
+and <b>Seed</b> picks them.</p>
 <h2>Modifiers</h2>
 <p>Each of the three modifiers reads one input at the centre of every dot:
 Source, Control2 or Control3. <b>Changes</b> picks what it drives: Size,

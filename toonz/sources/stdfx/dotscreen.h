@@ -60,9 +60,11 @@ struct Settings {
   double pixel    = 1;  // an output pixel, in those units: the antialiasing
 
   Rgba colorA{0, 0, 0, 1}, colorB{0, 0, 0, 1};
-  double colorRandom = 0, sizeRandom = 0, rotationRandom = 0,
-         opacityRandom = 0;
-  std::uint32_t seed   = 1;
+  // At random, up to that share: the colour moves towards colorB; the size,
+  // aspect and opacity are lost; the rotation turns by half a turn either way
+  double colorRandom = 0, sizeRandom = 0, aspectRandom = 0,
+         rotationRandom = 0, opacityRandom = 0;
+  std::uint32_t seed = 1;
 
   Modifier modifiers[modifierCount];
 };
@@ -84,13 +86,16 @@ struct Grid {
   double cosine = 1, sine = 0;
 };
 
+// Each random stream; a new one goes at the end, so the others keep their
+// values
 enum Property {
   JitterX = 1,
   JitterY,
   Size,
   Rotation,
   Opacity,
-  Colour
+  Colour,
+  Aspect
 };
 
 namespace detail {
@@ -178,7 +183,8 @@ inline void validate(const Settings &s) {
             finite(s.aspect) && finite(s.rotation) && finite(s.opacity) &&
             finite(s.softness) && s.softness >= 0 && finite(s.pixel) &&
             s.pixel > 0 && finite(s.colorRandom) && finite(s.sizeRandom) &&
-            finite(s.rotationRandom) && finite(s.opacityRandom);
+            finite(s.aspectRandom) && finite(s.rotationRandom) &&
+            finite(s.opacityRandom);
   for (const Modifier &m : s.modifiers)
     ok = ok && finite(m.low) && finite(m.high);
   for (const Rgba *c : {&s.colorA, &s.colorB})
@@ -208,9 +214,12 @@ inline double extent(const Settings &s, double radius, double aspect) {
 inline double reach(const Settings &s) {
   validate(s);
   using detail::Range;
+  // Randomness takes a share away, which a negative factor can turn into
+  // the largest value
   const double least = s.size * (1 - detail::unit(s.sizeRandom));
   Range size{std::min(s.size, least), std::max(s.size, least)};
-  Range aspect{s.aspect, s.aspect};
+  const double narrowest = s.aspect * (1 - detail::unit(s.aspectRandom));
+  Range aspect{std::min(s.aspect, narrowest), std::max(s.aspect, narrowest)};
   for (const Modifier &m : s.modifiers) {
     if (m.target == Target::Size) size = detail::apply(m, size);
     if (m.target == Target::Aspect) aspect = detail::apply(m, aspect);
@@ -236,7 +245,8 @@ struct Look {
 inline Look look(const Settings &s, int i, int j) {
   Look l;
   l.size   = s.size * (1 - unit(s.sizeRandom) * random(s.seed, i, j, Size));
-  l.aspect = s.aspect;
+  l.aspect =
+      s.aspect * (1 - unit(s.aspectRandom) * random(s.seed, i, j, Aspect));
   l.rotation = s.rotation + 2 * pi * unit(s.rotationRandom) *
                                 (random(s.seed, i, j, Rotation) - 0.5);
   l.opacity =

@@ -17,6 +17,7 @@
     <control>colorRandom</control>
     <separator label="Randomness"/>
     <control>sizeRandom</control>
+    <control>aspectRandom</control>
     <control>rotationRandom</control>
     <control>opacityRandom</control>
     <control>hold</control>
