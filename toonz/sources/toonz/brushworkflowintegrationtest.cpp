@@ -218,8 +218,14 @@ void mouseStroke(TTool *tool, TPointD start, TPointD end) {
   tool->leftButtonUp(end,event);
 }
 
+// Break splits where fitted curve pieces meet at more than one radian or
+// curvature exceeds 0.8. The brush may round a corner by its fitting
+// tolerance: a right angle then stays just under both limits and splits only
+// on some builds. A 161 degree reversal cannot be rounded that far, and one
+// unit sampling keeps the brush's own point smoothing below the tolerance.
 void mouseCornerStroke(TTool* tool) {
-  const TPointD corners[] = {{-60, -40}, {60, -40}, {60, 40}, {-60, 40}};
+  const TPointD corners[] = {{-60, -20}, {60, 0}, {-60, 20}, {60, 40}};
+  const int stepsPerSegment = 120;
   TMouseEvent event;
   event.m_button  = Qt::LeftButton;
   event.m_buttons = Qt::LeftButton;
@@ -230,10 +236,10 @@ void mouseCornerStroke(TTool* tool) {
   event.m_mousePos = QPointF(corners[0].x, corners[0].y);
   tool->leftButtonDown(corners[0], event);
   for (int segment = 1; segment < 4; ++segment) {
-    for (int step = 1; step <= 12; ++step) {
+    for (int step = 1; step <= stepsPerSegment; ++step) {
       const TPointD point =
-          corners[segment - 1] +
-          (corners[segment] - corners[segment - 1]) * (double(step) / 12);
+          corners[segment - 1] + (corners[segment] - corners[segment - 1]) *
+                                     (double(step) / stepsPerSegment);
       event.m_pos      = point;
       event.m_mousePos = QPointF(point.x, point.y);
       tool->leftButtonDrag(point, event);
@@ -276,8 +282,8 @@ void checkSplitStrokeHistory(TTool* tool, TPalette* palette, int style,
   auto* undo = TUndoManager::manager();
   undo->reset();
   // The brush fits and simplifies its stroke in viewer pixels. Draw without a
-  // viewer so the gesture's fixed coordinates keep their corners at any
-  // window size, zoom or display scale.
+  // viewer so the gesture's sampling and the fitting tolerance keep the same
+  // ratio at any window size, zoom or display scale.
   struct UnitPixelScale {
     TTool* tool;
     TToolViewer* viewer;
