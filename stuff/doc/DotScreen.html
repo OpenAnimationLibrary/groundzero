@@ -28,7 +28,8 @@ Source, Control2 or Control3. <b>Changes</b> picks what it drives: Size,
 Aspect, Rotation, Opacity or Colour; Off ignores the input. The input's
 brightness (times its opacity) picks a value between <b>At Black</b> and <b>At
 White</b>, and <b>By</b> says what that value does: Set replaces the dot's
-value, Multiply scales it, Add adds to it. Rotation values are in degrees.
+value, Multiply scales it, Add adds to it. A rotation to Set or Add is in
+degrees; Multiply takes a plain factor, so 2 doubles the rotation.
 <b>Invert</b> swaps black and white. For Colour, each dot takes the input's
 colour at its centre, as far as <b>At White</b> allows (1 takes it fully).</p>
 <p>The first modifier starts as Size, Multiply, 1 at black and 0 at white,

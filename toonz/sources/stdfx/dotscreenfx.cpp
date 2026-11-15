@@ -173,8 +173,9 @@ public:
       m.invert = m_invert[k]->getValue();
       // A modifier without its input does nothing
       if (!m_control[k].isConnected()) m.target = DotScreen::Target::None;
-      // Rotation is entered in degrees
-      if (m.target == DotScreen::Target::Rotation) {
+      // A rotation to set or add is entered in degrees; a factor is not
+      if (m.target == DotScreen::Target::Rotation &&
+          m.mode != DotScreen::Mode::Scale) {
         m.low *= degrees;
         m.high *= degrees;
       }

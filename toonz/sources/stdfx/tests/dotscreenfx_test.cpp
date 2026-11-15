@@ -59,6 +59,27 @@ void set(TFx &fx, const std::string &name, double value) {
 }
 
 template <class Pixel>
+int bitsOf() {
+  return std::is_same<Pixel, TPixelF>::value    ? 128
+         : std::is_same<Pixel, TPixel64>::value ? 64
+                                                : 32;
+}
+
+template <class Pixel>
+TRasterPT<Pixel> renderTile(DotScreenFx &fx, const TRenderSettings &settings,
+                            TPointD pos, int w, int h) {
+  TRasterPT<Pixel> raster(w, h);
+  TTile tile(raster, pos);
+  fx.doCompute(tile, 0, settings);
+  return raster;
+}
+
+template <class Pixel>
+TPixelD pixelOf(const TRasterPT<Pixel> &raster, int x, int y) {
+  return PixelConverter<TPixelD>::from(raster->pixels(y)[x]);
+}
+
+template <class Pixel>
 void testFx() {
   TFxP holder = new DotScreenFx;
   auto &fx    = static_cast<DotScreenFx &>(*holder);
@@ -66,9 +87,7 @@ void testFx() {
   set(fx, "angle", 0);
   set(fx, "size", 1);
   TRenderSettings settings;
-  settings.m_bpp = std::is_same<Pixel, TPixelF>::value    ? 128
-                   : std::is_same<Pixel, TPixel64>::value ? 64
-                                                          : 32;
+  settings.m_bpp = bitsOf<Pixel>();
   auto render    = [&](TPointD pos, int w, int h, double frame) {
     TRasterPT<Pixel> raster(w, h);
     TTile tile(raster, pos);
@@ -76,7 +95,7 @@ void testFx() {
     return raster;
   };
   auto alpha = [](const TRasterPT<Pixel> &raster, int x, int y) {
-    return PixelConverter<TPixelD>::from(raster->pixels(y)[x]).m;
+    return pixelOf(raster, x, y).m;
   };
 
   // Without an input the dots are plain: radius 10 at every lattice point.
@@ -138,6 +157,43 @@ void testFx() {
               fx.getAlias(2, settings) != fx.getAlias(3, settings),
           "The cache key does not follow the hold");
 }
+
+// Rotation on Control2 turns dots 15 wide and 5 high upright, by Set or
+// Add in degrees, and by Multiply with a plain factor
+template <class Pixel>
+void testRotationModifier() {
+  TFxP holder = new DotScreenFx;
+  auto &fx    = static_cast<DotScreenFx &>(*holder);
+  set(fx, "spacing", 40);
+  set(fx, "angle", 0);
+  set(fx, "shape", 1);  // Square
+  set(fx, "size", 0.25);
+  set(fx, "aspect", 3);
+  set(fx, "rotation", 45);
+  TFxP ramp = new Ramp;
+  require(fx.connect("Control2", ramp.getPointer()), "Cannot connect Control2");
+  set(fx, "target2", 3);  // Rotation
+  TRenderSettings settings;
+  settings.m_bpp = bitsOf<Pixel>();
+  const struct {
+    double mode, value;
+    const char *name;
+  } cases[] = {{0, 90, "Set"}, {1, 2, "Multiply"}, {2, 45, "Add"}};
+  for (const auto &c : cases) {
+    set(fx, "mode2", c.mode);
+    set(fx, "low2", c.value);
+    set(fx, "high2", c.value);
+    // Output pixel (x, y) is centred on world (x - 127.5, y - 15.5)
+    const TRasterPT<Pixel> raster =
+        renderTile<Pixel>(fx, settings, TPointD(-128, -16), 256, 32);
+    require(approx(pixelOf(raster, 128, 28).m, 1) &&
+                approx(pixelOf(raster, 140, 16).m, 0),
+            std::string("The rotation modifier did not turn the dots "
+                        "upright by ") +
+                c.name);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -146,8 +202,10 @@ int main(int argc, char **argv) {
     testFx<TPixel32>();
     testFx<TPixel64>();
     testFx<TPixelF>();
+    testRotationModifier<TPixel32>();
+    testRotationModifier<TPixelF>();
     std::cout << "PASS: dot screen plain dots, halftone, tiles, invert, scale, "
-                 "cache keys and pixel depths\n";
+                 "rotation modifier, cache keys and pixel depths\n";
     return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString()
