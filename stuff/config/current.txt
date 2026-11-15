@@ -1446,6 +1446,21 @@
   <item>"STD_dotScreenFx.low3" "At Black" </item>
   <item>"STD_dotScreenFx.high3" "At White" </item>
   <item>"STD_dotScreenFx.invert3" "Invert" </item>
+  <item>"STD_watercolourFx" "Watercolour" </item>
+  <item>"STD_watercolourFx.wobble" "Edge Wobble" </item>
+  <item>"STD_watercolourFx.wobbleSize" "Wobble Size" </item>
+  <item>"STD_watercolourFx.bleed" "Bleed" </item>
+  <item>"STD_watercolourFx.edgeDarkening" "Edge Darkening" </item>
+  <item>"STD_watercolourFx.edgeWidth" "Edge Width" </item>
+  <item>"STD_watercolourFx.edgeTolerance" "Edge Tolerance" </item>
+  <item>"STD_watercolourFx.granulation" "Granulation" </item>
+  <item>"STD_watercolourFx.granuleSize" "Granule Size" </item>
+  <item>"STD_watercolourFx.paper" "Paper" </item>
+  <item>"STD_watercolourFx.paperColor" "Paper Colour" </item>
+  <item>"STD_watercolourFx.paperGrain" "Paper Grain" </item>
+  <item>"STD_watercolourFx.paperSize" "Paper Grain Size" </item>
+  <item>"STD_watercolourFx.hold" "Hold (Frames)" </item>
+  <item>"STD_watercolourFx.seed" "Seed" </item>
   <item>"STD_printProcessFx" "Print Process" </item>
   <item>"STD_printProcessFx.output" "Output" </item>
   <item>"STD_printProcessFx.cellSize" "Cell Size" </item>

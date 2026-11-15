@@ -188,6 +188,7 @@ set(SOURCES
     motionlinesfx.cpp
     burstlinesfx.cpp
     dotscreenfx.cpp
+    watercolourfx.cpp
     lightwrapfx.cpp
     edgeextendfx.cpp
     automattefx.cpp
@@ -664,6 +665,21 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_dotScreenFx.xml)
     add_dependencies(celfx_tests dotscreen_test dotscreenfx_test dotscreen_ui_test)
     set_tests_properties(celfx_dotscreen celfx_dotscreenfx celfx_dotscreen_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The wash math needs only the noise: its test links no toonz library
+    add_executable(watercolour_test tests/watercolour_test.cpp celnoise.cpp)
+    add_test(NAME celfx_watercolour COMMAND watercolour_test)
+    add_executable(watercolourfx_test tests/watercolourfx_test.cpp celnoise.cpp)
+    target_link_libraries(watercolourfx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_watercolourfx COMMAND watercolourfx_test)
+    add_executable(watercolour_ui_test tests/watercolour_ui_test.cpp celnoise.cpp)
+    target_link_libraries(watercolour_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_watercolour_ui COMMAND watercolour_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_watercolourFx.xml)
+    add_dependencies(celfx_tests watercolour_test watercolourfx_test watercolour_ui_test)
+    set_tests_properties(celfx_watercolour celfx_watercolourfx celfx_watercolour_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 endif()
 
 if(BUILD_CELFX_TESTS)
