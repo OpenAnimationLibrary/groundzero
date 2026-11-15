@@ -149,10 +149,12 @@ TApp::TApp()
           &TApp::onColumnIndexSwitched);
   connect(m_currentColumn, &TColumnHandle::columnIndexSwitched, this,
           &TApp::onImageChanged);
-  connect(m_currentLevel, &TXshLevelHandle::xshLevelSwitched, this,
-          &TApp::onImageChanged);
+  // Order matters: the palette handle keeps a raw palette pointer, so it must
+  // leave the previous level's palette before tool listeners read its styles.
   connect(m_currentLevel, &TXshLevelHandle::xshLevelSwitched, this,
           &TApp::onXshLevelSwitched);
+  connect(m_currentLevel, &TXshLevelHandle::xshLevelSwitched, this,
+          &TApp::onImageChanged);
   connect(m_currentLevel, &TXshLevelHandle::xshLevelChanged, this,
           &TApp::onXshLevelChanged);
   connect(m_currentObject, &TObjectHandle::objectSwitched, this,
