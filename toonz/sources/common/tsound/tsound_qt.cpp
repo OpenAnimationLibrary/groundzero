@@ -6,10 +6,15 @@
 #include "tthreadmessage.h"
 #include "tsop.h"
 
+#ifdef BUILD_UI_PORT_TESTS
+#include "tsoundownershiptest.h"
+#endif
+
 #include <errno.h>
 #include <unistd.h>
 #include <queue>
 #include <set>
+#include <memory>
 
 #include <QPointer>
 #include <QByteArray>
@@ -82,8 +87,10 @@ TSoundTrackP convertedRange(const TSoundTrackP &st, TINT32 s0, TINT32 s1,
 }
 
 typedef QAudioSink TAudioOutput;
+typedef QAudioDevice TAudioDevice;
 #else
 typedef QAudioOutput TAudioOutput;
+typedef QAudioDeviceInfo TAudioDevice;
 #endif
 
 }  // namespace
@@ -101,8 +108,12 @@ private:
   qint64 m_bufferIndex;
 
   QByteArray m_buffer;
-  QPointer<TAudioOutput> m_audioOutput;
+  std::unique_ptr<TAudioOutput> m_audioOutput;
   QIODevice *m_audioBuffer;
+
+#ifdef BUILD_UI_PORT_TESTS
+  friend bool runSoundOutputOwnershipChecks(QString& failure);
+#endif
 
 public:
   std::set<TSoundOutputDeviceListener *> m_listeners;
@@ -115,7 +126,35 @@ public:
     m_audioBuffer()
   { }
 
+  ~TSoundOutputDeviceImp() {
+    if (m_audioOutput) m_audioOutput->stop();
+  }
+
 private:
+  void createAudioOutput(const TAudioDevice& device,
+                         const QAudioFormat& format) {
+    if (m_audioOutput) m_audioOutput->stop();
+    m_audioBuffer = nullptr;
+    m_audioOutput = std::make_unique<TAudioOutput>(device, format);
+    m_audioOutput->setVolume(m_volume);
+    m_audioOutput->setBufferSize(format.bytesForDuration(100000));
+    std::weak_ptr<TSoundOutputDeviceImp> owner = shared_from_this();
+    auto refill                                = [owner]() {
+      if (auto current = owner.lock()) current->sendBuffer();
+    };
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QTimer* notifyTimer = new QTimer(m_audioOutput.get());
+    notifyTimer->setInterval(50);
+    QObject::connect(notifyTimer, &QTimer::timeout, m_audioOutput.get(),
+                     refill);
+    notifyTimer->start();
+#else
+    m_audioOutput->setNotifyInterval(50);
+    QObject::connect(m_audioOutput.get(), &QAudioOutput::notify,
+                     m_audioOutput.get(), refill);
+#endif
+  }
+
   void reset() {
     if (m_audioOutput) {
       m_audioOutput->reset();
@@ -282,29 +321,7 @@ public:
 
     m_looping = loop;
     if (!m_audioOutput || m_audioOutput->format() != format) {
-      if (m_audioOutput) m_audioOutput->stop();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-      m_audioOutput = new QAudioSink(info, format);
-#else
-      m_audioOutput = new QAudioOutput(format);
-#endif
-      m_audioOutput->setVolume(m_volume);
-
-      // audio buffer size
-      qint64 audioBufferSize = format.bytesForDuration(100000);
-      m_audioOutput->setBufferSize(audioBufferSize);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-      // QAudioSink has no notify() signal: refill from a timer, which the
-      // sink owns, at the same interval.
-      QTimer *notifyTimer = new QTimer(m_audioOutput.data());
-      notifyTimer->setInterval(50);
-      QObject::connect(notifyTimer, &QTimer::timeout, [=]() { sendBuffer(); });
-      notifyTimer->start();
-#else
-      m_audioOutput->setNotifyInterval(50);
-      QObject::connect(m_audioOutput.data(), &QAudioOutput::notify, [=](){ sendBuffer(); });
-#endif
-
+      createAudioOutput(info, format);
       reset();
     }/* audio buffer too small, so optimization not uses
     else {
@@ -321,6 +338,10 @@ public:
     sendBuffer();
   }
 };
+
+#ifdef BUILD_UI_PORT_TESTS
+#include "tsoundownershiptest.inc"
+#endif
 
 //==============================================================================
 

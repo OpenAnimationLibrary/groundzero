@@ -273,6 +273,12 @@ ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 add_library(tnzcore SHARED ${HEADERS} ${SOURCES})
 if(BUILD_UI_PORT_TESTS)
     target_compile_definitions(tnzcore PRIVATE BUILD_UI_PORT_TESTS)
+    if(NOT WIN32)
+        target_sources(tnzcore PRIVATE
+            ../include/tsoundownershiptest.h
+            ../common/tsound/tsoundownershiptest.inc
+        )
+    endif()
 endif()
 
 if(WITH_TRANSLATION)
