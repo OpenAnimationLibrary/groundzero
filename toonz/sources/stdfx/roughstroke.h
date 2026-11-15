@@ -31,6 +31,7 @@ struct Rgba {
 struct Point {
   double x = 0, y = 0;
   double thickness = 0;  // the drawn stroke's own half width here
+  double opacity   = 1;  // the drawn stroke's own opacity here
 };
 
 struct Path {
@@ -121,6 +122,24 @@ inline std::uint32_t frameSeed(std::uint32_t seed, double frame,
   return detail::mix(seed ^ detail::mix(plane + 0x27d4eb2dU));
 }
 
+// The distance covered by frame from frame 0, at speed(f) during each whole
+// frame f: the speeds of the whole frames before it and a share of its own.
+// Negative frames count backwards. The speed must hold before first and
+// after last (first <= 0 <= last), so that only the frames between them are
+// added up.
+template <class Speed>
+double covered(const Speed &speed, double frame, int first, int last) {
+  if (first > 0 || last < 0)
+    throw std::invalid_argument("Rough Stroke: frame range without frame 0");
+  if (!detail::finite(frame)) return 0;
+  const int n =
+      int(std::floor(std::max(double(first), std::min(double(last), frame))));
+  double sum = 0;
+  for (int f = 0; f < n; ++f) sum += speed(f);
+  for (int f = n; f < 0; ++f) sum -= speed(f);
+  return sum + (frame - n) * speed(n);
+}
+
 inline void validate(const Settings &s) {
   using detail::finite;
   bool ok = finite(s.width) && finite(s.thicknessScale) &&
@@ -169,7 +188,8 @@ struct Sampler {
                    std::hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
   }
   double total() const { return lengths.empty() ? 0.0 : lengths.back(); }
-  // Position, thickness and unit normal at a distance along the path
+  // Position, thickness, opacity and unit normal at a distance along the
+  // path
   void at(double d, Point &point, double &nx, double &ny) const {
     const auto upper = std::upper_bound(lengths.begin(), lengths.end(), d);
     std::size_t i    = upper == lengths.begin()
@@ -186,6 +206,7 @@ struct Sampler {
     point.x         = a.x + (b.x - a.x) * t;
     point.y         = a.y + (b.y - a.y) * t;
     point.thickness = a.thickness + (b.thickness - a.thickness) * t;
+    point.opacity   = a.opacity + (b.opacity - a.opacity) * t;
     const double dx = b.x - a.x, dy = b.y - a.y;
     const double n  = std::hypot(dx, dy);
     nx              = n > minLength ? -dy / n : 0;
@@ -290,7 +311,8 @@ inline std::vector<Copy> build(const Path &path, int index,
           v.color.b = s.startColor.b + (s.endColor.b - s.startColor.b) * t;
           v.color.a = s.startColor.a + (s.endColor.a - s.startColor.a) * t;
         }
-        v.color.a = unit(v.color.a) * alphaScale;
+        // The drawn stroke's opacity holds in both colour modes
+        v.color.a = unit(v.color.a) * alphaScale * unit(p.opacity);
         copy.vertices.push_back(v);
       }
       copies.push_back(std::move(copy));
@@ -368,6 +390,23 @@ inline void draw(const Copy &copy, int w, int h, double originX,
       out.b     = colour[k].b * alpha + out.b * (1 - alpha);
       out.a     = alpha + out.a * (1 - alpha);
     }
+}
+
+// A column colour filter, as the render applies it (TRop::applyColorScale),
+// on a premultiplied pixel: the straight colour is screened with the
+// filter's colour, and the alpha multiplied by the filter's alpha.
+inline void filter(Rgba &pixel, const Rgba &scale) {
+  if (!(pixel.a > 0)) return;
+  using detail::unit;
+  const double alpha = unit(pixel.a) * unit(scale.a);
+  auto screen        = [&](double premultiplied, double colour) {
+    const double straight = unit(premultiplied / pixel.a);
+    return (1 - (1 - straight) * (1 - unit(colour))) * alpha;
+  };
+  pixel.r = screen(pixel.r, scale.r);
+  pixel.g = screen(pixel.g, scale.g);
+  pixel.b = screen(pixel.b, scale.b);
+  pixel.a = alpha;
 }
 
 }  // namespace RoughStroke

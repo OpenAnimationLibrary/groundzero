@@ -211,6 +211,84 @@ void testGradient() {
           "Opacity is not applied");
 }
 
+// The drawn stroke's opacity, here fading from 1 to 0 along it
+void testOpacity() {
+  Path faded              = line();
+  faded.points[1].opacity = 0;
+  const Image out         = render(faded, plain());
+  // Pixel 35 is centred 25.5 along, pixel 85 75.5 along; a pixel takes the
+  // colour of a vertex up to a step away
+  require(approx(out.at(35, 20).a, 0.745, 0.015) &&
+              approx(out.at(85, 20).a, 0.245, 0.015),
+          "The stroke's opacity is not applied along it");
+  require(approx(out.at(35, 20).r, 0.8 * out.at(35, 20).a),
+          "The stroke's opacity changed its colour");
+  Settings s       = plain();
+  s.useStrokeColor = false;
+  s.copies         = 3;
+  s.copyOffset     = 4;
+  for (const Copy &copy : build(faded, 0, s))
+    require(approx(copy.vertices.back().color.a, 0) &&
+                approx(copy.vertices.front().color.a, 1),
+            "A copy in the gradient mode lost the stroke's opacity");
+}
+
+// The distance covered at a speed that changes from frame to frame
+void testCovered() {
+  // 0.25 a frame falling to 0 at frame 8, held before and after
+  auto slowing = [](int f) {
+    return f <= 0 ? 0.25 : f >= 8 ? 0.0 : 0.25 * (1 - f / 8.0);
+  };
+  require(approx(covered(slowing, 2.5, 0, 8), 0.25 + 0.21875 + 0.5 * 0.1875),
+          "The distance is not the speeds of the frames passed");
+  require(approx(covered(slowing, 10, 0, 8), 0.25 * (8 - 28 / 8.0)),
+          "The distance after the last change is wrong");
+  double before = covered(slowing, -6, 0, 8);
+  for (double frame = -5.75; frame <= 20; frame += 0.25) {
+    const double now = covered(slowing, frame, 0, 8);
+    require(now >= before, "Slowing down moved the stretch back");
+    before = now;
+  }
+  // A constant speed is speed * frame, before frame 0 too
+  auto steady = [](int) { return 0.3; };
+  for (double frame : {-7.5, -1.0, 0.0, 0.4, 12.25})
+    require(approx(covered(steady, frame, 0, 0), 0.3 * frame),
+            "A constant speed does not cover speed * frame");
+  // Backwards from frame 0, at 1 a frame up to frame -4 and 0 from frame 0
+  auto rising = [](int f) { return f <= -4 ? 1.0 : f >= 0 ? 0.0 : -f / 4.0; };
+  require(approx(covered(rising, -2, -4, 0), -0.75) &&
+              approx(covered(rising, -1.5, -4, 0), -0.5) &&
+              approx(covered(rising, -9, -4, 0), -(1 + 0.75 + 0.5 + 0.25 + 5)),
+          "The distance before frame 0 is wrong");
+  require(covered(steady, std::nan(""), 0, 0) == 0,
+          "A frame that is not finite covered a distance");
+  bool rejected = false;
+  try {
+    covered(steady, 1, 1, 4);
+  } catch (const std::invalid_argument &) {
+    rejected = true;
+  }
+  require(rejected, "A frame range without frame 0 was accepted");
+}
+
+void testFilter() {
+  // Straight (0.8, 0.1, 0.2) at alpha 0.5, through a half transparent red
+  Rgba pixel{0.4, 0.05, 0.1, 0.5};
+  filter(pixel, Rgba{1, 0, 0, 0.5});
+  require(approx(pixel.r, 0.25) && approx(pixel.g, 0.025) &&
+              approx(pixel.b, 0.05) && approx(pixel.a, 0.25),
+          "The colour filter is not the render's");
+  // Opaque black is no filter; a transparent pixel stays transparent
+  Rgba same{0.4, 0.05, 0.1, 0.5};
+  filter(same, Rgba{0, 0, 0, 1});
+  require(approx(same.r, 0.4) && approx(same.g, 0.05) && approx(same.b, 0.1) &&
+              approx(same.a, 0.5),
+          "Opaque black changed the pixel");
+  Rgba empty;
+  filter(empty, Rgba{1, 1, 1, 1});
+  require(empty.r == 0 && empty.a == 0, "A transparent pixel was filtered");
+}
+
 // A window of the image holds the same pixels as the whole image
 void testTiling() {
   Path path;
@@ -275,10 +353,14 @@ int main() {
     testCopies();
     testWaveAndDrift();
     testGradient();
+    testOpacity();
+    testCovered();
+    testFilter();
     testTiling();
     testLimits();
     std::cout << "PASS: rough stroke width, reveal, travel, loop, swell, "
-                 "copies, wave, drift, gradient, tiling and limits\n";
+                 "copies, wave, drift, gradient, opacity, speed, filter, "
+                 "tiling and limits\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
