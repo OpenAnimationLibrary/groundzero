@@ -128,7 +128,7 @@ Related variants share a finding ID rather than inflating the count for each aff
 | F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI passed L/M/W; Linux one-delete LSan mutation detected at f8a1680 |
 | F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
 | F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
-| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; Linux target passed at ebe1a05; Windows/macOS and mutation pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; Linux/macOS targets passed at ebe1a05; Windows and mutation pending |
 | F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; functional CI passed L/M/W at f8a1680; mismatch instrumentation pending |
 | F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
 | F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
@@ -138,17 +138,18 @@ Related variants share a finding ID rather than inflating the count for each aff
 | F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
 | F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
 | F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; reference fixture passed L/M/W at f8a1680; mutation pending |
-| F49 | P2 | Retire completed startup and listener-owned plugin loader controllers after worker completion. | Actual startup polling and four normal/early-close menu pairs; controller, worker and thread assertions in existing probe targets; Linux passed at ebe1a05; remaining platforms/mutation pending |
+| F49 | P2 | Retire completed startup and listener-owned plugin loader controllers after worker completion. | Actual startup polling and four normal/early-close menu pairs; controller, worker and thread assertions in existing probe targets; Linux/macOS passed at ebe1a05; Windows/mutation pending |
 | F50 | P1 | A viewer-title callback read the cached raw column after scene cleanup retired it. The title now resolves the column through the live Xsheet and current index. | `viewerpane.cpp`; real external Paste/New raster level, sound-column caption and New Scene regression; repaired runtime pending, distinct from W1 |
-| F51 | P1 | Keep process-owned plugin metadata alive when an FX menu closes, preserving persistent declarations. | Create hosts before/after menu destruction through both PluginLoader and TFx factories; Linux passed at ebe1a05; remaining platforms/mutation pending; no hot unload |
-| F52 | P2 | Retire FX menu roots, obsolete submenus and repeat actions; replace duplicate plugin groups. | Normal/rapid preset refresh, external-action identity, unrelated-group preservation, exact entry counts and QPointer retirement; Linux passed at ebe1a05; remaining platforms/mutation pending |
-| F53 | P2 | Retire widget-owned calibrators and their manager registrations, with context-bound framebuffer cleanup. | Eight hidden owner cycles for each color wheel/ImageViewer/SceneViewer; registration-set checks; Linux hidden-owner checks passed at ebe1a05; other platforms/displayed/context-loss qualification pending |
-| F54 | P1 | Own Qt playback output and use context-bound weak refill callbacks. | Sixteen setup/replacement/retirement cycles without physical playback; Qt5/Qt6 assertions; Linux Qt5 passed at ebe1a05; macOS/Qt6 and mutation pending |
-| F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; Linux partial-state cleanup passed at ebe1a05; other platforms and actual driver failure/retry pending |
-| F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; Linux passed at ebe1a05; remaining platforms/mutation pending |
-| F57 | P2 | Preserve selected external-effect executable identity with Windows argv[0] and POSIX path quoting. | Real child identity via production launch; POSIX spaces/apostrophe/dollar path, existing output/error controls; Linux passed at ebe1a05; remaining platforms/mutation pending |
+| F51 | P1 | Keep process-owned plugin metadata alive when an FX menu closes, preserving persistent declarations. | Create hosts before/after menu destruction through both PluginLoader and TFx factories; Linux/macOS passed at ebe1a05; Windows/mutation pending; no hot unload |
+| F52 | P2 | Retire FX menu roots, obsolete submenus and repeat actions; replace duplicate plugin groups. | Normal/rapid preset refresh, external-action identity, unrelated-group preservation, exact entry counts and QPointer retirement; Linux/macOS passed at ebe1a05; Windows/mutation pending |
+| F53 | P2 | Retire widget-owned calibrators and their manager registrations, with context-bound framebuffer cleanup. | Eight hidden owner cycles for each color wheel/ImageViewer/SceneViewer; registration-set checks; Linux/macOS hidden-owner checks passed at ebe1a05; other platforms/displayed/context-loss qualification pending |
+| F54 | P1 | Own Qt playback output and use context-bound weak refill callbacks. | Sixteen setup/replacement/retirement cycles without physical playback; Qt5/Qt6 assertions; Linux/macOS Qt5 passed at ebe1a05; Qt6 and mutation pending |
+| F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; Linux/macOS partial-state cleanup passed at ebe1a05; other platforms and actual driver failure/retry pending |
+| F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; Linux/macOS passed at ebe1a05; Windows/mutation pending |
+| F57 | P2 | Preserve selected external-effect executable identity with Windows argv[0] and POSIX path quoting. | Real child identity via production launch; POSIX spaces/apostrophe/dollar path, existing output/error controls; Linux/macOS passed at ebe1a05; Windows/mutation pending |
 | F58 | P2 | Balance the macOS host send-right reference acquired by each memory-pressure query. | Existing `timagecache`: 64 production queries with before/after send-right counts; source-only, next-batch CI pending |
 | F59 | P2 | Treat a parsed Linux MemAvailable value of zero as present rather than falling back to MemFree. | Existing `timagecache`: eleven parser cases including present-zero and threshold edges; source-only, next-batch CI pending |
+| F60 | P1 | Own Windows callback threads and playback buffers through retirement; retire Flipbook/sound-column players. | Real controller with injected WinMM/thread boundaries, exact playback/scrub bytes and failure/race ownership cases; source-only, CI/page heap/hardware pending |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -173,7 +174,7 @@ The follow-up [Swing review](audit_swing_undo.md),
 [native crash investigation](audit_windows_crashes.md) record additional scenarios
 and distinguish prepared repairs from unresolved application crashes.
 The [scenario plan](audit_regression_scenarios.md) and
-[machine-readable ledger](audit_findings.json) track all 59 prepared findings,
+[machine-readable ledger](audit_findings.json) track all 60 prepared findings,
 stable residual IDs, platform limits, required mutations, and exact CI evidence.
 
 The [November 12 CI record](audit_ci_2026_11_12.md) identifies executed ownership checks
@@ -183,11 +184,12 @@ normal-success growth. F36 releases builder metadata; F45/F46 retire progress UI
 render graph. See the [memory plan](audit_memory_lifetime.md),
 [scene ownership review](audit_memory_ownership.md) and [LSan qualification](audit_image_cache_lsan.md).
 
-The [November 14 CI record](audit_ci_2026_11_14.md) adds Linux 23/23 reliability
+The [November 14 CI record](audit_ci_2026_11_14.md) adds Linux/macOS 23/23 reliability
 passes, including external effects and plugin probes, the expanded UI ownership sentinel,
 and a repeated successful F36 leak mutation at merge `ebe1a05`. The original native process
-still crashes during indexed-paste New Scene cleanup; other platform results remain pending.
-F58/F59 and the approved Windows audio/plugin storage implementations postdate that run.
+still crashes on Linux during indexed-paste New Scene cleanup; macOS advances to an external-paste
+pixel assertion and exits1 after cleanup. Windows remains pending; both executed audio paths use Qt5.
+F58-F60 and the approved plugin storage implementation postdate that run.
 
 ## Remaining risks and owner decisions
 
@@ -201,7 +203,7 @@ F58/F59 and the approved Windows audio/plugin storage implementations postdate t
 | P2, source-confirmed | Linux packaging uses moving AppImage download URLs; Windows custom Qt and prebuilt-library downloads lack pinned digests. Optional Python/OS/Rust dependency inputs are not fully locked. | Obtain reviewed provenance and trusted digests before pinning native payloads; the action pins and npm lock do not resolve these inputs. |
 | P2, dated availability risk | Homebrew plans to disable `qt@5` on 2027-05-19 and `opencv@4` on 2027-07-09. | Select and qualify a supported acquisition path before those dates; migration needs native device, scene, and rendering evidence. |
 | P2, workflow/reproduction pending | F31–F33 address narrower split-Brush ownership, native clipboard precedence and Cancel history defects. Exact #5190 exposure/frame shifts and #2445 destination policy remain unverified. | Run the new fixtures, retain new-level/lettered-ID and mixed-column/gap/input gaps, and review OT-Dev PR280 before broader paste-policy changes. |
-| P2, memory source/qualification | R17 plugin parameter/per-host UI, R18 cache telemetry and approved R21 Windows audio protocol remain unresolved. | Preserve descriptor borrowers, implement the approved WinMM ownership design, and qualify repeated-memory workloads. R20 aliases the prepared F49 controller repair; no RAM improvement is established. |
+| P2, memory source/qualification | R17 plugin parameter/per-host UI and R18 cache telemetry remain open; F60 Windows audio is prepared but unqualified. | Finish the approved plugin storage implementation and qualify F60 driver/retirement behavior and repeated-memory workloads. R20/R21 alias F49/F60; no RAM improvement is established. |
 | Validation gap | Native Apple Silicon, tablet/DPI/audio, long sessions, complete scene key/FX equality, and all 132 upstream reports are not qualified here. | Use the prioritized reproduction queue and exact-build platform evidence; retain unverified status until supported. |
 
 The backlog inventory classifies 124 reports as unverified, three as source-confirmed, four

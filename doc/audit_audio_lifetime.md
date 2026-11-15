@@ -2,8 +2,10 @@
 
 The current source review found independent playback lifetime defects. These are
 not attributed to the unresolved Windows text-layout crash. No audio-device
-session, local build, runtime regression, sanitizer run, or memory measurement
-has been executed for this follow-up.
+session, local build or memory measurement has been executed for this follow-up.
+At head `376d2e6ce`, Linux Qt5.15.3 and macOS Qt5.15.19 reached the F54 ownership
+sentinel before separate later native failures (CI34/CI38). Qt6 timer execution
+and the subsequent Windows repair remain unqualified.
 
 ## Qt output ownership repair
 
@@ -46,7 +48,7 @@ internal write device becomes invalid after stop/restart:
 [QAudioSink API](https://doc.qt.io/qt-6/qaudiosink.html),
 [Qt 6.8.3 implementation](https://github.com/qt/qtmultimedia/blob/v6.8.3/src/multimedia/audio/qaudiosink.cpp).
 
-## Windows callback ownership: approved repair prepared for CI
+## F60 Windows callback ownership: approved repair prepared for CI
 
 Windows selects `common/tsound/tsound_nt.cpp`; the Qt change does not affect it.
 The following source paths motivated the coordinated repair below:
@@ -101,8 +103,10 @@ The approved invariants are:
 5. All queue/device access follows one documented lock/order rule. The current
    device-to-queue and queue-to-device acquisition paths cannot remain inverted.
 
-The thread and buffer ownership design was approved for implementation. Approval
-does not establish runtime correctness. The prepared implementation uses one
+The thread and buffer ownership design was approved and integrated in commit
+`91d8060d3` as F60. R21 remains an alias, not another distinct defect. This change
+postdates head `376d2e6ce`; its CI results do not qualify F60. Approval and source
+review do not establish runtime correctness. The prepared implementation uses one
 owned header/byte buffer record for pending, submitted and retiring states;
 successful unprepare precedes erasing that record. Completion resolves an address
 against live ownership before reading it. Stop clears looping before reset and
