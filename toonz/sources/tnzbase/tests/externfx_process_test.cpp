@@ -70,17 +70,7 @@ int writeGrayscaleTga(const QString& path) {
   return 0;
 }
 
-int renderWorker(const QStringList& arguments) {
-  if (arguments.size() != 5) return 20;
-  const QImage input(arguments[2]);
-  require(input.size() == QSize(3, 2),
-          "External effect input tile changed size");
-  for (int y = 0; y < input.height(); ++y)
-    for (int x = 0; x < input.width(); ++x)
-      require(input.pixelColor(x, y) == QColor(Qt::blue),
-              "External effect input pixels were not rendered");
-  const QString mode = arguments[4];
-  if (mode == "gray-tga") return writeGrayscaleTga(arguments[3]);
+QImage renderedImage(const QString& mode) {
   const int width = mode == "small" ? 2 : mode == "large" ? 4 : 3;
   QImage output(
       width, 2,
@@ -93,6 +83,21 @@ int renderWorker(const QStringList& arguments) {
     output.setPixel(1, 1, qRgba(255, 255, 0, 255));
     output.setPixel(2, 1, qRgba(255, 0, 255, 255));
   }
+  return output;
+}
+
+int renderWorker(const QStringList& arguments) {
+  if (arguments.size() != 5) return 20;
+  const QImage input(arguments[2]);
+  require(input.size() == QSize(3, 2),
+          "External effect input tile changed size");
+  for (int y = 0; y < input.height(); ++y)
+    for (int x = 0; x < input.width(); ++x)
+      require(input.pixelColor(x, y) == QColor(Qt::blue),
+              "External effect input pixels were not rendered");
+  const QString mode = arguments[4];
+  if (mode == "gray-tga") return writeGrayscaleTga(arguments[3]);
+  const QImage output = renderedImage(mode);
   require(output.save(arguments[3], "PNG"),
           "Cannot save rendered output fixture");
   return 0;
@@ -247,13 +252,15 @@ void publicRenderingCase(const QString& executable, const std::string& mode) {
   const std::string expectedError =
       mode == "gray-tga" ? "32-bit RGBA" : "different dimensions";
   const bool success = mode == "pixels" || mode == "gray";
+  bool failed        = false;
   std::string failure;
   try {
     publicCompute(*effect, tile);
   } catch (const TException& error) {
+    failed  = true;
     failure = QString::fromStdWString(error.getMessage()).toStdString();
   }
-  if (success && !failure.empty())
+  if (success && failed)
     throw std::runtime_error("External output mode " + mode + ": " + failure);
   if (!success && failure.find(expectedError) == std::string::npos)
     throw std::runtime_error(
@@ -283,7 +290,23 @@ void publicRendering(const QString& executable) {
           "External effect rendering cases failed; see mode diagnostics");
 }
 
-int worker(const QStringList& arguments) {
+int writeWorker(const QStringList& arguments, const QByteArray& executable) {
+  const bool identity = arguments[1] == "--identity-fixture";
+  if (arguments.size() != (identity ? 4 : 5) ||
+      (!identity && arguments[1] != "--write-fixture"))
+    return 20;
+  QFile output(arguments[2]);
+  const QByteArray bytes = identity ? executable : arguments[3].toUtf8();
+  require(output.open(QIODevice::WriteOnly), "Cannot write worker fixture");
+  require(output.write(bytes) == bytes.size(), "Cannot finish worker fixture");
+  QImage image(1, 1, QImage::Format_ARGB32);
+  image.fill(Qt::red);
+  require(image.save(arguments[identity ? 3 : 4], "PNG"),
+          "Cannot save external-effect output");
+  return 0;
+}
+
+int worker(const QStringList& arguments, const QByteArray& executable) {
   if (arguments[1] == "--render-fixture") return renderWorker(arguments);
   if (arguments[1] == "--fail-fixture") return 7;
   if (arguments[1] == "--missing-fixture") return 0;
@@ -293,16 +316,22 @@ int worker(const QStringList& arguments) {
     require(output.write("invalid PNG") == 11, "Cannot finish corrupt output");
     return 0;
   }
-  if (arguments.size() != 5 || arguments[1] != "--write-fixture") return 20;
-  QFile output(arguments[2]);
-  const QByteArray bytes = arguments[3].toUtf8();
-  require(output.open(QIODevice::WriteOnly), "Cannot write worker fixture");
-  require(output.write(bytes) == bytes.size(), "Cannot finish worker fixture");
-  QImage image(1, 1, QImage::Format_ARGB32);
-  image.fill(Qt::red);
-  require(image.save(arguments[4], "PNG"),
-          "Cannot save external-effect output");
-  return 0;
+  return writeWorker(arguments, executable);
+}
+
+void executableIdentity(const QString& executable, const QString& directory) {
+  QString selectedExecutable = executable;
+#ifndef _WIN32
+  selectedExecutable = QDir(directory).filePath("external effect's $tool");
+  require(QFile::link(executable, selectedExecutable),
+          "Cannot create the external executable path fixture");
+#endif
+  const QString resultPath =
+      QDir(directory).filePath("executable identity.txt");
+  compute(TFilePath(selectedExecutable),
+          "--identity-fixture \"" + resultPath.toStdString() + "\" $out");
+  require(result(resultPath) == QFile::encodeName(selectedExecutable),
+          "External effect changed the selected executable argv[0]");
 }
 
 #ifdef _WIN32
@@ -348,10 +377,11 @@ void windowsProcesses(const QString& executable, const QString& directory) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  const QByteArray executableArgument = argc > 0 ? argv[0] : "";
   QGuiApplication app(argc, argv);
   try {
     const QStringList arguments = app.arguments();
-    if (arguments.size() > 1) return worker(arguments);
+    if (arguments.size() > 1) return worker(arguments, executableArgument);
     TThread::init();
     initImageIo();
     TRenderer::initialize();
@@ -381,6 +411,7 @@ int main(int argc, char** argv) {
     expectFailure(TFilePath("/bin/sh"), "-c 'printf invalid > $out'",
                   "output image");
 #endif
+    executableIdentity(executable, directory.path());
     publicRendering(executable);
     std::cout << "External effect process and output validation: PASS\n";
     return 0;

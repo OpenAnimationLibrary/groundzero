@@ -56,6 +56,9 @@ std::string runExternalProgram(const std::string& executable,
   const DWORD expansionError = expandExternalArguments(arguments, command);
   if (expansionError != ERROR_SUCCESS)
     return failure("expand arguments for", expansionError);
+  const std::string commandLine = "\"" + executable + "\"" + command.data();
+  command.assign(commandLine.begin(), commandLine.end());
+  command.push_back('\0');
 
   STARTUPINFOA startup = {};
   GetStartupInfoA(&startup);
@@ -75,8 +78,11 @@ std::string runExternalProgram(const std::string& executable,
   CloseHandle(process.hProcess);
   if (!error.empty()) return error;
 #else
-  const std::string command = executable + arguments;
-  const int status          = system(command.c_str());
+  std::string command = "'";
+  for (char character : executable)
+    command += character == '\'' ? "'\\''" : std::string(1, character);
+  command += "'" + arguments;
+  const int status = system(command.c_str());
   if (status == -1)
     return "Cannot start external effect program \"" + executable +
            "\": " + std::strerror(errno) +
