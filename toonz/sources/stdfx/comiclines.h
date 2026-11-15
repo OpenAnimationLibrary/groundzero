@@ -285,53 +285,45 @@ inline Rgba sample(const Field &f, double x, double y, double pixel) {
     }
   }
 
-  // Lines whose centre is within the window of this position, in index
-  // order so overlapping lines composite the same way everywhere
-  struct Hit {
-    int index;
-    const Line *line;
-    double delta;  // position minus the line's position
+  // Every line whose centre is within the window of this position, in the
+  // order of their positions. The order depends only on the position, so a
+  // pixel composites the same way in every tile.
+  auto composite = [&](const Line &line, double delta) {
+    if (radial && std::abs(delta) > 0.5 * pi) return;
+    const double local = detail::wrap(along - line.start - s.travel, f.along);
+    if (local > line.length) return;
+    const double t    = local / line.length;
+    const double half = line.halfWidth * detail::profile(s, t) * widthScale;
+    if (!(half > 0)) return;
+    double d = radial ? radius * std::sin(delta) : delta;
+    if (s.waveAmplitude > 0 && s.wavePeriod > minLen)
+      d -= s.waveAmplitude *
+           std::sin(2 * pi * local / s.wavePeriod + line.phase);
+    const double ends =
+        detail::unit(std::min(local, line.length - local) / pixel + 0.5);
+    const double alpha = detail::coverage(d, half, pixel) * ends * line.color.a;
+    if (!(alpha > 0)) return;
+    out.r = line.color.r * alpha + out.r * (1 - alpha);
+    out.g = line.color.g * alpha + out.g * (1 - alpha);
+    out.b = line.color.b * alpha + out.b * (1 - alpha);
+    out.a = alpha + out.a * (1 - alpha);
   };
-  Hit hits[64];
-  int hitCount = 0;
-  auto gather  = [&](double shift) {
+  auto gather = [&](double shift) {
     const double p = position + shift;
     auto first     = std::lower_bound(
         f.lines.begin(), f.lines.end(), p - window,
         [](const Line &line, double v) { return line.position < v; });
     for (auto it = first; it != f.lines.end() && it->position <= p + window;
          ++it)
-      if (hitCount < 64) hits[hitCount++] = {it->index, &*it, p - it->position};
+      composite(*it, p - it->position);
   };
-  gather(0);
+  // A window wider than half the layout would find a line twice
   if (periodic && window < 0.5 * f.across) {
-    if (position - window < 0) gather(f.across);
     if (position + window > f.across) gather(-f.across);
-  }
-  std::sort(hits, hits + hitCount,
-            [](const Hit &a, const Hit &b) { return a.index < b.index; });
-
-  for (int h = 0; h < hitCount; ++h) {
-    const Line &line = *hits[h].line;
-    const double local = detail::wrap(along - line.start - s.travel, f.along);
-    if (local > line.length) continue;
-    const double t    = local / line.length;
-    const double half = line.halfWidth * detail::profile(s, t) * widthScale;
-    if (!(half > 0)) continue;
-    double d = radial ? radius * std::sin(hits[h].delta) : hits[h].delta;
-    if (radial && std::abs(hits[h].delta) > 0.5 * pi) continue;
-    if (s.waveAmplitude > 0 && s.wavePeriod > minLen)
-      d -= s.waveAmplitude *
-           std::sin(2 * pi * local / s.wavePeriod + line.phase);
-    const double ends =
-        detail::unit(std::min(local, line.length - local) / pixel + 0.5);
-    const double alpha =
-        detail::coverage(d, half, pixel) * ends * line.color.a;
-    if (!(alpha > 0)) continue;
-    out.r = line.color.r * alpha + out.r * (1 - alpha);
-    out.g = line.color.g * alpha + out.g * (1 - alpha);
-    out.b = line.color.b * alpha + out.b * (1 - alpha);
-    out.a = alpha + out.a * (1 - alpha);
+    gather(0);
+    if (position - window < 0) gather(f.across);
+  } else {
+    gather(0);
   }
   return out;
 }

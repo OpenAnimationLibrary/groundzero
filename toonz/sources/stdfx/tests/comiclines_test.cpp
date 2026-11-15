@@ -1,5 +1,6 @@
 #include "../comiclines.h"
 
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -191,6 +192,51 @@ void testRadial() {
           "Twist did not turn the line away from its start");
 }
 
+// Many lines over one pixel: none is dropped
+void testCrowd() {
+  Settings s = single();
+  s.count     = 300;
+  s.groupSize = 300;
+  s.attraction = 1;  // all on the axis
+  s.opacity    = 0.01;
+  const double alpha = alphaAt(s, 50, 0);
+  require(approx(alpha, 1 - std::pow(0.99, 300), 1e-9),
+          "Lines were dropped where many overlap");
+}
+
+// The densest field over 480 by 270 pixels: a bound that catches a cost per
+// pixel that grows with the number of lines, not a benchmark
+void testCost() {
+  for (Layout layout : {Layout::Parallel, Layout::Radial}) {
+    Settings s;
+    s.layout      = layout;
+    s.count       = maxLines;
+    s.groupSize   = 8;
+    s.attraction  = 0.9;
+    s.bandLength  = 1920;
+    s.bandWidth   = 1080;
+    s.originX     = -960;
+    s.tile        = true;
+    s.innerRadius = 50;
+    s.outerRadius = 1200;
+    s.length      = 800;
+    s.thickness   = 12;
+    s.waveAmplitude = 6;
+    const Field f = build(s);
+    const auto start = std::chrono::steady_clock::now();
+    double sum       = 0;
+    for (int y = 0; y < 270; ++y)
+      for (int x = 0; x < 480; ++x)
+        sum += sample(f, x - 240 + 0.5, y - 135 + 0.5, 1).a;
+    const double seconds = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - start)
+                               .count();
+    require(sum > 0, "The densest field drew nothing");
+    require(seconds < 20, "A dense frame took " + std::to_string(seconds) +
+                              " seconds to sample");
+  }
+}
+
 void testInvalid() {
   auto rejects = [](const Settings &s) {
     try {
@@ -229,6 +275,8 @@ int main() {
     testGroups();
     testTile();
     testRadial();
+    testCrowd();
+    testCost();
     testInvalid();
     std::cout << "PASS: comic line seeds, randomness, coverage, profile, "
                  "travel, holds, groups, tiling and radial layout\n";
