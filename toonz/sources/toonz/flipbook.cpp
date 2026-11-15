@@ -592,6 +592,10 @@ void FlipBook::saveImages() {
 //=============================================================================
 
 FlipBook::~FlipBook() {
+  if (m_player) {
+    m_player->detach(this);
+    delete m_player;
+  }
   if (m_loadPopup) delete m_loadPopup;
   if (m_savePopup) delete m_savePopup;
 }

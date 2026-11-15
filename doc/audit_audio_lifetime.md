@@ -46,10 +46,10 @@ internal write device becomes invalid after stop/restart:
 [QAudioSink API](https://doc.qt.io/qt-6/qaudiosink.html),
 [Qt 6.8.3 implementation](https://github.com/qt/qtmultimedia/blob/v6.8.3/src/multimedia/audio/qaudiosink.cpp).
 
-## Windows callback ownership: design approved, implementation pending
+## Windows callback ownership: approved repair prepared for CI
 
 Windows selects `common/tsound/tsound_nt.cpp`; the Qt change does not affect it.
-The following source paths need one coordinated repair:
+The following source paths motivated the coordinated repair below:
 
 | Path | Existing behavior | Consequence |
 | --- | --- | --- |
@@ -93,26 +93,89 @@ The approved invariants are:
    dereference. Reset/stop marks playback as stopping before device reset, so
    returned buffers cannot be requeued for looping. Already-returned completion
    messages are drained before header addresses can be reused for new work.
-4. Close retires all queued and pending buffers, posts the termination request,
-   waits for actual callback retirement, and only then destroys thread handles,
-   queue state and the implementation. Listener notifications must not outlive
-   their listener registration; the current raw `EndPlayMsg` is another boundary
-   requiring explicit treatment in the same review.
+4. Close retires all queued and pending buffers. Implementation shutdown wakes
+   and joins its callback thread before destroying thread handles, queue state
+   and the implementation. An ordinary public `close()` retains the owned idle
+   callback thread for a later `open()` on that same player. Listener notifications
+   must not outlive their registration.
 5. All queue/device access follows one documented lock/order rule. The current
    device-to-queue and queue-to-device acquisition paths cannot remain inverted.
 
-The thread and buffer ownership design was approved for implementation. That approval
-is not evidence that code or tests are complete. The bounded CI fixture should fake only
-the WinMM/device boundary, exercise the
-real queue and controller code, and retain diagnostics for these cases:
+The thread and buffer ownership design was approved for implementation. Approval
+does not establish runtime correctness. The prepared implementation uses one
+owned header/byte buffer record for pending, submitted and retiring states;
+successful unprepare precedes erasing that record. Completion resolves an address
+against live ownership before reading it. Stop clears looping before reset and
+waits for a callback barrier before a new playback generation can allocate headers.
+This covers completion messages already queued by a completed reset, including
+duplicates. It does not claim to distinguish arbitrary driver messages posted
+after that drain with an address reused by a later generation.
+
+One operation mutex serializes public playback and retirement operations. The
+callback takes only the state mutex; waits and joins occur outside that mutex.
+The retained thread handle and queue-ready event provide the startup boundary.
+Posting a barrier and marking final thread exit share the state mutex; accepted
+barrier requests retain their own event until delivery or final draining. Failed
+posting returns failure rather than joining a worker that has not been woken.
+The final join also explicitly excludes the callback thread itself.
+
+Each listener attachment has a separate registration. Detach removes that
+registration under the state mutex, then waits for its delivery mutex outside
+the state and operation locks. Delivery holds the recursive registration mutex
+while invoking the listener, allowing self-detach and rejecting queued messages
+from a previous attachment of the same address. Shutdown invalidates listeners
+before taking the operation mutex. `EndPlayMsg` is sent from a stack object, so
+the dispatcher's clone is the only allocated message owner.
+
+Failed reset/unprepare/close retains the affected storage and disables playback
+with a diagnostic. Successful explicit stop/close can recover a live owner; a
+later callback can finish retiring a shutdown owner. New output construction is
+blocked while failed cleanup remains, and the failed controller accepts no new
+buffers. Retention is limited to the buffers/devices already owned at failure,
+not a claim of a fixed byte limit. Existing players created before the failure
+may independently reach this state. If the worker has already exited, an
+allocation-free self-reference retains unsafe-to-free storage. An existing
+external owner may retry close; without that owner, process restart is the
+recovery boundary. No further callback can recover an exited worker.
+
+Two separate caller ownership gaps are repaired across platforms: Flipbook
+detaches itself and deletes its player during destruction; sound-column stop
+deletes the player before clearing its pointer, and its destructor retires an
+idle player too. These changes use the same existing public playback API. Format
+selection, supported rates including 32000 Hz, sample extraction, loop behavior,
+and scrub fade/crossfade/pending eviction policy are preserved.
+
+The Windows-only `runWindowsSoundOutputOwnershipChecks` fixture is connected to
+the existing native application's repeated-ownership checks, with no new CI job.
+It injects WinMM calls and Win32 thread/message boundaries per new implementation
+instance, while exercising the real controller, callback thread and listener
+dispatcher. Fake state survives every device and thread using it. Authored cases
+cover:
 
 - create/destroy without open; failed thread creation; delayed message-queue
   readiness; device-open failure; repeated open/close;
-- normal completion, multiple queued/pending buffers, looping then stop, format
-  change, write/unprepare failure, and duplicate/late completion;
-- stop/close while callbacks are pending, and listener removal before delivery;
-- exact allocation/retirement counts, no header dereference after retirement,
-  no callback self-join, and completion within the fixture's deadline.
+- normal completion, loop replay, stop, format changes, prepare/write failures,
+  reset/unprepare/close failure retention and later recovery;
+- exact ordinary/loop sample bytes, scrub fade and decay order, submitted
+  crossfade bytes, pending eviction and FIFO sample order;
+- reset-queued duplicate completions before the next playback generation;
+- queued listener removal and reattachment, reentrant self-detach/stop, and a
+  concurrent detach waiting for delivery to finish;
+- failed shutdown message posting, unexpected worker exit, and retained-owner
+  recovery after exit;
+- a barrier accepted immediately before thread exit and a concurrent close
+  started while the final drain holds the state lock;
+- balanced successful prepare/unprepare and device open/close counts. These
+  are boundary ownership counts, not heap-allocation or process-RAM measurements.
+
+The fixture has not been built or executed locally, following the repository's
+CI-only rule. CI execution, page-heap instrumentation and fault mutations remain
+pending. Source review verifies the self-join guard, but the fixture does not
+invoke public shutdown from the callback thread. Its bounded gate/notification
+waits do not prove that real device calls cannot stall inside a driver.
+Production barriers and fixture thread joins remain unbounded; hang detection
+therefore relies on the existing native-process CI timeout, not solely on the
+fixture's five-second polling deadlines.
 
 Run Windows page heap or allocation-mismatch instrumentation on that fixture,
 then qualify real mono/stereo playback, timeline scrubbing, cancellation and

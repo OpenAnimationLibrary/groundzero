@@ -9,6 +9,8 @@
 #include "tenv.h"
 #ifndef _WIN32
 #include "tsoundownershiptest.h"
+#else
+#include "tsoundwindowsownershiptest.h"
 #endif
 #include "toonz/preferences.h"
 #include "toonz/toonzfolders.h"
@@ -394,6 +396,10 @@ void exerciseUiMemoryOwnership(QMainWindow* window) {
 #ifndef _WIN32
   QString soundFailure;
   if (!runSoundOutputOwnershipChecks(soundFailure))
+    throw std::runtime_error(soundFailure.toStdString());
+#else
+  QString soundFailure;
+  if (!runWindowsSoundOutputOwnershipChecks(soundFailure))
     throw std::runtime_error(soundFailure.toStdString());
 #endif
   checkHistogramCycles();

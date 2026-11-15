@@ -232,6 +232,7 @@ TXshSoundColumn::~TXshSoundColumn() {
     m_timer.stop();
     stop();
   }
+  delete m_player;
 }
 
 //-----------------------------------------------------------------------------
@@ -916,6 +917,7 @@ void TXshSoundColumn::stop() {
   if (m_player) {
     m_player->stop();
     m_player->close();
+    delete m_player;
     m_player                = 0;
     m_currentPlaySoundTrack = TSoundTrackP();
   }
