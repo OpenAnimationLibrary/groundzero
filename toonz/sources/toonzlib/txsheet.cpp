@@ -1575,7 +1575,15 @@ void TXsheet::play(const TSoundTrackP &soundtrack, int s0, int s1, bool loop) {
   if (m_imp->m_scrubPlayer) m_imp->m_scrubPlayer->stop();
   if (!TSoundOutputDevice::installed()) return;
 
-  if (!m_player) m_player = std::make_unique<TSoundOutputDevice>();
+  if (!m_player) {
+    try {
+      m_player = std::make_unique<TSoundOutputDevice>();
+    } catch (const TSoundDeviceException &) {
+      // The device reported why it is unavailable; play silently and retry
+      // on the next call.
+      return;
+    }
+  }
 
   if (m_player) {
     try {

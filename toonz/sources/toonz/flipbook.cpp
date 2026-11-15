@@ -1490,7 +1490,13 @@ void FlipBook::playAudioFrame(int frame) {
   if (!audioCardInstalled) return;
 
   if (!m_player) {
-    m_player = new TSoundOutputDevice();
+    try {
+      m_player = new TSoundOutputDevice();
+    } catch (const TSoundDeviceException &) {
+      // The device reported why it is unavailable; play silently and retry
+      // on the next frame.
+      return;
+    }
     m_player->attach(this);
   }
   if (m_player) {
