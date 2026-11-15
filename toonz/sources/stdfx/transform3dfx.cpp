@@ -45,7 +45,7 @@ class Transform3DFx final : public TStandardRasterFx, public T3DRenderSource {
   TDoubleParamP m_scaleX, m_scaleY, m_scaleZ;
   TIntEnumParamP m_gizmoMode;
 
-  otglb::ModelTransform transform(double frame) const {
+  otglb::ModelTransform modelTransform(double frame) const {
     otglb::ModelTransform result;
     result.position = {{m_positionX->getValue(frame),
                         m_positionY->getValue(frame),
@@ -73,7 +73,7 @@ class Transform3DFx final : public TStandardRasterFx, public T3DRenderSource {
 
     std::vector<otglb::ModelTransform> transforms;
     transforms.reserve(1 + (downstream ? downstream->size() : 0));
-    transforms.push_back(transform(frame));
+    transforms.push_back(modelTransform(frame));
     if (downstream)
       transforms.insert(transforms.end(), downstream->begin(),
                         downstream->end());
@@ -140,7 +140,7 @@ public:
       const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const override {
     if (!m_source.isConnected()) return {};
     std::vector<otglb::ModelTransform> transforms;
-    transforms.push_back(transform(frame));
+    transforms.push_back(modelTransform(frame));
     if (downstream)
       transforms.insert(transforms.end(), downstream->begin(), downstream->end());
     return m_source.source()->get3DRenderGeometry(frame, canceled,
