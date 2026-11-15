@@ -145,3 +145,10 @@ Cross-platform interpretation of archive filenames remains unverified. Particle
 package import preserves valid external read references while generating or
 checking destination-relative paths. These observations are not a full audit of
 all image decoders, system loaders, third-party tools, or archive consumers.
+
+## Approved storage follow-up
+
+The user approved both stages in [the plugin storage design](audit_plugin_storage_design.md):
+direct settings construction and immutable descriptor generations. R17 remains open while
+implementation and independent review proceed. The Linux probe passes at head `376d2e6ce`
+qualify earlier controller/registry/menu repairs, not these later storage changes.

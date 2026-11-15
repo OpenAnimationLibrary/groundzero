@@ -322,3 +322,14 @@ archive-link warnings. These remain unresolved dependency warnings, separate fro
 For c208 Windows, the PR head was c20884ffb, while checkout/build used merge
 `27381fa6e2358d68df5370b1a4c75ee81321035b`. CI17–CI19 retain PR-head association; the ledger
 records checkout provenance separately from log lines 215/274.
+
+## November 14 staged CI evidence
+
+The [current record](audit_ci_2026_11_14.md) links Linux JUnit with 23 tests, zero
+failures and zero skips. The revised `externfx_process` target reports PASS; its cases
+are inferred from source order, not separately named success markers. Both plugin probe
+targets also pass, with output truncated by CTest. The expanded UI ownership sentinel
+passes before the original process crashes during indexed-paste New Scene cleanup.
+F36 repeats normal/mutant/restored exits 0/23/0. These results concern the 57-finding head
+`376d2e6ce`; F58/F59 and approved Windows/plugin storage work postdate it. Final platform
+and check-count qualification remains pending; the entire run is not green.

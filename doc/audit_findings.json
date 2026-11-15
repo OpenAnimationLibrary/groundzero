@@ -65,8 +65,9 @@
     "memory": "doc/audit_memory_lifetime.md",
     "memory_ownership": "doc/audit_memory_ownership.md",
     "cache_leak_qualification": "doc/audit_image_cache_lsan.md",
-    "latest_ci_qualification": "doc/audit_ci_2026_11_12.md",
-    "audio_lifetime": "doc/audit_audio_lifetime.md"
+    "latest_ci_qualification": "doc/audit_ci_2026_11_14.md",
+    "audio_lifetime": "doc/audit_audio_lifetime.md",
+    "plugin_storage_design": "doc/audit_plugin_storage_design.md"
   },
   "suites": {
     "psd": {
@@ -1444,10 +1445,13 @@
           },
           {
             "evidence_id": "CI29"
+          },
+          {
+            "evidence_id": "CI34"
           }
         ],
         "pending": [
-          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "Run baseline or targeted mutation comparisons for queued/assigned lifetime, edit isolation and accepted-submission cleanup.",
           "Retired-outcome replay proves absent-record rejection, not independent identity predicates or duplicate retirement delivery. Progress replacement independently exercises incarnation; generation is not isolated.",
           "Qualify active-process application shutdown and latched non-timeout process errors; authored real-child cases cover stop/reaping and successful completion after polling.",
@@ -1507,10 +1511,13 @@
           },
           {
             "evidence_id": "CI29"
+          },
+          {
+            "evidence_id": "CI34"
           }
         ],
         "pending": [
-          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "CountedTask and Runner destruction are instrumented; final TFarmTaskGroup roots and freshly deserialized objects still need leak-detector evidence.",
           "Nested malformed extraction can leave an allocated child unattached before TFarmTaskGroup adopts it. A shared-parser provenance API must distinguish new allocations from existing aliases before exception cleanup; this remains deferred and source-confirmed.",
           "Preserved visible list state on failed load does not imply every nested parser allocation was reclaimed.",
@@ -1553,18 +1560,21 @@
       "previous_record": "R08",
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "fixture_compile_failure; follow_up_prepared",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
         "executed_evidence": [
           "CI20",
-          "CI21"
+          "CI21",
+          {
+            "evidence_id": "CI33"
+          }
         ],
         "pending": [
-          "Run the new public-render cases on the exact integrated revision across Windows/Linux/macOS; c20884ffb externfx_process predates these cases and is not F29 evidence.",
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
+          "Qualify the revised public-render cases on Windows/macOS and retain baseline/mutation evidence. The Linux corrected fixture passed at ebe1a05; earlier uncorrected fixture failures do not establish a separate output-rendering defect.",
           "Compare existing external-effect scenes before/after: previously ignored output now changes rendered artwork, and decoded size/type mismatches now report errors.",
           "The existing early return for 64-bit and floating-point destination tiles remains unresolved; this repair supports matching 32-bit RGBA destinations only.",
-          "Retain baseline/mutation pixel failures, and separately qualify temporary-file cleanup and existing shell/configuration trust behavior.",
-          "At 5e9c2f00 Linux/macOS builds rejected the BlueSource fixture for missing TFx::getPluginId() const. The override is now prepared; no pixel case ran on that head."
+          "Retain baseline/mutation pixel failures, and separately qualify temporary-file cleanup and existing shell/configuration trust behavior."
         ],
         "mutation_proposal": "Restore local-pointer-only output loading; exact public-render pixel assertions must fail. Omit size/type validation; invalid-output rejection cases must fail."
       }
@@ -1792,10 +1802,13 @@
           },
           {
             "evidence_id": "CI29"
+          },
+          {
+            "evidence_id": "CI34"
           }
         ],
         "pending": [
-          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "Automatic repaired-file reload is not implemented. Missing-template open still returns early. The command-change error preserves preview pixels; it does not roll back command-field edits already made before reloading.",
           "No trace attributes the unresolved W1 Qt text teardown crash to this null-result defect."
         ],
@@ -1845,10 +1858,13 @@
           },
           {
             "evidence_id": "CI26"
+          },
+          {
+            "evidence_id": "CI33"
           }
         ],
         "pending": [
-          "The registered fixture passed on all three platforms at merge f8a1680 (CI24-CI26); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
           "The legacy setXsheet escape hatch has no production caller in the searched tree and is outside the fixture.",
           "childstack_lifetime executed its reference/destruction assertions; no process RAM slope or separate leak-detector result is inferred."
         ],
@@ -1909,10 +1925,16 @@
           },
           {
             "evidence_id": "CI30"
+          },
+          {
+            "evidence_id": "CI33"
+          },
+          {
+            "evidence_id": "CI35"
           }
         ],
         "pending": [
-          "CI30 records normal/mutated/restored LSan exits 0/23/0 and a direct builder allocation stack after the functional sentinel. Qualify future integrated revisions independently.",
+          "CI35 repeats the normal/mutant/restored LSan result on ebe1a05. Any later integrated cache source or fixture changes, including F58/F59, require their own qualification.",
           "The new cycle does not force disk spill; on-disk builder cleanup needs its own runtime path.",
           "This releases builder metadata, not leaked raster payloads. Constructor exception paths are unchanged."
         ],
@@ -2038,7 +2060,7 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "partial_platform_evidence",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
         "executed_evidence": [
           {
@@ -2049,10 +2071,14 @@
           },
           {
             "evidence_id": "CI26"
+          },
+          {
+            "evidence_id": "CI33"
           }
         ],
         "pending": [
-          "Ownership functions return before the recorded later public-render failures in all three externfx_process runs (CI24-CI26). No separate pass marker or targeted mutation exists; the whole external-effect target still fails.",
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
+          "The whole Linux external-effect target now passes (CI33); earlier CI24-CI26 failed after the ownership functions returned. No separate ownership-case pass marker or targeted mutation exists; current Windows/macOS qualification remains pending.",
           "Existing external command trust, output-mode and process-timeout limits remain separate from port ownership."
         ],
         "mutation_proposal": "Remove the owning port vector while preserving functional port registration; upstream reference balance/final destructor assertions must fail."
@@ -2100,12 +2126,15 @@
           },
           {
             "evidence_id": "CI26"
+          },
+          {
+            "evidence_id": "CI33"
           }
         ],
         "pending": [
-          "The registered fixture passed on all three platforms at merge f8a1680 (CI24-CI26); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
           "Ordinary parameter/value checks do not diagnose scalar-versus-array deletion; allocation/deallocation mismatch instrumentation remains required.",
-          "Nested group/descriptor arrays, retained strings, existing Param descriptor borrows and global PluginInformation lifetime remain deferred in R17; this patch does not claim complete metadata cleanup."
+          "Nested group/descriptor arrays, retained strings and existing Param descriptor borrows remain R17. Its ownership design is approved and under implementation; this array-deleter repair does not claim complete metadata cleanup."
         ],
         "mutation_proposal": "Restore the scalar deleters; ASan allocation/deallocation mismatch evidence must detect them while valid single/empty probe behavior remains checked."
       }
@@ -2151,10 +2180,13 @@
           },
           {
             "evidence_id": "CI29"
+          },
+          {
+            "evidence_id": "CI34"
           }
         ],
         "pending": [
-          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "Object ownership/count assertions are not process RAM measurements; other menu families remain outside this fixture."
         ],
         "mutation_proposal": "Remove direct submenu deletion before rebuild; old QPointers remain alive or submenu counts grow."
@@ -2200,10 +2232,13 @@
           },
           {
             "evidence_id": "CI29"
+          },
+          {
+            "evidence_id": "CI34"
           }
         ],
         "pending": [
-          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "The existing build-date preference behavior is unchanged by source, but the fixture does not independently toggle and persist that preference."
         ],
         "mutation_proposal": "Restore heap allocation without post-exec deletion; the dialog/child QPointers or baseline dialog count must fail."
@@ -2252,10 +2287,13 @@
           },
           {
             "evidence_id": "CI29"
+          },
+          {
+            "evidence_id": "CI34"
           }
         ],
         "pending": [
-          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "The available-update modal behavior is unchanged by source but is not separately exercised; valid fixture version 0.0.0 does not prompt."
         ],
         "mutation_proposal": "Return before cleanup on errors or use the shared latest-checker member; per-request completion or checker/manager retirement assertions must fail."
@@ -2481,10 +2519,13 @@
           },
           {
             "evidence_id": "CI26"
+          },
+          {
+            "evidence_id": "CI33"
           }
         ],
         "pending": [
-          "The registered fixture passed on all three platforms at merge f8a1680 (CI24-CI26); targeted baseline/mutation and final integrated qualification remain pending.",
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
           "Registry/library process lifetime is unchanged. Per-host UIPage/ParamView allocations and descriptor/string storage remain R17; reference balance does not prove complete plugin cleanup."
         ],
         "mutation_proposal": "Move metadata release back inside the optional callback branch; callback-absent cycles must retain a reference and fail."
@@ -2523,11 +2564,16 @@
       ],
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI33"
+          }
+        ],
         "pending": [
-          "Run the actual probe targets on all platforms and restore each retirement omission in separate disposable mutations. Tests are authored; no runtime or RAM improvement is claimed.",
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
+          "Qualify the actual probe targets on Windows/macOS and restore each retirement omission in separate disposable mutations. Linux target execution is recorded in CI33; no RAM improvement is measured.",
           "Startup normally runs once; listener/menu paths recur. No plugin hot-unload behavior is introduced."
         ],
         "mutation_proposal": "Omit startup controller deletion or listener completion/retirement connection; observed controller/worker/thread retirement must fail within its deadline."
@@ -2577,9 +2623,13 @@
           },
           {
             "evidence_id": "CI32"
+          },
+          {
+            "evidence_id": "CI36"
           }
         ],
         "pending": [
+          "Linux merge ebe1a05 still exits -11 during indexed-paste New Scene cleanup after this repair. No qualified original Linux stack identifies the remaining cause; the new F50 regression did not complete (CI36).",
           "Run the new real external-paste/New Scene scenario and all native integration on the repaired combined revision. No repaired runtime pass exists.",
           "Restore the old title lookup in a disposable build and require the dedicated scenario or memory-error instrumentation to catch the stale dereference. The prior crash arose in the older paste fixture and is not an execution of this new scenario.",
           "The old W1 Qt text-layout teardown remains separate and unresolved; this narrow viewer lookup does not establish global TColumnHandle lifetime correctness."
@@ -2618,12 +2668,17 @@
       ],
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI33"
+          }
+        ],
         "pending": [
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
           "This preserves intentional process-lifetime registry/library retention; it does not implement unloading or resolve nested descriptor/string/per-host UI storage in R17.",
-          "Runtime and targeted restore-the-registry-clear mutation remain pending; no connection to W1 is established."
+          "Windows/macOS execution and a targeted restore-the-registry-clear mutation remain pending; no connection to W1 is established."
         ],
         "mutation_proposal": "Restore global registry release in the menu destructor; subsequent direct/declaration-based host creation or memory instrumentation must detect the invalid lifetime."
       },
@@ -2662,12 +2717,17 @@
       ],
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI33"
+          }
+        ],
         "pending": [
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
           "The fixture invokes actual menu loading/refresh signals with a small TApplication boundary; it does not run full schematic editing or every action-trigger side effect.",
-          "Runtime and targeted omitted-delete/duplicate-publication mutations remain pending."
+          "Windows/macOS execution and targeted omitted-delete/duplicate-publication mutations remain pending."
         ],
         "mutation_proposal": "Omit root/submenu/repeat ownership cleanup or plugin-group replacement individually; QPointer/count/entry-uniqueness assertions must fail while shared action identity remains."
       },
@@ -2706,12 +2766,17 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI34"
+          }
+        ],
         "pending": [
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "The fixture constructs hidden widgets and checks registration retirement; it does not display factory-created panels, render calibrated pixels, force context loss, or measure driver/VRAM retention.",
-          "Run the complete native driver on supported renderers and restore omitted owner deletion in a disposable mutation; exact pass and mutation results remain pending."
+          "Qualify the complete native driver on required platforms/renderers and restore omitted owner deletion in a disposable mutation. CI34 establishes only the bounded Linux ownership checkpoint before a later paste-cleanup failure."
         ],
         "mutation_proposal": "Omit deletion of each widget-owned calibrator in turn; the registry-set equality after owner destruction must fail."
       },
@@ -2748,13 +2813,18 @@
       ],
       "reference": "doc/audit_audio_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI34"
+          }
+        ],
         "pending": [
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "Linux/macOS Qt output only; Windows WinMM uses a different implementation and approved repair design.",
           "This object-lifetime fixture opens no physical audio stream and does not qualify audible playback, backend shutdown under load, callback timing, sample ranges or overall RAM.",
-          "Only the exact expected missing-device constructor warning is handled for headless ownership checks; all other Qt diagnostics are preserved. Runtime and targeted mutations remain pending."
+          "Only the exact expected missing-device constructor warning is handled for headless ownership checks; all other Qt diagnostics are preserved. Current Linux Qt5 ownership execution passed; macOS/Qt6 coverage and targeted mutations remain pending."
         ],
         "mutation_proposal": "Release unique output ownership before replacement and separately before owner destruction; the corresponding QPointer retirement assertion must fail."
       },
@@ -2790,10 +2860,15 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI34"
+          }
+        ],
         "pending": [
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "The fixture exercises real QObject/GL object cleanup of a seeded partial state; it does not force a driver shader compilation/link failure or execute the failed initialize branch.",
           "Failed initialization preserves the existing attempted flag by source; displayed-widget context-reset behavior and actual driver failure still need runtime qualification. No GPU-memory reduction is measured."
         ],
@@ -2831,10 +2906,15 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI34"
+          }
+        ],
         "pending": [
+          "The original Linux process at merge ebe1a05 reached the named ownership sentinel (CI34); other required platforms, targeted mutation and final integrated qualification remain pending.",
           "The fixture observes hidden viewer/popup object ownership; displayed popup geometry, window stacking and histogram pixels still need runtime qualification.",
           "No long-session RAM or targeted mutation result exists."
         ],
@@ -2874,12 +2954,17 @@
       ],
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI33"
+          }
+        ],
         "pending": [
+          "The relevant Linux reliability target passed at merge ebe1a05 (CI33). Case execution follows source ordering; other platforms and defect-restored evidence for this new head remain pending.",
           "Windows process launch remains ANSI CreateProcessA; Unicode-path migration and timeout policy are outside this repair. Legacy argument-shell expansion is intentionally retained on POSIX.",
-          "Run the revised external-effect fixture on all three platforms. The prior pixel/type failures do not constitute execution of this new identity case."
+          "Run the revised external-effect fixture on Windows/macOS and restore each launch defect separately. Linux executes the new identity case before the target PASS; prior pixel/type failures did not execute it."
         ],
         "mutation_proposal": "Remove the executable argv[0] prefix on Windows or its shell quoting on POSIX; selected-executable identity/worker argument parsing must fail."
       },
@@ -3551,14 +3636,15 @@
         "macos",
         "windows"
       ],
-      "reference": "doc/audit_memory_lifetime.md",
+      "reference": "doc/audit_plugin_storage_design.md",
       "validation": {
-        "status": "pending",
+        "status": "design_approved_implementation_in_progress",
         "baseline_detection": "not_yet_defined",
         "executed_evidence": [],
         "pending": [
+          "The user approved both direct settings construction and immutable descriptor generations. Implementation and independent review are in progress; this remains an open source-confirmed record, not a prepared repair or runtime pass.",
           "F40/F48 fix trait array deletion/reference balance only, not the per-host UI or nested arena retention.",
-          "Raw process-lived PluginInformation/declarations and host-interface ownership require a publication/factory contract."
+          "Implement and review the approved descriptor-generation ownership contract, preserving live Param/clone borrowers and transactional publication."
         ]
       }
     },
@@ -3834,9 +3920,9 @@
       "F59 Linux zero available memory bypasses the pressure result"
     ],
     "final_patch_revision": null,
-    "latest_recorded_ci_revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+    "latest_recorded_ci_revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
     "memory_baseline_revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
-    "latest_recorded_pr_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc"
+    "latest_recorded_pr_head": "376d2e6ce7199421f21c455d14cc2506611e8e54"
   },
   "ci_test_evidence": [
     {
@@ -4669,6 +4755,70 @@
       "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
       "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
       "limit": "macOS IPS matches original PID and Mach-O UUID; Windows original application crash report names the same function. Linux exits -11 at the same phase but lacks a qualified original stack. This is separate from W1 Qt text-layout teardown."
+    },
+    {
+      "id": "CI33",
+      "verification_state": "ci_verified",
+      "revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
+      "pull_request_head": "376d2e6ce7199421f21c455d14cc2506611e8e54",
+      "platform": "linux",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647236043",
+      "configuration": "required BUILD_RELIABILITY_TESTS CTest manifest",
+      "scenario_or_test": "23 required reliability CTests including externfx_process and plugin probe lifetime cases",
+      "result": "23/23 passed; zero failures, disabled or skipped; externfx_process final validation PASS",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/artifacts/14139808724",
+      "artifact_sha256": "926ab9c6b877fd2168e8eee1dcdc91c4ed54094b8ceba005066981ed68ad27f4",
+      "limit": "JUnit timestamp 2026-11-15T01:10:15. External-effect cases are inferred from current source ordering, with no per-case success markers. Plugin probe output truncated at 1024 bytes. This does not qualify later F58/F59 or Windows/plugin storage work; the overall job has a native failure."
+    },
+    {
+      "id": "CI34",
+      "verification_state": "ci_verified",
+      "revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
+      "pull_request_head": "376d2e6ce7199421f21c455d14cc2506611e8e54",
+      "platform": "linux",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647236043",
+      "configuration": "original BUILD_UI_PORT_TESTS native process, Qt 5.15.3, software GL",
+      "scenario_or_test": "26 batch checkpoints, custom-panel ownership, expanded UI ownership F41-F43/F53-F56",
+      "result": "Named checkpoints passed before indexed-raster New Scene cleanup exited -11",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/artifacts/14139643673",
+      "artifact_sha256": "42a9fd85899b58a8c0824b7606acf44cb0ddc1eda8669e1a6ae4e3c4a5ba816b",
+      "checkpoint_markers": [
+        "batch real child cancellation and reaping passed",
+        "custom panel file loading and ownership passed",
+        "UI repeated ownership checks passed"
+      ],
+      "limit": "The expanded UI sentinel follows Qt output replacement, histogram, calibrator-registration and partial-shader cleanup cases. Hidden widget/partial-state ownership only; no audible playback, displayed calibration, GPU memory, whole-native pass or mutation proof. Later paste/drawing/render fixtures remain blocked."
+    },
+    {
+      "id": "CI35",
+      "verification_state": "ci_verified",
+      "revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
+      "pull_request_head": "376d2e6ce7199421f21c455d14cc2506611e8e54",
+      "platform": "linux",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647236043",
+      "configuration": "standalone LeakSanitizer, existing timagecache_test and isolated one-delete mutation",
+      "scenario_or_test": "F36 repeated in-memory ImageBuilder metadata ownership",
+      "result": "normal exit0; mutant exit23 with functional sentinel and direct builder stack; restored exit0",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/artifacts/14139808724",
+      "artifact_sha256": "926ab9c6b877fd2168e8eee1dcdc91c4ed54094b8ceba005066981ed68ad27f4",
+      "source_sha256": "beef61e3c176bd362125dcfb4f1887b1138edc29096fbc6a61fb9ad923a6ff5a",
+      "fixture_sha256": "a3983e0ca35c28b4cdf1eb934b6cb16f0d9f2d1222d56ab5898ab83c4b067155",
+      "mutant_leak_bytes": 1080,
+      "mutant_leak_allocations": 135,
+      "limit": "Repeats the narrow prior mutation with unchanged source/fixture hashes. Later F58/F59 absent. Disk spill/clone and constructor exceptions unqualified; no whole-application or RSS result."
+    },
+    {
+      "id": "CI36",
+      "verification_state": "observed_failure",
+      "revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
+      "pull_request_head": "376d2e6ce7199421f21c455d14cc2506611e8e54",
+      "platform": "linux",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647236043",
+      "configuration": "original BUILD_UI_PORT_TESTS native process PID25410",
+      "scenario_or_test": "indexed raster-paste New Scene cleanup after F50 repair",
+      "result": "exited -11 after starting clean native New Scene, following type18 row/column (0,0),(1,0),(0,1)",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/artifacts/14139643673",
+      "limit": "No preceding assertion or qualified original core stack. Do not infer the prior changeWindowTitle cause recurred. F50 new regression and later native memory scenarios did not complete. Separate workflow-switch diagnostic exits0 but cannot replace the original result."
     }
   ],
   "initial_ci_result": {
@@ -4685,36 +4835,37 @@
     "status": "follow_up_fixes_prepared; new-head CI pending"
   },
   "latest_ci_result": {
-    "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
-    "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
-    "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150",
+    "revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
+    "pull_request_head": "376d2e6ce7199421f21c455d14cc2506611e8e54",
+    "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325",
+    "status": "in_progress_with_native_failure",
     "check_entries": {
-      "total": 14,
-      "passed": 4,
-      "failed": 4,
-      "skipped": 6
+      "final_count": "pending",
+      "source_budget": "nine PR-update jobs plus one edited-metadata check",
+      "materialized_at_snapshot": 6
     },
-    "scope": "All three application builds passed. Native application and external-effect reliability failed. Named ownership cases and F36 targeted leak mutation have bounded evidence; no overall green run or RAM reduction.",
+    "scope": "Linux reliability and bounded native ownership passed; original Linux indexed-paste New Scene cleanup failed. Remaining platform/check results are pending. F58/F59 and approved Windows/plugin storage implementations postdate this head.",
     "linux": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647236043",
       "conclusion": "failure",
       "application_build": "passed",
-      "native": "failed during raster-paste New Scene cleanup",
-      "reliability": "22/23 passed; externfx_process failed"
+      "native": "failed -11 during indexed-paste New Scene cleanup; no qualified original stack",
+      "reliability": "23/23 passed; zero failed, disabled or skipped",
+      "image_cache_lsan": "normal0/mutant23/restored0 passed"
     },
     "macos": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
-      "conclusion": "failure",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647349228",
+      "conclusion": "in_progress",
       "application_build": "passed",
-      "native": "failed during raster-paste New Scene cleanup",
-      "reliability": "22/23 passed; externfx_process failed"
+      "native": "pending",
+      "reliability": "pending"
     },
     "windows": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
-      "conclusion": "failure",
-      "application_build": "passed",
-      "native": "failed during raster-paste New Scene cleanup",
-      "reliability": "21/22 passed; externfx_process failed"
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647957688",
+      "conclusion": "in_progress",
+      "application_build": "pending",
+      "native": "pending",
+      "reliability": "pending"
     }
   },
   "prior_ci_results": [
@@ -4779,6 +4930,39 @@
         "reliability": "skipped"
       },
       "scope": "CI22/CI23 are fixture compile failures; two-local correction prepared. F35-F48 postdate this head; no memory fixture or LSan mutation result exists."
+    },
+    {
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150",
+      "check_entries": {
+        "total": 14,
+        "passed": 4,
+        "failed": 4,
+        "skipped": 6
+      },
+      "scope": "All three application builds passed. Native application and external-effect reliability failed. Named ownership cases and F36 targeted leak mutation have bounded evidence; no overall green run or RAM reduction.",
+      "linux": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+        "conclusion": "failure",
+        "application_build": "passed",
+        "native": "failed during raster-paste New Scene cleanup",
+        "reliability": "22/23 passed; externfx_process failed"
+      },
+      "macos": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
+        "conclusion": "failure",
+        "application_build": "passed",
+        "native": "failed during raster-paste New Scene cleanup",
+        "reliability": "22/23 passed; externfx_process failed"
+      },
+      "windows": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+        "conclusion": "failure",
+        "application_build": "passed",
+        "native": "failed during raster-paste New Scene cleanup",
+        "reliability": "21/22 passed; externfx_process failed"
+      }
     }
   ],
   "checkout_provenance": [
@@ -4817,6 +5001,14 @@
       "platform": "windows",
       "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
       "limit": "Checkout logs record merge parents and git log -1 hash; evidence is for the merge, not bare PR head."
+    },
+    {
+      "pull_request_head": "376d2e6ce7199421f21c455d14cc2506611e8e54",
+      "checkout_revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",
+      "base_revision": "00eafd044c88f6ff5872fbc5bf37cb3ba125428e",
+      "platform": "linux",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43660089325/job/132647236043",
+      "limit": "Completed job checkout independently records both merge parents and git log -1 hash. Exact merge contains F50 commit166e12901; no stale-checkout explanation established."
     }
   ]
 }

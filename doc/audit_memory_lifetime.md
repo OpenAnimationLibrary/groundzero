@@ -11,6 +11,12 @@ expired ownership, and allocator retention before changing memory policy. Each r
 must preserve drawing identity, undo/redo, saved scenes and rendered output. Existing
 PR 133 cache-pressure work must be reviewed separately rather than duplicated.
 
+The [November 14 CI record](audit_ci_2026_11_14.md) adds Linux 23/23 reliability
+passes, including external effects and plugin probes, the expanded UI ownership sentinel,
+and a repeated successful F36 leak mutation at merge `ebe1a05`. The original native process
+still crashes during indexed-paste New Scene cleanup; other platform results remain pending.
+F58/F59 and the approved Windows audio/plugin storage implementations postdate that run.
+
 ## Memory ownership fixture additions
 
 The [November 12 CI record](audit_ci_2026_11_12.md) identifies executed ownership checks
@@ -26,7 +32,7 @@ render graph. See the measurement protocol below,
 | F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI passed L/M/W; Linux one-delete LSan mutation detected at f8a1680 |
 | F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
 | F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
-| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; ownership assertions returned before later pixel failure; mutation pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; Linux target passed at ebe1a05; Windows/macOS and mutation pending |
 | F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; functional CI passed L/M/W at f8a1680; mismatch instrumentation pending |
 | F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
 | F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
@@ -36,13 +42,13 @@ render graph. See the measurement protocol below,
 | F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
 | F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
 | F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; reference fixture passed L/M/W at f8a1680; mutation pending |
-| F49 | P2 | Retire completed startup and listener-owned plugin loader controllers after worker completion. | Actual startup polling and four normal/early-close menu pairs; controller, worker and thread assertions in existing probe targets; CI pending |
-| F51 | P1 | Keep process-owned plugin metadata alive when an FX menu closes, preserving persistent declarations. | Create hosts before/after menu destruction through both PluginLoader and TFx factories; CI pending; no hot unload |
-| F52 | P2 | Retire FX menu roots, obsolete submenus and repeat actions; replace duplicate plugin groups. | Normal/rapid preset refresh, external-action identity, unrelated-group preservation, exact entry counts and QPointer retirement; CI pending |
-| F53 | P2 | Retire widget-owned calibrators and their manager registrations, with context-bound framebuffer cleanup. | Eight hidden owner cycles for each color wheel/ImageViewer/SceneViewer; registration-set checks; CI and displayed/context-loss qualification pending |
-| F54 | P1 | Own Qt playback output and use context-bound weak refill callbacks. | Sixteen setup/replacement/retirement cycles without physical playback; Qt5/Qt6 assertions; Linux/macOS CI pending |
-| F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; actual driver failure/retry and CI pending |
-| F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; CI pending |
+| F49 | P2 | Retire completed startup and listener-owned plugin loader controllers after worker completion. | Actual startup polling and four normal/early-close menu pairs; controller, worker and thread assertions in existing probe targets; Linux passed at ebe1a05; remaining platforms/mutation pending |
+| F51 | P1 | Keep process-owned plugin metadata alive when an FX menu closes, preserving persistent declarations. | Create hosts before/after menu destruction through both PluginLoader and TFx factories; Linux passed at ebe1a05; remaining platforms/mutation pending; no hot unload |
+| F52 | P2 | Retire FX menu roots, obsolete submenus and repeat actions; replace duplicate plugin groups. | Normal/rapid preset refresh, external-action identity, unrelated-group preservation, exact entry counts and QPointer retirement; Linux passed at ebe1a05; remaining platforms/mutation pending |
+| F53 | P2 | Retire widget-owned calibrators and their manager registrations, with context-bound framebuffer cleanup. | Eight hidden owner cycles for each color wheel/ImageViewer/SceneViewer; registration-set checks; Linux hidden-owner checks passed at ebe1a05; other platforms/displayed/context-loss qualification pending |
+| F54 | P1 | Own Qt playback output and use context-bound weak refill callbacks. | Sixteen setup/replacement/retirement cycles without physical playback; Qt5/Qt6 assertions; Linux Qt5 passed at ebe1a05; macOS/Qt6 and mutation pending |
+| F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; Linux partial-state cleanup passed at ebe1a05; other platforms and actual driver failure/retry pending |
+| F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; Linux passed at ebe1a05; remaining platforms/mutation pending |
 | F58 | P2 | Balance the macOS host send-right reference acquired by each memory-pressure query. | Existing `timagecache`: 64 production queries with before/after send-right counts; source-only, next-batch CI pending |
 | F59 | P2 | Treat a parsed Linux MemAvailable value of zero as present rather than falling back to MemFree. | Existing `timagecache`: eleven parser cases including present-zero and threshold edges; source-only, next-batch CI pending |
 
@@ -239,6 +245,7 @@ baseline/mutation checks remain pending.
   pressure-triggered spill/reload, container limits and the macOS availability heuristic
   remain qualification or policy questions. No runner memory is exhausted by the fixture.
 
-Unfixed source boundaries are R17 plugin nested storage/per-host UI, R18 cache telemetry and
-R21 Windows audio callback/thread retirement. R20 aliases the prepared F49 controller fix. Nested malformed
+Open source boundaries are R17 plugin nested storage/per-host UI, R18 cache telemetry and
+R21 Windows audio callback/thread retirement. Both R17 design stages and the R21 design
+are approved, with implementation and independent review in progress; no repair credit yet. R20 aliases the prepared F49 controller fix. Nested malformed
 TIStream allocation remains F28's explicit residual. No all-workflow leak freedom is claimed.
