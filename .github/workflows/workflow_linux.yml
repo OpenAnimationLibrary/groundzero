@@ -80,6 +80,9 @@ jobs:
     - name: Verify isolated image-cache leak qualification contracts
       run: python3 -m unittest discover -s ci-scripts/tests -p test_image_cache_lsan.py -v
 
+    - name: Verify native sanitizer report contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_asan_report.py -v
+
     - name: Install libraries
       id: libraries
       run: |
