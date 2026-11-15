@@ -2,7 +2,6 @@
 // its FX through the same path as the Add FX menu, names every parameter of
 // the FX, changes something, and the generators draw with it.
 
-#include "stdfx.h"
 #include "tfx.h"
 #include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
@@ -27,6 +26,7 @@
 #include <string>
 #include <vector>
 
+// Declared here, not through stdfx.h, which exports it to the library
 DV_IMPORT_API void initStdFx();
 
 namespace {
