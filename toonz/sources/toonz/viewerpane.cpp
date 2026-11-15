@@ -700,9 +700,8 @@ void BaseViewerPanel::changeWindowTitle() {  // �v�m�F
     }
     TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
     TXshCell cell;
-    if (app->getCurrentColumn()->getColumn() &&
-        !app->getCurrentColumn()->getColumn()->getSoundColumn())
-      cell = xsh->getCell(frame, col);
+    TXshColumn* column = xsh ? xsh->getColumn(col) : nullptr;
+    if (column && !column->getSoundColumn()) cell = xsh->getCell(frame, col);
     if (cell.isEmpty()) {
       if (!m_sceneViewer->is3DView()) {
         TAffine aff = m_sceneViewer->getViewMatrix() *

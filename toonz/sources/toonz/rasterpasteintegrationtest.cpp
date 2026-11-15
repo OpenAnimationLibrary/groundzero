@@ -4,6 +4,7 @@
 #include "menubarcommandids.h"
 #include "nativeuiintegrationtest.h"
 #include "tapp.h"
+#include "viewerpane.h"
 #include "tcolorstyles.h"
 #include "timagecache.h"
 #include "tpalette.h"
@@ -26,6 +27,7 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/txshsoundlevel.h"
 #include "toonzqt/dvmimedata.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/rasterimagedata.h"
@@ -242,15 +244,20 @@ void checkPixels(const TXshCell& cell, int levelType, bool painted) {
   checkRasterPixels(image, painted);
 }
 
-bool cancelExternalDialog(QDialog* dialog) {
+enum class ExternalPasteDialog { None, Cancel, NewLevel };
+
+bool answerExternalDialog(QDialog* dialog, ExternalPasteDialog answer) {
   const QString prompt = QObject::tr(
       "Pasting external image from clipboard.\n\nWhat do you want to do?");
   bool expected = false;
   for (auto* label : dialog->findChildren<QLabel*>())
     if (label->text() == prompt) expected = true;
   if (!expected) return false;
+  const QString expectedButton = answer == ExternalPasteDialog::Cancel
+                                     ? QObject::tr("Cancel")
+                                     : QObject::tr("New raster level");
   for (auto* button : dialog->findChildren<QPushButton*>()) {
-    if (button->text() == QObject::tr("Cancel")) {
+    if (button->text() == expectedButton) {
       button->click();
       return true;
     }
@@ -260,12 +267,13 @@ bool cancelExternalDialog(QDialog* dialog) {
 
 // The real Paste action is synchronous. This scoped timer handles only dialogs
 // opened by that call, and closes unexpected dialogs before reporting failure.
-void pasteCell(int row, int col, bool external, bool floating = false) {
+void pasteCell(int row, int col,
+               ExternalPasteDialog external = ExternalPasteDialog::None,
+               bool floating                = false) {
   auto* app   = TApp::instance();
   auto* sheet = app->getCurrentXsheet()->getXsheet();
   app->getCurrentFrame()->setFrame(row);
   app->getCurrentColumn()->setColumnIndex(col);
-  app->getCurrentColumn()->setColumn(sheet->getColumn(col));
   app->getCurrentLevel()->setLevel(
       sheet->getCell(row, col).m_level.getPointer());
   app->getCurrentTool()->setTool(floating ? "T_Selection" : "T_Brush");
@@ -287,14 +295,15 @@ void pasteCell(int row, int col, bool external, bool floating = false) {
   auto* action = CommandManager::instance()->getAction(MI_Paste);
   require(action && action->isEnabled(), "Xsheet Paste action is unavailable");
   int visited   = 0;
-  bool canceled = false;
+  bool answered = false;
   QTimer dialogs;
   QObject::connect(&dialogs, &QTimer::timeout, &dialogs, [&] {
     auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
     if (!dialog) return;
     ++visited;
-    if (external && cancelExternalDialog(dialog)) {
-      canceled = true;
+    if (external != ExternalPasteDialog::None &&
+        answerExternalDialog(dialog, external)) {
+      answered = true;
       return;
     }
     dialog->reject();
@@ -302,7 +311,8 @@ void pasteCell(int row, int col, bool external, bool floating = false) {
   dialogs.start(10);
   action->trigger();
   dialogs.stop();
-  require(external ? visited == 1 && canceled : visited == 0,
+  require(external == ExternalPasteDialog::None ? visited == 0
+                                                : visited == 1 && answered,
           "native raster opened a dialog or external image lost its chooser");
   if (floating) {
     require(rasterSelection->isFloating(),
@@ -402,7 +412,7 @@ void checkStrokeConversionOwnership(int levelType, bool floating) {
   const int references          = sourcePalette->getRefCount();
   for (int cycle = 0; cycle < 4; ++cycle) {
     const auto before = oldFloatingCacheKeys();
-    pasteCell(0, 0, false, floating);
+    pasteCell(0, 0, ExternalPasteDialog::None, floating);
     auto retained = oldFloatingCacheKeys();
     for (const auto& key : before) retained.erase(key);
     require(retained.size() == (floating ? 1u : 0u),
@@ -425,7 +435,7 @@ void checkRasterToVectorCycles() {
   auto* undo = TUndoManager::manager();
   setNativeClipboard(TZP_XSHLEVEL, level->getPalette());
   for (int cycle = 0; cycle < 4; ++cycle) {
-    pasteCell(0, 0, false);
+    pasteCell(0, 0);
     TVectorImageP image = cell.getImage(false);
     require(image && image->getStrokeCount() > 0,
             "Indexed paste did not convert to vector strokes");
@@ -446,7 +456,7 @@ void checkExternalRasterCycles() {
   image.fill(Qt::red);
   QApplication::clipboard()->setImage(image);
   for (int cycle = 0; cycle < 4; ++cycle) {
-    pasteCell(0, 0, false);
+    pasteCell(0, 0);
     undoConvertedRaster(TXshCell(level, TFrameId(1)));
   }
 }
@@ -519,7 +529,7 @@ void checkPasteCase(TXshSimpleLevel* level, int row, int col) {
             << " column=" << col << std::endl;
   undo->reset();
   setNativeClipboard(levelType, level->getPalette());
-  pasteCell(row, col, false);
+  pasteCell(row, col);
   const TXshCell pasted = sheet->getCell(row, col);
   checkPixels(pasted, levelType, true);
   require(col != 0 || pasted.getSimpleLevel() == level,
@@ -551,7 +561,7 @@ void checkExternalCancel(TXshSimpleLevel* level) {
   const int styles        = level->getPalette()->getStyleCount();
   const TXshCell original = sheet->getCell(0, 0);
   setNativeClipboard(level->getType(), level->getPalette());
-  pasteCell(0, 0, false);
+  pasteCell(0, 0);
   checkPixels(original, level->getType(), true);
   require(undo->getHistoryCount() == 1,
           "external Cancel fixture did not establish native paste history");
@@ -563,7 +573,7 @@ void checkExternalCancel(TXshSimpleLevel* level) {
   QImage image(canvasSize, canvasSize, QImage::Format_ARGB32);
   image.fill(Qt::red);
   QApplication::clipboard()->setImage(image);
-  pasteCell(0, 0, true);
+  pasteCell(0, 0, ExternalPasteDialog::Cancel);
   require(sheet->getCell(0, 0) == original && sheet->isColumnEmpty(1) &&
               scene->getLevelSet()->getLevelCount() == levels &&
               level->getPalette()->getStyleCount() == styles &&
@@ -582,6 +592,78 @@ void checkExternalCancel(TXshSimpleLevel* level) {
   checkPixels(original, level->getType(), false);
   undo->reset();
 }
+
+void checkVisibleViewerTitle(const QString& drawing) {
+  const QString levelCaption = BaseViewerPanel::tr("   ::   Level: ");
+  for (auto* widget : QApplication::allWidgets()) {
+    auto* viewer = qobject_cast<BaseViewerPanel*>(widget);
+    if (!viewer || !viewer->isVisible() || !viewer->parentWidget()) continue;
+    const QString title = viewer->parentWidget()->windowTitle();
+    require(drawing.isEmpty() ? !title.contains(levelCaption)
+                              : title.contains(levelCaption + drawing),
+            "Viewer title did not follow the current scene's drawing");
+    return;
+  }
+  throw std::runtime_error("Visible native viewer is missing after paste");
+}
+
+void checkSoundColumnTitle() {
+  auto* app             = TApp::instance();
+  auto* scene           = app->getCurrentScene()->getScene();
+  auto* sheet           = app->getCurrentXsheet()->getXsheet();
+  TXshSoundLevelP sound = new TXshSoundLevel(L"RasterPasteTitleAudio");
+  sound->setType(SND_XSHLEVEL);
+  sound->setScene(scene);
+  sound->setFrameRate(24.0);
+  TSoundTrackP track = TSoundTrack::create(24000, 16, 1, 1000, TSound::INT);
+  require(bool(track), "Viewer sound-column fixture has no audio samples");
+  track->blank(0, 999);
+  sound->setSoundTrack(track);
+  require(sound->getFrameCount() == 1, "Viewer sound-column duration is wrong");
+  scene->getLevelSet()->insertLevel(sound.getPointer());
+  require(sheet->setCell(0, 2, TXshCell(sound.getPointer(), TFrameId(0))),
+          "Viewer sound-column fixture could not expose its audio frame");
+  app->getCurrentColumn()->setColumnIndex(2);
+  checkVisibleViewerTitle(QString());
+  app->getCurrentColumn()->setColumnIndex(1);
+}
+
+void checkExternalNewLevelRetirement() {
+  resetScene();
+  auto* app   = TApp::instance();
+  auto* level = makeLevel(TZP_XSHLEVEL, makePalette());
+  auto* sheet = app->getCurrentXsheet()->getXsheet();
+  sheet->insertColumn(1);
+  QImage image(canvasSize, canvasSize, QImage::Format_ARGB32);
+  image.fill(Qt::red);
+  QApplication::clipboard()->setImage(image);
+  pasteCell(0, 0, ExternalPasteDialog::NewLevel);
+  const TXshCell pasted = sheet->getCell(0, 1);
+  require(
+      !pasted.isEmpty() && pasted.getSimpleLevel()->getType() == OVL_XSHLEVEL &&
+          sheet->getCell(0, 0).getSimpleLevel() == level &&
+          app->getCurrentColumn()->getColumnIndex() == 1,
+      "External paste did not create a raster in the existing empty column");
+  TRasterImageP rasterImage = pasted.getImage(false);
+  TRaster32P raster = rasterImage ? rasterImage->getRaster() : TRasterP();
+  require(raster && raster->getSize() == TDimension(canvasSize, canvasSize),
+          "External new-level paste changed its image dimensions");
+  for (int y = 0; y < canvasSize; ++y)
+    for (int x = 0; x < canvasSize; ++x)
+      require(raster->pixels(y)[x] == TPixel32::Red,
+              "External new-level paste changed its pixels");
+  checkSoundColumnTitle();
+  const TFilePath name(pasted.getSimpleLevel()->getName());
+  checkVisibleViewerTitle(QString::fromStdWString(
+      name.withFrame(pasted.getFrameId()).getWideString()));
+  std::cout << "raster-paste-native: closing external paste column"
+            << std::endl;
+  resetScene();
+  checkVisibleViewerTitle(QString());
+  std::cout << "raster-paste-native: external paste column retirement passed"
+            << std::endl;
+}
+
 void checkNativePasteTargets() {
   resetScene();
   auto* preferences = Preferences::instance();
@@ -600,6 +682,7 @@ void checkNativePasteTargets() {
   auto* fullColor = makeLevel(OVL_XSHLEVEL, makePalette());
   for (const auto& cell : {TPoint(0, 0), TPoint(0, 1), TPoint(1, 0)})
     checkPasteCase(fullColor, cell.y, cell.x);
+  checkExternalNewLevelRetirement();
   for (int type : {TZP_XSHLEVEL, OVL_XSHLEVEL}) {
     for (bool floating : {false, true})
       checkStrokeConversionOwnership(type, floating);
@@ -622,6 +705,8 @@ bool runRasterPasteIntegrationTest(QString* error) {
   } catch (...) {
     failure = "Unknown exception during native raster paste regression";
   }
+  if (!failure.isEmpty())
+    std::cerr << "raster-paste-native: " << failure.toStdString() << std::endl;
   QString cleanup;
   if (!resetNativeUiIntegrationScene(&cleanup))
     failure += " Fixture cleanup: " + cleanup;
