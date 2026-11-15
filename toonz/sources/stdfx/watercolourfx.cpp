@@ -167,6 +167,7 @@ public:
     m_granuleSize->setValueRange(1, 100);
     m_paperGrain->setValueRange(0, 1);
     m_paperSize->setValueRange(1, 100);
+    m_paperColor->enableMatte(false);  // the paper is opaque
     m_paperSize->setUISliderRange(1, 20);
     m_hold->setValueRange(1, 1000);
     m_hold->setUISliderRange(1, 12);
@@ -206,11 +207,9 @@ public:
                  const TRenderSettings &settings) override {
     box = TRectD();
     if (!m_source.isConnected()) return false;
-    // Paper covers the frame, with or without paint on it
-    if (m_paper->getValue()) {
-      box = TConsts::infiniteRectD;
-      return true;
-    }
+    // Paper lies under the drawing and its bleed, not the whole frame: the
+    // wash is computed on the drawing's own grid, which can hold many more
+    // pixels than the camera for a scaled-down drawing
     if (!m_source->doGetBBox(frame, box, settings)) return false;
     if (!box.isEmpty() && box != TConsts::infiniteRectD && !isStill(frame)) {
       const TAffine placement =

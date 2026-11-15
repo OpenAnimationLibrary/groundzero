@@ -119,6 +119,14 @@ void testFx() {
               approx(bare.b, 235.0 / 255, 2e-3),
           "Bare paper is not the paper colour");
   require(approx(pixel(onPaper, edge, 20).m, 1), "The paper has a hole");
+  // The paper covers the drawing and its bleed, not an infinite area
+  {
+    TRectD box;
+    require(fx.doGetBBox(0, box, settings), "The wash has no box");
+    require(box != TConsts::infiniteRectD && box.x0 < 0 && box.y0 < 0 &&
+                box.x1 > width && box.y1 > height && box.x1 < width + 100,
+            "The paper's box is not the drawing grown by its reach");
+  }
 
   // The memory estimate covers a 4K tile and its halo at every depth
   {
