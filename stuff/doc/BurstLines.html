@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Burst Lines</title></head>
+<body>
+<h1>Burst Lines</h1>
+<p>Draws lines that point at a centre, for focus lines, impact flashes and
+zooms. Add Burst Lines from the Render category; it needs no input. Lines start
+at <b>Outer Radius</b> and run towards <b>Center</b>; nothing is drawn inside
+<b>Inner Radius</b>. Drag the centre and the two radii in the viewer.
+<b>Twist</b> turns each line around the centre by that angle between the outer
+and the inner radius, and <b>Falloff</b> thins the lines towards the
+centre.</p>
+<h2>Lines</h2>
+<p><b>Lines</b> is how many are drawn. <b>Lines per Group</b> gathers them in
+groups; <b>Group Tightness</b> pulls the lines of a group together, from evenly
+spread at 0 to stacked at 1, which opens gaps between groups. <b>Position
+Randomness</b> moves groups and lines off their even spacing. <b>Length</b> is
+the longest a line gets; <b>Length Randomness</b> shortens lines by a random
+share, and <b>Start Randomness</b> spreads where they begin.</p>
+<h2>Shape</h2>
+<p><b>Thickness</b> is the widest a line gets, and <b>Thickness Randomness</b>
+thins lines by a random share. <b>Taper</b> narrows a line from its start to
+its end: 1 ends in a point. <b>Swell In</b> and <b>Swell Out</b> are the shares
+of a line over which it grows from nothing and shrinks back to nothing, like
+pen pressure.</p>
+<h2>Colour</h2>
+<p>Each line takes a colour between <b>Colour</b> and <b>Second Colour</b>;
+<b>Colour Randomness</b> is how far towards the second colour a line may go.
+<b>Opacity</b> applies to every line and <b>Opacity Randomness</b> fades lines
+by a random share.</p>
+<h2>Wave</h2>
+<p><b>Wave Amplitude</b> bends each line from side to side, once every
+<b>Wave Length</b>. <b>Wave Phase</b> slides the bends along the lines, and
+<b>Wave Phase Randomness</b> gives each line its own phase.</p>
+<h2>Motion</h2>
+<p><b>Speed</b> moves every line along itself by that distance each frame,
+with no keys; lines that leave one end come back at the other. <b>Hold</b>
+redraws all the lines at random every that many frames, for the flicker of
+lines drawn on twos or threes; 0 never redraws. <b>Seed</b> picks the
+arrangement: the same seed always gives the same lines, so renders are
+repeatable.</p>
+<h2>Notes</h2>
+<p>Every value except Tile can be animated. 8-bit, 16-bit and floating-point
+renders are supported. The lines are tied to the scene, not to the render tiles
+or the preview size. To keep lines inside a shape, use Matte In with the shape
+as the matte.</p>
+<h2>Starting points</h2>
+<p><b>Focus lines:</b> Taper 1, Length Randomness 0.6, Outer Radius beyond the
+frame corners, Hold 2. <b>Impact flash:</b> Lines per Group 3 to 5 with Group
+Tightness 0.8, thick lines. <b>Zoom:</b> Taper 0 with Swell In and Swell Out,
+Start Randomness 1 and a Speed towards the centre.</p>
+</body>
+</html>

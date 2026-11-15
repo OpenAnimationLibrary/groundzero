@@ -1,0 +1,39 @@
+<fxlayout help_file="BurstLines.html">
+  <page name="Burst Lines">
+    <control>center</control>
+    <control>innerRadius</control>
+    <control>outerRadius</control>
+    <control>twist</control>
+    <control>falloff</control>
+    <separator label="Lines"/>
+    <control>lines</control>
+    <control>groupSize</control>
+    <control>attraction</control>
+    <control>positionRandom</control>
+    <control>length</control>
+    <control>lengthRandom</control>
+    <control>startRandom</control>
+    <separator label="Shape"/>
+    <control>thickness</control>
+    <control>thicknessRandom</control>
+    <control>taper</control>
+    <control>inLength</control>
+    <control>outLength</control>
+    <separator label="Colour"/>
+    <control>color</control>
+    <control>color2</control>
+    <control>colorRandom</control>
+    <control>opacity</control>
+    <control>opacityRandom</control>
+  </page>
+  <page name="Wave and Motion">
+    <control>waveAmplitude</control>
+    <control>wavePeriod</control>
+    <control>wavePhase</control>
+    <control>wavePhaseRandom</control>
+    <separator label="Motion"/>
+    <control>speed</control>
+    <control>hold</control>
+    <control>seed</control>
+  </page>
+</fxlayout>

@@ -194,6 +194,8 @@
     STD_iwa_TimeCodeFx
     STD_iwa_TextFx
     STD_iwa_FlowPaintBrushFx
+    STD_motionLinesFx
+    STD_burstLinesFx
   </Render>
   <Stylize>
     STD_celEdgeLinesFx

@@ -72,10 +72,10 @@ lines, then rasterises them with analytic coverage.
 ### F1: Motion Lines
 
 `stdfx/motionlinesfx.cpp`, a zerary generator on L0. Lines run parallel to the
-direction from a start point to an end point; a repeat option tiles the band
-across the frame. Start and end points get viewer gadgets. An optional Matte
-port limits the lines to a region, which is what hatching over a shadow needs.
-Size: S on top of L0.
+direction from a start point to an end point; a tile option repeats the band
+over the frame. Start and end points get a viewer gadget. To limit the lines
+to a region (hatching over a shadow), use the existing Matte In with the shape
+as the matte: the FX has no port of its own. Size: S on top of L0.
 
 ### F2: Burst Lines
 
@@ -83,7 +83,7 @@ Size: S on top of L0.
 centre point, with an inner radius where nothing is drawn, an outer radius, a
 twist that curls lines around the centre, and a falloff that changes length
 and thickness with distance from the centre. Centre and radii get viewer
-gadgets. Same optional Matte port. Size: S on top of L0.
+gadgets. Size: S on top of L0.
 
 ### F3: Dot Screen
 
@@ -146,9 +146,9 @@ written.
 | Milestone | Work | Exit check |
 |---|---|---|
 | M1.1 | L0 line engine. | `celfx_comiclines` passes: same seed gives the same lines; changing one random amount leaves the others unchanged; a tile split gives the same pixels as one tile; the offset animation moves a line by the stated distance per frame; the re-seed interval holds for N frames. |
-| M1.2 | F1 Motion Lines with gadgets, layout, names, help page. | `celfx_motionlines` and `celfx_motionlines_ui` pass; a render reference in `fxrender_test` matches. |
-| M1.3 | F2 Burst Lines, same deliverables. | `celfx_burstlines` and `celfx_burstlines_ui` pass; the inner radius is empty; a render reference matches. |
-| M1.4 | Starter presets in `stuff/fxs/presets/`: rain, wind, hatching, impact, zoom. | Each preset loads and renders in a test. |
+| M1.2 | F1 Motion Lines with gadgets, layout, names, help page. | `celfx_motionlines` and `celfx_motionlines_ui` pass: the line is where the parameters put it, a tile equals the same region of the whole frame, the cache key changes only with what changes the picture. |
+| M1.3 | F2 Burst Lines, same deliverables. | `celfx_burstlines` and `celfx_burstlines_ui` pass; the inner radius is empty. |
+| M1.4 | Starting points for rain, wind, hatching, focus lines, impact and zoom, as recipes in the help pages. | The help pages name the parameters to change. |
 
 ### Phase 2: dot screen
 
@@ -156,7 +156,7 @@ written.
 |---|---|---|
 | M2.1 | `dotscreen.h` and F3 without modifiers. | `celfx_dotscreen` passes: a flat field renders the expected dot area for a given size and spacing; the angle rotates the lattice about the camera centre. |
 | M2.2 | The three modifiers and their control ports. | A horizontal ramp on the size modifier gives monotonically growing dots; a modifier on one property leaves the others unchanged. |
-| M2.3 | Layout, names, help, presets (halftone, diagonal lines, mosaic). | `celfx_dotscreen_ui` passes; presets load and render. |
+| M2.3 | Layout, names, help with starting points (halftone, diagonal lines, mosaic). | `celfx_dotscreen_ui` passes. |
 
 ### Phase 3: watercolour
 
@@ -164,7 +164,7 @@ written.
 |---|---|---|
 | M3.1 | `watercolour.h`: bleed and edge darkening on a synthetic two-colour image. | `celfx_watercolour` passes: colour reaches the stated bleed distance and no further; density is highest at the region edge. |
 | M3.2 | Granulation, paper, hold. | The noise is identical within a hold and differs across holds; the alias changes at the hold step. |
-| M3.3 | F5 FX, layout, names, help, presets. | `celfx_watercolour_ui` passes; a render reference matches; the memory estimate holds on a 4K frame. |
+| M3.3 | F5 FX, layout, names, help with starting points. | `celfx_watercolour_ui` passes; the memory estimate holds on a 4K frame. |
 
 ### Phase 4: rough stroke
 
@@ -172,7 +172,7 @@ written.
 |---|---|---|
 | M4.1 | The stroke route chosen in M0.2, with a test that an FX receives the strokes of a vector column at a frame. | A toonzlib test passes on an in-memory scene; scenes without the FX render as before (Compat job). |
 | M4.2 | `roughstroke.h` and F4: width, shaping, copies, wave. | `celfx_roughstroke` passes on a synthetic path. |
-| M4.3 | Reveal and travelling offset, layout, names, help, presets. | A stroke revealed to 50% covers half its length; `celfx_roughstroke_ui` passes. |
+| M4.3 | Reveal and travelling offset, layout, names, help with starting points. | A stroke revealed to 50% covers half its length; `celfx_roughstroke_ui` passes. |
 
 ### Order
 
@@ -203,8 +203,12 @@ flag or a scene tag, that becomes a decision named in its PR.
   registered as `celfx_*` and added to the `celfx_tests` target.
 - Determinism: for L0, F3 and F5, a test renders one frame as a single tile
   and as four tiles and compares the pixels.
-- Render references in `stdfx/tests/fxrender_test.cpp` for F1, F2, F3 and F5.
-- Presets: a test loads each shipped preset and renders a frame.
+- The FX tests assert pixel values at known positions, at 8-bit, 16-bit and
+  float, and at a scaled affine.
+- No render references in `stdfx/tests/fxrender_test.cpp` and no preset files
+  yet: both must be produced by the application (a rendered PNG, a preset
+  saved by the FX serializer), which this work has not run. The help pages
+  carry the starting points as recipes until presets are saved from the app.
 - Compat: none of these changes a scene that does not use them.
 
 ## Risks

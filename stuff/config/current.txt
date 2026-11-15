@@ -1353,6 +1353,65 @@
   <item>"STD_celBoilFx.cycle" "Cycle (Frames)" </item>
   <item>"STD_celBoilFx.blend" "Blend" </item>
   <item>"STD_celBoilFx.seed" "Seed" </item>
+  <item>"STD_motionLinesFx" "Motion Lines" </item>
+  <item>"STD_motionLinesFx.start" "Start" </item>
+  <item>"STD_motionLinesFx.end" "End" </item>
+  <item>"STD_motionLinesFx.width" "Band Width" </item>
+  <item>"STD_motionLinesFx.tile" "Tile" </item>
+  <item>"STD_motionLinesFx.lines" "Lines" </item>
+  <item>"STD_motionLinesFx.groupSize" "Lines per Group" </item>
+  <item>"STD_motionLinesFx.attraction" "Group Tightness" </item>
+  <item>"STD_motionLinesFx.positionRandom" "Position Randomness" </item>
+  <item>"STD_motionLinesFx.length" "Length" </item>
+  <item>"STD_motionLinesFx.lengthRandom" "Length Randomness" </item>
+  <item>"STD_motionLinesFx.startRandom" "Start Randomness" </item>
+  <item>"STD_motionLinesFx.thickness" "Thickness" </item>
+  <item>"STD_motionLinesFx.thicknessRandom" "Thickness Randomness" </item>
+  <item>"STD_motionLinesFx.taper" "Taper" </item>
+  <item>"STD_motionLinesFx.inLength" "Swell In" </item>
+  <item>"STD_motionLinesFx.outLength" "Swell Out" </item>
+  <item>"STD_motionLinesFx.waveAmplitude" "Wave Amplitude" </item>
+  <item>"STD_motionLinesFx.wavePeriod" "Wave Length" </item>
+  <item>"STD_motionLinesFx.wavePhase" "Wave Phase" </item>
+  <item>"STD_motionLinesFx.wavePhaseRandom" "Wave Phase Randomness" </item>
+  <item>"STD_motionLinesFx.color" "Colour" </item>
+  <item>"STD_motionLinesFx.color2" "Second Colour" </item>
+  <item>"STD_motionLinesFx.colorRandom" "Colour Randomness" </item>
+  <item>"STD_motionLinesFx.opacity" "Opacity" </item>
+  <item>"STD_motionLinesFx.opacityRandom" "Opacity Randomness" </item>
+  <item>"STD_motionLinesFx.speed" "Speed (per Frame)" </item>
+  <item>"STD_motionLinesFx.hold" "Hold (Frames)" </item>
+  <item>"STD_motionLinesFx.seed" "Seed" </item>
+  <item>"STD_burstLinesFx" "Burst Lines" </item>
+  <item>"STD_burstLinesFx.center" "Center" </item>
+  <item>"STD_burstLinesFx.innerRadius" "Inner Radius" </item>
+  <item>"STD_burstLinesFx.outerRadius" "Outer Radius" </item>
+  <item>"STD_burstLinesFx.twist" "Twist" </item>
+  <item>"STD_burstLinesFx.falloff" "Falloff" </item>
+  <item>"STD_burstLinesFx.lines" "Lines" </item>
+  <item>"STD_burstLinesFx.groupSize" "Lines per Group" </item>
+  <item>"STD_burstLinesFx.attraction" "Group Tightness" </item>
+  <item>"STD_burstLinesFx.positionRandom" "Position Randomness" </item>
+  <item>"STD_burstLinesFx.length" "Length" </item>
+  <item>"STD_burstLinesFx.lengthRandom" "Length Randomness" </item>
+  <item>"STD_burstLinesFx.startRandom" "Start Randomness" </item>
+  <item>"STD_burstLinesFx.thickness" "Thickness" </item>
+  <item>"STD_burstLinesFx.thicknessRandom" "Thickness Randomness" </item>
+  <item>"STD_burstLinesFx.taper" "Taper" </item>
+  <item>"STD_burstLinesFx.inLength" "Swell In" </item>
+  <item>"STD_burstLinesFx.outLength" "Swell Out" </item>
+  <item>"STD_burstLinesFx.waveAmplitude" "Wave Amplitude" </item>
+  <item>"STD_burstLinesFx.wavePeriod" "Wave Length" </item>
+  <item>"STD_burstLinesFx.wavePhase" "Wave Phase" </item>
+  <item>"STD_burstLinesFx.wavePhaseRandom" "Wave Phase Randomness" </item>
+  <item>"STD_burstLinesFx.color" "Colour" </item>
+  <item>"STD_burstLinesFx.color2" "Second Colour" </item>
+  <item>"STD_burstLinesFx.colorRandom" "Colour Randomness" </item>
+  <item>"STD_burstLinesFx.opacity" "Opacity" </item>
+  <item>"STD_burstLinesFx.opacityRandom" "Opacity Randomness" </item>
+  <item>"STD_burstLinesFx.speed" "Speed (per Frame)" </item>
+  <item>"STD_burstLinesFx.hold" "Hold (Frames)" </item>
+  <item>"STD_burstLinesFx.seed" "Seed" </item>
   <item>"STD_printProcessFx" "Print Process" </item>
   <item>"STD_printProcessFx.output" "Output" </item>
   <item>"STD_printProcessFx.cellSize" "Cell Size" </item>

@@ -185,6 +185,8 @@ set(SOURCES
     celedgelinesfx.cpp
     celboilfx.cpp
     printprocessfx.cpp
+    motionlinesfx.cpp
+    burstlinesfx.cpp
     lightwrapfx.cpp
     edgeextendfx.cpp
     automattefx.cpp
@@ -628,6 +630,24 @@ if(BUILD_CELFX_TESTS)
     add_test(NAME celfx_comiclines COMMAND comiclines_test)
     set_tests_properties(celfx_comiclines PROPERTIES TIMEOUT 60)
     add_dependencies(celfx_tests comiclines_test)
+    add_executable(motionlines_test tests/motionlines_test.cpp)
+    target_link_libraries(motionlines_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_motionlines COMMAND motionlines_test)
+    add_executable(motionlines_ui_test tests/motionlines_ui_test.cpp)
+    target_link_libraries(motionlines_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_motionlines_ui COMMAND motionlines_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_motionLinesFx.xml)
+    add_dependencies(celfx_tests motionlines_test motionlines_ui_test)
+    set_tests_properties(celfx_motionlines celfx_motionlines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_executable(burstlines_test tests/burstlines_test.cpp)
+    target_link_libraries(burstlines_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_burstlines COMMAND burstlines_test)
+    add_executable(burstlines_ui_test tests/burstlines_ui_test.cpp)
+    target_link_libraries(burstlines_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_burstlines_ui COMMAND burstlines_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_burstLinesFx.xml)
+    add_dependencies(celfx_tests burstlines_test burstlines_ui_test)
+    set_tests_properties(celfx_burstlines celfx_burstlines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)
