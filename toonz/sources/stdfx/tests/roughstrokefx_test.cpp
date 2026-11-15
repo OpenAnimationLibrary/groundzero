@@ -34,8 +34,10 @@ public:
     simple->setScene(&m_scene);
     simple->setPath(TFilePath("rough-stroke-fixture.pli"));
     TVectorImageP image = new TVectorImage;
+    // As in a scene, the drawing takes its level's palette
     TPalette *palette   = new TPalette;
     palette->setStyle(1, TPixel32(204, 26, 51));
+    simple->setPalette(palette);
     image->setPalette(palette);
     std::vector<TThickPoint> points = {TThickPoint(-50, 0, 1),
                                        TThickPoint(0, 0, 1),

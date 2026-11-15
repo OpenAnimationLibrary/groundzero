@@ -11,7 +11,7 @@
 #include "tthread.h"
 #include "tstream.h"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFile>
 #include <QXmlStreamReader>
@@ -111,7 +111,8 @@ void checkFx(const QDir &root, const std::string &id, bool generator) {
 }  // namespace
 
 int main(int argc, char **argv) {
-  QCoreApplication app(argc, argv);
+  // Rendering makes offscreen OpenGL surfaces, which need a GUI application
+  QGuiApplication app(argc, argv);
   TThread::init();
   TRenderer::initialize();
   int result = 1;
