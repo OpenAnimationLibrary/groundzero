@@ -1,0 +1,240 @@
+#include "../comiclines.h"
+
+#include <cmath>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+namespace {
+using namespace ComicLines;
+
+void require(bool value, const std::string &message) {
+  if (!value) throw std::runtime_error(message);
+}
+bool approx(double a, double b, double tolerance = 1e-9) {
+  return std::abs(a - b) <= tolerance;
+}
+
+// One straight line on the band's axis, from the origin along +x
+Settings single() {
+  Settings s;
+  s.count          = 1;
+  s.positionRandom = s.lengthRandom = s.startRandom = s.thicknessRandom = 0;
+  s.inLength = s.outLength = 0;
+  s.bandLength             = 400;
+  s.bandWidth              = 200;
+  s.length                 = 100;
+  s.thickness              = 4;
+  return s;
+}
+double alphaAt(const Settings &s, double x, double y, double pixel = 1) {
+  return sample(build(s), x, y, pixel).a;
+}
+
+void testSeed() {
+  Settings s;
+  s.count      = 200;
+  s.groupSize  = 4;
+  s.attraction = 0.5;
+  const Field a = build(s), b = build(s);
+  require(a.lines.size() == 200 && b.lines.size() == 200, "Lines are missing");
+  for (size_t i = 0; i < a.lines.size(); ++i)
+    require(a.lines[i].position == b.lines[i].position &&
+                a.lines[i].length == b.lines[i].length &&
+                a.lines[i].index == b.lines[i].index,
+            "One seed gave two different fields");
+  s.seed        = 2;
+  const Field c = build(s);
+  bool differs  = false;
+  for (size_t i = 0; i < a.lines.size(); ++i)
+    differs = differs || a.lines[i].position != c.lines[i].position;
+  require(differs, "Another seed gave the same field");
+  for (size_t i = 1; i < a.lines.size(); ++i)
+    require(a.lines[i - 1].position <= a.lines[i].position,
+            "Lines are not sorted across the layout");
+}
+
+// Each property draws from its own stream
+void testIndependentRandomness() {
+  Settings s;
+  s.count = 100;
+  Settings wide = s;
+  wide.thicknessRandom = 1;
+  wide.colorRandom     = 1;
+  wide.colorB          = Rgba{1, 0, 0, 1};
+  const Field a = build(s), b = build(wide);
+  bool thicknessChanged = false;
+  for (size_t i = 0; i < a.lines.size(); ++i) {
+    require(a.lines[i].index == b.lines[i].index &&
+                a.lines[i].position == b.lines[i].position &&
+                a.lines[i].length == b.lines[i].length &&
+                a.lines[i].start == b.lines[i].start,
+            "A thickness or colour amount moved or resized a line");
+    thicknessChanged =
+        thicknessChanged || a.lines[i].halfWidth != b.lines[i].halfWidth;
+    require(b.lines[i].color.r >= 0 && b.lines[i].color.r < 1,
+            "A colour left the range between its two ends");
+  }
+  require(thicknessChanged, "The thickness amount changed nothing");
+  // A long line is not always a thick one: the streams are separate
+  int equal = 0;
+  for (int i = 0; i < 100; ++i) {
+    const double length = random(1, i, Length);
+    require(length >= 0 && length < 1, "A random value left [0, 1)");
+    if (length == random(1, i, Thickness)) ++equal;
+  }
+  require(equal == 0, "Two properties share one random stream");
+}
+
+void testCoverage() {
+  Settings s = single();
+  require(approx(alphaAt(s, 50, 0), 1), "The line's centre is not opaque");
+  require(approx(alphaAt(s, 50, 2), 0.5), "The line's edge is not half");
+  require(approx(alphaAt(s, 50, 3), 0), "The line leaks past its width");
+  s.thickness = 0.5;
+  require(approx(alphaAt(s, 50, 0), 0.5), "A half-pixel line is not half");
+  s.thickness = 0;
+  require(approx(alphaAt(s, 50, 0), 0), "A line without width was drawn");
+  s           = single();
+  s.opacity   = 0.25;
+  require(approx(alphaAt(s, 50, 0), 0.25), "Opacity is not applied");
+}
+
+void testProfile() {
+  Settings s = single();
+  s.thickness = 20;
+  s.taper     = 1;
+  // Half width is 10 at the start and 5 at the middle
+  require(alphaAt(s, 10, 8) > 0.99, "The tapered start is too thin");
+  require(approx(alphaAt(s, 50, 8), 0), "The taper did not thin the line");
+  require(alphaAt(s, 50, 4) > 0.99, "The tapered middle is too thin");
+  s          = single();
+  s.thickness = 20;
+  s.inLength  = 0.5;
+  require(approx(alphaAt(s, 25, 7), 0), "The line did not swell in");
+  require(alphaAt(s, 60, 7) > 0.99, "The swollen line is too thin");
+}
+
+void testTravel() {
+  Settings s = single();
+  require(alphaAt(s, 20, 0) > 0.99 && approx(alphaAt(s, 120, 0), 0),
+          "The resting line is not where it starts");
+  s.travel = 30;
+  require(approx(alphaAt(s, 20, 0), 0) && alphaAt(s, 120, 0) > 0.99,
+          "Travel did not move the line by its distance");
+  s.travel = 350;  // wraps: [350, 400) and [0, 50)
+  require(alphaAt(s, 380, 0) > 0.99 && alphaAt(s, 30, 0) > 0.99 &&
+              approx(alphaAt(s, 200, 0), 0),
+          "A travelling line did not wrap inside its band");
+}
+
+void testFrameSeed() {
+  require(frameSeed(7, 0, 0) == 7 && frameSeed(7, 99, 0) == 7,
+          "Without an interval the seed changed");
+  require(frameSeed(7, 0, 3) == frameSeed(7, 2, 3),
+          "The seed changed inside a hold");
+  require(frameSeed(7, 2, 3) != frameSeed(7, 3, 3),
+          "The seed did not change after a hold");
+  require(frameSeed(7, 3, 3) == frameSeed(7, 5, 3),
+          "The second hold is not held");
+  require(frameSeed(7, 0, 3) != frameSeed(8, 0, 3),
+          "Two seeds share a held seed");
+}
+
+void testGroups() {
+  Settings s;
+  s.count          = 12;
+  s.groupSize      = 3;
+  s.attraction     = 1;
+  s.positionRandom = 0;
+  s.bandWidth      = 400;
+  const Field f    = build(s);
+  // Four groups of three, every member on its group's centre
+  for (size_t i = 0; i < f.lines.size(); ++i)
+    require(approx(f.lines[i].position, (i / 3 + 0.5) * 100.0),
+            "Full attraction did not stack a group");
+  s.attraction  = 0;
+  const Field g = build(s);
+  for (size_t i = 1; i < g.lines.size(); ++i)
+    require(approx(g.lines[i].position - g.lines[i - 1].position, 400.0 / 12),
+            "Without attraction the lines are not evenly spread");
+}
+
+void testTile() {
+  Settings s = single();
+  require(approx(alphaAt(s, 450, 0), 0), "The band repeated without tiling");
+  s.tile = true;
+  require(alphaAt(s, 450, 0) > 0.99 && alphaAt(s, 50, 200) > 0.99 &&
+              alphaAt(s, -350, -200) > 0.99,
+          "A tiled band does not repeat along and across");
+}
+
+void testRadial() {
+  Settings s = single();
+  s.layout      = Layout::Radial;
+  s.innerRadius = 50;
+  s.outerRadius = 300;
+  s.length      = 250;
+  s.thickness   = 6;
+  // One line, at half a turn: it runs along -x from the outer radius
+  require(alphaAt(s, -200, 0) > 0.99, "The radial line is missing");
+  require(approx(alphaAt(s, 200, 0), 0), "A radial line drew on the far side");
+  require(approx(alphaAt(s, -20, 0), 0), "The centre hole is not empty");
+  require(approx(alphaAt(s, -320, 0), 0), "A line passed the outer radius");
+  require(approx(alphaAt(s, -200, 3), 0.5), "The radial edge is not half");
+  s.falloff = 1;  // width scales with radius / outer
+  require(alphaAt(s, -290, 2) > 0.9 && approx(alphaAt(s, -100, 2), 0),
+          "Falloff did not thin the line towards the centre");
+  s.falloff = 0;
+  s.twist   = pi / 2;  // a quarter turn by the inner radius
+  require(alphaAt(s, -299, 0) > 0.9 && approx(alphaAt(s, -60, 0), 0),
+          "Twist did not turn the line away from its start");
+}
+
+void testInvalid() {
+  auto rejects = [](const Settings &s) {
+    try {
+      build(s);
+    } catch (const std::invalid_argument &) {
+      return true;
+    }
+    return false;
+  };
+  Settings s;
+  s.count = maxLines + 1;
+  require(rejects(s), "Too many lines were accepted");
+  s           = Settings();
+  s.thickness = std::nan("");
+  require(rejects(s), "A non-finite thickness was accepted");
+  s           = Settings();
+  s.groupSize = 0;
+  require(rejects(s), "An empty group was accepted");
+  s            = Settings();
+  s.bandLength = 0;
+  require(build(s).lines.empty(), "A band without length drew lines");
+  s       = Settings();
+  s.count = 0;
+  require(approx(sample(build(s), 0, 0, 1).a, 0), "No lines drew something");
+}
+}  // namespace
+
+int main() {
+  try {
+    testSeed();
+    testIndependentRandomness();
+    testCoverage();
+    testProfile();
+    testTravel();
+    testFrameSeed();
+    testGroups();
+    testTile();
+    testRadial();
+    testInvalid();
+    std::cout << "PASS: comic line seeds, randomness, coverage, profile, "
+                 "travel, holds, groups, tiling and radial layout\n";
+    return 0;
+  } catch (const std::exception &error) {
+    std::cerr << error.what() << '\n';
+  }
+  return 1;
+}

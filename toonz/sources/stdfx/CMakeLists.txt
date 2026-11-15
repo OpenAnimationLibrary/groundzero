@@ -623,6 +623,14 @@ if(BUILD_CELFX_TESTS)
 endif()
 
 if(BUILD_CELFX_TESTS)
+    # The line engine has no toonz types: its test links nothing
+    add_executable(comiclines_test tests/comiclines_test.cpp)
+    add_test(NAME celfx_comiclines COMMAND comiclines_test)
+    set_tests_properties(celfx_comiclines PROPERTIES TIMEOUT 60)
+    add_dependencies(celfx_tests comiclines_test)
+endif()
+
+if(BUILD_CELFX_TESTS)
     add_executable(celcomposite_test tests/celcomposite_test.cpp)
     target_link_libraries(celcomposite_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_composite COMMAND celcomposite_test)
