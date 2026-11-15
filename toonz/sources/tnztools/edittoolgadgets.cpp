@@ -1614,6 +1614,12 @@ void LinearRangeFxGadget::draw(bool picking) {
     glPopName();
   }
 
+  // A labelled range names its points, so several ranges can be told apart
+  const std::string label = getLabel();
+  auto pointName = [&](const std::string &point) {
+    return label.empty() ? point : label + " " + point;
+  };
+
   // start point
   setColorById(Start);
   glPushName(getId() + Start);
@@ -1622,7 +1628,7 @@ void LinearRangeFxGadget::draw(bool picking) {
   drawPoint();
   glPopMatrix();
   glPopName();
-  drawTooltip(start + TPointD(7, 3) * getPixelSize(), "Start");
+  drawTooltip(start + TPointD(7, 3) * getPixelSize(), pointName("Start"));
 
   // end point
   setColorById(End);
@@ -1632,7 +1638,7 @@ void LinearRangeFxGadget::draw(bool picking) {
   drawPoint();
   glPopMatrix();
   glPopName();
-  drawTooltip(end + TPointD(7, 3) * getPixelSize(), "End");
+  drawTooltip(end + TPointD(7, 3) * getPixelSize(), pointName("End"));
 
   glPopMatrix();
 }
