@@ -122,6 +122,18 @@ class OriginalCoreContracts(unittest.TestCase):
         self.assertNotIn("private-command-argument", output)
         self.assertFalse(self.core.exists())
 
+    def test_identity_read_raises_file_elf_limits_above_application_cores(self):
+        with mock.patch.object(
+            cores, "capture", return_value=("ELF core", True)
+        ) as capture:
+            cores.collect_original_core(self.executable, self.directory, 42)
+        command = capture.call_args_list[0].args[0]
+        self.assertEqual(command[0], "file")
+        self.assertEqual(command[-2:], ["--", str(self.core)])
+        for limit in ("elf_phnum=65535", "elf_notes=65535"):
+            index = command.index(limit)
+            self.assertEqual(command[index - 1], "-P")
+
     def test_collector_failure_still_removes_original_core(self):
         with mock.patch.object(
             cores,

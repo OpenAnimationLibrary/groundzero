@@ -17,6 +17,10 @@ from pathlib import Path
 CORE_BYTES = 2 * 1024 * 1024 * 1024
 TOTAL_SECONDS = 60
 MAX_TEXT_BYTES = 128 * 1024
+# file(1) stops parsing a core past 2048 program headers or 256 notes, before it
+# reaches the auxv note that names the executable. A Qt application core has more
+# mappings than that; 65535 is the largest count e_phnum can express.
+FILE_ELF_LIMITS = ("-P", "elf_phnum=65535", "-P", "elf_notes=65535")
 
 
 def private_directory(directory):
@@ -172,7 +176,9 @@ def collect_original_core(executable, core_directory, pid):
             raise ValueError("Original application PID was not recorded")
         core = directory / f"core.{pid}"
         binary, info = validate_original_files(executable, core)
-        description, identified = capture(["file", "-b", "--", str(core)], deadline, 5)
+        description, identified = capture(
+            ["file", "-b", *FILE_ELF_LIMITS, "--", str(core)], deadline, 5
+        )
         names = re.findall(r"\bexecfn:\s*'([^'\r\n]+)'", description)
         limits = re.findall(
             r"too many (program headers|notes) \(([0-9]+)\)", description
