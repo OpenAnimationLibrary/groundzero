@@ -55,6 +55,21 @@ void expectFailure(const TFilePath& executable, const std::string& arguments,
   require(rejected, "Failed external effect had no actionable error");
 }
 
+int writeGrayscaleTga(const QString& path) {
+  QByteArray image(18, '\0');
+  image[2]  = 3;
+  image[12] = 3;
+  image[14] = 2;
+  image[16] = 8;
+  image.append(6, char(127));
+  QFile file(path);
+  require(file.open(QIODevice::WriteOnly),
+          "Cannot create grayscale TGA output fixture");
+  require(file.write(image) == image.size(),
+          "Cannot finish grayscale TGA output fixture");
+  return 0;
+}
+
 int renderWorker(const QStringList& arguments) {
   if (arguments.size() != 5) return 20;
   const QImage input(arguments[2]);
@@ -65,7 +80,8 @@ int renderWorker(const QStringList& arguments) {
       require(input.pixelColor(x, y) == QColor(Qt::blue),
               "External effect input pixels were not rendered");
   const QString mode = arguments[4];
-  const int width    = mode == "small" ? 2 : mode == "large" ? 4 : 3;
+  if (mode == "gray-tga") return writeGrayscaleTga(arguments[3]);
+  const int width = mode == "small" ? 2 : mode == "large" ? 4 : 3;
   QImage output(
       width, 2,
       mode == "gray" ? QImage::Format_Grayscale8 : QImage::Format_ARGB32);
@@ -188,7 +204,13 @@ void publicCompute(TRasterFx& effect, TTile& tile) {
   renderer.uninstall();
 }
 
-void checkRenderedPixels(const TRaster32P& parent, bool success) {
+std::string pixelValue(const TPixel32& pixel) {
+  return "(" + std::to_string(pixel.r) + "," + std::to_string(pixel.g) + "," +
+         std::to_string(pixel.b) + "," + std::to_string(pixel.m) + ")";
+}
+
+void checkRenderedPixels(const TRaster32P& parent, const std::string& mode,
+                         bool success) {
   const TPixel32 expected[2][3] = {
       {TPixel32(0, 255, 255), TPixel32(255, 255, 0), TPixel32(255, 0, 255)},
       {TPixel32::Red, TPixel32(0, 128, 0, 128), TPixel32::Transparent}};
@@ -196,46 +218,69 @@ void checkRenderedPixels(const TRaster32P& parent, bool success) {
     for (int x = 0; x < parent->getLx(); ++x) {
       const bool inside = x >= 1 && x <= 3 && y >= 1 && y <= 2;
       TPixel32 pixel    = TPixel32::Green;
-      if (inside) pixel = success ? expected[y - 1][x - 1] : TPixel32::Blue;
-      require(
-          parent->pixels(y)[x] == pixel,
-          "External output pixels, alpha, orientation or tile border changed");
+      if (inside) {
+        pixel = success ? expected[y - 1][x - 1] : TPixel32::Blue;
+        if (mode == "gray") pixel = TPixel32(127, 127, 127);
+      }
+      const TPixel32 actual = parent->pixels(y)[x];
+      if (actual != pixel)
+        throw std::runtime_error(
+            "External output mode " + mode + " changed pixel (" +
+            std::to_string(x) + "," + std::to_string(y) + "): expected RGBA " +
+            pixelValue(pixel) + ", received " + pixelValue(actual));
     }
   }
 }
 
-void publicRendering(const QString& executable) {
-  for (const char* mode : {"pixels", "small", "large", "gray"}) {
-    auto* effect = new TExternalProgramFx();
-    TRasterFxP owner(effect);
-    effect->setExecutable(TFilePath(executable),
-                          std::string("--render-fixture $in $out ") + mode);
-    effect->addPort("in", "png", true);
-    effect->addPort("out", "png", false);
-    effect->getInputPort(0)->setFx(new BlueSource());
-    TRaster32P parent(5, 4);
-    parent->fill(TPixel32::Green);
-    TRaster32P destination = parent->extract(1, 1, 3, 2);
-    TTile tile(destination, TPointD(11, -7));
-    const QString expectedError = QString::fromLatin1(mode) == "gray"
-                                      ? "32-bit RGBA"
-                                      : "different dimensions";
-    const bool success          = QString::fromLatin1(mode) == "pixels";
-    bool rejected               = false;
-    try {
-      publicCompute(*effect, tile);
-    } catch (const TException& error) {
-      rejected =
-          QString::fromStdWString(error.getMessage()).contains(expectedError);
-    }
-    require(rejected != success,
-            "External effect accepted an invalid output or rejected pixels");
-    require(tile.getRaster()->getRawData() == destination->getRawData() &&
-                tile.getRaster()->getSize() == destination->getSize() &&
-                tile.m_pos == TPointD(11, -7),
-            "External output replaced destination storage or tile coordinates");
-    checkRenderedPixels(parent, success);
+void publicRenderingCase(const QString& executable, const std::string& mode) {
+  auto* effect = new TExternalProgramFx();
+  TRasterFxP owner(effect);
+  effect->setExecutable(TFilePath(executable),
+                        std::string("--render-fixture $in $out ") + mode);
+  effect->addPort("in", "png", true);
+  effect->addPort("out", mode == "gray-tga" ? "tga" : "png", false);
+  effect->getInputPort(0)->setFx(new BlueSource());
+  TRaster32P parent(5, 4);
+  parent->fill(TPixel32::Green);
+  TRaster32P destination = parent->extract(1, 1, 3, 2);
+  TTile tile(destination, TPointD(11, -7));
+  const std::string expectedError =
+      mode == "gray-tga" ? "32-bit RGBA" : "different dimensions";
+  const bool success = mode == "pixels" || mode == "gray";
+  std::string failure;
+  try {
+    publicCompute(*effect, tile);
+  } catch (const TException& error) {
+    failure = QString::fromStdWString(error.getMessage()).toStdString();
   }
+  if (success && !failure.empty())
+    throw std::runtime_error("External output mode " + mode + ": " + failure);
+  if (!success && failure.find(expectedError) == std::string::npos)
+    throw std::runtime_error(
+        "External output mode " + mode +
+        " expected rejection containing: " + expectedError +
+        "; received: " + (failure.empty() ? "no exception" : failure));
+  require(tile.getRaster()->getRawData() == destination->getRawData() &&
+              tile.getRaster()->getSize() == destination->getSize() &&
+              tile.m_pos == TPointD(11, -7),
+          "External output replaced destination storage or tile coordinates");
+  checkRenderedPixels(parent, mode, success);
+}
+
+void publicRendering(const QString& executable) {
+  bool passed = true;
+  for (const std::string mode :
+       {"pixels", "small", "large", "gray", "gray-tga"}) {
+    try {
+      publicRenderingCase(executable, mode);
+    } catch (const std::exception& error) {
+      passed = false;
+      std::cerr << "External rendering case " << mode << ": " << error.what()
+                << '\n';
+    }
+  }
+  require(passed,
+          "External effect rendering cases failed; see mode diagnostics");
 }
 
 int worker(const QStringList& arguments) {
