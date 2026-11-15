@@ -36,22 +36,51 @@ permissions:
   contents: read
 
 jobs:
-  RecorderEncoder:
-    if: github.repository == 'OpenAnimationLibrary/groundzero'
+  CadmiumRuntime:
+    if: ${{ !inputs.baseline_only }}
+    # Same revision; actionlint 1.7.12 does not support the newer $/ syntax.
+    uses: ./.github/workflows/cadmium_runtime.yml # zizmor: ignore[self-repository]
+
+  Windows:
+    needs: CadmiumRuntime
+    if: >-
+      ${{ !cancelled() && github.repository == 'OpenAnimationLibrary/groundzero' &&
+          (inputs.baseline_only || needs.CadmiumRuntime.result == 'success') }}
     runs-on: windows-2025
+    env:
+      # QT related variable
+      QT_PATH: ${{ github.workspace }}\thirdparty\qt\5.15.2_wintab\msvc2019_64  # Path to custom Qt
+
+      # Visual Studio related variables
+      MSVCVERSION: "Visual Studio 18 2026"  # Visual Studio version
+
+      # Boost-related variables
+      BOOST_TOOLSET: "14.3"                 # Boost MSVC Toolset version
+      BOOST_VERSION: "1.87.0"               # Boost version
+      BOOST_ROOT: C:\local\boost_1_87_0     # Path to Boost library root
+
+      # OpenCV-related variables
+      OPENCV_VERSION: "4.13.0"              # OpenCV version
+      OpenCV_DIR: C:\tools\opencv\build     # Path to OpenCV
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           lfs: false
-          sparse-checkout: .github/ot-dev/recorder
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: recorder-cache
         with:
           path: |
             recorder-encoder
             recorder-test-decoder
           key: otdev-recorder-windows-2025-x64-${{ hashFiles('.github/ot-dev/recorder/build-ffmpeg.sh') }}
+      - name: Save recorder shell environment
+        id: recorder_environment
+        if: steps.recorder-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "msystem=$env:MSYSTEM"
       - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
         if: steps.recorder-cache.outputs.cache-hit != 'true'
         with:
@@ -66,10 +95,25 @@ jobs:
             tar
             curl
       - name: Build input-restricted recorder encoder
+        id: recorder_build
         if: steps.recorder-cache.outputs.cache-hit != 'true'
         # setup-msys2 supplies the UCRT64 environment required by the recorder build.
         shell: msys2 {0} # zizmor: ignore[misfeature]
         run: bash .github/ot-dev/recorder/build-ffmpeg.sh
+      - name: Save the completed recorder toolchain
+        if: ${{ !cancelled() && steps.recorder_build.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            recorder-encoder
+            recorder-test-decoder
+          key: ${{ steps.recorder-cache.outputs.cache-primary-key }}
+      - name: Restore application shell environment
+        if: ${{ !cancelled() && steps.recorder_environment.outcome == 'success' }}
+        shell: pwsh
+        env:
+          RECORDER_MSYSTEM: ${{ steps.recorder_environment.outputs.msystem }}
+        run: Add-Content -LiteralPath $env:GITHUB_ENV -Value "MSYSTEM=$env:RECORDER_MSYSTEM"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Groundzero-recorder-encoder
@@ -78,54 +122,12 @@ jobs:
         with:
           name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
-
-  CadmiumRuntime:
-    if: ${{ !inputs.baseline_only }}
-    # Same revision; actionlint 1.7.12 does not support the newer $/ syntax.
-    uses: ./.github/workflows/cadmium_runtime.yml # zizmor: ignore[self-repository]
-
-  Windows:
-    needs: [RecorderEncoder, CadmiumRuntime]
-    if: >-
-      ${{ !cancelled() && needs.RecorderEncoder.result == 'success' &&
-          (inputs.baseline_only || needs.CadmiumRuntime.result == 'success') }}
-    runs-on: windows-2025
-    env:
-      # QT related variable
-      QT_PATH: ${{ github.workspace }}\thirdparty\qt\5.15.2_wintab\msvc2019_64  # Path to custom Qt
-
-      # Visual Studio related variables
-      MSVCVERSION: "Visual Studio 18 2026"  # Visual Studio version
-      
-      # Boost-related variables      
-      BOOST_TOOLSET: "14.3"                 # Boost MSVC Toolset version
-      BOOST_VERSION: "1.87.0"               # Boost version
-      BOOST_ROOT: C:\local\boost_1_87_0     # Path to Boost library root
-      
-      # OpenCV-related variables      
-      OPENCV_VERSION: "4.13.0"              # OpenCV version
-      OpenCV_DIR: C:\tools\opencv\build     # Path to OpenCV
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          lfs: false
 
       - name: Inject Groundzero recorder (Windows CI only)
         shell: pwsh
         env:
           OTDEV_BUILD_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: python .github/ot-dev/recorder/enable.py --build-id $env:OTDEV_BUILD_ID
-
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: Groundzero-recorder-encoder
-          path: recorder-encoder
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: Groundzero-recorder-test-decoder
-          path: recorder-test-decoder
 
       # Cache OpenCV and Boost libraries
       - name: Cache OpenCV and Boost
@@ -370,7 +372,7 @@ jobs:
         run: |
           @echo on
           cd toonz\build || exit /b 1
-          
+
           REM Create Opentoonz directory and copy files from RelWithDebInfo
           mkdir Opentoonz || exit /b 1
           copy /Y RelWithDebInfo\*.* Opentoonz\ || exit /b 1
@@ -384,16 +386,16 @@ jobs:
           copy /Y ..\..\thirdparty\libmypaint\dist\64\libintl-8.dll Opentoonz || exit /b 1
           copy /Y ..\..\thirdparty\libmypaint\dist\64\libjson-c-2.dll Opentoonz || exit /b 1
           copy /Y ..\..\thirdparty\libmypaint\dist\64\libmypaint-1-4-0.dll Opentoonz || exit /b 1
-          
+
           REM Copy OpenCV DLL (IMPORTANT: Update path/filename when upgrading OpenCV version)
           copy /Y "C:\tools\opencv\build\x64\vc16\bin\opencv_world4130.dll" Opentoonz || exit /b 1
-          
+
           REM Deploy Qt dependencies
           "%QT_PATH%\bin\windeployqt.exe" Opentoonz\Opentoonz.exe --opengl || exit /b 1
 
           if exist Opentoonz\*.pdb del /Q Opentoonz\*.pdb
           if exist Opentoonz\vc_redist.x64.exe del /Q Opentoonz\vc_redist.x64.exe
-          
+
           REM Create portablestuff directory and copy stuff folder
           mkdir Opentoonz\portablestuff || exit /b 1
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff || exit /b 1

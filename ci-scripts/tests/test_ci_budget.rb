@@ -52,14 +52,14 @@ class CiBudgetTest < Minitest::Test
     end
   end
 
-  def test_counts_only_workflows_that_run_for_the_same_activity
+  def test_reserves_checks_for_later_metadata_edits_on_the_same_commit
     workflows = {
       'build.yml' => workflow({ 'build' => {}, 'smoke' => {} }),
       'scan.yml' => { 'on' => { 'pull_request' => { 'types' => ['edited'] } },
                       'jobs' => { 'scan' => {} } }
     }
     with_workflows(workflows) do |budget|
-      assert_equal({ 'build.yml' => 2 }, budget.pull_request_counts)
+      assert_equal({ 'build.yml' => 2, 'scan.yml' => 1 }, budget.pull_request_counts)
     end
   end
 
@@ -196,30 +196,37 @@ class CiBudgetTest < Minitest::Test
     end
   end
 
-  def test_edition_wrapper_counts_baseline_and_requires_advisory_gate
+  def test_wrapper_counts_summary_selection_and_conditional_advisory_jobs
     jobs = {
       'linux' => { 'runs-on' => 'ubuntu-latest' },
       'required' => { 'needs' => ['linux'], 'runs-on' => 'ubuntu-latest' },
       'scope' => { 'needs' => 'required', 'runs-on' => 'ubuntu-latest' },
-      'optional' => { 'needs' => 'scope', 'uses' => './.github/workflows/optional.yml' }
+      'optional' => { 'needs' => 'scope', 'if' => false,
+                      'uses' => './.github/workflows/optional.yml' }
+    }
+    optional = workflow({ 'qualify' => {}, 'package' => {} }, 'workflow_call')
+    with_workflows({ 'pr_checks.yml' => workflow(jobs), 'optional.yml' => optional }) do |budget|
+      assert_equal({ 'pr_checks.yml' => 5 }, budget.pull_request_counts)
+    end
+  end
+
+  def test_wrapper_rejects_unresolved_advisory_matrix
+    jobs = {
+      'required' => {},
+      'optional' => { 'needs' => 'required', 'uses' => './.github/workflows/optional.yml' }
     }
     optional = workflow({
       'dynamic' => { 'strategy' => { 'matrix' => '${{ fromJSON(inputs.matrix) }}' } }
     }, 'workflow_call')
     with_workflows({ 'pr_checks.yml' => workflow(jobs), 'optional.yml' => optional }) do |budget|
-      assert_equal({ 'pr_checks.yml' => 1 }, budget.pull_request_counts)
-    end
-
-    jobs['optional']['if'] = 'always()'
-    with_workflows({ 'pr_checks.yml' => workflow(jobs), 'optional.yml' => optional }) do |budget|
       assert_raises(CiBudgetError) { budget.pull_request_counts }
     end
   end
 
-  def test_allows_dedicated_seexpr_qualification_branch
+  def test_rejects_seexpr_proposal_branch_checks
     document = { 'on' => { 'push' => { 'branches' => ['edition', 'ci/seexpr-*'] } } }
     with_workflows({ 'seexpr.yml' => document }) do |budget|
-      assert_empty budget.pull_request_counts
+      assert_raises(CiBudgetError) { budget.pull_request_counts }
     end
   end
 
@@ -233,7 +240,7 @@ class CiBudgetTest < Minitest::Test
         File.write(File.join(directory, 'pr.yml'), workflow(jobs).to_yaml)
         output, result = Open3.capture2e(RbConfig.ruby, script, root)
         assert_equal count <= 10, result.success?, output
-        assert_includes output, "Automatic baseline PR checks: #{count}/10"
+        assert_includes output, "Automatic PR checks: #{count}/10"
         if count > 10
           assert_includes output, 'maximum is 10'
         else
