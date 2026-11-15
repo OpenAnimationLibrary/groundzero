@@ -149,10 +149,13 @@ class DotScreenFx final : public TStandardRasterFx {
     m_low[k]    = TDoubleParamP(k == 0 ? 1.0 : 0.0);
     m_high[k]   = TDoubleParamP(k == 0 ? 0.0 : 1.0);
     m_invert[k] = TBoolParamP(false);
-    // Each modifier reads its input unless it is set to a ramp
+    // Each modifier reads its input unless it is set to a ramp. The ramps
+    // start across, up and diagonally, so their viewer gadgets do not
+    // cover each other.
+    const TPointD direction[] = {{200.0, 0.0}, {0.0, 200.0}, {140.0, 140.0}};
     m_source[k]    = TDoubleParamP(0.0);
-    m_rampStart[k] = TPointParamP(TPointD(-200.0, 0.0));
-    m_rampEnd[k]   = TPointParamP(TPointD(200.0, 0.0));
+    m_rampStart[k] = TPointParamP(-direction[k]);
+    m_rampEnd[k]   = TPointParamP(direction[k]);
     m_target[k]->setValueRange(0, 5);
     m_target[k]->setUIChoices(
         {"Off", "Size", "Aspect", "Rotation", "Opacity", "Colour"});

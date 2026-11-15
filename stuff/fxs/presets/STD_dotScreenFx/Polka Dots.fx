@@ -64,6 +64,9 @@
     <sizeRandom>
       <default>0</default>
     </sizeRandom>
+    <aspectRandom>
+      <default>0</default>
+    </aspectRandom>
     <rotationRandom>
       <default>0</default>
     </rotationRandom>
@@ -91,6 +94,25 @@
     <invert1>
       0 0
     </invert1>
+    <source1>
+      <default>0</default>
+    </source1>
+    <rampStart1>
+      <x>
+        <default>-200</default>
+      </x>
+      <y>
+        <default>0</default>
+      </y>
+    </rampStart1>
+    <rampEnd1>
+      <x>
+        <default>200</default>
+      </x>
+      <y>
+        <default>0</default>
+      </y>
+    </rampEnd1>
     <target2>
       <default>0</default>
     </target2>
@@ -106,6 +128,25 @@
     <invert2>
       0 0
     </invert2>
+    <source2>
+      <default>0</default>
+    </source2>
+    <rampStart2>
+      <x>
+        <default>0</default>
+      </x>
+      <y>
+        <default>-200</default>
+      </y>
+    </rampStart2>
+    <rampEnd2>
+      <x>
+        <default>0</default>
+      </x>
+      <y>
+        <default>200</default>
+      </y>
+    </rampEnd2>
     <target3>
       <default>0</default>
     </target3>
@@ -121,5 +162,24 @@
     <invert3>
       0 0
     </invert3>
+    <source3>
+      <default>0</default>
+    </source3>
+    <rampStart3>
+      <x>
+        <default>-140</default>
+      </x>
+      <y>
+        <default>-140</default>
+      </y>
+    </rampStart3>
+    <rampEnd3>
+      <x>
+        <default>140</default>
+      </x>
+      <y>
+        <default>140</default>
+      </y>
+    </rampEnd3>
   </params>
 </dvpreset>
