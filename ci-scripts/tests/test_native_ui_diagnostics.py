@@ -134,7 +134,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 status, calls, output = self.invoke(response)
                 self.assertEqual(status, 1)
                 self.assertEqual([call[0] for call in calls], [None, *SUITES])
-                self.assertEqual([call[2] for call in calls], [600] + [120] * len(SUITES))
+                self.assertEqual([call[2] for call in calls], [900] + [120] * len(SUITES))
                 self.assertTrue(all(call[3] is None for call in calls))
                 self.assertEqual(len(self.clear_calls), 1)
                 for suite in SUITES:
