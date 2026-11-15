@@ -628,12 +628,36 @@ void checkSoundColumnTitle() {
   app->getCurrentColumn()->setColumnIndex(1);
 }
 
+void checkExternalPixels(const TRaster32P& raster) {
+  for (int y = 0; y < canvasSize; ++y) {
+    for (int x = 0; x < canvasSize; ++x) {
+      const TPixel32 pixel = raster->pixels(y)[x];
+      if (pixel == TPixel32::Red) continue;
+      std::ostringstream error;
+      error << "External new-level paste changed pixel (" << x << ", " << y
+            << "): expected RGBA (255, 0, 0, 255), got (" << int(pixel.r)
+            << ", " << int(pixel.g) << ", " << int(pixel.b) << ", "
+            << int(pixel.m) << ")";
+      throw std::runtime_error(error.str());
+    }
+  }
+}
+
 void checkExternalNewLevelRetirement() {
+  SavedPasteState saved;
   resetScene();
   auto* app   = TApp::instance();
   auto* level = makeLevel(TZP_XSHLEVEL, makePalette());
   auto* sheet = app->getCurrentXsheet()->getXsheet();
   sheet->insertColumn(1);
+  // External clipboard pixels use 120 DPI; new levels take their size and DPI
+  // from preferences. Match them so this fixture requires an unscaled paste.
+  constexpr double externalDpi = 120.0;
+  auto* preferences            = Preferences::instance();
+  preferences->setValue(newLevelSizeToCameraSizeEnabled, false, false);
+  preferences->setValue(DefLevelWidth, canvasSize / externalDpi, false);
+  preferences->setValue(DefLevelHeight, canvasSize / externalDpi, false);
+  preferences->setValue(DefLevelDpi, externalDpi, false);
   QImage image(canvasSize, canvasSize, QImage::Format_ARGB32);
   image.fill(Qt::red);
   QApplication::clipboard()->setImage(image);
@@ -648,10 +672,11 @@ void checkExternalNewLevelRetirement() {
   TRaster32P raster = rasterImage ? rasterImage->getRaster() : TRasterP();
   require(raster && raster->getSize() == TDimension(canvasSize, canvasSize),
           "External new-level paste changed its image dimensions");
-  for (int y = 0; y < canvasSize; ++y)
-    for (int x = 0; x < canvasSize; ++x)
-      require(raster->pixels(y)[x] == TPixel32::Red,
-              "External new-level paste changed its pixels");
+  double dpiX = 0.0, dpiY = 0.0;
+  rasterImage->getDpi(dpiX, dpiY);
+  require(dpiX == externalDpi && dpiY == externalDpi,
+          "External new-level paste changed its image DPI");
+  checkExternalPixels(raster);
   checkSoundColumnTitle();
   const TFilePath name(pasted.getSimpleLevel()->getName());
   checkVisibleViewerTitle(QString::fromStdWString(
