@@ -165,6 +165,8 @@ public:
       m.low    = bounded(m_low[k]->getValue(frame), -100000, 100000);
       m.high   = bounded(m_high[k]->getValue(frame), -100000, 100000);
       m.invert = m_invert[k]->getValue();
+      // A modifier without its input does nothing
+      if (!m_control[k].isConnected()) m.target = DotScreen::Target::None;
       // Rotation is entered in degrees
       if (m.target == DotScreen::Target::Rotation) {
         m.low *= degrees;

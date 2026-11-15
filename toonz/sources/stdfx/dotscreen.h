@@ -18,7 +18,7 @@ namespace DotScreen {
 const double pi           = 3.14159265358979323846;
 const int modifierCount   = 3;
 const double maxSize      = 3.0;  // a dot's diameter, in cells
-const std::size_t maxDots = 16u * 1024u * 1024u;
+const std::size_t maxDots = 4u * 1024u * 1024u;  // about 350 MB of dots
 
 // Premultiplied when it is a pixel, straight when it is a setting
 struct Rgba {

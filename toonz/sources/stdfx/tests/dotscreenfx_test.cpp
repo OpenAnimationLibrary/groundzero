@@ -16,7 +16,7 @@ bool approx(double a, double b, double tolerance = 1e-4) {
   return std::abs(a - b) <= tolerance;
 }
 
-// Opaque grey that runs from black at world x = -100 to white at x = 100
+// Opaque grey: black up to world x = -90, white from x = 90
 class Ramp final : public TStandardRasterFx {
 public:
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
@@ -34,7 +34,7 @@ public:
     for (int y = 0; y < raster->getLy(); ++y)
       for (int x = 0; x < raster->getLx(); ++x) {
         const TPointD p = outputToWorld * (pos + TPointD(x + 0.5, y + 0.5));
-        const double v  = std::max(0.0, std::min(1.0, (p.x + 100) / 200));
+        const double v  = std::max(0.0, std::min(1.0, (p.x + 90) / 180));
         raster->pixels(y)[x] = PixelConverter<Pixel>::from(TPixelD(v, v, v, 1));
       }
   }
@@ -118,6 +118,17 @@ void testFx() {
   require(approx(alpha(scaled, 263, 32), 1) && approx(alpha(scaled, 268, 32), 0),
           "A scaled halftone dot is not the size asked for");
   settings.m_affine = TAffine();
+
+  // A modifier whose input is not connected changes nothing
+  fx.disconnect("Source");
+  set(fx, "target2", 4);  // Opacity
+  set(fx, "mode2", 0);    // Set
+  set(fx, "low2", 0);
+  set(fx, "high2", 0);
+  const TRasterPT<Pixel> unplugged = render(TPointD(-128, -16), 256, 32, 0);
+  require(approx(alpha(unplugged, 128, 16), 1) &&
+              approx(alpha(unplugged, 135, 16), 1),
+          "A modifier without its input changed the dots");
 
   // The cache key follows the held seed
   require(fx.getAlias(0, settings) == fx.getAlias(5, settings),
