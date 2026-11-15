@@ -191,9 +191,8 @@ void LutCalibrator::initialize() {
 
   // create shader
   if (!initializeLutTextureShader()) {
-    if (m_shader.program) delete m_shader.program;
-    if (m_shader.vert) delete m_shader.vert;
-    if (m_shader.frag) delete m_shader.frag;
+    cleanup();
+    m_isInitialized = true;
     return;
   }
   createViewerVBO();
@@ -208,7 +207,6 @@ void LutCalibrator::initialize() {
 
 void LutCalibrator::cleanup() {
   m_isInitialized = false;
-  if (!isValid()) return;
   // release shader
   if (m_shader.program) {
     delete m_shader.program;
@@ -225,8 +223,8 @@ void LutCalibrator::cleanup() {
   // release VBO
   if (m_viewerVBO.isCreated()) m_viewerVBO.destroy();
   // release LUT texture
-  if (m_lutTex && m_lutTex->isCreated()) {
-    m_lutTex->destroy();
+  if (m_lutTex) {
+    if (m_lutTex->isCreated()) m_lutTex->destroy();
     delete m_lutTex;
     m_lutTex = NULL;
   }

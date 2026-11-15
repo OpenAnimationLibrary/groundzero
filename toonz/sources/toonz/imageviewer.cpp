@@ -42,6 +42,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QOpenGLFramebufferObject>
+#include <QOpenGLContext>
 #include <QGestureEvent>
 
 //===================================================================================
@@ -245,8 +246,10 @@ ImageViewer::ImageViewer(QWidget *parent, FlipBook *flipbook,
   grabGesture(Qt::PanGesture);
   grabGesture(Qt::PinchGesture);
 
-  if (m_isHistogramEnable)
+  if (m_isHistogramEnable) {
     m_histogramPopup = new HistogramPopup(tr("Flipbook Histogram"));
+    m_histogramPopup->setParent(this, m_histogramPopup->windowFlags());
+  }
 
   if (Preferences::instance()->isColorCalibrationEnabled())
     m_lutCalibrator = new LutCalibrator();
@@ -394,15 +397,8 @@ void ImageViewer::setVisual(const ImagePainter::VisualSettings &settings) {
 //-----------------------------------------------------------------------------
 
 ImageViewer::~ImageViewer() {
-  // iwsw commented out temporarily
-  /*
-  if (m_ghibli3DLutUtil)
-  {
-          m_ghibli3DLutUtil->onEnd();
-          delete m_ghibli3DLutUtil;
-  }
-  */
-  if (m_fbo) delete m_fbo;
+  onContextAboutToBeDestroyed();
+  delete m_lutCalibrator;
 }
 
 //-----------------------------------------------------------------------------
@@ -443,8 +439,10 @@ void ImageViewer::setHistogramTitle(QString levelName) {
 
 void ImageViewer::setHistogramEnable(bool enable) {
   m_isHistogramEnable = enable;
-  if (m_isHistogramEnable && !m_histogramPopup)
+  if (m_isHistogramEnable && !m_histogramPopup) {
     m_histogramPopup = new HistogramPopup(tr("Flipbook Histogram"));
+    m_histogramPopup->setParent(this, m_histogramPopup->windowFlags());
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1483,12 +1481,17 @@ void ImageViewer::keyPressEvent(QKeyEvent *event) {
 //-----------------------------------------------------------------------------
 
 void ImageViewer::onContextAboutToBeDestroyed() {
-  if (!m_lutCalibrator) return;
-  makeCurrent();
-  m_lutCalibrator->cleanup();
-  doneCurrent();
-  disconnect(context(), SIGNAL(aboutToBeDestroyed()), this,
-             SLOT(onContextAboutToBeDestroyed()));
+  if (context())
+    disconnect(context(), SIGNAL(aboutToBeDestroyed()), this,
+               SLOT(onContextAboutToBeDestroyed()));
+  const bool canMakeCurrent = context() && context()->isValid();
+  if (canMakeCurrent) {
+    makeCurrent();
+    if (m_lutCalibrator) m_lutCalibrator->cleanup();
+  }
+  delete m_fbo;
+  m_fbo = nullptr;
+  if (canMakeCurrent) doneCurrent();
 }
 
 //-----------------------------------------------------------------------------

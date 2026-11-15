@@ -1,11 +1,20 @@
 #include "uimemoryintegrationtest.h"
 
 #include "custompanelmanager.h"
+#include "histogrampopup.h"
+#include "imageviewer.h"
 #include "mainwindow.h"
 #include "menubarcommandids.h"
+#include "sceneviewer.h"
 #include "tenv.h"
+#ifndef _WIN32
+#include "tsoundownershiptest.h"
+#endif
+#include "toonz/preferences.h"
 #include "toonz/toonzfolders.h"
+#include "toonzqt/lutcalibrator.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/styleeditor.h"
 #include "toonzqt/updatechecker.h"
 
 #include <QApplication>
@@ -19,12 +28,18 @@
 #include <QFileInfo>
 #include <QMenu>
 #include <QNetworkAccessManager>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QOpenGLShader>
+#include <QOpenGLShaderProgram>
 #include <QPointer>
+#include <QSurfaceFormat>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
 
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -240,7 +255,132 @@ void checkUpdateCycles(MainWindow& window) {
   }
 }
 
+QSet<HistogramPopup*> histograms() {
+  QSet<HistogramPopup*> result;
+  for (QWidget* widget : QApplication::allWidgets()) {
+    auto* histogram = qobject_cast<HistogramPopup*>(widget);
+    if (histogram) result.insert(histogram);
+  }
+  return result;
+}
+
+void checkHistogramCycles() {
+  const auto baseline = histograms();
+  for (int cycle = 0; cycle < 8; ++cycle) {
+    for (bool enabledAtCreation : {false, true}) {
+      auto viewer =
+          std::make_unique<ImageViewer>(nullptr, nullptr, enabledAtCreation);
+      if (!enabledAtCreation) viewer->setHistogramEnable(true);
+      const auto added = histograms() - baseline;
+      require(added.size() == 1,
+              "image viewer did not create exactly one histogram");
+      QPointer<HistogramPopup> histogram = *added.begin();
+      viewer.reset();
+      const bool retired = histogram.isNull();
+      delete histogram.data();
+      require(retired && histograms() == baseline,
+              "destroyed image viewer retained its histogram");
+    }
+  }
+}
+
 }  // namespace
+
+class LutCalibratorLifetimeTest {
+  static void checkWidget(std::unique_ptr<QWidget> widget,
+                          const QSet<LutCalibrator*>& baseline) {
+    const auto& registrations = LutManager::instance()->m_calibrators;
+    require(registrations.size() == baseline.size() + 1,
+            "calibrated widget did not register its calibrator");
+    widget.reset();
+    require(registrations == baseline,
+            "destroyed calibrated widget retained its calibrator");
+  }
+
+  static void checkWidgetCycles() {
+    auto* preferences = Preferences::instance();
+    struct RestorePreference {
+      bool enabled;
+      ~RestorePreference() {
+        Preferences::instance()->setValue(colorCalibrationEnabled, enabled,
+                                          false);
+      }
+    } restore{preferences->isColorCalibrationEnabled()};
+    const auto baseline = LutManager::instance()->m_calibrators;
+    preferences->setValue(colorCalibrationEnabled, true, false);
+    for (int cycle = 0; cycle < 8; ++cycle) {
+      checkWidget(
+          std::make_unique<StyleEditorGUI::HexagonalColorWheel>(nullptr),
+          baseline);
+      checkWidget(std::make_unique<ImageViewer>(nullptr, nullptr, false),
+                  baseline);
+      checkWidget(std::make_unique<SceneViewer>(nullptr), baseline);
+    }
+  }
+
+  static void checkPartialCleanup() {
+    QPointer<QOpenGLContext> previous = QOpenGLContext::currentContext();
+    QSurface* previousSurface = previous ? previous->surface() : nullptr;
+    QOpenGLContext context;
+    context.setFormat(QSurfaceFormat::defaultFormat());
+    require(context.create(),
+            "calibration cleanup fixture could not create an OpenGL context");
+    QOffscreenSurface surface;
+    surface.setFormat(context.format());
+    surface.create();
+    require(surface.isValid() && context.makeCurrent(&surface),
+            "calibration cleanup fixture could not make its context current");
+    struct RestoreContext {
+      QOpenGLContext& context;
+      QPointer<QOpenGLContext> previous;
+      QSurface* surface;
+      ~RestoreContext() {
+        context.doneCurrent();
+        if (previous && previous->isValid() && surface)
+          previous->makeCurrent(surface);
+      }
+    } restore{context, previous, previousSurface};
+    for (int cycle = 0; cycle < 8; ++cycle) {
+      LutCalibrator calibrator;
+      QPointer<QOpenGLShader> vertex = new QOpenGLShader(QOpenGLShader::Vertex);
+      QPointer<QOpenGLShader> fragment =
+          new QOpenGLShader(QOpenGLShader::Fragment);
+      QPointer<QOpenGLShaderProgram> program = new QOpenGLShaderProgram();
+      calibrator.m_shader.vert               = vertex;
+      calibrator.m_shader.frag               = fragment;
+      calibrator.m_shader.program            = program;
+      struct Cleanup {
+        LutCalibrator& calibrator;
+        QPointer<QOpenGLShader> vertex;
+        QPointer<QOpenGLShader> fragment;
+        QPointer<QOpenGLShaderProgram> program;
+        ~Cleanup() {
+          calibrator.cleanup();
+          delete program.data();
+          delete vertex.data();
+          delete fragment.data();
+        }
+      } cleanup{calibrator, vertex, fragment, program};
+      require(
+          program->create(),
+          "calibration cleanup fixture could not create its shader program");
+      require(!calibrator.isValid(),
+              "partial calibration fixture unexpectedly became valid");
+      calibrator.cleanup();
+      calibrator.cleanup();
+      require(vertex.isNull() && fragment.isNull() && program.isNull(),
+              "partial calibration cleanup retained shader objects");
+      require(!calibrator.isValid() && !calibrator.isInitialized(),
+              "calibration cleanup retained initialized state");
+    }
+  }
+
+public:
+  static void check() {
+    checkWidgetCycles();
+    checkPartialCleanup();
+  }
+};
 
 void exerciseUiMemoryOwnership(QMainWindow* window) {
   auto* main = qobject_cast<MainWindow*>(window);
@@ -251,6 +391,13 @@ void exerciseUiMemoryOwnership(QMainWindow* window) {
   checkNestedMenus();
   checkAboutCycles(*main);
   checkUpdateCycles(*main);
+#ifndef _WIN32
+  QString soundFailure;
+  if (!runSoundOutputOwnershipChecks(soundFailure))
+    throw std::runtime_error(soundFailure.toStdString());
+#endif
+  checkHistogramCycles();
+  LutCalibratorLifetimeTest::check();
   std::cerr << "native-ui-integration: checkpoint: UI repeated ownership "
                "checks passed"
             << std::endl;

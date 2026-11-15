@@ -31,6 +31,9 @@ class QOpenGLContext;
 class QColor;
 
 class DVAPI LutCalibrator : public QOpenGLFunctions {
+#ifdef BUILD_UI_PORT_TESTS
+  friend class LutCalibratorLifetimeTest;
+#endif
   bool m_isValid       = false;
   bool m_isInitialized = false;
 
@@ -74,6 +77,9 @@ public:
 
 class DVAPI LutManager  // singleton
 {
+#ifdef BUILD_UI_PORT_TESTS
+  friend class LutCalibratorLifetimeTest;
+#endif
   bool m_isValid;
   QString m_currentLutPath;
   QSet<LutCalibrator*> m_calibrators;

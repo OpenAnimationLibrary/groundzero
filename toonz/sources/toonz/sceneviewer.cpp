@@ -911,6 +911,7 @@ SceneViewer::~SceneViewer() {
   if (context() && context()->isValid()) makeCurrent();
   if (m_fbo) delete m_fbo;
   onContextAboutToBeDestroyed();
+  delete m_lutCalibrator;
 }
 
 //-------------------------------------------------------------------------------
