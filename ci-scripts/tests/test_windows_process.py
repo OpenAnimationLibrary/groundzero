@@ -530,7 +530,7 @@ class WindowsReleaseContracts(unittest.TestCase):
             self.assertFalse(record["safe_to_release"])
             self.assertTrue(retained[0].is_dir())
             output = self.report.read_text()
-            self.assertIn("timed out after 600 seconds", output)
+            self.assertIn("timed out after 900 seconds", output)
             self.assertIn("original hung bytes", output)
             self.assertIn("original PID 300 stack", output)
             self.assertEqual(self.report.with_name("native-output-original-windows-timeout.txt").read_text(),
@@ -578,7 +578,7 @@ class WindowsReleaseContracts(unittest.TestCase):
                 self.assertIsNone(initial["original_pid"])
                 self.assertIsNone(initial["original_status"])
                 self.assertIn("Could not publish Windows cleanup witness", console)
-                self.assertIn("timed out after 600 seconds" if timed_out else "status 19 (0x00000013)",
+                self.assertIn("timed out after 900 seconds" if timed_out else "status 19 (0x00000013)",
                               self.report.read_text())
 
 
