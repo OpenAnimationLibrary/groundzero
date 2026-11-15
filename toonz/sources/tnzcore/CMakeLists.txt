@@ -9,6 +9,7 @@ set(MOC_HEADERS
 )
 
 set(HEADERS ${MOC_HEADERS}
+    ../common/tsystem/memorypressure.h
     ../common/trop/loop_macros.h
     ../common/trop/optimize_for_lp64.h
     ../common/trop/quickputP.h

@@ -1018,6 +1018,8 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterallocation COMMAND rasterallocation_test)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
+    target_include_directories(timagecache_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/common/tsystem)
     target_link_libraries(timagecache_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
         # Standalone LSan intercepts allocations from tnzcore too; only this
