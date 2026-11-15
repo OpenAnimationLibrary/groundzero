@@ -436,25 +436,6 @@ if(BUILD_LUT3D_TESTS)
     add_test(NAME lut3dbake COMMAND lut3dbake_test)
 endif()
 
-# Optional regression targets for the GLB-backed 3D FX framework.
-# Not part of BUILD_TESTS: the GLB/3D features are developed and tested in OT3D.
-option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" OFF)
-if(BUILD_GLB_FX_TESTS)
-    add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
-    target_link_libraries(glbmodelfx_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
-    add_executable(threepointlightfx_test tests/threepointlightfx_test.cpp)
-    target_link_libraries(threepointlightfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
-    add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
-    target_link_libraries(transform3dfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
-    add_test(NAME glbmodelfx COMMAND glbmodelfx_test)
-    add_test(NAME threepointlightfx COMMAND threepointlightfx_test)
-    add_test(NAME transform3dfx COMMAND transform3dfx_test)
-    # glbmodelfx_test creates a QApplication; CI machines have no display.
-    if(NOT WIN32)
-        set_tests_properties(glbmodelfx PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-    endif()
-endif()
-
 # Optional regression target that renders standard FX graphs and compares
 # them with the reference images in tests/fxrender.
 option(BUILD_FXRENDER_TESTS "Build the FX render regression test" ${BUILD_TESTS})
@@ -696,6 +677,22 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_roughStrokeFx.xml)
     add_dependencies(celfx_tests roughstroke_test roughstrokefx_test roughstroke_ui_test)
     set_tests_properties(celfx_roughstroke celfx_roughstrokefx celfx_roughstroke_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The GLB Model, Three-Point Light and 3D Transformer FX; the renderer
+    # itself is tested on its own in glb/
+    add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
+    target_link_libraries(glbmodelfx_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_glbmodelfx COMMAND glbmodelfx_test)
+    add_executable(threepointlightfx_test tests/threepointlightfx_test.cpp)
+    target_link_libraries(threepointlightfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_threepointlightfx COMMAND threepointlightfx_test)
+    add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
+    target_link_libraries(transform3dfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_transform3dfx COMMAND transform3dfx_test)
+    add_dependencies(celfx_tests glbmodelfx_test threepointlightfx_test transform3dfx_test)
+    set_tests_properties(celfx_glbmodelfx celfx_threepointlightfx celfx_transform3dfx PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 endif()
 
 if(BUILD_CELFX_TESTS)

@@ -190,8 +190,9 @@ matrices and renderer behavior without Qt. The standalone build also makes
 FX playback is tested through the production FX/application test.
 
 The standalone CMake build documented for the loader runs loader, pose and
-renderer regressions. The FX tests (`BUILD_GLB_FX_TESTS`, off by default and
-run by no workflow) test the actual FX, persistence,
+renderer regressions. The FX tests (`celfx_glbmodelfx`,
+`celfx_threepointlightfx` and `celfx_transform3dfx`, built with the cel FX
+tests under `BUILD_CELFX_TESTS`) test the actual FX, persistence,
 source preservation, file replacement, grayscale/RGB precision, Over compositing,
 and embedded skeletal playback using a deterministic generated GLB fixture. It
 also exercises the real material selector and native color/keyframe editor,

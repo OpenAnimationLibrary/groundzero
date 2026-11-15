@@ -939,8 +939,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Partio.cmake")
 
 # BUILD_TESTS turns on every regression test below and in the subdirectories,
-# except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
-# and can still be set alone.
+# except the standalone GLB library suite, which builds on its own from
+# glb/. Each suite keeps its own option and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
 option(BUILD_SEEXPR_TESTS "Build native SeExpr language, rendering and authoring regression tests" ${BUILD_TESTS})
 option(BUILD_SEEXPR_PYTHON "Build the optional SeExpr Python AST bindings" OFF)
