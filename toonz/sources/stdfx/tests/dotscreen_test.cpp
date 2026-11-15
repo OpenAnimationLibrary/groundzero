@@ -142,11 +142,15 @@ void testModifiers() {
   s.modifiers[1].mode   = Mode::Set;
   s.modifiers[1].low    = 0.2;
   s.modifiers[1].high   = 0.2;
-  require(approx(plain(s).dots[0].color.a, 0.2), "Set did not replace");
+  auto white = [](int, double, double) { return Rgba{1, 1, 1, 1}; };
+  require(approx(build(s, 0, 0, 1, 1, white).dots[0].color.a, 0.2),
+          "Set did not replace");
   s.modifiers[1].mode = Mode::Offset;
-  require(approx(plain(s).dots[0].color.a, 0.7), "Offset did not add");
+  require(approx(build(s, 0, 0, 1, 1, white).dots[0].color.a, 0.7),
+          "Offset did not add");
 
-  // Colour takes the control image's colour, not its strength
+  // Colour takes the control image's colour, not its strength, and is as
+  // opaque as the control image
   s                     = Settings();
   s.modifiers[2].target = Target::Colour;
   const Grid tinted     = build(s, -10, -10, 10, 10,
@@ -157,8 +161,44 @@ void testModifiers() {
   require(approx(tinted.dots[0].color.r, 0.2) &&
               approx(tinted.dots[0].color.g, 0.4) &&
               approx(tinted.dots[0].color.b, 0.1) &&
-              approx(tinted.dots[0].color.a, 1),
+              approx(tinted.dots[0].color.a, 0.5),
           "The colour modifier did not take the control image's colour");
+}
+
+// Where a modifier's control image is transparent there are no dots; where
+// it is half transparent its straight colour drives the dot, at half opacity
+void testTransparentControl() {
+  Settings s;
+  s.spacing      = 10;
+  s.modifiers[0] = {Target::Size, Mode::Scale, 1, 0, false};  // the halftone
+  s.modifiers[1] = {Target::Opacity, Mode::Set, 1, 1, false};
+  auto cel       = [](int k, double x, double) {
+    return k == 0 && x > 0 ? Rgba() : Rgba{0, 0, 0, 1};
+  };
+  for (bool invert : {false, true}) {
+    s.modifiers[0].invert = invert;
+    const Grid g          = build(s, -30, -10, 30, 10, cel);
+    for (const Dot &dot : g.dots) {
+      if (dot.x > 1)
+        require(dot.color.a == 0, "A transparent control area has dots");
+      if (dot.x < -1)
+        require(dot.color.a == 1 &&
+                    approx(dot.radius, invert ? 0 : 0.5 * 10 * s.size),
+                "An opaque control area does not give the usual dot");
+    }
+    require(sample(g, 20, 0, 1).a == 0 && sample(g, 20.5, 10.5, 1).a == 0,
+            "A transparent control area is drawn");
+  }
+
+  s.modifiers[0].invert = false;
+  s.modifiers[1].target = Target::None;
+  const Grid half       = build(s, -10, -10, 10, 10, [](int, double, double) {
+    return Rgba{0.25, 0.25, 0.25, 0.5};  // straight mid grey
+  });
+  require(approx(half.dots[0].radius, 0.5 * 0.5 * 10 * s.size) &&
+              approx(half.dots[0].color.a, 0.5),
+          "A half transparent control area is not taken as its own colour, "
+          "at half opacity");
 }
 
 // One dot three cells wide: it reaches into the cells around it, and into a
@@ -239,11 +279,12 @@ int main() {
     testPlacement();
     testTiling();
     testModifiers();
+    testTransparentControl();
     testLargeDot();
     testRandomness();
     testInvalid();
-    std::cout << "PASS: dot screen areas, lattice, tiling, modifiers, large dots, "
-                 "randomness and limits\n";
+    std::cout << "PASS: dot screen areas, lattice, tiling, modifiers, "
+                 "transparent controls, large dots, randomness and limits\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

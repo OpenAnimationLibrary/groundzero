@@ -16,8 +16,9 @@
 
 // Dot Screen: a lattice of dots. Up to three modifiers each read a control
 // image at every dot's centre and change the dot's size, aspect, rotation,
-// opacity or colour. With an image on Source and the first modifier on Size
-// it is a halftone; without inputs it is a plain pattern. The math is in
+// opacity or colour; where a modifier's image is transparent there are no
+// dots. With an image on Source and the first modifier on Size it is a
+// halftone; without inputs it is a plain pattern. The math is in
 // dotscreen.h.
 //
 // The helpers are in a named namespace: DotScreenFx has external linkage, so
@@ -246,7 +247,7 @@ public:
     bindParam(this, "seed", m_seed);
     for (int k = 0; k < DotScreen::modifierCount; ++k) {
       // The first modifier makes a halftone of whatever is on Source: dark
-      // gives a full dot, white gives none
+      // gives a full dot, white and transparent give none
       m_target[k] = TDoubleParamP(k == 0 ? 1.0 : 0.0);
       m_mode[k]   = TDoubleParamP(1.0);
       m_low[k]    = TDoubleParamP(k == 0 ? 1.0 : 0.0);

@@ -16,14 +16,13 @@ bool approx(double a, double b, double tolerance = 1e-4) {
   return std::abs(a - b) <= tolerance;
 }
 
-// Opaque grey: black up to world x = -90, white from x = 90
-class Ramp final : public TStandardRasterFx {
+// An input that paints every output pixel from its position in the world
+class Pattern : public TStandardRasterFx {
+  virtual TPixelD at(TPointD world) const = 0;
+
 public:
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
-  std::string getAlias(double, const TRenderSettings &) const override {
-    return "dot-screen-ramp";
-  }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
     box = TConsts::infiniteRectD;
     return true;
@@ -32,11 +31,9 @@ public:
   void fill(const TRasterPT<Pixel> &raster, TPointD pos,
             const TAffine &outputToWorld) {
     for (int y = 0; y < raster->getLy(); ++y)
-      for (int x = 0; x < raster->getLx(); ++x) {
-        const TPointD p = outputToWorld * (pos + TPointD(x + 0.5, y + 0.5));
-        const double v  = std::max(0.0, std::min(1.0, (p.x + 90) / 180));
-        raster->pixels(y)[x] = PixelConverter<Pixel>::from(TPixelD(v, v, v, 1));
-      }
+      for (int x = 0; x < raster->getLx(); ++x)
+        raster->pixels(y)[x] = PixelConverter<Pixel>::from(
+            at(outputToWorld * (pos + TPointD(x + 0.5, y + 0.5))));
   }
   void doCompute(TTile &tile, double, const TRenderSettings &info) override {
     const TAffine inverse = info.m_affine.inv();
@@ -49,6 +46,32 @@ public:
   }
   void compute(TTile &tile, double frame, const TRenderSettings &s) override {
     doCompute(tile, frame, s);
+  }
+};
+
+// Opaque grey: black up to world x = -90, white from x = 90
+class Ramp final : public Pattern {
+  TPixelD at(TPointD p) const override {
+    const double v = std::max(0.0, std::min(1.0, (p.x + 90) / 180));
+    return TPixelD(v, v, v, 1);
+  }
+
+public:
+  std::string getAlias(double, const TRenderSettings &) const override {
+    return "dot-screen-ramp";
+  }
+};
+
+// Opaque black within 60 units of the world origin, transparent beyond
+class Disc final : public Pattern {
+  TPixelD at(TPointD p) const override {
+    return std::hypot(p.x, p.y) < 60 ? TPixelD(0, 0, 0, 1)
+                                     : TPixelD(0, 0, 0, 0);
+  }
+
+public:
+  std::string getAlias(double, const TRenderSettings &) const override {
+    return "dot-screen-disc";
   }
 };
 
@@ -138,6 +161,22 @@ void testFx() {
           "A scaled halftone dot is not the size asked for");
   settings.m_affine = TAffine();
 
+  // A halftone of a disc on a transparent background has dots only on the
+  // disc, and there they are the dots of black
+  TFxP disc = new Disc;
+  fx.disconnect("Source");
+  require(fx.connect("Source", disc.getPointer()), "Cannot connect the disc");
+  const TRasterPT<Pixel> cel = render(TPointD(-128, -16), 256, 32, 0);
+  for (int y = 0; y < 32; ++y)
+    for (int x = 0; x < 256; ++x) {
+      const double worldX = x - 127.5;
+      if (std::abs(worldX) < 50)
+        require(cel->pixels(y)[x] == plain->pixels(y)[x],
+                "The dots on an opaque area changed");
+      if (std::abs(worldX) > 71)
+        require(alpha(cel, x, y) == 0, "A transparent area of Source has dots");
+    }
+
   // A modifier whose input is not connected changes nothing
   fx.disconnect("Source");
   set(fx, "target2", 4);  // Opacity
@@ -205,7 +244,8 @@ int main(int argc, char **argv) {
     testRotationModifier<TPixel32>();
     testRotationModifier<TPixelF>();
     std::cout << "PASS: dot screen plain dots, halftone, tiles, invert, scale, "
-                 "rotation modifier, cache keys and pixel depths\n";
+                 "transparent input, rotation modifier, cache keys and pixel "
+                 "depths\n";
     return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString()

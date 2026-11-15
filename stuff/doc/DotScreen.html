@@ -6,7 +6,8 @@
 <p>Draws a lattice of dots: a halftone of an image, a decorative pattern, or
 stripes. Add Dot Screen from the Render category. With nothing connected it
 draws a plain pattern. Connect an image to Source and it becomes a halftone of
-that image: dark areas get large dots and light areas small ones.</p>
+that image: dark areas get large dots, light areas small ones and transparent
+areas none.</p>
 <h2>Lattice</h2>
 <p><b>Spacing</b> is the distance between dot centres and <b>Angle</b> turns
 the lattice about the centre of the scene. <b>Row Stagger</b> shifts every
@@ -26,12 +27,17 @@ picks them.</p>
 <p>Each of the three modifiers reads one input at the centre of every dot:
 Source, Control2 or Control3. <b>Changes</b> picks what it drives: Size,
 Aspect, Rotation, Opacity or Colour; Off ignores the input. The input's
-brightness (times its opacity) picks a value between <b>At Black</b> and <b>At
-White</b>, and <b>By</b> says what that value does: Set replaces the dot's
-value, Multiply scales it, Add adds to it. A rotation to Set or Add is in
-degrees; Multiply takes a plain factor, so 2 doubles the rotation.
-<b>Invert</b> swaps black and white. For Colour, each dot takes the input's
-colour at its centre, as far as <b>At White</b> allows (1 takes it fully).</p>
+brightness picks a value between <b>At Black</b> and <b>At White</b>, and
+<b>By</b> says what that value does: Set replaces the dot's value, Multiply
+scales it, Add adds to it. A rotation to Set or Add is in degrees; Multiply
+takes a plain factor, so 2 doubles the rotation. <b>Invert</b> swaps black and
+white. For Colour, each dot takes the input's colour at its centre, as far as
+<b>At White</b> allows (1 takes it fully).</p>
+<p>Transparent areas of a modifier's input get no dots, whatever the modifier
+changes, so a halftone of a drawing on a transparent level stays inside the
+drawing. Where the input is partly transparent the dots fade with it; its
+brightness there is that of its own colour, not darkened by the
+transparency.</p>
 <p>The first modifier starts as Size, Multiply, 1 at black and 0 at white,
 which is a halftone of Source.</p>
 <h2>Presets</h2>

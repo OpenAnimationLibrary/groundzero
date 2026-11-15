@@ -29,10 +29,12 @@ enum class Shape { Round, Square, Diamond, Line };
 enum class Target { None, Size, Aspect, Rotation, Opacity, Colour };
 enum class Mode { Set, Scale, Offset };
 
-// The control image's strength at a dot (its luminance times its alpha, 0 to
-// 1) picks a value between low and high. That value replaces the property,
+// The control image's luminance at a dot (of its straight colour, 0 to 1)
+// picks a value between low and high. That value replaces the property,
 // multiplies it or is added to it. For Colour, high is the share of the
-// control image's colour the dot takes.
+// control image's colour the dot takes. A modifier with a target also
+// multiplies the dot's opacity by the control image's alpha, so a
+// transparent area of the control image gets no dots.
 struct Modifier {
   Target target = Target::None;
   Mode mode     = Mode::Scale;
@@ -99,8 +101,10 @@ inline std::uint32_t mix(std::uint32_t h) {
 }
 inline double unit(double v) { return std::max(0.0, std::min(1.0, v)); }
 inline bool finite(double v) { return std::isfinite(v); }
+// The luminance of a premultiplied colour's straight colour
 inline double strength(const Rgba &c) {
-  return unit(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b);
+  if (!(c.a > 1e-9)) return 0;
+  return unit((0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / c.a);
 }
 inline double apply(const Modifier &m, double value, double s) {
   const double v = m.low + (m.high - m.low) * s;
@@ -224,10 +228,12 @@ Grid build(const Settings &settings, double minX, double minY, double maxX,
       color.b = s.colorA.b + (s.colorB.b - s.colorA.b) * blend;
       color.a = s.colorA.a + (s.colorB.a - s.colorA.a) * blend;
 
+      double presence = 1;  // the product of the control images' alphas
       for (int k = 0; k < modifierCount; ++k) {
         const Modifier &m = s.modifiers[k];
         if (m.target == Target::None) continue;
         const Rgba c = control(k, dot.x, dot.y);
+        presence *= unit(c.a);
         double st    = detail::strength(c);
         if (m.invert) st = 1 - st;
         switch (m.target) {
@@ -260,7 +266,7 @@ Grid build(const Settings &settings, double minX, double minY, double maxX,
       dot.aspect  = std::max(0.05, std::min(4.0, aspect));
       dot.cosine  = std::cos(s.angle + rotation);
       dot.sine    = std::sin(s.angle + rotation);
-      color.a     = unit(color.a) * unit(opacity);
+      color.a     = unit(color.a) * unit(opacity) * presence;
       dot.color   = color;
       g.reach     = std::max(g.reach, dot.radius * std::max(1.0, dot.aspect));
     }
