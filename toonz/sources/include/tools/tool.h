@@ -323,6 +323,9 @@ public:
 public:
   static TTool *getTool(std::string toolName, ToolTargetType targetType);
 
+  //! Clears \p viewer from every registered tool that still points at it.
+  static void releaseViewer(TToolViewer *viewer);
+
   static TApplication *getApplication();
   static void setApplication(TApplication *application) {
     m_application = application;
@@ -647,7 +650,9 @@ protected:
 public:
   TToolViewer(QWidget *widget, ImageUtils::FullScreenWidget* parent = nullptr) : 
       m_viewerWidget(widget), GLWidgetForHighDpi(parent) {}
-  virtual ~TToolViewer() {}
+  // Releases this viewer from every registered tool: a tool keeps the last
+  // viewer it drew in, including tools that are no longer current.
+  virtual ~TToolViewer() { TTool::releaseViewer(this); }
 
   const ImagePainter::VisualSettings &visualSettings() const {
     return m_visualSettings;

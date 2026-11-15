@@ -39,6 +39,7 @@
 #include <map>
 #include <string>
 
+// Persistent FX declarations borrow these records for the process lifetime.
 std::map<std::string, PluginInformation *> plugin_dict_;
 
 namespace {
@@ -178,16 +179,11 @@ AddFxContextMenu::AddFxContextMenu()
 }
 
 //---------------------------------------------------
-static void clear_all_plugins() {
-  for (std::map<std::string, PluginInformation *>::iterator it =
-           plugin_dict_.begin();
-       it != plugin_dict_.end(); ++it) {
-    it->second->release();
-  }
-  plugin_dict_.clear();
+AddFxContextMenu::~AddFxContextMenu() {
+  delete m_insertMenu;
+  delete m_addMenu;
+  delete m_replaceMenu;
 }
-
-AddFxContextMenu::~AddFxContextMenu() { clear_all_plugins(); }
 
 //---------------------------------------------------
 
@@ -211,7 +207,6 @@ void AddFxContextMenu::fillMenus() {
 //---------------------------------------------------
 
 static void scan_all_plugins(const std::string &basedir, QObject *listener) {
-  // clear_all_plugins();
   new PluginLoadController(basedir, listener);
 }
 
@@ -247,10 +242,19 @@ void AddFxContextMenu::loadFxs() {
 
 void AddFxContextMenu::loadFxPluginGroup() {
   QString groupName = QString::fromStdString("Plugins");
+  const QString objectName = QStringLiteral("pluginFxGroup");
+  for (QMenu* menu : {m_insertMenu, m_addMenu, m_replaceMenu}) {
+    const auto previous =
+        menu->findChildren<QMenu*>(objectName, Qt::FindDirectChildrenOnly);
+    for (QMenu* group : previous) delete group;
+  }
 
   std::unique_ptr<QMenu> insertFxGroup(new QMenu(groupName, m_insertMenu));
   std::unique_ptr<QMenu> addFxGroup(new QMenu(groupName, m_addMenu));
   std::unique_ptr<QMenu> replaceFxGroup(new QMenu(groupName, m_replaceMenu));
+  insertFxGroup->setObjectName(objectName);
+  addFxGroup->setObjectName(objectName);
+  replaceFxGroup->setObjectName(objectName);
 
   loadFxPlugins(insertFxGroup.get(), addFxGroup.get(), replaceFxGroup.get());
 
@@ -601,9 +605,12 @@ void AddFxContextMenu::onReplaceFx(QAction *action) {
 //---------------------------------------------------
 
 void AddFxContextMenu::onFxPresetHandled() {
-  m_insertMenu->clear();
-  m_addMenu->clear();
-  m_replaceMenu->clear();
+  for (QMenu* menu : {m_insertMenu, m_addMenu, m_replaceMenu}) {
+    const auto submenus =
+        menu->findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QMenu* submenu : submenus) delete submenu;
+    menu->clear();
+  }
   fillMenus();
 }
 
@@ -645,7 +652,7 @@ QAction *AddFxContextMenu::getAgainCommand(int command) {
 
   // create an action
   if (!m_againCommand) {
-    m_againCommand = new QAction();
+    m_againCommand = new QAction(this);
     connect(m_againCommand, SIGNAL(triggered()), this, SLOT(onAgainCommand()));
   }
   // set the action name

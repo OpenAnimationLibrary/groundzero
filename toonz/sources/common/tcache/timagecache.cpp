@@ -449,6 +449,7 @@ CompressedOnMemoryCacheItem::CompressedOnMemoryCacheItem(const TRasterP &ras,
 //------------------------------------------------------------------------------
 
 CompressedOnMemoryCacheItem::~CompressedOnMemoryCacheItem() {
+  delete m_builder;
   delete m_imageInfo;
 }
 
@@ -526,6 +527,7 @@ CompressedOnDiskCacheItem::CompressedOnDiskCacheItem(
 //------------------------------------------------------------------------------
 
 CompressedOnDiskCacheItem::~CompressedOnDiskCacheItem() {
+  delete m_builder;
   delete m_imageInfo;
   TSystem::deleteFile(m_fp);
 }

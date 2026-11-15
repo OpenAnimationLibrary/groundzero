@@ -15,9 +15,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace autopatch {
+
+//! Returns the outline support in pixels, or -1 if it cannot fit an int.
+inline int outlineMargin(double radius) {
+  const int limit = (std::numeric_limits<int>::max)();
+  if (!std::isfinite(radius) || radius < 0.0 || radius > double(limit - 2))
+    return -1;
+  return int(std::ceil(radius)) + 2;
+}
+
+//! Checks an actual padded tile against the signed byte-count limit of TRaster.
+//! Dry-compute regions may be larger because the cache subdivides them later.
+inline bool canRenderOutline(double width, double height, int margin,
+                             int pixelBytes) {
+  const double w     = std::ceil(width) + 2.0 * margin;
+  const double h     = std::ceil(height) + 2.0 * margin;
+  const double limit = (std::numeric_limits<int>::max)();
+  return width > 0.0 && height > 0.0 && margin >= 0 && pixelBytes > 0 &&
+         w <= limit && h <= limit && w * h <= limit / pixelBytes;
+}
 
 namespace detail {
 

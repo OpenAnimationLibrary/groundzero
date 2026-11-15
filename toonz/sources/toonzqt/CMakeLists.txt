@@ -85,6 +85,7 @@ set(HEADERS
     functionpaneltools.h
     fxdata.h
     palettedata.h
+    plugin_parameter_storage.h
     plugin_fxnode_interface.h
     plugin_port_interface.h
     plugin_tile_interface.h
@@ -214,14 +215,13 @@ set(SOURCES
     fxiconmanager.cpp
     insertfxpopup.cpp
     pluginhost.cpp
+    plugin_parameter_storage.cpp
     pluginmanager.cpp
     pluginmanagerinstance.cpp
     plugin_tile_interface.cpp
     plugin_port_interface.cpp
     plugin_fxnode_interface.cpp
     plugin_param_interface.cpp
-    plugin_param_view_interface.cpp
-    plugin_ui_page_interface.cpp
     toonz_params.cpp
 	lutcalibrator.cpp
 )
@@ -322,12 +322,31 @@ if(BUILD_SEEXPR_TESTS)
 endif()
 
 if(BUILD_RELIABILITY_TESTS)
+    target_compile_definitions(toonzqt PRIVATE BUILD_RELIABILITY_TESTS)
+    target_sources(toonzqt PRIVATE tests/plugin_controller_lifetime.cpp
+        tests/plugin_storage_lifetime.cpp)
     add_executable(stageobjectspaste_test tests/stageobjectspaste_test.cpp)
     target_link_libraries(stageobjectspaste_test PRIVATE toonzqt toonzlib tnzbase
         tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Widgets)
     add_test(NAME stageobjectspaste COMMAND stageobjectspaste_test)
     set_tests_properties(stageobjectspaste PROPERTIES TIMEOUT 60)
+
+    add_library(plugin_probe_fixture MODULE tests/plugin_probe_fixture.cpp)
+    target_include_directories(plugin_probe_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(plugin_probe_fixture PROPERTIES PREFIX "" SUFFIX ".plugin"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/plugin-fixtures/$<CONFIG>/plugins"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/plugin-fixtures/$<CONFIG>/plugins")
+    add_executable(plugin_probe_test tests/plugin_probe_test.cpp)
+    target_link_libraries(plugin_probe_test PRIVATE toonzqt tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+    add_dependencies(plugin_probe_test plugin_probe_fixture)
+    foreach(mode single empty)
+        add_test(NAME plugin_probe_${mode}
+            COMMAND plugin_probe_test $<TARGET_FILE:plugin_probe_fixture> ${mode})
+        set_tests_properties(plugin_probe_${mode} PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+    endforeach()
 endif()
 
 if(BUILD_LUT3D_TESTS)

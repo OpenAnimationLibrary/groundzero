@@ -1,7 +1,8 @@
 name: Paired Benchmarks
 
 # Explicitly opt in after both builds pass. Normal builds never gate on timings.
-on:
+# Independent manual comparisons need separate runners and run-scoped input artifacts.
+on: # zizmor: ignore[concurrency-limits]
   workflow_dispatch:
     inputs:
       platform:
@@ -28,24 +29,24 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: read # Resolve and download the two explicitly selected build artifacts.
 
 jobs:
   Compare:
     runs-on: ${{ inputs.platform == 'windows' && 'windows-2025' || 'macos-15-intel' }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Verify harness contracts
         run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
       - name: Resolve immutable input artifacts
         id: inputs
-        uses: actions/github-script@v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BENCH_PLATFORM: ${{ inputs.platform }}
           BASELINE_RUN: ${{ inputs.baseline_run_id }}
@@ -79,7 +80,7 @@ jobs:
             }
             fs.writeFileSync('benchmark-provenance.json', JSON.stringify(provenance, null, 2));
       - name: Download pinned baseline bundle
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.inputs.outputs.baseline_artifact }}
           run-id: ${{ inputs.baseline_run_id }}
@@ -87,7 +88,7 @@ jobs:
           path: benchmark-inputs/baseline
           merge-multiple: true
       - name: Download pinned candidate bundle
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.inputs.outputs.candidate_artifact }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -102,7 +103,7 @@ jobs:
           --provenance benchmark-provenance.json --output benchmark-results
       - name: Archive raw measurements and logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: paired-benchmark-${{ inputs.platform }}-${{ inputs.baseline_run_id }}-${{ inputs.candidate_run_id }}
           path: |

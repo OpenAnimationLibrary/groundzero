@@ -13,6 +13,16 @@ import tempfile
 import time
 from windows_process import WindowsJobProcess
 
+# Hang guard for the all-workflows process, not a performance budget. The
+# macOS runner already needed about 500 of the former 600 seconds before the
+# batch, UI memory, raster paste, drawing cache and render progress suites
+# joined the same process. The workflow steps allow 45 minutes.
+FULL_SUITE_SECONDS = 900
+# A follow-up diagnostic that cannot finish reports nothing. workflow-ui is the
+# largest suite and needs more than 120 seconds on the macOS and Windows runners.
+ISOLATED_SUITE_SECONDS = 120
+ISOLATED_SUITE_SECONDS_OVERRIDES = {"workflow-ui": 600}
+
 
 def original_macos_identity_witness(identity, native_status):
     """Publish only bounded numeric identity, never an executable/local path."""
@@ -434,9 +444,9 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
               ("vector-renderer", "vector-renderer-native: PASS"),
               ("workflow-switch", "workflow-switch-native: PASS"),
               ("workflow-ui", "workflow-ui-native: PASS"))
-    timeout_seconds = 120
     reports, results = [], []
     for suite, marker in suites:
+        timeout_seconds = ISOLATED_SUITE_SECONDS_OVERRIDES.get(suite, ISOLATED_SUITE_SECONDS)
         label = f"Independent native diagnostic: {suite}"
         print(f"\n{label} (not an all-workflows qualification).", flush=True)
         output, status, native_status = "", 1, None
@@ -657,7 +667,8 @@ def main():
             args.require_vector_workflows, args.require_combined_workflows)):
         parser.error("--isolated-timing-lifecycle must run separately from the full suite and benchmark")
     selected_suite = "combined-timing" if args.isolated_timing_lifecycle else None
-    timeout_seconds = (120 if selected_suite else 600 if args.require_vector_workflows
+    timeout_seconds = (120 if selected_suite
+                       else FULL_SUITE_SECONDS if args.require_vector_workflows
                        else 240 if args.require_offline_gl_workflow else 180)
     output, status = "", 1
     native_status = None

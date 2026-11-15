@@ -60,6 +60,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QOpenGLFramebufferObject>
+#include <QOpenGLContext>
 #include <QActionGroup>
 
 namespace {
@@ -588,7 +589,8 @@ HexagonalColorWheel::HexagonalColorWheel(QWidget *parent)
 //-----------------------------------------------------------------------------
 
 HexagonalColorWheel::~HexagonalColorWheel() {
-  if (m_fbo) delete m_fbo;
+  onContextAboutToBeDestroyed();
+  delete m_lutCalibrator;
 }
 
 //-----------------------------------------------------------------------------
@@ -920,12 +922,17 @@ void HexagonalColorWheel::clickRightTriangle(const QPoint &pos) {
 //-----------------------------------------------------------------------------
 
 void HexagonalColorWheel::onContextAboutToBeDestroyed() {
-  if (!m_lutCalibrator) return;
-  makeCurrent();
-  m_lutCalibrator->cleanup();
-  doneCurrent();
-  disconnect(context(), SIGNAL(aboutToBeDestroyed()), this,
-             SLOT(onContextAboutToBeDestroyed()));
+  if (context())
+    disconnect(context(), SIGNAL(aboutToBeDestroyed()), this,
+               SLOT(onContextAboutToBeDestroyed()));
+  const bool canMakeCurrent = context() && context()->isValid();
+  if (canMakeCurrent) {
+    makeCurrent();
+    if (m_lutCalibrator) m_lutCalibrator->cleanup();
+  }
+  delete m_fbo;
+  m_fbo = nullptr;
+  if (canMakeCurrent) doneCurrent();
 }
 
 //*****************************************************************************

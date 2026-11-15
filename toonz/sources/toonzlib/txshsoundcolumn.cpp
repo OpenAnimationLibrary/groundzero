@@ -232,6 +232,7 @@ TXshSoundColumn::~TXshSoundColumn() {
     m_timer.stop();
     stop();
   }
+  delete m_player;
 }
 
 //-----------------------------------------------------------------------------
@@ -843,7 +844,15 @@ double TXshSoundColumn::getVolume() const { return m_volume; }
 void TXshSoundColumn::play(TSoundTrackP soundtrack, int s0, int s1, bool loop) {
   if (!TSoundOutputDevice::installed()) return;
 
-  if (!m_player) m_player = new TSoundOutputDevice();
+  if (!m_player) {
+    try {
+      m_player = new TSoundOutputDevice();
+    } catch (const TSoundDeviceException &) {
+      // The device reported why it is unavailable; play silently and retry
+      // on the next call.
+      return;
+    }
+  }
 
   if (m_player) {
     try {
@@ -916,6 +925,7 @@ void TXshSoundColumn::stop() {
   if (m_player) {
     m_player->stop();
     m_player->close();
+    delete m_player;
     m_player                = 0;
     m_currentPlaySoundTrack = TSoundTrackP();
   }

@@ -743,11 +743,11 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
                     stdout=b"\n".join(marker for marker in markers if marker != missing)), vector=True)
                 self.assertNotEqual(status, 0)
                 self.assertIn("Missing required native acceptance checkpoints", output)
-                self.assertEqual(invocation.kwargs["timeout"], 600)
+                self.assertEqual(invocation.kwargs["timeout"], 900)
         status, _, invocation = self.invoke(SimpleNamespace(returncode=0,
             stdout=b"\n".join(markers)), vector=True)
         self.assertEqual(status, 0)
-        self.assertEqual(invocation.kwargs["timeout"], 600)
+        self.assertEqual(invocation.kwargs["timeout"], 900)
 
     def test_function_checkpoint_and_original_deadline_remain_required(self):
         status, output, invocation = self.invoke(SimpleNamespace(

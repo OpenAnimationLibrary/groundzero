@@ -10,6 +10,7 @@
 
 // QT includes
 #include <QCoreApplication>
+#include <QDebug>
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QTimer>
@@ -18,6 +19,8 @@
 #include <QStandardPaths>
 #include <QDateTime>
 #include <QMutex>
+
+#include <limits>
 
 namespace ThirdParty {
 
@@ -194,7 +197,7 @@ void setFFmpegTimeout(int secs) {
 
 void runFFmpeg(QProcess &process, const QStringList &arguments) {
   QString dir = Preferences::instance()->getFfmpegPath();
-  if (dir.at(0) == '.')  // Relative path
+  if (dir.isEmpty() || dir.at(0) == '.')  // Relative path
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + FFMPEG_EXE, arguments);
@@ -204,7 +207,7 @@ void runFFmpeg(QProcess &process, const QStringList &arguments) {
 
 void runFFprobe(QProcess &process, const QStringList &arguments) {
   QString dir = Preferences::instance()->getFfmpegPath();
-  if (dir.at(0) == '.')  // Relative path
+  if (dir.isEmpty() || dir.at(0) == '.')  // Relative path
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + FFPROBE_EXE, arguments);
@@ -394,14 +397,36 @@ void runFFmpegAudio(QProcess &process, QString srcPath, QString dstPath,
 
 //-----------------------------------------------------------------------------
 
-bool readFFmpegAudio(QProcess &process, QByteArray &rawData) {
-  if (!process.waitForStarted()) return false;
-  if (!process.waitForFinished(30000)) return false;
-  bool success = (process.exitCode() == 0);
-
-  if (success) rawData = process.readAllStandardOutput();
+bool readFFmpegAudio(QProcess& process, QByteArray& rawData) {
+  rawData.clear();
+  const int timeoutMs =
+      int(qBound<qint64>(1000, qint64(getFFmpegTimeout()) * 1000,
+                         std::numeric_limits<int>::max()));
+  // waitForFinished also waits for startup within the same timeout. An open,
+  // already-finished process still owns readable output and its exit status.
+  bool finished =
+      process.isOpen() && process.error() != QProcess::FailedToStart;
+  if (process.state() != QProcess::NotRunning)
+    finished = process.waitForFinished(timeoutMs);
+  const bool success = finished &&
+                       process.exitStatus() == QProcess::NormalExit &&
+                       process.exitCode() == 0;
+  if (success)
+    rawData = process.readAllStandardOutput();
+  else {
+    const QByteArray errorOutput =
+        process.isOpen() ? process.readAllStandardError().right(2048)
+                         : QByteArray();
+    qWarning().noquote() << "FFmpeg audio decode failed:" << process.program()
+                         << process.errorString() << "exit"
+                         << (process.exitStatus() == QProcess::NormalExit
+                                 ? process.exitCode()
+                                 : -1)
+                         << QString::fromLocal8Bit(errorOutput);
+    process.kill();
+  }
+  // Stop failed children before close() drains stdin, then reap and close I/O.
   process.close();
-
   return success;
 }
 
@@ -460,7 +485,7 @@ QString autodetectRhubarb() {
 
 void runRhubarb(QProcess &process, const QStringList &arguments) {
   QString dir = Preferences::instance()->getRhubarbPath();
-  if (dir.at(0) == '.')  // Relative path
+  if (dir.isEmpty() || dir.at(0) == '.')  // Relative path
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + RHUBARB_EXE, arguments);

@@ -195,9 +195,12 @@ namespace {
         }
 
         bool keepOriginalPalette = false;
-        bool success = data->getLevelFrames(
-            out, frameIdsSet, DrawingData::OVER_SELECTION, true, keepOriginalPalette,
-            true);  // setting is redo = true skips the question about the palette
+        bool success =
+            data->getLevelFrames(out, frameIdsSet, DrawingData::OVER_SELECTION,
+                                 true, keepOriginalPalette,
+                                 true)
+                .pasted;  // setting is redo = true skips the question about the
+                          // palette
         return success;
     }
 

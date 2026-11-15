@@ -19,17 +19,19 @@ ChildStack::ChildStack(ToonzScene *scene)
 //-----------------------------------------------------------------------------
 
 ChildStack::~ChildStack() {
-  m_xsheet->release();
+  // Navigation borrows child sheets; this stack owns only the root reference.
+  m_xsheet = getTopXsheet();
   clearPointerContainer(m_stack);
+  m_xsheet->release();
 }
 
 //-----------------------------------------------------------------------------
 
 void ChildStack::clear() {
+  m_xsheet = getTopXsheet();
+  clearPointerContainer(m_stack);
   m_xsheet->clearAll();
   m_xsheet->setScene(m_scene);
-
-  clearPointerContainer(m_stack);
 }
 
 //-----------------------------------------------------------------------------

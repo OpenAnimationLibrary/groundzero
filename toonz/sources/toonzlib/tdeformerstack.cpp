@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 //****************************************************************************************
 //    Local namespace stuff
@@ -17,6 +18,16 @@ inline double clamp01(double v) {
   // The negated test also maps NaNs to 0
   if (!(v > 0.0)) return 0.0;
   return (v > 1.0) ? 1.0 : v;
+}
+
+//---------------------------------------------------------------------------------
+
+bool isValidPaintingGrid(const TRectD& rect, int lx, int ly) {
+  if (lx <= 0 || ly <= 0) return false;
+  const double cw = rect.getLx() / lx, ch = rect.getLy() / ly;
+  for (double value : {rect.x0, rect.y0, cw, ch})
+    if (!std::isfinite(value)) return false;
+  return cw > 0.0 && ch > 0.0 && lx <= (std::numeric_limits<int>::max)() / ly;
 }
 
 //---------------------------------------------------------------------------------
@@ -92,13 +103,19 @@ bool unblendLayer(const TDeformerStack::Layer &layer, const TPointD &y,
 TDeformerWeightPainting TDeformerWeightPainting::make(const TRectD &rect,
                                                       int lx, int ly) {
   TDeformerWeightPainting painting;
-  if (lx <= 0 || ly <= 0 || !(rect.x1 > rect.x0) || !(rect.y1 > rect.y0))
-    return painting;
+  if (!isValidPaintingGrid(rect, lx, ly)) return painting;
   painting.m_lx   = lx;
   painting.m_ly   = ly;
   painting.m_rect = rect;
   painting.m_values.assign(lx * ly, 0);
   return painting;
+}
+
+//---------------------------------------------------------------------------------
+
+bool TDeformerWeightPainting::isEmpty() const {
+  return !isValidPaintingGrid(m_rect, m_lx, m_ly) ||
+         m_values.size() != static_cast<size_t>(m_lx * m_ly);
 }
 
 //---------------------------------------------------------------------------------
@@ -129,14 +146,26 @@ double TDeformerWeightPainting::weightAt(const TPointD &p) const {
 bool TDeformerWeightPainting::paint(const TPointD &center, double radius,
                                     double target, double strength) {
   if (isEmpty() || !(radius > 0.0) || !(strength > 0.0)) return false;
+  if (!std::isfinite(center.x) || !std::isfinite(center.y) ||
+      !std::isfinite(radius))
+    return false;
   target   = clamp01(target);
   strength = clamp01(strength);
 
   const double cw = m_rect.getLx() / m_lx, ch = m_rect.getLy() / m_ly;
-  const int i0 = std::max(0, (int)std::floor((center.x - radius - m_rect.x0) / cw));
-  const int i1 = std::min(m_lx - 1, (int)std::floor((center.x + radius - m_rect.x0) / cw));
-  const int j0 = std::max(0, (int)std::floor((center.y - radius - m_rect.y0) / ch));
-  const int j1 = std::min(m_ly - 1, (int)std::floor((center.y + radius - m_rect.y0) / ch));
+  // Clip in floating point before converting: a finite brush can extend
+  // beyond the integer range, or its bounds can overflow to infinity.
+  auto cellIndex = [](double value, int count) {
+    return (int)std::floor(std::min(double(count), std::max(-1.0, value)));
+  };
+  const int i0 =
+      std::max(0, cellIndex((center.x - radius - m_rect.x0) / cw, m_lx));
+  const int i1 =
+      std::min(m_lx - 1, cellIndex((center.x + radius - m_rect.x0) / cw, m_lx));
+  const int j0 =
+      std::max(0, cellIndex((center.y - radius - m_rect.y0) / ch, m_ly));
+  const int j1 =
+      std::min(m_ly - 1, cellIndex((center.y + radius - m_rect.y0) / ch, m_ly));
 
   bool changed = false;
   for (int j = j0; j <= j1; ++j)

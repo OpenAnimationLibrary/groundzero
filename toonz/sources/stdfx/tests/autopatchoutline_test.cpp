@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <vector>
 
 static int failures = 0;
@@ -20,6 +21,68 @@ static void check(bool condition, const char *message) {
 }
 
 static bool near(double a, double b) { return std::fabs(a - b) < 1e-6; }
+
+static void testOutlineMargin() {
+  check(autopatch::outlineMargin(0.0) == 2, "margin: wrong zero-width support");
+  check(autopatch::outlineMargin(1.0) == 3,
+        "margin: wrong whole-pixel support");
+  check(autopatch::outlineMargin(1.25) == 4,
+        "margin: fractional support is not rounded up");
+
+  const int limit      = (std::numeric_limits<int>::max)();
+  const double largest = double(limit - 2);
+  check(autopatch::outlineMargin(largest) == limit,
+        "margin: the representable boundary is rejected");
+  const double invalid[] = {
+      -1.0, std::numeric_limits<double>::quiet_NaN(),
+      std::numeric_limits<double>::infinity(),
+      (std::numeric_limits<double>::max)(),
+      std::nextafter(largest, std::numeric_limits<double>::infinity())};
+  for (double radius : invalid)
+    check(autopatch::outlineMargin(radius) == -1,
+          "margin: an unrepresentable support is accepted");
+}
+
+static void testOutlineSize() {
+  const int limit = (std::numeric_limits<int>::max)();
+  for (int pixelBytes : {4, 8, 16}) {
+    check(autopatch::canRenderOutline(320.0, 240.0, 12, pixelBytes),
+          "size: ordinary outline support is rejected");
+    const int width = limit / pixelBytes / 5 - 4;
+    check(autopatch::canRenderOutline(width, 1.0, 2, pixelBytes),
+          "size: the byte-count boundary is rejected");
+    check(!autopatch::canRenderOutline(width + 1.0, 1.0, 2, pixelBytes),
+          "size: byte-count overflow is accepted");
+    check(!autopatch::canRenderOutline(width + 0.25, 1.0, 2, pixelBytes),
+          "size: fractional dimensions bypass the byte-count boundary");
+    const int side   = int(std::sqrt(double(limit / pixelBytes)));
+    const int margin = (side - 1) / 2;
+    check(autopatch::canRenderOutline(1.0, 1.0, margin, pixelBytes),
+          "size: the largest square support is rejected");
+    check(!autopatch::canRenderOutline(1.0, 1.0, margin + 1, pixelBytes),
+          "size: an oversized square support is accepted");
+  }
+  check(!autopatch::canRenderOutline(1.0, 1.0, limit, 4),
+        "size: doubled margin overflow is accepted");
+  check(!autopatch::canRenderOutline(limit, 1.0, 2, 4),
+        "size: padded dimension overflow is accepted");
+}
+
+static void testInvalidOutlineSize() {
+  const double invalid[] = {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
+                            std::numeric_limits<double>::infinity(),
+                            (std::numeric_limits<double>::max)()};
+  for (double dimension : invalid) {
+    check(!autopatch::canRenderOutline(dimension, 1.0, 2, 4),
+          "size: invalid width is accepted");
+    check(!autopatch::canRenderOutline(1.0, dimension, 2, 4),
+          "size: invalid height is accepted");
+  }
+  check(!autopatch::canRenderOutline(1.0, 1.0, -1, 4),
+        "size: negative margin is accepted");
+  check(!autopatch::canRenderOutline(1.0, 1.0, 2, 0),
+        "size: zero pixel size is accepted");
+}
 
 // The distances agree with a brute force search on random images
 static void testDistances() {
@@ -103,6 +166,9 @@ static void testSeamAndDetail() {
 }
 
 int main() {
+  testOutlineMargin();
+  testOutlineSize();
+  testInvalidOutlineSize();
   testDistances();
   testWeights();
   testSeamAndDetail();

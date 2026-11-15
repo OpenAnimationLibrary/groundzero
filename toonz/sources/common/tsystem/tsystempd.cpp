@@ -48,6 +48,7 @@
 
 #ifdef LINUX
 #define PLATFORM LINUX
+#include "memorypressure.h"
 #include <grp.h>
 #include <utime.h>
 #include <sys/param.h>
@@ -227,13 +228,18 @@ bool TSystem::memoryShortage() {
   if (sysctl(mib, 2, &total, &len, nullptr, 0) != 0 || total == 0)
     return false;
 
-  vm_statistics64_data_t vmStats;
+  vm_statistics64_data_t vmStats{};
   mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
   vm_size_t pageSize           = 0;
-  host_page_size(mach_host_self(), &pageSize);
-  if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
-                        reinterpret_cast<host_info64_t>(&vmStats),
-                        &count) != KERN_SUCCESS)
+  const mach_port_t host       = mach_host_self();
+  if (!MACH_PORT_VALID(host)) return false;
+  const kern_return_t pageResult       = host_page_size(host, &pageSize);
+  const kern_return_t statisticsResult = host_statistics64(
+      host, HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vmStats), &count);
+  const kern_return_t releaseResult =
+      mach_port_deallocate(mach_task_self(), host);
+  if (pageResult != KERN_SUCCESS || statisticsResult != KERN_SUCCESS ||
+      releaseResult != KERN_SUCCESS || pageSize == 0)
     return false;
 
   uint64_t available = ((uint64_t)vmStats.free_count + vmStats.inactive_count +
@@ -252,22 +258,9 @@ bool TSystem::memoryShortage() {
   // with plenty of memory to spare, so it is only the fallback.
   FILE *f = fopen("/proc/meminfo", "r");
   if (!f) return false;
-  unsigned long long memTotal = 0, memAvailable = 0, memFree = 0, val = 0;
-  char line[256];
-  while (fgets(line, sizeof(line), f)) {
-    if (sscanf(line, "MemTotal: %llu kB", &val) == 1)
-      memTotal = val;
-    else if (sscanf(line, "MemFree: %llu kB", &val) == 1)
-      memFree = val;
-    else if (sscanf(line, "MemAvailable: %llu kB", &val) == 1) {
-      memAvailable = val;
-      break;  // it comes after MemTotal and MemFree
-    }
-  }
+  const bool shortage = detail::memoryShortageFromMemInfo(f);
   fclose(f);
-  if (!memTotal) return false;
-  unsigned long long available = memAvailable ? memAvailable : memFree;
-  return available < memTotal / 7;
+  return shortage;
 
 #elif defined(FREEBSD)
 

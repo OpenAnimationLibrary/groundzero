@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: staged-whitespace
+        name: Check staged whitespace
+        entry: git diff --cached --check
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: ci-check-budget
+        name: Keep automatic PR checks within budget
+        entry: ruby ci-scripts/check_ci_budget.rb
+        language: system
+        pass_filenames: false
+        always_run: true

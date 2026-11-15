@@ -901,9 +901,11 @@ static void addStroke(TTool::Application *application, const TVectorImageP &vi,
         vi->addStrokeBelow(str, aboveStyles);
         break;
       }
-      TUndoManager::manager()->add(new UndoPencil(str, fillInformation, sl, id,
-                                                  frameCreated, levelCreated,
-                                                  autoGroup, autoFill));
+      // Undo removes later splits before retiring the drawing; redo creates it
+      // first.
+      TUndoManager::manager()->add(
+          new UndoPencil(str, fillInformation, sl, id, i == 0 && frameCreated,
+                         i == 0 && levelCreated, autoGroup, autoFill));
     }
     TUndoManager::manager()->endBlock();
   } else {

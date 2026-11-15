@@ -7,12 +7,22 @@
 #include "trasterimage.h"
 #include "trastercm.h"
 #include "ttoonzimage.h"
+#include "tsystem.h"
+
+#ifdef LINUX
+#include "memorypressure.h"
+#endif
+#ifdef MACOSX
+#include <mach/mach.h>
+#endif
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
 
 #include <cstddef>
+#include <cstdio>
 #include <iostream>
+#include <memory>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -22,6 +32,61 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
+
+#ifdef LINUX
+void testLinuxMemoryPressure() {
+  struct Case {
+    const char* contents;
+    bool shortage;
+  };
+  const Case cases[] = {
+      {"MemTotal: 7000 kB\nMemFree: 2000 kB\nMemAvailable: 0 kB\n", true},
+      {"MemTotal: 7000 kB\nMemFree: 0 kB\nMemAvailable: 2000 kB\n", false},
+      {"MemTotal: 7000 kB\nMemFree: 2000 kB\n", false},
+      {"MemTotal: 7000 kB\nMemFree: 999 kB\n", true},
+      {"MemTotal: 7000 kB\nMemAvailable: 999 kB\n", true},
+      {"MemTotal: 7000 kB\nMemAvailable: 1000 kB\n", false},
+      {"MemTotal: 0 kB\nMemAvailable: 0 kB\n", false},
+      {"MemFree: 0 kB\nMemAvailable: 0 kB\n", false},
+      {"", false},
+      {"MemTotal: 7000 kB\nMemFree: 2000 kB\nMemAvailable: unknown\n", false},
+      {"MemTotal: unknown\nMemAvailable: 0 kB\n", false}};
+  for (const auto& entry : cases) {
+    std::unique_ptr<std::FILE, decltype(&std::fclose)> input(std::tmpfile(),
+                                                             &std::fclose);
+    require(input != nullptr, "Cannot create the memory-pressure input file");
+    require(std::fputs(entry.contents, input.get()) >= 0,
+            "Cannot write the memory-pressure input file");
+    std::rewind(input.get());
+    require(TSystem::detail::memoryShortageFromMemInfo(input.get()) ==
+                entry.shortage,
+            "Memory pressure used the wrong available-memory value");
+  }
+}
+#endif
+
+#ifdef MACOSX
+void testMacMemoryPressurePortOwnership() {
+  struct HostRight {
+    mach_port_t name = mach_host_self();
+    ~HostRight() {
+      if (MACH_PORT_VALID(name)) mach_port_deallocate(mach_task_self(), name);
+    }
+  } host;
+  require(MACH_PORT_VALID(host.name), "Cannot acquire the host send right");
+  mach_port_urefs_t before = 0;
+  require(mach_port_get_refs(mach_task_self(), host.name, MACH_PORT_RIGHT_SEND,
+                             &before) == KERN_SUCCESS,
+          "Cannot inspect the host send-right reference count");
+  for (int cycle = 0; cycle < 64; ++cycle) TSystem::memoryShortage();
+  mach_port_urefs_t after = 0;
+  require(mach_port_get_refs(mach_task_self(), host.name, MACH_PORT_RIGHT_SEND,
+                             &after) == KERN_SUCCESS,
+          "Cannot inspect host references after memory-pressure queries");
+  require(after == before,
+          "Memory-pressure queries retained host send-right references");
+}
+#endif
 
 template <class Pixel>
 class ReusedRaster final : public TRasterT<Pixel> {
@@ -128,6 +193,21 @@ void testRefreshedAndRemappedHistory(TImageCache *cache) {
   cache->clear();
 }
 
+template <class Pixel>
+void testRepeatedCompressedRemoval(TImageCache* cache, const Pixel& first,
+                                   const Pixel& second) {
+  const std::string id = "repeated-compressed-image";
+  for (int cycle = 0; cycle < 64; ++cycle) {
+    const Pixel& expected = cycle % 2 ? second : first;
+    cache->add(id, makeImage(expected));
+    cache->compress(id);
+    expectImage(cache, id, expected);
+    cache->remove(id);
+    require(!cache->isCached(id) && !cache->get(id, false),
+            "removed compressed image survived a cache cycle");
+  }
+}
+
 void testIconPrefixRemap(TImageCache *cache) {
   const TPixel32 selected(17, 37, 57, 255);
   const TPixel32 unrelated(71, 73, 75, 255);
@@ -166,6 +246,12 @@ int main(int argc, char *argv[]) {
   QTemporaryDir directory;
   TImageCache *cache = TImageCache::instance();
   try {
+#ifdef LINUX
+    testLinuxMemoryPressure();
+#endif
+#ifdef MACOSX
+    testMacMemoryPressurePortOwnership();
+#endif
     require(directory.isValid(), "Cannot create the cache test directory");
     cache->setRootDir(TFilePath(directory.path().toStdWString()));
     // Exercise compression with unrelated resident history entries present.
@@ -181,8 +267,12 @@ int main(int argc, char *argv[]) {
     cache->clear();
     testRefreshedAndRemappedHistory(cache);
     testIconPrefixRemap(cache);
+    testRepeatedCompressedRemoval(cache, TPixel32(10, 20, 30, 255),
+                                  TPixel32(200, 150, 100, 255));
+    testRepeatedCompressedRemoval(cache, TPixelCM32(1, 2, 255),
+                                  TPixelCM32(3, 4, 127));
     cache->clear(true);
-    std::cout << "Image cache compression tests passed\n";
+    std::cout << "Image cache compression tests passed" << std::endl;
     return 0;
   } catch (const std::exception &error) {
     cache->clear(true);

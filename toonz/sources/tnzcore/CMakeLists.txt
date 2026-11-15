@@ -9,6 +9,7 @@ set(MOC_HEADERS
 )
 
 set(HEADERS ${MOC_HEADERS}
+    ../common/tsystem/memorypressure.h
     ../common/trop/loop_macros.h
     ../common/trop/optimize_for_lp64.h
     ../common/trop/quickputP.h
@@ -273,6 +274,17 @@ ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 add_library(tnzcore SHARED ${HEADERS} ${SOURCES})
 if(BUILD_UI_PORT_TESTS)
     target_compile_definitions(tnzcore PRIVATE BUILD_UI_PORT_TESTS)
+    if(WIN32)
+        target_sources(tnzcore PRIVATE
+            ../include/tsoundwindowsownershiptest.h
+            ../common/tsound/tsoundwindowsownershiptest.inc
+        )
+    else()
+        target_sources(tnzcore PRIVATE
+            ../include/tsoundownershiptest.h
+            ../common/tsound/tsoundownershiptest.inc
+        )
+    endif()
 endif()
 
 if(WITH_TRANSLATION)

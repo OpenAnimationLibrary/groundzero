@@ -16,6 +16,7 @@ class TFarmTask;
 class TaskTreeView;
 class QListWidgetItem;
 class QComboBox;
+class QPushButton;
 
 class TaskTreeModel final : public TreeModel {
   Q_OBJECT
@@ -102,6 +103,7 @@ class TaskSheet final : public QScrollArea {
   QFrame *m_boxComposer;
 
   TFarmTask *m_task;
+  QString m_taskId;
   DVGui::LineEdit *m_name;
   DVGui::LineEdit *m_priority;
   DVGui::LineEdit *m_from;
@@ -125,11 +127,18 @@ class TaskSheet final : public QScrollArea {
   QLabel *m_succSteps;
   QListWidget *m_addedBox;
   QListWidget *m_notAddedBox;
+  QPushButton* m_addDependency;
+  QPushButton* m_removeDependency;
   DVGui::CheckBox *m_visible;
   QComboBox *m_overwrite;
   QComboBox *m_multimedia;
   QComboBox *m_threadsCombo;
   QComboBox *m_rasterGranularityCombo;
+
+  bool canEditCurrentTask();
+  void setEditable(bool editable);
+  void applyChunkSettings(int from, int to, int chunkSize,
+                          const TFilePath& outputPath);
 
 protected slots:
 
@@ -154,8 +163,7 @@ protected slots:
 
 public:
   TaskSheet(TasksViewer *owner);
-  void update(TFarmTask *task);
-  void updateChunks(TFarmTask *task);
+  void update(TFarmTask* task);
   TFarmTask *getCurrentTask() { return m_task; }
 };
 

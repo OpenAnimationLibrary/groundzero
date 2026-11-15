@@ -26,6 +26,10 @@
 #include "toonz/tcolumnfx.h"
 
 #include "pluginhost.h"
+#include "plugin_parameter_storage.h"
+#ifdef BUILD_RELIABILITY_TESTS
+#include "tests/plugin_controller_lifetime.h"
+#endif
 #include "toonz_plugin.h"
 #include "toonz_hostif.h"
 #include "toonz_params.h"
@@ -33,8 +37,6 @@
 #include "plugin_port_interface.h"
 #include "plugin_fxnode_interface.h"
 #include "plugin_param_interface.h"
-#include "plugin_param_view_interface.h"
-#include "plugin_ui_page_interface.h"
 #include "plugin_utilities.h"
 #include <QFileInfo>
 #include <QDir>
@@ -70,7 +72,10 @@ bool PluginLoader::load_entries(const std::string &basepath) {
     aw = new PluginLoadController(basepath, NULL);
   }
   bool ret = aw->wait(16 /* ms */);
-  if (ret) aw = NULL; /* should be deleted by deleteLater */
+  if (ret) {
+    delete aw;
+    aw = nullptr;
+  }
   return ret;
 }
 
@@ -167,30 +172,6 @@ PluginDescription::PluginDescription(const plugin_probe_t *const probe) {
 RasterFxPluginHost::RasterFxPluginHost(PluginInformation *pinfo)
     : TRasterFx(), pi_(pinfo), user_data_(nullptr) {
   pi_->add_ref();
-}
-
-static int create_param_view(toonz_node_handle_t node,
-                             toonz_param_view_handle_t *view) {
-  ParamView *p = NULL;
-  try {
-    RasterFxPluginHost *fx = reinterpret_cast<RasterFxPluginHost *>(node);
-    if (!fx) {
-      printf("create_param_view: invalid toonz_node_handle_t\n");
-      return TOONZ_ERROR_INVALID_HANDLE;
-    }
-
-    if ((p = fx->createParamView())) {
-      *view = p;
-    } else {
-      printf("create_param_view: invalid param name");
-      return TOONZ_ERROR_FAILED_TO_CREATE;
-    }
-  } catch (const std::exception &e) {
-    printf("create_param_view: exception: %s\n", e.what());
-    delete p;
-    return TOONZ_ERROR_UNKNOWN;
-  }
-  return TOONZ_OK;
 }
 
 static int setup_input_port(toonz_node_handle_t node, const char *name,
@@ -305,54 +286,6 @@ static int set_rect(toonz_rect_t *rect, double x0, double y0, double x1,
   return 0;
 }
 
-static int add_preference(toonz_node_handle_t node, const char *name,
-                          toonz_ui_page_handle_t *ui) {
-  UIPage *p = NULL;
-  try {
-    RasterFxPluginHost *fx = reinterpret_cast<RasterFxPluginHost *>(node);
-    if (!fx) {
-      printf("add_preference: invalid toonz_node_handle_t\n");
-      return TOONZ_ERROR_INVALID_HANDLE;
-    }
-
-    if ((p = fx->createUIPage(name))) {
-      *ui = p;
-    } else {
-      printf("add_preference: failed to get UIPage\n");
-      return TOONZ_ERROR_FAILED_TO_CREATE;
-    }
-  } catch (const std::exception &e) {
-    printf("add_preference: exception: %s\n", e.what());
-    delete p;
-    return TOONZ_ERROR_UNKNOWN;
-  }
-  return TOONZ_OK;
-}
-
-static int add_param(toonz_node_handle_t node, const char *name, int type,
-                     toonz_param_handle_t *param) {
-  Param *p = NULL;
-  try {
-    RasterFxPluginHost *fx = reinterpret_cast<RasterFxPluginHost *>(node);
-    if (!fx) {
-      printf("add_param: invalid toonz_node_handle_t\n");
-      return TOONZ_ERROR_INVALID_HANDLE;
-    }
-
-    if ((p = fx->createParam(name, toonz_param_type_enum(type)))) {
-      *param = p;
-    } else {
-      printf("add_param: invalid type");
-      return TOONZ_ERROR_FAILED_TO_CREATE;
-    }
-  } catch (const std::exception &e) {
-    printf("add_param: exception: %s\n", e.what());
-    delete p;
-    return TOONZ_ERROR_UNKNOWN;
-  }
-  return TOONZ_OK;
-}
-
 static int get_param(toonz_node_handle_t node, const char *name,
                      toonz_param_handle_t *param) {
   try {
@@ -410,8 +343,8 @@ void RasterFxPluginHost::notify() {
 }
 
 RasterFxPluginHost::~RasterFxPluginHost() {
-  if (pi_ && pi_->handler_->destroy) {
-    pi_->handler_->destroy(this);
+  if (pi_) {
+    if (pi_->handler_ && pi_->handler_->destroy) pi_->handler_->destroy(this);
     pi_->release();
   }
   inputs_.clear();
@@ -423,8 +356,9 @@ RasterFxPluginHost::~RasterFxPluginHost() {
   placed in FxsData::m_fxs and usually deleted immediately together with the
   FxsData instance.
 */
-TFx *RasterFxPluginHost::clone(bool recursive) const {
-  RasterFxPluginHost *plugin = newInstance(pi_);
+TFx* RasterFxPluginHost::clone(bool recursive) const {
+  RasterFxPluginHost* plugin = newInstance(pi_);
+  plugin->parameters_        = parameters_;
   plugin->user_data_         = user_data_;
   // clone ports before TFx::clone().
   for (auto &ip : pi_->port_mapper_) {
@@ -446,8 +380,6 @@ TFx *RasterFxPluginHost::clone(bool recursive) const {
 
   printf("recursive:%d params:%d\n", (int)recursive, (int)params_.size());
   // clone params before TFx::clone().
-  /* ui_pages_, param_views_ have moved to pi, but we still need to call
-     createParam() otherwise Fx Settings construction will assert failed. */
   for (auto const &param : params_) {
     /* The old createParam() did not take a desc and cannot recreate T*Param
        types that have default values at construction. */
@@ -587,23 +519,6 @@ void RasterFxPluginHost::callEndRenderFrameHandler(const TRenderSettings *rs,
 
 std::string RasterFxPluginHost::getUrl() const { return pi_->desc_->url_; }
 
-UIPage *RasterFxPluginHost::createUIPage(const char *name) {
-  pi_->ui_pages_.push_back(NULL);
-  pi_->ui_pages_.back() = new UIPage(name);
-  return pi_->ui_pages_.back();
-}
-
-// deprecated. for migration.
-Param *RasterFxPluginHost::createParam(const char *name,
-                                       toonz_param_type_enum e) {
-  toonz_param_desc_t *desc = new toonz_param_desc_t;
-  memset(desc, 0, sizeof(toonz_param_desc_t));
-  desc->base.ver   = {1, 0};
-  desc->key        = name;
-  desc->traits_tag = e;
-  return createParam(desc);
-}
-
 Param *RasterFxPluginHost::createParam(const toonz_param_desc_t *desc) {
   TParamP p = parameter_factory(desc);
   if (!p) return nullptr;
@@ -628,19 +543,24 @@ Param *RasterFxPluginHost::getParam(const char *name) const {
   return nullptr;
 }
 
-ParamView *RasterFxPluginHost::createParamView() {
-  pi_->param_views_.push_back(NULL);
-  pi_->param_views_.back() = new ParamView();
-  return pi_->param_views_.back();
-}
-
-/* The GUI built by build() is not tied to the plugin instance.
-   It is usually called once and reused. */
+// Viewers reuse pages within a descriptor generation and retain their bound
+// hosts.
 void RasterFxPluginHost::build(ParamsPageSet *pages) {
-  printf(">>>> RasterFxPluginHost::build: ui_pages:%d\n",
-         (int)pi_->ui_pages_.size());
-  for (std::size_t i = 0, size = pi_->ui_pages_.size(); i < size; ++i) {
-    pi_->ui_pages_[i]->build(this, pages);
+  if (parameters_) {
+    for (const auto& description : parameters_->pages()) {
+      auto* page = pages->createParamsPage();
+      for (int group = 0; group < description.num; ++group) {
+        const auto& fields = description.array[group];
+        page->beginGroup(fields.base.label);
+        for (int field = 0; field < fields.num; ++field) {
+          if (auto* widget = page->newParamField(this, fields.array[field].key))
+            page->addWidget(widget);
+        }
+        page->endGroup();
+      }
+      pages->addParamsPage(page, description.base.label);
+      page->setPageSpace();
+    }
   }
   auto aboutpage = pages->createParamsPage();
 
@@ -707,222 +627,93 @@ static int check_base_sanity(const toonz_param_desc_t *p) {
   return err;
 }
 
-bool RasterFxPluginHost::setParamStructure(int n, toonz_param_page_t *p,
-                                           int &err, void *&pos) {
-  /* Reasonable maximum values: if too large, suspect memory corruption */
-  static const int max_pages_  = 31;
-  static const int max_groups_ = 32;
-  static const int max_params_ = 65535;
+int RasterFxPluginHost::validateParameter(
+    const toonz_param_desc_t& parameter) const {
+  int error = check_base_sanity(&parameter);
+  if (!parameter.key) return error | TOONZ_PARAM_ERROR_NO_KEY;
+  if (!validateKeyName(parameter.key)) error |= TOONZ_PARAM_ERROR_KEY_NAME;
+  if (getParam(parameter.key)) error |= TOONZ_PARAM_ERROR_KEY_DUP;
+  if (parameter.reserved_[0] || parameter.reserved_[1])
+    error |= TOONZ_PARAM_ERROR_POLLUTED;
+  return error | check_traits_sanity(&parameter);
+}
 
-  pos = p;
-  if (pi_) {
-    if (n > max_pages_ || p == NULL) {
-      /* parameter should be non-null as checked above; error not defined here
-       */
-      if (p == NULL) err |= TOONZ_PARAM_ERROR_UNKNOWN;
-      err |= TOONZ_PARAM_ERROR_PAGE_NUM;
-      return false;
-    }
-
-    /* SANity value check */
-    for (int k = 0; k < n; k++) {
-      toonz_param_page_t *pg = &p[k];
-      pos                    = pg;
-      if (int e = check_base_sanity(pg)) {
-        err = e;
-        return false;
-      }
-      if (pg->num > max_groups_) {
-        err |= TOONZ_PARAM_ERROR_GROUP_NUM;
-        return false;
-      }
-
-      for (int l = 0; l < pg->num; l++) {
-        toonz_param_group_t *grp = &pg->array[l];
-        pos                      = grp;
-        if (int e = check_base_sanity(grp)) {
-          err = e;
-          return false;
-        }
-        if (grp->num > max_params_) {
-          err |= TOONZ_PARAM_ERROR_GROUP_NUM;
-          return false;
-        }
-        for (int i = 0; i < grp->num; i++) {
-          toonz_param_desc_t *desc = &grp->array[i];
-          pos                      = desc;
-          if (int e = check_base_sanity(desc)) err |= e;
-          if (desc->key == NULL)
-            err |= TOONZ_PARAM_ERROR_NO_KEY;
-          else {
-            if (!validateKeyName(desc->key)) err |= TOONZ_PARAM_ERROR_KEY_NAME;
-            for (auto it : params_) {
-              if (it->name() == desc->key) {
-                err |= TOONZ_PARAM_ERROR_KEY_DUP;
-                break;
-              }
-            }
-          }
-          if (desc->reserved_[0] ||
-              desc->reserved_[1])  // reserved fields must be zero
-            err |= TOONZ_PARAM_ERROR_POLLUTED;
-          err |= check_traits_sanity(desc);
-
-          if (err) return false;
-        }
-      }
-    }
-
-    if (err) return false;
-
-    // deep copy param resources
-    std::vector<std::shared_ptr<void>> &param_resources = pi_->param_resources_;
-    std::vector<std::shared_ptr<std::string>> &strtbl = pi_->param_string_tbl_;
-
-    auto patch_string = [&](const char *srcstr) {
-      strtbl.push_back(std::shared_ptr<std::string>(new std::string("")));
-      if (srcstr) strtbl.back()->assign(srcstr);
-      return strtbl.back()->c_str();
-    };
-
-    auto deep_copy_base = [&](toonz_param_base_t_ &dst,
-                              const toonz_param_base_t_ &src) {
-      dst.ver   = src.ver;
-      dst.type  = src.type;
-      dst.label = patch_string(src.label);
-    };
-
-    param_resources.clear();
-
-    std::unique_ptr<toonz_param_page_t[]> origin_pages(
-        new toonz_param_page_t[n]);
-    for (int i = 0; i < n; i++) {
-      toonz_param_page_t &dst_page       = origin_pages[i];
-      const toonz_param_page_t &src_page = p[i];
-
-      deep_copy_base(dst_page.base, src_page.base);
-
-      const int group_num = dst_page.num = src_page.num;
-      dst_page.array                     = new toonz_param_group_t[group_num];
-
-      for (int j = 0; j < group_num; j++) {
-        toonz_param_group_t &dst_group       = dst_page.array[j];
-        const toonz_param_group_t &src_group = src_page.array[j];
-
-        deep_copy_base(dst_group.base, src_group.base);
-
-        const int desc_num = dst_group.num = src_group.num;
-        dst_group.array                    = new toonz_param_desc_t[desc_num];
-        for (int k = 0; k < desc_num; k++) {
-          toonz_param_desc_t &dst_desc       = dst_group.array[k];
-          const toonz_param_desc_t &src_desc = src_group.array[k];
-
-          deep_copy_base(dst_desc.base, src_desc.base);  // base
-
-          dst_desc.key  = patch_string(src_desc.key);   // key
-          dst_desc.note = patch_string(src_desc.note);  // note
-          memcpy(dst_desc.reserved_, src_desc.reserved_,
-                 sizeof(src_desc.reserved_));         // reserved fields
-          dst_desc.traits_tag = src_desc.traits_tag;  // tag
-
-          // traits
-          if (dst_desc.traits_tag == TOONZ_PARAM_TYPE_ENUM) {
-            dst_desc.traits.e.def = src_desc.traits.e.def;
-            int enums = dst_desc.traits.e.enums = src_desc.traits.e.enums;
-            auto a = std::shared_ptr<void>(new char *[enums]);
-            param_resources.push_back(a);
-            dst_desc.traits.e.array = static_cast<const char **>(a.get());
-            for (int i = 0; i < enums; i++)
-              dst_desc.traits.e.array[i] =
-                  patch_string(src_desc.traits.e.array[i]);
-          } else if (dst_desc.traits_tag == TOONZ_PARAM_TYPE_SPECTRUM) {
-            int points = dst_desc.traits.g.points = src_desc.traits.g.points;
-            auto ptr                              = std::shared_ptr<void>(
-                new toonz_param_traits_spectrum_t::valuetype[points]);
-            param_resources.push_back(ptr);
-            dst_desc.traits.g.array =
-                static_cast<toonz_param_traits_spectrum_t::valuetype *>(
-                    ptr.get());
-
-            for (int i = 0; i < dst_desc.traits.g.points; i++)
-              memcpy(&dst_desc.traits.g.array[i], &src_desc.traits.g.array[i],
-                     sizeof(toonz_param_traits_spectrum_t::valuetype));
-          } else if (dst_desc.traits_tag == TOONZ_PARAM_TYPE_STRING) {
-            dst_desc.traits.s.def = patch_string(src_desc.traits.s.def);
-          } else if (dst_desc.traits_tag == TOONZ_PARAM_TYPE_TONECURVE) {
-            /* has no default values */
-          } else {
-            memcpy(&dst_desc.traits, &src_desc.traits, sizeof(src_desc.traits));
-          }
-        }
-      }
-    }
-
-    pi_->param_page_num_ = n;
-    pi_->param_pages_    = std::move(origin_pages);
-    return true;
+int RasterFxPluginHost::validateGroup(const toonz_param_group_t& group,
+                                      void*& position) const {
+  int error = check_base_sanity(&group);
+  if (error) return error;
+  if (group.num < 0 || group.num > 65535) return TOONZ_PARAM_ERROR_GROUP_NUM;
+  if (group.num && !group.array) return TOONZ_PARAM_ERROR_ARRAY;
+  for (int index = 0; index < group.num; ++index) {
+    position = &group.array[index];
+    if (int problem = validateParameter(group.array[index])) return problem;
   }
-  return false;
+  return 0;
+}
+
+int RasterFxPluginHost::validatePage(const toonz_param_page_t& page,
+                                     void*& position) const {
+  int error = check_base_sanity(&page);
+  if (error) return error;
+  if (page.num < 0 || page.num > 32) return TOONZ_PARAM_ERROR_GROUP_NUM;
+  if (page.num && !page.array) return TOONZ_PARAM_ERROR_ARRAY;
+  for (int index = 0; index < page.num; ++index) {
+    position = &page.array[index];
+    if (int problem = validateGroup(page.array[index], position))
+      return problem;
+  }
+  return 0;
+}
+
+bool RasterFxPluginHost::setParamStructure(int count, toonz_param_page_t* pages,
+                                           int& error, void*& position) {
+  position = pages;
+  if (!pi_) return false;
+  if (count < 0 || count > 31 || !pages) {
+    error |= TOONZ_PARAM_ERROR_PAGE_NUM;
+    return false;
+  }
+  for (int index = 0; index < count; ++index) {
+    position = &pages[index];
+    error |= validatePage(pages[index], position);
+    if (error) return false;
+  }
+  if (error) return false;
+  std::shared_ptr<const PluginParameterStorage> generation =
+      std::make_shared<PluginParameterStorage>(count, pages);
+  std::atomic_store(&pi_->parameters_, std::move(generation));
+  return true;
+}
+
+static void initializeParameter(Param* parameter,
+                                const toonz_param_desc_t* description) {
+  set_param_default<tpbind_dbl_t>(parameter, description);
+  set_param_default<tpbind_int_t>(parameter, description);
+  set_param_default<tpbind_rng_t>(parameter, description);
+  set_param_default<tpbind_pnt_t>(parameter, description);
+  set_param_default<tpbind_enm_t>(parameter, description);
+  set_param_default<tpbind_col_t>(parameter, description);
+  set_param_default<tpbind_bool_t>(parameter, description);
+  set_param_default<tpbind_str_t>(parameter, description);
+  set_param_default<tpbind_spc_t>(parameter, description);
+  set_param_default<tpbind_tcv_t>(parameter, description);
+  set_param_range<tpbind_dbl_t>(parameter, description);
+  set_param_range<tpbind_int_t>(parameter, description);
+  set_param_range<tpbind_rng_t>(parameter, description);
+  set_param_range<tpbind_pnt_t>(parameter, description);
 }
 
 void RasterFxPluginHost::createParamsByDesc() {
-  printf("RasterFxPluginHost::createParamsByDesc: num:%d\n",
-         pi_->param_page_num_);
-  for (int k = 0; k < pi_->param_page_num_; k++) {
-    toonz_param_page_t *pg = &pi_->param_pages_[k];
-    void *page             = NULL;
-    int r                  = add_preference(this, pg->base.label, &page);
-    printf(
-        "RasterFxPluginHost::createParamsByDesc: add_preference: r:0x%x "
-        "page:%p\n",
-        r, page);
-
-    for (int l = 0; l < pg->num; l++) {
-      toonz_param_group_t *grp = &pg->array[l];
-      begin_group(page, grp->base.label);
-
-      for (int i = 0; i < grp->num; i++) {
-        toonz_param_desc_t *desc = &grp->array[i];
-        Param *p                 = createParam(desc);
-        printf("RasterFxPluginHost::createParam: p:%p key:%s tag:%d\n", p,
-               desc->key, desc->traits_tag);
-        if (p) {
-          void *v = NULL;
-          int r   = create_param_view(this, &v);
-          printf(
-              "RasterFxPluginHost::createParam: create_param_view: r:0x%x "
-              "v:%p\n",
-              r, v);
-          r = add_param_field(v, NULL);
-          printf(
-              "RasterFxPluginHost::createParam: add_param_field: r:0x%x v:%p "
-              "p:%p\n",
-              r, v, p);
-          /* set_param_range() does type checking, so it's safe to call for all
-             types */
-
-          r = bind_param(page, p, v);
-
-          set_param_default<tpbind_dbl_t>(p, desc);
-          set_param_default<tpbind_int_t>(p, desc);
-          set_param_default<tpbind_rng_t>(p, desc);
-          set_param_default<tpbind_pnt_t>(p, desc);
-          set_param_default<tpbind_enm_t>(p, desc);
-          set_param_default<tpbind_col_t>(p, desc);
-          set_param_default<tpbind_bool_t>(p, desc);
-          set_param_default<tpbind_str_t>(p, desc);
-          set_param_default<tpbind_spc_t>(p, desc);
-          set_param_default<tpbind_tcv_t>(p, desc);
-
-          set_param_range<tpbind_dbl_t>(p, desc);
-          set_param_range<tpbind_int_t>(p, desc);
-          set_param_range<tpbind_rng_t>(p, desc);
-          set_param_range<tpbind_pnt_t>(p, desc);
-
-          printf("RasterFxPluginHost::createParam: bind_param: r:0x%x\n", r);
-        }
+  parameters_ = std::atomic_load(&pi_->parameters_);
+  if (!parameters_) return;
+  for (const auto& page : parameters_->pages()) {
+    for (int group = 0; group < page.num; ++group) {
+      const auto& fields = page.array[group];
+      for (int index = 0; index < fields.num; ++index) {
+        const auto* description = &fields.array[index];
+        if (auto* parameter = createParam(description))
+          initializeParameter(parameter, description);
       }
-      end_group(page, grp->base.label);
     }
   }
 }
@@ -1090,12 +881,8 @@ static inline bool uuid_matches(const UUID *x, const UUID *y) {
 static UUID uuid_nodal_ = {0xCC14EA21, 0x13D8, 0x4A3B, 0x9375, 0xAA4F68C9DDDD};
 static UUID uuid_port_  = {0x2F89A423, 0x1D2D, 0x433F, 0xB93E, 0xCFFD83745F6F};
 static UUID uuid_tile_  = {0x882BD525, 0x937E, 0x427C, 0x9D68, 0x4ECA651F6562};
-// static UUID uuid_ui_page_ = {0xD2EF0310, 0x3414, 0x4753, 0x84CA,
-// 0xD5447C70DD89};
 static UUID uuid_fx_node_ = {0x26F9FC53, 0x632B, 0x422F, 0x87A0,
                              0x8A4547F55474};
-// static UUID uuid_param_view_ = {0x5133A63A, 0xDD92, 0x41BD, 0xA255,
-// 0x6F97BE7292EA};
 static UUID uuid_param_ = {0x2E3E4A55, 0x8539, 0x4520, 0xA266, 0x15D32189EC4D};
 static UUID uuid_setup_ = {0xcfde9107, 0xc59d, 0x414c, 0xae4a, 0x3d115ba97933};
 static UUID uuid_null_  = {0, 0, 0, 0, 0};
@@ -1210,9 +997,7 @@ static int query_interface(const UUID *uuid, void **interf) {
   static const uuid_dict_t dict[] = {
       uuid_dict_t(&uuid_nodal_, 1), uuid_dict_t(&uuid_port_, 2),
       uuid_dict_t(&uuid_tile_, 3),
-      // uuid_dict_t(&uuid_ui_page_, 4),
       uuid_dict_t(&uuid_fx_node_, 5),
-      // uuid_dict_t(&uuid_param_view_, 6),
       uuid_dict_t(&uuid_param_, 7), uuid_dict_t(&uuid_setup_, 8),
       uuid_dict_t(&uuid_null_, 0)};
 
@@ -1232,15 +1017,9 @@ static int query_interface(const UUID *uuid, void **interf) {
         case 3:
           *interf = interface_factory<toonz_tile_interface_t, 1, 0>();
           break;
-        // case 4:
-        //	*interf = interface_factory< toonz_ui_page_interface_t, 1, 0
-        //>(); 	break;
         case 5:
           *interf = interface_factory<toonz_fxnode_interface_t, 1, 0>();
           break;
-        // case 6:
-        //*interf = interface_factory< toonz_param_view_interface_t, 1, 0 >();
-        // break;
         case 7:
           *interf = interface_factory<toonz_param_interface_t, 1, 0>();
           break;
@@ -1267,7 +1046,9 @@ static void release_interface(void *interf) {
   // All interfaces are static global, nothing to delete
 }
 
-Loader::Loader() {}
+Loader::Loader() {
+  qRegisterMetaType<PluginInformation*>("PluginInformation*");
+}
 
 void Loader::walkDirectory(const QString &path) {
   Q_UNUSED(path);
@@ -1376,9 +1157,6 @@ void Loader::doLoad(const QString &file) {
           else if (begin >= end)
             throw std::domain_error(
                 "invalid plugin information address (begin >= end)");
-          else if (begin == end - 1)
-            throw std::domain_error(
-                "invalid plugin information address (information is empty)");
           probinfo_begin = begin;
           probinfo_end   = end;
         } else {
@@ -1510,21 +1288,21 @@ PluginLoadController::PluginLoadController(const std::string &basedir,
 
   ld->moveToThread(&work_entity);
   connect(&work_entity, &QThread::finished, ld, &QObject::deleteLater);
-  /* Was called from AddFxContextMenu, but now plugin search is done at startup
-     via load_entries(). To keep backward compatibility, we distinguish
-     receivers based on presence of listener. If listener exists, connect to
-     AddFxContextMenu::fixup() for context menu building; otherwise connect to
-     PluginLoadController::finished() to add to plugin_dict_. */
+  connect(ld, &Loader::fixup, this, &PluginLoadController::finished);
+  // Startup polling owns its controller until wait() succeeds. Menu requests
+  // must retire independently of whether their listener is still alive.
   if (listener) {
     AddFxContextMenu *a = qobject_cast<AddFxContextMenu *>(listener);
     connect(ld, &Loader::fixup, a, &AddFxContextMenu::fixup);
     connect(this, &PluginLoadController::start, ld, &Loader::walkDictionary);
+    connect(&work_entity, &QThread::finished, this, &QObject::deleteLater);
   } else {
     connect(this, &PluginLoadController::start, ld, &Loader::walkDirectory);
     connect(ld, &Loader::load_finished, this, &PluginLoadController::result);
-    if (!connect(ld, &Loader::fixup, this, &PluginLoadController::finished))
-      assert(false);
   }
+#ifdef BUILD_RELIABILITY_TESTS
+  observePluginControllerForTest(this, ld, &work_entity);
+#endif
   work_entity.start();
 
   QString pluginbase = (TEnv::getStuffDir() + "plugins").getQString();

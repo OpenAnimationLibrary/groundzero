@@ -42,11 +42,8 @@ public:
   //! Returns a painting of weight 0 over rect, of lx x ly cells.
   static TDeformerWeightPainting make(const TRectD &rect, int lx, int ly);
 
-  //! Returns whether the painting has no cells.
-  bool isEmpty() const {
-    return m_lx <= 0 || m_ly <= 0 || (int)m_values.size() != m_lx * m_ly ||
-           !(m_rect.x1 > m_rect.x0) || !(m_rect.y1 > m_rect.y0);
-  }
+  //! Returns whether the painting has no cells or invalid grid geometry.
+  bool isEmpty() const;
 
   //! Returns the weight at p, in [0, 1]: 0 outside the rect.
   double weightAt(const TPointD &p) const;

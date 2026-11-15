@@ -3,10 +3,11 @@ name: Linux Qt 6 (experimental)
 # Tracks the Qt 6 port. Qt 5 stays the default and is what the other workflows
 # build; this job configures with -DOT_QT_MAJOR_VERSION=6 and then builds with
 # "ninja -k 0", which is expected to fail until the port is done. It never
-# runs on pull requests (started by hand only, so PRs keep the single Linux
-# check): the error counts in the job summary and the uploaded logs measure
+# runs on pull requests (started by hand only, so PRs keep the Linux application
+# and installed-package checks): error counts in the summary and uploaded logs measure
 # progress.
-on:
+# Manual port checks use isolated runners and run-scoped artifacts; allow parallel runs.
+on: # zizmor: ignore[concurrency-limits]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +19,9 @@ jobs:
     continue-on-error: true
     timeout-minutes: 180
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Install libraries
       # Same as workflow_linux.yml with the Qt 5 packages replaced by their
@@ -32,7 +35,7 @@ jobs:
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
 
-    - uses: actions/cache@v5
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-qt6-${{ github.sha }}
@@ -43,7 +46,7 @@ jobs:
       run: |
         cd thirdparty/tiff-4.0.3
         CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
-        make -j $(nproc)
+        make -j "$(nproc)"
 
     - name: Configure
       shell: bash
@@ -77,7 +80,7 @@ jobs:
         tail -n 100 build.log
         exit $status
 
-    - uses: actions/upload-artifact@v6
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: always()
       with:
         name: Qt6-build-logs-${{ github.sha }}

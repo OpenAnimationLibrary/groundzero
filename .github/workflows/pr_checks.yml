@@ -11,46 +11,102 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  scan:
-    name: No PII
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: ./.github/workflows/no_pii.yml
-
-  # Run extended qualification from the platform, Neural Style, or SeExpr
-  # workflows when needed. Keep the application and installed-package tests here.
+  # Extended runtime matrices remain available through nightly/manual workflows.
+  # Keep all platform application and installed-package assertions in this run.
   linux:
     name: Linux Build
-    uses: ./.github/workflows/workflow_linux.yml
-    with:
-      baseline_only: true
+    uses: ./.github/workflows/workflow_linux.yml # zizmor: ignore[self-repository]
 
   macos:
     name: macOS Build
-    uses: ./.github/workflows/workflow_macos.yml
-    with:
-      baseline_only: true
+    uses: ./.github/workflows/workflow_macos.yml # zizmor: ignore[self-repository]
 
   windows:
     name: Windows Build
-    uses: ./.github/workflows/workflow_windows.yml
-    with:
-      baseline_only: true
+    uses: ./.github/workflows/workflow_windows.yml # zizmor: ignore[self-repository]
 
   required:
     name: Required checks
-    needs: [scan, linux, macos, windows]
+    needs: [linux, macos, windows]
     if: always()
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write # Remove private session links before scanning the description.
+    concurrency:
+      group: no-pii-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     env:
-      SCAN: ${{ needs.scan.result }}
-      LINUX: ${{ needs.linux.result }}
-      MACOS: ${{ needs.macos.result }}
-      WINDOWS: ${{ needs.windows.result }}
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
     steps:
-      - name: Verify all baseline checks passed
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Read pull request metadata
         run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pii"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pii/pull-request.json"
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "pii"
+          pr = json.loads((root / "pull-request.json").read_text())
+          if pr["head"]["sha"] != os.environ["EXPECTED_HEAD"]:
+              raise SystemExit("The pull request head changed; scan its current commit")
+          for name, value in {
+              "body": pr.get("body") or "",
+              "title": pr["title"],
+              "base": pr["base"]["sha"],
+              "head": pr["head"]["sha"],
+              "same-repo": str(pr["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"]).lower(),
+          }.items():
+              (root / name).write_text(value, encoding="utf-8")
+          PYCODE
+
+      - name: Remove session links from the description
+        run: |
+          set -euo pipefail
+          SAME_REPO="$(cat "$RUNNER_TEMP/pii/same-repo")"
+          python3 ci-scripts/no_pii.py clean < "$RUNNER_TEMP/pii/body" > "$RUNNER_TEMP/pii/cleaned"
+          if cmp -s "$RUNNER_TEMP/pii/body" "$RUNNER_TEMP/pii/cleaned"; then exit 0; fi
+          # A fork's token cannot edit the pull request: the scan then fails
+          # on the original description, as before
+          if [ "$SAME_REPO" = "true" ] &&
+             gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+               -F "body=@$RUNNER_TEMP/pii/cleaned" > /dev/null; then
+            cp "$RUNNER_TEMP/pii/cleaned" "$RUNNER_TEMP/pii/body"
+            echo "::notice title=No PII::Removed session links from the description"
+          fi
+
+      - name: Scan pull request
+        id: scan
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/pii"
+          BASE_SHA="$(cat base)"
+          HEAD_SHA="$(cat head)"
+          { cat title; echo; cat body; echo; } > description
+          git -C "$GITHUB_WORKSPACE" log --format='%B' "$BASE_SHA..$HEAD_SHA" > commit-messages
+          git -C "$GITHUB_WORKSPACE" diff --no-color -U0 "$BASE_SHA...$HEAD_SHA" |
+            grep '^+' | grep -v '^+++' | cut -c2- > added-lines || true
+          if ! python3 "$GITHUB_WORKSPACE/ci-scripts/no_pii.py" scan description commit-messages added-lines > hits; then
+            while IFS= read -r hit; do echo "::error title=Personal data or session link::$hit"; done < hits
+            exit 1
+          fi
+
+      - name: Verify privacy and platform checks passed
+        if: always()
+        env:
+          SCAN: ${{ steps.scan.outcome }}
+          LINUX: ${{ needs.linux.result }}
+          MACOS: ${{ needs.macos.result }}
+          WINDOWS: ${{ needs.windows.result }}
+        run: |
+          set -euo pipefail
           printf 'No PII: %s\nLinux: %s\nmacOS: %s\nWindows: %s\n' \
             "$SCAN" "$LINUX" "$MACOS" "$WINDOWS"
           [[ "$SCAN" == success && "$LINUX" == success &&

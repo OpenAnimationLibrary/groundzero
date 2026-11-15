@@ -731,18 +731,17 @@ bool CustomPanelEditorPopup::loadTemplateList() {
   if (!previousPath.isEmpty()) toSelect = findTemplateItemByPath(previousPath);
   if (!toSelect) toSelect = findFirstTemplateItem(nullptr);
 
-  if (toSelect) {
-    m_currentTemplatePath = toSelect->data(0, Qt::UserRole).toString();
+  if (toSelect && loadTemplate(toSelect->data(0, Qt::UserRole).toString())) {
     m_templateTree->setCurrentItem(toSelect);
     // Only open the path to the current template — leave other folders closed
     expandTemplateTreeAncestors(toSelect);
   } else {
-    m_currentTemplatePath.clear();
+    m_templateTree->setCurrentItem(
+        findTemplateItemByPath(m_currentTemplatePath));
   }
   m_templateTree->blockSignals(false);
 
   updateTemplateValueLabel();
-  if (!m_currentTemplatePath.isEmpty()) onTemplateSwitched();
 
   return true;
 }
@@ -914,19 +913,24 @@ void CustomPanelEditorPopup::updateControls(QWidget* customWidget) {
 
 //-----------------------------------------------------------------------------
 
-void CustomPanelEditorPopup::onTemplateSwitched() {
-  QString fp = currentTemplatePath();
-  if (fp.isEmpty()) return;
+bool CustomPanelEditorPopup::loadTemplate(const QString& fp) {
+  if (fp.isEmpty()) return false;
 
   QUiLoader loader;
   QFile file(fp);
 
   if (!file.open(QFile::ReadOnly)) {
-    return;
+    return false;
   }
 
   QWidget* customWidget = loader.load(&file, nullptr);
   file.close();
+  if (!customWidget) {
+    DVGui::warning(tr("Unable to load custom panel template:\n%1\n\n%2\n\n"
+                      "Repair the file or choose another template.")
+                       .arg(fp, loader.errorString()));
+    return false;
+  }
 
   // Create entries from a widget just loaded from .ui file
   buildEntries(customWidget);
@@ -967,7 +971,8 @@ void CustomPanelEditorPopup::onTemplateSwitched() {
     m_panelNameEdit->setText(relativePanelId(templateFp, customPaneFolderPath()));
   }
 
-  updateTemplateValueLabel();
+  m_currentTemplatePath = fp;
+  return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -995,14 +1000,15 @@ void CustomPanelEditorPopup::onTemplateItemClicked(QTreeWidgetItem* item,
     return;
   }
 
-  const bool pathChanged = (path != m_currentTemplatePath);
-  m_currentTemplatePath  = path;
+  if (path != m_currentTemplatePath && !loadTemplate(path)) {
+    m_templateTree->setCurrentItem(
+        findTemplateItemByPath(m_currentTemplatePath));
+    return;
+  }
   m_templateTree->setCurrentItem(item);
   updateTemplateValueLabel();
   // Keep the browser open so the user can try several templates without
   // reopening the tree or losing their expand/collapse layout.
-
-  if (pathChanged) onTemplateSwitched();
 }
 
 //-----------------------------------------------------------------------------
@@ -1049,6 +1055,12 @@ void CustomPanelEditorPopup::onCommandChanged(const QString& oldCmdId,
   QUiLoader loader;
   QWidget* customWidget = loader.load(&tmplFile, nullptr);
   tmplFile.close();
+  if (!customWidget) {
+    DVGui::warning(tr("Unable to load custom panel template:\n%1\n\n%2\n\n"
+                      "Repair the file or choose another template.")
+                       .arg(fp, loader.errorString()));
+    return;
+  }
 
   updateControls(customWidget);
 

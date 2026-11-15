@@ -6,6 +6,9 @@
 #include "tbasefx.h"
 #include "trasterfx.h"
 
+#include <memory>
+#include <vector>
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TFX_EXPORTS
@@ -42,6 +45,7 @@ class DVAPI TExternalProgramFx final : public TExternFx {
   };
 
   std::map<std::string, Port> m_ports;
+  std::vector<std::unique_ptr<TRasterFxPort>> m_ownedPorts;
   // std::map<std::string, TParamP> m_params;
   std::vector<TParamP> m_params;
 

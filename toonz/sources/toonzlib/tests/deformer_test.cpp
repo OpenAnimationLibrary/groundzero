@@ -18,6 +18,7 @@
 #include "tvectorimage.h"
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -508,8 +509,8 @@ void testFreeFormRoundTrip() {
     }
 
   // The displacement is held at the border's value outside the lattice
-  TPointD border(100.0, 20.0), far(900.0, 20.0);
-  require(isClose(plain.deform(far, 0.0) - far,
+  TPointD border(100.0, 20.0), farPoint(900.0, 20.0);
+  require(isClose(plain.deform(farPoint, 0.0) - farPoint,
                   plain.deform(border, 0.0) - border, 1e-9),
           "free-form round trip: displacement not held outside");
 
@@ -1226,6 +1227,59 @@ void testWeightPainting() {
 
 //------------------------------------------------------------------
 
+void testWeightPaintingInvalidGeometry() {
+  const double infinity       = std::numeric_limits<double>::infinity();
+  const double nan            = std::numeric_limits<double>::quiet_NaN();
+  const double largest        = (std::numeric_limits<double>::max)();
+  const double smallest       = std::numeric_limits<double>::denorm_min();
+  const TRectD invalidRects[] = {
+      TRectD(-infinity, 0.0, 1.0, 1.0), TRectD(0.0, 0.0, infinity, 1.0),
+      TRectD(0.0, nan, 1.0, 1.0), TRectD(-largest, 0.0, largest, 1.0),
+      TRectD(0.0, 0.0, smallest, 1.0)};
+  for (const TRectD& rect : invalidRects)
+    require(TDeformerWeightPainting::make(rect, 2, 2).isEmpty(),
+            "painting: invalid cell geometry is accepted");
+
+  const TRectD rect(0.0, 0.0, 1.0, 1.0);
+  require(TDeformerWeightPainting::make(rect, 65536, 65536).isEmpty(),
+          "painting: overflowing cell count is accepted");
+  TDeformerWeightPainting damaged = TDeformerWeightPainting::make(rect, 1, 1);
+  damaged.m_lx = damaged.m_ly = 65536;
+  require(damaged.isEmpty() && damaged.toString().empty(),
+          "painting: damaged grid dimensions are accepted");
+  require(TDeformerWeightPainting::fromString("1 1 1 -1e308 0 1e308 1 /w==")
+              .isEmpty(),
+          "painting: overflowing serialized rectangle is accepted");
+}
+
+//------------------------------------------------------------------
+
+void testWeightPaintingLargeBrush() {
+  TDeformerWeightPainting painting =
+      TDeformerWeightPainting::make(TRectD(-1.0, -1.0, 1.0, 1.0), 2, 2);
+  require(!painting.paint(TPointD(1e12, -1e12), 1.0, 1.0, 1.0),
+          "painting: a remote finite brush changes the grid");
+  require(painting.paint(TPointD(), 1e12, 1.0, 1.0),
+          "painting: a large finite brush misses the grid");
+  for (unsigned char value : painting.m_values)
+    require(value == 255, "painting: a large brush does not cover every cell");
+  require(painting.paint(TPointD(), 1e12, 0.0, 1.0),
+          "painting: a large finite eraser misses the grid");
+  for (unsigned char value : painting.m_values)
+    require(value == 0, "painting: a large eraser does not clear every cell");
+
+  const double infinity = std::numeric_limits<double>::infinity();
+  const double nan      = std::numeric_limits<double>::quiet_NaN();
+  require(!painting.paint(TPointD(infinity, 0.0), 1.0, 1.0, 1.0) &&
+              !painting.paint(TPointD(0.0, nan), 1.0, 1.0, 1.0) &&
+              !painting.paint(TPointD(), infinity, 1.0, 1.0),
+          "painting: a non-finite brush changes the grid");
+  require(painting.weightAt(TPointD()) == 0.0,
+          "painting: invalid brushes modified the weights");
+}
+
+//------------------------------------------------------------------
+
 // Deform Strokes: the deformers that the fxs pass down to the column
 void testStrokeDeformers() {
   TVectorImageP vi(new TVectorImage());
@@ -1539,10 +1593,10 @@ void testShapeAwareBoneAndCage() {
     require(norm(bone.deform(p, 0.0) - (p + t)) < 0.15 * norm(t),
             "shape aware bone: the bone does not carry its segment");
   }
-  TPointD above(0.0, 12.0), far(0.0, 90.0);
-  require(
-      norm(bone.deform(above, 0.0) - above) > norm(bone.deform(far, 0.0) - far),
-      "shape aware bone: the influence does not fall with the distance");
+  TPointD above(0.0, 12.0), farPoint(0.0, 90.0);
+  require(norm(bone.deform(above, 0.0) - above) >
+              norm(bone.deform(farPoint, 0.0) - farPoint),
+          "shape aware bone: the influence does not fall with the distance");
 
   // A bone turned by 90 degrees about its head
   handles[0] = SaHandle::makeBone(TPointD(0.0, 0.0), TPointD(60.0, 0.0),
@@ -1699,6 +1753,8 @@ int main() {
     testVectorImage();
     testStrokeDeformers();
     testWeightPainting();
+    testWeightPaintingInvalidGeometry();
+    testWeightPaintingLargeBrush();
     testShapeAware();
     testStackCurveAndBone();
     testStackIdentityLayers();

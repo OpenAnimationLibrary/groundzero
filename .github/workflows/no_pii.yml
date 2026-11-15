@@ -23,18 +23,26 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+
+# Description updates for the same PR must not run concurrently.
+concurrency:
+  group: no-pii-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write # Remove private session links from same-repository PR descriptions.
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Read pull request metadata
@@ -65,7 +73,7 @@ jobs:
           # A fork's token cannot edit the pull request: the scan then fails
           # on the original description, as before
           if [ "$SAME_REPO" = "true" ] &&
-             gh api -X PATCH "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+             gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
                -F "body=@$RUNNER_TEMP/pii/cleaned" > /dev/null; then
             cp "$RUNNER_TEMP/pii/cleaned" "$RUNNER_TEMP/pii/body"
             echo "::notice title=No PII::Removed session links from the description"

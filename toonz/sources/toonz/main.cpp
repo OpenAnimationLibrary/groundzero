@@ -23,6 +23,7 @@
 #include <exception>
 #include <iostream>
 #ifdef BUILD_UI_PORT_TESTS
+#include "batchtaskintegrationtest.h"
 #include "nativeuiintegrationtest.h"
 #include "iconlifecycleintegrationtest.h"
 #endif
@@ -286,6 +287,10 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+#ifdef BUILD_UI_PORT_TESTS
+  if (argc == 2 && QString::fromLocal8Bit(argv[1]) == "--test-batch-task-child")
+    return runBatchTaskFixtureChild();
+#endif
   PluginManager::takeLaunchArguments(argc, argv);
   bool nativeUiTest = false;
 #ifdef BUILD_UI_PORT_TESTS
