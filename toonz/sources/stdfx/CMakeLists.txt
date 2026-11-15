@@ -189,6 +189,7 @@ set(SOURCES
     burstlinesfx.cpp
     dotscreenfx.cpp
     watercolourfx.cpp
+    roughstrokefx.cpp
     lightwrapfx.cpp
     edgeextendfx.cpp
     automattefx.cpp
@@ -680,6 +681,21 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_watercolourFx.xml)
     add_dependencies(celfx_tests watercolour_test watercolourfx_test watercolour_ui_test)
     set_tests_properties(celfx_watercolour celfx_watercolourfx celfx_watercolour_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The stroke math has no toonz types: its test links nothing
+    add_executable(roughstroke_test tests/roughstroke_test.cpp)
+    add_test(NAME celfx_roughstroke COMMAND roughstroke_test)
+    add_executable(roughstrokefx_test tests/roughstrokefx_test.cpp)
+    target_link_libraries(roughstrokefx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_roughstrokefx COMMAND roughstrokefx_test)
+    add_executable(roughstroke_ui_test tests/roughstroke_ui_test.cpp)
+    target_link_libraries(roughstroke_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_roughstroke_ui COMMAND roughstroke_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_roughStrokeFx.xml)
+    add_dependencies(celfx_tests roughstroke_test roughstrokefx_test roughstroke_ui_test)
+    set_tests_properties(celfx_roughstroke celfx_roughstrokefx celfx_roughstroke_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)

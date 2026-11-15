@@ -1461,6 +1461,33 @@
   <item>"STD_watercolourFx.paperSize" "Paper Grain Size" </item>
   <item>"STD_watercolourFx.hold" "Hold (Frames)" </item>
   <item>"STD_watercolourFx.seed" "Seed" </item>
+  <item>"STD_roughStrokeFx" "Rough Stroke" </item>
+  <item>"STD_roughStrokeFx.width" "Added Width" </item>
+  <item>"STD_roughStrokeFx.thicknessScale" "Drawn Width Scale" </item>
+  <item>"STD_roughStrokeFx.inLength" "Swell In" </item>
+  <item>"STD_roughStrokeFx.outLength" "Swell Out" </item>
+  <item>"STD_roughStrokeFx.copies" "Copies" </item>
+  <item>"STD_roughStrokeFx.copyOffset" "Copy Offset" </item>
+  <item>"STD_roughStrokeFx.copyWidthRandom" "Copy Width Randomness" </item>
+  <item>"STD_roughStrokeFx.copyOpacityRandom" "Copy Opacity Randomness" </item>
+  <item>"STD_roughStrokeFx.waveAmplitude" "Wave Amplitude" </item>
+  <item>"STD_roughStrokeFx.wavePeriod" "Wave Length" </item>
+  <item>"STD_roughStrokeFx.wavePhase" "Wave Phase" </item>
+  <item>"STD_roughStrokeFx.wavePhaseRandom" "Wave Phase Randomness" </item>
+  <item>"STD_roughStrokeFx.drift" "Drift" </item>
+  <item>"STD_roughStrokeFx.driftSize" "Drift Size" </item>
+  <item>"STD_roughStrokeFx.colorMode" "Colour" </item>
+  <item>"STD_roughStrokeFx.startColor" "Start Colour" </item>
+  <item>"STD_roughStrokeFx.endColor" "End Colour" </item>
+  <item>"STD_roughStrokeFx.opacity" "Opacity" </item>
+  <item>"STD_roughStrokeFx.revealStart" "Reveal Start" </item>
+  <item>"STD_roughStrokeFx.revealEnd" "Reveal End" </item>
+  <item>"STD_roughStrokeFx.travel" "Travel" </item>
+  <item>"STD_roughStrokeFx.speed" "Speed (per Frame)" </item>
+  <item>"STD_roughStrokeFx.loop" "Loop" </item>
+  <item>"STD_roughStrokeFx.hold" "Hold (Frames)" </item>
+  <item>"STD_roughStrokeFx.seed" "Seed" </item>
+  <item>"STD_roughStrokeFx.overSource" "Over Source" </item>
   <item>"STD_printProcessFx" "Print Process" </item>
   <item>"STD_printProcessFx.output" "Output" </item>
   <item>"STD_printProcessFx.cellSize" "Cell Size" </item>

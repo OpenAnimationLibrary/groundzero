@@ -1,0 +1,38 @@
+<fxlayout help_file="RoughStroke.html">
+  <page name="Rough Stroke">
+    <control>width</control>
+    <control>thicknessScale</control>
+    <control>inLength</control>
+    <control>outLength</control>
+    <separator label="Copies"/>
+    <control>copies</control>
+    <control>copyOffset</control>
+    <control>copyWidthRandom</control>
+    <control>copyOpacityRandom</control>
+    <separator label="Colour"/>
+    <control>colorMode</control>
+    <vbox modeSensitive="colorMode" mode="1">
+      <control>startColor</control>
+      <control>endColor</control>
+    </vbox>
+    <control>opacity</control>
+    <control>overSource</control>
+  </page>
+  <page name="Motion">
+    <control>waveAmplitude</control>
+    <control>wavePeriod</control>
+    <control>wavePhase</control>
+    <control>wavePhaseRandom</control>
+    <control>drift</control>
+    <control>driftSize</control>
+    <separator label="Reveal"/>
+    <control>revealStart</control>
+    <control>revealEnd</control>
+    <control>travel</control>
+    <control>speed</control>
+    <control>loop</control>
+    <separator label="Timing"/>
+    <control>hold</control>
+    <control>seed</control>
+  </page>
+</fxlayout>

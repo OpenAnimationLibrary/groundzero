@@ -201,6 +201,7 @@
   <Stylize>
     STD_celEdgeLinesFx
     STD_watercolourFx
+    STD_roughStrokeFx
     STD_colorEmbossFx
     STD_embossFx
     STD_inoMaxMinFx

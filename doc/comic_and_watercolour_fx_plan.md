@@ -108,7 +108,9 @@ along the strokes of a vector level.
 - **Rough:** copies of each stroke with random offset and width, and a wave.
 - **Reveal:** a start and end position along the stroke, so strokes grow, and
   an offset that travels along the path, with a loop option.
-- **Size:** L, after R1.
+- **Colour:** each stroke's own style colour, or a gradient along it.
+- **Output:** the rough strokes alone, or over the source drawing.
+- **Size:** M (see the M0.2 result).
 
 ### F5: Watercolour
 
@@ -141,6 +143,16 @@ written.
 | M0.1 | This plan reviewed; names and menu categories agreed. | Plan merged. |
 | M0.2 | **R1 spike:** how Rough Stroke reads vector strokes. Compare (a) a render-data route like `SandorFxRenderData`, where the column renderer hands stroke geometry to the FX, and (b) a toonzlib hook that gives an FX the `TVectorImage` of its input column at a frame. | A short note in this file with the chosen route and what it changes outside `stdfx`. F4 is re-sized. |
 
+**M0.2 result.** Route (b), without a toonzlib hook. `stdfx` already walks
+from an FX's input to its level column (`stdfx/celfxsourcegrid.h` uses
+`TLevelColumnFx`). Rough Stroke does the same walk through enabled transforms,
+multiplies their placements, takes the column's vector image for the frame
+(`TXshLevelColumn::getRemappedCell`, as the column's own render does) and
+samples each `TStroke` by length. Nothing changes outside `stdfx`, so F4 is
+M, not L. Limits: Source must be a vector level, directly or through
+transforms; any other source passes through unchanged, and stroke deformers
+above the level are not applied to the rough strokes.
+
 ### Phase 1: lines
 
 | Milestone | Work | Exit check |
@@ -170,7 +182,7 @@ written.
 
 | Milestone | Work | Exit check |
 |---|---|---|
-| M4.1 | The stroke route chosen in M0.2, with a test that an FX receives the strokes of a vector column at a frame. | A toonzlib test passes on an in-memory scene; scenes without the FX render as before (Compat job). |
+| M4.1 | The stroke route chosen in M0.2. | `celfx_roughstrokefx` draws the stroke of a real vector level in a real column, and follows a transform between the level and the FX. |
 | M4.2 | `roughstroke.h` and F4: width, shaping, copies, wave. | `celfx_roughstroke` passes on a synthetic path. |
 | M4.3 | Reveal and travelling offset, layout, names, help with starting points. | A stroke revealed to 50% covers half its length; `celfx_roughstroke_ui` passes. |
 

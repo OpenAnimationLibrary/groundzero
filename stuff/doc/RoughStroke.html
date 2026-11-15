@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Rough Stroke</title></head>
+<body>
+<h1>Rough Stroke</h1>
+<p>Redraws the strokes of a vector drawing as rough, hand-drawn strokes. Add
+Rough Stroke from the Stylize category and connect a vector level to Source,
+directly or through transforms. The result is the rough strokes alone; fills
+are not drawn. Any other kind of source passes through unchanged.</p>
+<h2>Stroke</h2>
+<p><b>Drawn Width Scale</b> multiplies the width the stroke was drawn with,
+and <b>Added Width</b> adds to it: scale 0 with an added width gives every
+stroke the same width. <b>Swell In</b> and <b>Swell Out</b> are the shares of
+a stroke over which it grows from nothing and shrinks back, like pen
+pressure.</p>
+<h2>Copies</h2>
+<p><b>Copies</b> draws each stroke that many times. The first copy follows the
+stroke; the others sit beside it, up to <b>Copy Offset</b> away, for a
+sketched look. The randomness amounts thin and fade copies at random.</p>
+<h2>Colour</h2>
+<p><b>Stroke Colour</b> uses each stroke's own style colour. <b>Gradient</b>
+runs from <b>Start Colour</b> to <b>End Colour</b> along each stroke.
+<b>Over Source</b> draws the rough strokes on top of the source drawing,
+which keeps its fills.</p>
+<h2>Wave and drift</h2>
+<p><b>Wave Amplitude</b> bends each stroke from side to side once every
+<b>Wave Length</b>; <b>Wave Phase</b> slides the bends along, and <b>Wave
+Phase Randomness</b> gives each copy its own phase. <b>Drift</b> lets a copy
+wander slowly off the stroke, in features as long as <b>Drift Size</b>.</p>
+<h2>Reveal</h2>
+<p><b>Reveal Start</b> and <b>Reveal End</b> pick the stretch of each stroke
+that is drawn, as shares of its length; animate Reveal End from 0 to 1 to draw
+the strokes on. <b>Travel</b> moves that stretch along the stroke, and
+<b>Speed</b> moves it by that share every frame without keys. With <b>Loop</b>
+a stretch that leaves one end comes back at the other.</p>
+<h2>Timing</h2>
+<p><b>Hold</b> redraws the copies, drift and randomness every that many
+frames, which makes the strokes boil; 0 never redraws. <b>Seed</b> picks the
+arrangement, so renders are repeatable.</p>
+<h2>Starting points</h2>
+<p><b>Sketch:</b> Copies 3, Copy Offset 3, Drift 1, Hold 2. <b>Draw on:</b>
+animate Reveal End from 0 to 1. <b>Marching dashes:</b> Reveal End 0.2, Loop
+on, Speed 0.02. <b>Brush:</b> Drawn Width Scale 3, Swell In and Swell Out
+0.4.</p>
+<h2>Notes</h2>
+<p>Every value except Loop and Over Source can be animated. 8-bit, 16-bit and
+floating-point renders are supported. The strokes are read from the drawing
+itself, so effects that deform the drawing before Rough Stroke are not seen by
+it.</p>
+</body>
+</html>
