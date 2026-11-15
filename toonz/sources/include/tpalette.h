@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tpalettekeyinterpolation.h"
+
 #ifndef TPALETTE_H
 #define TPALETTE_H
 
@@ -13,6 +15,7 @@
 
 // Qt includes
 #include <QMutex>
+#include <optional>
 
 #undef DVAPI
 #undef DVVAR
@@ -174,9 +177,17 @@ public:
                 //!  or \p -1 if it cannot be found on the page.
   };
 
+public:
+  struct StyleKey {
+    TColorStyleP style;
+    TPaletteKeyInterpolation interpolation;
+    bool operator==(const StyleKey &other) const {
+      return style == other.style && interpolation == other.interpolation;
+    }
+  };
+  using StyleAnimation = std::map<int, StyleKey>;
+
 private:
-  typedef std::map<int, TColorStyleP>
-      StyleAnimation;  //!< Style keyframes list.
   typedef std::map<int, StyleAnimation>
       StyleAnimationTable;  //!< Style keyframes list per style id.
 
@@ -201,8 +212,8 @@ private:
   std::vector<TFrameId> m_refLevelFids;
 
   bool m_dirtyFlag;  //!< Whether the palette changed and needs to be refreshed.
-  TThread::Mutex m_mutex;  //!< Synchronization mutex for multithreading
-                           //!< purposes (recursive).
+  mutable TThread::Mutex m_mutex;  //!< Synchronization mutex for multithreading
+                                   //!< purposes (recursive).
 
   bool m_isLocked;          //!< Whether the palette is locked.
   bool m_askOverwriteFlag;  //!< This variable is quite unique. This flag is to
@@ -378,6 +389,11 @@ between RGBA color components.
   int getFrame() const;      //!< Returns the index of the current frame.
   void setFrame(int frame);  //!< Sets the index of the current frame.
 
+  // Key snapshots are immutable. Clone a snapshot before changing its style.
+  StyleAnimation getStyleAnimation(int styleId) const;
+  TColorStyleP sampleStyle(int styleId, double frame) const;
+  void replaceStyleAnimation(int styleId, const StyleAnimation &keys,
+                             const TColorStyle &unkeyedStyle);
   bool isKeyframe(int styleId, int frame) const;  //!< Returns whether the
                                                   //! specified frame is a \a
   //! keyframe in styleId's
@@ -388,9 +404,9 @@ between RGBA color components.
   int getKeyframe(int styleId, int index)
       const;  //!< Returns the \a index-th frame in styleId's animation,
               //!  or \p -1 if it couldn't be found.
-  void setKeyframe(int styleId, int frame);  //!< Sets a keyframe at the
-                                             //! specified frame of styleId's
-  //! animation.
+  // Replacing a key's style preserves its segment settings by default.
+  void setKeyframe(int styleId, int frame,
+                   std::optional<TPaletteKeyInterpolation> interpolation = {});
   void clearKeyframe(int styleId, int frame);  //!< Deletes the keyframe at the
                                                //! specified frame of styleId's
   //! animation.

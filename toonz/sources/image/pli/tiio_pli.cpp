@@ -173,6 +173,25 @@ public:
     }
   }
 
+  TPaletteKeyInterpolation readKeyInterpolation() const {
+    if (m_count + 2 >= int(m_stream->size())) return {};
+    const auto &marker = (*m_stream)[m_count];
+    const auto &timing = (*m_stream)[m_count + 1];
+    const auto &space  = (*m_stream)[m_count + 2];
+    if (marker.m_type != TStyleParam::SP_STRING ||
+        marker.m_string != "palette-key-interpolation-v1" ||
+        timing.m_type != TStyleParam::SP_INT ||
+        space.m_type != TStyleParam::SP_INT)
+      return {};
+    const auto readValue = [](double value) {
+      return value >= 0 && value <= 255 && value == int(value) ? int(value) : 0;
+    };
+    return {TPaletteKeyInterpolation::timingFromValue(
+                readValue(timing.m_numericVal)),
+            TPaletteKeyInterpolation::spaceFromValue(
+                readValue(space.m_numericVal))};
+  }
+
   VersionNumber versionNumber() const override { return m_version; }
 };
 
@@ -294,9 +313,14 @@ for (int pageIndex = 0; pageIndex < vPalette->getPageCount(); pageIndex++) {
 
   if (vPalette->isAnimated()) {
     std::set<int> keyFrames;
-    for (i = 0; i < (unsigned)vPalette->getStyleCount(); i++)
-      for (int j = 0; j < vPalette->getKeyframeCount(i); j++)
-        keyFrames.insert(vPalette->getKeyframe(i, j));
+    std::map<int, TPalette::StyleAnimation> animations;
+    for (int id = 1; id < vPalette->getStyleCount(); ++id) {
+      if (!vPalette->getStylePage(id)) continue;
+      auto keys = vPalette->getStyleAnimation(id);
+      if (keys.empty()) continue;
+      for (const auto &key : keys) keyFrames.insert(key.first);
+      animations.emplace(id, std::move(keys));
+    }
 
     std::set<int>::const_iterator it = keyFrames.begin();
     for (; it != keyFrames.end(); ++it) {
@@ -305,25 +329,22 @@ for (int pageIndex = 0; pageIndex < vPalette->getPageCount(); pageIndex++) {
       StyleTag *pageNamesTag = new StyleTag(
           frame, 0, 0, 0);  // lo so, e' orrendo. devo mettere un numero intero
       pli->m_palette_tags.push_back((PliObjectTag *)pageNamesTag);
-      for (i = 1; i < (unsigned)vPalette->getStyleCount(); i++) {
-        if (vPalette->isKeyframe(i, frame)) {
-          TColorStyle *style   = vPalette->getStyle(i);
-          TPalette::Page *page = vPalette->getStylePage(i);
-          if (!page) continue;
-          int pageIndex = 65535;
-          // if (page)
-          pageIndex = page->getIndex();
+      for (const auto &[id, keys] : animations) {
+        const auto key = keys.find(frame);
+        if (key == keys.end()) continue;
+        const int pageIndex = vPalette->getStylePage(id)->getIndex();
+        std::vector<TStyleParam> stream;
+        PliOutputStream chan(&stream);
+        saveStyleWithTrailCycle(vPalette->getStyle(id), chan);
+        const auto interpolation = key->second.interpolation;
+        if (interpolation != TPaletteKeyInterpolation{})
+          chan << std::string("palette-key-interpolation-v1")
+               << int(interpolation.timing) << int(interpolation.space);
 
-          // TColorStyle*style = tempVecImg->getPalette()->getStyle(styleId);
-          std::vector<TStyleParam> stream;
-          PliOutputStream chan(&stream);
-          saveStyleWithTrailCycle(style, chan);
-
-          assert(pageIndex >= 0 && pageIndex <= 65535);
-          StyleTag *styleTag =
-              new StyleTag(i, pageIndex, stream.size(), stream.data());
-          pli->m_palette_tags.push_back((PliObjectTag *)styleTag);
-        }
+        assert(pageIndex >= 0 && pageIndex <= 65535);
+        auto *styleTag =
+            new StyleTag(id, pageIndex, stream.size(), stream.data());
+        pli->m_palette_tags.push_back((PliObjectTag *)styleTag);
       }
     }
   }
@@ -890,7 +911,8 @@ TPalette *readPalette(GroupTag *paletteTag, int majorVersion,
         const auto trailMode  = TrailStyles::getMode(oldStyle);
         const int trailOffset = TrailStyles::getFrameOffset(oldStyle);
         oldStyle->copy(*style);
-        palette->setKeyframe(id, frame);
+        delete style;
+        palette->setKeyframe(id, frame, chan.readKeyInterpolation());
         TrailStyles::setMode(oldStyle, trailMode);
         TrailStyles::setFrameOffset(oldStyle, trailOffset);
       } else

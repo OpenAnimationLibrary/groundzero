@@ -484,6 +484,8 @@ void Preferences::definePreferenceItems() {
   define(togglePanelWithShortcut, "togglePanelWithShortcut", QMetaType::Bool,
          false);
   define(RestoreStyleEditorTab, "RestoreStyleEditorTab", QMetaType::Bool, true);
+  define(EnablePaletteKeyColorSpaceInterpolation,
+         "EnablePaletteKeyColorSpaceInterpolation", QMetaType::Bool, false);
 
   // Visualization
   define(show0ThickLines, "show0ThickLines", QMetaType::Bool, true);

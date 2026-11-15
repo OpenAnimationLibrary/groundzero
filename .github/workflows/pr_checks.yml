@@ -18,6 +18,8 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/no_pii.yml # zizmor: ignore[self-repository]
 
+  # Run extended qualification from the platform, Neural Style, or SeExpr
+  # workflows when needed. Keep the application and installed-package tests here.
   linux:
     name: Linux Build
     uses: ./.github/workflows/workflow_linux.yml # zizmor: ignore[self-repository]

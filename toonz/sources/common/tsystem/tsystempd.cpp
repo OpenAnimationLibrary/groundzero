@@ -107,6 +107,8 @@
 
 // macOS-specific headers
 #include "Carbon/Carbon.h"
+#include <mach/mach.h>
+#include <sys/sysctl.h>
 #endif
 
 #ifdef __sgi
@@ -217,13 +219,55 @@ bool TSystem::memoryShortage() {
 
 #elif defined(MACOSX)
 
-  // to be done...
-  return false;
+  // Physical RAM, then the pages that can be reused without going to disk:
+  // free, inactive and purgeable.
+  int mib[2]     = {CTL_HW, HW_MEMSIZE};
+  uint64_t total = 0;
+  size_t len     = sizeof(total);
+  if (sysctl(mib, 2, &total, &len, nullptr, 0) != 0 || total == 0)
+    return false;
+
+  vm_statistics64_data_t vmStats;
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  vm_size_t pageSize           = 0;
+  host_page_size(mach_host_self(), &pageSize);
+  if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                        reinterpret_cast<host_info64_t>(&vmStats),
+                        &count) != KERN_SUCCESS)
+    return false;
+
+  uint64_t available = ((uint64_t)vmStats.free_count + vmStats.inactive_count +
+                        vmStats.purgeable_count) *
+                       (uint64_t)pageSize;
+
+  // Short when less than about 15% of the RAM is readily available, well
+  // before the system starts swapping.
+  return available < total / 7;
 
 #elif defined(LINUX)
 
-  // to be done...
-  return false;
+  // /proc/meminfo, the source of `free`. MemAvailable (kernel 3.14 and later)
+  // counts what can be reused without swapping, page cache included; MemFree
+  // does not, and on a machine that has been up for a while it is small even
+  // with plenty of memory to spare, so it is only the fallback.
+  FILE *f = fopen("/proc/meminfo", "r");
+  if (!f) return false;
+  unsigned long long memTotal = 0, memAvailable = 0, memFree = 0, val = 0;
+  char line[256];
+  while (fgets(line, sizeof(line), f)) {
+    if (sscanf(line, "MemTotal: %llu kB", &val) == 1)
+      memTotal = val;
+    else if (sscanf(line, "MemFree: %llu kB", &val) == 1)
+      memFree = val;
+    else if (sscanf(line, "MemAvailable: %llu kB", &val) == 1) {
+      memAvailable = val;
+      break;  // it comes after MemTotal and MemFree
+    }
+  }
+  fclose(f);
+  if (!memTotal) return false;
+  unsigned long long available = memAvailable ? memAvailable : memFree;
+  return available < memTotal / 7;
 
 #elif defined(FREEBSD)
 

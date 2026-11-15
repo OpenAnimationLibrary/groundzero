@@ -341,15 +341,29 @@ void TColorStyle::assignNames(const TColorStyle *src) {
 
 void TColorStyle::assignBlend(const TColorStyle &a, const TColorStyle &b,
                               double t) {
+  assignBlend(a, b, t, TPaletteKeyInterpolation::Space::PaletteRgb);
+}
+
+void TColorStyle::assignBlend(const TColorStyle &a, const TColorStyle &b,
+                              double t, TPaletteKeyInterpolation::Space space) {
   // Blend colors
   {
     int col, colCount = getColorParamCount();
     assert(a.getColorParamCount() == colCount &&
            b.getColorParamCount() == colCount);
 
-    for (col = 0; col != colCount; ++col)
-      setColorParamValue(
-          col, blend(a.getColorParamValue(col), b.getColorParamValue(col), t));
+    for (col = 0; col != colCount; ++col) {
+      const auto first = a.getColorParamValue(col);
+      const auto last  = b.getColorParamValue(col);
+      if (space == TPaletteKeyInterpolation::Space::LinearLight) {
+        const auto rgba = PaletteColorInterpolation::blendLinearLight(
+            {first.r, first.g, first.b, first.m},
+            {last.r, last.g, last.b, last.m}, t);
+        setColorParamValue(col, TPixel32(rgba[0], rgba[1], rgba[2], rgba[3]));
+      } else {
+        setColorParamValue(col, blend(first, last, t));
+      }
+    }
   }
 
   // Blend parameters

@@ -1,4 +1,4 @@
-"""CI-only application transport qualification, after the native app build."""
+"""Stage the native component and optionally qualify the built application."""
 import os
 import json
 import platform
@@ -8,10 +8,22 @@ import shutil
 import sys
 
 try:
+    package_only = sys.argv[1:] == ["--package-only"]
+    if sys.argv[1:] and not package_only:
+        raise RuntimeError("Unexpected host qualification arguments")
     arguments = [sys.executable, str(Path(__file__).with_name("evaluate.py"))]
-    if sys.platform == "darwin" and platform.machine() == "x86_64":
+    if package_only:
+        arguments.append("--package-only")
+    elif sys.platform == "darwin" and platform.machine() == "x86_64":
         arguments += ["--native-macos", "neural-golden/golden.npz"]
     subprocess.run(arguments, check=True)
+    package = Path("neural-evaluation/report/native-package")
+    destinations = {"win32": "toonz/build/Opentoonz/neural-style",
+                    "darwin": "toonz/build/toonz/OpenToonz.app/Contents/MacOS/neural-style"}
+    destination = Path(destinations.get(sys.platform, "toonz/build/bin/neural-style"))
+    if package_only:
+        shutil.copytree(package, destination, dirs_exist_ok=True)
+        sys.exit(0)
     name = "neuralstyle_host_test" + (".exe" if os.name == "nt" else "")
     candidates = [p for p in Path("toonz/build").rglob(name)
                   if p.is_file() and "opentoonz" not in {part.lower() for part in p.parts}]
@@ -29,7 +41,6 @@ try:
                if p.is_file() and "opentoonz" not in {part.lower() for part in p.parts}]
     if len(effects) != 1:
         raise RuntimeError("Expected exactly one built neural FX qualification executable")
-    package = Path("neural-evaluation/report/native-package")
     shutil.copytree(package, effects[0].parent / "neural-style", dirs_exist_ok=True)
     environment = os.environ.copy()
     if sys.platform == "darwin":
@@ -65,9 +76,6 @@ try:
     print(result.stdout, flush=True)
     if result.returncode:
         raise RuntimeError("Neural editor qualification failed: " + result.stderr[-3000:])
-    destinations = {"win32": "toonz/build/Opentoonz/neural-style",
-                    "darwin": "toonz/build/toonz/OpenToonz.app/Contents/MacOS/neural-style"}
-    destination = Path(destinations.get(sys.platform, "toonz/build/bin/neural-style"))
     if destination.resolve() != (effects[0].parent / "neural-style").resolve():
         shutil.copytree(package, destination, dirs_exist_ok=True)
 except subprocess.TimeoutExpired as error:

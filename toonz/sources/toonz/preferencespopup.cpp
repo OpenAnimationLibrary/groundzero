@@ -1364,6 +1364,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {restoreViewerViewFromLastSession,
        tr("Restore Viewer Zoom and Pan from Last Session")},
       {RestoreStyleEditorTab, tr("Remember Style Editor Tab")},
+      {EnablePaletteKeyColorSpaceInterpolation,
+       tr("Enable Color Space Interpolation for Palette Keys")},
 
       // Visualization
       {show0ThickLines, tr("Show Lines with Thickness 0")},
@@ -2053,6 +2055,7 @@ QWidget* PreferencesPopup::createInterfacePage() {
   insertUI(showRoomBindButtons, lay);
   insertUI(togglePanelWithShortcut, lay);
   insertUI(RestoreStyleEditorTab, lay);
+  insertUI(EnablePaletteKeyColorSpaceInterpolation, lay);
   insertUI(customHelpLink, lay);
   getUI<FileField*>(customHelpLink)
       ->setToolTip(

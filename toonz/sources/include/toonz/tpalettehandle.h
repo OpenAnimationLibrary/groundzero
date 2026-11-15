@@ -68,6 +68,7 @@ public:
 signals:
 
   void paletteSwitched();
+  void showStyleInFunctionEditor(TPalette *palette, int styleId);
   void paletteChanged();
   void paletteTitleChanged();
   void colorStyleSwitched();

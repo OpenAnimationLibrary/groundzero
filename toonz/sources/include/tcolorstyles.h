@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tpalettekeyinterpolation.h"
+
 #ifndef TCOLORSTYLES_H
 #define TCOLORSTYLES_H
 
@@ -358,9 +360,9 @@ styles</I> \p a and \p b, it calculates their linear interpolation at parameter
 \param b    Style value at parameter <TT>t = 1</TT>.
 \param t    Interpolation parameter.
 */
-  void assignBlend(const TColorStyle &a, const TColorStyle &b,
-                   double t);  //!< Assigns the linear interpolation between the
-                               //!  supplied styles.
+  void assignBlend(const TColorStyle &a, const TColorStyle &b, double t);
+  void assignBlend(const TColorStyle &a, const TColorStyle &b, double t,
+                   TPaletteKeyInterpolation::Space space);
 
   // Description-related functions
 

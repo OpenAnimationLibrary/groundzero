@@ -178,6 +178,10 @@ class MoveChannelsDragTool final : public Spreadsheet::DragTool {
   int m_oldRow;
   QRect m_selectedCells;
   int m_firstKeyframeRow;
+  TDoubleParamP m_nativeCurve;
+  FunctionKeyTrack::Snapshot m_initial;
+  std::vector<double> m_nativeFrames;
+  int m_startRow = 0;
 
 public:
   MoveChannelsDragTool(FunctionSheet *sheet)
@@ -207,6 +211,15 @@ public:
       m_selectedCells = QRect(col, r0, 1, r1 - r0 + 1);
 
     m_sheet->selectCells(m_selectedCells);
+    if (auto track = m_sheet->getSelection()->keyTrack(curve)) {
+      if (!track->canEdit()) return;
+      m_nativeCurve = curve;
+      m_initial     = track->read();
+      for (int index = k0; index <= k1; ++index)
+        m_nativeFrames.push_back(curve->keyframeIndexToFrame(index));
+      m_startRow = row;
+      return;
+    }
 
     /*---
 シンプルに左のバーをクリックした場合はcolは1つだけ。
@@ -217,7 +230,7 @@ public:
     for (int col = m_selectedCells.left(); col <= m_selectedCells.right();
          ++col) {
       TDoubleParam *curve = m_sheet->getCurve(col);
-      if (!curve) continue;
+      if (!curve || m_sheet->getSelection()->keyTrack(curve)) continue;
       KeyframeSetter *setter = new KeyframeSetter(curve);
       for (int k = 0; k < curve->getKeyframeCount(); k++) {
         int row = (int)curve->keyframeIndexToFrame(k);
@@ -233,6 +246,7 @@ public:
   }
 
   void drag(int row, int col, QMouseEvent *e) override {
+    if (m_nativeCurve || m_setters.empty()) return;
     int d    = row - m_oldRow;
     m_oldRow = row;
     if (d + m_firstKeyframeRow < 0) d = -m_firstKeyframeRow;
@@ -244,6 +258,17 @@ public:
   }
 
   void release(int row, int col, QMouseEvent *e) override {
+    if (m_nativeCurve && row != m_startRow) {
+      auto *selection = m_sheet->getSelection();
+      auto *curve     = m_nativeCurve.getPointer();
+      auto track      = selection->keyTrack(curve);
+      if (track && track->read() == m_initial) {
+        std::vector<FunctionKeyTrack::Edit> edits;
+        for (double frame : m_nativeFrames)
+          edits.push_back({frame, frame + row - m_startRow, {}});
+        selection->editKeyTrack(curve, edits);
+      }
+    }
     for (int i = 0; i < (int)m_setters.size(); i++) delete m_setters[i];
     m_setters.clear();
   }
@@ -854,7 +879,7 @@ void FunctionSheetCellViewer::drawCells(QPainter &painter, int r0, int c0,
 
       double value = (isStageObjectCycled)
                          ? curve->getValue(obj->paramsTime((double)row))
-                         : curve->getValue(row);
+                         : m_sheet->getModel()->valueAt(curve, row);
       if (unit) value = unit->convertTo(value);
       enum { None, Key, Inbetween, CycleRange } drawValue = None;
 
@@ -1023,8 +1048,12 @@ void FunctionSheetCellViewer::mouseDoubleClickEvent(QMouseEvent *e) {
   m_editCol = col;
 
   TDoubleParam *curve = m_sheet->getCurve(col);
+  if (auto track = m_sheet->getSelection()->keyTrack(curve)) {
+    if (!track->canEdit()) return;
+  }
+  m_editCurve = curve;
   if (curve) {
-    double v          = curve->getValue(row);
+    double v          = m_sheet->getModel()->valueAt(curve, row);
     TMeasure *measure = curve->getMeasure();
     const TUnit *unit = measure ? measure->getCurrentUnit() : 0;
     if (unit) v = unit->convertTo(v);
@@ -1060,15 +1089,26 @@ void FunctionSheetCellViewer::onCellEditorEditingFinished() {
   QString text = m_lineEdit->text();
   if (!text.isEmpty() &&
       (m_lineEdit->isReturnPressed() || m_lineEdit->getMouseDragEditing())) {
-    double value        = text.toDouble();
+    bool valid          = false;
+    double value        = text.toDouble(&valid);
     TDoubleParam *curve = m_sheet->getCurve(m_editCol);
-    if (curve) {
+    if (valid && curve && curve == m_editCurve.getPointer()) {
       TMeasure *measure = curve->getMeasure();
       const TUnit *unit = measure ? measure->getCurrentUnit() : 0;
       if (unit) value = unit->convertFrom(value);
-      KeyframeSetter::setValue(curve, m_editRow, value);
+      auto *selection = m_sheet->getSelection();
+      if (selection->keyTrack(curve)) {
+        const double frame = m_editRow;
+        selection->editKeyTrack(
+            curve, {{curve->isKeyframe(frame) ? std::optional<double>{frame}
+                                              : std::optional<double>{},
+                     frame, value}});
+      } else {
+        KeyframeSetter::setValue(curve, m_editRow, value);
+      }
     }
   }
+  m_editCurve = nullptr;
   m_lineEdit->hide();
   m_lineEdit->clearFocus();
   m_sheet->setFocus();
@@ -1086,7 +1126,7 @@ void FunctionSheetCellViewer::mousePressEvent(QMouseEvent *e) {
   }
   if (e->button() == Qt::LeftButton && e->modifiers() == Qt::ControlModifier) {
     mouseDoubleClickEvent(e);
-    if (m_lineEdit->text() != "") {
+    if (m_lineEdit->isVisible() && m_lineEdit->text() != "") {
       m_lineEdit->setMouseDragEditing(true);
       m_mouseXPosition = e->x();
     }
@@ -1097,7 +1137,11 @@ void FunctionSheetCellViewer::mousePressEvent(QMouseEvent *e) {
     int col                   = cellPosition.layer();
     TDoubleParam *curve       = m_sheet->getCurve(col);
     if (curve) {
-      KeyframeSetter::removeKeyframeAt(curve, row);
+      auto *selection = m_sheet->getSelection();
+      if (selection->keyTrack(curve))
+        selection->editKeyTrack(curve, {{double(row), {}, {}}});
+      else
+        KeyframeSetter::removeKeyframeAt(curve, row);
     }
   } else if (e->button() == Qt::LeftButton || e->button() == Qt::MiddleButton)
     Spreadsheet::CellPanel::mousePressEvent(e);
@@ -1168,6 +1212,23 @@ void FunctionSheetCellViewer::openContextMenu(QMouseEvent *e) {
   int col                   = cellPosition.layer();
   TDoubleParam *curve       = m_sheet->getCurve(col);
   if (!curve) return;
+  if (auto track = m_sheet->getSelection()->keyTrack(curve)) {
+    TDoubleParamP displayed(curve);
+    const bool keyed = curve->isKeyframe(row);
+    QMenu menu;
+    QAction *edit = menu.addAction(keyed ? tr("Delete Key") : tr("Set Key"));
+    edit->setEnabled(track->canEdit());
+    track->addInterpolationActions(menu, row);
+    if (menu.exec(e->globalPos()) == edit) {
+      FunctionKeyTrack::Edit change;
+      if (keyed)
+        change.from = row;
+      else
+        change.to = row;
+      m_sheet->getSelection()->editKeyTrack(displayed.getPointer(), {change});
+    }
+    return;
+  }
 
   bool isEmpty    = true;
   bool isKeyframe = false;

@@ -148,7 +148,8 @@ void FunctionToolbar::setCurve(TDoubleParam *curve) {
 void FunctionToolbar::setFrame(double frame) {
   m_frameNavigator->setFrame(tround(frame), false);
   if (m_curve)
-    m_valueFld->setValue(m_curve->getValue(frame));
+    m_valueFld->setValue(m_selection ? m_selection->valueAt(m_curve, frame)
+                                     : m_curve->getValue(frame));
   else
     m_valueFld->setValue(0);
 }
@@ -169,9 +170,19 @@ void FunctionToolbar::onValueFieldChanged() {
   if (!m_curve || m_curve->isEditorLocked()) return;
   int frame     = m_frameNavigator->getFrame();
   double value  = m_valueFld->getValue();
-  double fValue = m_curve->getValue(frame);
+  double fValue = m_selection ? m_selection->valueAt(m_curve, frame)
+                              : m_curve->getValue(frame);
   if (value == fValue) return;
-  KeyframeSetter::setValue(m_curve, frame, value);
+  if (m_selection && m_selection->keyTrack(m_curve)) {
+    const double keyFrame = frame;
+    m_selection->editKeyTrack(m_curve, {{m_curve->isKeyframe(keyFrame)
+                                             ? std::optional<double>{keyFrame}
+                                             : std::optional<double>{},
+                                         keyFrame, value}});
+    setFrame(frame);
+  } else {
+    KeyframeSetter::setValue(m_curve, frame, value);
+  }
 }
 
 //-------------------------------------------------------------------
@@ -237,6 +248,7 @@ void FunctionToolbar::setSelection(FunctionSelection *selection) {
       disconnect(m_selection, SIGNAL(selectionChanged()), this,
                  SLOT(onSelectionChanged()));
     m_selection = selection;
+    m_keyframeNavigator->setSelection(selection);
     if (m_selection)
       connect(m_selection, SIGNAL(selectionChanged()), this,
               SLOT(onSelectionChanged()));

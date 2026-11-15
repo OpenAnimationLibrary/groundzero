@@ -25,6 +25,7 @@
 
 // TnzCore includes
 #include "tcolorstyles.h"
+#include "tsimplecolorstyles.h"
 #include "tundo.h"
 #include "tenv.h"
 
@@ -1230,6 +1231,23 @@ void PageViewer::contextMenuEvent(QContextMenuEvent *event) {
   int indexPage = m_page ? m_page->getIndex() : -1;
 
   bool isLocked = m_page ? m_page->getPalette()->isLocked() : false;
+
+  auto *paletteHandle = getPaletteHandle();
+  if (m_viewType == LEVEL_PALETTE && paletteHandle && m_page && index >= 0 &&
+      index < getChipCount()) {
+    const int styleId = m_page->getStyleId(index);
+    auto *palette     = m_page->getPalette();
+    auto *style       = palette->getStyle(styleId);
+    if (styleId > 0 && style && typeid(*style) == typeid(TSolidColorStyle)) {
+      TPaletteP owner(palette);
+      menu.addAction(tr("Show Style in Function Editor"), &menu,
+                     [paletteHandle, owner, styleId] {
+                       if (paletteHandle->getPalette() == owner.getPointer())
+                         emit paletteHandle->showStyleInFunctionEditor(
+                             owner.getPointer(), styleId);
+                     });
+    }
+  }
 
   // remove links from studio palette
   if (m_styleSelection && !m_styleSelection->isEmpty() && !isLocked &&

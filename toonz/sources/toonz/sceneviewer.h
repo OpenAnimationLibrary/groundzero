@@ -25,6 +25,7 @@
 #include <array>
 #include <QColor>
 #include <QMatrix4x4>
+#include <QMetaObject>
 
 //=====================================================================
 
@@ -189,7 +190,8 @@ class SceneViewer final : public TToolViewer, public Previewer::Listener {
   // Used for texture management.
   // Changing dock / float state of the panel will alter the context.
   // So discarding the resources in old context in initializeGL.
-  TGlContext m_currentContext;
+  TGlContext m_currentContext{};
+  QMetaObject::Connection m_contextDestroyConnection;
 
   // used for updating viewer where the animated guide appears
   // updated in drawScene() and used in GLInvalidateRect()
@@ -431,6 +433,7 @@ protected:
   void setFocus() override { QWidget::setFocus(); };
 
   void registerContext();
+  void unregisterContext();
 
 public slots:
 

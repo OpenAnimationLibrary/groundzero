@@ -1,5 +1,6 @@
 #include "tools/styleanimationcopy.h"
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 static void require(bool ok, const char *message) {

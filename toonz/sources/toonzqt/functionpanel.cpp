@@ -381,7 +381,7 @@ QPointF FunctionPanel::getWinPos(TDoubleParam *curve, double frame,
 //-----------------------------------------------------------------------------
 
 QPointF FunctionPanel::getWinPos(TDoubleParam *curve, double frame) const {
-  return getWinPos(curve, frame, curve->getValue(frame));
+  return getWinPos(curve, frame, m_functionTreeModel->valueAt(curve, frame));
 }
 
 //-----------------------------------------------------------------------------
@@ -395,7 +395,7 @@ QPointF FunctionPanel::getWinPos(TDoubleParam *curve,
 
 int FunctionPanel::getCurveDistance(TDoubleParam *curve, const QPoint &winPos) {
   double frame  = xToFrame(winPos.x());
-  double value  = curve->getValue(frame);
+  double value  = m_functionTreeModel->valueAt(curve, frame);
   double curveY = valueToY(curve, value);
   return std::abs(curveY - winPos.y());
 }
@@ -504,6 +504,21 @@ QPainterPath FunctionPanel::getSegmentPainterPath(TDoubleParam *curve,
   }
 
   QPainterPath path;
+  if (getSelection()->keyTrack(curve)) {
+    path.moveTo(getWinPos(curve, frame0));
+    for (double sample = frame0 + df; sample < frame1; sample += df)
+      path.lineTo(getWinPos(curve, sample));
+    // Use the left limit when ending a hold segment, then draw its jump.
+    if (0 <= segmentIndex && segmentIndex < kCount - 1 &&
+        curve->getKeyframe(segmentIndex).m_type == TDoubleKeyframe::Constant &&
+        frame1 == curve->keyframeIndexToFrame(segmentIndex + 1)) {
+      const double left = std::nextafter(frame1, frame0);
+      path.lineTo(
+          getWinPos(curve, frame1, m_functionTreeModel->valueAt(curve, left)));
+    }
+    path.lineTo(getWinPos(curve, frame1));
+    return path;
+  }
   if (0 <= segmentIndex && segmentIndex < kCount && step > 1) {
     // step>1
     path.moveTo(getWinPos(curve, frame));
@@ -845,6 +860,7 @@ void FunctionPanel::updateGadgets(TDoubleParam *curve) {
     if (!channel) continue;
 
     TDoubleParam *curve = channel->getParam();
+    if (getSelection()->keyTrack(curve)) continue;
     int firstVisible = std::max(0, curve->getPrevKeyframe(xToFrame(m_valueAxisX - 24)));
     int lastVisible = curve->getNextKeyframe(xToFrame(width() + 24));
     if (lastVisible < 0) lastVisible = curve->getKeyframeCount() - 1;
@@ -1251,6 +1267,70 @@ void FunctionPanel::paintEvent(QPaintEvent *e) {
 
 //-----------------------------------------------------------------------------
 
+namespace {
+class NativeKeyDragTool final : public FunctionPanel::DragTool {
+  FunctionPanel *m_panel;
+  TDoubleParamP m_curve;
+  std::vector<TDoubleKeyframe> m_keys;
+  FunctionKeyTrack::Snapshot m_initial;
+  QPoint m_start;
+  double m_frameDelta = 0, m_valueDelta = 0;
+
+public:
+  NativeKeyDragTool(FunctionPanel *panel, TDoubleParam *curve,
+                    const QList<int> &indices, const QPoint &start)
+      : m_panel(panel), m_curve(curve), m_start(start) {
+    m_initial = m_panel->getSelection()->keyTrack(curve)->read();
+    for (int index : indices) m_keys.push_back(curve->getKeyframe(index));
+  }
+
+  void drag(QMouseEvent *e) override {
+    QPoint pos         = e->pos();
+    const QPoint delta = pos - m_start;
+    if (e->modifiers() & Qt::ShiftModifier) {
+      if (std::abs(delta.x()) > std::abs(delta.y()))
+        pos.setY(m_start.y());
+      else
+        pos.setX(m_start.x());
+    }
+    m_frameDelta =
+        std::round(m_panel->xToFrame(pos.x()) - m_panel->xToFrame(m_start.x()));
+    m_valueDelta = m_panel->yToValue(m_curve.getPointer(), pos.y()) -
+                   m_panel->yToValue(m_curve.getPointer(), m_start.y());
+    m_panel->update();
+  }
+
+  void draw(QPainter &painter) override {
+    if (m_frameDelta == 0 && m_valueDelta == 0) return;
+    painter.setPen(m_panel->getSelectedColor());
+    for (const auto &key : m_keys)
+      painter.drawEllipse(
+          m_panel->getWinPos(m_curve.getPointer(), key.m_frame + m_frameDelta,
+                             key.m_value + m_valueDelta),
+          5, 5);
+  }
+
+  void release(QMouseEvent *e) override {
+    if (e->type() != QEvent::MouseButtonRelease ||
+        e->button() != Qt::LeftButton || e->pos() == m_start)
+      return;
+    drag(e);
+    if (m_frameDelta == 0 && m_valueDelta == 0) return;
+    auto *selection = m_panel->getSelection();
+    auto track      = selection->keyTrack(m_curve.getPointer());
+    if (!track || track->read() != m_initial) return;
+
+    std::vector<FunctionKeyTrack::Edit> edits;
+    for (const auto &key : m_keys)
+      edits.push_back({key.m_frame, key.m_frame + m_frameDelta,
+                       m_valueDelta == 0 ? std::optional<double>{}
+                                         : std::optional<double>{
+                                               key.m_value + m_valueDelta}});
+    selection->editKeyTrack(m_curve.getPointer(), edits);
+  }
+};
+}  // namespace
+
 void FunctionPanel::mousePressEvent(QMouseEvent *e) {
   m_cursor.visible = false;
 
@@ -1339,6 +1419,33 @@ void FunctionPanel::mousePressEvent(QMouseEvent *e) {
     if (currentCurve) {
       int kIndex =
           closestGadgetId >= 0 ? m_gadgets[closestGadgetId].m_kIndex : -1;
+      if (auto track = getSelection()->keyTrack(currentCurve)) {
+        auto *selection = getSelection();
+        if (kIndex >= 0 && kIndex < currentCurve->getKeyframeCount() &&
+            handle == Point) {
+          if (!selection->isSelected(currentCurve, kIndex)) {
+            if (!(e->modifiers() & Qt::ShiftModifier))
+              selection->deselectAllKeyframes();
+            selection->select(currentCurve, kIndex);
+          }
+          emit keyframeSelected(currentCurve->keyframeIndexToFrame(kIndex));
+          if (track->canEdit())
+            m_dragTool = new NativeKeyDragTool(
+                this, currentCurve,
+                selection->getSelectedKeyIndices(currentCurve), e->pos());
+        } else if ((e->modifiers() & Qt::ControlModifier) &&
+                   getCurveDistance(currentCurve, winPos) < maxDistance) {
+          const double frame = std::round(xToFrame(winPos.x()));
+          if (!currentCurve->isKeyframe(frame))
+            selection->editKeyTrack(currentCurve, {{{}, frame, {}}});
+        } else {
+          selection->deselectAllKeyframes();
+          m_dragTool = new RectSelectTool(this, currentCurve);
+          m_dragTool->click(e);
+        }
+        update();
+        return;
+      }
       if (kIndex >= 0) {
         // keyframe clicked
         if (handle == FunctionPanel::Point) {
@@ -1602,17 +1709,28 @@ void FunctionPanel::fitGraphToWindow(bool currentCurveOnly) {
         f0 = std::min(f0, fa);
         f1 = std::max(f1, fb);
       }
-      double v = curve->getValue(fa);
+      double v = m_functionTreeModel->valueAt(curve, fa);
       if (unit) v = unit->convertTo(v);
       if (v0 > v1) v0 = v1 = v;
       int m = 50;
       for (int j = 0; j < m; j++) {
         double t = (double)j / (double)(m - 1);
-        double v = curve->getValue((1 - t) * fa + t * fb);
+        double v = m_functionTreeModel->valueAt(curve, (1 - t) * fa + t * fb);
         if (unit) v = unit->convertTo(v);
         v0 = std::min(v0, v);
         v1 = std::max(v1, v);
       }
+    }
+  }
+  if (currentCurveOnly && getSelection()->keyTrack(getCurrentCurve())) {
+    if (f0 >= f1) {
+      f0 -= 5;
+      f1 = f0 + 10;
+    }
+    if (v0 >= v1) {
+      const double pad = std::max(0.5, std::abs(v0) * 0.05);
+      v0 -= pad;
+      v1 += pad;
     }
   }
   if (m_normalized) { v0 = 0; v1 = 1; }
@@ -1712,7 +1830,9 @@ void FunctionPanel::refreshNormalization() {
     double last = count ? curve->keyframeIndexToFrame(count - 1) : first;
     double low = std::numeric_limits<double>::infinity(), high = -low;
     for (int s = 0; s <= 128; ++s) {
-      double value = FunctionCurveOperations::displayValue(curve, curve->getValue(first + (last - first) * s / 128.));
+      double value = FunctionCurveOperations::displayValue(
+          curve, m_functionTreeModel->valueAt(
+                     curve, first + (last - first) * s / 128.));
       if (std::isfinite(value)) { low = std::min(low, value); high = std::max(high, value); }
     }
     if (std::isfinite(low)) m_normalization[curve] = QPointF(low, high > low ? high - low : 1.);
@@ -1746,7 +1866,9 @@ bool FunctionPanel::freezeComparison(QString &error) {
             : captured.first + (captured.last - captured.first) * sample / captured.intervals;
         double value = 0;
         std::string detail;
-        if (!entry.second->getValueChecked(frame, value, detail)) {
+        if (m_functionTreeModel->keyTrack(entry.first.getPointer())) {
+          value = m_functionTreeModel->valueAt(entry.first.getPointer(), frame);
+        } else if (!entry.second->getValueChecked(frame, value, detail)) {
           error = tr("A comparison channel could not be evaluated at frame %1: %2. The previous capture was preserved.")
                       .arg(frame + 1, 0, 'g', 12).arg(QString::fromStdString(detail));
           return false;
@@ -1834,6 +1956,32 @@ void FunctionPanel::openContextMenu(QMouseEvent *e) {
   if (!curve) return;
   TDoubleKeyframe kf;
   double frame = xToFrame(e->pos().x());
+  if (auto track = getSelection()->keyTrack(curve)) {
+    TDoubleParamP displayed(curve);
+    Handle handle    = None;
+    const int gadget = findClosestGadget(e->pos(), handle, 10);
+    const int index =
+        gadget >= 0 && handle == Point ? m_gadgets[gadget].m_kIndex : -1;
+    const bool keyed = index >= 0 && index < curve->getKeyframeCount();
+    const double keyFrame =
+        keyed ? curve->keyframeIndexToFrame(index) : std::round(frame);
+    QMenu menu;
+    QAction *edit = menu.addAction(keyed ? tr("Delete Key") : tr("Set Key"));
+    edit->setEnabled(track->canEdit());
+    track->addInterpolationActions(menu, keyed ? keyFrame : frame);
+    QAction *fit    = menu.addAction(tr("Fit"));
+    QAction *action = menu.exec(e->globalPos());
+    if (action == edit) {
+      getSelection()->editKeyTrack(
+          displayed.getPointer(),
+          {keyed ? FunctionKeyTrack::Edit{keyFrame, {}, {}}
+                 : FunctionKeyTrack::Edit{{}, keyFrame, {}}});
+    } else if (action == fit) {
+      fitGraphToWindow();
+    }
+    update();
+    return;
+  }
 
   // build menu
   QMenu menu(0);

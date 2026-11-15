@@ -46,6 +46,44 @@
 #include <QHash>
 
 namespace {
+class EditStyleAnimationUndo final : public TUndo {
+  TPaletteP m_palette;
+  int m_styleId;
+  TPalette::StyleAnimation m_before, m_after;
+  TColorStyleP m_unkeyedStyle;
+  QString m_history;
+  std::function<void(TPalette *)> m_notify;
+
+  void apply(const TPalette::StyleAnimation &keys) const {
+    if (m_styleId >= m_palette->getStyleCount()) return;
+    m_palette->replaceStyleAnimation(m_styleId, keys, *m_unkeyedStyle);
+    m_palette->setDirtyFlag(true);
+    m_notify(m_palette.getPointer());
+  }
+
+public:
+  EditStyleAnimationUndo(TPalette *palette, int styleId,
+                         TPalette::StyleAnimation before,
+                         const TPalette::StyleAnimation &after,
+                         const QString &history,
+                         std::function<void(TPalette *)> notify)
+      : m_palette(palette)
+      , m_styleId(styleId)
+      , m_before(std::move(before))
+      , m_after(after)
+      , m_unkeyedStyle(palette->getStyle(styleId)->clone())
+      , m_history(history)
+      , m_notify(std::move(notify)) {}
+
+  void undo() const override { apply(m_before); }
+  void redo() const override { apply(m_after); }
+  int getSize() const override {
+    return sizeof(*this) +
+           (m_before.size() + m_after.size()) * sizeof(TPalette::StyleKey);
+  }
+  QString getHistoryString() override { return m_history; }
+};
+
 class ReferenceColorsUndo final : public TUndo {
   TPaletteP m_palette;
   TPaletteHandle *m_handle;
@@ -1464,4 +1502,20 @@ void PaletteCmd::pickColorByUsingPickedPosition(TPaletteHandle *paletteHandle,
     TUndoManager::manager()->add(undo);
     paletteHandle->notifyColorStyleChanged(false, true);  // set dirty flag here
   }
+}
+
+bool PaletteCmd::editStyleAnimation(TPalette *palette, int styleId,
+                                    const TPalette::StyleAnimation &keys,
+                                    const QString &history,
+                                    std::function<void(TPalette *)> notify) {
+  if (!palette || palette->isLocked() || styleId <= 0 ||
+      styleId >= palette->getStyleCount())
+    return false;
+  auto before = palette->getStyleAnimation(styleId);
+  if (keys == before) return false;
+  auto *undo = new EditStyleAnimationUndo(palette, styleId, std::move(before),
+                                          keys, history, std::move(notify));
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+  return true;
 }
