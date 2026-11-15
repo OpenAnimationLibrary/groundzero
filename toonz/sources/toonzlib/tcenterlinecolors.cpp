@@ -141,8 +141,14 @@ static void sampleColor(const TRasterCM32P &ras, int threshold, Sequence &seq,
   params.push_back(0);
   nodes.push_back(seq.m_head);
 
-  for (curr = seq.m_head, currLink = seq.m_headLink;
-       curr != seq.m_tail || params.size() == 1; seq.next(curr, currLink)) {
+  // Walk from head to tail exactly once; a circular sequence (head == tail)
+  // takes at least one step. Termination must not depend on how many
+  // positions were recorded: a split node placed on an existing node makes a
+  // zero-length step, and walking on past the tail reads links the end node
+  // does not have.
+  curr     = seq.m_head;
+  currLink = seq.m_headLink;
+  do {
     next = currGraph->getNode(curr).getLink(currLink).getNext();
 
     const T3DPointD &nextPos = *currGraph->getNode(next);
@@ -154,13 +160,14 @@ static void sampleColor(const TRasterCM32P &ras, int threshold, Sequence &seq,
 
     double distance =
         tdistance(*currGraph->getNode(next), *currGraph->getNode(curr));
-    if (distance == 0.0) continue;
+    if (distance > 0.0) {
+      params.push_back(params.back() + distance);
+      nodes.push_back(next);
 
-    params.push_back(params.back() + distance);
-    nodes.push_back(next);
-
-    meanThickness += currGraph->getNode(next)->z;
-  }
+      meanThickness += currGraph->getNode(next)->z;
+    }
+    seq.next(curr, currLink);
+  } while (curr != seq.m_tail);
 
   meanThickness /= params.size();
 
