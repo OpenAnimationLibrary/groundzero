@@ -122,7 +122,15 @@ TPixel32 colourAt(const TPalette &palette, int styleId, int frame,
                   std::map<int, TPixel32> &colours) {
   const auto found = colours.find(styleId);
   if (found != colours.end()) return found->second;
-  const TPixel32 colour = palette.sampleStyle(styleId, frame)->getMainColor();
+  // Sampling clones the style under the palette's lock: only animated
+  // palettes need it
+  TPixel32 colour = TPixel32::Black;
+  if (palette.isAnimated()) {
+    if (const TColorStyleP sampled = palette.sampleStyle(styleId, frame))
+      colour = sampled->getMainColor();
+  } else if (const TColorStyle *style = palette.getStyle(styleId)) {
+    colour = style->getMainColor();
+  }
   colours.emplace(styleId, colour);
   return colour;
 }
@@ -145,15 +153,17 @@ bool readPaths(const Behind &behind, double frame, const TAffine &worldToOutput,
   if (!image) return false;
   const TAffine toOutput = worldToOutput * behind.placement;
   const double scale     = scaleOf(toOutput);
-  if (!(scale > 0)) return true;  // a vector drawing with nothing to draw
-  const TPalette *palette = image->getPalette();
+  // Held so the palette outlives the drawing's lock below. A drawing
+  // without a palette is not drawn by the render either.
+  const TPaletteP palette = image->getPalette();
+  if (!(scale > 0) || !palette) return true;  // nothing to draw
   std::vector<int> styles;  // of the paths
   {
     TThread::MutexLocker lock(image->getMutex());
     for (UINT i = 0; i < image->getStrokeCount(); ++i) {
       const TStroke *stroke = image->getStroke(i);
       const int styleId     = stroke->getStyle();
-      if (hidden(*stroke, palette ? palette->getStyle(styleId) : nullptr))
+      if (hidden(*stroke, palette->getStyle(styleId)))
         continue;
       const double length = stroke->getLength();
       if (!(length > 0) || !std::isfinite(length)) continue;
@@ -179,8 +189,7 @@ bool readPaths(const Behind &behind, double frame, const TAffine &worldToOutput,
   // the palette's lock, then takes the drawing's
   std::map<int, TPixel32> colours;
   for (size_t i = 0; i < paths.size(); ++i) {
-    const TPixel32 colour =
-        palette ? colourAt(*palette, styles[i], row, colours) : TPixel32::Black;
+    const TPixel32 colour = colourAt(*palette, styles[i], row, colours);
     paths[i].color = {colour.r / 255.0, colour.g / 255.0, colour.b / 255.0,
                       colour.m / 255.0};
   }
