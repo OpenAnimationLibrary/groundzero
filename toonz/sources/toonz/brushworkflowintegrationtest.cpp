@@ -275,11 +275,32 @@ void checkSplitStrokeHistory(TTool* tool, TPalette* palette, int style,
   tool->onEnter();
   auto* undo = TUndoManager::manager();
   undo->reset();
-  mouseCornerStroke(tool);
+  // The brush fits and simplifies its stroke in viewer pixels. Draw without a
+  // viewer so the gesture's fixed coordinates keep their corners at any
+  // window size, zoom or display scale.
+  struct UnitPixelScale {
+    TTool* tool;
+    TToolViewer* viewer;
+    explicit UnitPixelScale(TTool* value)
+        : tool(value), viewer(value->getViewer()) {
+      tool->setViewer(nullptr);
+    }
+    ~UnitPixelScale() { tool->setViewer(viewer); }
+  };
+  const double viewerPixelSize = tool->getPixelSize();
+  {
+    UnitPixelScale unitScale(tool);
+    mouseCornerStroke(tool);
+  }
   TVectorImageP inserted = level->getFrame(TFrameId(2), false);
-  require(inserted && inserted->getStrokeCount() > 1 &&
-              undo->getHistoryCount() == 1,
-          "Break gesture did not produce multiple strokes in one undo action");
+  if (!inserted || inserted->getStrokeCount() <= 1 ||
+      undo->getHistoryCount() != 1)
+    throw std::runtime_error(
+        "Break gesture did not produce multiple strokes in one undo action "
+        "(strokes=" +
+        std::to_string(inserted ? int(inserted->getStrokeCount()) : -1) +
+        " history=" + std::to_string(undo->getHistoryCount()) +
+        " viewer pixel size=" + std::to_string(viewerPixelSize) + ")");
   const TVectorImageP saved = inserted->clone();
   for (int repeat = 0; repeat < 3; ++repeat) {
     require(undo->undo(), "split-stroke undo action was unavailable");
