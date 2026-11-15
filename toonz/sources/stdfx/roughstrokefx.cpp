@@ -287,12 +287,25 @@ public:
   bool doGetBBox(double frame, TRectD &box,
                  const TRenderSettings &info) override {
     box = TRectD();
-    if (!m_source.isConnected() || !m_source->doGetBBox(frame, box, info))
-      return false;
-    if (!box.isEmpty() && box != TConsts::infiniteRectD) {
-      // Scene units: the copies, wave and drift, and the added width
-      const double reach = RoughStroke::reach(settings(frame, 1.0));
-      box                = box.enlarge(reach);
+    if (!m_source.isConnected()) return false;
+    std::vector<RoughStroke::Path> paths;
+    try {
+      if (!readPaths(m_source.getFx(), frame, TAffine(), paths))
+        return m_source->doGetBBox(frame, box, info);  // passed through
+    } catch (const TException &) {
+      return m_source->doGetBBox(frame, box, info);
+    }
+    // The strokes in scene units, grown by how far a copy can reach
+    const RoughStroke::Settings s = settings(frame, 1.0);
+    const double reach            = RoughStroke::reach(s);
+    for (const RoughStroke::Path &path : paths)
+      for (const RoughStroke::Point &p : path.points) {
+        const double r = p.thickness * s.thicknessScale + reach;
+        box += TRectD(p.x - r, p.y - r, p.x + r, p.y + r);
+      }
+    if (m_overSource->getValue()) {
+      TRectD source;
+      if (m_source->doGetBBox(frame, source, info)) box += source;
     }
     return !box.isEmpty();
   }

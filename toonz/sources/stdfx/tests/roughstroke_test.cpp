@@ -145,6 +145,16 @@ void testCopies() {
     spread = spread || std::abs(copy.vertices[0].y - 20.5) > 1;
   }
   require(spread, "The copies all sit on the path");
+  // Width and opacity randomness leave the first copy as drawn
+  s.copyWidthRandom = s.copyOpacityRandom = 1;
+  const auto varied = build(line(), 3, s);
+  require(approx(varied[0].vertices[5].half, copies[0].vertices[5].half) &&
+              approx(varied[0].vertices[5].color.a, 1),
+          "Copy randomness changed the first copy");
+  bool thinner = false;
+  for (std::size_t c = 1; c < varied.size(); ++c)
+    thinner = thinner || varied[c].vertices[5].half < copies[c].vertices[5].half;
+  require(thinner, "Copy width randomness changed no copy");
   // Another path with the same settings gets other offsets
   const auto other = build(line(), 4, s);
   bool differs     = false;

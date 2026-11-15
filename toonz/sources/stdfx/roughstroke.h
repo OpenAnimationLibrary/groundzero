@@ -242,11 +242,15 @@ inline std::vector<Copy> build(const Path &path, int index,
     const double offset =
         c == 0 ? 0.0
                : s.copyOffset * (2 * random(s.seed, index, c, Offset) - 1);
+    // The first copy is the stroke itself: only the others vary
     const double widthScale =
-        1 - unit(s.copyWidthRandom) * random(s.seed, index, c, Width);
+        c == 0 ? 1.0
+               : 1 - unit(s.copyWidthRandom) * random(s.seed, index, c, Width);
     const double alphaScale =
         unit(s.opacity) *
-        (1 - unit(s.copyOpacityRandom) * random(s.seed, index, c, Opacity));
+        (c == 0 ? 1.0
+                : 1 - unit(s.copyOpacityRandom) *
+                          random(s.seed, index, c, Opacity));
     const double phase =
         s.wavePhase +
         2 * pi * unit(s.wavePhaseRandom) * random(s.seed, index, c, Phase);
