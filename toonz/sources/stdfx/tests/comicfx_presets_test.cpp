@@ -2,6 +2,7 @@
 // its FX through the same path as the Add FX menu, names every parameter of
 // the FX, changes something, and the generators draw with it.
 
+#include "tdoubleparam.h"
 #include "tfx.h"
 #include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
