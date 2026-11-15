@@ -7,10 +7,10 @@
 #include "toonzqt/pluginloader.h"
 #include "toonzqt/pluginmanager.h"
 #include "pluginhost.h"
+#include "tests/plugin_controller_lifetime.h"
 
 #include <QApplication>
 #include <QDir>
-#include <QElapsedTimer>
 #include <QFileInfo>
 
 #include <iostream>
@@ -90,13 +90,10 @@ int main(int argc, char** argv) {
     qputenv("GROUNDZERO_TEST_PLUGIN_PROBE_MODE", arguments[2].toUtf8());
     TEnv::setStuffDir(TFilePath(stuff.absolutePath()));
 
-    QElapsedTimer timer;
-    timer.start();
-    while (!PluginLoader::load_entries(stuff.absolutePath().toStdString())) {
-      require(timer.elapsed() < 10000, "Plugin discovery did not finish");
-      app.processEvents();
-    }
-    app.processEvents();
+    QString lifetimeFailure;
+    const bool lifetimePassed = verifyPluginControllerLifetime(
+        stuff.absolutePath(), arguments[2] == "single", lifetimeFailure);
+    require(lifetimePassed, qPrintable(lifetimeFailure));
 
     const auto session = PluginManager::instance()->session();
     require(session.results.contains(fixture.fileName()),

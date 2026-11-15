@@ -26,6 +26,9 @@
 #include "toonz/tcolumnfx.h"
 
 #include "pluginhost.h"
+#ifdef BUILD_RELIABILITY_TESTS
+#include "tests/plugin_controller_lifetime.h"
+#endif
 #include "toonz_plugin.h"
 #include "toonz_hostif.h"
 #include "toonz_params.h"
@@ -70,7 +73,10 @@ bool PluginLoader::load_entries(const std::string &basepath) {
     aw = new PluginLoadController(basepath, NULL);
   }
   bool ret = aw->wait(16 /* ms */);
-  if (ret) aw = NULL; /* should be deleted by deleteLater */
+  if (ret) {
+    delete aw;
+    aw = nullptr;
+  }
   return ret;
 }
 
@@ -1512,21 +1518,21 @@ PluginLoadController::PluginLoadController(const std::string &basedir,
 
   ld->moveToThread(&work_entity);
   connect(&work_entity, &QThread::finished, ld, &QObject::deleteLater);
-  /* Was called from AddFxContextMenu, but now plugin search is done at startup
-     via load_entries(). To keep backward compatibility, we distinguish
-     receivers based on presence of listener. If listener exists, connect to
-     AddFxContextMenu::fixup() for context menu building; otherwise connect to
-     PluginLoadController::finished() to add to plugin_dict_. */
+  connect(ld, &Loader::fixup, this, &PluginLoadController::finished);
+  // Startup polling owns its controller until wait() succeeds. Menu requests
+  // must retire independently of whether their listener is still alive.
   if (listener) {
     AddFxContextMenu *a = qobject_cast<AddFxContextMenu *>(listener);
     connect(ld, &Loader::fixup, a, &AddFxContextMenu::fixup);
     connect(this, &PluginLoadController::start, ld, &Loader::walkDictionary);
+    connect(&work_entity, &QThread::finished, this, &QObject::deleteLater);
   } else {
     connect(this, &PluginLoadController::start, ld, &Loader::walkDirectory);
     connect(ld, &Loader::load_finished, this, &PluginLoadController::result);
-    if (!connect(ld, &Loader::fixup, this, &PluginLoadController::finished))
-      assert(false);
   }
+#ifdef BUILD_RELIABILITY_TESTS
+  observePluginControllerForTest(this, ld, &work_entity);
+#endif
   work_entity.start();
 
   QString pluginbase = (TEnv::getStuffDir() + "plugins").getQString();

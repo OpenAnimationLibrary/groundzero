@@ -322,6 +322,8 @@ if(BUILD_SEEXPR_TESTS)
 endif()
 
 if(BUILD_RELIABILITY_TESTS)
+    target_compile_definitions(toonzqt PRIVATE BUILD_RELIABILITY_TESTS)
+    target_sources(toonzqt PRIVATE tests/plugin_controller_lifetime.cpp)
     add_executable(stageobjectspaste_test tests/stageobjectspaste_test.cpp)
     target_link_libraries(stageobjectspaste_test PRIVATE toonzqt toonzlib tnzbase
         tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
