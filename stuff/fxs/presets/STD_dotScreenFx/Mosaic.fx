@@ -77,7 +77,7 @@
       <default>1</default>
     </seed>
     <target1>
-      <default>0</default>
+      <default>5</default>
     </target1>
     <mode1>
       <default>1</default>
@@ -86,13 +86,13 @@
       <default>1</default>
     </low1>
     <high1>
-      <default>0</default>
+      <default>1</default>
     </high1>
     <invert1>
       0 0
     </invert1>
     <target2>
-      <default>5</default>
+      <default>0</default>
     </target2>
     <mode2>
       <default>1</default>
