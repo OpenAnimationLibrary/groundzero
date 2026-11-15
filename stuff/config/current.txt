@@ -1412,6 +1412,40 @@
   <item>"STD_burstLinesFx.speed" "Speed (per Frame)" </item>
   <item>"STD_burstLinesFx.hold" "Hold (Frames)" </item>
   <item>"STD_burstLinesFx.seed" "Seed" </item>
+  <item>"STD_dotScreenFx" "Dot Screen" </item>
+  <item>"STD_dotScreenFx.spacing" "Spacing" </item>
+  <item>"STD_dotScreenFx.angle" "Angle" </item>
+  <item>"STD_dotScreenFx.stagger" "Row Stagger" </item>
+  <item>"STD_dotScreenFx.jitter" "Jitter" </item>
+  <item>"STD_dotScreenFx.shape" "Shape" </item>
+  <item>"STD_dotScreenFx.size" "Size" </item>
+  <item>"STD_dotScreenFx.aspect" "Aspect" </item>
+  <item>"STD_dotScreenFx.rotation" "Rotation" </item>
+  <item>"STD_dotScreenFx.opacity" "Opacity" </item>
+  <item>"STD_dotScreenFx.softness" "Edge Softness" </item>
+  <item>"STD_dotScreenFx.color" "Colour" </item>
+  <item>"STD_dotScreenFx.color2" "Second Colour" </item>
+  <item>"STD_dotScreenFx.colorRandom" "Colour Randomness" </item>
+  <item>"STD_dotScreenFx.sizeRandom" "Size Randomness" </item>
+  <item>"STD_dotScreenFx.rotationRandom" "Rotation Randomness" </item>
+  <item>"STD_dotScreenFx.opacityRandom" "Opacity Randomness" </item>
+  <item>"STD_dotScreenFx.hold" "Hold (Frames)" </item>
+  <item>"STD_dotScreenFx.seed" "Seed" </item>
+  <item>"STD_dotScreenFx.target1" "Changes" </item>
+  <item>"STD_dotScreenFx.mode1" "By" </item>
+  <item>"STD_dotScreenFx.low1" "At Black" </item>
+  <item>"STD_dotScreenFx.high1" "At White" </item>
+  <item>"STD_dotScreenFx.invert1" "Invert" </item>
+  <item>"STD_dotScreenFx.target2" "Changes" </item>
+  <item>"STD_dotScreenFx.mode2" "By" </item>
+  <item>"STD_dotScreenFx.low2" "At Black" </item>
+  <item>"STD_dotScreenFx.high2" "At White" </item>
+  <item>"STD_dotScreenFx.invert2" "Invert" </item>
+  <item>"STD_dotScreenFx.target3" "Changes" </item>
+  <item>"STD_dotScreenFx.mode3" "By" </item>
+  <item>"STD_dotScreenFx.low3" "At Black" </item>
+  <item>"STD_dotScreenFx.high3" "At White" </item>
+  <item>"STD_dotScreenFx.invert3" "Invert" </item>
   <item>"STD_printProcessFx" "Print Process" </item>
   <item>"STD_printProcessFx.output" "Output" </item>
   <item>"STD_printProcessFx.cellSize" "Cell Size" </item>

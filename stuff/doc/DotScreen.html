@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dot Screen</title></head>
+<body>
+<h1>Dot Screen</h1>
+<p>Draws a lattice of dots: a halftone of an image, a decorative pattern, or
+stripes. Add Dot Screen from the Render category. With nothing connected it
+draws a plain pattern. Connect an image to Source and it becomes a halftone of
+that image: dark areas get large dots and light areas small ones.</p>
+<h2>Lattice</h2>
+<p><b>Spacing</b> is the distance between dot centres and <b>Angle</b> turns
+the lattice about the centre of the scene. <b>Row Stagger</b> shifts every
+other row by a share of a cell; 0.5 gives a brick pattern. <b>Jitter</b> lets
+each dot leave its place by up to that share of a cell.</p>
+<h2>Dot</h2>
+<p><b>Shape</b> is Round, Square, Diamond or Line; lines join along their row
+into stripes. <b>Size</b> is the dot's height as a share of the spacing: at 1 a
+round dot touches its neighbours. <b>Aspect</b> is width over height,
+<b>Rotation</b> turns each dot on top of the lattice angle, and <b>Edge
+Softness</b> blurs the dot's edge. Each dot takes a colour between
+<b>Colour</b> and <b>Second Colour</b>, as far as <b>Colour Randomness</b>
+allows. The randomness amounts shrink, turn and fade dots at random;
+<b>Hold</b> redraws the random values every that many frames, and <b>Seed</b>
+picks them.</p>
+<h2>Modifiers</h2>
+<p>Each of the three modifiers reads one input at the centre of every dot:
+Source, Control2 or Control3. <b>Changes</b> picks what it drives: Size,
+Aspect, Rotation, Opacity or Colour; Off ignores the input. The input's
+brightness (times its opacity) picks a value between <b>At Black</b> and <b>At
+White</b>, and <b>By</b> says what that value does: Set replaces the dot's
+value, Multiply scales it, Add adds to it. Rotation values are in degrees.
+<b>Invert</b> swaps black and white. For Colour, each dot takes the input's
+colour at its centre, as far as <b>At White</b> allows (1 takes it fully).</p>
+<p>The first modifier starts as Size, Multiply, 1 at black and 0 at white,
+which is a halftone of Source.</p>
+<h2>Starting points</h2>
+<p><b>Halftone:</b> connect the image to Source and leave the defaults; lower
+Spacing for a finer screen. <b>Coloured dots:</b> connect the same image to
+Control2 and set Modifier 2 to Colour. <b>Diagonal stripes:</b> Shape Line,
+Angle 45, Size 0.5. <b>Mosaic:</b> Shape Square, Angle 0, Size 1, Modifier 1
+Off and Modifier 2 on Colour.</p>
+<h2>Notes</h2>
+<p>Every value except Invert can be animated. 8-bit, 16-bit and floating-point
+renders are supported. The dots are tied to the scene, not to the render tiles
+or the preview size.</p>
+</body>
+</html>

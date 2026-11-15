@@ -187,6 +187,7 @@ set(SOURCES
     printprocessfx.cpp
     motionlinesfx.cpp
     burstlinesfx.cpp
+    dotscreenfx.cpp
     lightwrapfx.cpp
     edgeextendfx.cpp
     automattefx.cpp
@@ -648,6 +649,21 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_burstLinesFx.xml)
     add_dependencies(celfx_tests burstlines_test burstlines_ui_test)
     set_tests_properties(celfx_burstlines celfx_burstlines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The dot math has no toonz types: its test links nothing
+    add_executable(dotscreen_test tests/dotscreen_test.cpp)
+    add_test(NAME celfx_dotscreen COMMAND dotscreen_test)
+    add_executable(dotscreenfx_test tests/dotscreenfx_test.cpp)
+    target_link_libraries(dotscreenfx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_dotscreenfx COMMAND dotscreenfx_test)
+    add_executable(dotscreen_ui_test tests/dotscreen_ui_test.cpp)
+    target_link_libraries(dotscreen_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_dotscreen_ui COMMAND dotscreen_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_dotScreenFx.xml)
+    add_dependencies(celfx_tests dotscreen_test dotscreenfx_test dotscreen_ui_test)
+    set_tests_properties(celfx_dotscreen celfx_dotscreenfx celfx_dotscreen_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)
