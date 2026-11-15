@@ -9,7 +9,7 @@ repairs as F30–F34.
 Ownership follow-ups F35–F48 are recorded below. The
 [November 12 record](audit_ci_2026_11_12.md) separates executed cases from blocked scenarios.
 R01/R02/R03/R08/R09 remain aliases for those same bugs, not additional unresolved defects.
-The ledger has 57 prepared findings and 14 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
+The ledger has 59 prepared findings and 14 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
 F27/F28/F29 retain explicit partial-scope and runtime qualifications in their open records.
 The companion [JSON ledger](audit_findings.json) contains affected paths, exact fixture names,
 platform limits, missing coverage and a targeted mutation proposal for each prepared fix.
@@ -130,6 +130,8 @@ compare smaller tiled/untiled outputs. This is a proposed fixture, not an execut
 | [F34](../toonz/sources/toonz/custompanelmanager.cpp) P2 | Unchecked loader null → panel fallback or preserved editor preview | Missing/malformed/valid Room panels; plain-text path/error, ownership/destruction, valid MI_Undo binding; malformed selection retains valid path/preview/fields; later command edit succeeds, then corrupted-file reload preserves preview pixels | `exerciseCustomPanelLoading`, `checkFallback`, `checkValidPanel`, `checkEditorFailure`, `checkCorruptedTemplate`; checkpoint passed L/M/W at f8a1680; mutation pending, no W1 attribution |
 | F50 P1 | Cached current-column borrow after scene clear → resolve through live Xsheet/index | Actual external Paste/New raster level into an existing empty column, sound-column title control, pixel checks, New Scene and cleared caption | `checkExternalNewLevelRetirement`, `checkSoundColumnTitle`, `checkVisibleViewerTitle`; original crash recorded, repaired run and mutation pending |
 | F57 P2 | Selected executable path/argv[0] changes during launch → preserve executable identity | Real child reports exact selected executable; POSIX link has spaces, apostrophe and dollar sign; retain quoted arguments/output/error controls | `executableIdentity`; Windows ANSI path and legacy POSIX argument-shell policy unchanged; CI pending |
+| F58 P2 | Repeated macOS pressure queries accumulate host send-right references → balance one acquired right | Read send-right count around 64 production queries and require equality | `testMacMemoryPressurePortOwnership`; no heap/RSS or OS-error-path claim; next-batch CI pending |
+| F59 P2 | Linux present-zero MemAvailable falls back to MemFree → track presence independently | Eleven production-parser cases preserve zero, missing/malformed fallback and threshold behavior | `testLinuxMemoryPressure`; no runner memory exhaustion or spill/reload claim; next-batch CI pending |
 
 ## Prepared memory ownership scenarios
 

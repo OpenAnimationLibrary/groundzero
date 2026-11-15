@@ -3,7 +3,7 @@
   "audit_date": "2026-11-07",
   "baseline_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
   "patch_revision": null,
-  "scope": "57 prepared findings plus 14 distinct residual/qualification records; six retained residual IDs alias F24/F25/F27/F28/F29/F49. Not a complete defect inventory.",
+  "scope": "59 prepared findings plus 14 distinct residual/qualification records; six retained residual IDs alias F24/F25/F27/F28/F29/F49. Not a complete defect inventory.",
   "review_order": [
     "architecture",
     "code_quality",
@@ -275,7 +275,7 @@
         "macos",
         "windows"
       ],
-      "limit": "64 RGBA32 and 64 CM32 removal cycles inspect pixels/IDs, not builder allocations; disk spill unforced.",
+      "limit": "64 RGBA32 and 64 CM32 removal cycles inspect pixels/IDs, not builder allocations; disk spill unforced. F58 adds macOS send-right counting; F59 adds eleven Linux parser cases. Both postdate head 376d2e6ce and await CI.",
       "ctest": [
         "timagecache"
       ]
@@ -2884,6 +2884,81 @@
         "mutation_proposal": "Remove the executable argv[0] prefix on Windows or its shell quoting on POSIX; selected-executable identity/worker argument parsing must fail."
       },
       "implementation_commit": "2c61e4acc"
+    },
+    {
+      "id": "F58",
+      "priority": "P2",
+      "title": "macOS pressure queries retain host send-right references",
+      "sources": [
+        "toonz/sources/common/tsystem/tsystempd.cpp",
+        "toonz/sources/common/tcache/tests/timagecache_test.cpp"
+      ],
+      "baseline_behavior": "Each macOS memoryShortage query acquires two mach_host_self send-right user references and releases neither, including when host statistics fail. This is reference accumulation, not evidence of two new port objects or measured heap growth.",
+      "patched_invariant": "Acquire one valid host right, share it between page-size and VM-statistics queries, and release it before evaluating query errors or returning the pressure result. Check page-size and release results while retaining the existing availability heuristic and threshold.",
+      "scenario": "Hold one fixture-owned host right, read its send-right reference count, call the production memoryShortage query 64 times, and require the original reference count afterward. The fixture releases its own right through scoped ownership.",
+      "platforms": [
+        "macos"
+      ],
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "image_cache",
+          "cases": [
+            "testMacMemoryPressurePortOwnership"
+          ]
+        }
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "This follow-up postdates head 376d2e6ce and is not covered by run 43660089325. Compilation, exact-revision execution and targeted baseline/mutation remain pending.",
+          "The fixture checks Mach send-right references, not RSS or heap allocations. OS query/release failure injection and cache spill behavior are not exercised. The macOS free/inactive/purgeable availability heuristic is unchanged and unqualified."
+        ],
+        "mutation_proposal": "Remove the production mach_port_deallocate call; repeated queries must increase the observed send-right user-reference count."
+      }
+    },
+    {
+      "id": "F59",
+      "priority": "P2",
+      "title": "Linux zero available memory bypasses the pressure result",
+      "sources": [
+        "toonz/sources/common/tsystem/tsystempd.cpp",
+        "toonz/sources/common/tsystem/memorypressure.h",
+        "toonz/sources/common/tcache/tests/timagecache_test.cpp"
+      ],
+      "baseline_behavior": "The Linux memAvailable ? memAvailable : memFree fallback treats a successfully parsed MemAvailable value of zero as absent. Nonzero MemFree can then suppress the expected pressure result.",
+      "patched_invariant": "Track successful MemAvailable parsing separately from its numeric value. Use a present zero directly; fall back to MemFree only when the field is absent or cannot be parsed. Preserve the existing one-seventh threshold and kernel field-order assumption.",
+      "scenario": "Exercise the production parser with eleven table inputs: present zero, present nonzero, absent availability, below/equal threshold, zero/missing/malformed total, empty input and malformed availability fallback.",
+      "platforms": [
+        "linux"
+      ],
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "image_cache",
+          "cases": [
+            "testLinuxMemoryPressure"
+          ]
+        }
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "This follow-up postdates head 376d2e6ce and is not covered by run 43660089325. Compilation, exact-revision execution and targeted baseline/mutation remain pending.",
+          "Tests provide bounded meminfo text; they do not exhaust runner memory, qualify actual pressure-triggered cache spill/reload, or validate container memory limits. Arbitrarily reordered, truncated or adversarial meminfo formats remain outside this fixture."
+        ],
+        "mutation_proposal": "Restore the value-based memAvailable fallback; the present-zero/nonzero-MemFree case must report the wrong pressure result."
+      }
     }
   ],
   "residuals": [
@@ -3750,11 +3825,13 @@
       "F53 Calibrated widgets retain their calibrator registration",
       "F54 Qt audio output and refill callback outlive playback owner",
       "F55 Failed calibration setup leaves dangling shader pointers",
-      "F56 ImageViewer retains an unparented histogram popup",
+      "F56 ImageViewer histogram popup outlives its viewer",
       "F49 Plugin loader controller and listener thread retirement",
       "F51 Closing an FX menu releases process-lived plugin declarations",
       "F52 FX menu rebuild and destruction retain owned menu objects",
-      "F57 External effect launch loses selected executable identity"
+      "F57 External effect launch loses selected executable identity",
+      "F58 macOS pressure queries retain host send-right references",
+      "F59 Linux zero available memory bypasses the pressure result"
     ],
     "final_patch_revision": null,
     "latest_recorded_ci_revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",

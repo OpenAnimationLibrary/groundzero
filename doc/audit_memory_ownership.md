@@ -125,7 +125,10 @@ It replaces the macOS/Linux `TSystem::memoryShortage()` stubs with available-mem
 measurements so the existing image cache can compress/spill under pressure.
 The audit keeps that pressure policy separate from ownership repairs.
 It addresses a different boundary from releasing allocations after their last
-logical owner.
+logical owner. F58/F59 separately prepare macOS host send-right balance and Linux
+present-zero availability handling in this merged code. Their bounded query/parser fixtures
+postdate head `376d2e6ce` and await CI; they do not establish pressure-policy accuracy or
+application-wide memory reduction. See the [pressure review](audit_memory_lifetime.md#separate-pr-133-pressure-policy-review).
 
 Historical GitHub reports were checked for state and follow-up evidence:
 

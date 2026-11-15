@@ -43,6 +43,8 @@ render graph. See the measurement protocol below,
 | F54 | P1 | Own Qt playback output and use context-bound weak refill callbacks. | Sixteen setup/replacement/retirement cycles without physical playback; Qt5/Qt6 assertions; Linux/macOS CI pending |
 | F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; actual driver failure/retry and CI pending |
 | F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; CI pending |
+| F58 | P2 | Balance the macOS host send-right reference acquired by each memory-pressure query. | Existing `timagecache`: 64 production queries with before/after send-right counts; source-only, next-batch CI pending |
+| F59 | P2 | Treat a parsed Linux MemAvailable value of zero as present rather than falling back to MemFree. | Existing `timagecache`: eleven parser cases including present-zero and threshold edges; source-only, next-batch CI pending |
 
 F37 owns returned conversions; exceptions inside factories remain outside scope. F38 drives a
 real throwing merge; normal null-target copy was not a leak. F40 value checks need mismatch
@@ -219,23 +221,23 @@ and is included in the tested merge f8a1680 and the current integration. Its
 With the big-memory manager disabled, this boundary affects image-cache compression/spill.
 It concerns pressure policy, not proof of ownership release or leak freedom.
 
-Two previously recorded source-review items remain in the merged implementation:
+Two source-confirmed follow-ups are now prepared as F58/F59. They postdate the 57-fix
+head `376d2e6ce`; run 43660089325 does not test them. Both extend the existing
+`timagecache` target without adding jobs. Compilation, regression execution and targeted
+baseline/mutation checks remain pending.
 
-- The macOS path acquires `mach_host_self()` send rights twice and does not release
-  them, including on host-statistics failure. Acquire one right, release it on every exit,
-  check page-size retrieval and add a bounded repeated-call send-right count fixture. This
-  is a resource-lifetime observation; no RAM growth was measured.
-  [Apple documents the returned send right](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/man/mach_host_self.html).
-- The Linux fallback `memAvailable ? memAvailable : memFree` conflates an absent field with a
-  present zero. Parser cases should distinguish present-zero, missing, malformed/truncated
-  input, field ordering and threshold edges. Inject readings at the OS boundary; do not exhaust
-  a shared runner to simulate pressure. Then use a bounded spill/reload case preserving pixels
-  and checked-out owners. Container limits and the macOS availability heuristic remain
-  policy questions; the roughly 15% threshold is not a leak gate.
-
-These are remaining source-review items, not prepared fixes or measured runtime findings
-in this register. New ownership findings from the active memory source lanes must be
-recorded with their actual repair/fixture status before they change that register.
+- F58 balances a single macOS `mach_host_self()` send-right user reference across both
+  queries, checking page-size and release errors. The fixture holds its own scoped right,
+  reads `mach_port_get_refs`, performs 64 production queries and requires the same count.
+  The old path acquired two user references per query; it did not necessarily allocate two
+  new port objects. No heap or RAM growth was measured. Query/release failure injection
+  remains unqualified. [Apple documents the acquired send right](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/man/mach_host_self.html).
+- F59 distinguishes a parsed zero `MemAvailable` from an absent field. Eleven bounded
+  parser cases cover zero/nonzero presence, absent and malformed availability, threshold
+  edges, and empty/missing/zero/malformed total memory. The kernel field-order assumption
+  and one-seventh threshold remain unchanged. Arbitrary field ordering/truncation,
+  pressure-triggered spill/reload, container limits and the macOS availability heuristic
+  remain qualification or policy questions. No runner memory is exhausted by the fixture.
 
 Unfixed source boundaries are R17 plugin nested storage/per-host UI, R18 cache telemetry and
 R21 Windows audio callback/thread retirement. R20 aliases the prepared F49 controller fix. Nested malformed

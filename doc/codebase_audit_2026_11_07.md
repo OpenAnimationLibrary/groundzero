@@ -147,6 +147,8 @@ Related variants share a finding ID rather than inflating the count for each aff
 | F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; actual driver failure/retry and CI pending |
 | F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; CI pending |
 | F57 | P2 | Preserve selected external-effect executable identity with Windows argv[0] and POSIX path quoting. | Real child identity via production launch; POSIX spaces/apostrophe/dollar path, existing output/error controls; CI pending |
+| F58 | P2 | Balance the macOS host send-right reference acquired by each memory-pressure query. | Existing `timagecache`: 64 production queries with before/after send-right counts; source-only, next-batch CI pending |
+| F59 | P2 | Treat a parsed Linux MemAvailable value of zero as present rather than falling back to MemFree. | Existing `timagecache`: eleven parser cases including present-zero and threshold edges; source-only, next-batch CI pending |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -171,7 +173,7 @@ The follow-up [Swing review](audit_swing_undo.md),
 [native crash investigation](audit_windows_crashes.md) record additional scenarios
 and distinguish prepared repairs from unresolved application crashes.
 The [scenario plan](audit_regression_scenarios.md) and
-[machine-readable ledger](audit_findings.json) track all 57 prepared findings,
+[machine-readable ledger](audit_findings.json) track all 59 prepared findings,
 stable residual IDs, platform limits, required mutations, and exact CI evidence.
 
 The [November 12 CI record](audit_ci_2026_11_12.md) identifies executed ownership checks
