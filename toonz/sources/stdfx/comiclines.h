@@ -254,20 +254,22 @@ inline Rgba sample(const Field &f, double x, double y, double pixel) {
   const double rx = x - s.originX, ry = y - s.originY;
 
   double along, position, radius = 0, window, widthScale = 1;
-  bool periodic;
+  // A twisted line crosses the circles at an angle: distances measured
+  // along a circle are this much longer than across the line
+  double spiral = 1;
   if (radial) {
     radius = std::hypot(rx, ry);
     if (radius < s.innerRadius - pixel || radius > s.outerRadius + pixel)
       return out;
     along = s.outerRadius - radius;
-    if (along < 0 || along > f.along) return out;
+    if (along < -pixel || along > f.along + pixel) return out;
     position = detail::wrap(
         std::atan2(ry, rx) - s.twist * (along / f.along), f.across);
-    const double reach = f.reach + pixel;
+    spiral = std::hypot(1.0, radius * s.twist / f.along);
+    const double reach = (f.reach + pixel) * spiral;
     window     = radius > reach ? std::asin(reach / radius) : 0.5 * pi;
     widthScale = s.falloff > 0 ? std::pow(radius / s.outerRadius, s.falloff)
                                : 1.0;
-    periodic   = true;
   } else {
     const double norm = std::hypot(s.directionX, s.directionY);
     if (!(norm > minLen)) return out;
@@ -275,12 +277,11 @@ inline Rgba sample(const Field &f, double x, double y, double pixel) {
     along    = rx * dx + ry * dy;
     position = ry * dx - rx * dy + 0.5 * f.across;
     window   = f.reach + pixel;
-    periodic = s.tile;
     if (s.tile) {
       along    = detail::wrap(along, f.along);
       position = detail::wrap(position, f.across);
-    } else if (along < 0 || along > f.along || position < -window ||
-               position > f.across + window) {
+    } else if (along < -pixel || along > f.along + pixel ||
+               position < -window || position > f.across + window) {
       return out;
     }
   }
@@ -288,19 +289,25 @@ inline Rgba sample(const Field &f, double x, double y, double pixel) {
   // Every line whose centre is within the window of this position, in the
   // order of their positions. The order depends only on the position, so a
   // pixel composites the same way in every tile.
+  const double halfPixel = 0.5 * pixel;
   auto composite = [&](const Line &line, double delta) {
     if (radial && std::abs(delta) > 0.5 * pi) return;
-    const double local = detail::wrap(along - line.start - s.travel, f.along);
-    if (local > line.length) return;
-    const double t    = local / line.length;
+    double local = detail::wrap(along - line.start - s.travel, f.along);
+    // Just before the line's start, the distance wraps to the band's end
+    if (local > line.length + halfPixel && local - f.along >= -halfPixel)
+      local -= f.along;
+    if (local < -halfPixel || local > line.length + halfPixel) return;
+    const double t    = detail::unit(local / line.length);
     const double half = line.halfWidth * detail::profile(s, t) * widthScale;
     if (!(half > 0)) return;
-    double d = radial ? radius * std::sin(delta) : delta;
+    double d = radial ? radius * std::sin(delta) / spiral : delta;
     if (s.waveAmplitude > 0 && s.wavePeriod > minLen)
       d -= s.waveAmplitude *
            std::sin(2 * pi * local / s.wavePeriod + line.phase);
+    // The ends are antialiased like the sides: the share of the pixel
+    // along the line that the line covers
     const double ends =
-        detail::unit(std::min(local, line.length - local) / pixel + 0.5);
+        detail::coverage(local - 0.5 * line.length, 0.5 * line.length, pixel);
     const double alpha = detail::coverage(d, half, pixel) * ends * line.color.a;
     if (!(alpha > 0)) return;
     out.r = line.color.r * alpha + out.r * (1 - alpha);
@@ -317,11 +324,15 @@ inline Rgba sample(const Field &f, double x, double y, double pixel) {
          ++it)
       composite(*it, p - it->position);
   };
-  // A window wider than half the layout would find a line twice
-  if (periodic && window < 0.5 * f.across) {
+  if (radial) {
+    // The window is at most a quarter turn: each line is found once
     if (position + window > f.across) gather(-f.across);
     gather(0);
     if (position - window < 0) gather(f.across);
+  } else if (s.tile) {
+    // Every copy of the band that the window reaches, even a narrow one
+    const int copies = int(std::ceil(window / f.across));
+    for (int k = -copies; k <= copies; ++k) gather(k * f.across);
   } else {
     gather(0);
   }

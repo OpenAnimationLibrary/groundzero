@@ -192,6 +192,76 @@ void testRadial() {
           "Twist did not turn the line away from its start");
 }
 
+// A twisted line keeps its thickness across itself
+void testTwistWidth() {
+  Settings s    = single();
+  s.layout      = Layout::Radial;
+  s.innerRadius = 100;
+  s.outerRadius = 700;
+  s.length      = 600;
+  s.thickness   = 8;
+  s.twist       = 2 * pi / 3;
+  const Field f = build(s);
+  const double tilt = s.twist / (s.outerRadius - s.innerRadius);
+  for (double radius : {150.0, 400.0, 650.0}) {
+    // The line's point and direction at this radius
+    const double along = s.outerRadius - radius;
+    const double angle = pi + s.twist * along / (s.outerRadius - s.innerRadius);
+    const double px = radius * std::cos(angle), py = radius * std::sin(angle);
+    // Inwards the angle grows: the tangent is (dr, r dtheta) = (-1, r tilt)
+    const double tr = -1, tt = radius * tilt, tn = std::hypot(tr, tt);
+    const double dx = (tr * std::cos(angle) - tt * std::sin(angle)) / tn;
+    const double dy = (tr * std::sin(angle) + tt * std::cos(angle)) / tn;
+    // Sum the coverage along the normal: the line's width
+    const double step = 0.01;
+    double width      = 0;
+    for (double u = -12; u <= 12; u += step)
+      width += sample(f, px - dy * u, py + dx * u, step).a * step;
+    require(approx(width, 8, 0.05),
+            "A twisted line is " + std::to_string(width) + " wide at radius " +
+                std::to_string(radius));
+  }
+}
+
+// A band narrower than the lines' reach still tiles without seams
+void testNarrowTile() {
+  Settings narrow       = single();
+  narrow.tile           = true;
+  narrow.bandWidth      = 2;  // the reach spans three bands
+  narrow.bandLength     = 100;
+  narrow.length         = 100;
+  narrow.count          = 1;
+  narrow.thickness      = 2;
+  narrow.waveAmplitude  = 4;
+  narrow.wavePeriod     = 50;
+  Settings wide         = narrow;
+  wide.bandWidth        = 4;
+  wide.count            = 2;
+  wide.originY          = 1;  // bands are centred: line it up with the narrow one
+  const Field a = build(narrow), b = build(wide);
+  for (double y = -30; y <= 30; y += 0.37)
+    for (double x = 0; x <= 100; x += 1.3)
+      require(approx(sample(a, x, y, 1).a, sample(b, x, y, 1).a, 1e-9),
+              "A narrow tiled band has a seam");
+}
+
+// The ends are antialiased: a line's total does not depend on where it
+// starts within a pixel
+void testEnds() {
+  for (double length : {10.3, 0.4})
+  for (double shift : {0.0, 0.25, 0.5, 0.75}) {
+    Settings s     = single();
+    s.originX      = shift;
+    s.length       = length;
+    const Field f  = build(s);
+    double total   = 0;
+    for (int x = -5; x < 30; ++x) total += sample(f, x + 0.5, 0.5, 1).a;
+    require(approx(total, length, 1e-9),
+            "A line's ends are not antialiased (total " +
+                std::to_string(total) + ")");
+  }
+}
+
 // Many lines over one pixel: none is dropped
 void testCrowd() {
   Settings s = single();
@@ -275,6 +345,9 @@ int main() {
     testGroups();
     testTile();
     testRadial();
+    testTwistWidth();
+    testNarrowTile();
+    testEnds();
     testCrowd();
     testCost();
     testInvalid();

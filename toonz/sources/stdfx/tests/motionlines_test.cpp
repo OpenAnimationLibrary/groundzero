@@ -54,6 +54,33 @@ void testFx() {
   require(approx(alpha(moved, 124, 32), 1), "The line did not travel");
   set(fx, "speed", 0);
 
+  // An animated speed moves the lines by the distance covered, never back
+  {
+    TDoubleParamP speed = numeric(fx, "speed");
+    speed->setValue(0, 30);
+    speed->setValue(24, 0);
+    double last = 0, covered = 0;
+    for (int f = 1; f <= 30; ++f) {
+      covered += speed->getValue(f - 1);
+      const double travel = fx.settings(f).travel;
+      require(travel >= last, "Animated lines moved backwards");
+      require(approx(travel, covered, 1e-9),
+              "Animated lines did not move by the distance covered");
+      last = travel;
+    }
+    speed->deleteKeyframe(0);
+    speed->deleteKeyframe(24);
+    set(fx, "speed", 0);
+  }
+
+  // Rotation is drawn directly; squash and stretch are left to the renderer
+  require(fx.canHandle(settings, 0), "Plain lines are not handled");
+  settings.m_affine = TRotation(30) * TScale(2);
+  require(fx.canHandle(settings, 0), "Rotated lines are not handled");
+  settings.m_affine = TScale(2, 1);
+  require(!fx.canHandle(settings, 0), "Stretched lines are handled");
+  settings.m_affine = TAffine();
+
   // Twice the scale: twice the width in pixels, the same place in the world
   settings.m_affine = TScale(2);
   const TRasterPT<Pixel> scaled =

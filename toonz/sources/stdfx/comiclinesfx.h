@@ -34,6 +34,20 @@ struct Defaults {
       outLength;
 };
 
+// The distance an animated speed has moved something by a frame: the sum
+// of the speed over the whole frames before it, plus the fraction of the
+// current one. A speed without keys gives speed * frame.
+inline double travelled(const TDoubleParamP &speed, double frame,
+                        double limit) {
+  auto at = [&](double f) { return bounded(speed->getValue(f), -limit, limit); };
+  if (!std::isfinite(frame)) return 0.0;
+  if (!speed->hasKeyframes() || frame <= 0) return at(frame) * frame;
+  const int whole = int(std::min(std::floor(frame), 100000.0));
+  double sum      = 0;
+  for (int f = 0; f < whole; ++f) sum += at(f);
+  return sum + (frame - whole) * at(whole);
+}
+
 class RasterLock {
   TRasterP m_raster;
 
@@ -189,15 +203,19 @@ public:
     s.opacity         = bounded(m_opacity->getValue(frame), 0, 1);
     s.opacityRandom   = bounded(m_opacityRandom->getValue(frame), 0, 1);
     // Lines move by Speed every frame without any key
-    s.travel =
-        bounded(m_speed->getValue(frame), -100000, 100000) * frame;
+    s.travel = travelled(m_speed, frame, 100000);
     s.seed = ComicLines::frameSeed(
         std::uint32_t(discrete(m_seed->getValue(frame), 0, 100000)), frame,
         discrete(m_hold->getValue(frame), 0, 1000));
     return s;
   }
 
-  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool requiresFullPrecisionSerialization() const override { return true; }
+  // Rotation and uniform scale only: the antialiasing has one pixel size,
+  // so the renderer resamples a squashed or stretched result
+  bool canHandle(const TRenderSettings &info, double) override {
+    return info.m_affine.isIsotropic(0.001);
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override {
     return false;
   }
