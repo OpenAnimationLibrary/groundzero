@@ -699,6 +699,16 @@ if(BUILD_CELFX_TESTS)
 endif()
 
 if(BUILD_CELFX_TESTS)
+    # The shipped presets load through the FX registry, as the Add FX menu does
+    add_executable(comicfx_presets_test tests/comicfx_presets_test.cpp)
+    target_link_libraries(comicfx_presets_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_comicfx_presets COMMAND comicfx_presets_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/fxs/presets)
+    add_dependencies(celfx_tests comicfx_presets_test)
+    set_tests_properties(celfx_comicfx_presets PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
     add_executable(celcomposite_test tests/celcomposite_test.cpp)
     target_link_libraries(celcomposite_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_composite COMMAND celcomposite_test)

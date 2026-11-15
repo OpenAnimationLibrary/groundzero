@@ -157,10 +157,10 @@ above the level are not applied to the rough strokes.
 
 | Milestone | Work | Exit check |
 |---|---|---|
-| M1.1 | L0 line engine. | `celfx_comiclines` passes: same seed gives the same lines; changing one random amount leaves the others unchanged; a tile split gives the same pixels as one tile; the offset animation moves a line by the stated distance per frame; the re-seed interval holds for N frames. |
+| M1.1 | L0 line engine. | `celfx_comiclines` passes: same seed gives the same lines; changing one random amount leaves the others unchanged; a tile split gives the same pixels as one tile; the offset animation moves a line by the stated distance per frame; the re-seed interval holds for N frames; 300 lines over one pixel are all drawn; the densest field (20,000 lines) samples 480 by 270 pixels within a fixed bound. |
 | M1.2 | F1 Motion Lines with gadgets, layout, names, help page. | `celfx_motionlines` and `celfx_motionlines_ui` pass: the line is where the parameters put it, a tile equals the same region of the whole frame, the cache key changes only with what changes the picture. |
 | M1.3 | F2 Burst Lines, same deliverables. | `celfx_burstlines` and `celfx_burstlines_ui` pass; the inner radius is empty. |
-| M1.4 | Starting points for rain, wind, hatching, focus lines, impact and zoom, as recipes in the help pages. | The help pages name the parameters to change. |
+| M1.4 | Presets in `stuff/fxs/presets/`: speed lines, rain, wind, hatching, focus lines, impact, zoom, spiral. | `celfx_comicfx_presets` loads each preset through the FX registry: it sets every parameter, changes the FX and draws. |
 
 ### Phase 2: dot screen
 
@@ -168,7 +168,7 @@ above the level are not applied to the rough strokes.
 |---|---|---|
 | M2.1 | `dotscreen.h` and F3 without modifiers. | `celfx_dotscreen` passes: a flat field renders the expected dot area for a given size and spacing; the angle rotates the lattice about the camera centre. |
 | M2.2 | The three modifiers and their control ports. | A horizontal ramp on the size modifier gives monotonically growing dots; a modifier on one property leaves the others unchanged. |
-| M2.3 | Layout, names, help with starting points (halftone, diagonal lines, mosaic). | `celfx_dotscreen_ui` passes. |
+| M2.3 | Layout, names, help, presets (halftone, diagonal lines, mosaic, polka dots). | `celfx_dotscreen_ui` and `celfx_comicfx_presets` pass. |
 
 ### Phase 3: watercolour
 
@@ -176,7 +176,7 @@ above the level are not applied to the rough strokes.
 |---|---|---|
 | M3.1 | `watercolour.h`: bleed and edge darkening on a synthetic two-colour image. | `celfx_watercolour` passes: colour reaches the stated bleed distance and no further; density is highest at the region edge. |
 | M3.2 | Granulation, paper, hold. | The noise is identical within a hold and differs across holds; the alias changes at the hold step. |
-| M3.3 | F5 FX, layout, names, help with starting points. | `celfx_watercolour_ui` passes; the memory estimate holds on a 4K frame. |
+| M3.3 | F5 FX, layout, names, help, presets (wet in wet, dry brush, transparent wash). | `celfx_watercolour_ui` and `celfx_comicfx_presets` pass; `celfx_watercolourfx` checks the memory estimate against what a 4K tile and its halo allocate. |
 
 ### Phase 4: rough stroke
 
@@ -184,7 +184,7 @@ above the level are not applied to the rough strokes.
 |---|---|---|
 | M4.1 | The stroke route chosen in M0.2. | `celfx_roughstrokefx` draws the stroke of a real vector level in a real column, and follows a transform between the level and the FX. |
 | M4.2 | `roughstroke.h` and F4: width, shaping, copies, wave. | `celfx_roughstroke` passes on a synthetic path. |
-| M4.3 | Reveal and travelling offset, layout, names, help with starting points. | A stroke revealed to 50% covers half its length; `celfx_roughstroke_ui` passes. |
+| M4.3 | Reveal and travelling offset, layout, names, help, presets (sketch, brush, marching dashes). | A stroke revealed to 50% covers half its length; `celfx_roughstroke_ui` and `celfx_comicfx_presets` pass. |
 
 ### Order
 
@@ -217,10 +217,11 @@ flag or a scene tag, that becomes a decision named in its PR.
   and as four tiles and compares the pixels.
 - The FX tests assert pixel values at known positions, at 8-bit, 16-bit and
   float, and at a scaled affine.
-- No render references in `stdfx/tests/fxrender_test.cpp` and no preset files
-  yet: both must be produced by the application (a rendered PNG, a preset
-  saved by the FX serializer), which this work has not run. The help pages
-  carry the starting points as recipes until presets are saved from the app.
+- Presets: `celfx_comicfx_presets` loads every shipped preset through the FX
+  registry and checks it sets every parameter of its FX.
+- No render references in `stdfx/tests/fxrender_test.cpp`: a reference is a
+  PNG rendered by the application and reviewed by eye, which this work has
+  not done.
 - Compat: none of these changes a scene that does not use them.
 
 ## Risks
@@ -228,7 +229,7 @@ flag or a scene tag, that becomes a decision named in its PR.
 | # | Risk | Mitigation |
 |---|---|---|
 | R1 | Rough Stroke has no existing route to vector strokes; the right route may touch the column renderer. | Phase 0 spike before any F4 code; F4 is last. |
-| R2 | Line rasterisation cost with thousands of lines at 4K. | Analytic coverage per line with a bounding-box cull per tile; a cost test in M1.1. |
+| R2 | Line rasterisation cost with thousands of lines at 4K. | Lines are sorted across the layout and each pixel visits only those within its reach. Measured: the densest field (20,000 thick wavy lines) samples a 4K frame in about 6 s on one thread at -O2. M1.1 has a cost bound. |
 | R3 | Watercolour needs a halo as wide as the bleed, which grows tile memory. | `getMemoryRequirement` and the halo are set from the bleed distance; M3.3 checks a 4K frame. |
 | R4 | Noise that changes with tile or zoom would shimmer. | Noise is sampled in camera space on the native grid, as the other cel FX do; the tile-split tests cover it. |
 
