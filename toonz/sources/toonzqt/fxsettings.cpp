@@ -52,11 +52,28 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <cmath>
+#include <cstdint>
 
 #include <QDesktopServices>
 #include <QUrl>
 
 namespace {
+std::string pluginParameterLayout(const TFxP& fx) {
+  if (auto* plugin = dynamic_cast<RasterFxPluginHost*>(fx.getPointer()))
+    return std::to_string(
+        reinterpret_cast<std::uintptr_t>(plugin->parameterLayoutIdentity()));
+  auto* macro = dynamic_cast<TMacroFx*>(fx.getPointer());
+  if (!macro) return {};
+  bool hasPlugin = false;
+  std::string identity;
+  for (const auto& child : macro->getFxs()) {
+    const auto part = pluginParameterLayout(child);
+    if (!part.empty()) hasPlugin = true;
+    identity += "[" + part + "]";
+  }
+  return hasPlugin ? identity : std::string();
+}
+
 // Dynamic layout identity excludes values/source text so ordinary keyframe or
 // expression edits reuse the page. Stable IDs, labels and types rebuild it, as
 // does the set of visible native control parameters: adding or removing an
@@ -1743,6 +1760,12 @@ void ParamViewer::setFx(const TFxP &currentFx, const TFxP &actualFx, int frame,
   } else {
     name += std::to_string(actualFx->getFxVersion());
   }
+
+  // Cached pages retain their hosts, so visited generation addresses stay live
+  // until those pages retire. Include nested plugin layouts without changing FX
+  // versions.
+  const auto pluginLayout = pluginParameterLayout(actualFx);
+  if (!pluginLayout.empty()) name += ":plugin:" + pluginLayout;
 
   const QByteArray shape = seExprLayout(actualFx);
   if (!shape.isEmpty()) {

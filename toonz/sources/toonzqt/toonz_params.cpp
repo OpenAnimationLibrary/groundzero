@@ -1,6 +1,9 @@
 #include "pluginhost.h"
 #include "toonz_params.h"
 
+#include <exception>
+#include <new>
+
 extern "C" {
 int set_parameter_pages(void *, int num, toonz_param_page_t *params);
 int set_parameter_pages_with_error(void *, int num, toonz_param_page_t *params,
@@ -15,8 +18,15 @@ int set_parameter_pages_with_error(void *host, int num,
   if (params == NULL) return TOONZ_ERROR_NULL;
   int e     = 0;
   void *pos = NULL;
-  bool ret  = reinterpret_cast<RasterFxPluginHost *>(host)->setParamStructure(
-      num, params, e, pos);
+  bool ret  = false;
+  try {
+    ret = reinterpret_cast<RasterFxPluginHost*>(host)->setParamStructure(
+        num, params, e, pos);
+  } catch (const std::bad_alloc&) {
+    return TOONZ_ERROR_OUT_OF_MEMORY;
+  } catch (const std::exception&) {
+    return TOONZ_ERROR_UNKNOWN;
+  }
   if (!ret) {
     if (err) {
       *err                    = e;

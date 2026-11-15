@@ -55,9 +55,8 @@ private:
   PluginInformation *pi_;
 };
 
-class UIPage;
 class Param;
-class ParamView;
+class PluginParameterStorage;
 
 class ParamsPageSet;
 
@@ -89,18 +88,8 @@ public:
   int (*ini_)(toonz::host_interface_t *);
   void (*fin_)(void);
   int ref_count_;
-  int param_page_num_;
-  std::unique_ptr<toonz_param_page_t[]> param_pages_;
-
-  std::vector<UIPage *> ui_pages_;
-  std::vector<ParamView *> param_views_;
+  std::shared_ptr<const PluginParameterStorage> parameters_;
   std::map<std::string, port_description_t> port_mapper_;
-
-  std::vector<std::shared_ptr<void>>
-      param_resources_; /* deep-copy に使う scratch area */
-  std::vector<std::shared_ptr<std::string>>
-      param_string_tbl_; /* shared_ptr< void > では non-virtual destructor
-                            が呼ばれないので  */
 
 public:
   PluginInformation()
@@ -110,8 +99,7 @@ public:
       , host_(NULL)
       , ini_(NULL)
       , fin_(NULL)
-      , ref_count_(1)
-      , param_page_num_(0) {}
+      , ref_count_(1) {}
 
   ~PluginInformation();
 
@@ -153,13 +141,19 @@ signals:
 };
 
 class RasterFxPluginHost final : public TRasterFx, public TPluginInterface {
+  friend class PluginStorageLifetimeTest;
   PluginInformation *pi_;
+  // Param wrappers borrow this generation, so the lease outlives params_.
+  std::shared_ptr<const PluginParameterStorage> parameters_;
 
   std::vector<std::shared_ptr<TFxPort>> inputs_;
   std::vector<std::shared_ptr<Param>> params_;
   void *user_data_;
 
   static bool validateKeyName(const char *name);
+  int validateParameter(const toonz_param_desc_t& parameter) const;
+  int validateGroup(const toonz_param_group_t& group, void*& position) const;
+  int validatePage(const toonz_param_page_t& page, void*& position) const;
 
 protected:
   virtual RasterFxPluginHost *newInstance(PluginInformation *pi) const;
@@ -185,10 +179,11 @@ public:
 
   TFx *clone(bool recursive) const override;
 
-  // UIPage
-  UIPage *createUIPage(const char *name);
   void build(ParamsPageSet *);
   std::string getUrl() const;
+  const PluginParameterStorage* parameterLayoutIdentity() const {
+    return parameters_.get();
+  }
 
   // setup
   bool setParamStructure(int n, toonz_param_page_t *descs, int &err,
@@ -196,9 +191,7 @@ public:
   bool addPortDesc(port_description_t &&);
 
   Param *createParam(const toonz_param_desc_t *);
-  Param *createParam(const char *name, toonz_param_type_enum e);
   Param *getParam(const char *name) const;
-  ParamView *createParamView();
 
   bool isPlugin() const override { return true; }
   bool isPluginZerary() const override {

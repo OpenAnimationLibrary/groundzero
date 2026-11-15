@@ -8,6 +8,7 @@
 #include "toonzqt/pluginmanager.h"
 #include "pluginhost.h"
 #include "tests/plugin_controller_lifetime.h"
+#include "tests/plugin_storage_lifetime.h"
 
 #include <QApplication>
 #include <QDir>
@@ -109,6 +110,9 @@ int main(int argc, char** argv) {
           static_cast<const PluginDeclaration*>(effect->getDeclaration());
       effect.reset();
       PluginHostLifetimeTest::check(*declaration);
+      QString storageFailure;
+      const bool storagePassed = verifyPluginStorageLifetime(storageFailure);
+      require(storagePassed, qPrintable(storageFailure));
     } else {
       require(!loaded.loaded && !loaded.error.isEmpty() && !effect,
               "An empty function probe was accepted");

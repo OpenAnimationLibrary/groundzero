@@ -85,6 +85,7 @@ set(HEADERS
     functionpaneltools.h
     fxdata.h
     palettedata.h
+    plugin_parameter_storage.h
     plugin_fxnode_interface.h
     plugin_port_interface.h
     plugin_tile_interface.h
@@ -214,14 +215,13 @@ set(SOURCES
     fxiconmanager.cpp
     insertfxpopup.cpp
     pluginhost.cpp
+    plugin_parameter_storage.cpp
     pluginmanager.cpp
     pluginmanagerinstance.cpp
     plugin_tile_interface.cpp
     plugin_port_interface.cpp
     plugin_fxnode_interface.cpp
     plugin_param_interface.cpp
-    plugin_param_view_interface.cpp
-    plugin_ui_page_interface.cpp
     toonz_params.cpp
 	lutcalibrator.cpp
 )
@@ -323,7 +323,8 @@ endif()
 
 if(BUILD_RELIABILITY_TESTS)
     target_compile_definitions(toonzqt PRIVATE BUILD_RELIABILITY_TESTS)
-    target_sources(toonzqt PRIVATE tests/plugin_controller_lifetime.cpp)
+    target_sources(toonzqt PRIVATE tests/plugin_controller_lifetime.cpp
+        tests/plugin_storage_lifetime.cpp)
     add_executable(stageobjectspaste_test tests/stageobjectspaste_test.cpp)
     target_link_libraries(stageobjectspaste_test PRIVATE toonzqt toonzlib tnzbase
         tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
