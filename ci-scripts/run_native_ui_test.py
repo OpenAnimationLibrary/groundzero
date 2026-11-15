@@ -174,7 +174,8 @@ def stop_process_tree(process):
     try:
         if process.poll() is None:
             process.kill()
-        remaining = deadline - time.monotonic()
+        # Same-tick clock reads can round (t + 15) - t above 15
+        remaining = min(15.0, deadline - time.monotonic())
         if remaining <= 0:
             if process.poll() is None:
                 raise subprocess.TimeoutExpired("process cleanup", 15)
