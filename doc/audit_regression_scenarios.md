@@ -9,7 +9,7 @@ repairs as F30–F34.
 Ownership follow-ups F35–F48 are recorded below. The
 [November 12 record](audit_ci_2026_11_12.md) separates executed cases from blocked scenarios.
 R01/R02/R03/R08/R09 remain aliases for those same bugs, not additional unresolved defects.
-The ledger has 60 prepared findings and 13 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
+The ledger has 62 prepared findings and 14 distinct residual/qualification records, including a separately scoped PR 141 fixture defect.
 F27/F28/F29 retain explicit partial-scope and runtime qualifications in their open records.
 The companion [JSON ledger](audit_findings.json) contains affected paths, exact fixture names,
 platform limits, missing coverage and a targeted mutation proposal for each prepared fix.
@@ -133,6 +133,8 @@ compare smaller tiled/untiled outputs. This is a proposed fixture, not an execut
 | F58 P2 | Repeated macOS pressure queries accumulate host send-right references → balance one acquired right | Read send-right count around 64 production queries and require equality | `testMacMemoryPressurePortOwnership`; no heap/RSS or OS-error-path claim; next-batch CI pending |
 | F59 P2 | Linux present-zero MemAvailable falls back to MemFree → track presence independently | Eleven production-parser cases preserve zero, missing/malformed fallback and threshold behavior | `testLinuxMemoryPressure`; no runner memory exhaustion or spill/reload claim; next-batch CI pending |
 | F60 P1 | Windows playback callback/header/thread ownership breaks during completion or stop → one owner through retirement | Actual controller with injected WinMM/thread boundaries: startup, exact sample/scrub order, failures, queued callbacks, listener detach and worker/barrier races | `runWindowsSoundOutputOwnershipChecks`; CI/page heap and physical-device qualification pending; caller player destruction separately unqualified |
+| F61 P2 | Repeated ordinary plugin creation accumulates settings layouts → construct Qt settings directly | 32 host cycles before settings, exact page/field counts and preserved parameter values | `PluginStorageLifetimeTest::checkViewers`; no active histogram request; CI pending |
+| F62 P1 | Descriptor replacement loses storage or invalidates borrowers → owned immutable generations | Staged-copy rollback, rejected nested shapes, clone lifetime in both release orders, two cached viewers and destroy callback reads | `checkRollback`, `checkInvalidStructure`, `checkCloneBorrowers`, `checkViewers`; no current-run evidence |
 
 ## Prepared memory ownership scenarios
 
@@ -196,10 +198,11 @@ does not change their resolution. Full source paths and evidence distinctions ar
 | R14 P2 | Reproduce vector Brush exposure/frame shifts with exact reporter auto-create/hold/stretch/renumber/Break/Auto Group preferences (#5190). | F31 is a source-confirmed narrower variant with authored gestures, not exact reporter reproduction; navigation unchanged. |
 | R15 P2 | Native Apple Silicon, tablet/DPI/audio and bounded long sessions; compare saved state and output. | Actual device/backend evidence; offscreen tests are insufficient. |
 | R16 P2, PR 141 only | `exerciseSceneViewerContextOwners` directly constructs a viewer without factory title-bar initialization; use the factory before showing/querying it. | Source/debugger-supported defect and isolated fixture correction; absent from the edition baseline and not included in PR 142. |
-| R17 P2 | Plugin nested storage/per-host UI and descriptor borrowers | F40/F48 do not repair these owners; separate lifetime design needed. |
+| R17 P2 | Residual plugin factory/clone and shared-state ownership | F61/F62 repair layout/descriptor storage, but partial construction, user-data aliases and broader concurrency/publication remain open; not an alias. |
 | R18 P2 | Legacy cache units/range and disk/process accounting | No counter correction; disk methods return zero rather than measured usage. |
 | R20 → F49 | Loader controller/thread/queued-publication retirement | Stable alias for the prepared F49 repair; count once, runtime/mutation pending. |
 | R21 alias F60 | Windows WinMM callback/thread/buffer protocol | Approved implementation integrated in F60; retained alias, runtime/driver qualification pending. |
+| R22 P1 | FX histogram controller, worker and widget retirement | Source-confirmed orphan controller/retained FX and queued widget borrows; design in review, no implementation or fixture. |
 
 R16 is traced at [PR 141 revision a0406ef, fixture line 411](https://github.com/OpenAnimationLibrary/groundzero/blob/a0406efc4a8f90a74d77bb5ddbab1d0d8aeabeeb/toonz/sources/toonz/nativeuiintegrationtest.cpp#L411).
 The reported [CDB job](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42342872309/job/128314993429),
@@ -353,5 +356,5 @@ including revised external-effect output/identity and plugin lifetime cases. The
 native process reaches the expanded UI ownership sentinel and then exits -11 during
 indexed-paste New Scene cleanup. The F36 one-delete LSan comparison again returns 0/23/0.
 See [the exact CI record](audit_ci_2026_11_14.md); the complete native run, other platform
-results, and post-head F58/F59 remain unqualified. R17's two plugin storage design stages
-are approved and under implementation, with no additional prepared finding or runtime claim.
+results, and post-head F58/F59 remain unqualified. R17's two plugin storage stages are now prepared as F61/F62 after this run; partial
+factory/shared-state subcases remain open, with no new runtime claim.

@@ -328,10 +328,29 @@ void executableIdentity(const QString& executable, const QString& directory) {
 #endif
   const QString resultPath =
       QDir(directory).filePath("executable identity.txt");
-  compute(TFilePath(selectedExecutable),
+  const TFilePath selectedPath(selectedExecutable);
+  compute(selectedPath,
           "--identity-fixture \"" + resultPath.toStdString() + "\" $out");
-  require(result(resultPath) == QFile::encodeName(selectedExecutable),
-          "External effect changed the selected executable argv[0]");
+  // TFilePath normalizes Windows separators before the launch API receives it.
+  const std::string expected =
+      QFile::encodeName(selectedPath.getQString()).toStdString();
+  const std::string actual = result(resultPath).toStdString();
+  if (actual == expected) return;
+  std::size_t offset = 0;
+  while (offset < expected.size() && offset < actual.size() &&
+         expected[offset] == actual[offset])
+    ++offset;
+  const auto byteAt = [&](const std::string& value) {
+    return offset < value.size()
+               ? std::to_string(static_cast<unsigned char>(value[offset]))
+               : std::string("end");
+  };
+  throw std::runtime_error(
+      "External effect changed the selected executable argv[0]: expected " +
+      std::to_string(expected.size()) + " bytes, received " +
+      std::to_string(actual.size()) + "; first difference at " +
+      std::to_string(offset) + ", expected byte " + byteAt(expected) +
+      ", received byte " + byteAt(actual));
 }
 
 #ifdef _WIN32

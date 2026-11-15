@@ -150,6 +150,8 @@ Related variants share a finding ID rather than inflating the count for each aff
 | F58 | P2 | Balance the macOS host send-right reference acquired by each memory-pressure query. | Existing `timagecache`: 64 production queries with before/after send-right counts; source-only, next-batch CI pending |
 | F59 | P2 | Treat a parsed Linux MemAvailable value of zero as present rather than falling back to MemFree. | Existing `timagecache`: eleven parser cases including present-zero and threshold edges; source-only, next-batch CI pending |
 | F60 | P1 | Own Windows callback threads and playback buffers through retirement; retire Flipbook/sound-column players. | Real controller with injected WinMM/thread boundaries, exact playback/scrub bytes and failure/race ownership cases; source-only, CI/page heap/hardware pending |
+| F61 | P2 | Build plugin settings directly without accumulating unused per-host layout objects. | 32 host cycles, exact three-page/four-field shape and preserved values/field ownership; source-only, CI pending |
+| F62 | P1 | Own immutable descriptor generations across publication, hosts, clones and cached settings. | Copy-failure rollback, malformed shapes, surviving clones, two-viewer generation switching and weak-owner retirement; source-only, CI pending |
 
 Paths beginning with a library name are relative to `toonz/sources/`. The exact source and
 fixture diff is the review artifact. F01 deliberately disables direct-write fallback: a
@@ -174,7 +176,7 @@ The follow-up [Swing review](audit_swing_undo.md),
 [native crash investigation](audit_windows_crashes.md) record additional scenarios
 and distinguish prepared repairs from unresolved application crashes.
 The [scenario plan](audit_regression_scenarios.md) and
-[machine-readable ledger](audit_findings.json) track all 60 prepared findings,
+[machine-readable ledger](audit_findings.json) track all 62 prepared findings,
 stable residual IDs, platform limits, required mutations, and exact CI evidence.
 
 The [November 12 CI record](audit_ci_2026_11_12.md) identifies executed ownership checks
@@ -189,7 +191,7 @@ passes, including external effects and plugin probes, the expanded UI ownership 
 and a repeated successful F36 leak mutation at merge `ebe1a05`. The original native process
 still crashes on Linux during indexed-paste New Scene cleanup; macOS advances to an external-paste
 pixel assertion and exits1 after cleanup. Windows remains pending; both executed audio paths use Qt5.
-F58-F60 and the approved plugin storage implementation postdate that run.
+F58-F62 postdate that run and remain unqualified by it.
 
 ## Remaining risks and owner decisions
 
@@ -203,7 +205,7 @@ F58-F60 and the approved plugin storage implementation postdate that run.
 | P2, source-confirmed | Linux packaging uses moving AppImage download URLs; Windows custom Qt and prebuilt-library downloads lack pinned digests. Optional Python/OS/Rust dependency inputs are not fully locked. | Obtain reviewed provenance and trusted digests before pinning native payloads; the action pins and npm lock do not resolve these inputs. |
 | P2, dated availability risk | Homebrew plans to disable `qt@5` on 2027-05-19 and `opencv@4` on 2027-07-09. | Select and qualify a supported acquisition path before those dates; migration needs native device, scene, and rendering evidence. |
 | P2, workflow/reproduction pending | F31–F33 address narrower split-Brush ownership, native clipboard precedence and Cancel history defects. Exact #5190 exposure/frame shifts and #2445 destination policy remain unverified. | Run the new fixtures, retain new-level/lettered-ID and mixed-column/gap/input gaps, and review OT-Dev PR280 before broader paste-policy changes. |
-| P2, memory source/qualification | R17 plugin parameter/per-host UI and R18 cache telemetry remain open; F60 Windows audio is prepared but unqualified. | Finish the approved plugin storage implementation and qualify F60 driver/retirement behavior and repeated-memory workloads. R20/R21 alias F49/F60; no RAM improvement is established. |
+| P1/P2, memory source/qualification | R17 plugin partial-construction/shared-state ownership, R18 cache telemetry and R22 histogram retirement remain open. F60-F62 are prepared but unqualified. | Qualify audio driver retirement and descriptor/layout preservation; approve the active histogram retirement design before implementation. R20/R21 alias F49/F60; no RAM improvement is established. |
 | Validation gap | Native Apple Silicon, tablet/DPI/audio, long sessions, complete scene key/FX equality, and all 132 upstream reports are not qualified here. | Use the prioritized reproduction queue and exact-build platform evidence; retain unverified status until supported. |
 
 The backlog inventory classifies 124 reports as unverified, three as source-confirmed, four

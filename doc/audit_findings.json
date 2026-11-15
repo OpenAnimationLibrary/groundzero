@@ -3,7 +3,7 @@
   "audit_date": "2026-11-07",
   "baseline_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
   "patch_revision": null,
-  "scope": "60 prepared findings plus 13 distinct residual/qualification records; seven retained residual IDs alias F24/F25/F27/F28/F29/F49/F60. Not a complete defect inventory.",
+  "scope": "62 prepared findings plus 14 distinct residual/qualification records; seven retained residual IDs alias F24/F25/F27/F28/F29/F49/F60. R17 retains unresolved subcases after F61/F62. Not a complete defect inventory.",
   "review_order": [
     "architecture",
     "code_quality",
@@ -2158,7 +2158,7 @@
         "pending": [
           "The relevant Linux and macOS reliability targets passed at merge ebe1a05 (CI33/CI37). Case execution follows source ordering; Windows and defect-restored evidence for this new head remain pending.",
           "Ordinary parameter/value checks do not diagnose scalar-versus-array deletion; allocation/deallocation mismatch instrumentation remains required.",
-          "Nested group/descriptor arrays, retained strings and existing Param descriptor borrows remain R17. Its ownership design is approved and under implementation; this array-deleter repair does not claim complete metadata cleanup."
+          "F61/F62 now prepare layout and descriptor-generation ownership separately; R17 retains partial-construction/shared-state subcases. This array-deleter repair does not claim complete metadata cleanup."
         ],
         "mutation_proposal": "Restore the scalar deleters; ASan allocation/deallocation mismatch evidence must detect them while valid single/empty probe behavior remains checked."
       }
@@ -2562,7 +2562,7 @@
         ],
         "pending": [
           "The relevant Linux and macOS reliability targets passed at merge ebe1a05 (CI33/CI37). Case execution follows source ordering; Windows and defect-restored evidence for this new head remain pending.",
-          "Registry/library process lifetime is unchanged. Per-host UIPage/ParamView allocations and descriptor/string storage remain R17; reference balance does not prove complete plugin cleanup."
+          "Registry/library process lifetime is unchanged. F61/F62 separately prepare layout/descriptor storage ownership; R17 retains remaining subcases. Reference balance alone does not prove complete plugin cleanup."
         ],
         "mutation_proposal": "Move metadata release back inside the optional callback branch; callback-absent cycles must retain a reference and fail."
       }
@@ -2723,7 +2723,7 @@
         ],
         "pending": [
           "The relevant Linux and macOS reliability targets passed at merge ebe1a05 (CI33/CI37). Case execution follows source ordering; Windows and defect-restored evidence for this new head remain pending.",
-          "This preserves intentional process-lifetime registry/library retention; it does not implement unloading or resolve nested descriptor/string/per-host UI storage in R17.",
+          "This preserves intentional process-lifetime registry/library retention and does not implement unloading. F61/F62 separately prepare descriptor/layout storage repairs; R17 retains unresolved subcases.",
           "Windows execution and a targeted restore-the-registry-clear mutation remain pending; no connection to W1 is established."
         ],
         "mutation_proposal": "Restore global registry release in the menu destructor; subsequent direct/declaration-based host creation or memory instrumentation must detect the invalid lifetime."
@@ -3170,6 +3170,107 @@
           "Boundary prepare/unprepare and open/close balance is not heap-allocation or process-RAM measurement; no connection to the separate W1 text-layout failure is established."
         ],
         "mutation_proposal": "Independently remove unprepare-before-free, reset completion draining, listener-generation invalidation or accepted-barrier draining; the corresponding sample/order/ownership or race fixture must fail, with original failure retained under native timeout/page heap."
+      }
+    },
+    {
+      "id": "F61",
+      "priority": "P2",
+      "title": "Plugin host creation accumulates obsolete parameter layouts",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/pluginhost.h",
+        "toonz/sources/toonzqt/tests/plugin_storage_lifetime.cpp"
+      ],
+      "baseline_behavior": "Every ordinary plugin host creation appended raw UIPage, Group, ParamView and component allocations to shared PluginInformation. Host destruction did not retire them; repeated host creation grew layout storage even without opening settings and later viewers built duplicate pages.",
+      "patched_invariant": "Construct the same generic Qt settings fields directly from the bound descriptor generation when a viewer needs them. Remove obsolete internal UIPage/ParamView storage, classes and builder calls while preserving parameter construction/defaults, page/group labels/order, Version page and live Qt field ownership.",
+      "scenario": "Create and retire 32 real hosts before opening settings; require exactly two declared pages plus Version and four fields with expected enum/spectrum/string/integer values. Existing viewer fields remain stable when another host is created or destroyed.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "verifyPluginStorageLifetime",
+            "PluginStorageLifetimeTest::checkViewers",
+            "currentPages",
+            "checkChoice",
+            "checkValues"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_storage_design.md",
+      "implementation_commit": "259f9ac4505597f58ea4d9b2906822cbf0d0a784",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Commit259f9ac45 postdates head376d2e6ce; existing CI33/CI37 plugin passes do not execute this helper. Compilation, exact-revision Linux/macOS/Windows execution and targeted mutation remain pending.",
+          "This removes unused internal layout allocations, not actual Qt viewer caching. A visited generation remains live while its cached page set/host exists; no process-RAM reduction is measured.",
+          "The helper never submits histogram rendering. Separate R22 histogram/controller ownership can retain FX generations after real page work; F61 does not repair that boundary."
+        ],
+        "mutation_proposal": "Restore per-host UIPage/ParamView accumulation or build every previous layout; repeated creation followed by settings construction must violate exact page/field counts or lifecycle evidence."
+      }
+    },
+    {
+      "id": "F62",
+      "priority": "P1",
+      "title": "Plugin descriptor replacement invalidates live borrowers and loses nested storage",
+      "sources": [
+        "toonz/sources/toonzqt/plugin_parameter_storage.cpp",
+        "toonz/sources/toonzqt/plugin_parameter_storage.h",
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/pluginhost.h",
+        "toonz/sources/toonzqt/plugin_param_interface.h",
+        "toonz/sources/toonzqt/toonz_params.cpp",
+        "toonz/sources/toonzqt/fxsettings.cpp",
+        "toonz/sources/toonzqt/tests/plugin_storage_lifetime.cpp"
+      ],
+      "baseline_behavior": "Descriptor replacement owned only top-level pages, lost nested arrays, retained old strings and released trait storage while existing Param objects still borrowed descriptors. Failed replacement could invalidate the prior published structure; settings cache keyed only by type/version could reuse an incompatible generation.",
+      "patched_invariant": "Build a fully owned immutable descriptor generation before publication, owning all nested arrays, strings and traits. Host and clone leases preserve their exact generation until wrappers and destroy callbacks retire. SDK failures preserve prior publication and return existing error codes. Extend private viewer cache identity with descriptor generation while preserving persisted FX version and existing field identities for cached generations.",
+      "scenario": "Overwrite/discard source strings and arrays, replace descriptors with old hosts/clones alive, retire originals/clones in both orders and clone the survivor. Inject allocation failure after one copied page and reject invalid nested shapes without publication changes. Keep two actual viewers across generation switches, require stable old field bindings, and observe weak-generation/widget retirement after final cached owners; destroy callback reads descriptors.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "verifyPluginStorageLifetime",
+            "PluginStorageLifetimeTest::checkRollback",
+            "PluginStorageLifetimeTest::checkInvalidStructure",
+            "PluginStorageLifetimeTest::checkCloneBorrowers",
+            "PluginStorageLifetimeTest::checkViewers",
+            "inspectDestruction",
+            "checkpointPluginStorageCopyForTest"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_storage_design.md",
+      "implementation_commit": "259f9ac4505597f58ea4d9b2906822cbf0d0a784",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Commit259f9ac45 postdates head376d2e6ce; no current-run evidence qualifies this generation implementation. Compilation, runtime, baseline/mutation and sanitizer checks remain pending.",
+          "Visited generations remain intentionally owned by cached ParamsPage current/actual TFxP and other hosts/clones until those owners retire. Active histogram work can retain another FX owner (R22); the fixture submits none.",
+          "Factory/clone exception ownership is unchanged: partial construction can retain the host/generation. Deleting partially constructed hosts could call third-party destroy before create/user-data initialization; this remains R17 and is not claimed fixed.",
+          "Plugin user-data aliasing in clone, plain metadata reference-count concurrency, broader malformed SDK payloads, failed/duplicate publication and process-exit finalization remain R17 qualifications. No new setup-only restriction or hot-unload behavior is introduced.",
+          "Macro generation cache identity is source-reviewed without a rendered macro fixture. Third-party callback exceptions, active rendering and long-session RAM behavior remain unqualified."
+        ],
+        "mutation_proposal": "Independently clear the prior generation before successful copy, drop clone/host leases, or omit generation from viewer cache identity; rollback, surviving-borrower value, weak-lifetime or old/new field-identity assertions must fail."
       }
     }
   ],
@@ -3746,7 +3847,7 @@
     {
       "id": "R17",
       "priority": "P2",
-      "title": "Plugin parameter and per-host UI storage ownership",
+      "title": "Residual plugin construction and shared-state ownership",
       "state": "source_confirmed",
       "resolution": "open",
       "evidence_kind": "source_trace",
@@ -3754,9 +3855,9 @@
         "toonz/sources/toonzqt/pluginhost.cpp",
         "toonz/sources/toonzqt/plugin_param_interface.h"
       ],
-      "baseline_behavior": "Deep copy allocates unowned nested groups/descriptors and retains prior strings. Each create_host/notify also appends raw UIPage/ParamView allocations. Existing Param borrows descriptor addresses, preventing blanket old-storage deletion.",
-      "required_invariant": "Retain storage until its last borrower retires or constrain replacement before publication; give per-host UI objects explicit owners.",
-      "scenario": "Repeat real setup/replacement and host creation with live instances; check values and allocation lifetime.",
+      "baseline_behavior": "F61/F62 repair ordinary layout growth and descriptor-generation storage. Exceptional host/clone construction still leaves a raw partially built host/generation without an owner. Clone user-data aliasing, plain metadata reference-count concurrency and broader publication/SDK validation remain separate unresolved boundaries.",
+      "required_invariant": "Define safe partial-construction destruction ordering before adding factory cleanup; preserve SDK create/destroy/user-data expectations and qualify the remaining shared-state boundaries.",
+      "scenario": "Inject host/clone construction failures around create and parameter initialization; trace callback order, user-data ownership, generation lifetime and actual concurrent publication/refcount operations.",
       "tests": [],
       "platforms": [
         "linux",
@@ -3765,15 +3866,19 @@
       ],
       "reference": "doc/audit_plugin_storage_design.md",
       "validation": {
-        "status": "design_approved_implementation_in_progress",
+        "status": "partial_repairs_integrated_residual_open",
         "baseline_detection": "not_yet_defined",
         "executed_evidence": [],
         "pending": [
-          "The user approved both direct settings construction and immutable descriptor generations. Implementation and independent review are in progress; this remains an open source-confirmed record, not a prepared repair or runtime pass.",
-          "F40/F48 fix trait array deletion/reference balance only, not the per-host UI or nested arena retention.",
-          "Implement and review the approved descriptor-generation ownership contract, preserving live Param/clone borrowers and transactional publication."
+          "F61/F62 are prepared with their own tests, but R17 remains a distinct residual rather than an alias because partial factory/clone ownership is unresolved.",
+          "Third-party create/destroy exceptions and user-data aliasing need a concrete lifetime contract before changing destruction behavior. The synthetic callback tolerates null user data and does not qualify third-party plugins.",
+          "Metadata reference-count concurrency, malformed SDK payloads, duplicate/failed publication and process-exit finalization require separate source/reproduction evidence. No broad memory closure is claimed."
         ]
-      }
+      },
+      "partially_addressed_by": [
+        "F61",
+        "F62"
+      ]
     },
     {
       "id": "R18",
@@ -3867,6 +3972,41 @@
       },
       "canonical_id": "F60",
       "count_as_distinct_finding": false
+    },
+    {
+      "id": "R22",
+      "priority": "P1",
+      "title": "FX settings histogram controller and active worker borrowers",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/toonzqt/fxsettings.cpp",
+        "toonz/sources/toonzqt/fxhistogramrender.cpp",
+        "toonz/sources/include/toonzqt/fxhistogramrender.h",
+        "toonz/sources/toonzqt/tonecurvefield.cpp"
+      ],
+      "baseline_behavior": "ParamsPage allocates a parentless FxHistogramRender and its destructor does not retire it. The controller retains an input TFxP and a raw renderer port, and queued completion writes a borrowed Histograms widget. XML histograms are page/layout-owned, so page destruction can leave the controller borrow dangling. Tone-curve histogram and channel-bar helpers also lack an eventual owner; the histogram borrows its editor widget.",
+      "required_invariant": "Retire request callbacks and worker/scene borrowers before deleting controller, page, histogram or editor resources; give helper widgets explicit parents while preserving cached-page reuse and rendered histogram behavior.",
+      "scenario": "Approve a component-local retirement design, then exercise real page/controller lifecycle with pending, active and queued histogram completion, generation switches, page/viewer destruction, pre-clear and shutdown; validate exact resource and callback retirement.",
+      "tests": [],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "design_status": "proposal_in_review; not_implemented",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "Source-confirmed allocation/borrow paths only; no repair or fixture is integrated and no runtime memory result is claimed.",
+          "Cached/active page retention is intentional; the defect boundary is retirement/replacement with surviving controller, FX or widget borrowers. Do not infer a leak from a still-live viewer.",
+          "F61/F62 fixtures do not submit histogram work and cannot qualify this independent retained-FX/queued-widget boundary. Worker/request retirement and scene shutdown require explicit design approval."
+        ]
+      }
     }
   ],
   "follow_up_coverage": [
@@ -4045,7 +4185,9 @@
       "F57 External effect launch loses selected executable identity",
       "F58 macOS pressure queries retain host send-right references",
       "F59 Linux zero available memory bypasses the pressure result",
-      "F60 Windows playback callback, buffer and player ownership"
+      "F60 Windows playback callback, buffer and player ownership",
+      "F61 Plugin host creation accumulates obsolete parameter layouts",
+      "F62 Plugin descriptor replacement invalidates live borrowers and loses nested storage"
     ],
     "final_patch_revision": null,
     "latest_recorded_ci_revision": "ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240",

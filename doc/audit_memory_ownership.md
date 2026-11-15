@@ -151,3 +151,12 @@ ownership operation restored so that the targeted assertion or leak detector
 fails. Current bounded ownership and cache-leak evidence is recorded in the
 [November 12 qualification](audit_ci_2026_11_12.md); unexecuted workflows, the full native
 run and process-memory measurements remain pending.
+
+## Plugin settings borrowers
+
+F61 removes redundant per-host layout allocation, and F62 owns immutable descriptor
+generations across hosts, clones and actual cached settings pages. These repairs are
+source-prepared after head376d2e6ce and have no runtime evidence yet. Visited generations
+remain intentionally retained until cached page/viewer and other host owners retire.
+R17 keeps partial-construction and shared-state qualifications open; R22 separately tracks
+histogram controllers, queued widget borrowers and retained FX owners during page retirement.

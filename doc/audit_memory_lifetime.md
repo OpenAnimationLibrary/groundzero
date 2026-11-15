@@ -16,7 +16,7 @@ passes, including external effects and plugin probes, the expanded UI ownership 
 and a repeated successful F36 leak mutation at merge `ebe1a05`. The original native process
 still crashes on Linux during indexed-paste New Scene cleanup; macOS advances to an external-paste
 pixel assertion and exits1 after cleanup. Windows remains pending; both executed audio paths use Qt5.
-F58-F60 and the approved plugin storage implementation postdate that run.
+F58-F62 postdate that run and remain unqualified by it.
 
 ## Memory ownership fixture additions
 
@@ -53,6 +53,8 @@ render graph. See the measurement protocol below,
 | F58 | P2 | Balance the macOS host send-right reference acquired by each memory-pressure query. | Existing `timagecache`: 64 production queries with before/after send-right counts; source-only, next-batch CI pending |
 | F59 | P2 | Treat a parsed Linux MemAvailable value of zero as present rather than falling back to MemFree. | Existing `timagecache`: eleven parser cases including present-zero and threshold edges; source-only, next-batch CI pending |
 | F60 | P1 | Own Windows callback threads and playback buffers through retirement; retire Flipbook/sound-column players. | Real controller with injected WinMM/thread boundaries, exact playback/scrub bytes and failure/race ownership cases; source-only, CI/page heap/hardware pending |
+| F61 | P2 | Build plugin settings directly without accumulating unused per-host layout objects. | 32 host cycles, exact three-page/four-field shape and preserved values/field ownership; source-only, CI pending |
+| F62 | P1 | Own immutable descriptor generations across publication, hosts, clones and cached settings. | Copy-failure rollback, malformed shapes, surviving clones, two-viewer generation switching and weak-owner retirement; source-only, CI pending |
 
 F37 owns returned conversions; exceptions inside factories remain outside scope. F38 drives a
 real throwing merge; normal null-target copy was not a leak. F40 value checks need mismatch
@@ -247,8 +249,22 @@ baseline/mutation checks remain pending.
   pressure-triggered spill/reload, container limits and the macOS availability heuristic
   remain qualification or policy questions. No runner memory is exhausted by the fixture.
 
-Open source boundaries include R17 plugin nested storage/per-host UI and R18 cache telemetry.
-Both R17 design stages are approved and under implementation. R21 now aliases the prepared
+Open source boundaries include R17 partial plugin factory/shared-state ownership, R18 cache
+telemetry and R22 active histogram/controller retirement. F61/F62 implement both approved
+plugin storage stages, but R17 retains unresolved subcases and is not an alias. R21 now aliases the prepared
 F60 Windows callback/player repair; driver and runtime qualification remain open. R20
 aliases the prepared F49 controller fix. Nested malformed
 TIStream allocation remains F28's explicit residual. No all-workflow leak freedom is claimed.
+
+## FX settings histogram retirement (R22)
+
+Source review confirms that a ParamsPage-owned lifetime does not currently retire its
+parentless FxHistogramRender. The controller retains an input FX and a renderer port;
+queued completion uses a borrowed histogram widget after the owning page can retire.
+Tone-curve histogram/channel-bar helpers also lack an eventual parent/deletion owner,
+and the histogram borrows its editor. Active/cached viewer ownership itself is intentional.
+
+This is a separate source-confirmed boundary from F61/F62. Their fixtures deliberately
+submit no histogram work, so their weak-generation assertions do not qualify active
+render requests. A component-local request/worker/scene retirement proposal is under
+review; no implementation, authored fixture, runtime result or memory reduction is claimed.

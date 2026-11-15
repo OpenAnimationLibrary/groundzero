@@ -33,8 +33,9 @@ cover expansion beyond 1,024 bytes, a missing executable, an oversized command,
 and handle counts across repeated launches. The added public-render cases connect
 a real raster source and apply an asymmetric PNG output to an extracted tile.
 They check exact colors, premultiplied alpha, orientation, destination storage,
-tile position and untouched surrounding pixels. Smaller, larger and grayscale
-outputs must report an error without copying output pixels into the destination.
+tile position and untouched surrounding pixels. Smaller/larger images and a TGA decoded
+as grayscale must report errors without publishing pixels. Grayscale PNG expands to
+RGBA32 through the production reader and is accepted by the revised fixture.
 
 `plugin_probe_single` and `plugin_probe_empty` use a real native module through
 the public loader. They check both the recorded load result and whether the
@@ -42,9 +43,9 @@ effect is available for creation. The fixture module is built beneath a private
 test directory and has no installation rule.
 
 The process and loader tests passed [macOS CI at `c20884ffb`](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42419847532/job/128545825336).
-The new F29 pixel publication cases and their baseline-failure checks remain pending in CI,
-following the repository's prohibition on local builds and tests. Static
-formatting and whitespace checks are the local validation performed.
+The revised F29 public-render cases pass on Linux/macOS at merge ebe1a05 (CI33/CI37);
+required Windows and baseline/mutation qualification remain open. The repository prohibits
+local builds/tests; static source/format/whitespace checks are local validation.
 
 ## Prepared output repair and remaining external-effect limits
 
@@ -94,37 +95,51 @@ F40 corrects enum/spectrum array deleters; real sixteen-replacement setup/value 
 need allocation-mismatch instrumentation. F48 balances metadata references across eight real
 hosts with a destroy callback and eight without it. Plugin probe CTests passed on all three
 platforms at merge f8a1680. The F39 owner checks returned before the later external-FX
-pixel failure; that complete target failed. Targeted ownership/deleter mutations remain
-pending. See the [November 12 qualification](audit_ci_2026_11_12.md).
+pixel failures in that older run. The whole Linux/macOS external-effect targets now pass
+at ebe1a05 (CI33/CI37). Targeted ownership/deleter mutations remain pending. See the
+[November 14 qualification](audit_ci_2026_11_14.md).
 
-R17 remains broader: nested descriptor/group arrays and copied strings lack complete ownership,
-and each create_host/notify appends raw UIPage/ParamView objects. This is per-host retention,
-not solely process-once registry storage. Existing Param objects borrow descriptor addresses;
-freeing old storage immediately would invalidate them. Process-lived global declarations and
-host-interface ownership need a separate publication/lifetime contract. F40/F48 do not repair
-these allocations or establish complete plugin cleanup.
+F61/F62 now implement the approved direct-settings and immutable-generation design for
+those separate allocations and borrowers. Their source/fixtures postdate ebe1a05 and await
+CI. R17 remains open for partial factory/clone construction and shared-state qualifications;
+R22 separately tracks active histogram/controller retirement. Process-lived registration and
+visited cached viewer generations remain intentional owners.
 
 R20 now aliases prepared F49. Both discovery branches notify controller completion.
 Startup polling deletes its controller only after wait succeeds; listener controllers retire
 after thread completion independently of listener survival. The actual loader/probe fixture
 observes controller, worker and thread retirement, with four normal/early-close menu pairs.
-No runtime result or per-frame RAM slope is claimed.
+Linux/macOS probe targets pass at ebe1a05, with no individual case success markers.
+Required platform/mutation qualification and any RAM measurement remain open.
 
 F51 removes menu destruction as an owner of the global plugin registry. Persistent FX
 declarations borrow that process-lived metadata; Room/SchematicViewer destruction must not
 release it. The fixture creates hosts through both PluginLoader and the registered TFx
 factory before and after menu/last-host retirement. Intentional process-lifetime registry and
-library retention remains; R17 descriptor and per-host UI ownership is still open.
+library retention remains; F61/F62 separately own the descriptor/layout repair, and R17
+keeps its unresolved subcases.
 
 F52 deletes owned root menus and old submenu trees, parents the repeat action, and replaces
 only the named plugin group when overlapping discovery completes. Preset-save/remove and
 rapid-refresh cases require retired QPointers, one plugin entry per menu, and survival of
-externally owned actions and unrelated groups. These are authored cases, not executed results.
+externally owned actions and unrelated groups. Linux/macOS probe targets pass at ebe1a05;
+case execution follows source ordering, with required platform/mutation evidence still open.
 
 F57 prefixes the selected executable as quoted Windows argv[0] and shell-quotes the POSIX
 executable path. Its child reports the actual argv[0]; the POSIX link includes spaces, an
 apostrophe and a dollar sign. Legacy argument-shell semantics and Windows ANSI launch remain
-unchanged. Exact-head launch/output validation is pending.
+unchanged. Linux/macOS launch/output validation passes at ebe1a05 (CI33/CI37);
+Windows identity and defect-restored qualification remain open.
+
+At tested merge `ebe1a05083f3e33ecdb1ab15fb4ccaafd2fef240`, Windows passed 21 of 22
+reliability tests; `externfx_process` stopped at its executable-identity assertion.
+The fixture compared Qt's forward-slash application path with native `argv[0]`, but the
+selected API takes a `TFilePath`, which normalizes Windows separators before launch.
+The corrected fixture requires byte-exact equality with that selected native path and
+retains POSIX link spelling. Empty, truncated, or substituted executable arguments still
+fail. Failure output reports only lengths, the first differing byte offset, and byte
+values; it does not publish paths, other arguments, or environment values. Launch code
+is unchanged. This source-confirmed fixture correction has not yet run in CI.
 
 ## Other inspected boundaries and limits
 
@@ -149,6 +164,9 @@ all image decoders, system loaders, third-party tools, or archive consumers.
 ## Approved storage follow-up
 
 The user approved both stages in [the plugin storage design](audit_plugin_storage_design.md):
-direct settings construction and immutable descriptor generations. R17 remains open while
-implementation and independent review proceed. The Linux probe passes at head `376d2e6ce`
-qualify earlier controller/registry/menu repairs, not these later storage changes.
+direct settings construction and immutable descriptor generations. F61/F62 implement the approved stages in commit `259f9ac45`, with CI pending. R17
+remains open for partial factory/clone construction, user-data aliases and shared-state
+qualifications. The Linux/macOS probe passes at head `376d2e6ce` qualify earlier
+controller/registry/menu repairs, not these later storage changes. R22 separately tracks
+active histogram ownership and borrowed widgets; visited cached generations remain
+intentional owners until their viewers/pages retire.
