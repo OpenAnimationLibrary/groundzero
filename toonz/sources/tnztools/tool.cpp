@@ -1198,6 +1198,13 @@ void TTool::setSelectedFrames(const std::set<TFrameId> &selectedFrames) {
 
 //-------------------------------------------------------------------------------------------------------------
 
+void TTool::releaseViewer(TToolViewer *viewer) {
+  for (const auto &entry : toolTable())
+    if (entry.second->getViewer() == viewer) entry.second->setViewer(nullptr);
+}
+
+//-----------------------------------------------------------------------------
+
 void TToolViewer::getGuidedFrameIdx(int *backIdx, int *frontIdx) {
   if (!Preferences::instance()->isGuidedDrawingEnabled()) return;
 
