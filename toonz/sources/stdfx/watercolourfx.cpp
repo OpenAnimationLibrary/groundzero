@@ -79,6 +79,13 @@ void paint(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
 
 class WatercolourFx final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(WatercolourFx)
+public:
+  // Per padded pixel: the source tile (up to 16 bytes), the source, the wash,
+  // a blur pass and the result (32 bytes each), the edge amounts and the
+  // distance field (8 each), its nearest seeds (4) and the seeds (1): 165
+  static constexpr double bytesPerPixel = 192;
+
+private:
   TRasterFxPort m_source;
   TDoubleParamP m_wobble, m_wobbleSize, m_bleed, m_edgeDarkening, m_edgeWidth,
       m_edgeTolerance, m_granulation, m_granuleSize, m_paperGrain, m_paperSize,
@@ -238,9 +245,8 @@ public:
                            const TRenderSettings &settings) override {
     if (isStill(frame)) return 0;
     const double h = Watercolour::halo(this->settings(frame, settings));
-    // Source, wash, a blur pass and the result as doubles; seeds, the
-    // distance field and the edge amounts
-    const double bytes = (rect.getLx() + 2 * h) * (rect.getLy() + 2 * h) * 160;
+    const double bytes =
+        (rect.getLx() + 2 * h) * (rect.getLy() + 2 * h) * bytesPerPixel;
     const double megabytes = std::ceil(bytes / (1024.0 * 1024.0));
     return int(std::min(double(std::numeric_limits<int>::max()),
                         std::max(0.0, megabytes)));

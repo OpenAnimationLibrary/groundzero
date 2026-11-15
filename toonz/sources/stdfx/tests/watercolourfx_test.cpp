@@ -120,6 +120,21 @@ void testFx() {
           "Bare paper is not the paper colour");
   require(approx(pixel(onPaper, edge, 20).m, 1), "The paper has a hole");
 
+  // The memory estimate covers a 4K tile and its halo at every depth
+  {
+    const TRectD frame4k(0, 0, 3840, 2160);
+    const double h =
+        Watercolour::halo(fx.settings(0, settings));
+    const double area  = (3840 + 2 * h) * (2160 + 2 * h);
+    const double bytes = area * (16 + 4 * sizeof(Watercolour::Color) +
+                                 2 * sizeof(double) + sizeof(int) + 1);
+    const int estimate = fx.getMemoryRequirement(frame4k, 0, settings);
+    require(estimate >= int(bytes / (1024.0 * 1024.0)),
+            "The memory estimate is below what a 4K tile allocates");
+    require(estimate < 4 * int(bytes / (1024.0 * 1024.0)),
+            "The memory estimate is far above what a 4K tile allocates");
+  }
+
   // Everything off: the source passes through
   setPaper(fx, false);
   for (const char *name :
