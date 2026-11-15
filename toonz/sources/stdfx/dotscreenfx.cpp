@@ -19,12 +19,16 @@
 // opacity or colour. With an image on Source and the first modifier on Size
 // it is a halftone; without inputs it is a plain pattern. The math is in
 // dotscreen.h.
-namespace {
-double bounded(double value, double minimum, double maximum) {
+//
+// The helpers are in a named namespace: DotScreenFx has external linkage, so
+// a type it uses, such as the lambda in doCompute() that holds the control
+// images, must not depend on an anonymous namespace.
+namespace DotScreenFxDetail {
+inline double bounded(double value, double minimum, double maximum) {
   return std::isfinite(value) ? std::max(minimum, std::min(maximum, value))
                               : minimum;
 }
-int discrete(double value, int maximum) {
+inline int discrete(double value, int maximum) {
   return int(std::floor(bounded(value, 0, maximum) + 0.5));
 }
 class RasterLock {
@@ -101,7 +105,7 @@ void draw(const TRasterPT<Pixel> &output, TPointD position,
     }
   }
 }
-}  // namespace
+}  // namespace DotScreenFxDetail
 
 class DotScreenFx final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(DotScreenFx)
@@ -125,7 +129,7 @@ class DotScreenFx final : public TStandardRasterFx {
   }
   bool uses(int k, double frame) const {
     return m_control[k].isConnected() &&
-           discrete(m_target[k]->getValue(frame), 5) != 0;
+           DotScreenFxDetail::discrete(m_target[k]->getValue(frame), 5) != 0;
   }
   // The margin, in output pixels, that a control image is read beyond a tile
   int halo(const DotScreen::Settings &s, const TRenderSettings &info) const {
@@ -137,6 +141,8 @@ class DotScreenFx final : public TStandardRasterFx {
 
 public:
   DotScreen::Settings settings(double frame) const {
+    using DotScreenFxDetail::bounded;
+    using DotScreenFxDetail::discrete;
     const double degrees = DotScreen::pi / 180.0;
     DotScreen::Settings s;
     s.spacing  = bounded(m_spacing->getValue(frame), 0.5, 100000);
@@ -325,7 +331,7 @@ public:
     const int h                 = halo(s, info);
     const int w = tile.getRaster()->getLx(), ht = tile.getRaster()->getLy();
 
-    ControlImage controls[DotScreen::modifierCount];
+    DotScreenFxDetail::ControlImage controls[DotScreen::modifierCount];
     for (int k = 0; k < DotScreen::modifierCount; ++k) {
       if (!uses(k, frame)) continue;
       TTile input;
@@ -368,6 +374,7 @@ public:
       throw TException(error.what());
     }
     const double pixel = 1.0 / scale;
+    using DotScreenFxDetail::draw;
     if (TRaster32P output = tile.getRaster())
       draw<TPixel32>(output, tile.m_pos, outputToWorld, pixel, grid,
                      info.m_isCanceled);
