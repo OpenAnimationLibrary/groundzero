@@ -5,12 +5,20 @@
 #include "tpixelutils.h"
 #include "tpalette.h"
 #include "tcolorstyles.h"
+#include "tdoublekeyframe.h"
+#include "tsimplecolorstyles.h"
 #include "tstroke.h"
 #include "tthreadmessage.h"
 #include "tvectorimage.h"
+#include "toonz/columncoloreffect.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/tcolumnfx.h"
+#include "toonz/toonzscene.h"
 #include "toonz/txshcell.h"
+#include "toonz/txsheet.h"
 #include "toonz/txshlevelcolumn.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/txshsimplelevel.h"
 #include "roughstroke.h"
 
 #include <algorithm>
@@ -18,6 +26,7 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -26,8 +35,9 @@
 
 // Rough Stroke: hand-drawn strokes along the strokes of a vector level. The
 // FX reads the drawing's strokes from the level column behind Source, so
-// Source must be a vector level, directly or through transforms. Any other
-// source passes through unchanged. The math is in roughstroke.h.
+// Source must be a vector level, directly or through transforms and the
+// nodes the render puts over a column. Any other source passes through
+// unchanged. The math is in roughstroke.h.
 namespace {
 double bounded(double value, double minimum, double maximum) {
   return std::isfinite(value) ? std::max(minimum, std::min(maximum, value))
@@ -50,67 +60,170 @@ public:
   ~RasterLock() { m_raster->unlock(); }
 };
 
-// The level column behind an FX, through enabled transforms only, and the
-// placement those transforms give the drawing
-TLevelColumnFx *columnBehind(TFx *source, double frame, TAffine &placement) {
-  placement = TAffine();
+// The level column behind an FX, and what lies between them
+struct Behind {
+  TLevelColumnFx *column = nullptr;
+  TAffine placement;          // the transforms' placement of the drawing
+  bool colourFilter = false;  // the column's colour filter and opacity
+  bool colourEffect = false;  // the column's Colour Effect
+};
+
+// The level column behind an FX, through enabled transforms and the nodes
+// the render puts over a column before the FX that follow it (FxBuilder::
+// makePF in toonzlib/scenefx.cpp). Their classes are not exported, so they
+// are told by type, as in rendersVectorStrokes() (toonzlib/
+// strokedeformerdata.cpp). Multiplane Depth's haze and blur are seen through
+// but not reproduced. Any other FX hides the column.
+Behind columnBehind(TFx *source, double frame) {
+  Behind behind;
   std::set<TFx *> visited;
   while (source) {
-    if (!visited.insert(source).second) return nullptr;
-    if (auto *column = dynamic_cast<TLevelColumnFx *>(source)) return column;
-    auto *geometry = dynamic_cast<TGeometryFx *>(source);
-    if (!geometry || !source->getAttributes()->isEnabled() ||
+    if (!visited.insert(source).second) return Behind();
+    if (auto *column = dynamic_cast<TLevelColumnFx *>(source)) {
+      behind.column = column;
+      return behind;
+    }
+    if (!source->getAttributes()->isEnabled() ||
         source->getInputPortCount() != 1 ||
         !source->getInputPort(0)->isConnected())
-      return nullptr;
-    placement = placement * geometry->getPlacement(frame);
-    source    = source->getInputPort(0)->getFx();
+      return Behind();
+    const std::string type = source->getFxType();
+    auto *geometry         = dynamic_cast<TGeometryFx *>(source);
+    if (type == "columnColorFilterFx")
+      behind.colourFilter = true;
+    else if (type == "columnColorEffectFx")
+      behind.colourEffect = true;
+    else if (geometry)
+      behind.placement = behind.placement * geometry->getPlacement(frame);
+    // The depth blur is a Blur FX that the render made, so it has no id
+    else if (type != "columnDepthFx" &&
+             !(type == "STD_blurFx" && source->getFxId().empty()))
+      return Behind();
+    source = source->getInputPort(0)->getFx();
   }
-  return nullptr;
+  return Behind();
+}
+
+// The strokes a render hides (tglDraw in common/tvrender/tglregions.cpp):
+// those without opacity, those whose style draws no stroke, and plain colour
+// ones without thickness
+bool hidden(const TStroke &stroke, const TColorStyle *style) {
+  if (!(stroke.getOpacity() > 0)) return true;
+  if (style && (!style->isStrokeStyle() || !style->isEnabled())) return true;
+  if (style && !dynamic_cast<const TSolidColorStyle *>(style)) return false;
+  for (int i = 0; i < stroke.getControlPointCount(); ++i)
+    if (stroke.getControlPoint(i).thick != 0) return false;
+  return true;
+}
+
+// A style's colour at a frame of the palette's animation, without setting
+// the frame of the palette, which other renders and the viewer share
+TPixel32 colourAt(const TPalette &palette, int styleId, int frame,
+                  std::map<int, TPixel32> &colours) {
+  const auto found = colours.find(styleId);
+  if (found != colours.end()) return found->second;
+  const TPixel32 colour = palette.sampleStyle(styleId, frame)->getMainColor();
+  colours.emplace(styleId, colour);
+  return colour;
 }
 
 // The drawing's strokes as paths in output pixels. Returns false when the
 // source is not a vector drawing.
-bool readPaths(TFx *source, double frame, const TAffine &worldToOutput,
+bool readPaths(const Behind &behind, double frame, const TAffine &worldToOutput,
                std::vector<RoughStroke::Path> &paths) {
   paths.clear();
-  TAffine placement;
-  TLevelColumnFx *columnFx = columnBehind(source, frame, placement);
-  if (!columnFx || !columnFx->getColumn()) return false;
-  const TXshCell cell = columnFx->getColumn()->getRemappedCell(int(frame));
-  if (cell.isEmpty()) return false;
+  if (!behind.column || !behind.column->getColumn()) return false;
+  // The row and the palette frame the column draws (TLevelColumnFx::
+  // doCompute)
+  const int row       = int(frame);
+  const TXshCell cell = behind.column->getColumn()->getRemappedCell(row);
+  // Other levels are not loaded only to be passed through
+  const TXshSimpleLevel *level =
+      cell.isEmpty() ? nullptr : cell.getSimpleLevel();
+  if (!level || level->getType() != PLI_XSHLEVEL) return false;
   const TVectorImageP image = cell.getImage(false);
   if (!image) return false;
-  const TAffine toOutput = worldToOutput * placement;
+  const TAffine toOutput = worldToOutput * behind.placement;
   const double scale     = scaleOf(toOutput);
   if (!(scale > 0)) return true;  // a vector drawing with nothing to draw
-  TThread::MutexLocker lock(image->getMutex());
-  TPalette *palette = image->getPalette();
-  for (UINT i = 0; i < image->getStrokeCount(); ++i) {
-    const TStroke *stroke = image->getStroke(i);
-    const double length   = stroke->getLength();
-    if (!(length > 0) || !std::isfinite(length)) continue;
-    // About one point per output pixel
-    const double pixels = length * scale;
-    if (pixels > double(RoughStroke::maxVertices))
-      throw TException("Rough Stroke: a stroke is too long for the raster");
-    const int count = std::max(1, int(std::ceil(pixels)));
-    RoughStroke::Path path;
-    path.points.reserve(size_t(count) + 1);
-    for (int k = 0; k <= count; ++k) {
-      const TThickPoint p = stroke->getThickPointAtLength(length * k / count);
-      const TPointD q     = toOutput * TPointD(p.x, p.y);
-      path.points.push_back({q.x, q.y, std::max(0.0, p.thick) * scale});
+  const TPalette *palette = image->getPalette();
+  std::vector<int> styles;  // of the paths
+  {
+    TThread::MutexLocker lock(image->getMutex());
+    for (UINT i = 0; i < image->getStrokeCount(); ++i) {
+      const TStroke *stroke = image->getStroke(i);
+      const int styleId     = stroke->getStyle();
+      if (hidden(*stroke, palette ? palette->getStyle(styleId) : nullptr))
+        continue;
+      const double length = stroke->getLength();
+      if (!(length > 0) || !std::isfinite(length)) continue;
+      // About one point per output pixel
+      const double pixels = length * scale;
+      if (pixels > double(RoughStroke::maxVertices))
+        throw TException("Rough Stroke: a stroke is too long for the raster");
+      const int count = std::max(1, int(std::ceil(pixels)));
+      RoughStroke::Path path;
+      path.points.reserve(size_t(count) + 1);
+      for (int k = 0; k <= count; ++k) {
+        const double along  = length * k / count;
+        const TThickPoint p = stroke->getThickPointAtLength(along);
+        const TPointD q     = toOutput * TPointD(p.x, p.y);
+        path.points.push_back({q.x, q.y, std::max(0.0, p.thick) * scale,
+                               stroke->getOpacityAtLength(along)});
+      }
+      paths.push_back(std::move(path));
+      styles.push_back(styleId);
     }
-    TPixel32 colour = TPixel32::Black;
-    if (palette)
-      if (TColorStyle *style = palette->getStyle(stroke->getStyle()))
-        colour = style->getMainColor();
-    path.color = {colour.r / 255.0, colour.g / 255.0, colour.b / 255.0,
-                  colour.m / 255.0};
-    paths.push_back(std::move(path));
+  }
+  // Outside the drawing's lock: the column draws an animated palette under
+  // the palette's lock, then takes the drawing's
+  std::map<int, TPixel32> colours;
+  for (size_t i = 0; i < paths.size(); ++i) {
+    const TPixel32 colour =
+        palette ? colourAt(*palette, styles[i], row, colours) : TPixel32::Black;
+    paths[i].color = {colour.r / 255.0, colour.g / 255.0, colour.b / 255.0,
+                      colour.m / 255.0};
   }
   return true;
+}
+
+// The colour filter the render gives a column (FxBuilder::makePF): the
+// filter's colour, with its alpha scaled by the column's opacity
+RoughStroke::Rgba colourFilter(const TXshLevelColumn &column) {
+  TPixel32 colour         = TPixel32::Black;  // no filter
+  const TXsheet *xsheet   = column.getXsheet();
+  const ToonzScene *scene = xsheet ? xsheet->getScene() : nullptr;
+  const TSceneProperties *properties =
+      scene ? scene->getProperties() : nullptr;
+  const int id = column.getColorFilterId();
+  if (properties && id >= 0 && id < properties->getColorFilters().size())
+    colour = properties->getColorFilterColor(id);
+  colour.m = TPixel32::Channel(int(colour.m) * int(column.getOpacity()) /
+                               TPixel32::maxChannelValue);
+  return {colour.r / 255.0, colour.g / 255.0, colour.b / 255.0,
+          colour.m / 255.0};
+}
+
+// Does to the strokes what the nodes between the column and the FX do to
+// the drawing, in the render's order: the colour filter, then the effect
+void applyColumnColours(const Behind &behind, double frame,
+                        std::vector<RoughStroke::Rgba> &pixels) {
+  if (!behind.colourFilter && !behind.colourEffect) return;
+  const RoughStroke::Rgba filter =
+      behind.colourFilter ? colourFilter(*behind.column->getColumn())
+                          : RoughStroke::Rgba{0, 0, 0, 1};
+  const ColumnColorEffect::Transform effect =
+      behind.colourEffect ? behind.column->getColorEffect(frame)
+                          : ColumnColorEffect::Transform();
+  for (RoughStroke::Rgba &pixel : pixels) {
+    if (!(pixel.a > 0)) continue;
+    if (behind.colourFilter) RoughStroke::filter(pixel, filter);
+    if (behind.colourEffect) {
+      double rgba[4] = {pixel.r, pixel.g, pixel.b, pixel.a};
+      effect.applyPremultiplied(rgba, 1.0);
+      pixel = {rgba[0], rgba[1], rgba[2], rgba[3]};
+    }
+  }
 }
 
 template <class Pixel>
@@ -153,6 +266,27 @@ class RoughStrokeFx final : public TStandardRasterFx {
     return RoughStroke::Rgba{c.r, c.g, c.b, c.m};
   }
 
+  // How far the stretch has moved by frame, as a share of the length: by
+  // Speed every frame. An animated Speed is added up frame by frame, so
+  // slowing down never moves the stretch back.
+  double travelled(double frame) const {
+    auto speed = [this](int f) {
+      return bounded(m_speed->getValue(f), -1e3, 1e3);
+    };
+    if (!m_speed->hasKeyframes()) return speed(0) * frame;
+    // The speed holds before its first key and after its last unless it
+    // cycles, and is taken to hold past the bound (about seven minutes at 24
+    // frames a second)
+    const double bound = 10000;
+    const double start = m_speed->getKeyframe(0).m_frame;
+    const double end =
+        m_speed->getKeyframe(m_speed->getKeyframeCount() - 1).m_frame;
+    const double first = bounded(std::floor(start), -bound, 0);
+    const double last =
+        m_speed->isCycleEnabled() ? bound : bounded(std::ceil(end), 0, bound);
+    return RoughStroke::covered(speed, frame, int(first), int(last));
+  }
+
 public:
   // Distances are entered in scene units and used in output pixels
   RoughStroke::Settings settings(double frame, double scale) const {
@@ -185,8 +319,7 @@ public:
     s.revealStart    = bounded(m_revealStart->getValue(frame), 0, 1);
     s.revealEnd      = bounded(m_revealEnd->getValue(frame), 0, 1);
     // The stretch moves by Speed every frame without any key
-    s.travel = bounded(m_travel->getValue(frame), -1e6, 1e6) +
-               bounded(m_speed->getValue(frame), -1e3, 1e3) * frame;
+    s.travel = bounded(m_travel->getValue(frame), -1e6, 1e6) + travelled(frame);
     s.loop   = m_loop->getValue();
     s.seed   = RoughStroke::frameSeed(
         std::uint32_t(discrete(m_seed->getValue(frame), 0, 100000)), frame,
@@ -280,9 +413,25 @@ public:
     enableComputeInFloat(true);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
-  bool canHandle(const TRenderSettings &, double) override { return true; }
+  // Rotation and an even scale are drawn; the render does a stretch, after
+  // drawing at the larger of its scales
+  bool canHandle(const TRenderSettings &info, double) override {
+    return info.m_affine.isIsotropic(0.001);
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override {
     return false;
+  }
+  // The strokes as doubles, and the coverage and colour of the window of a
+  // copy, up to the whole tile
+  int getMemoryRequirement(const TRectD &rect, double,
+                           const TRenderSettings &) override {
+    if (!m_source.isConnected()) return 0;
+    const double perPixel =
+        sizeof(RoughStroke::Rgba) + sizeof(double) + sizeof(RoughStroke::Rgba);
+    const double megabytes =
+        std::ceil(rect.getLx() * rect.getLy() * perPixel / (1024.0 * 1024.0));
+    return int(std::min(double(std::numeric_limits<int>::max()),
+                        std::max(0.0, megabytes)));
   }
   bool doGetBBox(double frame, TRectD &box,
                  const TRenderSettings &info) override {
@@ -290,7 +439,8 @@ public:
     if (!m_source.isConnected()) return false;
     std::vector<RoughStroke::Path> paths;
     try {
-      if (!readPaths(m_source.getFx(), frame, TAffine(), paths))
+      const Behind behind = columnBehind(m_source.getFx(), frame);
+      if (!readPaths(behind, frame, TAffine(), paths))
         return m_source->doGetBBox(frame, box, info);  // passed through
     } catch (const TException &) {
       return m_source->doGetBBox(frame, box, info);
@@ -325,9 +475,9 @@ public:
     tile.getRaster()->clear();
     if (!m_source.isConnected() || (info.m_isCanceled && *info.m_isCanceled))
       return;
+    const Behind behind = columnBehind(m_source.getFx(), frame);
     std::vector<RoughStroke::Path> paths;
-    const bool vector =
-        readPaths(m_source.getFx(), frame, info.m_affine, paths);
+    const bool vector = readPaths(behind, frame, info.m_affine, paths);
     // Not a vector drawing: pass it through. Over Source: draw on top of it.
     if (!vector || m_overSource->getValue()) {
       m_source->compute(tile, frame, info);
@@ -354,6 +504,7 @@ public:
     } catch (const std::exception &error) {
       throw TException(error.what());
     }
+    applyColumnColours(behind, frame, strokes);
     const bool over = m_overSource->getValue();
     if (TRaster32P output = tile.getRaster())
       write<TPixel32>(output, strokes, over);

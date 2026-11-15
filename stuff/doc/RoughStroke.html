@@ -6,7 +6,8 @@
 <p>Redraws the strokes of a vector drawing as rough, hand-drawn strokes. Add
 Rough Stroke from the Stylize category and connect a vector level to Source,
 directly or through transforms. The result is the rough strokes alone; fills
-are not drawn. Any other kind of source passes through unchanged.</p>
+are not drawn. Any other kind of source passes through unchanged; see the
+Notes for the effects that may sit between the level and Rough Stroke.</p>
 <h2>Stroke</h2>
 <p><b>Drawn Width Scale</b> multiplies the width the stroke was drawn with,
 and <b>Added Width</b> adds to it: scale 0 with an added width gives every
@@ -18,8 +19,10 @@ pressure.</p>
 stroke; the others sit beside it, up to <b>Copy Offset</b> away, for a
 sketched look. The randomness amounts thin and fade copies at random.</p>
 <h2>Colour</h2>
-<p><b>Stroke Colour</b> uses each stroke's own style colour. <b>Gradient</b>
-runs from <b>Start Colour</b> to <b>End Colour</b> along each stroke.
+<p><b>Stroke Colour</b> uses each stroke's own style colour, at the frame
+drawn when the palette is animated. <b>Gradient</b> runs from <b>Start
+Colour</b> to <b>End Colour</b> along each stroke. In both, a stroke keeps the
+opacity it was drawn with, including an opacity that changes along it.
 <b>Over Source</b> draws the rough strokes on top of the source drawing,
 which keeps its fills.</p>
 <h2>Wave and drift</h2>
@@ -31,8 +34,10 @@ wander slowly off the stroke, in features as long as <b>Drift Size</b>.</p>
 <p><b>Reveal Start</b> and <b>Reveal End</b> pick the stretch of each stroke
 that is drawn, as shares of its length; animate Reveal End from 0 to 1 to draw
 the strokes on. <b>Travel</b> moves that stretch along the stroke, and
-<b>Speed</b> moves it by that share every frame without keys. With <b>Loop</b>
-a stretch that leaves one end comes back at the other.</p>
+<b>Speed</b> moves it by that share every frame without keys. An animated
+Speed moves the stretch by its value at each frame in turn, so slowing down
+to 0 stops the stretch where it is rather than sending it back. With
+<b>Loop</b> a stretch that leaves one end comes back at the other.</p>
 <h2>Timing</h2>
 <p><b>Hold</b> redraws the copies, drift and randomness every that many
 frames, which makes the strokes boil; 0 never redraws. <b>Seed</b> picks the
@@ -40,14 +45,31 @@ arrangement, so renders are repeatable.</p>
 <h2>Presets</h2>
 <p>The FX's presets hold Sketch, Brush and Marching Dashes.</p>
 <h2>Starting points</h2>
-<p><b>Sketch:</b> Copies 3, Copy Offset 3, Drift 1, Hold 2. <b>Draw on:</b>
-animate Reveal End from 0 to 1. <b>Marching dashes:</b> Reveal End 0.2, Loop
-on, Speed 0.02. <b>Brush:</b> Drawn Width Scale 3, Swell In and Swell Out
-0.4.</p>
+<p><b>Sketch:</b> Copies 3, Copy Offset 3, Drift 1.5, Hold 2. <b>Draw
+on:</b> animate Reveal End from 0 to 1. <b>Marching dashes:</b> Reveal End
+0.2, Loop on, Speed 0.02. <b>Brush:</b> Drawn Width Scale 3, Swell In and
+Swell Out 0.4.</p>
 <h2>Notes</h2>
 <p>Every value except Loop and Over Source can be animated. 8-bit, 16-bit and
-floating-point renders are supported. The strokes are read from the drawing
-itself, so effects that deform the drawing before Rough Stroke are not seen by
-it.</p>
+floating-point renders are supported. Rotating the level or scaling it evenly
+redraws the strokes at the new size; a stretch that scales it more one way
+than the other draws them at the larger scale and squeezes the result to
+fit.</p>
+<p>The strokes are read from the drawing itself and drawn as a render draws
+them: the strokes a render hides, plain colour strokes without thickness and
+styles that draw no line, are left out.</p>
+<p>Rough Stroke reads the strokes through the transforms between the level
+and Rough Stroke, and through what the render adds to the column: its colour
+filter and transparency (with <b>Enable Column Color Filter and Transparency
+for Rendering</b> on in the Scene Settings) and its <b>Color Effect</b> change
+the rough strokes as they change the drawing. The blur and haze of
+<b>Multiplane Depth</b> are not applied to the rough strokes, which stay sharp
+and clear.</p>
+<p>Any other effect between the level and Rough Stroke, a Plastic deformation
+of the column, or a sub-xsheet in place of a level turns Rough Stroke off: its
+Source passes through unchanged. Put such effects after Rough Stroke instead.
+A deformer placed after Rough Stroke warps the image of the rough strokes; its
+Deform Strokes option needs the level's own strokes, so it does not apply
+there.</p>
 </body>
 </html>
