@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <stdexcept>
 #include <vector>
 
@@ -18,6 +19,8 @@ namespace DotScreen {
 const double pi           = 3.14159265358979323846;
 const int modifierCount   = 3;
 const double maxSize      = 3.0;  // a dot's diameter, in cells
+const double minAspect    = 0.05;
+const double maxAspect    = 4.0;
 const std::size_t maxDots = 4u * 1024u * 1024u;  // about 350 MB of dots
 
 // Premultiplied when it is a pixel, straight when it is a setting
@@ -54,6 +57,7 @@ struct Settings {
   double rotation = 0;    // radians, on top of the lattice angle
   double opacity  = 1;
   double softness = 0;  // extra edge width, in the same units as spacing
+  double pixel    = 1;  // an output pixel, in those units: the antialiasing
 
   Rgba colorA{0, 0, 0, 1}, colorB{0, 0, 0, 1};
   double colorRandom = 0, sizeRandom = 0, rotationRandom = 0,
@@ -76,7 +80,7 @@ struct Grid {
   Settings settings;
   int i0 = 0, j0 = 0, columns = 0, rows = 0;
   std::vector<Dot> dots;  // rows * columns, row by row
-  double reach = 0;       // the farthest any dot extends from its centre
+  double reach = 0;  // the farthest any dot's edge is from its centre
   double cosine = 1, sine = 0;
 };
 
@@ -119,6 +123,32 @@ inline double apply(const Modifier &m, double value, double s) {
   return value * v;
 }
 
+// The values a property can take
+struct Range {
+  double low, high;
+};
+// The values a modifier can give a property that could take those in value
+inline Range apply(const Modifier &m, Range value) {
+  const double a = std::min(m.low, m.high), b = std::max(m.low, m.high);
+  switch (m.mode) {
+  case Mode::Set:
+    return {a, b};
+  case Mode::Offset:
+    return {value.low + a, value.high + b};
+  case Mode::Scale:
+    break;
+  }
+  const double products[] = {value.low * a, value.low * b, value.high * a,
+                             value.high * b};
+  return {*std::min_element(std::begin(products), std::end(products)),
+          *std::max_element(std::begin(products), std::end(products))};
+}
+// The largest value a property clamped to [low, high] can take, if it can
+// take no more than v; anything not below high, NaN included, gives high
+inline double upTo(double v, double low, double high) {
+  return v < high ? std::max(low, v) : high;
+}
+
 }  // namespace detail
 
 // A value in [0, 1) that depends only on the seed, the cell and the property
@@ -146,9 +176,9 @@ inline void validate(const Settings &s) {
   bool ok = finite(s.spacing) && s.spacing >= 1e-3 && finite(s.angle) &&
             finite(s.stagger) && finite(s.jitter) && finite(s.size) &&
             finite(s.aspect) && finite(s.rotation) && finite(s.opacity) &&
-            finite(s.softness) && s.softness >= 0 && finite(s.colorRandom) &&
-            finite(s.sizeRandom) && finite(s.rotationRandom) &&
-            finite(s.opacityRandom);
+            finite(s.softness) && s.softness >= 0 && finite(s.pixel) &&
+            s.pixel > 0 && finite(s.colorRandom) && finite(s.sizeRandom) &&
+            finite(s.rotationRandom) && finite(s.opacityRandom);
   for (const Modifier &m : s.modifiers)
     ok = ok && finite(m.low) && finite(m.high);
   for (const Rgba *c : {&s.colorA, &s.colorB})
@@ -156,12 +186,126 @@ inline void validate(const Settings &s) {
   if (!ok) throw std::invalid_argument("Dot Screen: invalid settings");
 }
 
+// How far from its centre a dot reaches, its antialiased edge included
+inline double extent(const Settings &s, double radius, double aspect) {
+  const double r = radius + 0.5 * (s.pixel + s.softness);
+  switch (s.shape) {
+  case Shape::Square:  // to a corner
+    return r * std::hypot(aspect, 1.0);
+  case Shape::Diamond:  // to a vertex
+    return r * std::sqrt(2.0) * std::max(1.0, aspect);
+  case Shape::Line:  // half a cell along it, to a corner
+    return std::hypot(0.5 * s.spacing, r);
+  case Shape::Round:
+    break;
+  }
+  return r * std::max(1.0, aspect);
+}
+
 // How far from a point the control images and the lattice are read: the
-// largest dot, a cell of jitter and stagger, and the edge softness
+// largest dot that the settings and the modifiers on Size and Aspect can
+// make, and how far jitter and stagger can move a dot from its cell
 inline double reach(const Settings &s) {
   validate(s);
-  return s.spacing * (0.5 * maxSize * 4.0 + 2.0) + s.softness;
+  using detail::Range;
+  const double least = s.size * (1 - detail::unit(s.sizeRandom));
+  Range size{std::min(s.size, least), std::max(s.size, least)};
+  Range aspect{s.aspect, s.aspect};
+  for (const Modifier &m : s.modifiers) {
+    if (m.target == Target::Size) size = detail::apply(m, size);
+    if (m.target == Target::Aspect) aspect = detail::apply(m, aspect);
+  }
+  const double radius = 0.5 * s.spacing * detail::upTo(size.high, 0, maxSize);
+  const double dot    = extent(
+      s, radius, detail::upTo(aspect.high, minAspect, maxAspect));
+  const double moved =
+      s.stagger - std::floor(s.stagger) + 0.5 * detail::unit(s.jitter);
+  // With a little room for rounding
+  return (dot + moved * s.spacing) * (1 + 1e-9);
 }
+
+namespace detail {
+
+// A dot's properties before they are clamped
+struct Look {
+  double size, aspect, rotation, opacity;
+  double presence = 1;  // the product of the control images' alphas
+  Rgba color;
+};
+
+inline Look look(const Settings &s, int i, int j) {
+  Look l;
+  l.size   = s.size * (1 - unit(s.sizeRandom) * random(s.seed, i, j, Size));
+  l.aspect = s.aspect;
+  l.rotation = s.rotation + 2 * pi * unit(s.rotationRandom) *
+                                (random(s.seed, i, j, Rotation) - 0.5);
+  l.opacity =
+      s.opacity * (1 - unit(s.opacityRandom) * random(s.seed, i, j, Opacity));
+  const double blend = unit(s.colorRandom) * random(s.seed, i, j, Colour);
+  l.color.r = s.colorA.r + (s.colorB.r - s.colorA.r) * blend;
+  l.color.g = s.colorA.g + (s.colorB.g - s.colorA.g) * blend;
+  l.color.b = s.colorA.b + (s.colorB.b - s.colorA.b) * blend;
+  l.color.a = s.colorA.a + (s.colorB.a - s.colorA.a) * blend;
+  return l;
+}
+
+inline double *property(Look &l, Target target) {
+  switch (target) {
+  case Target::Size:
+    return &l.size;
+  case Target::Aspect:
+    return &l.aspect;
+  case Target::Rotation:
+    return &l.rotation;
+  case Target::Opacity:
+    return &l.opacity;
+  case Target::Colour:
+  case Target::None:
+    break;
+  }
+  return nullptr;
+}
+
+// Change a dot by a modifier whose control image is c at the dot's centre
+inline void modify(Look &l, const Modifier &m, const Rgba &c) {
+  l.presence *= unit(c.a);
+  if (double *value = property(l, m.target)) {
+    const double st = strength(c);
+    *value          = apply(m, *value, m.invert ? 1 - st : st);
+  } else if (m.target == Target::Colour && c.a > 1e-9) {
+    const double share = unit(m.high);
+    l.color.r += (unit(c.r / c.a) - l.color.r) * share;
+    l.color.g += (unit(c.g / c.a) - l.color.g) * share;
+    l.color.b += (unit(c.b / c.a) - l.color.b) * share;
+  }
+}
+
+// The dot of cell (i, j); control is as in build()
+template <class Control>
+Dot place(const Grid &g, int i, int j, Control &control) {
+  const Settings &s   = g.settings;
+  const double jitter = unit(s.jitter);
+  const double shift  = (j & 1) ? s.stagger - std::floor(s.stagger) : 0.0;
+  Dot dot;
+  dot.column = i + shift + (random(s.seed, i, j, JitterX) - 0.5) * jitter;
+  const double v = j + (random(s.seed, i, j, JitterY) - 0.5) * jitter;
+  dot.x = (dot.column * g.cosine - v * g.sine) * s.spacing;
+  dot.y = (dot.column * g.sine + v * g.cosine) * s.spacing;
+
+  Look l = look(s, i, j);
+  for (int k = 0; k < modifierCount; ++k)
+    if (s.modifiers[k].target != Target::None)
+      modify(l, s.modifiers[k], control(k, dot.x, dot.y));
+  dot.radius = 0.5 * s.spacing * std::max(0.0, std::min(maxSize, l.size));
+  dot.aspect = std::max(minAspect, std::min(maxAspect, l.aspect));
+  dot.cosine  = std::cos(s.angle + l.rotation);
+  dot.sine    = std::sin(s.angle + l.rotation);
+  dot.color   = l.color;
+  dot.color.a = unit(l.color.a) * unit(l.opacity) * l.presence;
+  return dot;
+}
+
+}  // namespace detail
 
 // The dots that can touch the rectangle. control(k, x, y) returns the
 // premultiplied colour of control image k at a point; it is called only for
@@ -169,17 +313,15 @@ inline double reach(const Settings &s) {
 template <class Control>
 Grid build(const Settings &settings, double minX, double minY, double maxX,
            double maxY, Control &&control) {
-  validate(settings);
-  using detail::unit;
   Grid g;
   g.settings        = settings;
   const Settings &s = g.settings;
+  // The rectangle in lattice cells is grown by what a dot can reach
+  const double grow = reach(s) / s.spacing;
   g.cosine          = std::cos(s.angle);
   g.sine            = std::sin(s.angle);
   if (!(maxX >= minX) || !(maxY >= minY)) return g;
 
-  // The rectangle in lattice cells, grown by what a dot can reach
-  const double grow = reach(s) / s.spacing;
   double uMin = 0, uMax = 0, vMin = 0, vMax = 0;
   bool first = true;
   for (double x : {minX, maxX})
@@ -193,7 +335,8 @@ Grid build(const Settings &settings, double minX, double minY, double maxX,
       first = false;
     }
   const double limit = 1e9;
-  if (!(uMin > -limit && uMax < limit && vMin > -limit && vMax < limit))
+  if (!(uMin - grow > -limit && uMax + grow < limit && vMin - grow > -limit &&
+        vMax + grow < limit))
     throw std::length_error("Dot Screen: the region is too large");
   g.i0      = int(std::floor(uMin - grow));
   g.j0      = int(std::floor(vMin - grow));
@@ -203,74 +346,12 @@ Grid build(const Settings &settings, double minX, double minY, double maxX,
     throw std::length_error("Dot Screen: too many dots; raise the spacing");
   g.dots.resize(std::size_t(g.columns) * std::size_t(g.rows));
 
-  const double jitter = unit(s.jitter);
-  for (int row = 0; row < g.rows; ++row) {
-    const int j        = g.j0 + row;
-    const double shift = (j & 1) ? s.stagger - std::floor(s.stagger) : 0.0;
+  for (int row = 0; row < g.rows; ++row)
     for (int col = 0; col < g.columns; ++col) {
-      const int i = g.i0 + col;
-      Dot &dot    = g.dots[std::size_t(row) * g.columns + col];
-      dot.column  = i + shift + (random(s.seed, i, j, JitterX) - 0.5) * jitter;
-      const double v = j + (random(s.seed, i, j, JitterY) - 0.5) * jitter;
-      dot.x = (dot.column * g.cosine - v * g.sine) * s.spacing;
-      dot.y = (dot.column * g.sine + v * g.cosine) * s.spacing;
-
-      double size = s.size * (1 - unit(s.sizeRandom) * random(s.seed, i, j, Size));
-      double aspect   = s.aspect;
-      double rotation = s.rotation + 2 * pi * unit(s.rotationRandom) *
-                                         (random(s.seed, i, j, Rotation) - 0.5);
-      double opacity = s.opacity * (1 - unit(s.opacityRandom) *
-                                            random(s.seed, i, j, Opacity));
-      const double blend = unit(s.colorRandom) * random(s.seed, i, j, Colour);
-      Rgba color;
-      color.r = s.colorA.r + (s.colorB.r - s.colorA.r) * blend;
-      color.g = s.colorA.g + (s.colorB.g - s.colorA.g) * blend;
-      color.b = s.colorA.b + (s.colorB.b - s.colorA.b) * blend;
-      color.a = s.colorA.a + (s.colorB.a - s.colorA.a) * blend;
-
-      double presence = 1;  // the product of the control images' alphas
-      for (int k = 0; k < modifierCount; ++k) {
-        const Modifier &m = s.modifiers[k];
-        if (m.target == Target::None) continue;
-        const Rgba c = control(k, dot.x, dot.y);
-        presence *= unit(c.a);
-        double st    = detail::strength(c);
-        if (m.invert) st = 1 - st;
-        switch (m.target) {
-        case Target::Size:
-          size = detail::apply(m, size, st);
-          break;
-        case Target::Aspect:
-          aspect = detail::apply(m, aspect, st);
-          break;
-        case Target::Rotation:
-          rotation = detail::apply(m, rotation, st);
-          break;
-        case Target::Opacity:
-          opacity = detail::apply(m, opacity, st);
-          break;
-        case Target::Colour:
-          if (c.a > 1e-9) {
-            const double share = unit(m.high);
-            color.r += (unit(c.r / c.a) - color.r) * share;
-            color.g += (unit(c.g / c.a) - color.g) * share;
-            color.b += (unit(c.b / c.a) - color.b) * share;
-          }
-          break;
-        case Target::None:
-          break;
-        }
-      }
-      dot.radius =
-          0.5 * s.spacing * std::max(0.0, std::min(maxSize, size));
-      dot.aspect  = std::max(0.05, std::min(4.0, aspect));
-      dot.cosine  = std::cos(s.angle + rotation);
-      dot.sine    = std::sin(s.angle + rotation);
-      color.a     = unit(color.a) * unit(opacity) * presence;
-      dot.color   = color;
-      g.reach     = std::max(g.reach, dot.radius * std::max(1.0, dot.aspect));
+      Dot &dot = g.dots[std::size_t(row) * g.columns + col];
+      dot      = detail::place(g, g.i0 + col, g.j0 + row, control);
+      g.reach  = std::max(g.reach, extent(s, dot.radius, dot.aspect));
     }
-  }
   return g;
 }
 
@@ -290,16 +371,15 @@ inline double distance(Shape shape, double x, double y, double radius) {
   return std::hypot(x, y) - radius;
 }
 
-// The premultiplied colour of the screen at (x, y). pixel is the size of an
-// output pixel in the same units, and sets the antialiasing.
-inline Rgba sample(const Grid &g, double x, double y, double pixel) {
+// The premultiplied colour of the screen at (x, y)
+inline Rgba sample(const Grid &g, double x, double y) {
   Rgba out;
-  if (g.dots.empty() || !(pixel > 0)) return out;
+  if (g.dots.empty()) return out;
   const Settings &s  = g.settings;
   const double u     = (x * g.cosine + y * g.sine) / s.spacing;
   const double v     = (-x * g.sine + y * g.cosine) / s.spacing;
-  const double edge  = pixel + s.softness;
-  const int around   = int(std::ceil((g.reach + edge) / s.spacing + 1.0));
+  const double edge  = s.pixel + s.softness;
+  const int around   = int(std::ceil(g.reach / s.spacing + 1.0));
   const int rowMid   = int(std::floor(v + 0.5)) - g.j0;
   const int colMid   = int(std::floor(u + 0.5)) - g.i0;
   const int rowFirst = std::max(0, rowMid - around);
@@ -310,14 +390,15 @@ inline Rgba sample(const Grid &g, double x, double y, double pixel) {
     for (int col = colFirst; col <= colLast; ++col) {
       const Dot &dot = g.dots[std::size_t(row) * g.columns + col];
       if (!(dot.radius > 0) || !(dot.color.a > 0)) continue;
-      // A line is cut where the next dot's line begins, so a row of lines
-      // joins into a stripe without overlapping
-      if (s.shape == Shape::Line && std::abs(u - dot.column) > 0.5) continue;
       const double dx = x - dot.x, dy = y - dot.y;
-      const double lx = (dx * dot.cosine + dy * dot.sine) / dot.aspect;
+      const double along = dx * dot.cosine + dy * dot.sine;
+      // A line is cut half a cell either side of its centre, so a row of
+      // lines along it joins into a stripe without overlapping
+      if (s.shape == Shape::Line && std::abs(along) > 0.5 * s.spacing)
+        continue;
       const double ly = -dx * dot.sine + dy * dot.cosine;
-      const double cover =
-          detail::unit(0.5 - distance(s.shape, lx, ly, dot.radius) / edge);
+      const double cover = detail::unit(
+          0.5 - distance(s.shape, along / dot.aspect, ly, dot.radius) / edge);
       const double alpha = cover * dot.color.a;
       if (!(alpha > 0)) continue;
       out.r = dot.color.r * alpha + out.r * (1 - alpha);

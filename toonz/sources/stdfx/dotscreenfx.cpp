@@ -91,8 +91,8 @@ struct ControlImage {
 
 template <class Pixel>
 void draw(const TRasterPT<Pixel> &output, TPointD position,
-          const TAffine &outputToWorld, double pixel,
-          const DotScreen::Grid &grid, const int *canceled) {
+          const TAffine &outputToWorld, const DotScreen::Grid &grid,
+          const int *canceled) {
   RasterLock lock(output);
   for (int y = 0; y < output->getLy(); ++y) {
     if (canceled && *canceled) return;
@@ -100,7 +100,7 @@ void draw(const TRasterPT<Pixel> &output, TPointD position,
     for (int x = 0; x < output->getLx(); ++x) {
       const TPointD p =
           outputToWorld * (position + TPointD(x + 0.5, y + 0.5));
-      const DotScreen::Rgba c = DotScreen::sample(grid, p.x, p.y, pixel);
+      const DotScreen::Rgba c = DotScreen::sample(grid, p.x, p.y);
       if (c.a > 0)
         row[x] = PixelConverter<Pixel>::from(TPixelD(c.r, c.g, c.b, c.a));
     }
@@ -152,7 +152,8 @@ public:
     s.jitter   = bounded(m_jitter->getValue(frame), 0, 1);
     s.shape    = DotScreen::Shape(discrete(m_shape->getValue(frame), 3));
     s.size     = bounded(m_size->getValue(frame), 0, DotScreen::maxSize);
-    s.aspect   = bounded(m_aspect->getValue(frame), 0.05, 4);
+    s.aspect   = bounded(m_aspect->getValue(frame), DotScreen::minAspect,
+                         DotScreen::maxAspect);
     s.rotation = bounded(m_rotation->getValue(frame), -3600, 3600) * degrees;
     s.opacity  = bounded(m_opacity->getValue(frame), 0, 1);
     s.softness = bounded(m_softness->getValue(frame), 0, 1000);
@@ -181,6 +182,14 @@ public:
         m.high *= degrees;
       }
     }
+    return s;
+  }
+  // The settings for a render, whose output pixel sets the antialiasing
+  DotScreen::Settings settings(double frame,
+                               const TRenderSettings &info) const {
+    DotScreen::Settings s = settings(frame);
+    const double pixel    = 1 / scaleOf(info.m_affine);
+    if (std::isfinite(pixel)) s.pixel = pixel;
     return s;
   }
 
@@ -218,7 +227,7 @@ public:
     m_shape->setUIChoices({"Round", "Square", "Diamond", "Line"});
     m_size->setValueRange(0, DotScreen::maxSize);
     m_size->setUISliderRange(0, 1.5);
-    m_aspect->setValueRange(0.05, 4);
+    m_aspect->setValueRange(DotScreen::minAspect, DotScreen::maxAspect);
     for (TDoubleParamP *share :
          {&m_stagger, &m_jitter, &m_opacity, &m_colorRandom, &m_sizeRandom,
           &m_rotationRandom, &m_opacityRandom})
@@ -286,19 +295,19 @@ public:
     inputInfo = info;
     input     = output;
     if (port >= 0 && port < DotScreen::modifierCount && uses(port, frame))
-      input = output.enlarge(halo(settings(frame), info));
+      input = output.enlarge(halo(settings(frame, info), info));
   }
   void doDryCompute(TRectD &rect, double frame,
                     const TRenderSettings &info) override {
     for (int k = 0; k < DotScreen::modifierCount; ++k)
       if (uses(k, frame)) {
-        TRectD input = rect.enlarge(halo(settings(frame), info));
+        TRectD input = rect.enlarge(halo(settings(frame, info), info));
         m_control[k]->dryCompute(input, frame, info);
       }
   }
   int getMemoryRequirement(const TRectD &rect, double frame,
                            const TRenderSettings &info) override {
-    const DotScreen::Settings s = settings(frame);
+    const DotScreen::Settings s = settings(frame, info);
     const double h              = halo(s, info);
     const double scale          = scaleOf(info.m_affine);
     int images                  = 0;
@@ -329,7 +338,7 @@ public:
     if (info.m_isCanceled && *info.m_isCanceled) return;
     const double scale = scaleOf(info.m_affine);
     if (!(scale > 0)) return;
-    const DotScreen::Settings s = settings(frame);
+    const DotScreen::Settings s = settings(frame, info);
     const int h                 = halo(s, info);
     const int w = tile.getRaster()->getLx(), ht = tile.getRaster()->getLy();
 
@@ -375,16 +384,15 @@ public:
     } catch (const std::exception &error) {
       throw TException(error.what());
     }
-    const double pixel = 1.0 / scale;
     using DotScreenFxDetail::draw;
     if (TRaster32P output = tile.getRaster())
-      draw<TPixel32>(output, tile.m_pos, outputToWorld, pixel, grid,
+      draw<TPixel32>(output, tile.m_pos, outputToWorld, grid,
                      info.m_isCanceled);
     else if (TRaster64P output = tile.getRaster())
-      draw<TPixel64>(output, tile.m_pos, outputToWorld, pixel, grid,
+      draw<TPixel64>(output, tile.m_pos, outputToWorld, grid,
                      info.m_isCanceled);
     else if (TRasterFP output = tile.getRaster())
-      draw<TPixelF>(output, tile.m_pos, outputToWorld, pixel, grid,
+      draw<TPixelF>(output, tile.m_pos, outputToWorld, grid,
                     info.m_isCanceled);
     else
       throw TException("Dot Screen: unsupported pixel type");
