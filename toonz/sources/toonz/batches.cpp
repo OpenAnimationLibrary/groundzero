@@ -968,6 +968,7 @@ void BatchesController::removeTask(const QString& id) {
   m_execution->incarnations.swap(incarnations);
   std::atomic_store(&m_execution->progressIdentities, std::move(identities));
   std::unique_ptr<TFarmTask> owner(task);
+  connectExitPrompt();
   m_dirtyFlag = true;
   update();
 }
@@ -1059,7 +1060,8 @@ bool BatchesController::setTaskChunkSettings(const QString& id, int from,
   task->m_to         = to;
   task->m_chunkSize  = chunkSize;
   task->m_outputPath = outputPath;
-  m_dirtyFlag        = true;
+  connectExitPrompt();
+  m_dirtyFlag = true;
   notify();
   return true;
 }
@@ -1128,15 +1130,16 @@ TaskState BatchesController::getTaskStatus(const QString &id) const {
     return TaskUnknown;
 }
 
-void BatchesController::setDirtyFlag(bool state) {
-  static bool FirstTime = true;
+void BatchesController::connectExitPrompt() {
+  static bool connected = false;
+  if (connected) return;
+  connected = connect(TApp::instance()->getMainWindow(), SIGNAL(exit(bool &)),
+                      SLOT(onExit(bool &)));
+  assert(connected);
+}
 
-  if (FirstTime) {
-    FirstTime = false;
-    bool ret  = connect(TApp::instance()->getMainWindow(), SIGNAL(exit(bool &)),
-                        SLOT(onExit(bool &)));
-    assert(ret);
-  }
+void BatchesController::setDirtyFlag(bool state) {
+  connectExitPrompt();
 
   if (state == m_dirtyFlag) return;
 

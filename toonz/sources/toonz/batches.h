@@ -133,6 +133,9 @@ private:
   static BatchesController *m_instance;
 
 private:
+  // Every path that makes the task list dirty must reach this, or quitting
+  // discards unsaved edits without asking.
+  void connectExitPrompt();
   static inline QString taskBusyStr();
   std::shared_ptr<BatchTaskExecution::Plan> captureTask(TFarmTask* task);
   void startFarmTask(TFarmTask* task);
