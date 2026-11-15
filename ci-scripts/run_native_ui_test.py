@@ -18,6 +18,10 @@ from windows_process import WindowsJobProcess
 # batch, UI memory, raster paste, drawing cache and render progress suites
 # joined the same process. The workflow steps allow 45 minutes.
 FULL_SUITE_SECONDS = 900
+# A follow-up diagnostic that cannot finish reports nothing. workflow-ui is the
+# largest suite and needs more than 120 seconds on the macOS and Windows runners.
+ISOLATED_SUITE_SECONDS = 120
+ISOLATED_SUITE_SECONDS_OVERRIDES = {"workflow-ui": 600}
 
 
 def original_macos_identity_witness(identity, native_status):
@@ -440,9 +444,9 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
               ("vector-renderer", "vector-renderer-native: PASS"),
               ("workflow-switch", "workflow-switch-native: PASS"),
               ("workflow-ui", "workflow-ui-native: PASS"))
-    timeout_seconds = 120
     reports, results = [], []
     for suite, marker in suites:
+        timeout_seconds = ISOLATED_SUITE_SECONDS_OVERRIDES.get(suite, ISOLATED_SUITE_SECONDS)
         label = f"Independent native diagnostic: {suite}"
         print(f"\n{label} (not an all-workflows qualification).", flush=True)
         output, status, native_status = "", 1, None
