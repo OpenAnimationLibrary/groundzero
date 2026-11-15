@@ -3,7 +3,7 @@
   "audit_date": "2026-11-07",
   "baseline_revision": "2e52fb78b70915925393290f32dc09a95a3927ec",
   "patch_revision": null,
-  "scope": "48 prepared findings plus 14 distinct residual/qualification records; five retained residual IDs alias F24/F25/F27/F28/F29. Not a complete defect inventory.",
+  "scope": "57 prepared findings plus 14 distinct residual/qualification records; six retained residual IDs alias F24/F25/F27/F28/F29/F49. Not a complete defect inventory.",
   "review_order": [
     "architecture",
     "code_quality",
@@ -64,7 +64,9 @@
     "pull_request": "https://github.com/OpenAnimationLibrary/groundzero/pull/142",
     "memory": "doc/audit_memory_lifetime.md",
     "memory_ownership": "doc/audit_memory_ownership.md",
-    "cache_leak_qualification": "doc/audit_image_cache_lsan.md"
+    "cache_leak_qualification": "doc/audit_image_cache_lsan.md",
+    "latest_ci_qualification": "doc/audit_ci_2026_11_12.md",
+    "audio_lifetime": "doc/audit_audio_lifetime.md"
   },
   "suites": {
     "psd": {
@@ -197,7 +199,7 @@
         "macos",
         "windows"
       ],
-      "limit": "Native application fixture under BUILD_UI_PORT_TESTS, not a CTest target. Earlier application failures can prevent its checkpoints; all new runtime evidence is pending."
+      "limit": "Native application fixture under BUILD_UI_PORT_TESTS, not CTest. CI27-CI29 record passing checkpoints; differential, farm and active-shutdown qualification remain separate."
     },
     "native_batch_view": {
       "path": "toonz/sources/toonz/batchtaskviewintegrationtest.cpp",
@@ -252,7 +254,7 @@
         "macos",
         "windows"
       ],
-      "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Actual Room loader/factory and editor slots under isolated portable settings; repaired files are not automatically reloaded. Runtime pending."
+      "limit": "BUILD_UI_PORT_TESTS application fixture, not a separate CTest. Actual Room loader/factory and editor slots under isolated portable settings; repaired files are not automatically reloaded. Runtime passed at merge f8a1680; differential/final qualification pending."
     },
     "childstack": {
       "path": "toonz/sources/toonzlib/tests/childstack_lifetime_test.cpp",
@@ -261,7 +263,7 @@
         "macos",
         "windows"
       ],
-      "limit": "Required 60-second CTest; exact owner checks authored, runtime pending.",
+      "limit": "Required 60-second CTest; exact owner checks authored, runtime passed at merge f8a1680; differential/final qualification pending.",
       "ctest": [
         "childstack_lifetime"
       ]
@@ -1065,7 +1067,7 @@
         ".github/workflows/tests_linux.yml"
       ],
       "baseline_behavior": "Independent automatic PR workflows expand to a conservative 31-check worst case.",
-      "patched_invariant": "At most ten baseline PR validation jobs preserve mapped coverage and failure propagation. The edition wrapper reports their result before advisory jobs.",
+      "patched_invariant": "At most ten automatic PR checks, counting matrices, reusable workflows, wrapper gates and conditionally skipped jobs, preserve mapped coverage and failure propagation.",
       "scenario": "Count reusable/matrix expansion and test an eleven-check graph, cycles, dynamic matrices and invalid shapes.",
       "tests": [
         {
@@ -1093,6 +1095,7 @@
           }
         ],
         "pending": [
+          "Run 43147442150 exposed 14 entries because the then-current counter excluded wrapper/advisory jobs. The consolidated ten-check graph and strict total counter require fresh CI evidence.",
           "Initial 15-case CI02 evidence is preserved; the follow-up 15 cases/50 assertions passed at c20884ffb (CI14), including the expanded boundary. Qualify later workflow changes independently.",
           "Fail one consolidated step deliberately and confirm later independent steps and diagnostics still execute; owner reviews retired required-check names."
         ],
@@ -1430,17 +1433,27 @@
       "previous_record": "R01",
       "reference": "doc/audit_task_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI27"
+          },
+          {
+            "evidence_id": "CI28"
+          },
+          {
+            "evidence_id": "CI29"
+          }
+        ],
         "pending": [
-          "Run the exact integrated native fixture on Windows/Linux/macOS with retained checkpoints and sanitizer/PageHeap evidence.",
+          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
           "Run baseline or targeted mutation comparisons for queued/assigned lifetime, edit isolation and accepted-submission cleanup.",
           "Retired-outcome replay proves absent-record rejection, not independent identity predicates or duplicate retirement delivery. Progress replacement independently exercises incarnation; generation is not isolated.",
           "Qualify active-process application shutdown and latched non-timeout process errors; authored real-child cases cover stop/reaping and successful completion after polling.",
           "Legacy external ID-only messages arriving after reuse remain uncorrelated. Existing remote restartTask does not resend edited local configuration.",
           "UI guards cover selected name/dependency/chunk/thread slots and idle edits; all remaining handlers, mouse/focus delivery and actual farm behavior remain unqualified.",
-          "Selected-tree start/stop, standard-exception reporting and chunk-collision editor cases are authored; selection behavior is not a reproduced TreeModel crash. Linux 5e9c compiled task sources and linked OpenToonz, but no new native scenario ran."
+          "Selected-tree start/stop, standard-exception reporting and chunk-collision editor cases reached passing checkpoints (CI27-CI29). This is behavior coverage, not a reproduced TreeModel crash."
         ],
         "mutation_proposal": "Release an assigned record on cancellation or terminal display, omit queued withdrawal, or remove progress incarnation rejection; the corresponding gated lifetime/identity assertions must fail.",
         "compilation_evidence": [
@@ -1483,11 +1496,21 @@
       "previous_record": "R02",
       "reference": "doc/audit_task_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI27"
+          },
+          {
+            "evidence_id": "CI28"
+          },
+          {
+            "evidence_id": "CI29"
+          }
+        ],
         "pending": [
-          "Run exact-revision native scenarios and leak detection for repeated valid load/clear with no double deletion.",
+          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
           "CountedTask and Runner destruction are instrumented; final TFarmTaskGroup roots and freshly deserialized objects still need leak-detector evidence.",
           "Nested malformed extraction can leave an allocated child unattached before TFarmTaskGroup adopts it. A shared-parser provenance API must distinguish new allocations from existing aliases before exception cleanup; this remains deferred and source-confirmed.",
           "Preserved visible list state on failed load does not imply every nested parser allocation was reclaimed.",
@@ -1758,11 +1781,21 @@
         "windows"
       ],
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI27"
+          },
+          {
+            "evidence_id": "CI28"
+          },
+          {
+            "evidence_id": "CI29"
+          }
+        ],
         "pending": [
-          "Run the exact-revision Room and editor cases on all platforms; source/static checks are not runtime evidence.",
+          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
           "Automatic repaired-file reload is not implemented. Missing-template open still returns early. The command-change error preserves preview pixels; it does not roll back command-field edits already made before reloading.",
           "No trace attributes the unresolved W1 Qt text teardown crash to this null-result defect."
         ],
@@ -1801,13 +1834,23 @@
       ],
       "reference": "doc/audit_memory_ownership.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI24"
+          },
+          {
+            "evidence_id": "CI25"
+          },
+          {
+            "evidence_id": "CI26"
+          }
+        ],
         "pending": [
-          "Run exact-revision fixture and baseline/mutation on supported platforms; no RAM slope or leak-detector result exists.",
+          "The registered fixture passed on all three platforms at merge f8a1680 (CI24-CI26); targeted baseline/mutation and final integrated qualification remain pending.",
           "The legacy setXsheet escape hatch has no production caller in the searched tree and is outside the fixture.",
-          "The childstack_lifetime target/60-second CTest and all three regression manifests are now integrated; registration is not runtime evidence."
+          "childstack_lifetime executed its reference/destruction assertions; no process RAM slope or separate leak-detector result is inferred."
         ],
         "mutation_proposal": "Restore teardown/clear against the current child; owned-root and borrowed-child reference assertions or level destruction sentinels must fail."
       }
@@ -1852,11 +1895,24 @@
       ],
       "reference": "doc/audit_image_cache_lsan.md",
       "validation": {
-        "status": "pending",
-        "baseline_detection": "pending",
-        "executed_evidence": [],
+        "status": "recorded_revision_pass_final_pending",
+        "baseline_detection": "targeted_in_memory_mutation_detected",
+        "executed_evidence": [
+          {
+            "evidence_id": "CI24"
+          },
+          {
+            "evidence_id": "CI25"
+          },
+          {
+            "evidence_id": "CI26"
+          },
+          {
+            "evidence_id": "CI30"
+          }
+        ],
         "pending": [
-          "The Linux fixed-to-mutated-to-restored LSan qualifier and eight harness contracts are authored/integrated but unexecuted. Require the functional sentinel plus direct builder allocation stack and leak exit23 for the one-delete mutation; neither a crash nor unrelated leak qualifies.",
+          "CI30 records normal/mutated/restored LSan exits 0/23/0 and a direct builder allocation stack after the functional sentinel. Qualify future integrated revisions independently.",
           "The new cycle does not force disk spill; on-disk builder cleanup needs its own runtime path.",
           "This releases builder metadata, not leaked raster payloads. Constructor exception paths are unchanged."
         ],
@@ -1900,6 +1956,7 @@
         "baseline_detection": "pending",
         "executed_evidence": [],
         "pending": [
+          "The merge f8a1680 native run failed during earlier indexed-paste cleanup on all three platforms; these later memory cases receive no runtime pass credit.",
           "Run exact native cases and targeted baseline/mutation. Source-palette reference assertions detect retained converted raster payloads but remain unexecuted.",
           "Indexed-to-vector and external-image cycles provide behavior checks, not complete allocation-release proof; retain LSan qualification for unexposed payload ownership.",
           "Conversion factories allocating an object before an exception inside its initialization remain a separate deferred ownership boundary; this patch owns successfully returned payloads."
@@ -1942,6 +1999,7 @@
         "baseline_detection": "pending",
         "executed_evidence": [],
         "pending": [
+          "The merge f8a1680 native run failed during earlier indexed-paste cleanup on all three platforms; these later memory cases receive no runtime pass credit.",
           "Run the throwing-style cases and baseline/mutation with memory-error instrumentation; no local/CI result exists.",
           "This is failure-path double deletion, not a demonstrated normal-success RAM-growth defect. Ordinary null-target copies are compatibility controls.",
           "The fixture checks source palette preservation and drives the real merge error; exact temporary allocation/deallocation diagnosis requires retained sanitizer evidence."
@@ -1980,11 +2038,21 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "partial_platform_evidence",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI24"
+          },
+          {
+            "evidence_id": "CI25"
+          },
+          {
+            "evidence_id": "CI26"
+          }
+        ],
         "pending": [
-          "Run the exact ownership/refcount/destructor cases and baseline/mutation on all platforms; no graph-release or RAM result is inferred from source.",
+          "Ownership functions return before the recorded later public-render failures in all three externfx_process runs (CI24-CI26). No separate pass marker or targeted mutation exists; the whole external-effect target still fails.",
           "Existing external command trust, output-mode and process-timeout limits remain separate from port ownership."
         ],
         "mutation_proposal": "Remove the owning port vector while preserving functional port registration; upstream reference balance/final destructor assertions must fail."
@@ -2021,11 +2089,22 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI24"
+          },
+          {
+            "evidence_id": "CI25"
+          },
+          {
+            "evidence_id": "CI26"
+          }
+        ],
         "pending": [
-          "Run the real module with allocation/deallocation mismatch instrumentation and an exact baseline/mutation; ordinary value checks alone do not diagnose scalar-vs-array delete.",
+          "The registered fixture passed on all three platforms at merge f8a1680 (CI24-CI26); targeted baseline/mutation and final integrated qualification remain pending.",
+          "Ordinary parameter/value checks do not diagnose scalar-versus-array deletion; allocation/deallocation mismatch instrumentation remains required.",
           "Nested group/descriptor arrays, retained strings, existing Param descriptor borrows and global PluginInformation lifetime remain deferred in R17; this patch does not claim complete metadata cleanup."
         ],
         "mutation_proposal": "Restore the scalar deleters; ASan allocation/deallocation mismatch evidence must detect them while valid single/empty probe behavior remains checked."
@@ -2061,11 +2140,21 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI27"
+          },
+          {
+            "evidence_id": "CI28"
+          },
+          {
+            "evidence_id": "CI29"
+          }
+        ],
         "pending": [
-          "Run actual native cycles and baseline/mutation on the exact integrated revision.",
+          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
           "Object ownership/count assertions are not process RAM measurements; other menu families remain outside this fixture."
         ],
         "mutation_proposal": "Remove direct submenu deletion before rebuild; old QPointers remain alive or submenu counts grow."
@@ -2100,11 +2189,21 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI27"
+          },
+          {
+            "evidence_id": "CI28"
+          },
+          {
+            "evidence_id": "CI29"
+          }
+        ],
         "pending": [
-          "Run native modal ownership and baseline/mutation cases; no RSS improvement is measured.",
+          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
           "The existing build-date preference behavior is unchanged by source, but the fixture does not independently toggle and persist that preference."
         ],
         "mutation_proposal": "Restore heap allocation without post-exec deletion; the dialog/child QPointers or baseline dialog count must fail."
@@ -2142,11 +2241,21 @@
       ],
       "reference": "doc/audit_memory_lifetime.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI27"
+          },
+          {
+            "evidence_id": "CI28"
+          },
+          {
+            "evidence_id": "CI29"
+          }
+        ],
         "pending": [
-          "Run exact-revision local-file cases and baseline/mutation; no live network or RAM qualification is claimed.",
+          "The named native checkpoints passed on all three platforms at merge f8a1680 (CI27-CI29); targeted baseline/mutation and final integrated qualification remain pending.",
           "The available-update modal behavior is unchanged by source but is not separately exercised; valid fixture version 0.0.0 does not prompt."
         ],
         "mutation_proposal": "Return before cleanup on errors or use the shared latest-checker member; per-request completion or checker/manager retirement assertions must fail."
@@ -2190,6 +2299,7 @@
         "baseline_detection": "pending",
         "executed_evidence": [],
         "pending": [
+          "The merge f8a1680 native run failed during earlier indexed-paste cleanup on all three platforms; these later memory cases receive no runtime pass credit.",
           "Run exact native cache-key/public-output assertions and baseline/mutation; no runtime or RAM slope is established.",
           "Original retention is bounded by scene-cache reset; do not claim the same orphan keys survive every scene replacement.",
           "Exact key disappearance and surviving clone pixels are ownership evidence, not whole-process leak freedom."
@@ -2236,6 +2346,7 @@
         "baseline_detection": "pending",
         "executed_evidence": [],
         "pending": [
+          "The merge f8a1680 native run failed during earlier indexed-paste cleanup on all three platforms; these later memory cases receive no runtime pass credit.",
           "Run exact native output/lifetime cases and baseline/mutations; no RSS or retained-render-payload reduction is claimed.",
           "The real cancel case is early cancellation before admission, not arbitrary mid-render/encoder cancellation.",
           "Graph-construction exception cleanup is source-reviewed only. MainWindow destruction with active workers is outside this lifetime contract.",
@@ -2278,6 +2389,7 @@
         "baseline_detection": "pending",
         "executed_evidence": [],
         "pending": [
+          "The merge f8a1680 native run failed during earlier indexed-paste cleanup on all three platforms; these later memory cases receive no runtime pass credit.",
           "Run exact native multimedia output/retirement and baseline/mutation cases; no RAM or complete render-graph cleanup claim is made.",
           "Synchronous start return is the ownership boundary; active MainWindow destruction and other export modes need separate qualification."
         ],
@@ -2319,6 +2431,7 @@
         "baseline_detection": "pending",
         "executed_evidence": [],
         "pending": [
+          "The merge f8a1680 native run failed during earlier indexed-paste cleanup on all three platforms; these later memory cases receive no runtime pass credit.",
           "Run exact-revision cache-ID/history scenarios and baseline/mutation; no RAM measurement is claimed.",
           "The fixture observes the new key before undo and after reset; successful intermediate undo/redo is pixel-checked but does not separately assert key presence at each intermediate step.",
           "The existing approximate m_cachedSize omission is outside this cleanup change."
@@ -2357,15 +2470,420 @@
       ],
       "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
-        "status": "pending",
+        "status": "recorded_revision_pass_final_pending",
         "baseline_detection": "pending",
-        "executed_evidence": [],
+        "executed_evidence": [
+          {
+            "evidence_id": "CI24"
+          },
+          {
+            "evidence_id": "CI25"
+          },
+          {
+            "evidence_id": "CI26"
+          }
+        ],
         "pending": [
-          "Run exact real-module reference tests and baseline/mutation; no runtime or RAM measurement exists.",
+          "The registered fixture passed on all three platforms at merge f8a1680 (CI24-CI26); targeted baseline/mutation and final integrated qualification remain pending.",
           "Registry/library process lifetime is unchanged. Per-host UIPage/ParamView allocations and descriptor/string storage remain R17; reference balance does not prove complete plugin cleanup."
         ],
         "mutation_proposal": "Move metadata release back inside the optional callback branch; callback-absent cycles must retain a reference and fail."
       }
+    },
+    {
+      "id": "F49",
+      "priority": "P2",
+      "title": "Plugin loader controller and listener thread retirement",
+      "sources": [
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/tests/plugin_controller_lifetime.cpp",
+        "toonz/sources/toonzqt/tests/plugin_probe_test.cpp",
+        "toonz/sources/toonzqt/CMakeLists.txt"
+      ],
+      "baseline_behavior": "Startup polling loses its completed PluginLoadController without deletion. Listener-based discovery delivers menu fixup but omits the controller completion slot that quits the worker thread. Retiring a listener does not stop or own that controller.",
+      "patched_invariant": "Both discovery paths notify the controller completion slot. Startup deletes only after wait acknowledges thread completion; listener requests retire their controller after thread finish independently of listener survival, while publication remains ordered.",
+      "scenario": "Exercise actual startup load_entries, controller/worker/thread retirement, then four normal-menu and four immediately-closed-menu cycles in both existing single/empty probe modes. Require publication before normal completion and no live controller/worker/thread afterward.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "checkStartup",
+            "ControllerObserver::waitForRetirement",
+            "checkMenuCycle"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Run the actual probe targets on all platforms and restore each retirement omission in separate disposable mutations. Tests are authored; no runtime or RAM improvement is claimed.",
+          "Startup normally runs once; listener/menu paths recur. No plugin hot-unload behavior is introduced."
+        ],
+        "mutation_proposal": "Omit startup controller deletion or listener completion/retirement connection; observed controller/worker/thread retirement must fail within its deadline."
+      },
+      "previous_record": "R20",
+      "implementation_commit": "117197f8f"
+    },
+    {
+      "id": "F50",
+      "priority": "P1",
+      "title": "Viewer title borrows a retired current-column pointer",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace_and_original_ci_crash",
+      "sources": [
+        "toonz/sources/toonz/viewerpane.cpp",
+        "toonz/sources/toonz/rasterpasteintegrationtest.cpp",
+        "toonz/sources/toonz/iocommand.cpp",
+        "toonz/sources/toonz/tapp.cpp"
+      ],
+      "baseline_behavior": "Scene cleanup can delete a column while TColumnHandle still caches its raw pointer. A synchronous level-switch callback calls BaseViewerPanel::changeWindowTitle, which reads that stale pointer to check for a sound column. The original native CI crash identifies this function on macOS and Windows. External new-raster-level paste into an existing empty column supplies a production transition to the stale cache.",
+      "patched_invariant": "Resolve the current column through the live TXsheet and current index before reading its type; missing scenes/columns produce no drawing caption, while sound columns and valid drawing captions retain their behavior.",
+      "scenario": "Use actual external Paste and New raster level into a pre-existing empty column, verify red pixels/dimensions and the destination, visit a real sound column, restore the drawing caption, then create a new scene and require a cleared drawing caption. The fixture follows normal column selection rather than injecting a cached pointer.",
+      "tests": [
+        {
+          "suite": "native_raster_paste",
+          "cases": [
+            "checkExternalNewLevelRetirement",
+            "checkSoundColumnTitle",
+            "checkVisibleViewerTitle"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_windows_crashes.md",
+      "implementation_commit": "166e1290140960cc9a18ba08d09dd338add228a7",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "original_ci_failure_recorded; dedicated_mutation_pending",
+        "executed_evidence": [
+          {
+            "evidence_id": "CI31"
+          },
+          {
+            "evidence_id": "CI32"
+          }
+        ],
+        "pending": [
+          "Run the new real external-paste/New Scene scenario and all native integration on the repaired combined revision. No repaired runtime pass exists.",
+          "Restore the old title lookup in a disposable build and require the dedicated scenario or memory-error instrumentation to catch the stale dereference. The prior crash arose in the older paste fixture and is not an execution of this new scenario.",
+          "The old W1 Qt text-layout teardown remains separate and unresolved; this narrow viewer lookup does not establish global TColumnHandle lifetime correctness."
+        ],
+        "mutation_proposal": "Restore changeWindowTitle reads through TColumnHandle::getColumn while keeping the real external-paste and sound-column control cases unchanged; require stale-access evidence at scene retirement."
+      }
+    },
+    {
+      "id": "F51",
+      "priority": "P1",
+      "title": "Closing an FX menu releases process-lived plugin declarations",
+      "sources": [
+        "toonz/sources/toonzqt/addfxcontextmenu.cpp",
+        "toonz/sources/toonzqt/pluginhost.cpp",
+        "toonz/sources/toonzqt/tests/plugin_controller_lifetime.cpp"
+      ],
+      "baseline_behavior": "AddFxContextMenu destruction releases and clears the global PluginInformation registry although process-lived FX declarations borrow those records. Ordinary Room/SchematicViewer destruction can therefore invalidate a declaration immediately or after the last live host releases its reference.",
+      "patched_invariant": "Menu retirement leaves the process-owned plugin registry intact; persistent declarations and later host creation keep valid metadata. Closing a menu retires only its owned UI/controller resources.",
+      "scenario": "Create a real fixture plugin, destroy normal and early-closing menus with an existing host alive, create hosts through both PluginLoader and TFx::create afterward, release the old host, then create again. Repeat four cycles in the existing probe fixture.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "checkRegistry",
+            "checkMenuCycle"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "This preserves intentional process-lifetime registry/library retention; it does not implement unloading or resolve nested descriptor/string/per-host UI storage in R17.",
+          "Runtime and targeted restore-the-registry-clear mutation remain pending; no connection to W1 is established."
+        ],
+        "mutation_proposal": "Restore global registry release in the menu destructor; subsequent direct/declaration-based host creation or memory instrumentation must detect the invalid lifetime."
+      },
+      "implementation_commit": "117197f8f"
+    },
+    {
+      "id": "F52",
+      "priority": "P2",
+      "title": "FX menu rebuild and destruction retain owned menu objects",
+      "sources": [
+        "toonz/sources/toonzqt/addfxcontextmenu.cpp",
+        "toonz/sources/toonzqt/tests/plugin_controller_lifetime.cpp"
+      ],
+      "baseline_behavior": "AddFxContextMenu leaves three unparented root menus and an unparented repeat action alive at destruction. Clearing actions on preset refresh retains QObject-owned submenus, and overlapping plugin publication can append duplicate plugin groups.",
+      "patched_invariant": "Delete the three owned root menus at owner destruction, parent the repeat action, retire obsolete direct submenus before rebuild, and replace only the named plugin group on publication. Externally owned actions and unrelated groups survive.",
+      "scenario": "Four normal/early-close menu pairs in both probe modes check complete owned-tree retirement. Normal menus receive saved/removed preset refreshes plus two overlapping refreshes; prior submenu QPointers die, external QAction survives, unrelated group survives plugin publication, and exactly one plugin entry remains per root.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "plugin_probe",
+          "cases": [
+            "checkMenuCycle",
+            "checkRefresh",
+            "checkRapidRefresh",
+            "menuObjects",
+            "submenuObjects"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "The fixture invokes actual menu loading/refresh signals with a small TApplication boundary; it does not run full schematic editing or every action-trigger side effect.",
+          "Runtime and targeted omitted-delete/duplicate-publication mutations remain pending."
+        ],
+        "mutation_proposal": "Omit root/submenu/repeat ownership cleanup or plugin-group replacement individually; QPointer/count/entry-uniqueness assertions must fail while shared action identity remains."
+      },
+      "implementation_commit": "117197f8f"
+    },
+    {
+      "id": "F53",
+      "priority": "P2",
+      "title": "Calibrated widgets retain their calibrator registration",
+      "sources": [
+        "toonz/sources/toonzqt/styleeditor.cpp",
+        "toonz/sources/toonz/imageviewer.cpp",
+        "toonz/sources/toonz/sceneviewer.cpp",
+        "toonz/sources/toonzqt/lutcalibrator.cpp",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp"
+      ],
+      "baseline_behavior": "HexagonalColorWheel, ImageViewer and SceneViewer allocate raw LutCalibrator objects but do not delete them when the widget dies. The calibrator constructor registers its raw address in LutManager and only its destructor unregisters it. Repeated widget ownership retirement therefore retains the calibrator and registry entry.",
+      "patched_invariant": "Widget destruction performs context-bound resource cleanup while available and deletes the owned calibrator, removing its registration. ImageViewer and the color wheel retire framebuffer objects with their context cleanup.",
+      "scenario": "Enable calibration temporarily; construct and destroy each of the three widget owners eight times and require LutManager registrations return exactly to the original set.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "LutCalibratorLifetimeTest::checkWidgetCycles",
+            "LutCalibratorLifetimeTest::checkWidget"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "The fixture constructs hidden widgets and checks registration retirement; it does not display factory-created panels, render calibrated pixels, force context loss, or measure driver/VRAM retention.",
+          "Run the complete native driver on supported renderers and restore omitted owner deletion in a disposable mutation; exact pass and mutation results remain pending."
+        ],
+        "mutation_proposal": "Omit deletion of each widget-owned calibrator in turn; the registry-set equality after owner destruction must fail."
+      },
+      "implementation_commit": "73376263a"
+    },
+    {
+      "id": "F54",
+      "priority": "P1",
+      "title": "Qt audio output and refill callback outlive playback owner",
+      "sources": [
+        "toonz/sources/common/tsound/tsound_qt.cpp",
+        "toonz/sources/common/tsound/tsoundownershiptest.inc",
+        "toonz/sources/include/tsoundownershiptest.h",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp",
+        "toonz/sources/tnzcore/CMakeLists.txt"
+      ],
+      "baseline_behavior": "Linux/macOS playback observes an unparented audio output with QPointer. Format replacement stops but loses the old object, and final implementation destruction does not own/delete the last output. Qt6 refill timers remain owned by those outputs and capture the implementation raw pointer.",
+      "patched_invariant": "The implementation uniquely owns and stops its output before replacement/destruction. Refill callbacks use the output as connection context and a weak implementation reference; retiring output also retires its timer and connections.",
+      "scenario": "Run the actual private output setup sixteen times with alternating sample formats, without opening physical playback. Old-output and child QPointers must clear on replacement, and final owner retirement must destroy the last output/children. Qt6 also requires exactly one owned refill timer.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "runSoundOutputOwnershipChecks"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "reference": "doc/audit_audio_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Linux/macOS Qt output only; Windows WinMM uses a different implementation and approved repair design.",
+          "This object-lifetime fixture opens no physical audio stream and does not qualify audible playback, backend shutdown under load, callback timing, sample ranges or overall RAM.",
+          "Only the exact expected missing-device constructor warning is handled for headless ownership checks; all other Qt diagnostics are preserved. Runtime and targeted mutations remain pending."
+        ],
+        "mutation_proposal": "Release unique output ownership before replacement and separately before owner destruction; the corresponding QPointer retirement assertion must fail."
+      },
+      "implementation_commit": "693bf7ad9"
+    },
+    {
+      "id": "F55",
+      "priority": "P1",
+      "title": "Failed calibration setup leaves dangling shader pointers",
+      "sources": [
+        "toonz/sources/toonzqt/lutcalibrator.cpp",
+        "toonz/sources/include/toonzqt/lutcalibrator.h",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp"
+      ],
+      "baseline_behavior": "Shader compile/add/link/lookup failure deletes allocated shader objects directly without nulling their stored pointers. cleanup previously returned early while the calibrator was invalid, leaving partial-state cleanup inconsistent and later setup/retirement exposed to dangling shader fields.",
+      "patched_invariant": "Use common pointer-clearing cleanup for partially initialized shader state, regardless of validity. Repeated cleanup is harmless; failed initialization retains its attempted state until normal explicit/context reset.",
+      "scenario": "With a current offscreen GL context, seed a partial invalid calibrator with real shader/program objects, call cleanup twice, and require their QPointers clear and valid/initialized state resets. Repeat eight times.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "LutCalibratorLifetimeTest::checkPartialCleanup"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "The fixture exercises real QObject/GL object cleanup of a seeded partial state; it does not force a driver shader compilation/link failure or execute the failed initialize branch.",
+          "Failed initialization preserves the existing attempted flag by source; displayed-widget context-reset behavior and actual driver failure still need runtime qualification. No GPU-memory reduction is measured."
+        ],
+        "mutation_proposal": "Restore the invalid-state cleanup early return; seeded partial shader QPointers must remain live and fail the assertion. Separately qualify failure-branch pointer clearing with controlled shader failure."
+      },
+      "implementation_commit": "73376263a"
+    },
+    {
+      "id": "F56",
+      "priority": "P2",
+      "title": "ImageViewer histogram popup outlives its viewer",
+      "sources": [
+        "toonz/sources/toonz/imageviewer.cpp",
+        "toonz/sources/toonz/uimemoryintegrationtest.cpp"
+      ],
+      "baseline_behavior": "ImageViewer creates HistogramPopup through its default dialog constructor both initially and on later enabling. The popup is parented to MainWindow rather than ImageViewer, so destroying a viewer retains its histogram until the main window dies.",
+      "patched_invariant": "Parent the histogram popup to its ImageViewer while preserving existing window flags, so viewer retirement destroys the popup and children.",
+      "scenario": "For eight cycles, create viewers with histogram enabled initially and enabled later; require exactly one new histogram per viewer and a null histogram QPointer plus baseline widget set after viewer destruction.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "native_ui_memory",
+          "cases": [
+            "checkHistogramCycles",
+            "histograms"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_memory_lifetime.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "The fixture observes hidden viewer/popup object ownership; displayed popup geometry, window stacking and histogram pixels still need runtime qualification.",
+          "No long-session RAM or targeted mutation result exists."
+        ],
+        "mutation_proposal": "Remove histogram parent assignment from each allocation path in turn; the QPointer or baseline widget-set check must fail."
+      },
+      "implementation_commit": "73376263a"
+    },
+    {
+      "id": "F57",
+      "priority": "P2",
+      "title": "External effect launch loses selected executable identity",
+      "sources": [
+        "toonz/sources/tnzbase/texternfx.cpp",
+        "toonz/sources/tnzbase/tests/externfx_process_test.cpp"
+      ],
+      "baseline_behavior": "Windows passes only arguments to CreateProcess without a quoted executable argv[0], so a child runtime can consume the first real argument as its program name. POSIX concatenates the configured executable into a shell command without quoting its path, so spaces, quotes and shell characters change execution.",
+      "patched_invariant": "Windows prefixes the selected executable as quoted argv[0] while retaining lpApplicationName and argument expansion. POSIX shell-quotes the executable path, including embedded single quotes, while preserving legacy argument-shell semantics.",
+      "scenario": "Invoke the real fixture child through production compute and require the exact selected argv[0]; POSIX uses an executable link containing spaces, an apostrophe and a dollar sign. Existing quoted-argument, output/error and Windows handle-count cases remain.",
+      "state": "patched",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "tests": [
+        {
+          "suite": "externfx",
+          "cases": [
+            "executableIdentity",
+            "writeWorker",
+            "windowsProcesses",
+            "publicRendering"
+          ]
+        }
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "reference": "doc/audit_plugin_boundaries.md",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "pending",
+        "executed_evidence": [],
+        "pending": [
+          "Windows process launch remains ANSI CreateProcessA; Unicode-path migration and timeout policy are outside this repair. Legacy argument-shell expansion is intentionally retained on POSIX.",
+          "Run the revised external-effect fixture on all three platforms. The prior pixel/type failures do not constitute execution of this new identity case."
+        ],
+        "mutation_proposal": "Remove the executable argv[0] prefix on Windows or its shell quoting on POSIX; selected-executable identity/worker argument parsing must fail."
+      },
+      "implementation_commit": "2c61e4acc"
     }
   ],
   "residuals": [
@@ -3004,7 +3522,7 @@
       "id": "R20",
       "priority": "P2",
       "title": "Completed plugin-loader controller ownership",
-      "state": "source_confirmed",
+      "state": "tracked_in_finding",
       "resolution": "open",
       "evidence_kind": "source_trace",
       "sources": [
@@ -3019,15 +3537,46 @@
         "macos",
         "windows"
       ],
-      "reference": "doc/audit_memory_lifetime.md",
+      "reference": "doc/audit_plugin_boundaries.md",
       "validation": {
         "status": "pending",
         "baseline_detection": "not_yet_defined",
         "executed_evidence": [],
         "pending": [
-          "Ordinary startup invokes this once; no per-frame or measured RAM growth established.",
-          "Optional listener branch has different finish/quit wiring; callers and queued-result ownership require tracing.",
-          "No controller repair or fixture prepared."
+          "F49 now owns the prepared controller/thread retirement repair and authored tests. Preserve this residual ID as an alias; do not count twice."
+        ]
+      },
+      "canonical_id": "F49",
+      "count_as_distinct_finding": false
+    },
+    {
+      "id": "R21",
+      "priority": "P1",
+      "title": "Windows audio callback and buffer ownership protocol",
+      "state": "source_confirmed",
+      "resolution": "open",
+      "evidence_kind": "source_trace",
+      "sources": [
+        "toonz/sources/common/tsound/tsound_nt.cpp",
+        "doc/audit_audio_lifetime.md"
+      ],
+      "baseline_behavior": "WinMM completion can retire headers twice or dereference already-cleared queue storage; pending headers lose ownership on clear. Callback readiness, close-event reuse and discarded thread handles leave no reliable per-thread retirement boundary. An unopened device destructor can wait for an event no thread will signal.",
+      "required_invariant": "Retain WinMM public behavior while owning one callback thread, resolving completion against live buffers before dereference, serializing queue/device retirement, preserving successful unprepare before freeing storage, and joining outside callback-needed locks.",
+      "scenario": "Exercise actual queue/controller code against a fake WinMM boundary for unopened destruction, create/open/write failure, delayed readiness, normal/duplicate/late completion, looping stop, reset, format change, listener removal and thread retirement; then qualify physical playback and device changes.",
+      "tests": [],
+      "platforms": [
+        "windows"
+      ],
+      "reference": "doc/audit_audio_lifetime.md",
+      "design_status": "user_approved; implementation_in_progress",
+      "validation": {
+        "status": "pending",
+        "baseline_detection": "not_yet_defined",
+        "executed_evidence": [],
+        "pending": [
+          "The user approved the concrete ownership/thread design; implementation is in progress and is not counted as a prepared repair in this snapshot.",
+          "The Qt output fix F54 does not affect Windows WinMM. Passing headless tests cannot establish hardware playback/device-disconnect behavior.",
+          "Require bounded queue/controller regression and original-result-preserving page-heap/allocation diagnostics before any runtime claim."
         ]
       }
     }
@@ -3196,11 +3745,21 @@
       "F45 Normal render progress startup and terminal ownership",
       "F46 Multimedia render progress scoped ownership",
       "F47 Floating-paste undo original-image cache ownership",
-      "F48 Optional plugin destroy callback reference balance"
+      "F48 Optional plugin destroy callback reference balance",
+      "F50 live-Xsheet viewer title lookup and external-paste scene-retirement regression",
+      "F53 Calibrated widgets retain their calibrator registration",
+      "F54 Qt audio output and refill callback outlive playback owner",
+      "F55 Failed calibration setup leaves dangling shader pointers",
+      "F56 ImageViewer retains an unparented histogram popup",
+      "F49 Plugin loader controller and listener thread retirement",
+      "F51 Closing an FX menu releases process-lived plugin declarations",
+      "F52 FX menu rebuild and destruction retain owned menu objects",
+      "F57 External effect launch loses selected executable identity"
     ],
     "final_patch_revision": null,
-    "latest_recorded_ci_revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
-    "memory_baseline_revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c"
+    "latest_recorded_ci_revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+    "memory_baseline_revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
+    "latest_recorded_pr_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc"
   },
   "ci_test_evidence": [
     {
@@ -3813,6 +4372,226 @@
         "diagnostic": "no viable conversion from const TVectorImageP to const TImageP through non-const conversion"
       },
       "limit": "OpenToonz did not link; native/reliability skipped. Two fixture-local const qualifiers removed in prepared follow-up. No memory-runtime qualification."
+    },
+    {
+      "id": "CI24",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "linux",
+      "configuration": "required reliability CTest manifest",
+      "scenario_or_test": "childstack_lifetime, timagecache, plugin_probe_single, plugin_probe_empty and other named passing CTests",
+      "result": "22/23 passed; externfx_process failed; zero skipped",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/artifacts/13913373250",
+      "passed_tests": [
+        "rasterallocation",
+        "timagecache",
+        "executor_submission",
+        "trenderer_startup",
+        "renderoutputbudget",
+        "deformer",
+        "compressed_stream",
+        "childstack_lifetime",
+        "save_transaction",
+        "movierenderqueue",
+        "levelupdater_abort",
+        "scenebench",
+        "castworkflow",
+        "fxrender",
+        "autopatchoutline",
+        "tiio_exr_level",
+        "ffmpeg_public",
+        "tiio_ffmpeg",
+        "tiio_psd",
+        "plugin_probe_single",
+        "plugin_probe_empty",
+        "levelselection"
+      ],
+      "failed_tests": [
+        "externfx_process"
+      ],
+      "limit": "Named passing cases only; neither the suite nor application job passed. Plugin value checks are not allocation-mismatch instrumentation."
+    },
+    {
+      "id": "CI25",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "macos",
+      "configuration": "required reliability CTest manifest",
+      "scenario_or_test": "childstack_lifetime, timagecache, plugin_probe_single, plugin_probe_empty and other named passing CTests",
+      "result": "22/23 passed; externfx_process failed; zero skipped",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/artifacts/13914104671",
+      "passed_tests": [
+        "rasterallocation",
+        "timagecache",
+        "executor_submission",
+        "trenderer_startup",
+        "renderoutputbudget",
+        "deformer",
+        "compressed_stream",
+        "childstack_lifetime",
+        "save_transaction",
+        "movierenderqueue",
+        "levelupdater_abort",
+        "scenebench",
+        "castworkflow",
+        "fxrender",
+        "autopatchoutline",
+        "tiio_exr_level",
+        "ffmpeg_public",
+        "tiio_ffmpeg",
+        "tiio_psd",
+        "plugin_probe_single",
+        "plugin_probe_empty",
+        "levelselection"
+      ],
+      "failed_tests": [
+        "externfx_process"
+      ],
+      "limit": "Named passing cases only; neither the suite nor application job passed. Plugin value checks are not allocation-mismatch instrumentation."
+    },
+    {
+      "id": "CI26",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "windows",
+      "configuration": "required reliability CTest manifest",
+      "scenario_or_test": "childstack_lifetime, timagecache, plugin_probe_single, plugin_probe_empty and other named passing CTests",
+      "result": "21/22 passed; externfx_process failed; zero skipped",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/artifacts/13916457311",
+      "passed_tests": [
+        "rasterallocation",
+        "timagecache",
+        "executor_submission",
+        "trenderer_startup",
+        "renderoutputbudget",
+        "deformer",
+        "compressed_stream",
+        "childstack_lifetime",
+        "save_transaction",
+        "movierenderqueue",
+        "levelupdater_abort",
+        "scenebench",
+        "castworkflow",
+        "fxrender",
+        "autopatchoutline",
+        "tiio_exr_level",
+        "ffmpeg_public",
+        "tiio_psd",
+        "plugin_probe_single",
+        "plugin_probe_empty",
+        "levelselection"
+      ],
+      "failed_tests": [
+        "externfx_process"
+      ],
+      "limit": "Named passing cases only; neither the suite nor application job passed. Plugin value checks are not allocation-mismatch instrumentation."
+    },
+    {
+      "id": "CI27",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "linux",
+      "configuration": "BUILD_UI_PORT_TESTS original native application process",
+      "scenario_or_test": "F27/F28 batch lifetime, F34 custom panel ownership, F41-F43 UI ownership",
+      "result": "26 batch checkpoints and both custom-panel/UI ownership checkpoints passed before raster-paste New Scene cleanup failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+      "checkpoint_markers": [
+        "batch queued withdrawal and ownership passed",
+        "batch real child cancellation and reaping passed",
+        "custom panel file loading and ownership passed",
+        "UI repeated ownership checks passed"
+      ],
+      "limit": "Partial original-process evidence, not overall native success. Later raster conversion, drawing-cache and render-progress cases were not reached. Differential detection remains pending."
+    },
+    {
+      "id": "CI28",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "macos",
+      "configuration": "BUILD_UI_PORT_TESTS original native application process",
+      "scenario_or_test": "F27/F28 batch lifetime, F34 custom panel ownership, F41-F43 UI ownership",
+      "result": "26 batch checkpoints and both custom-panel/UI ownership checkpoints passed before raster-paste New Scene cleanup failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
+      "checkpoint_markers": [
+        "batch queued withdrawal and ownership passed",
+        "batch real child cancellation and reaping passed",
+        "custom panel file loading and ownership passed",
+        "UI repeated ownership checks passed"
+      ],
+      "limit": "Partial original-process evidence, not overall native success. Later raster conversion, drawing-cache and render-progress cases were not reached. Differential detection remains pending."
+    },
+    {
+      "id": "CI29",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "windows",
+      "configuration": "BUILD_UI_PORT_TESTS original native application process",
+      "scenario_or_test": "F27/F28 batch lifetime, F34 custom panel ownership, F41-F43 UI ownership",
+      "result": "26 batch checkpoints and both custom-panel/UI ownership checkpoints passed before raster-paste New Scene cleanup failed",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "checkpoint_markers": [
+        "batch queued withdrawal and ownership passed",
+        "batch real child cancellation and reaping passed",
+        "custom panel file loading and ownership passed",
+        "UI repeated ownership checks passed"
+      ],
+      "limit": "Partial original-process evidence, not overall native success. Later raster conversion, drawing-cache and render-progress cases were not reached. Differential detection remains pending."
+    },
+    {
+      "id": "CI30",
+      "verification_state": "ci_verified",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "linux",
+      "configuration": "standalone LeakSanitizer, existing timagecache_test and isolated one-delete mutation",
+      "scenario_or_test": "F36 in-memory ImageBuilder metadata ownership",
+      "result": "normal exit0; mutant exit23 with functional sentinel and direct builder stack; restored exit0",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/artifacts/13913373250",
+      "artifact_sha256": "89fb4ac0511c87eba4f0715d8f719a0c4b56949288415c30c249d69d87fb535d",
+      "source_sha256": "beef61e3c176bd362125dcfb4f1887b1138edc29096fbc6a61fb9ad923a6ff5a",
+      "fixture_sha256": "a3983e0ca35c28b4cdf1eb934b6cb16f0d9f2d1222d56ab5898ab83c4b067155",
+      "mutant_leak_bytes": 1080,
+      "mutant_leak_allocations": 135,
+      "limit": "One in-memory delete only. Disk spill/clone and constructor exceptions unqualified. No application-wide or RSS result."
+    },
+    {
+      "id": "CI31",
+      "verification_state": "observed_failure",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "macos",
+      "configuration": "original BUILD_UI_PORT_TESTS native process",
+      "scenario_or_test": "F50 viewer title reads cached column after scene clear",
+      "result": "access violation in BaseViewerPanel::changeWindowTitle during raster-paste New Scene cleanup",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/artifacts/13914104671",
+      "limit": "macOS IPS matches original PID and Mach-O UUID; Windows original application crash report names the same function. Linux exits -11 at the same phase but lacks a qualified original stack. This is separate from W1 Qt text-layout teardown."
+    },
+    {
+      "id": "CI32",
+      "verification_state": "observed_failure",
+      "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "platform": "windows",
+      "configuration": "original BUILD_UI_PORT_TESTS native process",
+      "scenario_or_test": "F50 viewer title reads cached column after scene clear",
+      "result": "access violation in BaseViewerPanel::changeWindowTitle during raster-paste New Scene cleanup",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "artifact_or_log": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "limit": "macOS IPS matches original PID and Mach-O UUID; Windows original application crash report names the same function. Linux exits -11 at the same phase but lacks a qualified original stack. This is separate from W1 Qt text-layout teardown."
     }
   ],
   "initial_ci_result": {
@@ -3829,22 +4608,37 @@
     "status": "follow_up_fixes_prepared; new-head CI pending"
   },
   "latest_ci_result": {
-    "revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
+    "revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+    "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+    "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150",
+    "check_entries": {
+      "total": 14,
+      "passed": 4,
+      "failed": 4,
+      "skipped": 6
+    },
+    "scope": "All three application builds passed. Native application and external-effect reliability failed. Named ownership cases and F36 targeted leak mutation have bounded evidence; no overall green run or RAM reduction.",
     "linux": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
       "conclusion": "failure",
-      "first_failure": "const TVectorImageP first/second cannot convert to const TImageP& through non-const TVectorImageP::operator TImageP()",
-      "native": "skipped",
-      "reliability": "skipped"
+      "application_build": "passed",
+      "native": "failed during raster-paste New Scene cleanup",
+      "reliability": "22/23 passed; externfx_process failed"
     },
     "macos": {
-      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163",
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
       "conclusion": "failure",
-      "first_failure": "no viable conversion from const TVectorImageP to const TImageP through non-const conversion",
-      "native": "skipped",
-      "reliability": "skipped"
+      "application_build": "passed",
+      "native": "failed during raster-paste New Scene cleanup",
+      "reliability": "22/23 passed; externfx_process failed"
     },
-    "scope": "CI22/CI23 are fixture compile failures; two-local correction prepared. F35-F48 postdate this head; no memory fixture or LSan mutation result exists."
+    "windows": {
+      "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "conclusion": "failure",
+      "application_build": "passed",
+      "native": "failed during raster-paste New Scene cleanup",
+      "reliability": "21/22 passed; externfx_process failed"
+    }
   },
   "prior_ci_results": [
     {
@@ -3890,6 +4684,24 @@
         "native": "skipped"
       },
       "scope": "CI20/CI21 record build failure, not runtime results. The fixture override and F30-F34 changes are prepared after this head. Windows exact-head status is tracked separately; no result inferred here."
+    },
+    {
+      "revision": "49cf834fa27c6101ba01013ae6e63fe76f506c3c",
+      "linux": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034831/job/128561369500",
+        "conclusion": "failure",
+        "first_failure": "const TVectorImageP first/second cannot convert to const TImageP& through non-const TVectorImageP::operator TImageP()",
+        "native": "skipped",
+        "reliability": "skipped"
+      },
+      "macos": {
+        "job_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/42425034857/job/128561493163",
+        "conclusion": "failure",
+        "first_failure": "no viable conversion from const TVectorImageP to const TImageP through non-const conversion",
+        "native": "skipped",
+        "reliability": "skipped"
+      },
+      "scope": "CI22/CI23 are fixture compile failures; two-local correction prepared. F35-F48 postdate this head; no memory fixture or LSan mutation result exists."
     }
   ],
   "checkout_provenance": [
@@ -3904,6 +4716,30 @@
         274
       ],
       "limit": "CI17-CI19 retain PR-head association; actual checkout/build used this GitHub merge commit. Other platforms require their own checkout evidence."
+    },
+    {
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "checkout_revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "base_revision": "9af0702ac9a7fe78784686f3e9d216762ea8fe25",
+      "platform": "linux",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948458616",
+      "limit": "Checkout logs record merge parents and git log -1 hash; evidence is for the merge, not bare PR head."
+    },
+    {
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "checkout_revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "base_revision": "9af0702ac9a7fe78784686f3e9d216762ea8fe25",
+      "platform": "macos",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130948857113",
+      "limit": "Checkout logs record merge parents and git log -1 hash; evidence is for the merge, not bare PR head."
+    },
+    {
+      "pull_request_head": "2b98b5bac8a9444d472f7cb4707db1f1239effbc",
+      "checkout_revision": "f8a1680030aff1fcdc2e90e2ed290d8bff9079c3",
+      "base_revision": "9af0702ac9a7fe78784686f3e9d216762ea8fe25",
+      "platform": "windows",
+      "run_url": "https://github.com/OpenAnimationLibrary/groundzero/actions/runs/43147442150/job/130949938375",
+      "limit": "Checkout logs record merge parents and git log -1 hash; evidence is for the merge, not bare PR head."
     }
   ]
 }

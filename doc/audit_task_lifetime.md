@@ -1,7 +1,9 @@
 # Batch task lifetime repair and evidence
 
-Status: implementation and fixtures prepared for F27/F28; source reviewed, with
-runtime and differential evidence pending. The approved edit policy freezes only
+Status: implementation and fixtures prepared for F27/F28; all 26 native batch checkpoints
+passed on Linux/macOS/Windows at merge f8a1680. See the
+[November 12 qualification](audit_ci_2026_11_12.md). Differential and final integrated
+evidence remain pending. The approved edit policy freezes only
 objects affected by pending local submissions. No local builds or tests were run,
 following [CLAUDE.md](../CLAUDE.md). This repair does not establish the cause or
 resolution of the separate Windows workflow PageHeap failure.

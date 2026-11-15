@@ -46,7 +46,7 @@ internal write device becomes invalid after stop/restart:
 [QAudioSink API](https://doc.qt.io/qt-6/qaudiosink.html),
 [Qt 6.8.3 implementation](https://github.com/qt/qtmultimedia/blob/v6.8.3/src/multimedia/audio/qaudiosink.cpp).
 
-## Windows callback ownership: confirmed, not repaired
+## Windows callback ownership: design approved, implementation pending
 
 Windows selects `common/tsound/tsound_nt.cpp`; the Qt change does not affect it.
 The following source paths need one coordinated repair:
@@ -72,14 +72,14 @@ application's queued callbacks:
 [reset contract](https://learn.microsoft.com/en-us/windows/win32/api/mmeapi/nf-mmeapi-waveoutreset),
 [completion message](https://learn.microsoft.com/en-us/windows/win32/multimedia/mm-wom-done).
 
-## Proposed Windows repair boundary
+## Approved Windows repair boundary
 
-Recommended: retain the WinMM backend and its public playback/scrubbing behavior,
+The user approved retaining the WinMM backend and its public playback/scrubbing behavior,
 but give each output implementation one explicitly owned callback thread and
 serialize its buffer retirement. Replacing Windows output with Qt would remove
 legacy code, but changes backend/device behavior and is a separate migration.
 
-The proposed invariants are:
+The approved invariants are:
 
 1. Keep the actual thread handle until it has exited; create the message queue
    before announcing readiness. An unopened or failed-start device has no thread
@@ -101,8 +101,9 @@ The proposed invariants are:
 5. All queue/device access follows one documented lock/order rule. The current
    device-to-queue and queue-to-device acquisition paths cannot remain inverted.
 
-Before implementation, review the thread protocol as a concrete design change.
-The bounded CI fixture should fake only the WinMM/device boundary, exercise the
+The thread and buffer ownership design was approved for implementation. That approval
+is not evidence that code or tests are complete. The bounded CI fixture should fake only
+the WinMM/device boundary, exercise the
 real queue and controller code, and retain diagnostics for these cases:
 
 - create/destroy without open; failed thread creation; delayed message-queue

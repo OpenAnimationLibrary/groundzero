@@ -92,7 +92,10 @@ F39 owns external-FX input ports, including duplicate-name allocations; sixteen 
 cycles and eight malformed loads assert upstream reference balance and final destruction.
 F40 corrects enum/spectrum array deleters; real sixteen-replacement setup/value checks still
 need allocation-mismatch instrumentation. F48 balances metadata references across eight real
-hosts with a destroy callback and eight without it. These fixtures are authored, not executed.
+hosts with a destroy callback and eight without it. Plugin probe CTests passed on all three
+platforms at merge f8a1680. The F39 owner checks returned before the later external-FX
+pixel failure; that complete target failed. Targeted ownership/deleter mutations remain
+pending. See the [November 12 qualification](audit_ci_2026_11_12.md).
 
 R17 remains broader: nested descriptor/group arrays and copied strings lack complete ownership,
 and each create_host/notify appends raw UIPage/ParamView objects. This is per-host retention,
@@ -101,9 +104,27 @@ freeing old storage immediately would invalidate them. Process-lived global decl
 host-interface ownership need a separate publication/lifetime contract. F40/F48 do not repair
 these allocations or establish complete plugin cleanup.
 
-R20 tracks completed loader-controller loss and separate listener-branch quit/publication
-wiring. Ordinary startup occurs once; no per-frame RAM slope is established. Authorized F49
-controller work is a later batch and is not counted as prepared in this snapshot.
+R20 now aliases prepared F49. Both discovery branches notify controller completion.
+Startup polling deletes its controller only after wait succeeds; listener controllers retire
+after thread completion independently of listener survival. The actual loader/probe fixture
+observes controller, worker and thread retirement, with four normal/early-close menu pairs.
+No runtime result or per-frame RAM slope is claimed.
+
+F51 removes menu destruction as an owner of the global plugin registry. Persistent FX
+declarations borrow that process-lived metadata; Room/SchematicViewer destruction must not
+release it. The fixture creates hosts through both PluginLoader and the registered TFx
+factory before and after menu/last-host retirement. Intentional process-lifetime registry and
+library retention remains; R17 descriptor and per-host UI ownership is still open.
+
+F52 deletes owned root menus and old submenu trees, parents the repeat action, and replaces
+only the named plugin group when overlapping discovery completes. Preset-save/remove and
+rapid-refresh cases require retired QPointers, one plugin entry per menu, and survival of
+externally owned actions and unrelated groups. These are authored cases, not executed results.
+
+F57 prefixes the selected executable as quoted Windows argv[0] and shell-quotes the POSIX
+executable path. Its child reports the actual argv[0]; the POSIX link includes spaces, an
+apostrophe and a dollar sign. Legacy argument-shell semantics and Windows ANSI launch remain
+unchanged. Exact-head launch/output validation is pending.
 
 ## Other inspected boundaries and limits
 

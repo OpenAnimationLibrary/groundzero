@@ -121,28 +121,36 @@ changed by this test consolidation. Runtime equivalence remains pending in CI.
 
 ## Memory ownership fixture additions
 
-The memory follow-up has source/fixture diffs; runtime and baseline/mutation evidence remain
-pending. F38 is merge-exception double deletion and F40 is array-deleter mismatch, not measured
+The [November 12 CI record](audit_ci_2026_11_12.md) identifies executed ownership checks
+and the passing F36 one-delete LSan mutation. Other differential and blocked native cases
+remain pending. F38 is merge-exception double deletion and F40 is array-deleter mismatch, not measured
 normal-success growth. F36 releases builder metadata; F45/F46 retire progress UI, not the full
 render graph. See the [memory plan](audit_memory_lifetime.md),
 [scene ownership review](audit_memory_ownership.md) and [LSan qualification](audit_image_cache_lsan.md).
 
 | ID | Priority | Prepared behavior | Authored cases |
 | --- | --- | --- | --- |
-| F35 | P1 | ChildStack owned-root teardown: Recover the owned root before deleting ancestor records; only that root is cleared or released. | `destroyWhileNested`, `closeBeforeDestruction`, `clearNavigationWhileNested`, `clearSceneWhileNested`; CI pending |
-| F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI pending |
+| F35 | P1 | ChildStack owned-root teardown: Recover the owned root before deleting ancestor records; only that root is cleared or released. | `destroyWhileNested`, `closeBeforeDestruction`, `clearNavigationWhileNested`, `clearSceneWhileNested`; CI passed L/M/W at f8a1680; mutation pending |
+| F36 | P2 | Compressed cache ImageBuilder metadata ownership: Both compressed-item destructors delete their uniquely owned builder before other owned metadata. | `testRepeatedCompressedRemoval`, `qualify`, `remove_builder_delete`, `require_result`; CI passed L/M/W; Linux one-delete LSan mutation detected at f8a1680 |
 | F37 | P2 | Paste conversion temporary payload ownership: Scope-own conversion and external-image payloads across the helper/Selection call, reuse RasterSelection transferredData ownership, and use an intrusive palette owner during external preparation. | `checkStrokeConversionOwnership`, `undoConvertedRaster`, `checkRasterToVectorCycles`, `checkExternalRasterCycles`; CI pending |
 | F38 | P1 | Null-target palette ownership on merge failure: Hold the temporary palette with TPaletteP throughout both raster getData paths, so normal return and merge exceptions use one reference-counting ownership model. | `checkNullTargetPaletteCopies`, `checkNullPaletteFailure`; CI pending |
-| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; CI pending |
-| F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; CI pending |
-| F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; CI pending |
-| F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; CI pending |
-| F43 | P2 | Failed and overlapping update-checker lifetime: Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return. | `checkUpdateCompletion`, `checkOverlappingUpdates`, `checkUpdateCycles`; CI pending |
+| F39 | P2 | External-FX input-port graph ownership: A private unique_ptr vector owns every allocated input port, including allocations hidden by duplicate names. | `inputPortOwnership`, `failedLoadPortOwnership`; ownership assertions returned before later pixel failure; mutation pending |
+| F40 | P1 | Plugin enum and spectrum array deleters: Use typed delete[] deleters for both trait arrays while preserving SDK pointers, values and the current parameter publication behavior. | `setup`, `checkReplacedParameters`; functional CI passed L/M/W at f8a1680; mismatch instrumentation pending |
+| F41 | P2 | Custom-panel submenu retention during rebuild: Delete owned direct submenus before clearing/rebuilding actions. | `checkNestedMenus`, `checkMenuCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
+| F42 | P2 | About dialog retention after closing: The About dialog has scoped lifetime and owns its child widgets; returning from the modal action destroys the dialog and descendants. | `checkAboutCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
+| F43 | P2 | Failed and overlapping update-checker lifetime: Parent each checker to the window, resolve the actual sender on completion, copy its result, disconnect only that sender from the window and schedule deletion before either success or error return. | `checkUpdateCompletion`, `checkOverlappingUpdates`, `checkUpdateCycles`; native ownership checkpoint passed L/M/W at f8a1680; mutation pending |
 | F44 | P2 | Drawing snapshot shared cache ownership: A private shared lease removes owned snapshot IDs after the last clone releases them. | `checkClipboardClones`, `checkUndoOwner`, `checkTransferredGenerations`, `checkReplacementAndFailure`, `checkConsumingPaste`; CI pending |
 | F45 | P2 | Normal render progress startup and terminal ownership: Scope-own listener/build-progress objects through startup, then hand off only after start. | `checkNormalRenders`, `checkRealCancellation`, `checkNestedCancellation`, `checkHandoffAndLateMessage`, `checkNestedProgressDelivery`, `checkStartupFailure`; CI pending |
 | F46 | P2 | Multimedia render progress scoped ownership: Own the multimedia progress dialog for the synchronous start call and destroy it afterward; queued messages use QPointer and ignore an already retired target. | `checkMultimedia`; CI pending |
 | F47 | P2 | Floating-paste undo original-image cache ownership: Destroying the noncopyable undo owner also removes its unique old-floating-image key, leaving unrelated entries and live undo behavior intact. | `oldFloatingCacheKeys`, `checkStrokeConversionOwnership`, `undoConvertedRaster`; CI pending |
-| F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; CI pending |
+| F48 | P2 | Optional plugin destroy callback reference balance: Invoke an available destroy callback, then release the host-held metadata reference independently; preserve callback-before-release ordering. | `PluginHostLifetimeTest::check`, `checkReplacedParameters`; reference fixture passed L/M/W at f8a1680; mutation pending |
+| F49 | P2 | Retire completed startup and listener-owned plugin loader controllers after worker completion. | Actual startup polling and four normal/early-close menu pairs; controller, worker and thread assertions in existing probe targets; CI pending |
+| F51 | P1 | Keep process-owned plugin metadata alive when an FX menu closes, preserving persistent declarations. | Create hosts before/after menu destruction through both PluginLoader and TFx factories; CI pending; no hot unload |
+| F52 | P2 | Retire FX menu roots, obsolete submenus and repeat actions; replace duplicate plugin groups. | Normal/rapid preset refresh, external-action identity, unrelated-group preservation, exact entry counts and QPointer retirement; CI pending |
+| F53 | P2 | Retire widget-owned calibrators and their manager registrations, with context-bound framebuffer cleanup. | Eight hidden owner cycles for each color wheel/ImageViewer/SceneViewer; registration-set checks; CI and displayed/context-loss qualification pending |
+| F54 | P1 | Own Qt playback output and use context-bound weak refill callbacks. | Sixteen setup/replacement/retirement cycles without physical playback; Qt5/Qt6 assertions; Linux/macOS CI pending |
+| F55 | P1 | Clear partially initialized calibration shader ownership through repeatable cleanup. | Eight partial-state shader/program cycles and double cleanup under an offscreen GL context; actual driver failure/retry and CI pending |
+| F56 | P2 | Parent histogram popups to the ImageViewer that creates them. | Eight initial/later-enable cycles, exact popup counts and QPointer retirement; CI pending |
 
 F37 owns returned conversions; exceptions inside factories remain outside scope. F38 drives a
 real throwing merge; normal null-target copy was not a leak. F40 value checks need mismatch
@@ -154,8 +162,9 @@ keys before undo/after reset, with pixel-checked undo/redo between, not each int
 `timagecache` remains the existing functional target. Linux additionally links standalone
 LSan and runs the fixed/mutated/restored qualifier plus eight harness contracts in the same
 job. The mutation removes only the in-memory builder delete; require the functional sentinel,
-leak exit 23 and direct builder stack, then restored success. All execution remains pending;
-disk spill/constructor exceptions are not forced. No job or matrix axis was added.
+leak exit 23 and direct builder stack, then restored success. This differential passed at
+merge f8a1680, with retained logs and hashes. Disk spill/constructor exceptions were not
+forced. No job or matrix axis was added.
 
 `exerciseUiMemoryOwnership`, `runDrawingCacheIntegrationTest` and
 `runRenderProgressNativeChecks` run through the existing native application driver under
@@ -304,7 +313,8 @@ operator is non-const. The prepared correction removes only those two qualifiers
 did not link; native/reliability tests were skipped. Task/paste/panel object compilation and
 external-FX/probe links are compilation evidence only. Linux's separate SeExpr sanitizer graph
 passed; it does not qualify application memory paths. CI22/CI23 preserve the failure.
-F35–F48 postdate this head; no new owner fixture or cache LSan mutation has run.
+F35–F48 postdate this head and receive no evidence from that older run. See the
+[November 12 record](audit_ci_2026_11_12.md) for later executed ownership and LSan cases.
 
 macOS also emitted existing vendored SuperLU platform-load-command and duplicate OpenEXR
 archive-link warnings. These remain unresolved dependency warnings, separate from the failure.

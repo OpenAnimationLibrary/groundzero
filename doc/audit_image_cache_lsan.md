@@ -42,9 +42,11 @@ and timeout process-group cleanup. Both those contracts and C++ qualification
 run only in CI. No new PR job or matrix axis is introduced, and no leak
 suppression or RSS threshold is used.
 
-This qualification is authored, not runtime-verified. Record the exact CI commit,
-run/job and all three result logs before claiming the leak-restored version
-fails and the repair passes. The current repeated fixture does not force the
+This qualification passed in Linux job 130948458616 at merge
+`f8a1680030aff1fcdc2e90e2ed290d8bff9079c3`. The
+[November 12 evidence record](audit_ci_2026_11_12.md) links the retained report/logs and
+hashes: normal/restored exit 0, mutant exit 23 with the functional sentinel and direct
+builder stacks totaling 1,080 bytes in 135 allocations. The repeated fixture does not force the
 compressed-disk spill/clone path or constructor failures. Those cleanup paths
 remain outside this differential result, as do reachable global caches and
 application-wide scene, rendering, plugin and undo memory lifetimes.

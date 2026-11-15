@@ -37,7 +37,8 @@ clear while nested, and repeated scene destruction. The new
 `toonzlib/tests/childstack_lifetime_test.cpp` exercises 32 cycles of those cases
 with observer references and `QPointer` level destruction sentinels. Independent
 source review and static formatting/patch checks passed. The `childstack_lifetime`
-CTest is integrated for CI; compilation and runtime verification remain pending. The legacy
+CTest passed on all three platforms at merge f8a1680; baseline/mutation evidence remains
+pending. See the [qualification record](audit_ci_2026_11_12.md). The legacy
 public `setXsheet()` escape hatch has no production caller in the searched tree
 and is outside the fixture's scope.
 
@@ -94,7 +95,8 @@ raw cut/clear/remove command entry points are source-traced rather than each
 separately invoked. The failure test proves prior snapshot/producer preservation;
 it does not enumerate transient staging keys. Independent source/API review and
 formatting/patch checks passed. The native runner includes the fixture; compilation
-and runtime evidence remain pending CI. No local builds or tests were run.
+completed on all three platforms, but the preceding paste-cleanup crash prevented this
+fixture from running. No runtime pass is claimed. No local builds or tests were run.
 
 This retention has a boundary: `ImageManager::clear()` calls
 `TImageCache::clearSceneImages()`, which removes these non-`$:` keys during
@@ -118,10 +120,10 @@ tracks settled repeat-cycle measurements without treating RSS alone as proof.
 ## Existing proposals and historical reports
 
 [Groundzero PR 133](https://github.com/OpenAnimationLibrary/groundzero/pull/133)
-is open and unmerged at head `5462fb53f6db6ce7c960186202974c67a59d8b20`.
+merged as `efe357ec2` on `edition` and is included in the tested merge f8a1680.
 It replaces the macOS/Linux `TSystem::memoryShortage()` stubs with available-memory
 measurements so the existing image cache can compress/spill under pressure.
-The audit does not import that proposal or replace it with a new cache policy.
+The audit keeps that pressure policy separate from ownership repairs.
 It addresses a different boundary from releasing allocations after their last
 logical owner.
 
@@ -143,5 +145,6 @@ scene retirement and queued deletion, and record logical owner/cache counts
 beside current and peak process memory. No exact RSS-return-to-startup threshold
 is justified by this source review. Validate fixes with the corresponding old
 ownership operation restored so that the targeted assertion or leak detector
-fails. Current compilation, runtime behavior, and leak-detector evidence remain
-pending CI.
+fails. Current bounded ownership and cache-leak evidence is recorded in the
+[November 12 qualification](audit_ci_2026_11_12.md); unexecuted workflows, the full native
+run and process-memory measurements remain pending.

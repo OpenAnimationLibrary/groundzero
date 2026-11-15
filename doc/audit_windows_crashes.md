@@ -188,6 +188,36 @@ application integration`, was skipped. No new W1/W3 result or task-runtime resul
 from this job, and F30 was prepared afterward. Ledger CI17–CI19 preserve this evidence
 without replacing the original crash observations.
 
+## F50: viewer title reads a retired column during New Scene
+
+At merge `f8a1680030aff1fcdc2e90e2ed290d8bff9079c3`, the original macOS and
+Windows native processes crashed in `BaseViewerPanel::changeWindowTitle` during
+New Scene cleanup after indexed raster-paste cases. The macOS IPS report matches
+the original PID and Mach-O UUID. Windows reports the same title callback in its
+original access-violation stack. Linux exits -11 at the same phase, but its original
+core metadata could not establish executable identity. The
+[November 12 evidence record](audit_ci_2026_11_12.md) preserves exact jobs and limits.
+
+`TColumnHandle` caches a raw column pointer. Scene clearing retires the column
+before a synchronous `xshLevelSwitched` callback asks the viewer to update its
+caption. The old title path dereferences the cached column to check whether it is
+a sound column. The repair in `166e12901` resolves the column from the live Xsheet
+and current column index instead. It preserves sound-column exclusion and treats
+a missing current column as an empty drawing caption.
+
+The new native regression uses the real external-image Paste chooser, creates a
+new raster level into an existing empty column, checks dimensions and every red
+pixel, visits a real sound column, restores the drawing caption, then runs New Scene
+and checks that the drawing caption clears. It removes the older fixture's direct
+cached-column assignment and follows the ordinary selection route. A failure is
+printed before cleanup so a secondary cleanup crash cannot hide its message.
+
+The repaired scenario and targeted mutation have not run. The original failure
+records a stale-column consumption site, not a reproduced corrupting write in Qt.
+It does not explain W1, close the broader cached-handle lifetime review, or qualify
+all scene-switch callbacks. The separately launched Windows page-heap workflow-switch
+diagnostic timed out after 1,500 seconds without an exception-stop marker.
+
 ## Differential CI verification
 
 Use separate disposable fixture state for each scenario and retain the exact
