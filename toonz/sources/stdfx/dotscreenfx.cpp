@@ -281,7 +281,11 @@ public:
     enableComputeInFloat(true);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
-  bool canHandle(const TRenderSettings &, double) override { return true; }
+  // The dots are drawn under rotation and uniform scale; any other transform
+  // is applied to the result
+  bool canHandle(const TRenderSettings &info, double) override {
+    return info.m_affine.isIsotropic(0.001);
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override {
     return false;
   }

@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 namespace {
 void require(bool value, const std::string &message) {
@@ -159,6 +160,19 @@ void testFx() {
   const TRasterPT<Pixel> scaled = render(TPointD(-256, -32), 512, 64, 0);
   require(approx(alpha(scaled, 263, 32), 1) && approx(alpha(scaled, 268, 32), 0),
           "A scaled halftone dot is not the size asked for");
+
+  // Turned and scaled: a tile is that part of the whole frame
+  settings.m_affine = TRotation(30) * TScale(1.5);
+  const TRasterPT<Pixel> turned = render(TPointD(-128, -64), 256, 128, 0);
+  const TRasterPT<Pixel> corner =
+      render(TPointD(-128 + 37, -64 + 21), 41, 23, 0);
+  for (int y = 0; y < 23; ++y)
+    for (int x = 0; x < 41; ++x) {
+      const TPixelD a = pixelOf(corner, x, y),
+                    b = pixelOf(turned, x + 37, y + 21);
+      require(approx(a.r, b.r, 1e-6) && approx(a.m, b.m, 1e-6),
+              "A turned FX tile differs from the whole frame");
+    }
   settings.m_affine = TAffine();
 
   // A halftone of a disc on a transparent background has dots only on the
@@ -233,6 +247,29 @@ void testRotationModifier() {
   }
 }
 
+// The FX draws under rotation and uniform scale; the renderer applies any
+// other transform to its result
+void testHandledTransforms() {
+  TFxP holder = new DotScreenFx;
+  auto &fx    = static_cast<DotScreenFx &>(*holder);
+  const std::vector<TAffine> handled = {
+      TAffine(), TScale(2), TRotation(30) * TScale(1.5),
+      TTranslation(3.5, -2) * TRotation(-75)};
+  const std::vector<TAffine> passed = {TScale(2, 1),
+                                       TScale(1, 0.5) * TRotation(30),
+                                       TShear(0.3, 0), TScale(-1, 1)};
+  TRenderSettings settings;
+  for (const TAffine &affine : handled) {
+    settings.m_affine = affine;
+    require(fx.canHandle(settings, 0),
+            "Dot Screen does not draw under rotation and uniform scale");
+  }
+  for (const TAffine &affine : passed) {
+    settings.m_affine = affine;
+    require(!fx.canHandle(settings, 0),
+            "Dot Screen draws under a non-uniform transform");
+  }
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -243,9 +280,10 @@ int main(int argc, char **argv) {
     testFx<TPixelF>();
     testRotationModifier<TPixel32>();
     testRotationModifier<TPixelF>();
+    testHandledTransforms();
     std::cout << "PASS: dot screen plain dots, halftone, tiles, invert, scale, "
-                 "transparent input, rotation modifier, cache keys and pixel "
-                 "depths\n";
+                 "rotation, transparent input, rotation modifier, handled "
+                 "transforms, cache keys and pixel depths\n";
     return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString()
