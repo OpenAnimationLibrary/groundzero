@@ -143,6 +143,19 @@ void testFx() {
             "The memory estimate is far above what a 4K tile allocates");
   }
 
+  // White to Transparent clears a white source; the paint keeps its colour
+  {
+    TBoolParamP clear = TParamP(fx.getParams()->getParam("whiteToTransparent"));
+    require(bool(clear), "No White to Transparent parameter");
+    setPaper(fx, false);
+    clear->setValue(true);
+    const TRasterPT<Pixel> cleared = render(TPointD(0, 0), width, height, 0);
+    require(approx(pixel(cleared, 45, 20).m, 0), "The clear area changed");
+    require(pixel(cleared, 5, 20).m > 0.5, "The paint was cleared");
+    clear->setValue(false);
+    setPaper(fx, true);
+  }
+
   // Everything off: the source passes through
   setPaper(fx, false);
   for (const char *name :

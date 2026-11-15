@@ -201,6 +201,38 @@ void testPaper() {
   require(high - low > 0.02, "The paper grain is flat");
 }
 
+void testWhiteToTransparent() {
+  const Color white{1, 1, 1, 1}, black{0, 0, 0, 1}, pink{1, 0.5, 0.5, 1};
+  require(approx(withoutWhite(white).a, 0), "White is not transparent");
+  const Color kept = withoutWhite(black);
+  require(approx(kept.a, 1) && approx(kept.r, 0), "Black changed");
+  // Pink is half-opaque red: over white it looks the same
+  const Color red = withoutWhite(pink);
+  require(approx(red.a, 0.5) && approx(red.r, 0.5) && approx(red.g, 0) &&
+              approx(red.b, 0),
+          "Pink is not half-opaque red");
+  require(approx(red.r + (1 - red.a), pink.r) &&
+              approx(red.g + (1 - red.a), pink.g),
+          "A cleared colour does not look the same over white");
+  const Color half = withoutWhite({0.25, 0.25, 0.25, 0.5});  // premultiplied
+  require(approx(half.a, 0.25) && approx(half.r, 0),
+          "A half-transparent grey did not keep its transparency");
+  require(approx(withoutWhite(Color()).a, 0), "Clear did not stay clear");
+
+  // In the wash: a white sheet behind the paint is gone
+  Settings s           = plain();
+  s.whiteToTransparent = true;
+  Image image(40, 20, white);
+  for (int y = 0; y < 20; ++y)
+    for (int x = 0; x < 20; ++x) image.at(x, y) = paint;
+  const Image out = render(image, s);
+  require(approx(out.at(30, 10).a, 0), "The white sheet stayed opaque");
+  require(out.at(10, 10).a > 0.3, "The paint was cleared with the white");
+  s.whiteToTransparent = false;
+  require(approx(render(image, s).at(30, 10).a, 1),
+          "White was cleared without the option");
+}
+
 void testLimits() {
   auto rejects = [](const Settings &s) {
     try {
@@ -238,6 +270,7 @@ int main() {
     testHold();
     testTiling();
     testPaper();
+    testWhiteToTransparent();
     testLimits();
     std::cout << "PASS: watercolour pass-through, bleed, edge darkening, "
                  "granulation, hold, tiling, paper and limits\n";

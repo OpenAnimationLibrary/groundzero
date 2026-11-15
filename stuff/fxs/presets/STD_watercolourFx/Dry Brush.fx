@@ -24,6 +24,9 @@
     <granuleSize>
       <default>4</default>
     </granuleSize>
+    <whiteToTransparent>
+      0 0
+    </whiteToTransparent>
     <paper>
       1 1
     </paper>

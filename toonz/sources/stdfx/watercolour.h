@@ -45,6 +45,7 @@ struct Settings {
   double granulation = 0.25;  // share of the colour lost in the grain
   double granuleSize = 12;    // in pixels
 
+  bool whiteToTransparent = false;  // the source's white becomes transparency
   bool paper = true;  // lay the wash on opaque paper
   Rgb paperColor{0.98, 0.96, 0.92};
   double paperGrain = 0.15;  // share of the colour lost in the paper's grain
@@ -149,6 +150,19 @@ inline void blurAxis(const std::vector<Color> &in, std::vector<Color> &out,
 
 }  // namespace detail
 
+// White becomes transparency: each colour keeps its look over white, with
+// as little opacity as that allows (pure white is clear, black is kept)
+inline Color withoutWhite(const Color &c) {
+  if (!(c.a > 0)) return Color();
+  const double r = detail::unit(c.r / c.a), g = detail::unit(c.g / c.a), b = detail::unit(c.b / c.a);
+  const double cover = std::max(std::max(1 - r, 1 - g), 1 - b);
+  if (!(cover > 0)) return Color();
+  // Straight colour over white: (s - 1) / cover + 1, premultiplied by alpha
+  const double alpha = c.a * cover;
+  auto channel = [&](double v) { return detail::unit((v - 1) / cover + 1) * alpha; };
+  return {channel(r), channel(g), channel(b), alpha};
+}
+
 // image is w by h premultiplied pixels whose pixel (0, 0) is at the global
 // position (originX, originY). out has the same size; its pixels are exact
 // at least halo() away from the image's border. Returns false if canceled.
@@ -162,6 +176,13 @@ inline bool render(const std::vector<Color> &image, int w, int h,
     throw std::invalid_argument("Watercolour: image size mismatch");
   auto stop = [&] { return canceled && *canceled; };
   const double offset = plane(s, frame);
+
+  std::vector<Color> cleared;
+  if (s.whiteToTransparent) {
+    cleared.resize(area);
+    for (std::size_t i = 0; i < area; ++i) cleared[i] = withoutWhite(image[i]);
+  }
+  const std::vector<Color> &source = s.whiteToTransparent ? cleared : image;
 
   // The edges wander
   std::vector<Color> wash(area);
@@ -178,7 +199,7 @@ inline bool render(const std::vector<Color> &image, int w, int h,
              (2 * detail::noise(s, 0xb5297a4du, s.wobbleSize, offset, gx, gy) -
               1);
       }
-      wash[std::size_t(y) * w + x] = detail::sample(image, w, h, x, y, dx, dy);
+      wash[std::size_t(y) * w + x] = detail::sample(source, w, h, x, y, dx, dy);
     }
   }
 

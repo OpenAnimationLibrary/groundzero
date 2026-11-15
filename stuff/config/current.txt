@@ -1455,6 +1455,7 @@
   <item>"STD_watercolourFx.edgeTolerance" "Edge Tolerance" </item>
   <item>"STD_watercolourFx.granulation" "Granulation" </item>
   <item>"STD_watercolourFx.granuleSize" "Granule Size" </item>
+  <item>"STD_watercolourFx.whiteToTransparent" "White to Transparent" </item>
   <item>"STD_watercolourFx.paper" "Paper" </item>
   <item>"STD_watercolourFx.paperColor" "Paper Colour" </item>
   <item>"STD_watercolourFx.paperGrain" "Paper Grain" </item>

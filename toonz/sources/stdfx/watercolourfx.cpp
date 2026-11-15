@@ -90,7 +90,7 @@ private:
   TDoubleParamP m_wobble, m_wobbleSize, m_bleed, m_edgeDarkening, m_edgeWidth,
       m_edgeTolerance, m_granulation, m_granuleSize, m_paperGrain, m_paperSize,
       m_hold, m_seed;
-  TBoolParamP m_paper;
+  TBoolParamP m_paper, m_whiteToTransparent;
   TPixelParamP m_paperColor;
 
   // Distances are in the level's own pixels
@@ -109,7 +109,7 @@ private:
            bounded(m_edgeDarkening->getValue(frame), 0, 1) <= 0 &&
            bounded(m_granulation->getValue(frame), 0, 1) <= 0 &&
            bounded(m_paperGrain->getValue(frame), 0, 1) <= 0 &&
-           !m_paper->getValue();
+           !m_paper->getValue() && !m_whiteToTransparent->getValue();
   }
 
 public:
@@ -128,6 +128,7 @@ public:
     s.edgeTolerance = bounded(m_edgeTolerance->getValue(frame), 0, 1);
     s.granulation   = bounded(m_granulation->getValue(frame), 0, 1);
     s.granuleSize   = bounded(m_granuleSize->getValue(frame) * scale, 1, 100);
+    s.whiteToTransparent = m_whiteToTransparent->getValue();
     s.paper         = m_paper->getValue();
     const TPixelD paper = m_paperColor->getValueD(frame);
     s.paperColor        = Watercolour::Rgb{paper.r, paper.g, paper.b};
@@ -152,6 +153,7 @@ public:
       , m_hold(2.0)
       , m_seed(1.0)
       , m_paper(true)
+      , m_whiteToTransparent(false)
       , m_paperColor(TPixel32(250, 245, 235)) {
     addInputPort("Source", m_source);
     m_wobble->setValueRange(0, Watercolour::maxWobble);
@@ -181,6 +183,7 @@ public:
     bindParam(this, "edgeTolerance", m_edgeTolerance);
     bindParam(this, "granulation", m_granulation);
     bindParam(this, "granuleSize", m_granuleSize);
+    bindParam(this, "whiteToTransparent", m_whiteToTransparent);
     bindParam(this, "paper", m_paper);
     bindParam(this, "paperColor", m_paperColor);
     bindParam(this, "paperGrain", m_paperGrain);
@@ -261,7 +264,7 @@ public:
           << std::setprecision(std::numeric_limits<double>::max_digits10)
           << s.wobble << ',' << s.wobbleSize << ',' << s.bleed << ','
           << s.edgeDarkening << ',' << s.edgeWidth << ',' << s.edgeTolerance
-          << ',' << s.granulation << ',' << s.granuleSize << ',' << s.paper
+          << ',' << s.granulation << ',' << s.granuleSize << ',' << s.whiteToTransparent << ',' << s.paper
           << ',' << s.paperGrain << ',' << s.paperSize << ',' << s.seed << ','
           << Watercolour::plane(s, frame);
     const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);

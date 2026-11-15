@@ -81,8 +81,9 @@ as the matte: the FX has no port of its own. Size: S on top of L0.
 
 `stdfx/burstlinesfx.cpp`, a zerary generator on L0. Lines radiate from a
 centre point, with an inner radius where nothing is drawn, an outer radius, a
-twist that curls lines around the centre, and a falloff that changes length
-and thickness with distance from the centre. Centre and radii get viewer
+twist that curls lines around the centre, and a falloff that thins the lines
+towards the centre. Length and Length Randomness set how far in a line
+reaches; a length falloff would repeat them, so there is none. Centre and radii get viewer
 gadgets. Size: S on top of L0.
 
 ### F3: Dot Screen
@@ -123,8 +124,8 @@ returns a painted look.
   (distance field from the region boundary).
 - **Granulation and unevenness:** low-frequency noise varies density inside a
   region; a paper grain multiplies the result.
-- **Paper:** paper colour, and a white-to-transparent option so the result
-  composites over other art.
+- **Paper:** paper colour, an option without paper so the result composites
+  over other art, and a white-to-transparent option for drawings on white.
 - **Hold:** the noise holds for N frames, as in Cel Boil, so the paint does
   not shimmer on every frame.
 - **Size:** L.

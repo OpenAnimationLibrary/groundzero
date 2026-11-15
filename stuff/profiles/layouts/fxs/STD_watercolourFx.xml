@@ -10,6 +10,7 @@
     <control>granulation</control>
     <control>granuleSize</control>
     <separator label="Paper"/>
+    <control>whiteToTransparent</control>
     <control>paper</control>
     <control>paperColor</control>
     <control>paperGrain</control>
