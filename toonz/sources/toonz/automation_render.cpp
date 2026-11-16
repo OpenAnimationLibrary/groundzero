@@ -129,8 +129,8 @@ struct Artifact final {
   }
 };
 
-QByteArray readOutput(const QString& path, qint64 limit) {
-  QFileInfo info(path);
+void validateOutputFile(const QFileInfo& info, const QString& path,
+                        qint64 limit) {
   if (info.canonicalFilePath() != QDir::cleanPath(path))
     throw Error("invalid_artifact",
                 "The artifact path is no longer an owned regular file.");
@@ -138,6 +138,11 @@ QByteArray readOutput(const QString& path, qint64 limit) {
       info.size() > limit)
     throw Error("invalid_artifact",
                 "The rendered file is missing or exceeds its size limit.");
+}
+
+QByteArray readOutput(const QString& path, qint64 limit) {
+  QFileInfo info(path);
+  validateOutputFile(info, path, limit);
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly))
     throw Error("artifact_read_failed", "The rendered file cannot be opened.");
