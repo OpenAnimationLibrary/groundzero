@@ -42,6 +42,27 @@
     <driftSize>
       <default>30</default>
     </driftSize>
+    <dashLength>
+      <default>10</default>
+    </dashLength>
+    <dashGap>
+      <default>0</default>
+    </dashGap>
+    <dashPhase>
+      <default>0</default>
+    </dashPhase>
+    <widthVariation>
+      <default>0</default>
+    </widthVariation>
+    <variationSize>
+      <default>40</default>
+    </variationSize>
+    <overshoot>
+      <default>0</default>
+    </overshoot>
+    <overshootRandom>
+      <default>0</default>
+    </overshootRandom>
     <colorMode>
       <default>0</default>
     </colorMode>

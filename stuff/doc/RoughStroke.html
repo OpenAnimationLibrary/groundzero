@@ -14,6 +14,18 @@ and <b>Added Width</b> adds to it: scale 0 with an added width gives every
 stroke the same width. <b>Swell In</b> and <b>Swell Out</b> are the shares of
 a stroke over which it grows from nothing and shrinks back, like pen
 pressure.</p>
+<h2>Dashes</h2>
+<p>With a <b>Dash Gap</b> above 0 each stroke is cut into dashes <b>Dash
+Length</b> long with that gap between them, counted from the start of the
+stroke; <b>Dash Offset</b> slides the pattern along it, and animating it
+marches the dashes. A Dash Length of 0 draws round dots as wide as the
+stroke. A Dash Gap of 0 draws the stroke solid.</p>
+<h2>Width and ends</h2>
+<p><b>Width Variation</b> makes the width thicken and thin smoothly at random
+along each stroke, by up to that share of its width, in features as long as
+<b>Variation Size</b>. <b>Overshoot</b> carries each copy on past both ends of
+the stroke, straight along its direction there, like a quick pen line;
+<b>Overshoot Randomness</b> shortens each end by a random share of that.</p>
 <h2>Copies</h2>
 <p><b>Copies</b> draws each stroke that many times. The first copy follows the
 stroke; the others sit beside it, up to <b>Copy Offset</b> away, for a
@@ -48,7 +60,8 @@ arrangement, so renders are repeatable.</p>
 <p><b>Sketch:</b> Copies 3, Copy Offset 3, Drift 1.5, Hold 2. <b>Draw
 on:</b> animate Reveal End from 0 to 1. <b>Marching dashes:</b> Reveal End
 0.2, Loop on, Speed 0.02. <b>Brush:</b> Drawn Width Scale 3, Swell In and
-Swell Out 0.4.</p>
+Swell Out 0.4. <b>Dotted line:</b> Dash Length 0, Dash Gap 6. <b>Quick
+ink:</b> Width Variation 0.4, Overshoot 6, Overshoot Randomness 0.5.</p>
 <h2>Notes</h2>
 <p>Every value except Loop and Over Source can be animated. 8-bit, 16-bit and
 floating-point renders are supported. Rotating the level or scaling it evenly

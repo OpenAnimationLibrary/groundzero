@@ -168,8 +168,36 @@ jobs:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      # Retry transient artifact-service failures without rerunning the
+      # build. Exhausting the retries still fails the job.
+      - name: Download the neural reference oracle
+        id: download_neural_oracle
         if: ${{ !inputs.baseline_only }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: macos-neural-oracle-${{ github.sha }}
+          path: neural-golden
+      - name: Wait before retrying the neural reference oracle download
+        if: ${{ !cancelled() && steps.download_neural_oracle.outcome == 'failure' }}
+        run: sleep 10
+      - name: Retry the neural reference oracle download
+        id: download_neural_oracle_retry
+        if: ${{ !cancelled() && steps.download_neural_oracle.outcome == 'failure' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: macos-neural-oracle-${{ github.sha }}
+          path: neural-golden
+      - name: Wait before the final neural reference oracle download
+        if: ${{ !cancelled() && steps.download_neural_oracle_retry.outcome == 'failure' }}
+        run: sleep 30
+      - name: Final neural reference oracle download attempt
+        if: ${{ !cancelled() && steps.download_neural_oracle_retry.outcome == 'failure' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 5
         with:
           name: macos-neural-oracle-${{ github.sha }}
           path: neural-golden
@@ -353,9 +381,13 @@ jobs:
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
           python3 ../../ci-scripts/run_regression_tests.py castworkflow childstack_lifetime centerline_colors rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
+      # Retried like the artist workflow evidence upload
       - name: Upload reliability diagnostics
+        id: upload_reliability
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           name: macos-reliability-results
           path: |
@@ -365,6 +397,43 @@ jobs:
             toonz/build/stdfx/fxrender-output
             toonz/build/image/ffmpeg-test-output
           if-no-files-found: ignore
+          overwrite: true
+      - name: Wait before retrying the reliability diagnostics upload
+        if: ${{ !cancelled() && steps.upload_reliability.outcome == 'failure' }}
+        run: sleep 10
+      - name: Retry the reliability diagnostics upload
+        id: upload_reliability_retry
+        if: ${{ !cancelled() && steps.upload_reliability.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: macos-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/cast-workflow-metrics.json
+            toonz/build/ui-integration-output*.txt
+            toonz/build/stdfx/fxrender-output
+            toonz/build/image/ffmpeg-test-output
+          if-no-files-found: ignore
+          overwrite: true
+      - name: Wait before the final reliability diagnostics upload
+        if: ${{ !cancelled() && steps.upload_reliability_retry.outcome == 'failure' }}
+        run: sleep 30
+      - name: Final reliability diagnostics upload attempt
+        if: ${{ !cancelled() && steps.upload_reliability_retry.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 5
+        with:
+          name: macos-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/cast-workflow-metrics.json
+            toonz/build/ui-integration-output*.txt
+            toonz/build/stdfx/fxrender-output
+            toonz/build/image/ffmpeg-test-output
+          if-no-files-found: ignore
+          overwrite: true
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
