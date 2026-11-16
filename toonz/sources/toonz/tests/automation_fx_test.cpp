@@ -1,20 +1,28 @@
 #include "automation.h"
+#include "automation_drawing.h"
 #include "automation_fx.h"
 
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
 #include "tfx.h"
+#include "timage.h"
 #include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
+#include "traster.h"
+#include "tpalette.h"
+#include "tstroke.h"
+#include "tvectorimage.h"
 #include "tzeraryfx.h"
 #include "toonz/fxdag.h"
+#include "toonz/levelset.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/tcolumnfxset.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshsimplelevel.h"
 #include "toonz/txshzeraryfxcolumn.h"
 
 #include <functional>
@@ -486,6 +494,131 @@ void testAdmission(Context& context, Document& document) {
   validateAutomationFxGraph(*document.scene);
 }
 
+QString createBudgetAssets(Context& context, Document& document) {
+  QString vectorId;
+  const QJsonObject frame{{"number", 1}, {"suffix", ""}};
+  for (const QString& format : {QString("rgba8"), QString("vector")}) {
+    const QJsonObject level = executeScene(context, "level.create",
+                                           {{"document_id", document.id},
+                                            {"name", format},
+                                            {"format", format}})
+                                  .toObject();
+    QJsonObject drawing{{"document_id", document.id},
+                        {"level_id", level.value("level_id")},
+                        {"drawing_id", frame},
+                        {"format", format}};
+    if (format == "rgba8") {
+      drawing.insert("width", 2);
+      drawing.insert("height", 3);
+      drawing.insert("dpi", 128);
+    } else {
+      vectorId = level.value("level_id").toString();
+    }
+    executeDrawing(context, "drawing.create", drawing);
+  }
+  const QJsonArray points{QJsonObject{{"x", -1}, {"y", 0}, {"thickness", 1}},
+                          QJsonObject{{"x", 0}, {"y", 1}, {"thickness", 1}},
+                          QJsonObject{{"x", 1}, {"y", 0}, {"thickness", 1}}};
+  executeDrawing(context, "vector.edit",
+                 {{"document_id", document.id},
+                  {"level_id", vectorId},
+                  {"drawing_id", frame},
+                  {"coordinate_space", "drawing_native"},
+                  {"sharing", "all_exposures"},
+                  {"edits", QJsonArray{QJsonObject{{"action", "add"},
+                                                   {"style_id", 1},
+                                                   {"closed", false},
+                                                   {"points", points}}}}});
+  return vectorId;
+}
+
+void checkBudgetBoundary(Context& context, Document& document,
+                         const QString& vectorId, qint64 usedBytes) {
+  const QJsonObject target{{"document_id", document.id}};
+  const QJsonObject paletteTarget{{"document_id", document.id},
+                                  {"level_id", vectorId}};
+  const QJsonValue before = executeScene(context, "scene.summary", target);
+  const QJsonValue paletteBefore =
+      executeDrawing(context, "palette.inspect", paletteTarget);
+  const quint64 revision = document.revision;
+  const qint64 remaining = AutomationAssetLimitBytes - usedBytes;
+  expectNoMutation(context, [&] {
+    requireAssetGrowth(*document.scene, remaining, 4094, 254);
+  });
+  expectError(context, "resource_limit",
+              [&] { requireAssetGrowth(*document.scene, remaining + 1); });
+  expectError(context, "resource_limit",
+              [&] { requireAssetGrowth(*document.scene, 0, 4095); });
+  expectError(context, "resource_limit",
+              [&] { requireAssetGrowth(*document.scene, 0, 0, 255); });
+  require(document.revision == revision,
+          "Asset admission must not change the document revision");
+  require(executeScene(context, "scene.summary", target) == before,
+          "Asset admission must preserve native levels and drawing IDs");
+  require(executeDrawing(context, "palette.inspect", paletteTarget) ==
+              paletteBefore,
+          "Asset admission must preserve palette styles and key snapshots");
+}
+
+void checkBudgetFixture(Document& document, const QString& vectorId) {
+  auto* levels = document.scene->getLevelSet();
+  require(levels->getLevelCount() == 2, "Budget fixture must have two levels");
+  auto* raster = levels->getLevel(L"rgba8")->getSimpleLevel();
+  auto* vector = document.level(vectorId)->getSimpleLevel();
+  require(raster != nullptr, "Budget raster level must exist");
+  require(vector != nullptr, "Budget vector level must exist");
+  require(raster->getFrameCount() == 1, "Budget raster must have one drawing");
+  require(vector->getFrameCount() == 1, "Budget vector must have one drawing");
+  const TImageP image = raster->getFrame(TFrameId(1), false);
+  require(bool(image), "Budget raster image must exist");
+  require(bool(image->raster()), "Budget image must have a native raster");
+  require(image->raster()->getLx() == 2, "Budget raster width must be two");
+  require(image->raster()->getLy() == 3, "Budget raster height must be three");
+  const TVectorImageP geometry = vector->getFrame(TFrameId(1), false);
+  require(bool(geometry), "Budget vector image must exist");
+  require(geometry->getStrokeCount() == 1,
+          "Budget vector must have one stroke");
+  require(geometry->getStroke(0)->getControlPointCount() == 3,
+          "Budget stroke must have three control points");
+  require(raster->getPalette() == nullptr, "Budget RGBA must have no palette");
+  require(vector->getPalette() != nullptr, "Budget vector must have a palette");
+  require(vector->getPalette()->getStyleCount() == 2,
+          "Budget vector must start with two native styles");
+}
+
+void testAssetBudget(Context& context) {
+  require(AutomationAssetLimitBytes == 256LL * 1024 * 1024,
+          "Asset boundary regression must retain the production 256 MiB cap");
+  Document& document     = context.addDocument(std::make_unique<ToonzScene>());
+  const QString vectorId = createBudgetAssets(context, document);
+  checkBudgetFixture(document, vectorId);
+  // Two drawing headers, six RGBA pixels, one three-point stroke, two styles.
+  qint64 used = 2 * 65536 + 6 * 4 + 3 * 64 + 1024 + 2 * 1024;
+  checkBudgetBoundary(context, document, vectorId, used);
+  const QJsonObject color{{"r", 23}, {"g", 41}, {"b", 73}, {"a", 255}};
+  QJsonObject style{{"document_id", document.id},
+                    {"level_id", vectorId},
+                    {"name", "Budget style"},
+                    {"color", color}};
+  const QJsonObject created =
+      executeDrawing(context, "palette.create_style", style).toObject();
+  used += 1024;
+  checkBudgetBoundary(context, document, vectorId, used);
+  style.remove("name");
+  style.insert("style_id", created.value("style_id"));
+  for (int frame : {0, 12}) {
+    style.insert("keyframe", frame);
+    executeDrawing(context, "palette.update_style", style);
+    used += 1024;
+    checkBudgetBoundary(context, document, vectorId, used);
+  }
+  style.insert("color",
+               QJsonObject{{"r", 180}, {"g", 80}, {"b", 25}, {"a", 255}});
+  executeDrawing(context, "palette.update_style", style);
+  checkBudgetBoundary(context, document, vectorId, used);
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationFxTests(Context& context) {
@@ -505,6 +638,7 @@ void runAutomationFxTests(Context& context) {
   testGraphOwnership(context, document);
   testAdmission(context, document);
   context.removeDocument(document.id);
+  testAssetBudget(context);
 }
 
 }  // namespace GroundzeroAutomation
