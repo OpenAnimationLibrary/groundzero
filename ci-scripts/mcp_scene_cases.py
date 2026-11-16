@@ -409,3 +409,23 @@ def _write_strip_png(path: Path, width: int, height: int) -> None:
         data.extend(kind + payload)
         data.extend(struct.pack(">I", zlib.crc32(kind + payload)))
     path.write_bytes(data)
+
+
+def level_capacity_rejection_preserves_scene(case: NativeAcceptance) -> None:
+    """Reject level creation and PNG intake beyond the native package level limit.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    document = case.create()
+    for index in range(256):
+        case.mutate("level.create", document, name=f"Level {index}", format="rgba8")
+    before = _summary(case, document)
+    case.assertEqual(len(before["levels"]), 256)
+    for method, fields in (
+        ("level.create", {"format": "vector"}),
+        ("level.import", {"path": str(case.fixture), "dpi": 120}),
+    ):
+        with case.subTest(method=method):
+            case.failure(method, case.write_params(document, {"name": "Overflow", **fields}))
+            case.assertEqual(_summary(case, document), before)

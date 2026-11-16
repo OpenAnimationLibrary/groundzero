@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_drawing.h"
 
 #include "tdoubleparam.h"
 #include "toutputproperties.h"
@@ -330,8 +331,6 @@ std::unique_ptr<TXshSimpleLevel> prepareLevel(Context& context,
                                               const QJsonObject& params) {
   const QString name = nameParam(params);
   TLevelSet* cast    = document.scene->getLevelSet();
-  if (cast->getLevelCount() >= MaxEntities)
-    throw Error("resource_limit", "The document already contains 4096 levels.");
   if (cast->getLevel(name.toStdWString()))
     throw Error("name_conflict", "A level with that name already exists.");
   const QString format = requiredString(params, "format");
@@ -342,6 +341,8 @@ std::unique_ptr<TXshSimpleLevel> prepareLevel(Context& context,
   const auto type = types.find(format);
   if (type == types.end())
     throw Error("unsupported_format", "Unsupported level format.");
+  requireAssetGrowth(*document.scene,
+                     format == "rgba8" ? 0 : 2 * AutomationStyleBytes, 0, 1);
   auto level = std::make_unique<TXshSimpleLevel>(name.toStdWString());
   level->setScene(document.scene.get());
   level->setType(type->second.first);
@@ -378,7 +379,8 @@ void validatePngPrecision(const QString& path) {
                 "PNG import supports at most 8 bits per channel.");
 }
 
-QImage readPng(Context& context, const QJsonObject& params) {
+QImage readPng(Context& context, Document& document,
+               const QJsonObject& params) {
   const QString path =
       context.resolvePath(requiredString(params, "path"), false);
   const QFileInfo info(path);
@@ -394,6 +396,8 @@ QImage readPng(Context& context, const QJsonObject& params) {
     throw Error("resource_limit",
                 "PNG dimensions must be 1..8192 per axis and no more than "
                 "16 megapixels.");
+  requireAssetGrowth(*document.scene,
+                     automationRasterBytes(size.width(), size.height()), 1, 1);
   const QImage image = reader.read();
   if (image.isNull())
     throw Error("invalid_asset",
@@ -420,7 +424,7 @@ TRasterImageP nativeRaster(const QImage& image, double dpi) {
 QJsonValue importLevel(Context& context, const QJsonObject& params) {
   Document& document     = getDocument(context, params);
   const double dpi       = numberParam(params, "dpi", 1, 2400, 120);
-  const QImage image     = readPng(context, params);
+  const QImage image     = readPng(context, document, params);
   QJsonObject properties = params;
   properties.insert("format", "rgba8");
   auto level = prepareLevel(context, document, properties);
@@ -913,13 +917,15 @@ void addLevelOperations(QJsonArray& catalog) {
   QJsonObject level  = merge(documentSchema(), {{"name", textSchema()}});
   QJsonObject create = level;
   create.insert("format", enumSchema({"vector", "rgba8", "toonzRaster"}));
-  catalog.append(operation(
-      "level.create", "Create an empty native level owned by this workspace.",
-      create, {"document_id", "name", "format"}, true));
+  catalog.append(
+      operation("level.create",
+                "Create an empty native level; document limit is 256 levels.",
+                create, {"document_id", "name", "format"}, true));
   level.insert("path", textSchema());
   level.insert("dpi", numberSchema(1, 2400));
   catalog.append(operation(
-      "level.import", "Import one PNG as a private copy; drawing number is 1.",
+      "level.import",
+      "Import one PNG as private drawing 1 within document asset limits.",
       level, {"document_id", "path", "name"}, true));
   catalog.append(
       operation("level.inspect",
