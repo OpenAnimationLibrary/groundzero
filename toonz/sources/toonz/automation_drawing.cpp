@@ -239,6 +239,7 @@ TImageP emptyVector(TXshSimpleLevel* level, const QJsonObject& params) {
   if (params.contains("width") || params.contains("height") ||
       params.contains("dpi"))
     invalid("Vector drawings do not accept raster dimensions or DPI");
+  requireAssetGrowth(*level->getScene(), AutomationDrawingOverheadBytes, 1);
   return TVectorImageP(new TVectorImage);
 }
 
@@ -254,6 +255,8 @@ TImageP emptyImage(Context& context, TXshSimpleLevel* level,
   const double dpi = number(params, "dpi", 1.0, 2400.0);
   rasterDimensions(width, height);
   compatibleRaster(level, TDimension(width, height), dpi);
+  requireAssetGrowth(*level->getScene(), automationRasterBytes(width, height),
+                     1);
   TImageP image;
   if (format == "rgba8") {
     TRaster32P raster(width, height);
@@ -299,6 +302,7 @@ QJsonObject cloneDrawing(Context& context, Document& document,
     throw Error("resource_limit", "Level already has 4096 drawings");
   const auto image = imageFor(level, source);
   imageFormat(image);
+  requireAssetGrowth(*document.scene, automationImageBytes(image), 1);
   publish(context, level, destination, TImageP(image->cloneImage()));
   return imageSummary(level, destination);
 }
@@ -542,6 +546,17 @@ bool vectorChanged(const std::vector<StrokeEdit>& edits,
   return false;
 }
 
+qint64 vectorEditGrowth(const std::vector<StrokeEdit>& edits,
+                        const TVectorImageP& vector) {
+  qint64 bytes = 0;
+  for (const auto& edit : edits) {
+    bytes += qint64(pointCountChange(edit, vector)) * 64;
+    if (edit.action == "add") bytes += 1024;
+    if (edit.action == "delete") bytes -= 1024;
+  }
+  return bytes;
+}
+
 void applyVectorEdits(const TVectorImageP& vector,
                       std::vector<StrokeEdit>& edits) {
   std::vector<int> removed;
@@ -578,6 +593,7 @@ QJsonObject editVector(Context& context, Document& document,
             {"geometry_indices_invalidated", false},
             {"sharing", "all_exposures"},
             {"changed", false}};
+  requireAssetGrowth(*document.scene, vectorEditGrowth(edits, original));
   TVectorImageP vector(original->cloneImage());
   applyVectorEdits(vector, edits);
   publish(context, level, frame, vector);
@@ -690,6 +706,7 @@ QJsonObject createStyle(Context& context, Document& document,
         "not begin with the native studio-palette marker |");
   if (palette->getStyleCount() >= kMaxStyles)
     throw Error("resource_limit", "Palette already contains 4096 styles");
+  requireAssetGrowth(*document.scene, AutomationStyleBytes);
   std::unique_ptr<TColorStyle> style(new TSolidColorStyle(rgba));
   style->setName(name.toStdWString());
   context.markMutationStarted();
@@ -723,6 +740,14 @@ bool sameStyleColor(TPalette* palette, int id, const QJsonObject& params,
          key->second.style->getMainColor() == color;
 }
 
+void requirePaletteKeyGrowth(ToonzScene& scene, TPalette* palette, int id,
+                             const QJsonObject& params, int maximumFrame) {
+  if (!params.contains("keyframe")) return;
+  const int frame = integer(params, "keyframe", 0, maximumFrame);
+  if (!palette->isKeyframe(id, frame))
+    requireAssetGrowth(scene, AutomationStyleBytes);
+}
+
 QJsonObject updateStyle(Context& context, Document& document,
                         const QJsonObject& params) {
   auto* level     = simpleLevel(document, params);
@@ -732,6 +757,7 @@ QJsonObject updateStyle(Context& context, Document& document,
   const auto rgba = styleColor(params);
   const int maximumFrame =
       level->getType() == PLI_XSHLEVEL ? kMaxVectorFrame : 999999;
+  requirePaletteKeyGrowth(*document.scene, palette, id, params, maximumFrame);
   if (sameStyleColor(palette, id, params, rgba, maximumFrame))
     return styleJson(palette, id);
   auto animation = palette->getStyleAnimation(id);
@@ -956,6 +982,8 @@ QJsonObject importPng(Context& context, Document& document,
   rasterDimensions(info->m_lx, info->m_ly);
   const double dpi = number(params, "dpi", 1.0, 2400.0);
   compatibleRaster(level, TDimension(info->m_lx, info->m_ly), dpi);
+  requireAssetGrowth(*document.scene,
+                     automationRasterBytes(info->m_lx, info->m_ly), 1);
   const TRasterImageP image = reader->load();
   if (!image || !TRaster32P(image->getRaster()))
     throw Error("unsupported_type",
@@ -1268,9 +1296,9 @@ void validateStyleProfile(const TColorStyle* style) {
 
 void validateAnimatedStyleProfile(TPalette* palette, int id, int maximumFrame) {
   validateStyleProfile(palette->getStyle(id));
-  const auto keys = palette->getStyleAnimation(id);
-  if (keys.size() > 4096)
+  if (palette->getKeyframeCount(id) > 4096)
     throw Error("resource_limit", "A style has more than 4096 keyframes");
+  const auto keys = palette->getStyleAnimation(id);
   for (const auto& key : keys) {
     if (key.first < 0 || key.first > maximumFrame)
       throw Error("unsupported_palette",
@@ -1339,7 +1367,85 @@ void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
     validateVectorProfile(level, frame);
 }
 
+TXshSimpleLevel* budgetLevel(TLevelSet* levels, int index) {
+  auto* level = levels->getLevel(index)->getSimpleLevel();
+  if (!level)
+    throw Error("unsupported_type",
+                "Asset accounting requires native simple drawing levels");
+  return level;
+}
+
+qint64 paletteAssetBytes(TPalette* palette) {
+  if (!palette) return 0;
+  const int styles = palette->getStyleCount();
+  if (styles > kMaxStyles)
+    throw Error("resource_limit", "Palette exceeds the 4096-style limit");
+  qint64 snapshots = styles;
+  for (int id = 0; id < styles; ++id) {
+    const int keys = palette->getKeyframeCount(id);
+    if (keys > 4096)
+      throw Error("resource_limit", "A style has more than 4096 keyframes");
+    snapshots += keys;
+  }
+  return snapshots * AutomationStyleBytes;
+}
+
+void requireAssetCounts(TLevelSet* levels, int additionalDrawings,
+                        int additionalLevels) {
+  const qint64 levelCount = qint64(levels->getLevelCount()) + additionalLevels;
+  if (levelCount < 0 || levelCount > 256)
+    throw Error("resource_limit", "The document admits at most 256 levels");
+  qint64 drawings = additionalDrawings;
+  for (int index = 0; index < levels->getLevelCount(); ++index)
+    drawings += budgetLevel(levels, index)->getFrameCount();
+  if (drawings < 0 || drawings > 4096)
+    throw Error("resource_limit", "The document admits at most 4096 drawings");
+}
+
+qint64 sceneAssetBytes(TLevelSet* levels) {
+  qint64 bytes = 0;
+  for (int index = 0; index < levels->getLevelCount(); ++index) {
+    auto* level = budgetLevel(levels, index);
+    bytes += paletteAssetBytes(level->getPalette());
+    for (const auto& frame : level->getFids())
+      bytes += automationImageBytes(imageFor(level, frame));
+  }
+  return bytes;
+}
+
 }  // namespace
+
+qint64 automationRasterBytes(int width, int height) {
+  rasterDimensions(width, height);
+  return qint64(width) * height * 4 + AutomationDrawingOverheadBytes;
+}
+
+qint64 automationImageBytes(const TImageP& image) {
+  if (!image)
+    throw Error("asset_unavailable",
+                "Cannot estimate a missing native drawing");
+  imageFormat(image);
+  if (const TRasterP raster = image->raster())
+    return automationRasterBytes(raster->getLx(), raster->getLy());
+  const TVectorImageP vector = image;
+  qint64 bytes               = AutomationDrawingOverheadBytes;
+  for (UINT index = 0; index < vector->getStrokeCount(); ++index)
+    bytes +=
+        qint64(vector->getStroke(index)->getControlPointCount()) * 64 + 1024;
+  return bytes;
+}
+
+void requireAssetGrowth(ToonzScene& scene, qint64 additionalBytes,
+                        int additionalDrawings, int additionalLevels) {
+  auto* levels = scene.getLevelSet();
+  requireAssetCounts(levels, additionalDrawings, additionalLevels);
+  const qint64 bytes = sceneAssetBytes(levels);
+  if (additionalBytes < -bytes ||
+      additionalBytes > AutomationAssetLimitBytes - bytes)
+    throw Error("resource_limit",
+                "The document exceeds the 256 MiB native asset estimate; "
+                "reduce drawing dimensions, geometry, or palette keys");
+}
 
 QJsonArray drawingOperations() {
   QJsonArray tools;
