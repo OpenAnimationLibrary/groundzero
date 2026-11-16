@@ -1,9 +1,9 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createHash } from "node:crypto";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { crc32, inflateSync } from "node:zlib";
@@ -106,13 +106,13 @@ async function call(client: Client, name: string, args: Record<string, unknown>)
   return data;
 }
 
-async function colorCard(client: Client, documentId: unknown, revision: unknown) {
+async function colorCard(client: Client, documentId: unknown, revision: unknown, frames = 1) {
   const effect = await call(client, "fx.create", {
     document_id: documentId,
     expected_revision: revision,
     operation_id: "create-card",
     type: "colorCardFx",
-    frame_count: 1,
+    frame_count: frames,
   });
   const colored = await call(client, "fx.parameter.set", {
     document_id: documentId,
@@ -132,6 +132,18 @@ async function colorCard(client: Client, documentId: unknown, revision: unknown)
   return connected["revision"];
 }
 
+async function completedJob(client: Client, job: Record<string, unknown>, timeoutMs = 30_000) {
+  let status = job;
+  const deadline = Date.now() + timeoutMs;
+  while (!["completed", "failed", "canceled"].includes(String(status["status"]))) {
+    if (Date.now() > deadline) throw new Error(`Render job timed out: ${JSON.stringify(status)}`);
+    await setTimeout(50);
+    status = await call(client, "render.status", { job_id: job["job_id"] });
+  }
+  expect(status["status"], JSON.stringify(status)).toBe("completed");
+  expect(status["writers_closed"]).toBe(true);
+}
+
 async function preview(client: Client, documentId: unknown, revision: unknown): Promise<void> {
   const job = await call(client, "render.preview", {
     document_id: documentId,
@@ -141,15 +153,7 @@ async function preview(client: Client, documentId: unknown, revision: unknown): 
     width: previewSize,
     height: previewSize,
   });
-  let status = job;
-  const deadline = Date.now() + 30_000;
-  while (!["completed", "failed", "canceled"].includes(String(status["status"]))) {
-    if (Date.now() > deadline) throw new Error(`Preview timed out: ${JSON.stringify(status)}`);
-    await setTimeout(50);
-    status = await call(client, "render.status", { job_id: job["job_id"] });
-  }
-  expect(status["status"], JSON.stringify(status)).toBe("completed");
-  expect(status["writers_closed"]).toBe(true);
+  await completedJob(client, job);
   const output = await call(client, "render.artifacts", { job_id: job["job_id"] });
   const artifacts = output["artifacts"];
   if (!Array.isArray(artifacts) || !isObject(artifacts[0])) {
@@ -182,6 +186,86 @@ async function preview(client: Client, documentId: unknown, revision: unknown): 
   expect(missing.isError).toBe(true);
   expect(missing.structuredContent).toMatchObject({ error: { code: "unknown_artifact" } });
   expect(missing.content.every((content) => content.type === "text")).toBe(true);
+}
+
+async function checkMovieFile(workspace: string, artifact: Record<string, unknown>): Promise<void> {
+  const relative = artifact["workspace_relative_path"];
+  if (typeof relative !== "string") throw new Error("Movie has no workspace-relative path");
+  expect(isAbsolute(relative)).toBe(false);
+  expect(relative).toBe(`renders/${String(artifact["job_id"])}/movie.mp4`);
+  expect(relative.split(/[\\/]/)).not.toContain("..");
+  const path = join(workspace, relative);
+  expect(await realpath(path)).toBe(path);
+  const info = await lstat(path);
+  expect(info.isSymbolicLink()).toBe(false);
+  expect(info.isFile()).toBe(true);
+  expect(info.size).toBeGreaterThan(0);
+  expect(info.size).toBeLessThanOrEqual(128 * 1024 * 1024);
+  const bytes = await readFile(path);
+  expect(bytes.length).toBe(info.size);
+  expect(artifact["size_bytes"]).toBe(bytes.length);
+  expect(createHash("sha256").update(bytes).digest("hex")).toBe(artifact["sha256"]);
+  expect(bytes.toString("ascii", 4, 8)).toBe("ftyp");
+}
+
+async function movie(client: Client, documentId: unknown, revision: unknown, workspace: string) {
+  const job = await call(client, "render.submit", {
+    document_id: documentId,
+    expected_revision: revision,
+    operation_id: "movie",
+    format: "mp4",
+    start_frame: 0,
+    end_frame: 2,
+    width: previewSize,
+    height: previewSize,
+  });
+  await completedJob(client, job, 60_000);
+  const output = await client.callTool({
+    name: "render.artifacts",
+    arguments: { job_id: job["job_id"] },
+  });
+  expect(output.isError, JSON.stringify(output)).not.toBe(true);
+  expect(output.content.every((content) => content.type === "text")).toBe(true);
+  const artifacts = output.structuredContent?.["artifacts"];
+  if (!Array.isArray(artifacts) || artifacts.length !== 1 || !isObject(artifacts[0])) {
+    throw new Error("Completed MP4 job did not publish exactly one movie artifact");
+  }
+  const artifact = artifacts[0];
+  expect(artifact).toMatchObject({
+    kind: "movie",
+    mime_type: "video/mp4",
+    width: previewSize,
+    height: previewSize,
+    frame_count: 3,
+    frame_rate: 24,
+    source_frame_rate: 24,
+    start_frame: 0,
+    end_frame: 2,
+    step: 1,
+    pixel_format: "yuv420p",
+    audio: false,
+    alpha: "opaque",
+    matte: "black",
+    container: "mp4",
+    job_id: job["job_id"],
+    document_id: documentId,
+    source_revision: revision,
+    codec: expect.any(String),
+    major_brand: expect.any(String),
+  });
+  expect(artifact["codec"]).not.toBe("");
+  expect(artifact["major_brand"]).not.toBe("");
+  expect(artifact["duration_seconds"]).toBeCloseTo(3 / 24, 6);
+  expect(artifact).not.toHaveProperty("image");
+  expect(artifact).not.toHaveProperty("data");
+  await checkMovieFile(workspace, artifact);
+  const inline = await client.callTool({
+    name: "artifact.read",
+    arguments: { artifact_id: artifact["artifact_id"] },
+  });
+  expect(inline.isError).toBe(true);
+  expect(inline.structuredContent).toMatchObject({ error: { code: "unsupported_artifact_kind" } });
+  expect(inline.content.every((content) => content.type === "text")).toBe(true);
 }
 
 test.each(["legacy", "2026-07-28"])(
@@ -249,3 +333,54 @@ test.each(["legacy", "2026-07-28"])(
   },
   90_000,
 );
+
+test("delivers an MP4 file and verified metadata through actual MCP stdio", async () => {
+  const executable = process.env["GROUNDZERO_EXECUTABLE"];
+  const media = process.env["GROUNDZERO_MEDIA_TOOLS"];
+  if (!executable || !media) {
+    throw new Error("test:native requires GROUNDZERO_EXECUTABLE and GROUNDZERO_MEDIA_TOOLS");
+  }
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-mcp-movie-")));
+  const client = new Client(
+    { name: "groundzero-movie-test", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+          "--executable",
+          executable,
+          "--workspace",
+          workspace,
+          "--media-tools",
+          media,
+        ],
+        env: environment(),
+        stderr: "inherit",
+      }),
+    );
+    const capabilities = await call(client, "render.capabilities", {});
+    expect(capabilities["profiles"]).toContain("opaque8-mp4");
+    expect(capabilities["mp4"]).toMatchObject({
+      media_tools_configured: true,
+      writer_registered: true,
+    });
+    const created = await call(client, "scene.create", {
+      name: "MCP movie fixture",
+      operation_id: "create",
+      width_px: previewSize,
+      height_px: previewSize,
+      frame_rate: 24,
+    });
+    const revision = await colorCard(client, created["document_id"], created["revision"], 3);
+    await movie(client, created["document_id"], revision, workspace);
+    const summary = await call(client, "scene.summary", { document_id: created["document_id"] });
+    expect(summary["revision"]).toBe(revision);
+  } finally {
+    await client.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+}, 120_000);

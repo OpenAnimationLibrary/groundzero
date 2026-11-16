@@ -103,6 +103,15 @@ returns MCP image content and source metadata. Inline PNG images are limited to
 4 MiB and 2048 pixels per dimension. Job failure and cancellation are reported
 explicitly; an artifact is available only after successful writer finalization.
 
+`render.submit` accepts `format: "png"` (the default) or `format: "mp4"` when the
+configured media tools and native movie writer are available. MP4 requires even
+dimensions up to 2048 pixels, `step: 1`, and at most 120 frames within the render
+storage budget. Its output has no audio or alpha; transparent areas use a black
+matte. `render.artifacts` returns a movie's `workspace_relative_path`, SHA-256,
+size, dimensions, timing, and observed codec metadata after verification. Movie
+bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
+movie IDs with `unsupported_artifact_kind`.
+
 Call `render.cancel` to request job cancellation, then poll `render.status` until
 the job reaches a terminal status. Cancelling an MCP request can leave native work
 running. Treat an abandoned write as having an unknown outcome and inspect state
@@ -124,7 +133,9 @@ Forcibly killing the POSIX supervisor itself can bypass its cleanup.
 
 Repository checks run in CI: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`,
 `pnpm test`, and `pnpm build`. `pnpm test:native` requires a built native executable
-in `GROUNDZERO_EXECUTABLE` and exercises legacy and MCP 2026-07-28 stdio connections,
-document creation, revision rejection, and decoded color-card preview pixels. These
-tests establish SDK interoperability on the CI platform; host-specific display
-behavior still depends on the MCP application.
+in `GROUNDZERO_EXECUTABLE` and a canonical media directory in
+`GROUNDZERO_MEDIA_TOOLS`. It exercises legacy and MCP 2026-07-28 stdio connections,
+document creation, revision rejection, decoded color-card preview pixels, and MP4
+metadata and file hashes. The PNG cases launch without a media grant. These tests
+establish SDK interoperability on the CI platform; host-specific display behavior
+still depends on the MCP application.
