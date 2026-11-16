@@ -248,7 +248,9 @@ def author_layer(shot: Shot, document: str, name: str, art: Canvas) -> dict[str,
         height=art.height,
         dpi=DPI,
     )
-    rows_per_patch = 16384 // art.width
+    # Even spaced JSON uses at most 42 bytes per RGBA pixel including its separator.
+    # 4096 pixels leave over 80 KiB for the adapter's 256 KiB request envelope.
+    rows_per_patch = 4096 // art.width
     for bottom in range(0, art.height, rows_per_patch):
         height = min(rows_per_patch, art.height - bottom)
         pixels = []
