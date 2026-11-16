@@ -73,6 +73,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_png_import_dimension_bounds_preserve_scene(self) -> None:
         mcp_scene_cases.png_import_dimension_bounds_preserve_scene(self)
 
+    def test_level_capacity_rejection_preserves_scene(self) -> None:
+        mcp_scene_cases.level_capacity_rejection_preserves_scene(self)
+
     def test_closed_protocol_output_has_controlled_exit(self) -> None:
         mcp_worker_cases.closed_output_has_controlled_exit(self)
 
