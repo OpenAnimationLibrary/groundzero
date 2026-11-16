@@ -1,0 +1,288 @@
+#include "automation.h"
+
+#include "toonz/fxdag.h"
+#include "toonz/levelset.h"
+#include "toonz/tcolumnfx.h"
+#include "toonz/toonzscene.h"
+#include "toonz/tproject.h"
+#include "toonz/tstageobjecttree.h"
+#include "toonz/txsheet.h"
+#include "toonz/txshcolumn.h"
+
+#include <QDir>
+#include <QFileInfo>
+#include <QUuid>
+
+#include <cmath>
+#include <limits>
+
+namespace GroundzeroAutomation {
+namespace {
+
+QString opaqueId(const QString& kind) {
+  return kind + "_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+
+bool beneath(const QString& path, const QString& root) {
+  const QString prefix = root.endsWith('/') ? root : root + '/';
+  return path == root || path.startsWith(prefix);
+}
+
+QString canonicalDirectory(const QString& path) {
+  const QFileInfo info(path);
+  if (!info.isAbsolute() || !info.isDir() || info.isSymLink())
+    throw Error("invalid_path", "Root must be an existing absolute directory.");
+  const QString canonical = info.canonicalFilePath();
+  if (canonical.isEmpty())
+    throw Error("invalid_path", "Could not resolve the directory.");
+  return canonical;
+}
+
+template <typename T>
+QString registerHandle(QHash<QString, T*>& handles, T* value,
+                       const QString& kind) {
+  if (!value)
+    throw Error("invalid_handle", "Cannot register an empty native object.");
+  for (auto it = handles.constBegin(); it != handles.constEnd(); ++it)
+    if (it.value() == value) return it.key();
+  const QString id = opaqueId(kind);
+  handles.insert(id, value);
+  return id;
+}
+
+template <typename T>
+T* findHandle(const QHash<QString, T*>& handles, const QString& id) {
+  auto found = handles.constFind(id);
+  if (found == handles.constEnd())
+    throw Error("invalid_handle",
+                "The object handle is unknown or has expired.");
+  return found.value();
+}
+
+void createDirectory(const QString& path) {
+  if (!QDir().mkpath(path))
+    throw Error("io_error", "Could not create a private worker directory.");
+}
+
+}  // namespace
+
+Error::Error(QString errorCode, QString errorMessage, QJsonObject errorDetails)
+    : std::runtime_error(errorMessage.toStdString())
+    , code(std::move(errorCode))
+    , message(std::move(errorMessage))
+    , details(std::move(errorDetails)) {}
+
+Document::Document(std::unique_ptr<ToonzScene> ownedScene)
+    : id(opaqueId("document")), scene(std::move(ownedScene)) {}
+
+Document::~Document() = default;
+
+QString Document::revisionText() const { return QString::number(revision); }
+
+QString Document::idForLevel(TXshLevel* value) {
+  return registerHandle(levels, value, "level");
+}
+
+QString Document::idForColumn(TXshColumn* value) {
+  return registerHandle(columns, value, "column");
+}
+
+QString Document::idForFx(TFx* value) {
+  return registerHandle(effects, value, "fx");
+}
+
+QString Document::idForObject(TStageObject* value) {
+  return registerHandle(objects, value, "object");
+}
+
+TXshLevel* Document::level(const QString& handle) const {
+  TXshLevel* value     = findHandle(levels, handle);
+  const TLevelSet* set = scene->getLevelSet();
+  for (int index = 0; index < set->getLevelCount(); ++index)
+    if (set->getLevel(index) == value) return value;
+  throw Error("invalid_handle", "The level is no longer in this document.");
+}
+
+TXshColumn* Document::column(const QString& handle) const {
+  TXshColumn* value = findHandle(columns, handle);
+  TXsheet* sheet    = scene->getXsheet();
+  for (int index = 0; index < sheet->getColumnCount(); ++index)
+    if (sheet->getColumn(index) == value) return value;
+  throw Error("invalid_handle", "The column is no longer in this document.");
+}
+
+TFx* Document::fx(const QString& handle) const {
+  TFx* value     = findHandle(effects, handle);
+  TXsheet* sheet = scene->getXsheet();
+  FxDag* dag     = sheet->getFxDag();
+  if (dag->getXsheetFx() == value) return value;
+  for (int index = 0; index < dag->getOutputFxCount(); ++index)
+    if (dag->getOutputFx(index) == value) return value;
+  for (int index = 0; index < sheet->getColumnCount(); ++index) {
+    TXshColumn* column = sheet->getColumn(index);
+    if (column && column->getFx() == value) return value;
+  }
+  std::vector<TFx*> current;
+  dag->getFxs(current);
+  for (TFx* fx : current)
+    if (fx == value) return value;
+  throw Error("invalid_handle", "The effect is no longer in this document.");
+}
+
+TStageObject* Document::object(const QString& handle) const {
+  TStageObject* value    = findHandle(objects, handle);
+  TStageObjectTree* tree = scene->getXsheet()->getStageObjectTree();
+  for (int index = 0; index < tree->getStageObjectCount(); ++index)
+    if (tree->getStageObject(index) == value) return value;
+  throw Error("invalid_handle",
+              "The stage object is no longer in this document.");
+}
+
+Context::Context(QString workspacePath, QStringList inputRoots)
+    : m_workspace(canonicalDirectory(workspacePath))
+    , m_project(std::make_shared<TProject>()) {
+  for (const QString& root : inputRoots)
+    m_inputRoots.append(canonicalDirectory(root));
+  const QString projectDirectory = resolvePath(opaqueId("project"), true);
+  createDirectory(projectDirectory);
+  const std::vector<std::string> folders = {
+      TProject::Inputs,  TProject::Drawings, TProject::Scenes,
+      TProject::Extras,  TProject::Outputs,  TProject::Scripts,
+      TProject::Palettes};
+  for (const std::string& folder : folders) {
+    const QString path =
+        QDir(projectDirectory).filePath(QString::fromStdString(folder));
+    createDirectory(path);
+    m_project->setFolder(folder, TFilePath(path.toStdWString()));
+  }
+  const TFilePath projectPath(
+      QDir(projectDirectory).filePath("automation_otprj.xml").toStdWString());
+  if (!m_project->save(projectPath))
+    throw Error("io_error", "Could not write the private worker project.");
+  TProjectManager::instance()->setCurrentProjectPath(projectPath);
+  TProjectManager::instance()->getCurrentProject();
+}
+
+Context::~Context() = default;
+
+Document& Context::document(const QString& id) {
+  auto found = m_documents.find(id);
+  if (found == m_documents.end())
+    throw Error("document_not_found",
+                "The document handle is unknown or has expired.");
+  return *found->second;
+}
+
+Document& Context::addDocument(std::unique_ptr<ToonzScene> scene) {
+  if (!scene)
+    throw Error("invalid_document", "Cannot register an empty scene.");
+  if (m_documents.size() >= 32)
+    throw Error("resource_limit",
+                "Close a document before creating another (limit: 32).");
+  scene->setProject(m_project);
+  auto document    = std::make_unique<Document>(std::move(scene));
+  const QString id = document->id;
+  auto inserted    = m_documents.emplace(id, std::move(document));
+  return *inserted.first->second;
+}
+
+void Context::removeDocument(const QString& id) {
+  if (m_documents.erase(id) == 0)
+    throw Error("document_not_found",
+                "The document handle is unknown or has expired.");
+}
+
+QJsonArray Context::documents() const {
+  QJsonArray result;
+  for (const auto& entry : m_documents)
+    result.append(QJsonObject{{"document_id", entry.first},
+                              {"revision", entry.second->revisionText()}});
+  return result;
+}
+
+std::shared_ptr<TProject> Context::project() const { return m_project; }
+QString Context::workspace() const { return m_workspace; }
+void Context::markMutationStarted() { m_mutationStarted = true; }
+void Context::resetMutationStarted() { m_mutationStarted = false; }
+bool Context::mutationStarted() const { return m_mutationStarted; }
+
+QString Context::resolvePath(const QString& path, bool write) const {
+  if (path.isEmpty() || path.contains(QChar::Null) || path.contains('\\'))
+    throw Error("invalid_path",
+                "Use a nonempty path with forward-slash separators.");
+  for (const QString& part : path.split('/'))
+    if (part == "..")
+      throw Error("invalid_path", "Parent traversal is not allowed.");
+  const QString absolute =
+      QDir::cleanPath(QDir(m_workspace).absoluteFilePath(path));
+  QString ancestor = absolute;
+  while (!QFileInfo::exists(ancestor)) {
+    if (QFileInfo(ancestor).isSymLink())
+      throw Error("path_denied",
+                  "Symbolic links are not allowed in worker paths.");
+    const QString parent = QFileInfo(ancestor).absolutePath();
+    if (parent == ancestor)
+      throw Error("invalid_path", "Could not resolve the path.");
+    ancestor = parent;
+  }
+  const QFileInfo existing(ancestor);
+  const QString canonical = existing.canonicalFilePath();
+  if (existing.isSymLink() || canonical != ancestor)
+    throw Error("path_denied",
+                "Symbolic links are not allowed in worker paths.");
+  bool allowed =
+      beneath(absolute, m_workspace) && beneath(canonical, m_workspace);
+  if (!write)
+    for (const QString& root : m_inputRoots)
+      allowed =
+          allowed || (beneath(absolute, root) && beneath(canonical, root));
+  if (!allowed)
+    throw Error("path_denied", "The path is outside the allowed roots.");
+  return absolute;
+}
+
+QJsonObject operation(const QString& name, const QString& description,
+                      QJsonObject properties, QJsonArray required,
+                      bool writes) {
+  if (writes) {
+    properties.insert("operation_id",
+                      QJsonObject{{"type", "string"}, {"maxLength", 128}});
+    if (!required.contains("operation_id")) required.append("operation_id");
+    if (properties.contains("document_id")) {
+      properties.insert("expected_revision", QJsonObject{{"type", "string"}});
+      if (!required.contains("expected_revision"))
+        required.append("expected_revision");
+    }
+  }
+  return {{"name", name},
+          {"description", description},
+          {"inputSchema", QJsonObject{{"type", "object"},
+                                      {"properties", properties},
+                                      {"required", required},
+                                      {"additionalProperties", false}}},
+          {"annotations", QJsonObject{{"readOnlyHint", !writes},
+                                      {"destructiveHint", writes},
+                                      {"idempotentHint", true}}}};
+}
+
+QString requiredString(const QJsonObject& params, const QString& name) {
+  const QJsonValue value = params.value(name);
+  if (!value.isString() || value.toString().isEmpty())
+    throw Error("invalid_params", "Expected a nonempty string: " + name);
+  return value.toString();
+}
+
+int integerParam(const QJsonObject& params, const QString& name, int minimum,
+                 int maximum, int fallback) {
+  const QJsonValue value = params.value(name);
+  if (value.isUndefined()) return fallback;
+  const double number =
+      value.toDouble(std::numeric_limits<double>::quiet_NaN());
+  if (!std::isfinite(number) || std::floor(number) != number ||
+      number < minimum || number > maximum)
+    throw Error("invalid_params",
+                "Expected an integer in the supported range: " + name);
+  return static_cast<int>(number);
+}
+
+}  // namespace GroundzeroAutomation

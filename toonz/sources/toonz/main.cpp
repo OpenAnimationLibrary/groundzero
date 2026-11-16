@@ -2,6 +2,7 @@
 
 // Tnz6 includes
 #include "crashhandler.h"
+#include "automation.h"
 #include "autosaverecovery.h"
 #include "mainwindow.h"
 #include "flipbook.h"
@@ -287,6 +288,8 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-worker")
+    return GroundzeroAutomation::runWorker(argc, argv);
 #ifdef BUILD_UI_PORT_TESTS
   if (argc == 2 && QString::fromLocal8Bit(argv[1]) == "--test-batch-task-child")
     return runBatchTaskFixtureChild();

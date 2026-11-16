@@ -197,6 +197,8 @@ if(WITH_PYTHON)
 endif()
 
 set(HEADERS
+    automation.h
+    automation_dispatch.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -270,6 +272,14 @@ set(HEADERS
 )
 
 set(SOURCES
+    automation.cpp
+    automation_context.cpp
+    automation_dispatch.cpp
+    automation_scene.cpp
+    automation_fx.cpp
+    automation_drawing.cpp
+    automation_render.cpp
+    automation_persistence.cpp
     activechecks.cpp
     languagemanager.cpp
     commandpalette.cpp
@@ -1107,6 +1117,7 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE batchtaskintegrationtest.cpp batchtaskintegrationtest.h)
