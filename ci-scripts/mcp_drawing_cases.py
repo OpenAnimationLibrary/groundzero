@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import struct
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -347,3 +349,49 @@ def check_toonz_raster_roundtrip(test: NativeAcceptance) -> None:
         test: The running acceptance case and its disposable native worker.
     """
     _raster_roundtrip(test, "toonzRaster")
+
+
+def _lzo_call(
+    executable: Path, arguments: list[str], payload: bytes
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        [str(executable), *arguments],
+        input=payload,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+
+
+def check_lzo_roundtrip(test: NativeAcceptance) -> None:
+    """Exercise the shipped LZO helpers with expanding packets and invalid input.
+
+    Args:
+        test: The running acceptance case and exact shipped executable path.
+    """
+    compressor = test.executable.with_name("lzocompress" + test.executable.suffix)
+    decompressor = test.executable.with_name("lzodecompress" + test.executable.suffix)
+    test.assertTrue(compressor.is_file(), "Native TLV compressor is missing")
+    test.assertTrue(decompressor.is_file(), "Native TLV decompressor is missing")
+    entropy = b"".join(hashlib.sha256(struct.pack("<I", index)).digest() for index in range(2048))
+    for payload in (bytes(4), bytes(range(24)), entropy[:1024], entropy):
+        with test.subTest(uncompressed_bytes=len(payload)):
+            encoded = _lzo_call(compressor, [str(len(payload))], payload)
+            test.assertEqual(encoded.returncode, 0, encoded.stderr.decode(errors="replace"))
+            test.assertGreater(len(encoded.stdout), len(payload))
+            test.assertLessEqual(len(encoded.stdout), len(payload) + len(payload) // 16 + 67)
+            decoded = _lzo_call(
+                decompressor, [str(len(payload)), str(len(encoded.stdout))], encoded.stdout
+            )
+            test.assertEqual(decoded.returncode, 0, decoded.stderr.decode(errors="replace"))
+            test.assertEqual(decoded.stdout, payload)
+    for size in ("", "-1", "+4", " 4", "4tail", "18446744073709551615", "9" * 40):
+        with test.subTest(invalid_size=size):
+            result = _lzo_call(compressor, [size], b"")
+            test.assertNotEqual(result.returncode, 0)
+            test.assertEqual(result.stdout, b"")
+            test.assertIn(b"Invalid input buffer size", result.stderr)
+    truncated = _lzo_call(compressor, ["24"], b"short")
+    test.assertNotEqual(truncated.returncode, 0)
+    test.assertEqual(truncated.stdout, b"")
+    test.assertIn(b"Could not read", truncated.stderr)
