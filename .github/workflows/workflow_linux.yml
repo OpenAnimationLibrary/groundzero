@@ -796,6 +796,7 @@ jobs:
         xvfb-run -a -s '-screen 0 1280x1024x24' corepack pnpm test:native
 
     - name: Author and render the animation through the MCP client
+      id: mcp_client_shot
       if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.native_targets.outcome == 'success' }}
       timeout-minutes: 10
       env:
@@ -815,6 +816,29 @@ jobs:
       with:
         name: groundzero-mcp-client-shot-${{ github.sha }}
         path: toonz/build/mcp-client-shot
+        if-no-files-found: ignore
+
+    - name: Open and edit the MCP client package in the native application
+      if: ${{ !cancelled() && steps.mcp_client_shot.outcome == 'success' }}
+      timeout-minutes: 15
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_handoff.py \
+          --executable toonz/build/bin/OpenToonz --stuff stuff \
+          --package toonz/build/mcp-client-shot/workspace/shot \
+          --reference toonz/build/mcp-client-shot/previews/reopened.png \
+          --output toonz/build/mcp-client-handoff
+
+    - name: Retain native handoff evidence for the MCP client package
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-client-handoff-${{ github.sha }}
+        path: toonz/build/mcp-client-handoff
         if-no-files-found: ignore
 
     - name: Retain compiled MCP adapter and dependency resolution
