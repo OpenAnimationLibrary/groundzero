@@ -1235,6 +1235,24 @@ void validatePaletteProfile(TPalette* palette) {
   }
 }
 
+void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
+  if (frame.getNumber() < 1 || frame.getNumber() > 999999 ||
+      !QRegularExpression("^[a-z]{0,8}$").match(frame.getLetter()).hasMatch())
+    throw Error("unsupported_drawing_id",
+                "Persistence requires drawing numbers 1..999999 and lowercase "
+                "ASCII suffixes");
+  const auto image  = imageFor(level, frame);
+  const auto format = imageFormat(image);
+  static const std::map<int, QString> formats{{PLI_XSHLEVEL, "vector"},
+                                              {TZP_XSHLEVEL, "toonzRaster"},
+                                              {OVL_XSHLEVEL, "rgba8"}};
+  if (formats.at(level->getType()) != format)
+    throw Error("unsupported_type",
+                "Drawing image type does not match its level type");
+  if (image->raster())
+    rasterDimensions(image->raster()->getLx(), image->raster()->getLy());
+}
+
 }  // namespace
 
 QJsonArray drawingOperations() {
@@ -1252,14 +1270,12 @@ void validateDrawingProfile(TXshSimpleLevel* level) {
     throw Error(
         "unsupported_type",
         "Persistence admits only vector, Toonz raster and RGBA8 levels");
+  if (level->getFrameCount() > 4096)
+    throw Error("resource_limit",
+                "Persistence admits at most 4096 drawings per level");
   if (level->getType() != OVL_XSHLEVEL)
-    validatePaletteProfile(level->getPalette());
-  for (const auto& frame : level->getFids()) {
-    const auto image = imageFor(level, frame);
-    imageFormat(image);
-    if (image->raster())
-      rasterDimensions(image->raster()->getLx(), image->raster()->getLy());
-  }
+    validatePaletteProfile(paletteFor(level));
+  for (const auto& frame : level->getFids()) validateFrameProfile(level, frame);
 }
 
 QJsonValue executeDrawing(Context& context, const QString& method,
