@@ -171,6 +171,15 @@ void FxDag::updateFxTypeTable(TFx *fx, int value) {
 
 void FxDag::updateFxIdTable(TFx *fx) { m_idTable[toLower(fx->getFxId())] = fx; }
 
+void FxDag::removeFxId(TFx *fx) {
+  for (auto entry = m_idTable.begin(); entry != m_idTable.end();) {
+    if (entry->second == fx)
+      entry = m_idTable.erase(entry);
+    else
+      ++entry;
+  }
+}
+
 //-------------------------------------------------------------------
 
 int FxDag::getFxTypeCount(TFx *fx) {

@@ -42,6 +42,8 @@ public:
   int getFxTypeCount(TFx *fx);
   void updateFxTypeTable(TFx *fx, int value);
   void updateFxIdTable(TFx *fx);
+  //! Remove lookup entries before permanently destroying an effect outside undo history.
+  void removeFxId(TFx *fx);
   int getNewGroupId() { return ++m_groupIdCount; };
 
   TFxSet *getInternalFxs() const;
