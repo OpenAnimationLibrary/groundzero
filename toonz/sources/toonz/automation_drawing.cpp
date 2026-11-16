@@ -36,11 +36,13 @@
 namespace GroundzeroAutomation {
 namespace {
 
-constexpr int kMaxPixels  = 16777216;
-constexpr int kMaxPatch   = 16384;
-constexpr int kMaxStrokes = 4096;
-constexpr int kMaxPoints  = 1025;
-constexpr int kMaxStyles  = 4096;
+constexpr int kMaxPixels        = 16777216;
+constexpr int kMaxPatch         = 16384;
+constexpr int kMaxStrokes       = 4096;
+constexpr int kMaxPoints        = 1025;
+constexpr int kMaxStyles        = 4096;
+constexpr double kMaxCoordinate = 32768.0;
+constexpr double kMaxThickness  = 255.0;
 
 [[noreturn]] void invalid(const QString& message) {
   throw Error("invalid_params", message);
@@ -419,9 +421,9 @@ std::vector<TThickPoint> controlPoints(const QJsonObject& definition) {
     if (!value.isObject()) invalid("Each control point must be an object");
     const auto point = value.toObject();
     keys(point, {"x", "y", "thickness"});
-    result.emplace_back(number(point, "x", -1000000.0, 1000000.0),
-                        number(point, "y", -1000000.0, 1000000.0),
-                        number(point, "thickness", 0.0, 10000.0));
+    result.emplace_back(number(point, "x", -kMaxCoordinate, kMaxCoordinate),
+                        number(point, "y", -kMaxCoordinate, kMaxCoordinate),
+                        number(point, "thickness", 0.0, kMaxThickness));
   }
   if (boolean(definition, "closed") && result.front() != result.back())
     invalid(
@@ -572,8 +574,8 @@ QJsonObject fillVector(Context& context, Document& document,
   auto* level         = simpleLevel(document, params);
   const auto frame    = frameId(params);
   const auto original = vectorFor(level, frame);
-  const TPointD point(number(params, "x", -1000000.0, 1000000.0),
-                      number(params, "y", -1000000.0, 1000000.0));
+  const TPointD point(number(params, "x", -kMaxCoordinate, kMaxCoordinate),
+                      number(params, "y", -kMaxCoordinate, kMaxCoordinate));
   const int style = styleId(params, paletteFor(level));
   TVectorImageP vector(original->cloneImage());
   vector->findRegions();
@@ -1009,9 +1011,11 @@ QJsonObject boundedArray(const QJsonObject& items, int minimum, int maximum) {
 }
 
 QJsonObject editSchema() {
-  QJsonObject coordinate{
-      {"type", "number"}, {"minimum", -1000000}, {"maximum", 1000000}};
-  QJsonObject thickness{{"type", "number"}, {"minimum", 0}, {"maximum", 10000}};
+  QJsonObject coordinate{{"type", "number"},
+                         {"minimum", -kMaxCoordinate},
+                         {"maximum", kMaxCoordinate}};
+  QJsonObject thickness{
+      {"type", "number"}, {"minimum", 0}, {"maximum", kMaxThickness}};
   QJsonObject point{{"type", "object"},
                     {"additionalProperties", false},
                     {"properties", QJsonObject{{"x", coordinate},
@@ -1116,8 +1120,8 @@ void vectorCatalog(QJsonArray& tools) {
       true));
   properties.remove("edits");
   properties.insert("x", QJsonObject{{"type", "number"},
-                                     {"minimum", -1000000},
-                                     {"maximum", 1000000}});
+                                     {"minimum", -kMaxCoordinate},
+                                     {"maximum", kMaxCoordinate}});
   properties.insert("y", properties.value("x"));
   properties.insert("style_id", range(0, kMaxStyles - 1));
   tools.append(
@@ -1235,6 +1239,35 @@ void validatePaletteProfile(TPalette* palette) {
   }
 }
 
+void validateNativePoint(const TThickPoint& point) {
+  if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+      std::abs(point.x) > kMaxCoordinate || std::abs(point.y) > kMaxCoordinate)
+    throw Error("unsupported_geometry",
+                "Vector coordinates exceed the admitted native PLI range");
+  if (!std::isfinite(point.thick) || point.thick < 0.0 ||
+      point.thick > kMaxThickness)
+    throw Error("unsupported_geometry",
+                "Vector radius must be finite and between zero and 255");
+}
+
+void validateNativeStroke(const TStroke& stroke, TPalette* palette) {
+  const int count = stroke.getControlPointCount();
+  if (count < 3 || count % 2 != 1)
+    throw Error("unsupported_geometry",
+                "Native quadratic strokes require 2*n+1 control points");
+  if (stroke.getStyle() < 0 || stroke.getStyle() >= palette->getStyleCount())
+    throw Error("unsupported_style",
+                "A vector stroke refers to an absent palette style");
+  for (int index = 0; index < count; ++index)
+    validateNativePoint(stroke.getControlPoint(index));
+}
+
+void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
+  const auto vector = vectorFor(level, frame);
+  for (UINT index = 0; index < vector->getStrokeCount(); ++index)
+    validateNativeStroke(*vector->getStroke(index), paletteFor(level));
+}
+
 void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
   if (frame.getNumber() < 1 || frame.getNumber() > 999999 ||
       !QRegularExpression("^[a-z]{0,8}$").match(frame.getLetter()).hasMatch())
@@ -1251,6 +1284,8 @@ void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
                 "Drawing image type does not match its level type");
   if (image->raster())
     rasterDimensions(image->raster()->getLx(), image->raster()->getLy());
+  else
+    validateVectorProfile(level, frame);
 }
 
 }  // namespace
