@@ -214,14 +214,16 @@ void Context::resetMutationStarted() { m_mutationStarted = false; }
 bool Context::mutationStarted() const { return m_mutationStarted; }
 
 QString Context::resolvePath(const QString& path, bool write) const {
-  if (path.isEmpty() || path.contains(QChar::Null) || path.contains('\\'))
+  const QString normalized = QDir::fromNativeSeparators(path);
+  if (normalized.isEmpty() || normalized.contains(QChar::Null) ||
+      normalized.contains('\\'))
     throw Error("invalid_path",
                 "Use a nonempty path with forward-slash separators.");
-  for (const QString& part : path.split('/'))
+  for (const QString& part : normalized.split('/'))
     if (part == "..")
       throw Error("invalid_path", "Parent traversal is not allowed.");
   const QString absolute =
-      QDir::cleanPath(QDir(m_workspace).absoluteFilePath(path));
+      QDir::cleanPath(QDir(m_workspace).absoluteFilePath(normalized));
   QString ancestor = absolute;
   while (!QFileInfo::exists(ancestor)) {
     if (QFileInfo(ancestor).isSymLink())

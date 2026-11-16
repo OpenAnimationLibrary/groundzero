@@ -1114,6 +1114,7 @@ target_sources(OpenToonz PRIVATE mediacachepopup.cpp mediacachepopup.h)
 target_link_libraries(OpenToonz spdlog::spdlog_header_only Threads::Threads)
 if(WIN32)
     target_compile_definitions(OpenToonz PRIVATE SPDLOG_WCHAR_FILENAMES)
+    target_link_libraries(OpenToonz PRIVATE shell32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)

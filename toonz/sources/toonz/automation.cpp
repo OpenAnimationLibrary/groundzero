@@ -34,6 +34,7 @@
 #ifdef _WIN32
 #include <io.h>
 #include <qt_windows.h>
+#include <shellapi.h>
 #else
 #include <unistd.h>
 #endif
@@ -57,21 +58,41 @@ struct Options {
 #endif
 };
 
-Options parseOptions(int argc, char* argv[]) {
+QStringList workerArguments(int argc, char* argv[]) {
+  QStringList arguments;
+#ifdef _WIN32
+  Q_UNUSED(argc);
+  Q_UNUSED(argv);
+  int count             = 0;
+  auto* nativeArguments = CommandLineToArgvW(GetCommandLineW(), &count);
+  if (!nativeArguments)
+    throw Error("invalid_argument", "Could not read the worker command line.");
+  for (int index = 0; index < count; ++index)
+    arguments.append(QString::fromWCharArray(nativeArguments[index]));
+  LocalFree(nativeArguments);
+#else
+  for (int index = 0; index < argc; ++index)
+    arguments.append(QString::fromLocal8Bit(argv[index]));
+#endif
+  return arguments;
+}
+
+Options parseOptions(const QStringList& arguments) {
   Options options;
-  for (int index = 2; index < argc; ++index) {
-    const QString key = QString::fromLocal8Bit(argv[index]);
+  for (int index = 2; index < arguments.size(); ++index) {
+    const QString key = arguments[index];
 #ifdef BUILD_UI_PORT_TESTS
     if (key == "--test-domains") {
       options.testDomains = true;
       continue;
     }
 #endif
-    if ((key != "--workspace" && key != "--input-root") || index + 1 >= argc)
+    if ((key != "--workspace" && key != "--input-root") ||
+        index + 1 >= arguments.size())
       throw Error(
           "invalid_argument",
           "Worker accepts --workspace DIR and repeated --input-root DIR.");
-    const QFileInfo directory(QString::fromLocal8Bit(argv[++index]));
+    const QFileInfo directory(arguments[++index]);
     if (!directory.isAbsolute() || !directory.isDir() || directory.isSymLink())
       throw Error("invalid_argument",
                   "Worker roots must be existing absolute directories.");
@@ -285,7 +306,7 @@ int executeWorker(QApplication& application, QFile& output,
 
 int runWorker(int argc, char* argv[]) {
   try {
-    const Options options = parseOptions(argc, argv);
+    const Options options = parseOptions(workerArguments(argc, argv));
 #ifndef _WIN32
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
       throw Error("io_error",
@@ -297,6 +318,9 @@ int runWorker(int argc, char* argv[]) {
       throw Error("io_error", "Could not open the worker protocol stream.");
     const QString runtime = createRuntimeDirectory(options.workspace);
     int applicationArgc   = 1;
+#ifdef _WIN32
+    QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
+#endif
     QApplication application(applicationArgc, argv);
     std::setlocale(LC_NUMERIC, "C");
     QObject mainScope(&application);
