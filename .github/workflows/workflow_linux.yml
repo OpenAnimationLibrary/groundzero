@@ -667,7 +667,7 @@ jobs:
       id: node_runtime
       if: ${{ !cancelled() }}
       with:
-        node-version: '22'
+        node-version: '22.23.5'
         package-manager-cache: false
 
     - name: Audit and install MCP adapter dependencies
@@ -698,12 +698,20 @@ jobs:
         set -euo pipefail
         failed=0
         for check in lint format:check typecheck; do
-          if ! corepack pnpm "$check"; then
-            echo "::error title=MCP adapter source check::${check} failed"
+          if ! python3 ../../ci-scripts/mcp_check.py --title "MCP adapter ${check}" \
+            --output "checks/${check//:/-}.txt" corepack pnpm "$check"; then
             failed=1
           fi
         done
         exit "$failed"
+
+    - name: Retain MCP adapter check diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: MCP-adapter-checks-${{ github.sha }}
+        path: tools/mcp/checks
+        if-no-files-found: ignore
 
     - name: Build MCP adapter
       id: mcp_adapter
@@ -714,7 +722,7 @@ jobs:
         corepack pnpm build
 
     - name: Test MCP adapter contracts
-      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.mcp_dependencies.outcome == 'success' }}
       working-directory: tools/mcp
       run: |
         set -euo pipefail

@@ -57,15 +57,23 @@ class Worker:
         try:
             response = self.responses.get(timeout=timeout)
         except Empty as error:
-            raise TimeoutError(f"Native worker did not respond within {timeout}s") from error
+            raise TimeoutError(
+                f"Native worker did not respond within {timeout}s: {self._diagnostic_tail()}"
+            ) from error
         if isinstance(response, Exception):
-            raise RuntimeError(f"Worker transport failed: {response}; see {self.log_path}")
+            raise RuntimeError(f"Worker transport failed: {response}; {self._diagnostic_tail()}")
         result = json.loads(response)
         if not isinstance(result, dict):
             raise AssertionError(f"Worker response must be an object: {result!r}")
         if ("result" in result) == ("error" in result):
             raise AssertionError(f"Worker response must contain exactly one outcome: {result!r}")
         return result
+
+    def _diagnostic_tail(self) -> str:
+        with self.log_path.open("rb") as log:
+            log.seek(0, 2)
+            log.seek(max(0, log.tell() - 4096))
+            return log.read().decode("utf-8", errors="replace")
 
     def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Call a native operation and require its matching request identifier."""

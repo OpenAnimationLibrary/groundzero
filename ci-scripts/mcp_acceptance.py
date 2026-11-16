@@ -697,6 +697,95 @@ class NativeAcceptance(unittest.TestCase):
         self.failure("scene.open", self.write_params(None, {"path": str(package)}))
         self.assertEqual(self.success("automation.list_documents", {}), before)
 
+    def test_multiletter_drawing_suffix_survives_native_save_and_exposure(self) -> None:
+        for image_format in ("vector", "rgba8", "toonzRaster"):
+            with self.subTest(format=image_format):
+                document = self.create(image_format)
+                level = self.mutate("level.create", document, name="Suffix", format=image_format)
+                drawing = {"number": 1, "suffix": "abcdefgh"}
+                target = {"level_id": level["level_id"], "drawing_id": drawing}
+                dimensions = (
+                    {} if image_format == "vector" else {"width": 2, "height": 2, "dpi": 120}
+                )
+                self.mutate("drawing.create", document, **target, format=image_format, **dimensions)
+                other_drawing = {"number": 1, "suffix": "z"}
+                self.mutate(
+                    "drawing.create",
+                    document,
+                    level_id=level["level_id"],
+                    drawing_id=other_drawing,
+                    format=image_format,
+                    **dimensions,
+                )
+                self.failure(
+                    "drawing.create",
+                    self.write_params(
+                        document,
+                        {
+                            **target,
+                            "drawing_id": {"number": 2, "suffix": "abcdefghi"},
+                            "format": image_format,
+                            **dimensions,
+                        },
+                    ),
+                )
+                column = self.mutate("column.create", document, name="Suffix")
+                self.mutate(
+                    "column.expose",
+                    document,
+                    **target,
+                    column_id=column["column_id"],
+                    start_frame=0,
+                    length=3,
+                )
+                self.mutate(
+                    "column.expose",
+                    document,
+                    level_id=level["level_id"],
+                    drawing_id=other_drawing,
+                    column_id=column["column_id"],
+                    start_frame=3,
+                    length=3,
+                )
+                saved = self.mutate(
+                    "scene.save_copy",
+                    document,
+                    directory=str(self.workspace / f"suffix-{image_format}"),
+                )
+                reopened = self.mutate("scene.open", None, path=saved["package_directory"])
+                other = reopened["document_id"]
+                summary = self.success("scene.summary", {"document_id": other})
+                inspected = self.success(
+                    "level.inspect",
+                    {
+                        "document_id": other,
+                        "level_id": summary["levels"][0]["level_id"],
+                    },
+                )
+                self.assertIn(drawing, inspected["drawings"])
+                self.assertIn(other_drawing, inspected["drawings"])
+                cells = self.success(
+                    "column.cells",
+                    {
+                        "document_id": other,
+                        "column_id": summary["columns"][0]["column_id"],
+                        "start_frame": 0,
+                        "length": 6,
+                    },
+                )
+                self.assertEqual(
+                    [cell["drawing_id"] for cell in cells["cells"]],
+                    [drawing] * 3 + [other_drawing] * 3,
+                )
+                self.mutate(
+                    "drawing.create",
+                    other,
+                    level_id=summary["levels"][0]["level_id"],
+                    drawing_id={"number": 2, "suffix": "a"},
+                    format=image_format,
+                    **dimensions,
+                )
+
     def test_unregistered_and_altered_packages_are_not_admitted(self) -> None:
         document, _level, _column = self.populated_scene()
         saved = self.mutate("scene.save_copy", document, directory=str(self.workspace / "original"))
