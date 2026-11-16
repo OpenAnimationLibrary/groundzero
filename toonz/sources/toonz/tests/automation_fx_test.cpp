@@ -456,7 +456,12 @@ void testGraphOwnership(Context& context, Document& document) {
   expectError(context, "INVALID_GRAPH",
               [&] { validateAutomationFxGraph(*document.scene); });
   graph->getInternalFxs()->removeFx(wrapper->getZeraryFx());
-  TFxP output = new TOutputFx();
+  std::unique_ptr<TPersist> persisted(TPersist::create("Toonz_outputFx"));
+  auto* nativeOutput = dynamic_cast<TOutputFx*>(persisted.get());
+  require(nativeOutput != nullptr,
+          "The registered native output factory must be available");
+  TFxP output = nativeOutput;
+  persisted.release();
   graph->getInternalFxs()->addFx(output.getPointer());
   expectError(context, "INVALID_GRAPH",
               [&] { validateAutomationFxGraph(*document.scene); });

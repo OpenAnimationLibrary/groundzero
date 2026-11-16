@@ -134,6 +134,19 @@ TFxP makeEffect(const QString& type) {
   return TFxP(fx);
 }
 
+TFxP makeOutput() {
+  // The registered factory constructs inside toonzlib; its constructor is not
+  // part of that DLL's public API on Windows.
+  std::unique_ptr<TPersist> object(TPersist::create("Toonz_outputFx"));
+  auto* output = dynamic_cast<TOutputFx*>(object.get());
+  if (!output || output->getFxType() != "Toonz_outputFx")
+    throw Error("NATIVE_FAILURE",
+                "Native output factory returned an unexpected effect.");
+  TFxP effect(output);
+  object.release();
+  return effect;
+}
+
 QJsonObject numericSchema(TDoubleParam* param) {
   QJsonObject schema{{"type", "number"}};
   double minimum, maximum, step;
@@ -371,7 +384,7 @@ QJsonValue createEffect(Context& context, Document& document,
   if (graphMembers(document).size() >= 4096)
     throw Error("RESOURCE_LIMIT",
                 "The automation graph is limited to 4096 effect nodes.");
-  TFxP effect = type == "output" ? TFxP(new TOutputFx()) : makeEffect(type);
+  TFxP effect = type == "output" ? makeOutput() : makeEffect(type);
   TFx* fx     = effect.getPointer();
   if (params.contains("name"))
     fx->setName(requiredString(params, "name").toStdWString());
