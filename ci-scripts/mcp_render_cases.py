@@ -142,6 +142,11 @@ def snapshot_survives_edits_and_discard(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("scene.summary", {"document_id": other}), before)
     case.assertEqual(hashlib.sha256(case.fixture.read_bytes()).hexdigest(), input_hash)
     case.failure("scene.summary", {"document_id": document})
+    later = case.mutate("render.preview", other, frame=0, width=8, height=8)
+    _result, blank = _read(case, _artifacts(case, later)[0])
+    case.assertTrue(all(pixel[3] == 0 for pixel in decode_png(blank)[2]))
+    _result, retained = _read(case, artifacts[0])
+    case.assertEqual(decode_png(retained)[2][8 * 32 + 8], fixture_pixel(8, 8, 32))
 
 
 def changed_artifact_is_rejected(case: NativeAcceptance) -> None:

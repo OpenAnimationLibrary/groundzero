@@ -259,10 +259,18 @@ public:
     return TFilePath((directory + "/frames/frame..png").toStdWString());
   }
 
+  void releaseNativeState() {
+    Q_ASSERT(writersClosed);
+    nativeCancel = {};
+    renderer.reset();
+    snapshot.reset();
+  }
+
   void fail(const QString& message) {
     error = message.left(2048);
     artifacts.clear();
     status = JobStatus::Failed;
+    releaseNativeState();
   }
 
   void scheduleBuild() {
@@ -275,6 +283,7 @@ public:
     if (cancellation) {
       writersClosed = true;
       status        = JobStatus::Canceled;
+      releaseNativeState();
       return;
     }
     try {
@@ -329,6 +338,7 @@ public:
   bool onFrameCompleted(int frame) override {
     const auto self = shared_from_this();
     QTimer::singleShot(0, QCoreApplication::instance(), [self, frame]() {
+      if (self->terminal()) return;
       self->completed.insert(frame);
       if (!self->cancellation &&
           int(self->completed.size()) == self->request.count())
@@ -343,6 +353,7 @@ public:
         QString::fromStdWString(exception.getMessage()).left(2048);
     QTimer::singleShot(0, QCoreApplication::instance(),
                        [self, frame, message]() {
+                         if (self->terminal()) return;
                          self->failed.insert(frame);
                          self->error = message;
                        });
@@ -364,7 +375,10 @@ public:
   void finish(MovieRenderer::CompletionStatus result,
               const QString& diagnostic) {
     writersClosed = true;
-    nativeCancel  = {};
+    // The native terminal callback and render-end cleanup run on this thread.
+    // This queued continuation runs after they return. Drop graphs before the
+    // snapshot scene; artifact verification only needs the closed output files.
+    releaseNativeState();
     if (cancellation || result == MovieRenderer::CompletionStatus::Canceled) {
       status = JobStatus::Canceled;
       return;
