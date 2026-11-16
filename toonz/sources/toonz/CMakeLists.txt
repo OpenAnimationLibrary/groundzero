@@ -279,6 +279,7 @@ set(SOURCES
     automation_fx.cpp
     automation_drawing.cpp
     automation_render.cpp
+    automation_media.cpp
     automation_persistence.cpp
     activechecks.cpp
     languagemanager.cpp
