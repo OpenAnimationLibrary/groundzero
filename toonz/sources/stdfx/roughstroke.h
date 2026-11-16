@@ -3,7 +3,9 @@
 // Rough Stroke: hand-drawn strokes along paths. Each path gets one or more
 // copies; a copy is the path moved sideways by a constant offset, a wave and
 // a slow random drift, with a width that swells in and out. A stretch of the
-// path can be revealed, and the stretch can travel along it.
+// path can be revealed, and the stretch can travel along it. A copy can be
+// cut into dashes or dots, its width can vary at random along it, and it
+// can go on past the ends of the path.
 //
 // All positions are in output pixels. A copy's coverage at a pixel is the
 // largest coverage of any of its segments there, so joints are not drawn
@@ -54,6 +56,23 @@ struct Settings {
   double drift           = 0;   // random sideways drift along the stroke
   double driftSize       = 30;  // length of the drift's features
 
+  // Dashes along the path, from its start: dashLength drawn, then dashGap
+  // left out, the pattern moved dashPhase along. Without a gap the stroke
+  // is solid; a gap without a length leaves round dots as wide as the
+  // stroke. The ends of a dash are round.
+  double dashLength = 0, dashGap = 0, dashPhase = 0;
+
+  // A smooth random change of the width along the stroke, in features
+  // widthNoiseSize long: the half width stays within (1 +/- widthNoise)
+  // times its own
+  double widthNoise = 0, widthNoiseSize = 40;
+
+  // How far each end of a copy goes on past the end of the path, along the
+  // path's tangent there; each end falls short of it by a random share of
+  // up to overshootRandom. The reveal and the swell take the copy with its
+  // overshoot; dashes, wave, drift and width noise go on from the path.
+  double overshoot = 0, overshootRandom = 0;
+
   bool useStrokeColor = true;
   Rgba startColor{0, 0, 0, 1}, endColor{0, 0, 0, 1};
   double opacity = 1;
@@ -76,7 +95,16 @@ struct Copy {
   std::vector<Vertex> vertices;
 };
 
-enum Property { Offset = 1, Width, Opacity, Phase, Drift };
+enum Property {
+  Offset = 1,
+  Width,
+  Opacity,
+  Phase,
+  Drift,
+  WidthNoise,
+  OvershootStart,
+  OvershootEnd
+};
 
 namespace detail {
 
@@ -149,6 +177,12 @@ inline void validate(const Settings &s) {
             finite(s.waveAmplitude) && finite(s.wavePeriod) &&
             finite(s.wavePhase) && finite(s.wavePhaseRandom) &&
             finite(s.drift) && finite(s.driftSize) && s.driftSize > 0 &&
+            finite(s.dashLength) && finite(s.dashGap) &&
+            finite(s.dashLength + s.dashGap) && finite(s.dashPhase) &&
+            s.dashLength >= 0 && s.dashGap >= 0 && finite(s.widthNoise) &&
+            finite(s.widthNoiseSize) && s.widthNoiseSize > 0 &&
+            finite(s.overshoot) && s.overshoot >= 0 &&
+            finite(s.overshootRandom) &&
             finite(s.opacity) && finite(s.revealStart) &&
             finite(s.revealEnd) && finite(s.travel) && finite(s.step) &&
             s.step >= 0.25;
@@ -157,23 +191,28 @@ inline void validate(const Settings &s) {
   if (!ok) throw std::invalid_argument("Rough Stroke: invalid settings");
 }
 
-// How far from its path a copy can reach, beyond the drawn thickness
+// How far from its path a copy can reach, beyond the drawn thickness. Width
+// noise can grow the drawn thickness too, by up to 1 + widthNoise times.
 inline double reach(const Settings &s) {
   validate(s);
   return std::abs(s.copyOffset) + std::abs(s.waveAmplitude) +
-         std::abs(s.drift) + 0.5 * std::max(0.0, s.width) + 1.0;
+         std::abs(s.drift) +
+         0.5 * std::max(0.0, s.width) * (1 + detail::unit(s.widthNoise)) +
+         s.overshoot + 1.0;
 }
 
 namespace detail {
 
-// Smooth random drift in [-1, 1] at distance d along a copy
-inline double drift(const Settings &s, int path, int copy, double d) {
-  const double u   = d / s.driftSize;
+// Smooth random value in [-1, 1] at distance d along a copy, in features
+// size long
+inline double noise(const Settings &s, int path, int copy, Property property,
+                    double d, double size) {
+  const double u   = d / size;
   const double c   = std::floor(u);
   const double t   = u - c;
   const int cell   = int(std::max(-1e9, std::min(1e9, c)));
-  const double a   = random(s.seed, path, copy, Drift, cell);
-  const double b   = random(s.seed, path, copy, Drift, cell + 1);
+  const double a   = random(s.seed, path, copy, property, cell);
+  const double b   = random(s.seed, path, copy, property, cell + 1);
   const double mix = t * t * (3 - 2 * t);
   return 2 * (a + (b - a) * mix) - 1;
 }
@@ -212,38 +251,37 @@ struct Sampler {
     nx              = n > minLength ? -dy / n : 0;
     ny              = n > minLength ? dx / n : 0;
   }
+  // As at(), with the path going on along its tangents past its ends
+  void beyond(double d, Point &point, double &nx, double &ny) const {
+    if (d >= 0 && d <= total()) {
+      at(d, point, nx, ny);
+      return;
+    }
+    const double end = d < 0 ? 0.0 : total();
+    at(end, point, nx, ny);
+    point.x += ny * (d - end);
+    point.y -= nx * (d - end);
+  }
 };
 
-}  // namespace detail
+// A stretch of a path, as distances along it
+struct Run {
+  double from, to, base;  // base: distance into the revealed stretch at from
+};
 
-// The copies of one path. index tells paths apart, so each has its own
-// random values. A looping stretch that crosses the path's end gives two
-// runs per copy.
-inline std::vector<Copy> build(const Path &path, int index,
-                               const Settings &s) {
-  validate(s);
-  using detail::unit;
-  std::vector<Copy> copies;
-  if (path.points.size() < 2) return copies;
-  const detail::Sampler sampler(path.points);
-  const double total = sampler.total();
-  if (!(total > minLength)) return copies;
-
-  // The revealed stretch, as distances along the path
+// The runs of the revealed stretch that lie on a path total long, and the
+// length of the stretch
+inline std::vector<Run> revealed(const Settings &s, double total,
+                                 double &length) {
+  std::vector<Run> runs;
   double from = unit(std::min(s.revealStart, s.revealEnd)) * total;
   double to   = unit(std::max(s.revealStart, s.revealEnd)) * total;
-  const double length = to - from;
-  if (!(length > minLength)) return copies;
+  length      = to - from;
+  if (!(length > minLength)) return runs;
   double shift = s.travel * total;
   if (s.loop) shift -= std::floor(shift / total) * total;
   from += shift;
   to += shift;
-
-  // Runs of the stretch that lie on the path
-  struct Run {
-    double from, to, base;  // base: distance into the stretch at from
-  };
-  std::vector<Run> runs;
   if (s.loop) {
     if (to <= total) {
       runs.push_back({from, to, 0});
@@ -256,6 +294,50 @@ inline std::vector<Copy> build(const Path &path, int index,
     const double a = std::max(0.0, from), b = std::min(total, to);
     if (b - a > minLength) runs.push_back({a, b, a - from});
   }
+  return runs;
+}
+
+// The dashes of the runs, each a run of its own: dash k starts at dashPhase
+// + k * (dashLength + dashGap) along the path, which starts origin along the
+// runs. Without a gap, the runs. A dot is a run without length.
+inline std::vector<Run> dashes(const Settings &s,
+                               const std::vector<Run> &runs, double origin) {
+  if (!(s.dashGap > 0)) return runs;
+  const double period = s.dashLength + s.dashGap;
+  const double phase  = origin + std::fmod(s.dashPhase, period);
+  std::vector<Run> pieces;
+  for (const Run &run : runs) {
+    const double first = std::floor((run.from - phase - s.dashLength) / period);
+    const double last  = std::ceil((run.to - phase) / period);
+    if (last - first + 1 > 0.5 * double(maxVertices))
+      throw std::length_error("Rough Stroke: a path has too many dashes");
+    for (double k = first; k <= last; ++k) {
+      const double start = phase + k * period;
+      const double from  = std::max(run.from, start);
+      const double to = std::max(from, std::min(run.to, start + s.dashLength));
+      const bool dot =
+          s.dashLength == 0 && start >= run.from && start <= run.to;
+      if (dot || to - from > minLength)
+        pieces.push_back({from, to, run.base + (from - run.from)});
+    }
+  }
+  return pieces;
+}
+
+}  // namespace detail
+
+// The copies of one path. index tells paths apart, so each has its own
+// random values. A looping stretch that crosses the path's end gives two
+// runs per copy, and each dash is a run of its own.
+inline std::vector<Copy> build(const Path &path, int index,
+                               const Settings &s) {
+  validate(s);
+  using detail::unit;
+  std::vector<Copy> copies;
+  if (path.points.size() < 2) return copies;
+  const detail::Sampler sampler(path.points);
+  const double total = sampler.total();
+  if (!(total > minLength)) return copies;
 
   const double in = unit(s.inLength), out = unit(s.outLength);
   for (int c = 0; c < s.copies; ++c) {
@@ -275,24 +357,38 @@ inline std::vector<Copy> build(const Path &path, int index,
     const double phase =
         s.wavePhase +
         2 * pi * unit(s.wavePhaseRandom) * random(s.seed, index, c, Phase);
-    for (const Run &run : runs) {
-      const int count = int(std::ceil((run.to - run.from) / s.step));
-      if (count < 1) continue;
-      if (std::size_t(count) + 1 > maxVertices)
+    // How far the copy goes on past each end of the path. Runs are measured
+    // along the copy, from head before the path's start.
+    const double head =
+        s.overshoot * (1 - unit(s.overshootRandom) *
+                               random(s.seed, index, c, OvershootStart));
+    const double tail =
+        s.overshoot * (1 - unit(s.overshootRandom) *
+                               random(s.seed, index, c, OvershootEnd));
+    double length = 0;  // of the revealed stretch
+    const std::vector<detail::Run> runs = detail::dashes(
+        s, detail::revealed(s, head + total + tail, length), head);
+    for (const detail::Run &run : runs) {
+      // A dot is a run without length: two vertices in one place
+      const double steps = std::ceil((run.to - run.from) / s.step);
+      if (steps + 1 > double(maxVertices))
         throw std::length_error("Rough Stroke: a path is too long");
+      const int count = std::max(1, int(steps));
       Copy copy;
       copy.vertices.reserve(std::size_t(count) + 1);
       for (int k = 0; k <= count; ++k) {
-        const double d = run.from + (run.to - run.from) * k / count;
+        const double e = run.from + (run.to - run.from) * k / count;
         // t runs over the whole revealed stretch, across both runs
-        const double t = unit((run.base + (d - run.from)) / length);
+        const double t = unit((run.base + (e - run.from)) / length);
+        const double d = e - head;  // along the path
         Point p;
         double nx, ny;
-        sampler.at(d, p, nx, ny);
+        sampler.beyond(d, p, nx, ny);
         double side = offset;
         if (s.waveAmplitude != 0 && s.wavePeriod > minLength)
           side += s.waveAmplitude * std::sin(2 * pi * d / s.wavePeriod + phase);
-        if (s.drift != 0) side += s.drift * detail::drift(s, index, c, d);
+        if (s.drift != 0)
+          side += s.drift * detail::noise(s, index, c, Drift, d, s.driftSize);
         double profile = 1;
         if (in > 0 && t < in) profile *= t / in;
         if (out > 0 && t > 1 - out) profile *= (1 - t) / out;
@@ -303,6 +399,10 @@ inline std::vector<Copy> build(const Path &path, int index,
                                 0.5 * s.width) *
                                    widthScale) *
                  std::max(0.0, profile);
+        if (s.widthNoise > 0)
+          v.half *= 1 + unit(s.widthNoise) *
+                            detail::noise(s, index, c, WidthNoise, d,
+                                          s.widthNoiseSize);
         if (s.useStrokeColor) {
           v.color = path.color;
         } else {
