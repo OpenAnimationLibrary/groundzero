@@ -32,12 +32,11 @@ def main() -> int:
             continue
         path = PurePosixPath(filename)
         directories = {part.lower() for part in path.parts[:-1]}
-        planning_name = re.search(r"(^|[-_.])(plans?|planning|reviews?)([-_.]|$)", path.name, re.I)
-        if directories.intersection(
-            {".agents", ".codex", "plans", "planning", "reviews", "review"}
-        ):
-            forbidden.append(filename)
-        elif planning_name:
+        planning_path = any(
+            re.search(r"(^|[-_.])(plans?|planning|reviews?)([-_.]|$)", part, re.I)
+            for part in path.parts
+        )
+        if directories.intersection({".agents", ".codex"}) or planning_path:
             forbidden.append(filename)
     for filename in forbidden:
         print(
