@@ -32,6 +32,8 @@ class TFrameHandle;
 
 class ColumnToCurveMapper {
 public:
+  // FunctionSelection deletes the sheet's mapper through this base
+  virtual ~ColumnToCurveMapper() = default;
   virtual TDoubleParam *getCurve(int columnIndex) const = 0;
 };
 

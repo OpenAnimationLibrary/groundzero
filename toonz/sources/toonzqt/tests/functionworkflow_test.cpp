@@ -9,6 +9,8 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/toonzfolders.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 #include "tenv.h"
 #include "tthread.h"
 #include "tfunctorinvoker.h"
@@ -407,6 +409,32 @@ void selectionLifetime() {
             "replacement editor could not retain a multi-channel selection");
   }
   require(!TSelection::getCurrent(), "replacement editor retained a dangling selection");
+}
+// The tree paints its current stage object as current. A deleted column's
+// object can lose its other owners (the xsheet, the undo history) while it is
+// still current, so the model keeps its own reference.
+void currentStageObjectLifetime() {
+  static_assert(std::has_virtual_destructor<ColumnToCurveMapper>::value,
+                "FunctionSelection deletes column mappers through the base class");
+  Fixture f;
+  const TStageObjectId id = TStageObjectId::ColumnId(0);
+  auto stage = std::make_unique<TStageObjectTree>();
+  TStageObject *object = stage->getStageObject(id, true);
+  require(object, "stage object fixture missing");
+  const int owners = object->getRefCount();
+  f.model->setCurrentStageObject(object);
+  require(object->getRefCount() == owners + 1,
+          "the Function Editor model does not reference its current stage object");
+  f.model->setCurrentStageObject(object);
+  require(object->getRefCount() == owners + 1,
+          "setting the same current stage object again changed its references");
+  stage.reset();
+  require(f.model->getCurrentStageObject() == object && object->getRefCount() == 1 &&
+              object->getId() == id,
+          "a current stage object did not outlive its removed owner");
+  f.model->refreshData(nullptr);
+  f.model->setCurrentStageObject(nullptr);
+  require(!f.model->getCurrentStageObject(), "the current stage object was not cleared");
 }
 void commandActionLifetime() {
   auto *manager = CommandManager::instance();
@@ -1055,6 +1083,7 @@ int main(int argc, char **argv) {
     checkpoint("queued model lifetime begins"); queuedModelLifetime();
     checkpoint("fit/search begin"); fitAndSearch();
     checkpoint("selection lifetime begins"); selectionLifetime();
+    checkpoint("current stage object lifetime begins"); currentStageObjectLifetime();
     checkpoint("command action lifetime begins"); commandActionLifetime();
     checkpoint("pending shortcut lifetime begins"); pendingShortcutLifetime();
     checkpoint("normalization/locks begin"); normalizationAndLocks();

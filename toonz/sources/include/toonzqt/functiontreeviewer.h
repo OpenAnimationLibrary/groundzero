@@ -234,9 +234,10 @@ private:
   std::vector<Channel *> m_activeChannels;
 
   Channel *m_currentChannel;  //!< (\p not \p owned) Current channel.
-  TStageObject
-      *m_currentStageObject;  //!< (\p not \p owned) Current stage object.
-  TFx *m_currentFx;           //!< (\p not \p owned) Current fx.
+  // The current stage object and fx are referenced: a deleted column's
+  // object can lose its last other owner while the tree still paints it
+  TStageObject *m_currentStageObject;  //!< Current stage object.
+  TFx *m_currentFx;                    //!< Current fx.
 
   bool m_paramsChanged;
   bool m_referenceMode = false;
@@ -275,7 +276,7 @@ public:
 
   void applyShowFilters();
 
-  void setCurrentStageObject(TStageObject *obj) { m_currentStageObject = obj; }
+  void setCurrentStageObject(TStageObject *obj);
   TStageObject *getCurrentStageObject() const { return m_currentStageObject; }
 
   void setCurrentFx(TFx *fx);
