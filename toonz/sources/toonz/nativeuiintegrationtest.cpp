@@ -8,6 +8,7 @@
 #include "drawingcacheintegrationtest.h"
 #include "artistworkflowbenchmark.h"
 #include "mediacacheintegrationtest.h"
+#include "mcphandoffintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
 #include "animationworkflowintegrationtest.h"
 #include "functiontimingintegrationtest.h"
@@ -1650,6 +1651,8 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
                     << error.toStdString() << std::endl;
           return 1;
         }
+      } else if (diagnosticSuite == "mcp-handoff") {
+        runMcpHandoffIntegrationTest();
       } else if (diagnosticSuite == "cast-workflow") {
         runCastWorkflowIntegrationTest(window);
       } else if (diagnosticSuite == "combined-timing") {

@@ -1118,6 +1118,7 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
