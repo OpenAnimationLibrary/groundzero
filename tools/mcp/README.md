@@ -59,6 +59,14 @@ palette styles. Its FX catalog admits six builtins: color card, linear and radia
 gradients, over, blur, and glow. Consult the running catalog for parameters and
 limits. There is no live editor connection or undo history in this profile.
 
+PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
+pixels per image. Vector drawings are limited to 4096 strokes and 32768 control
+points, with coordinates within ±32768 and radii up to 255 native units. Palettes
+support up to 4096 unlinked solid styles, without reference images or studio
+palette links. Style names cannot contain NUL or start with `|`. Palette keyframes
+use frames 0–65535 for vector levels and 0–999999 for Toonz raster levels. Consult
+the running catalog for the remaining operation-specific bounds.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
