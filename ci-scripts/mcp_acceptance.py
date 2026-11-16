@@ -97,6 +97,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_drawings_respect_native_format_number_limits(self) -> None:
         mcp_drawing_cases.check_drawing_number_limits(self)
 
+    def test_palettes_respect_native_serialization_limits(self) -> None:
+        mcp_drawing_cases.check_palette_serialization_limits(self)
+
     def test_fx_selected_output_survives_reopen(self) -> None:
         mcp_fx_cases.selected_output_survives_reopen(self)
 
