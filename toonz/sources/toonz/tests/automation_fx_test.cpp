@@ -2,7 +2,9 @@
 #include "automation_fx.h"
 
 #include "tdoubleparam.h"
+#include "tdoublekeyframe.h"
 #include "tfx.h"
+#include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
 #include "tzeraryfx.h"
@@ -53,6 +55,39 @@ void expectError(Context& context, const QString& code,
     return;
   }
   throw std::runtime_error("Invalid FX request unexpectedly succeeded");
+}
+
+void expectNoMutation(Context& context, const std::function<void()>& action) {
+  context.resetMutationStarted();
+  action();
+  require(!context.mutationStarted(),
+          "Unchanged FX operations must preserve the document revision");
+}
+
+void testCatalog(Context& context, Document& document) {
+  const QJsonObject catalog = executeFx(context, "fx.catalog", {}).toObject();
+  const QJsonArray effects  = catalog.value("effects").toArray();
+  require(effects.size() == 6,
+          "Builtin profile must expose only its six qualified effects");
+  require(catalog.value("external_dependencies").toArray().isEmpty(),
+          "Builtin profile must not declare external dependencies");
+  for (const QJsonValue& entry : effects) {
+    const QJsonObject descriptor = entry.toObject();
+    require(descriptor.value("available").toBool(),
+            "Every qualified builtin must be registered");
+    const QString type = descriptor.value("type").toString();
+    const QString id   = create(context, document, type);
+    TFx* fx            = document.fx(id);
+    if (auto* generator = dynamic_cast<TZeraryColumnFx*>(fx))
+      fx = generator->getZeraryFx();
+    require(
+        QString::fromStdString(fx->getFxType()) == type,
+        "Qualified factories must return the advertised native effect type");
+    for (const QJsonValue& parameter : descriptor.value("parameters").toArray())
+      require(parameter.toObject().value("supported").toBool(),
+              "Qualified builtin constructors must expose only supported "
+              "public parameter types");
+  }
 }
 
 void testGenerator(Context& context, Document& document) {
@@ -182,6 +217,68 @@ void testParameters(Context& context, Document& document) {
           "Native keys must interpolate linearly");
 }
 
+void testNoOpParameters(Context& context, Document& document) {
+  const QString blur = create(context, document, "STD_blurFx");
+  const QJsonObject change{
+      {"fx_id", blur}, {"parameter", "value"}, {"value", 20}};
+  expectNoMutation(
+      context, [&] { call(context, document, "fx.parameter.set", change); });
+  QJsonObject key = change;
+  key["frame"]    = 0;
+  context.resetMutationStarted();
+  call(context, document, "fx.parameter.set_key", key);
+  require(context.mutationStarted(),
+          "Setting a first key must mutate even when its value is unchanged");
+  expectNoMutation(
+      context, [&] { call(context, document, "fx.parameter.set_key", key); });
+  auto* number = dynamic_cast<TDoubleParam*>(
+      document.fx(blur)->getParams()->getParam("value"));
+  TDoubleKeyframe eased = number->getKeyframeAt(0);
+  eased.m_type          = TDoubleKeyframe::SpeedInOut;
+  number->setKeyframe(eased);
+  context.resetMutationStarted();
+  call(context, document, "fx.parameter.set_key", key);
+  require(context.mutationStarted() &&
+              number->getKeyframeAt(0).m_type == TDoubleKeyframe::Linear,
+          "An equal value with different interpolation must still replace the "
+          "native key");
+  const QString gradient =
+      create(context, document, "STD_iwa_LinearGradientFx");
+  const QJsonObject point{{"fx_id", gradient},
+                          {"parameter", "startPoint"},
+                          {"value", QJsonArray{-40, 12}}};
+  call(context, document, "fx.parameter.set", point);
+  expectNoMutation(context,
+                   [&] { call(context, document, "fx.parameter.set", point); });
+  auto* wrapper     = dynamic_cast<TZeraryColumnFx*>(document.fx(gradient));
+  auto* enumeration = dynamic_cast<TEnumParam*>(
+      wrapper->getZeraryFx()->getParams()->getParam("curveType"));
+  expectNoMutation(context, [&] {
+    call(context, document, "fx.parameter.set",
+         {{"fx_id", gradient},
+          {"parameter", "curveType"},
+          {"value", enumeration->getValue()}});
+  });
+  expectError(context, "OUT_OF_RANGE", [&] {
+    call(context, document, "fx.parameter.set",
+         {{"fx_id", gradient}, {"parameter", "curveType"}, {"value", 9999}});
+  });
+  expectError(context, "NOT_ANIMATABLE", [&] {
+    call(context, document, "fx.parameter.set_key",
+         {{"fx_id", gradient},
+          {"parameter", "curveType"},
+          {"value", enumeration->getValue()},
+          {"frame", 0}});
+  });
+  const QString card = create(context, document, "colorCardFx");
+  const QJsonObject color{{"fx_id", card},
+                          {"parameter", "color"},
+                          {"value", QJsonArray{16, 80, 192, 128}}};
+  call(context, document, "fx.parameter.set", color);
+  expectNoMutation(context,
+                   [&] { call(context, document, "fx.parameter.set", color); });
+}
+
 void testOutputSelection(Context& context, Document& document) {
   FxDag* graph           = document.scene->getXsheet()->getFxDag();
   const QString original = document.idForFx(graph->getCurrentOutputFx());
@@ -225,6 +322,86 @@ void testDeletion(Context& context, Document& document) {
               [&] { call(context, document, "fx.delete", {{"fx_id", card}}); });
   const QString next = create(context, document, "colorCardFx");
   require(next != card, "Recreated effect must not revive a stale handle");
+}
+
+void testRepeatedReconnect(Context& context, Document& document) {
+  const QString card   = create(context, document, "colorCardFx");
+  const QString glow   = create(context, document, "STD_glowFx");
+  FxDag* graph         = document.scene->getXsheet()->getFxDag();
+  const QString output = document.idForFx(graph->getCurrentOutputFx());
+  const QJsonObject outputLink{
+      {"fx_id", output}, {"port", "source"}, {"source_fx_id", glow}};
+  call(context, document, "fx.connect", outputLink);
+  expectNoMutation(context,
+                   [&] { call(context, document, "fx.connect", outputLink); });
+  expectNoMutation(context, [&] {
+    call(context, document, "fx.output.select", {{"fx_id", output}});
+  });
+  expectNoMutation(context, [&] {
+    call(context, document, "fx.terminal.set",
+         {{"fx_id", card}, {"enabled", false}});
+  });
+  for (int iteration = 0; iteration < 8; ++iteration) {
+    const QString blur = create(context, document, "STD_blurFx");
+    TFx* native        = document.fx(blur);
+    const std::wstring nativeId =
+        QString::fromStdWString(native->getFxId()).toLower().toStdWString();
+    call(context, document, "fx.connect",
+         {{"fx_id", blur}, {"port", "Source"}, {"source_fx_id", card}});
+    call(context, document, "fx.connect",
+         {{"fx_id", glow}, {"port", "Source"}, {"source_fx_id", blur}});
+    call(context, document, "fx.terminal.set",
+         {{"fx_id", blur}, {"enabled", true}});
+    call(context, document, "fx.delete", {{"fx_id", blur}});
+    require(!document.fx(glow)->getInputPort("Source")->isConnected(),
+            "Repeated intermediate deletion must clear the downstream source");
+    require(
+        document.fx(card)->getOutputConnectionCount() == 0,
+        "Repeated intermediate deletion must release the upstream connection");
+    require(graph->getFxById(nativeId) == nullptr &&
+                !document.effects.contains(blur),
+            "Repeated deletion must expire native lookup and opaque handles");
+    require(graph->getCurrentOutputFx()->getInputPort(0)->getFx() ==
+                document.fx(glow),
+            "Deleting intermediate nodes must retain the chosen output graph");
+    validateAutomationFxGraph(*document.scene);
+  }
+}
+
+void testRepeatedGeneratorDeletion(Context& context, Document& document) {
+  const QString composite = create(context, document, "overFx");
+  QString generator       = create(context, document, "colorCardFx");
+  const QString neighbor  = create(context, document, "colorCardFx");
+  auto* neighborFx = dynamic_cast<TZeraryColumnFx*>(document.fx(neighbor));
+  TXsheet* sheet   = document.scene->getXsheet();
+  for (int iteration = 0; iteration < 8; ++iteration) {
+    const int count       = sheet->getColumnCount();
+    const QString expired = generator;
+    auto* wrapper = dynamic_cast<TZeraryColumnFx*>(document.fx(generator));
+    const std::wstring nativeId =
+        QString::fromStdWString(wrapper->getZeraryFx()->getFxId())
+            .toLower()
+            .toStdWString();
+    for (const QString& port : {QString("Source1"), QString("Source2")})
+      call(context, document, "fx.connect",
+           {{"fx_id", composite}, {"port", port}, {"source_fx_id", generator}});
+    call(context, document, "fx.delete", {{"fx_id", generator}});
+    require(!document.fx(composite)->getInputPort("Source1")->isConnected() &&
+                !document.fx(composite)->getInputPort("Source2")->isConnected(),
+            "Deleting a shared generator must clear every downstream port");
+    require(
+        sheet->getColumnCount() == count - 1 &&
+            sheet->getFxDag()->getFxById(nativeId) == nullptr,
+        "Repeated generator deletion must remove the column and native lookup");
+    require(sheet->getColumn(neighborFx->getColumnIndex()) ==
+                neighborFx->getXshColumn(),
+            "Generator deletion must retain neighboring column ownership after "
+            "index shifts");
+    generator = create(context, document, "colorCardFx");
+    require(generator != expired && !document.effects.contains(expired),
+            "Reallocated generators must never revive an expired handle");
+    validateAutomationFxGraph(*document.scene);
+  }
 }
 
 void testColumnRules(Context& context, Document& document) {
@@ -271,6 +448,27 @@ void testGraphValidation(Context& context, Document& document) {
   validateAutomationFxGraph(*document.scene);
 }
 
+void testGraphOwnership(Context& context, Document& document) {
+  FxDag* graph       = document.scene->getXsheet()->getFxDag();
+  const QString card = create(context, document, "colorCardFx");
+  auto* wrapper      = dynamic_cast<TZeraryColumnFx*>(document.fx(card));
+  graph->getInternalFxs()->addFx(wrapper->getZeraryFx());
+  expectError(context, "INVALID_GRAPH",
+              [&] { validateAutomationFxGraph(*document.scene); });
+  graph->getInternalFxs()->removeFx(wrapper->getZeraryFx());
+  TFxP output = new TOutputFx();
+  graph->getInternalFxs()->addFx(output.getPointer());
+  expectError(context, "INVALID_GRAPH",
+              [&] { validateAutomationFxGraph(*document.scene); });
+  graph->getInternalFxs()->removeFx(output.getPointer());
+  TFxP detached = new TZeraryColumnFx();
+  graph->getInternalFxs()->addFx(detached.getPointer());
+  expectError(context, "INVALID_GRAPH",
+              [&] { validateAutomationFxGraph(*document.scene); });
+  graph->getInternalFxs()->removeFx(detached.getPointer());
+  validateAutomationFxGraph(*document.scene);
+}
+
 void testAdmission(Context& context, Document& document) {
   expectError(context, "UNSUPPORTED_FX",
               [&] { create(context, document, "externalCommandFx"); });
@@ -287,14 +485,19 @@ void testAdmission(Context& context, Document& document) {
 
 void runAutomationFxTests(Context& context) {
   Document& document = context.addDocument(std::make_unique<ToonzScene>());
+  testCatalog(context, document);
   testGenerator(context, document);
   testConnections(context, document);
   testImplicitCycles(context, document);
   testParameters(context, document);
+  testNoOpParameters(context, document);
   testOutputSelection(context, document);
   testDeletion(context, document);
+  testRepeatedReconnect(context, document);
+  testRepeatedGeneratorDeletion(context, document);
   testColumnRules(context, document);
   testGraphValidation(context, document);
+  testGraphOwnership(context, document);
   testAdmission(context, document);
   context.removeDocument(document.id);
 }

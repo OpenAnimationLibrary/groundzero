@@ -420,10 +420,47 @@ bool dependsOn(TFx* fx, TFx* target, FxDag* graph) {
   return false;
 }
 
-void validateNode(TFx* fx, FxDag* graph) {
-  if (fx == graph->getXsheetFx() || dynamic_cast<TOutputFx*>(fx)) return;
-  if (dynamic_cast<TColumnFx*>(fx) && !dynamic_cast<TZeraryColumnFx*>(fx))
+void validateColumnOwnership(TColumnFx* fx, TXsheet* sheet) {
+  TXshColumn* column = fx->getXshColumn();
+  if (!column)
+    throw Error("INVALID_GRAPH",
+                "Column effect is missing a scene-owned column.");
+  const int index = fx->getColumnIndex();
+  if (index < 0 || index >= sheet->getColumnCount())
+    throw Error("INVALID_GRAPH",
+                "Column effect is missing a scene-owned column.");
+  if (sheet->getColumn(index) != column || column->getFx() != fx)
+    throw Error("INVALID_GRAPH",
+                "Column effect and scene column ownership disagree.");
+  if (auto* wrapper = dynamic_cast<TZeraryColumnFx*>(fx)) {
+    requireEditable(wrapper);
+    if (wrapper->getZeraryFx()->getColumnFx() != wrapper)
+      throw Error("INVALID_GRAPH",
+                  "Generator does not belong to its column wrapper.");
+  }
+}
+
+void validateOutputOwnership(TOutputFx* fx, FxDag* graph) {
+  for (int index = 0; index < graph->getOutputFxCount(); ++index)
+    if (graph->getOutputFx(index) == fx) return;
+  throw Error("INVALID_GRAPH",
+              "Output effect is not registered as a scene output.");
+}
+
+void validateNode(TFx* fx, TXsheet* sheet) {
+  FxDag* graph = sheet->getFxDag();
+  if (fx == graph->getXsheetFx()) return;
+  if (auto* output = dynamic_cast<TOutputFx*>(fx)) {
+    validateOutputOwnership(output, graph);
     return;
+  }
+  if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
+    validateColumnOwnership(column, sheet);
+    return;
+  }
+  if (dynamic_cast<TZeraryFx*>(fx))
+    throw Error("INVALID_GRAPH",
+                "A generator must be owned by a scene column wrapper.");
   requireEditable(fx);
 }
 
@@ -466,6 +503,21 @@ TFxPort* editablePort(TFx* fx, const QString& name) {
   return port;
 }
 
+void validateConnection(FxDag* graph, TFx* destination, TFxPort* port,
+                        TFx* source) {
+  if (!source) return;
+  if (dynamic_cast<TOutputFx*>(source))
+    throw Error("INVALID_CONNECTION",
+                "An output node cannot be used as an input source.");
+  if (!dynamic_cast<TRasterFx*>(source) || !port->accepts(source))
+    throw Error("PORT_TYPE_MISMATCH",
+                "Input port does not accept this source effect.");
+  if (dependsOn(source, destination, graph))
+    throw Error(
+        "GRAPH_CYCLE",
+        "Connection would create a cycle, including Xsheet terminal links.");
+}
+
 QJsonValue connectEffect(Context& context, Document& document,
                          const QJsonObject& params, bool disconnect) {
   TFx* destination = ownedFx(document, requiredString(params, "fx_id"));
@@ -473,16 +525,8 @@ QJsonValue connectEffect(Context& context, Document& document,
   TFx* source = disconnect
                     ? nullptr
                     : ownedFx(document, requiredString(params, "source_fx_id"));
-  if (source && dynamic_cast<TOutputFx*>(source))
-    throw Error("INVALID_CONNECTION",
-                "An output node cannot be used as an input source.");
-  if (source && (!dynamic_cast<TRasterFx*>(source) || !port->accepts(source)))
-    throw Error("PORT_TYPE_MISMATCH",
-                "Input port does not accept this source effect.");
-  if (source && dependsOn(source, destination, dag(document)))
-    throw Error(
-        "GRAPH_CYCLE",
-        "Connection would create a cycle, including Xsheet terminal links.");
+  validateConnection(dag(document), destination, port, source);
+  if (port->getFx() == source) return describeFx(document, destination);
   TFxP previous = port->getFx();
   context.markMutationStarted();
   try {
@@ -508,6 +552,8 @@ QJsonValue setTerminal(Context& context, Document& document,
   FxDag* graph       = dag(document);
   if (enabled && dependsOn(fx, graph->getXsheetFx(), graph))
     throw Error("GRAPH_CYCLE", "Xsheet terminal link would create a cycle.");
+  if (graph->getTerminalFxs()->containsFx(fx) == enabled)
+    return describeFx(document, fx);
   context.markMutationStarted();
   if (enabled)
     graph->addToXsheet(fx);
@@ -526,6 +572,8 @@ QJsonValue selectOutput(Context& context, Document& document,
   if (!output)
     throw Error("INVALID_OUTPUT",
                 "Selected effect is not a scene output node.");
+  if (dag(document)->getCurrentOutputFx() == output)
+    return QJsonObject{{"current_output_fx_id", document.idForFx(output)}};
   context.markMutationStarted();
   dag(document)->setCurrentOutputFx(output);
   if (dag(document)->getCurrentOutputFx() != output)
@@ -627,6 +675,10 @@ void validateNumber(const QJsonValue& value, const QJsonObject& schema) {
     throw Error("OUT_OF_RANGE", "Parameter value is below its native minimum.");
   if (number > maximum)
     throw Error("OUT_OF_RANGE", "Parameter value exceeds its native maximum.");
+}
+
+void validateScalar(const QJsonValue& value, const QJsonObject& schema) {
+  validateNumber(value, schema);
   if (schema.contains("enum") &&
       !schema.value("enum").toArray().contains(value))
     throw Error("OUT_OF_RANGE",
@@ -649,7 +701,7 @@ void validateValue(const QJsonValue& value, const QJsonObject& schema) {
       validateNumber(component, schema.value("items").toObject());
     return;
   }
-  validateNumber(value, schema);
+  validateScalar(value, schema);
 }
 
 void setNumber(TDoubleParam* param, double value, int frame, bool key) {
@@ -697,6 +749,50 @@ void applyParameter(TParam* param, const QJsonValue& value, int frame,
   setDiscrete(param, value);
 }
 
+bool unchangedNumber(TDoubleParam* param, double value, int frame, bool key) {
+  if (!key) return param->getDefaultValue() == value;
+  if (!param->isKeyframe(frame)) return false;
+  const TDoubleKeyframe& current = param->getKeyframeAt(frame);
+  return current.m_value == value &&
+         current.m_type == TDoubleKeyframe::Linear && current.m_step == 1;
+}
+
+bool unchangedParameter(TParam* param, const QJsonValue& value, int frame,
+                        bool key) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param))
+    return unchangedNumber(number, value.toDouble(), frame, key);
+  if (auto* parameters = dynamic_cast<TParamSet*>(param)) {
+    const QJsonArray values = value.toArray();
+    const double scale      = dynamic_cast<TPixelParam*>(param) ? 255.0 : 1.0;
+    for (int index = 0; index < values.size(); ++index) {
+      auto* number =
+          dynamic_cast<TDoubleParam*>(parameters->getParam(index).getPointer());
+      if (!number || !unchangedNumber(number, values[index].toDouble() / scale,
+                                      frame, key))
+        return false;
+    }
+    return true;
+  }
+  return discreteValue(param) == value;
+}
+
+void validateParameterEdit(TParam* param, bool key) {
+  if (key && !param->isAnimatable())
+    throw Error("NOT_ANIMATABLE",
+                "Parameter cannot have keyframes; use fx.parameter.set.");
+  if (!key && param->hasKeyframes())
+    throw Error("ANIMATED_PARAMETER",
+                "Parameter has keyframes; use fx.parameter.set_key.");
+}
+
+void verifyParameterEdit(TParam* param, const QJsonValue& value, int frame,
+                         bool key) {
+  if (parameterValue(param, frame) != value ||
+      (key && !param->isKeyframe(frame)))
+    throw Error("NATIVE_FAILURE",
+                "Native parameter update failed its readback check.");
+}
+
 QJsonValue changeParameter(Context& context, Document& document,
                            const QJsonObject& params, bool key) {
   TFx* fx            = ownedFx(document, requiredString(params, "fx_id"));
@@ -706,20 +802,14 @@ QJsonValue changeParameter(Context& context, Document& document,
   const int frame        = integerParam(params, "frame", 0, 1000000, 0);
   const QJsonValue value = params.value("value");
   validateValue(value, valueSchema(param));
-  if (key && !param->isAnimatable())
-    throw Error("NOT_ANIMATABLE",
-                "Parameter cannot have keyframes; use fx.parameter.set.");
-  if (!key && param->hasKeyframes())
-    throw Error("ANIMATED_PARAMETER",
-                "Parameter has keyframes; use fx.parameter.set_key.");
+  validateParameterEdit(param, key);
+  if (unchangedParameter(param, value, frame, key))
+    return parameterDescription(param, name, frame);
   TParamP backup = param->clone();
   context.markMutationStarted();
   try {
     applyParameter(param, value, frame, key);
-    if (parameterValue(param, frame) != value ||
-        (key && !param->isKeyframe(frame)))
-      throw Error("NATIVE_FAILURE",
-                  "Native parameter update failed its readback check.");
+    verifyParameterEdit(param, value, frame, key);
   } catch (...) {
     param->copy(backup.getPointer());
     throw;
@@ -743,8 +833,9 @@ void validateAutomationFxGraph(ToonzScene& scene) {
   if (members.size() > 4096)
     throw Error("RESOURCE_LIMIT",
                 "The automation graph is limited to 4096 effect nodes.");
-  FxDag* graph = scene.getXsheet()->getFxDag();
-  for (TFx* fx : members) validateNode(fx, graph);
+  TXsheet* sheet = scene.getXsheet();
+  FxDag* graph   = sheet->getFxDag();
+  for (TFx* fx : members) validateNode(fx, sheet);
   validateEdges(members, graph);
 }
 
