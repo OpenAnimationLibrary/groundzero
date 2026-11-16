@@ -48,23 +48,25 @@ constexpr qint64 kInlineBytes    = 4 * 1024 * 1024;
 constexpr qint64 kFrameBytes     = 20 * 1024 * 1024;
 constexpr qint64 kWorkspaceBytes = 128 * 1024 * 1024;
 
-QString newId(const QString& prefix) {
+static QString newId(const QString& prefix) {
   return prefix + QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
 
-QJsonObject stringSchema() { return {{"type", "string"}, {"minLength", 1}}; }
+static QJsonObject stringSchema() {
+  return {{"type", "string"}, {"minLength", 1}};
+}
 
-QJsonObject integerSchema(int minimum, int maximum) {
+static QJsonObject integerSchema(int minimum, int maximum) {
   return {{"type", "integer"}, {"minimum", minimum}, {"maximum", maximum}};
 }
 
 enum class Format { Png, Mp4 };
 
-QString formatText(Format format) {
+static QString formatText(Format format) {
   return format == Format::Mp4 ? "mp4" : "png";
 }
 
-Format readFormat(const QJsonObject& params) {
+static Format readFormat(const QJsonObject& params) {
   const QString format =
       params.contains("format") ? requiredString(params, "format") : "png";
   if (format == "png") return Format::Png;
@@ -72,7 +74,7 @@ Format readFormat(const QJsonObject& params) {
   throw Error("invalid_params", "The render format must be png or mp4.");
 }
 
-bool movieWriterRegistered() {
+static bool movieWriterRegistered() {
   QStringList formats;
   TLevelWriter::getSupportedFormats(formats, true);
   return formats.contains("mp4");
@@ -92,8 +94,8 @@ struct Request final {
   }
 };
 
-TDimension readDimensions(const QJsonObject& params, ToonzScene& scene,
-                          bool preview) {
+static TDimension readDimensions(const QJsonObject& params, ToonzScene& scene,
+                                 bool preview) {
   const int bound             = preview ? kPreviewDimension : kMaxDimension;
   const TDimension resolution = scene.getCurrentCamera()->getRes();
   if (resolution.lx <= 0 || resolution.ly <= 0)
@@ -116,15 +118,15 @@ TDimension readDimensions(const QJsonObject& params, ToonzScene& scene,
   return TDimension(width, height);
 }
 
-void validateMovieRequest(const Request& request) {
+static void validateMovieRequest(const Request& request) {
   if (request.format != Format::Mp4) return;
   if (request.step != 1 || request.width % 2 != 0 || request.height % 2 != 0)
     throw Error("unsupported_render_settings",
                 "MP4 requires step 1 and even output width and height.");
 }
 
-Request readRequest(const QJsonObject& params, ToonzScene& scene,
-                    bool preview) {
+static Request readRequest(const QJsonObject& params, ToonzScene& scene,
+                           bool preview) {
   Request request;
   const TDimension dimensions = readDimensions(params, scene, preview);
   request.width               = dimensions.lx;
@@ -177,8 +179,8 @@ struct Artifact final {
   }
 };
 
-void validateOutputFile(const QFileInfo& info, const QString& path,
-                        qint64 limit) {
+static void validateOutputFile(const QFileInfo& info, const QString& path,
+                               qint64 limit) {
   if (info.canonicalFilePath() != QDir::cleanPath(path))
     throw Error("invalid_artifact",
                 "The artifact path is no longer an owned regular file.");
@@ -188,7 +190,7 @@ void validateOutputFile(const QFileInfo& info, const QString& path,
                 "The rendered file is missing or exceeds its size limit.");
 }
 
-QByteArray readOutput(const QString& path, qint64 limit) {
+static QByteArray readOutput(const QString& path, qint64 limit) {
   QFileInfo info(path);
   validateOutputFile(info, path, limit);
   QFile file(path);
@@ -201,7 +203,8 @@ QByteArray readOutput(const QString& path, qint64 limit) {
   return data;
 }
 
-Artifact verifyOutput(const QString& path, int frame, const Request& request) {
+static Artifact verifyOutput(const QString& path, int frame,
+                             const Request& request) {
   const QByteArray data = readOutput(path, kFrameBytes);
   QBuffer buffer;
   buffer.setData(data);
@@ -238,7 +241,7 @@ enum class JobStatus {
   Canceled
 };
 
-QString statusText(JobStatus status) {
+static QString statusText(JobStatus status) {
   switch (status) {
   case JobStatus::Preparing:
     return "preparing";
@@ -544,7 +547,7 @@ public:
   }
 };
 
-void configurePng(TOutputProperties& output) {
+static void configurePng(TOutputProperties& output) {
   TPropertyGroup* properties = output.getFileFormatProperties("png");
   if (!properties)
     throw Error("render_unavailable", "The native PNG writer is unavailable.");
@@ -556,7 +559,7 @@ void configurePng(TOutputProperties& output) {
   alpha->setValue(true);
 }
 
-void configureMovie(RenderJob& job, TOutputProperties& output) {
+static void configureMovie(RenderJob& job, TOutputProperties& output) {
   TPropertyGroup* properties = output.getFileFormatProperties("mp4");
   if (!properties)
     throw Error("render_unavailable", "The native MP4 writer is unavailable.");
@@ -572,7 +575,7 @@ void configureMovie(RenderJob& job, TOutputProperties& output) {
   job.snapshot->getProperties()->setBgColor(TPixel32::Black);
 }
 
-void configureSnapshot(RenderJob& job) {
+static void configureSnapshot(RenderJob& job) {
   job.snapshot->getCurrentCamera()->setRes(
       TDimension(job.request.width, job.request.height));
   TOutputProperties* output =
@@ -649,13 +652,13 @@ struct RenderState final {
 
 namespace RenderDetail {
 
-RenderState& renderState(Context& context) {
+static RenderState& renderState(Context& context) {
   if (!context.renderState)
     context.renderState = std::make_shared<RenderState>();
   return *context.renderState;
 }
 
-void validateWriter(const Context& context, Format format) {
+static void validateWriter(const Context& context, Format format) {
   if (format == Format::Mp4) {
     if (context.mediaToolsDirectory.isEmpty())
       throw Error(
@@ -672,7 +675,8 @@ void validateWriter(const Context& context, Format format) {
     throw Error("render_unavailable", "The native PNG writer is unavailable.");
 }
 
-QJsonValue submit(Context& context, const QJsonObject& params, bool preview) {
+static QJsonValue submit(Context& context, const QJsonObject& params,
+                         bool preview) {
   Document& document = context.document(requiredString(params, "document_id"));
   const Request request = readRequest(params, *document.scene, preview);
   RenderState& state    = renderState(context);
@@ -703,7 +707,7 @@ QJsonValue submit(Context& context, const QJsonObject& params, bool preview) {
   return job->describe();
 }
 
-void validateMovieArtifact(Context& context, const Artifact& artifact) {
+static void validateMovieArtifact(Context& context, const Artifact& artifact) {
   if (artifact.format != Format::Mp4) return;
   const QString path = context.resolvePath(artifact.path, false);
   const QFileInfo info(path);
@@ -714,7 +718,7 @@ void validateMovieArtifact(Context& context, const Artifact& artifact) {
                 "The movie artifact changed after verified publication.");
 }
 
-QJsonValue artifactList(Context& context, const RenderJob& job) {
+static QJsonValue artifactList(Context& context, const RenderJob& job) {
   if (job.status != JobStatus::Completed)
     throw Error("artifacts_unavailable",
                 "Artifacts are available only after successful finalization.",
@@ -729,8 +733,8 @@ QJsonValue artifactList(Context& context, const RenderJob& job) {
   return result;
 }
 
-QJsonValue readImageArtifact(Context& context, const RenderJob& job,
-                             const Artifact& artifact) {
+static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
+                                    const Artifact& artifact) {
   if (artifact.format != Format::Png)
     throw Error("unsupported_artifact_kind",
                 "Movie artifacts are delivered as verified file metadata.");
@@ -754,7 +758,7 @@ QJsonValue readImageArtifact(Context& context, const RenderJob& job,
   return result;
 }
 
-QJsonValue artifactRead(Context& context, const QString& id) {
+static QJsonValue artifactRead(Context& context, const QString& id) {
   for (const auto& entry : renderState(context).jobs) {
     const RenderJob& job = *entry.second;
     if (job.status != JobStatus::Completed) continue;
@@ -765,7 +769,7 @@ QJsonValue artifactRead(Context& context, const QString& id) {
               "The artifact is unknown or belongs to an expired worker.");
 }
 
-QJsonObject renderCapabilities(const Context& context) {
+static QJsonObject renderCapabilities(const Context& context) {
   std::unique_ptr<Tiio::Writer> writer(Tiio::makeWriter("png"));
   const bool configured = !context.mediaToolsDirectory.isEmpty();
   const bool registered = movieWriterRegistered();
@@ -798,16 +802,16 @@ QJsonObject renderCapabilities(const Context& context) {
           {"job_lifetime", "worker-session"}};
 }
 
-QJsonObject jobOperation(const QString& name, const QString& description,
-                         QJsonObject properties, QJsonArray required) {
+static QJsonObject jobOperation(const QString& name, const QString& description,
+                                QJsonObject properties, QJsonArray required) {
   QJsonObject descriptor =
       operation(name, description, properties, required, true);
   descriptor.insert("mutates_document", false);
   return descriptor;
 }
 
-QJsonValue executeJob(Context& context, const QString& method,
-                      const QJsonObject& params) {
+static QJsonValue executeJob(Context& context, const QString& method,
+                             const QJsonObject& params) {
   const auto job = renderState(context).job(requiredString(params, "job_id"));
   if (method == "render.status") return job->describe();
   if (method == "render.artifacts") return artifactList(context, *job);
