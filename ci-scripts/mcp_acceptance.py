@@ -87,6 +87,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_toonz_raster_data_survives_native_roundtrip(self) -> None:
         mcp_drawing_cases.check_toonz_raster_roundtrip(self)
 
+    def test_lzo_helpers_preserve_tiny_and_incompressible_data(self) -> None:
+        mcp_drawing_cases.check_lzo_roundtrip(self)
+
     def test_blank_render_dimensions_and_alpha(self) -> None:
         mcp_render_cases.blank_dimensions_and_alpha(self)
 
