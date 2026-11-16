@@ -57,13 +57,20 @@ QByteArray digest(const QByteArray& bytes) {
   return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
 }
 
+bool isPackageRelativePath(const QString& relative) {
+  return !relative.isEmpty() && !QDir::isAbsolutePath(relative) &&
+         QDir::cleanPath(relative) == relative && !relative.startsWith("../");
+}
+
+bool isOwnedPackageFile(const QFileInfo& info, const QString& path) {
+  return info.canonicalFilePath() == QDir::cleanPath(path) && info.isFile() &&
+         !info.isSymLink() && info.size() <= MaxPackageBytes;
+}
+
 QByteArray readRegularFile(const QString& directory, const QString& relative) {
   const QString path = QDir(directory).absoluteFilePath(relative);
   const QFileInfo info(path);
-  if (relative.isEmpty() || QDir::isAbsolutePath(relative) ||
-      QDir::cleanPath(relative) != relative || relative.startsWith("../") ||
-      info.canonicalFilePath() != QDir::cleanPath(path) || !info.isFile() ||
-      info.isSymLink() || info.size() > MaxPackageBytes)
+  if (!isPackageRelativePath(relative) || !isOwnedPackageFile(info, path))
     throw Error("invalid_package",
                 "A package file is missing or outside its directory.",
                 {{"file", relative}});
@@ -179,6 +186,14 @@ QJsonValue paletteManifest(TXshSimpleLevel& level) {
   return QJsonObject{{"styles", styles}, {"pages", pages}};
 }
 
+TPointD frameDpi(TXshSimpleLevel& level) {
+  TPointD dpi;
+  const TImageP image = level.getFrame(level.getFirstFid(), false);
+  if (const TRasterImageP fullcolor = image) fullcolor->getDpi(dpi.x, dpi.y);
+  if (const TToonzImageP indexed = image) indexed->getDpi(dpi.x, dpi.y);
+  return dpi;
+}
+
 QJsonObject rasterManifest(TXshSimpleLevel& level) {
   if (level.getType() == PLI_XSHLEVEL) return {};
   const LevelProperties* properties = level.getProperties();
@@ -187,11 +202,14 @@ QJsonObject rasterManifest(TXshSimpleLevel& level) {
       properties->getDpiPolicy() == LevelProperties::DP_CustomDpi
           ? properties->getDpi()
           : imageDpi;
-  const TDimension size = properties->getImageRes();
+  const TDimension size    = properties->getImageRes();
+  const TPointD drawingDpi = frameDpi(level);
   return {{"width", size.lx},
           {"height", size.ly},
           {"image_dpi_x", imageDpi.x},
           {"image_dpi_y", imageDpi.y},
+          {"frame_dpi_x", drawingDpi.x},
+          {"frame_dpi_y", drawingDpi.y},
           {"effective_dpi_x", effectiveDpi.x},
           {"effective_dpi_y", effectiveDpi.y}};
 }
@@ -348,13 +366,13 @@ void restoreRasterProperties(TXshSimpleLevel& level, const TImageInfo& info,
 
 void restoreImageDpi(const TImageP& image, const QJsonObject& entry) {
   const QJsonObject raster = entry.value("raster").toObject();
-  const double x           = raster.value("image_dpi_x").toDouble();
-  const double y           = raster.value("image_dpi_y").toDouble();
+  const double x           = raster.value("frame_dpi_x").toDouble();
+  const double y           = raster.value("frame_dpi_y").toDouble();
   if (const TRasterImageP fullcolor = image) fullcolor->setDpi(x, y);
   if (const TToonzImageP indexed = image) indexed->setDpi(x, y);
 }
 
-void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
+TXshSimpleLevel* findSavedLevel(ToonzScene& scene, const QJsonObject& entry) {
   TXshLevel* native = scene.getLevelSet()->getLevel(
       entry.value("name").toString().toStdWString());
   TXshSimpleLevel* level = native ? native->getSimpleLevel() : nullptr;
@@ -364,25 +382,23 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
       level->getPath() != coded)
     throw Error("invalid_package",
                 "The native level does not match the package manifest.");
-  const std::vector<TFrameId> frames = expectedFrames(entry);
-  const TFilePath path               = scene.decodeFilePath(coded);
-  TLevelReaderP reader(path);
-  if (!reader)
-    throw Error("reader_unavailable", "A saved level reader is unavailable.");
-  const TLevelP info = reader->loadInfo();
-  if (!info || info->isPartialLoad() ||
-      info->getFrameCount() != int(frames.size()))
+  return level;
+}
+
+void restoreSavedRaster(TXshSimpleLevel& level, TLevelReaderP& reader,
+                        const std::vector<TFrameId>& frames,
+                        const QJsonObject& entry) {
+  if (level.getType() == PLI_XSHLEVEL || frames.empty()) return;
+  const TImageInfo* imageInfo = reader->getImageInfo(frames.front());
+  if (!imageInfo)
     throw Error("invalid_package",
-                "Saved drawing count differs from the source level.");
-  level->setPalette(info->getPalette());
-  if (level->getType() != PLI_XSHLEVEL && !frames.empty()) {
-    const TImageInfo* imageInfo = reader->getImageInfo(frames.front());
-    if (!imageInfo)
-      throw Error("invalid_package",
-                  "The saved raster level has no image metadata.");
-    restoreRasterProperties(*level, *imageInfo, entry);
-  }
-  for (const TFrameId& frame : frames) {
+                "The saved raster level has no image metadata.");
+  restoreRasterProperties(level, *imageInfo, entry);
+}
+
+void restoreSavedFrames(TXshSimpleLevel& level, TLevelReaderP& reader,
+                        const TLevelP& info, const QJsonObject& entry) {
+  for (const TFrameId& frame : expectedFrames(entry)) {
     if (info->getTable()->find(frame) == info->getTable()->end())
       throw Error("missing_drawing",
                   "A saved drawing ID is missing from its level.");
@@ -394,8 +410,24 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
       throw Error("missing_drawing",
                   "A saved drawing cannot be independently decoded.");
     restoreImageDpi(image, entry);
-    level->setFrame(frame, image);
+    level.setFrame(frame, image);
   }
+}
+
+void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
+  TXshSimpleLevel* level             = findSavedLevel(scene, entry);
+  const std::vector<TFrameId> frames = expectedFrames(entry);
+  TLevelReaderP reader(scene.decodeFilePath(level->getPath()));
+  if (!reader)
+    throw Error("reader_unavailable", "A saved level reader is unavailable.");
+  const TLevelP info = reader->loadInfo();
+  if (!info || info->isPartialLoad() ||
+      info->getFrameCount() != int(frames.size()))
+    throw Error("invalid_package",
+                "Saved drawing count differs from the source level.");
+  level->setPalette(info->getPalette());
+  restoreSavedRaster(*level, reader, frames, entry);
+  restoreSavedFrames(*level, reader, info, entry);
   if (level->getFids() != frames)
     throw Error("invalid_package",
                 "The reopened drawing IDs differ from their source.");
@@ -491,42 +523,52 @@ QJsonObject openPackage(Context& context, const QJsonObject& params) {
           {"package_directory", directory}};
 }
 
+using DrawingIndex = std::map<TXshSimpleLevel*, std::set<TFrameId>>;
+
+std::pair<int, int> drawingColumnRange(TXshColumn* column) {
+  if (!column || column->isEmpty() || column->getZeraryFxColumn())
+    return {0, -1};
+  if (!column->getLevelColumn())
+    throw Error("unsupported_column",
+                "This package profile supports drawing and generator columns.");
+  int first = 0;
+  int last  = 0;
+  column->getRange(first, last);
+  if (first < 0 || last > 1000000)
+    throw Error("scene_limit",
+                "The scene exceeds the supported exposure limit.");
+  return {first, last};
+}
+
+void validateExposure(ToonzScene& scene, const TXshCell& cell,
+                      DrawingIndex& drawings) {
+  if (cell.isEmpty()) return;
+  TXshSimpleLevel* level = cell.getSimpleLevel();
+  if (!level || !scene.getLevelSet()->hasLevel(level->getName()))
+    throw Error("missing_level",
+                "An exposure references an unsupported or missing level.");
+  if (!drawings.count(level)) {
+    const std::vector<TFrameId> frames = level->getFids();
+    drawings.emplace(level, std::set<TFrameId>(frames.begin(), frames.end()));
+  }
+  if (!drawings.at(level).count(cell.m_frameId))
+    throw Error("missing_drawing", "An exposure references a missing drawing.");
+}
+
 void validateCells(ToonzScene& scene) {
   TXsheet* sheet = scene.getXsheet();
   if (sheet->getColumnCount() > 4096)
     throw Error("scene_limit", "The scene exceeds the supported column limit.");
   qint64 cells = 0;
-  std::map<TXshSimpleLevel*, std::set<TFrameId>> drawings;
+  DrawingIndex drawings;
   for (int index = 0; index < sheet->getColumnCount(); ++index) {
-    TXshColumn* column = sheet->getColumn(index);
-    if (!column || column->isEmpty() || column->getZeraryFxColumn()) continue;
-    if (!column->getLevelColumn())
-      throw Error(
-          "unsupported_column",
-          "This package profile supports drawing and generator columns.");
-    int first = 0;
-    int last  = 0;
-    column->getRange(first, last);
-    cells += last - first + 1;
-    if (first < 0 || last > 1000000 || cells > 1000000)
+    const auto range = drawingColumnRange(sheet->getColumn(index));
+    cells += range.second - range.first + 1;
+    if (cells > 1000000)
       throw Error("scene_limit",
                   "The scene exceeds the supported exposure limit.");
-    for (int row = first; row <= last; ++row) {
-      const TXshCell& cell = sheet->getCell(row, index);
-      if (cell.isEmpty()) continue;
-      TXshSimpleLevel* level = cell.getSimpleLevel();
-      if (!level || !scene.getLevelSet()->hasLevel(level->getName()))
-        throw Error("missing_level",
-                    "An exposure references an unsupported or missing level.");
-      if (!drawings.count(level)) {
-        const std::vector<TFrameId> frames = level->getFids();
-        drawings.emplace(level,
-                         std::set<TFrameId>(frames.begin(), frames.end()));
-      }
-      if (!drawings.at(level).count(cell.m_frameId))
-        throw Error("missing_drawing",
-                    "An exposure references a missing drawing.");
-    }
+    for (int row = range.first; row <= range.second; ++row)
+      validateExposure(scene, sheet->getCell(row, index), drawings);
   }
 }
 
