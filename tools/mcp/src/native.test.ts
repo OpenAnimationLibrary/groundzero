@@ -226,7 +226,9 @@ async function movie(client: Client, documentId: unknown, revision: unknown, wor
   });
   expect(output.isError, JSON.stringify(output)).not.toBe(true);
   expect(output.content.every((content) => content.type === "text")).toBe(true);
-  const artifacts = output.structuredContent?.["artifacts"];
+  const metadata = output.structuredContent;
+  if (!isObject(metadata)) throw new Error("Movie artifact result lacks structured metadata");
+  const artifacts = metadata["artifacts"];
   if (!Array.isArray(artifacts) || artifacts.length !== 1 || !isObject(artifacts[0])) {
     throw new Error("Completed MP4 job did not publish exactly one movie artifact");
   }
