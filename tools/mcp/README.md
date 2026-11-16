@@ -71,8 +71,11 @@ the running catalog for the remaining operation-specific bounds.
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
 destinations are rejected. Each artwork level must contain at least one drawing;
-an empty scene is allowed. Packages are limited to 256 levels, 4096 drawings, and
-256 MiB, with a separate conservative limit on source drawing memory.
+an empty scene is allowed. Packages are limited to 256 MiB; before artwork grows,
+the worker checks limits of 256 levels, 4096 drawings, and a separate 256 MiB
+aggregate estimate covering raster and vector frames plus conservative overhead
+for frames, palette styles, and keyframes. This estimate is an admission limit,
+not a bound on process memory.
 Native PLI encoding quantizes stroke coordinates and widths, and PNG encoding
 can change premultiplied RGB values by one code value. These files are editable
 native representations, not bitwise copies of in-memory drawings. Saved raster
