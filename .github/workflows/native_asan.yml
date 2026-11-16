@@ -1,0 +1,128 @@
+name: Native UI AddressSanitizer
+
+# Builds the Linux application with AddressSanitizer and runs the full native
+# UI integration suite in it. A use after free, overflow or bad free fails the
+# run on its first read; without the sanitizer such a bug crashes only where
+# freed memory happens to be unreadable. Leaks are totalled in a notice and
+# their stacks retained; they do not fail the run until a baseline is reviewed.
+#
+# It never runs on pull requests (the automatic checks are at their limit and
+# a sanitizer build is a second full build). It runs nightly or by hand.
+# Failures are reported as annotations of the run.
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-asan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  NativeUI:
+    name: Native UI under AddressSanitizer
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: '3.12'
+
+    - name: Verify sanitizer report contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_asan_report.py -v
+
+    - name: Install libraries
+      run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
+        # The runner's Azure mirror has stalled downloads for an hour: use the
+        # main archive, and time out and retry a stalled request
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+        ok=0
+        for attempt in 1 2 3; do
+          if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
+             timeout 900 sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 xvfb libgl1-mesa-dri build-essential cmake pkg-config ninja-build ccache bison flex gdb python3-dev libboost-all-dev qtbase5-dev qt6-base-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qttranslations5-l10n qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+          echo "::warning title=apt::attempt $attempt failed, retrying"
+          sleep 20
+        done
+        [ "$ok" = 1 ]
+
+    - name: Set up cache
+      run: mkdir -p /home/runner/.ccache
+
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-native-asan-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-native-asan-
+
+    - name: Build libtiff
+      run: |
+        cd thirdparty/tiff-4.0.3
+        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
+        make -j "$(nproc)"
+
+    - name: Build the application with AddressSanitizer
+      id: build
+      run: |
+        export CCACHE_DIR=/home/runner/.ccache
+        mkdir toonz/build
+        cd toonz/build
+        set -o pipefail
+        sanitizer='-fsanitize=address -fno-omit-frame-pointer -g1'
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_DEFORMER_TESTS=ON -DBUILD_AUTOPATCH_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_EXR_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=OFF "-DCMAKE_CXX_FLAGS=-Werror=return-type $sanitizer" "-DCMAKE_C_FLAGS=$sanitizer" -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address -DCMAKE_MODULE_LINKER_FLAGS=-fsanitize=address 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        # -k 0: keep going, so one run reports every file that fails
+        ninja -k 0 OpenToonz tconverter 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Report build errors
+      if: ${{ failure() && steps.build.outcome == 'failure' }}
+      run: |
+        grep -E 'error:|undefined reference|FAILED:|CMake Error' build.log | head -40 | while IFS= read -r line; do
+          echo "::error title=Sanitizer build::$line"
+        done
+
+    - name: Test native application integration under AddressSanitizer
+      id: native
+      timeout-minutes: 60
+      env:
+        GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
+      run: |
+        set -euo pipefail
+        mkdir -p "$GITHUB_WORKSPACE/toonz/build/asan-logs"
+        # abort_on_error makes a memory error fatal whatever the exit code;
+        # exitcode=0 then keeps a leak-only exit from failing the run.
+        # The shared libraries define some globals twice, which is not what
+        # this run looks for.
+        export ASAN_OPTIONS="detect_leaks=1:abort_on_error=1:exitcode=0:detect_odr_violation=0:log_path=$GITHUB_WORKSPACE/toonz/build/asan-logs/asan"
+        ulimit -S -c 0
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --require-combined-workflows --output toonz/build/ui-integration-output.txt
+
+    - name: Report native application integration failure
+      if: ${{ failure() && steps.native.outcome == 'failure' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt "Native UI under AddressSanitizer"
+
+    - name: Report sanitizer findings
+      if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
+      run: python3 ci-scripts/native_asan_report.py toonz/build/asan-logs
+
+    - name: Retain sanitizer logs
+      if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: native-asan-${{ github.sha }}
+        path: |
+          toonz/build/asan-logs
+          toonz/build/ui-integration-output*.txt
+        if-no-files-found: warn
