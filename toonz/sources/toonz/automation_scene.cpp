@@ -932,10 +932,11 @@ void addColumnOperations(QJsonArray& catalog) {
                            "Append an empty level column with a stable handle.",
                            merge(documentSchema(), {{"name", textSchema()}}),
                            {"document_id", "name"}, true));
-  QJsonObject update = merge(column, {{"name", textSchema()},
-                                      {"visible", {{"type", "boolean"}}},
-                                      {"locked", {{"type", "boolean"}}},
-                                      {"opacity", numberSchema(0, 1)}});
+  QJsonObject update =
+      merge(column, {{"name", textSchema()},
+                     {"visible", QJsonObject{{"type", "boolean"}}},
+                     {"locked", QJsonObject{{"type", "boolean"}}},
+                     {"opacity", numberSchema(0, 1)}});
   catalog.append(operation("column.update",
                            "Set column name, visibility, lock or opacity.",
                            update, {"document_id", "column_id"}, true));
