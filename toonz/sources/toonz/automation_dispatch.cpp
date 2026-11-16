@@ -233,10 +233,12 @@ QJsonValue Dispatcher::execute(const QString& method,
     if (!params.isEmpty())
       throw Error("invalid_params", "This operation accepts no parameters.");
     if (method == "automation.capabilities")
-      return QJsonObject{{"protocol_version", 1},
-                         {"workspace", m_context.workspace()},
-                         {"tools", m_catalog},
-                         {"isolation", "private_process"}};
+      return QJsonObject{
+          {"protocol_version", 1},
+          {"workspace", m_context.workspace()},
+          {"tools", m_catalog},
+          {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
+          {"isolation", "private_process"}};
     return QJsonObject{{"documents", m_context.documents()}};
   }
   auto found = m_entries.constFind(method);

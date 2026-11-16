@@ -72,6 +72,8 @@ public:
   void resetMutationStarted();
   bool mutationStarted() const;
   std::shared_ptr<RenderState> renderState;
+  // Set once from validated startup configuration; empty disables media tools.
+  QString mediaToolsDirectory;
 
 private:
   QString m_workspace;

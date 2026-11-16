@@ -3,6 +3,7 @@
 
 #include "tenv.h"
 #include "texception.h"
+#include "thirdparty.h"
 #include "timagecache.h"
 #include "tiio_std.h"
 #include "tnzimage.h"
@@ -12,6 +13,7 @@
 #include "tthread.h"
 #include "toonz/preferences.h"
 #include "toonz/studiopalette.h"
+#include "toonz/toonzfolders.h"
 
 #include <QApplication>
 #include <QDir>
@@ -53,6 +55,7 @@ constexpr int maximumLineBytes = 8 * 1024 * 1024;
 struct Options {
   QString workspace;
   QStringList inputRoots;
+  QString mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
 #endif
@@ -101,6 +104,53 @@ void addWorkerRoot(Options& options, const QString& key, const QString& path) {
   }
 }
 
+void validateMediaExecutable(const QString& directory, const QString& name) {
+  const QString path = QDir(directory).filePath(name);
+  const QFileInfo executable(path);
+  if (!executable.isFile() || executable.isSymLink() ||
+      !executable.isExecutable() || executable.canonicalFilePath() != path)
+    throw Error("invalid_argument",
+                "--media-tools requires regular executable ffmpeg and ffprobe "
+                "files directly inside its directory; links are not admitted.",
+                {{"helper", name}});
+}
+
+void addMediaTools(Options& options, const QString& path) {
+  if (!options.mediaToolsDirectory.isEmpty())
+    throw Error("invalid_argument", "Specify --media-tools at most once.");
+  QString directory;
+  try {
+    directory = canonicalWorkerRoot(path);
+  } catch (const Error& error) {
+    throw Error("invalid_argument",
+                "Invalid --media-tools directory: " + error.message);
+  }
+  if (QDir::cleanPath(QDir::fromNativeSeparators(path)) != directory)
+    throw Error("invalid_argument",
+                "--media-tools must name its canonical directory without "
+                "symlink components.");
+#ifdef _WIN32
+  validateMediaExecutable(directory, "ffmpeg.exe");
+  validateMediaExecutable(directory, "ffprobe.exe");
+#else
+  validateMediaExecutable(directory, "ffmpeg");
+  validateMediaExecutable(directory, "ffprobe");
+#endif
+  options.mediaToolsDirectory = directory;
+}
+
+void addOption(Options& options, const QString& key, const QString& value) {
+  if (key == "--media-tools")
+    addMediaTools(options, value);
+  else
+    addWorkerRoot(options, key, value);
+}
+
+bool valueOption(const QString& key) {
+  return key == "--workspace" || key == "--input-root" ||
+         key == "--media-tools";
+}
+
 Options parseOptions(const QStringList& arguments) {
   Options options;
   for (int index = 2; index < arguments.size(); ++index) {
@@ -111,17 +161,43 @@ Options parseOptions(const QStringList& arguments) {
       continue;
     }
 #endif
-    if ((key != "--workspace" && key != "--input-root") ||
-        index + 1 >= arguments.size())
-      throw Error(
-          "invalid_argument",
-          "Worker accepts --workspace DIR and repeated --input-root DIR.");
-    addWorkerRoot(options, key, arguments[++index]);
+    if (!valueOption(key) || index + 1 >= arguments.size())
+      throw Error("invalid_argument",
+                  "Worker accepts --workspace DIR, repeated --input-root DIR, "
+                  "and optional --media-tools DIR.");
+    addOption(options, key, arguments[++index]);
   }
   if (options.workspace.isEmpty())
     throw Error("invalid_argument",
                 "Automation worker requires --workspace DIR.");
   return options;
+}
+
+void establishMediaContainment(const Options& options) {
+#ifdef _WIN32
+  if (options.mediaToolsDirectory.isEmpty()) return;
+  const HANDLE job = CreateJobObjectW(nullptr, nullptr);
+  if (!job)
+    throw Error("media_containment_failed",
+                "Cannot create the worker media job.");
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  const bool configured =
+      SetHandleInformation(job, HANDLE_FLAG_INHERIT, 0) &&
+      SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
+                              sizeof(limits));
+  if (!configured || !AssignProcessToJobObject(job, GetCurrentProcess())) {
+    const DWORD error = GetLastError();
+    CloseHandle(job);
+    throw Error("media_containment_failed",
+                "Cannot contain native media helpers in the worker job.",
+                {{"windows_error", QString::number(error)}});
+  }
+  // The sole non-inheritable handle lives until OS process teardown. Closing
+  // it on this stack would terminate the worker itself, which is a job member.
+#else
+  Q_UNUSED(options);
+#endif
 }
 
 int reserveProtocolOutput() {
@@ -156,13 +232,14 @@ QString createRuntimeDirectory(const QString& workspace) {
   if (!QDir().mkpath(path))
     throw Error("io_error",
                 "Could not create the private worker runtime directory.");
-  for (const QString& name : {QString("settings"), QString("cache")})
+  for (const QString& name : {QString("settings"), QString("cache/ffmpeg")})
     if (!QDir(path).mkpath(name))
       throw Error("io_error", "Could not initialize private worker storage.");
   return path;
 }
 
-void initializeNative(const QString& runtime, const char* executable) {
+void initializeNative(const QString& runtime, const char* executable,
+                      const Options& options) {
   QSettings::setDefaultFormat(QSettings::IniFormat);
   const QString settings = QDir(runtime).filePath("settings");
   QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings);
@@ -183,6 +260,13 @@ void initializeNative(const QString& runtime, const char* executable) {
   Preferences::instance()->setValue(projectRoot, 8, false);
   Preferences::instance()->setValue(autosaveEnabled, false, false);
   Preferences::instance()->setValue(latestVersionCheckEnabled, false, false);
+  // An empty preference would probe adjacent helpers during initImageIo.
+  // The fresh runtime has no helpers, so omitted configuration stays disabled.
+  ThirdParty::setFFmpegDir(options.mediaToolsDirectory.isEmpty()
+                               ? runtime
+                               : options.mediaToolsDirectory);
+  const QString cache = canonicalWorkerRoot(QDir(runtime).filePath("cache"));
+  ToonzFolder::setCacheRootFolder(TFilePath(cache.toStdWString()));
   TPalette::setRootDir(
       TFilePath(QDir(runtime).filePath("library").toStdWString()));
   Tiio::defineStd();
@@ -290,6 +374,7 @@ bool writeResponse(QFile& output, QJsonObject response) {
 int executeWorker(QApplication& application, QFile& output,
                   const Options& options) {
   Context context(options.workspace, options.inputRoots);
+  context.mediaToolsDirectory = options.mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) {
     runAutomationFxTests(context);
@@ -315,6 +400,7 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(workerArguments(argc, argv));
+    establishMediaContainment(options);
 #ifndef _WIN32
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
       throw Error("io_error",
@@ -336,7 +422,7 @@ int runWorker(int argc, char* argv[]) {
     application.setQuitOnLastWindowClosed(false);
     QCoreApplication::setOrganizationName("GroundzeroAutomation");
     QCoreApplication::setApplicationName("GroundzeroAutomationWorker");
-    initializeNative(runtime, argv[0]);
+    initializeNative(runtime, argv[0], options);
     return executeWorker(application, output, options);
   } catch (const Error& error) {
     std::cerr << "automation-worker: " << error.code.toStdString() << ": "

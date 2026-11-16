@@ -12,6 +12,7 @@ using namespace TEnv;
 
 //-------------------------------------------------------------------
 namespace {
+TFilePath cacheRootOverride;
 #ifdef BUILD_UI_PORT_TESTS
 TFilePath testStorageRoot;
 #endif
@@ -126,6 +127,7 @@ void ToonzFolder::setSeExprTestStorageRoot(const TFilePath &root) {
 #endif
 
 TFilePath ToonzFolder::getCacheRootFolder() {
+  if (!cacheRootOverride.isEmpty()) return cacheRootOverride;
   static enum STATE { FIRSTTIME, OK, NG } state = FIRSTTIME;
   QString cacheDir =
       QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
@@ -144,6 +146,10 @@ TFilePath ToonzFolder::getCacheRootFolder() {
       state = NG;
   }
   return (state == OK) ? TFilePath(cacheDir) : TFilePath();
+}
+
+void ToonzFolder::setCacheRootFolder(const TFilePath &root) {
+  cacheRootOverride = root;
 }
 
 TFilePath ToonzFolder::getCrashReportFolder() {
