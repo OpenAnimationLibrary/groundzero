@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import mcp_drawing_cases
+import mcp_fx_cases
 import mcp_render_cases
 import mcp_scene_cases
 import mcp_worker_cases
@@ -69,6 +70,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_custom_dpi_survives_reopen_and_remains_independent_of_camera(self) -> None:
         mcp_scene_cases.custom_dpi_survives_reopen_and_remains_independent_of_camera(self)
 
+    def test_png_import_dimension_bounds_preserve_scene(self) -> None:
+        mcp_scene_cases.png_import_dimension_bounds_preserve_scene(self)
+
     def test_closed_protocol_output_has_controlled_exit(self) -> None:
         mcp_worker_cases.closed_output_has_controlled_exit(self)
 
@@ -89,6 +93,15 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_lzo_helpers_preserve_tiny_and_incompressible_data(self) -> None:
         mcp_drawing_cases.check_lzo_roundtrip(self)
+
+    def test_drawings_respect_native_format_number_limits(self) -> None:
+        mcp_drawing_cases.check_drawing_number_limits(self)
+
+    def test_fx_selected_output_survives_reopen(self) -> None:
+        mcp_fx_cases.selected_output_survives_reopen(self)
+
+    def test_fx_color_keys_survive_render_and_reopen(self) -> None:
+        mcp_fx_cases.color_keys_survive_render_and_reopen(self)
 
     def test_blank_render_dimensions_and_alpha(self) -> None:
         mcp_render_cases.blank_dimensions_and_alpha(self)
