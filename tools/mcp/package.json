@@ -15,8 +15,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --deny-warnings src vitest.config.ts",
-    "format:check": "oxfmt --check src vitest.config.ts *.json",
+    "lint": "oxlint --deny-warnings src vitest.config.ts fixtures/native-client*.mjs",
+    "format:check": "oxfmt --check src fixtures vitest.config.ts *.json",
     "test": "vitest run --exclude src/native.test.ts",
     "test:native": "vitest run src/native.test.ts"
   },
