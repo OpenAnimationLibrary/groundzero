@@ -78,7 +78,11 @@ jobs:
         python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
     - name: Verify early harness failure reporting
-      run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+      run: |
+        set -euo pipefail
+        python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+        python3 ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py \
+          --report toonz/build/mcp-acceptance/media-staging-contracts.txt
 
     - name: Verify native lifecycle harness contracts
       run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
@@ -197,19 +201,29 @@ jobs:
     - name: Prepare native Neural Style component
       run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
+    - name: Stage installed media tools for native MCP qualification
+      id: mcp_media_tools
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
+        "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_stage_media.py \
+          --output "$RUNNER_TEMP/mcp-media-tools" --report toonz/build/mcp-acceptance/media-tools.json \
+          --github-env "$GITHUB_ENV"
+
     - name: Qualify native MCP worker milestones
       id: mcp_native
-      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
       timeout-minutes: 15
       env:
         QT_QPA_PLATFORM: xcb
         LIBGL_ALWAYS_SOFTWARE: '1'
       run: |
         set -euo pipefail
-        uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
         xvfb-run -a -s '-screen 0 1280x1024x24' \
           "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_acceptance.py \
-          --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-acceptance
+          --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-acceptance \
+          --media-tools "$MCP_MEDIA_TOOLS"
 
     - name: Check native MCP acceptance scripts
       if: ${{ !cancelled() }}
@@ -230,7 +244,7 @@ jobs:
 
     - name: Create and verify an editable native animation shot
       id: mcp_shot
-      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
       timeout-minutes: 10
       env:
         QT_QPA_PLATFORM: xcb
@@ -239,7 +253,8 @@ jobs:
         set -euo pipefail
         xvfb-run -a -s '-screen 0 1280x1024x24' \
           "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_shot.py \
-          --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-shot
+          --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-shot \
+          --media-tools "$MCP_MEDIA_TOOLS"
 
     - name: Retain editable MCP shot and visual evidence
       if: always()
@@ -784,7 +799,7 @@ jobs:
         corepack pnpm test
 
     - name: Qualify MCP client against the native worker
-      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.native_targets.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.mcp_media_tools.outcome == 'success' }}
       working-directory: tools/mcp
       timeout-minutes: 5
       env:
@@ -797,7 +812,7 @@ jobs:
 
     - name: Author and render the animation through the MCP client
       id: mcp_client_shot
-      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.native_targets.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.mcp_media_tools.outcome == 'success' }}
       timeout-minutes: 10
       env:
         GROUNDZERO_NATIVE_EXECUTABLE: ${{ github.workspace }}/toonz/build/bin/OpenToonz
@@ -808,7 +823,7 @@ jobs:
         xvfb-run -a -s '-screen 0 1280x1024x24' \
           "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_shot.py \
           --executable "$GITHUB_WORKSPACE/tools/mcp/fixtures/native-client.mjs" \
-          --output toonz/build/mcp-client-shot
+          --output toonz/build/mcp-client-shot --media-tools "$MCP_MEDIA_TOOLS"
 
     - name: Retain the animation authored through the MCP client
       if: always()

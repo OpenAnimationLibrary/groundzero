@@ -113,7 +113,11 @@ jobs:
           python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
       - name: Verify early harness failure reporting
-        run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+          python3 ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py \
+            --report toonz/build/mcp-acceptance/media-staging-contracts.txt
 
       - name: Select SeExpr parser tools
         run: |
@@ -501,8 +505,18 @@ jobs:
           version: '0.13.8'
           enable-cache: false
 
-      - name: Qualify the deployed native MCP worker
+      - name: Stage installed media tools for native MCP qualification
+        id: mcp_media_tools
         if: ${{ !cancelled() && steps.mcp_runtime.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_stage_media.py \
+            --output "$RUNNER_TEMP/mcp-media-tools" --report toonz/build/mcp-acceptance/media-tools.json \
+            --github-env "$GITHUB_ENV"
+
+      - name: Qualify the deployed native MCP worker
+        if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
         timeout-minutes: 15
         env:
           QT_QPA_PLATFORM: cocoa
@@ -511,10 +525,9 @@ jobs:
         run: |
           set -euo pipefail
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
-          uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
           "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_acceptance.py \
             --executable toonz/build/toonz/OpenToonz.app/Contents/MacOS/OpenToonz \
-            --output toonz/build/mcp-acceptance
+            --output toonz/build/mcp-acceptance --media-tools "$MCP_MEDIA_TOOLS"
 
       - name: Retain native MCP acceptance evidence
         if: always()

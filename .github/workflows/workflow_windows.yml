@@ -234,7 +234,13 @@ jobs:
         run: python ci-scripts/run_harness_tests.py --pattern test_windows_process.py --report native-process-contracts-output.txt
 
       - name: Verify early harness failure reporting
-        run: python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+        shell: pwsh
+        run: |
+          python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py `
+            --report toonz/build/mcp-acceptance/media-staging-contracts.txt
+          exit $LASTEXITCODE
 
       - name: Verify failure-only native binary retention
         timeout-minutes: 3
@@ -510,15 +516,26 @@ jobs:
           version: '0.13.8'
           enable-cache: false
 
-      - name: Qualify the packaged native MCP worker
+      - name: Stage installed media tools for native MCP qualification
+        id: mcp_media_tools
         if: ${{ !cancelled() && steps.mcp_runtime.outcome == 'success' }}
-        timeout-minutes: 15
         shell: pwsh
         run: |
           $environment = Join-Path $env:RUNNER_TEMP "mcp-python"
           uv venv --python 3.13 "$environment"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $python = Join-Path $environment "Scripts/python.exe"
+          $media = Join-Path $env:RUNNER_TEMP "mcp-media-tools"
+          & $python ci-scripts/mcp_stage_media.py --output "$media" `
+            --report toonz/build/mcp-acceptance/media-tools.json --github-env "$env:GITHUB_ENV"
+          exit $LASTEXITCODE
+
+      - name: Qualify the packaged native MCP worker
+        if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $python = Join-Path $env:RUNNER_TEMP "mcp-python/Scripts/python.exe"
           $package = (Resolve-Path "toonz/build/Opentoonz").Path
           $executable = Join-Path $package "OpenToonz.exe"
           $env:QT_QPA_PLATFORM = "windows"
@@ -527,7 +544,8 @@ jobs:
           & $python ci-scripts/run_windows_gl_test.py `
             --runtime "$env:NATIVE_UI_MESA_RUNTIME" --renderer-executable "$executable" `
             --timeout 840 -- $python ci-scripts/mcp_acceptance.py `
-            --executable "$executable" --output toonz/build/mcp-acceptance
+            --executable "$executable" --output toonz/build/mcp-acceptance `
+            --media-tools "$env:MCP_MEDIA_TOOLS"
           exit $LASTEXITCODE
 
       - name: Retain native MCP acceptance evidence
