@@ -3,6 +3,10 @@ name: MacOS Build
 on:
   workflow_dispatch:
     inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: true
       benchmark_bundle:
         description: Prepare an immutable scene benchmark bundle after validation
         type: boolean
