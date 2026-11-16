@@ -42,6 +42,7 @@ constexpr int kMaxPatch         = 16384;
 constexpr int kMaxStrokes       = 4096;
 constexpr int kMaxPoints        = 1025;
 constexpr int kMaxStyles        = 4096;
+constexpr int kMaxVectorFrame   = 65535;
 constexpr double kMaxCoordinate = 32768.0;
 constexpr double kMaxThickness  = 255.0;
 
@@ -100,6 +101,12 @@ TFrameId frameId(const QJsonObject& params, const QString& key = "drawing_id") {
     invalid(
         "Drawing suffix must contain zero to eight lowercase ASCII letters");
   return TFrameId(frame, suffix.toString());
+}
+
+void validateFrameNumber(TXshSimpleLevel* level, const TFrameId& frame) {
+  if (level->getType() == PLI_XSHLEVEL && frame.getNumber() > kMaxVectorFrame)
+    throw Error("unsupported_drawing_id",
+                "Native PLI drawing numbers must be between 1 and 65535");
 }
 
 QJsonObject frameJson(const TFrameId& frame) {
@@ -270,6 +277,7 @@ QJsonObject createDrawing(Context& context, Document& document,
                           const QJsonObject& params) {
   auto* level      = simpleLevel(document, params);
   const auto frame = frameId(params);
+  validateFrameNumber(level, frame);
   if (level->isFid(frame))
     throw Error("already_exists", "Drawing identity already exists");
   if (level->getFrameCount() >= 4096)
@@ -284,6 +292,7 @@ QJsonObject cloneDrawing(Context& context, Document& document,
   auto* level            = simpleLevel(document, params);
   const auto source      = frameId(params);
   const auto destination = frameId(params, "destination_drawing_id");
+  validateFrameNumber(level, destination);
   if (level->isFid(destination))
     throw Error("already_exists", "Destination drawing exists");
   if (level->getFrameCount() >= 4096)
@@ -992,11 +1001,14 @@ QJsonObject choice(const QStringList& values) {
   return {{"type", "string"}, {"enum", items}};
 }
 
-QJsonObject drawingIdentity() {
+QJsonObject drawingIdentity(int maximum = 999999) {
   return {{"type", "object"},
+          {"description",
+           "Drawing number: 1..65535 for vector PLI, 1..999999 for raster; "
+           "suffixes are zero to eight lowercase ASCII letters"},
           {"additionalProperties", false},
           {"properties",
-           QJsonObject{{"number", range(1, 999999)},
+           QJsonObject{{"number", range(1, maximum)},
                        {"suffix", QJsonObject{{"type", "string"},
                                               {"pattern", "^[a-z]{0,8}$"}}}}},
           {"required", QJsonArray{"number", "suffix"}}};
@@ -1082,6 +1094,7 @@ void drawingCatalog(QJsonArray& tools) {
   auto vectorFields = schema.value("properties").toObject();
   auto rasterFields = vectorFields;
   vectorFields.insert("format", choice({"vector"}));
+  vectorFields.insert("drawing_id", drawingIdentity(kMaxVectorFrame));
   vectorFields.remove("width");
   vectorFields.remove("height");
   vectorFields.remove("dpi");
@@ -1293,6 +1306,7 @@ void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
     throw Error("unsupported_drawing_id",
                 "Persistence requires drawing numbers 1..999999 and lowercase "
                 "ASCII suffixes");
+  validateFrameNumber(level, frame);
   const auto image  = imageFor(level, frame);
   const auto format = imageFormat(image);
   static const std::map<int, QString> formats{{PLI_XSHLEVEL, "vector"},

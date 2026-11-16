@@ -395,3 +395,86 @@ def check_lzo_roundtrip(test: NativeAcceptance) -> None:
     test.assertNotEqual(truncated.returncode, 0)
     test.assertEqual(truncated.stdout, b"")
     test.assertIn(b"Could not read", truncated.stderr)
+
+
+def _reject_vector_numbers(test: NativeAcceptance, document: str, target: dict[str, Any]) -> None:
+    original = test.success("scene.summary", {"document_id": document})
+    for method, params, code in (
+        (
+            "drawing.create",
+            {
+                "level_id": target["level_id"],
+                "drawing_id": {"number": 65536, "suffix": "a"},
+                "format": "vector",
+            },
+            "invalid_params",
+        ),
+        (
+            "drawing.clone",
+            {**target, "destination_drawing_id": {"number": 65536, "suffix": "b"}},
+            "unsupported_drawing_id",
+        ),
+    ):
+        error = test.failure(method, test.write_params(document, params))
+        test.assertEqual(error["code"], code)
+        test.assertEqual(test.success("scene.summary", {"document_id": document}), original)
+
+
+def _drawing_number_roundtrip(test: NativeAcceptance, image_format: str, maximum: int) -> None:
+    document = test.create(f"{image_format} drawing number boundary")
+    level = test.mutate("level.create", document, name="Number boundary", format=image_format)
+    target = {"level_id": level["level_id"], "drawing_id": {"number": maximum, "suffix": "a"}}
+    dimensions = {} if image_format == "vector" else {"width": 3, "height": 2, "dpi": DPI}
+    test.mutate("drawing.create", document, **target, format=image_format, **dimensions)
+    if image_format == "vector":
+        test.mutate(
+            "vector.edit",
+            document,
+            **target,
+            coordinate_space="drawing_native",
+            sharing="all_exposures",
+            edits=[
+                {
+                    "action": "add",
+                    "style_id": 1,
+                    "points": [{"x": x, "y": 0, "thickness": 1} for x in (0, 1, 2)],
+                }
+            ],
+        )
+        _reject_vector_numbers(test, document, target)
+    clone = {"number": maximum, "suffix": "b"}
+    test.mutate("drawing.clone", document, **target, destination_drawing_id=clone)
+    saved = test.mutate(
+        "scene.save_copy",
+        document,
+        directory=str(test.workspace / f"number-limit-{image_format}"),
+    )
+    opened = test.mutate("scene.open", None, path=saved["package_directory"])
+    other = opened["document_id"]
+    summary = test.success("scene.summary", {"document_id": other})
+    restored = summary["levels"][0]
+    test.assertEqual(restored["drawings"], [target["drawing_id"], clone])
+    for drawing in restored["drawings"]:
+        reopened_target = {"level_id": restored["level_id"], "drawing_id": drawing}
+        if image_format == "vector":
+            _assert_geometry(
+                test, _geometry(test, document, target), _geometry(test, other, reopened_target)
+            )
+        else:
+            _assert_pixels(
+                test,
+                image_format,
+                _pixels(test, document, target),
+                _pixels(test, other, reopened_target),
+            )
+
+
+def check_drawing_number_limits(test: NativeAcceptance) -> None:
+    """Persist native frame-number boundaries and reject overflowing PLI IDs.
+
+    Args:
+        test: The running acceptance case and its disposable native worker.
+    """
+    for image_format, maximum in (("vector", 65535), ("rgba8", 999999), ("toonzRaster", 999999)):
+        with test.subTest(format=image_format, maximum_drawing_number=maximum):
+            _drawing_number_roundtrip(test, image_format, maximum)
