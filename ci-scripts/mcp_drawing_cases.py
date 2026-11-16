@@ -43,9 +43,7 @@ INDEXED = [
 def _level(test: NativeAcceptance, document: str, image_format: str) -> dict[str, Any]:
     level = test.mutate("level.create", document, name="Artwork", format=image_format)
     target = {"level_id": level["level_id"], "drawing_id": DRAWING}
-    dimensions = (
-        {} if image_format == "vector" else {"width": 3, "height": 2, "dpi": DPI}
-    )
+    dimensions = {} if image_format == "vector" else {"width": 3, "height": 2, "dpi": DPI}
     test.mutate("drawing.create", document, **target, format=image_format, **dimensions)
     column = test.mutate("column.create", document, name="Held artwork")
     test.mutate(
@@ -60,9 +58,7 @@ def _level(test: NativeAcceptance, document: str, image_format: str) -> dict[str
 
 
 def _palette(test: NativeAcceptance, document: str, level_id: str) -> dict[str, Any]:
-    return test.success(
-        "palette.inspect", {"document_id": document, "level_id": level_id}
-    )
+    return test.success("palette.inspect", {"document_id": document, "level_id": level_id})
 
 
 def _style(test: NativeAcceptance, document: str, level_id: str) -> int:
@@ -76,9 +72,7 @@ def _style(test: NativeAcceptance, document: str, level_id: str) -> int:
     return style["style_id"]
 
 
-def _reopen(
-    test: NativeAcceptance, document: str, label: str
-) -> tuple[str, dict[str, Any]]:
+def _reopen(test: NativeAcceptance, document: str, label: str) -> tuple[str, dict[str, Any]]:
     revision = test.revisions[document]
     saved = test.mutate(
         "scene.save_copy", document, directory=str(test.workspace / f"artwork-{label}")
@@ -103,9 +97,7 @@ def _reopen(
     return other, {"level_id": level["level_id"], "drawing_id": DRAWING}
 
 
-def _geometry(
-    test: NativeAcceptance, document: str, target: dict[str, Any]
-) -> dict[str, Any]:
+def _geometry(test: NativeAcceptance, document: str, target: dict[str, Any]) -> dict[str, Any]:
     return test.success("vector.inspect", {"document_id": document, **target})
 
 
@@ -120,14 +112,10 @@ def _assert_geometry(
         test.assertEqual(len(after["points"]), len(before["points"]))
         # PLI stores fixed-point deltas at 1/16384 and widths in 255 steps.
         coordinate_tolerance = len(before["points"]) / 16384
-        width_tolerance = (
-            math.ceil(max(point["thickness"] for point in before["points"])) / 255
-        )
+        width_tolerance = math.ceil(max(point["thickness"] for point in before["points"])) / 255
         for original, restored in zip(before["points"], after["points"], strict=True):
             for axis in ("x", "y"):
-                test.assertAlmostEqual(
-                    original[axis], restored[axis], delta=coordinate_tolerance
-                )
+                test.assertAlmostEqual(original[axis], restored[axis], delta=coordinate_tolerance)
             test.assertAlmostEqual(
                 original["thickness"], restored["thickness"], delta=width_tolerance
             )
@@ -157,9 +145,7 @@ def _reject_unserializable_geometry(
                     **target,
                     "coordinate_space": "drawing_native",
                     "sharing": "all_exposures",
-                    "edits": [
-                        {**stroke, "action": "update", "index": 0, "points": points}
-                    ],
+                    "edits": [{**stroke, "action": "update", "index": 0, "points": points}],
                 },
             ),
         )
@@ -244,12 +230,8 @@ def check_vector_roundtrip(test: NativeAcceptance) -> None:
     test.assertEqual(_palette(test, document, target["level_id"]), original_palette)
 
 
-def _pixels(
-    test: NativeAcceptance, document: str, target: dict[str, Any]
-) -> dict[str, Any]:
-    return test.success(
-        "raster.read_pixels", {"document_id": document, **target, **RECTANGLE}
-    )
+def _pixels(test: NativeAcceptance, document: str, target: dict[str, Any]) -> dict[str, Any]:
+    return test.success("raster.read_pixels", {"document_id": document, **target, **RECTANGLE})
 
 
 def _assert_pixels(
@@ -288,9 +270,7 @@ def _assert_png_dpi(test: NativeAcceptance, path: Path) -> None:
     test.fail("Native PNG export omitted the authored image DPI")
 
 
-def _png_roundtrip(
-    test: NativeAcceptance, document: str, target: dict[str, Any]
-) -> None:
+def _png_roundtrip(test: NativeAcceptance, document: str, target: dict[str, Any]) -> None:
     source = _pixels(test, document, target)
     revision = test.revisions[document]
     exported = test.mutate(
@@ -305,9 +285,7 @@ def _png_roundtrip(
         "level_id": target["level_id"],
         "drawing_id": {"number": 9, "suffix": "c"},
     }
-    test.mutate(
-        "raster.import_png", document, **imported, path=exported["path"], dpi=DPI
-    )
+    test.mutate("raster.import_png", document, **imported, path=exported["path"], dpi=DPI)
     _assert_pixels(test, "rgba8", source, _pixels(test, document, imported))
     description = test.success("drawing.inspect", {"document_id": document, **imported})
     test.assertEqual(description["dpi"], [DPI, DPI])

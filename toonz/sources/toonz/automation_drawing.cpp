@@ -13,6 +13,7 @@
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
 #include "toonz/toonzscene.h"
+#include "toonz/txshcell.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txsheet.h"
