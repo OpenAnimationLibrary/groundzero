@@ -25,13 +25,15 @@
 #include <QUuid>
 
 #include <clocale>
+#include <csignal>
 #include <cstdio>
+#include <fcntl.h>
 #include <functional>
 #include <iostream>
 
 #ifdef _WIN32
-#include <fcntl.h>
 #include <io.h>
+#include <qt_windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -99,12 +101,22 @@ int reserveProtocolOutput() {
   const int descriptor = _dup(_fileno(stdout));
   if (descriptor < 0 || _dup2(_fileno(stderr), _fileno(stdout)) < 0)
     throw Error("io_error", "Could not reserve the worker protocol output.");
+  const HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(descriptor));
+  if (!SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0)) {
+    _close(descriptor);
+    throw Error("io_error", "Could not isolate the worker protocol handle.");
+  }
   _setmode(descriptor, _O_BINARY);
   _setmode(_fileno(stdin), _O_BINARY);
 #else
   const int descriptor = dup(fileno(stdout));
   if (descriptor < 0 || dup2(fileno(stderr), fileno(stdout)) < 0)
     throw Error("io_error", "Could not reserve the worker protocol output.");
+  if (fcntl(descriptor, F_SETFD, FD_CLOEXEC) < 0) {
+    close(descriptor);
+    throw Error("io_error",
+                "Could not isolate the worker protocol descriptor.");
+  }
 #endif
   return descriptor;
 }
@@ -160,6 +172,7 @@ public:
   using Consumer = std::function<bool(const QByteArray&, bool)>;
   InputThread(QApplication& application, Consumer consumer)
       : m_application(application), m_consumer(std::move(consumer)) {}
+  int exitCode() const { return m_exitCode; }
 
 protected:
   void run() override {
@@ -176,6 +189,7 @@ protected:
       } else {
         line.append(static_cast<char>(next));
         if (line.size() > maximumLineBytes) {
+          m_exitCode = 2;
           deliver({}, true);
           QMetaObject::invokeMethod(&m_application, "quit",
                                     Qt::QueuedConnection);
@@ -183,7 +197,12 @@ protected:
         }
       }
     }
-    if (!line.isEmpty()) deliver(line, false);
+    if (std::ferror(stdin)) {
+      m_exitCode = 2;
+      std::cerr << "automation-worker: protocol input failed\n";
+    } else if (!line.isEmpty()) {
+      deliver(line, false);
+    }
     QMetaObject::invokeMethod(&m_application, "quit", Qt::QueuedConnection);
   }
 
@@ -196,10 +215,12 @@ private:
           keepReading = m_consumer(line, tooLarge);
         },
         Qt::BlockingQueuedConnection);
+    if (!keepReading) m_exitCode = 2;
     return keepReading;
   }
   QApplication& m_application;
   Consumer m_consumer;
+  int m_exitCode = 0;
 };
 
 QJsonObject processLine(Dispatcher& dispatcher, const QByteArray& line,
@@ -257,7 +278,7 @@ int executeWorker(QApplication& application, QFile& output,
   reader.wait();
   shutdownRender(context);
   TImageCache::instance()->clear(true);
-  return result;
+  return result != 0 ? result : reader.exitCode();
 }
 
 }  // namespace
@@ -265,12 +286,17 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(argc, argv);
+#ifndef _WIN32
+    if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+      throw Error("io_error",
+                  "Could not configure worker pipe failure handling.");
+#endif
     QFile output;
     if (!output.open(reserveProtocolOutput(), QIODevice::WriteOnly,
                      QFileDevice::AutoCloseHandle))
       throw Error("io_error", "Could not open the worker protocol stream.");
     const QString runtime = createRuntimeDirectory(options.workspace);
-    int applicationArgc = 1;
+    int applicationArgc   = 1;
     QApplication application(applicationArgc, argv);
     std::setlocale(LC_NUMERIC, "C");
     QObject mainScope(&application);
