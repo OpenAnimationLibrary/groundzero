@@ -45,6 +45,12 @@ workspace for a session; these roots are fixed at launch and cannot be broadened
 by a tool call. The executable must include native automation support and its
 normal libraries, codecs, and application resources.
 
+Movie rendering requires an explicit `--media-tools /opt/groundzero/media` startup
+argument naming a canonical directory containing regular executable `ffmpeg` and
+`ffprobe` files (`.exe` on Windows); symlinks are rejected. This optional grant is
+fixed for the session and does not add an input root. Without it, media helpers
+are disabled; the worker does not discover them through `PATH`.
+
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
 schemas describe their exact arguments and bounds. Frames start at zero. Native
 drawing numbers range from 1 to 65535 for vector levels and from 1 to 999999 for
@@ -110,6 +116,11 @@ malformed output, or worker exit closes the worker and fails pending calls.
 A lost response can have an unknown outcome:
 inspect saved workspace state before starting another worker and replaying edits.
 Diagnostics go to stderr; stdout is reserved for MCP. No network listener is used.
+
+On POSIX systems, media-enabled workers run under a private supervisor that
+terminates their process group when the connection closes, times out, or loses
+its parent. Windows workers contain media helpers in a native job object.
+Forcibly killing the POSIX supervisor itself can bypass its cleanup.
 
 Repository checks run in CI: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`,
 `pnpm test`, and `pnpm build`. `pnpm test:native` requires a built native executable

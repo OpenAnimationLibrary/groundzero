@@ -132,6 +132,7 @@ function launchArguments() {
       "automation-worker": { type: "boolean" },
       workspace: { type: "string" },
       "input-root": { type: "string", multiple: true },
+      "media-tools": { type: "string" },
     },
     strict: true,
     allowPositionals: false,
@@ -148,6 +149,7 @@ function launchArguments() {
     values.workspace,
   ];
   for (const root of values["input-root"] ?? []) args.push("--input-root", root);
+  if (values["media-tools"] !== undefined) args.push("--media-tools", values["media-tools"]);
   return args;
 }
 
