@@ -224,13 +224,13 @@ async function main() {
       }),
     );
     await serve(client);
-    if (failure) throw failure;
   } finally {
     await close();
     process.removeListener("SIGTERM", interrupted);
     process.removeListener("SIGINT", interrupted);
     process.stdout.removeListener("error", stop);
   }
+  if (failure) throw failure;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
