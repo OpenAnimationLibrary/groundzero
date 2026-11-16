@@ -216,7 +216,7 @@ private:
         "-count_frames",
         "-show_entries",
         "stream=codec_type,codec_name,pix_fmt,width,height,nb_read_frames,avg_"
-        "frame_rate:format=duration",
+        "frame_rate:format=format_name,duration:format_tags=major_brand",
         "-of",
         "json",
         m_config.moviePath};
