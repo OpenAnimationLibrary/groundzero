@@ -52,6 +52,11 @@ async function preview(client: Client, documentId: unknown, revision: unknown): 
     arguments: { artifact_id: artifacts[0]["artifact_id"] },
   });
   expect(result.isError, JSON.stringify(result)).not.toBe(true);
+  expect(result.structuredContent).toMatchObject({
+    source_revision: revision,
+    width: 32,
+    height: 32,
+  });
   expect(result.content).toEqual(
     expect.arrayContaining([expect.objectContaining({ type: "image", mimeType: "image/png" })]),
   );
