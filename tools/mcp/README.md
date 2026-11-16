@@ -46,8 +46,9 @@ by a tool call. The executable must include native automation support and its
 normal libraries, codecs, and application resources.
 
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
-schemas describe their exact arguments and bounds. Frames start at zero, while
-native drawing identifiers retain their drawing number and optional suffix. Writes
+schemas describe their exact arguments and bounds. Frames start at zero. Native
+drawing numbers range from 1 to 65535 for vector levels and from 1 to 999999 for
+RGBA8 and Toonz raster levels; lowercase ASCII suffixes are preserved. Writes
 require an `operation_id`; changes to an existing document also require its latest
 `expected_revision`. Keep the original operation ID when checking a retry within
 the same worker. Receipts and document handles expire when that worker exits.
@@ -90,8 +91,8 @@ the job reaches a terminal status. Cancelling an MCP request can leave native wo
 running. Treat an abandoned write as having an unknown outcome and inspect state
 before retrying; completed changes are retained.
 
-Native requests are limited to 256 KiB, responses to 8 MiB, and pending calls to
-16. MCP responses are limited to 9 MiB including envelope headroom. Metadata above
+The worker allows at most 16 pending calls, 256 KiB per request, and 8 MiB per
+response. MCP responses are limited to 9 MiB including envelope headroom. Metadata above
 64 KiB uses a brief text summary and remains complete in `structuredContent`;
 image content retains its original bytes. A response timeout after 120 seconds,
 malformed output, or worker exit closes the worker and fails pending calls.
@@ -102,6 +103,6 @@ Diagnostics go to stderr; stdout is reserved for MCP. No network listener is use
 Repository checks run in CI: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`,
 `pnpm test`, and `pnpm build`. `pnpm test:native` requires a built native executable
 in `GROUNDZERO_EXECUTABLE` and exercises legacy and MCP 2026-07-28 stdio connections,
-document creation, revision rejection, and actual preview image content. These
+document creation, revision rejection, and decoded color-card preview pixels. These
 tests establish SDK interoperability on the CI platform; host-specific display
 behavior still depends on the MCP application.
