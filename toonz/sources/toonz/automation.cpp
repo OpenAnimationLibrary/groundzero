@@ -270,9 +270,9 @@ int runWorker(int argc, char* argv[]) {
                      QFileDevice::AutoCloseHandle))
       throw Error("io_error", "Could not open the worker protocol stream.");
     const QString runtime = createRuntimeDirectory(options.workspace);
-    std::setlocale(LC_NUMERIC, "C");
     int applicationArgc = 1;
     QApplication application(applicationArgc, argv);
+    std::setlocale(LC_NUMERIC, "C");
     QObject mainScope(&application);
     mainScope.setObjectName("mainScope");
     application.setQuitOnLastWindowClosed(false);
