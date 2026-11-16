@@ -1119,6 +1119,27 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    add_executable(mcp_ffprobe_fixture tests/mcp_ffprobe_fixture.cpp)
+    target_compile_features(mcp_ffprobe_fixture PRIVATE cxx_std_17)
+    target_link_libraries(mcp_ffprobe_fixture PRIVATE Threads::Threads)
+    if(WIN32)
+        target_link_libraries(mcp_ffprobe_fixture PRIVATE shell32)
+    endif()
+    set_target_properties(mcp_ffprobe_fixture PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-fixtures")
+    foreach(configuration IN LISTS CMAKE_CONFIGURATION_TYPES)
+        string(TOUPPER "${configuration}" configuration_upper)
+        set_target_properties(mcp_ffprobe_fixture PROPERTIES
+            "RUNTIME_OUTPUT_DIRECTORY_${configuration_upper}"
+            "${CMAKE_CURRENT_BINARY_DIR}/mcp-fixtures/${configuration}")
+    endforeach()
+    add_dependencies(OpenToonz mcp_ffprobe_fixture)
+    add_custom_command(TARGET OpenToonz POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:mcp_ffprobe_fixture>"
+            "$<TARGET_FILE_DIR:OpenToonz>/$<TARGET_FILE_NAME:mcp_ffprobe_fixture>"
+        VERBATIM)
+    target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h

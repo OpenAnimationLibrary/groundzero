@@ -47,6 +47,7 @@ DV_IMPORT_API void initColorFx();
 namespace GroundzeroAutomation {
 #ifdef BUILD_UI_PORT_TESTS
 void runAutomationFxTests(Context& context);
+void runAutomationMediaProcessTests(Context& context);
 #endif
 namespace {
 
@@ -378,6 +379,7 @@ int executeWorker(QApplication& application, QFile& output,
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) {
     runAutomationFxTests(context);
+    runAutomationMediaProcessTests(context);
     TImageCache::instance()->clear(true);
     return 0;
   }

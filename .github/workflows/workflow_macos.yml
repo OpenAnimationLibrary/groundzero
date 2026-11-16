@@ -545,6 +545,8 @@ jobs:
       - name: Create Artifact
         run: |
           cd toonz/build/toonz
+          cmake -E rm -f OpenToonz.app/Contents/MacOS/mcp_ffprobe_fixture
+          test ! -e OpenToonz.app/Contents/MacOS/mcp_ffprobe_fixture
           echo "Creating DMG..."
           ATTEMPT=1
           until /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -dmg -verbose=0 && [ -f OpenToonz.dmg ]; do
