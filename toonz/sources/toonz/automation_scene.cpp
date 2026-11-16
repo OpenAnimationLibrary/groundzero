@@ -389,9 +389,11 @@ QImage readPng(Context& context, const QJsonObject& params) {
   QImageReader reader(path, "png");
   reader.setAutoDetectImageFormat(false);
   const QSize size = reader.size();
-  if (!size.isValid() || qint64(size.width()) * size.height() > MaxPixels)
+  if (size.isEmpty() || size.width() > 8192 || size.height() > 8192 ||
+      qint64(size.width()) * size.height() > MaxPixels)
     throw Error("resource_limit",
-                "PNG dimensions are invalid or exceed 16 megapixels.");
+                "PNG dimensions must be 1..8192 per axis and no more than "
+                "16 megapixels.");
   const QImage image = reader.read();
   if (image.isNull())
     throw Error("invalid_asset",

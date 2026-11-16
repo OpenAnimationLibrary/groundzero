@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import base64
+import struct
+import zlib
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_png import Pixel, decode_png, fixture_pixel
@@ -344,3 +347,65 @@ def _render_dpi_frames(case: NativeAcceptance, document: str) -> list[tuple[int,
         frames.append(decode_png(base64.b64decode(result["image"]["data"], validate=True)))
     case.assertEqual(case.revisions[document], revision)
     return frames
+
+
+def png_import_dimension_bounds_preserve_scene(case: NativeAcceptance) -> None:
+    """Admit savable per-axis bounds and reject oversized strips before native writes.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    document = case.create()
+    for width, height in ((8192, 1), (1, 8192)):
+        path = case.inputs / f"valid-{width}x{height}.png"
+        _write_strip_png(path, width, height)
+        level = case.mutate("level.import", document, path=str(path), name=path.stem, dpi=120)
+        drawing = case.success(
+            "drawing.inspect",
+            {
+                "document_id": document,
+                "level_id": level["level_id"],
+                "drawing_id": {"number": 1, "suffix": ""},
+            },
+        )
+        case.assertEqual((drawing["width"], drawing["height"]), (width, height))
+    before = _summary(case, document)
+    for width, height in ((8193, 1), (1, 8193)):
+        path = case.inputs / f"oversized-{width}x{height}.png"
+        _write_strip_png(path, width, height)
+        error = case.failure(
+            "level.import",
+            case.write_params(document, {"path": str(path), "name": path.stem, "dpi": 120}),
+        )
+        case.assertEqual(error["code"], "resource_limit")
+        case.assertEqual(_summary(case, document), before)
+    saved = case.mutate(
+        "scene.save_copy", document, directory=str(case.workspace / "dimension-boundaries")
+    )
+    reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
+    levels = _summary(case, reopened)["levels"]
+    case.assertEqual(len(levels), 2)
+    dimensions = set()
+    for level in levels:
+        drawing = case.success(
+            "drawing.inspect",
+            {
+                "document_id": reopened,
+                "level_id": level["level_id"],
+                "drawing_id": {"number": 1, "suffix": ""},
+            },
+        )
+        dimensions.add((drawing["width"], drawing["height"]))
+    case.assertEqual(dimensions, {(8192, 1), (1, 8192)})
+
+
+def _write_strip_png(path: Path, width: int, height: int) -> None:
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    row = b"\x00" + bytes([80, 160, 240, 255]) * width
+    chunks = ((b"IHDR", header), (b"IDAT", zlib.compress(row * height)), (b"IEND", b""))
+    data = bytearray(b"\x89PNG\r\n\x1a\n")
+    for kind, payload in chunks:
+        data.extend(struct.pack(">I", len(payload)))
+        data.extend(kind + payload)
+        data.extend(struct.pack(">I", zlib.crc32(kind + payload)))
+    path.write_bytes(data)
