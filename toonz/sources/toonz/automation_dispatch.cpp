@@ -159,6 +159,13 @@ QJsonObject errorObject(const Error& error) {
 }
 
 Dispatcher::Dispatcher(Context& context) : m_context(context) {
+  m_catalog.append(operation(
+      "automation.capabilities",
+      "Inspect this worker's protocol and available native operations.", {},
+      {}));
+  m_catalog.append(operation(
+      "automation.list_documents",
+      "List detached documents and their current revisions.", {}, {}));
   add(sceneOperations(), executeScene);
   add(fxOperations(), executeFx);
   add(drawingOperations(), executeDrawing);
@@ -174,6 +181,10 @@ void Dispatcher::add(const QJsonArray& operations, Handler handler) {
       throw Error(
           "internal_error",
           "The native operation catalog contains a duplicate or empty name.");
+    if (name == "automation.capabilities" ||
+        name == "automation.list_documents")
+      throw Error("internal_error",
+                  "A native domain cannot replace a worker operation.");
     m_entries.insert(name, {descriptor, handler});
     m_catalog.append(descriptor);
   }
