@@ -60,6 +60,12 @@ std::string metadata(const std::string& mode) {
   if (mode == "malformed") return "{invalid-json";
   const std::map<std::string, std::pair<std::string, std::string>> changes = {
       {"wrong-container", {"mov,mp4,m4a,3gp,3g2,mj2", "matroska,webm"}},
+      {"wrong-brand", {"\"major_brand\":\"isom\"", "\"major_brand\":\"qt  \""}},
+      {"missing-codec", {"\"codec_name\":\"mpeg4\"", "\"codec_name\":\"\""}},
+      {"extra-stream",
+       {"\"avg_frame_rate\":\"24/1\"}]",
+        "\"avg_frame_rate\":\"24/"
+        "1\"},{\"codec_type\":\"audio\",\"codec_name\":\"aac\"}]"}},
       {"wrong-count", {"\"nb_read_frames\":\"3\"", "\"nb_read_frames\":\"4\""}},
       {"wrong-dimensions", {"\"width\":32", "\"width\":34"}},
       {"wrong-rate", {"24/1", "12/1"}},
