@@ -15,6 +15,10 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import mcp_drawing_cases
+import mcp_render_cases
+import mcp_scene_cases
+import mcp_worker_cases
 from mcp_png import decode_png, fixture_pixel, write_fixture
 from mcp_worker import Worker
 from run_harness_tests import Tee, annotation
@@ -49,6 +53,54 @@ class NativeAcceptance(unittest.TestCase):
 
     executable: Path
     output: Path
+
+    def test_parenting_preserves_local_keys_and_changes_rendered_placement(self) -> None:
+        mcp_scene_cases.parenting_preserves_local_keys_and_changes_rendered_placement(self)
+
+    def test_parenting_rejections_preserve_every_object(self) -> None:
+        mcp_scene_cases.parenting_rejections_preserve_every_object(self)
+
+    def test_locked_columns_and_deleted_handles_remain_consistent(self) -> None:
+        mcp_scene_cases.locked_columns_and_deleted_handles_remain_consistent(self)
+
+    def test_animation_precision_and_batch_errors_preserve_existing_keys(self) -> None:
+        mcp_scene_cases.animation_precision_and_batch_errors_preserve_existing_keys(self)
+
+    def test_custom_dpi_survives_reopen_and_remains_independent_of_camera(self) -> None:
+        mcp_scene_cases.custom_dpi_survives_reopen_and_remains_independent_of_camera(self)
+
+    def test_closed_protocol_output_has_controlled_exit(self) -> None:
+        mcp_worker_cases.closed_output_has_controlled_exit(self)
+
+    def test_unreadable_protocol_input_is_not_clean_eof(self) -> None:
+        mcp_worker_cases.unreadable_input_is_not_clean_eof(self)
+
+    def test_vector_drawing_data_survives_native_roundtrip(self) -> None:
+        mcp_drawing_cases.check_vector_roundtrip(self)
+
+    def test_rgba_drawing_data_survives_native_roundtrip(self) -> None:
+        mcp_drawing_cases.check_rgba_roundtrip(self)
+
+    def test_toonz_raster_data_survives_native_roundtrip(self) -> None:
+        mcp_drawing_cases.check_toonz_raster_roundtrip(self)
+
+    def test_blank_render_dimensions_and_alpha(self) -> None:
+        mcp_render_cases.blank_dimensions_and_alpha(self)
+
+    def test_preview_fit_preserves_camera(self) -> None:
+        mcp_render_cases.preview_fit_preserves_camera(self)
+
+    def test_generator_render_preserves_straight_alpha(self) -> None:
+        mcp_render_cases.generator_straight_alpha(self)
+
+    def test_render_snapshot_survives_edits_and_discard(self) -> None:
+        mcp_render_cases.snapshot_survives_edits_and_discard(self)
+
+    def test_changed_render_artifact_is_rejected(self) -> None:
+        mcp_render_cases.changed_artifact_is_rejected(self)
+
+    def test_eof_cancels_render_without_forced_kill(self) -> None:
+        mcp_render_cases.eof_cancels_without_forced_kill(self)
 
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
@@ -211,7 +263,8 @@ class NativeAcceptance(unittest.TestCase):
                 timeout=90,
                 check=False,
             )
-        self.assertEqual(result.returncode, 0, "Native domain regressions failed; see retained log")
+        diagnostics = (self.directory / "native-domain-tests.log").read_bytes()[-4096:]
+        self.assertEqual(result.returncode, 0, diagnostics.decode("utf-8", errors="replace"))
 
     def test_vector_edits_validate_the_whole_batch(self) -> None:
         document = self.create()
@@ -509,7 +562,15 @@ class NativeAcceptance(unittest.TestCase):
         )
 
     def test_protocol_rejects_malformed_and_oversize_requests(self) -> None:
-        self.assertIn("error", self.worker.exchange(b"{malformed json"))
+        self.assertEqual(self.worker.exchange(b"{malformed json")["error"]["code"], "parse_error")
+        invalid_utf8 = b'{"id":"invalid-\xff","method":"automation.capabilities","params":{}}'
+        self.assertIn("error", self.worker.exchange(invalid_utf8))
+        concatenated = b'{"id":"first","method":"automation.capabilities","params":{}}{}'
+        self.assertIn("error", self.worker.exchange(concatenated))
+        missing_id = self.worker.exchange(b'{"method":"automation.capabilities","params":{}}')
+        self.assertIn("error", missing_id)
+        self.assertIsNone(missing_id["id"])
+        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 1)
         self.assertIn(
             "error",
             self.worker.exchange(
@@ -525,11 +586,22 @@ class NativeAcceptance(unittest.TestCase):
         )
         self.failure("acceptance.nonexistent", {})
         self.failure("scene.create", {"name": "Missing receipt"})
+        self.failure(
+            "scene.create",
+            self.write_params(
+                None,
+                {
+                    "name": "Unknown argument",
+                    "unrecognized_acceptance_argument": True,
+                },
+            ),
+        )
         self.failure("scene.create", self.write_params(None, {"name": "Bad width", "width_px": -1}))
         self.assertEqual(self.success("automation.list_documents", {})["documents"], [])
         oversized = b'{"id":"oversized","method":"automation.capabilities","params":{"pad":"'
         oversized += b"x" * (8 * 1024 * 1024) + b'"}}'
-        self.assertIn("error", self.worker.exchange(oversized))
+        self.assertEqual(self.worker.exchange(oversized)["error"]["code"], "request_too_large")
+        self.assertEqual(self.worker.process.wait(timeout=30), 2)
 
     def test_revision_conflicts_noops_and_receipt_replay(self) -> None:
         document = self.create()
@@ -571,6 +643,39 @@ class NativeAcceptance(unittest.TestCase):
         self.assertEqual(summary["revision"], self.revisions[document])
         self.assertEqual(summary["levels"], [])
         self.failure("scene.open", self.write_params(None, {"path": str(self.fixture)}))
+
+    def test_native_decoder_failure_leaves_document_usable(self) -> None:
+        document = self.create()
+        level = self.mutate("level.create", document, name="Broken input", format="rgba8")
+        truncated = self.inputs / "truncated.png"
+        truncated.write_bytes(self.fixture.read_bytes()[:33])
+        before = self.success("scene.summary", {"document_id": document})
+        self.failure(
+            "raster.import_png",
+            self.write_params(
+                document,
+                {
+                    "level_id": level["level_id"],
+                    "drawing_id": {"number": 1, "suffix": ""},
+                    "path": str(truncated),
+                    "dpi": 120,
+                },
+            ),
+        )
+        self.assertEqual(self.success("scene.summary", {"document_id": document}), before)
+        self.failure(
+            "level.import",
+            self.write_params(
+                document,
+                {
+                    "name": "Invalid decoded asset",
+                    "path": str(truncated),
+                    "dpi": 120,
+                },
+            ),
+        )
+        self.assertEqual(self.success("scene.summary", {"document_id": document}), before)
+        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 1)
 
     def test_exposures_animation_and_document_isolation(self) -> None:
         document, level, column = self.populated_scene()
@@ -801,14 +906,14 @@ class NativeAcceptance(unittest.TestCase):
     def test_cancellation_and_worker_termination_are_bounded(self) -> None:
         document, _level, _column = self.populated_scene()
         job = self.mutate(
-            "render.submit", document, start_frame=0, end_frame=119, step=1, width=1024, height=1024
+            "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )
         canceled = self.mutate("render.cancel", None, job_id=job["job_id"])
         self.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
         self.assertEqual(self.wait_job(job["job_id"])["status"], "canceled")
         self.failure("render.artifacts", {"job_id": job["job_id"]})
         self.mutate(
-            "render.submit", document, start_frame=0, end_frame=119, step=1, width=1024, height=1024
+            "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )
         self.worker.process.terminate()
         self.worker.process.wait(timeout=10)

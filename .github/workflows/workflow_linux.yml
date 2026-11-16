@@ -153,6 +153,47 @@ jobs:
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test externfx_process_test plugin_probe_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
+    # Show the errors on the pull request (summary and annotations) without
+    # having to open the full log
+    - name: Report build errors
+      if: failure()
+      run: |
+        log="$GITHUB_WORKSPACE/build.log"
+        [ -f "$log" ] || exit 0
+        # Keep the failed target visible even when many linker references fill
+        # the bounded error excerpt below.
+        grep '^FAILED:' "$log" | head -10 | while IFS= read -r line; do
+          echo "::error title=Failed build target::$line"
+        done || true
+        grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
+        {
+          echo "## Linux build errors"
+          echo '```'
+          cat errors.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        prefix="$GITHUB_WORKSPACE/"
+        grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
+          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
+          msg=${line#*error: }
+          file=${file#"$prefix"}; file=${file#../sources/}
+          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
+          echo "::error file=${file},line=${lineno}::${msg}"
+        done
+        grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
+          echo "::error::${line}"
+        done
+
+    - name: Retain native build diagnostics immediately
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: Linux-native-build-${{ github.sha }}
+        path: |
+          build.log
+          errors.txt
+        if-no-files-found: ignore
+
     - name: Prepare native Neural Style component
       run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 
@@ -527,37 +568,6 @@ jobs:
         cmake --build glb-build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
         cd glb-build
         ctest --output-on-failure --timeout 600
-
-    # Show the errors on the pull request (summary and annotations) without
-    # having to open the full log
-    - name: Report build errors
-      if: failure()
-      run: |
-        log="$GITHUB_WORKSPACE/build.log"
-        [ -f "$log" ] || exit 0
-        # Keep the failed target visible even when many linker references fill
-        # the bounded error excerpt below.
-        grep '^FAILED:' "$log" | head -10 | while IFS= read -r line; do
-          echo "::error title=Failed build target::$line"
-        done || true
-        grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
-        {
-          echo "## Linux build errors"
-          echo '```'
-          cat errors.txt
-          echo '```'
-        } >> "$GITHUB_STEP_SUMMARY"
-        prefix="$GITHUB_WORKSPACE/"
-        grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
-          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
-          msg=${line#*error: }
-          file=${file#"$prefix"}; file=${file#../sources/}
-          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
-          echo "::error file=${file},line=${lineno}::${msg}"
-        done
-        grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
-          echo "::error::${line}"
-        done
 
     - name: Create Artifact
       env:
