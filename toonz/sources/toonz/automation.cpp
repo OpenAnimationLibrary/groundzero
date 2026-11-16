@@ -266,6 +266,7 @@ void initializeNative(const QString& runtime, const char* executable,
   ThirdParty::setFFmpegDir(options.mediaToolsDirectory.isEmpty()
                                ? runtime
                                : options.mediaToolsDirectory);
+  if (!options.mediaToolsDirectory.isEmpty()) ThirdParty::setFFmpegTimeout(60);
   const QString cache = canonicalWorkerRoot(QDir(runtime).filePath("cache"));
   ToonzFolder::setCacheRootFolder(TFilePath(cache.toStdWString()));
   TPalette::setRootDir(
