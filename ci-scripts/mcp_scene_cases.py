@@ -209,6 +209,15 @@ def custom_dpi_survives_reopen_and_remains_independent_of_camera(case: NativeAcc
         start_frame=0,
         length=1,
     )
+    source = case.success(
+        "drawing.inspect",
+        {
+            "document_id": document,
+            "level_id": level["level_id"],
+            "drawing_id": {"number": 1, "suffix": ""},
+        },
+    )
+    case.assertEqual(source["dpi"], [180, 180])
     before = decode_png(case.preview(document))
     saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "custom-dpi"))
     reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
