@@ -194,9 +194,14 @@
     STD_iwa_TimeCodeFx
     STD_iwa_TextFx
     STD_iwa_FlowPaintBrushFx
+    STD_motionLinesFx
+    STD_burstLinesFx
+    STD_dotScreenFx
   </Render>
   <Stylize>
     STD_celEdgeLinesFx
+    STD_watercolourFx
+    STD_roughStrokeFx
     STD_colorEmbossFx
     STD_embossFx
     STD_inoMaxMinFx

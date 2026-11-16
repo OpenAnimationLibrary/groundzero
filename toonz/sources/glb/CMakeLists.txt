@@ -13,7 +13,9 @@ target_compile_features(otglb PUBLIC cxx_std_17)
 target_include_directories(otglb PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(otglb PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Not part of BUILD_TESTS: the GLB/3D features are developed and tested in OT3D.
+# Not part of BUILD_TESTS: the library builds and tests on its own
+# (cmake -S toonz/sources/glb), which the Linux workflow runs with the
+# sanitizers on every pull request.
 if(GLB_STANDALONE)
     set(GLB_LOADER_TOOLS_DEFAULT ON)
 else()

@@ -185,6 +185,11 @@ set(SOURCES
     celedgelinesfx.cpp
     celboilfx.cpp
     printprocessfx.cpp
+    motionlinesfx.cpp
+    burstlinesfx.cpp
+    dotscreenfx.cpp
+    watercolourfx.cpp
+    roughstrokefx.cpp
     lightwrapfx.cpp
     edgeextendfx.cpp
     automattefx.cpp
@@ -431,25 +436,6 @@ if(BUILD_LUT3D_TESTS)
     add_test(NAME lut3dbake COMMAND lut3dbake_test)
 endif()
 
-# Optional regression targets for the GLB-backed 3D FX framework.
-# Not part of BUILD_TESTS: the GLB/3D features are developed and tested in OT3D.
-option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" OFF)
-if(BUILD_GLB_FX_TESTS)
-    add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
-    target_link_libraries(glbmodelfx_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
-    add_executable(threepointlightfx_test tests/threepointlightfx_test.cpp)
-    target_link_libraries(threepointlightfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
-    add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
-    target_link_libraries(transform3dfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
-    add_test(NAME glbmodelfx COMMAND glbmodelfx_test)
-    add_test(NAME threepointlightfx COMMAND threepointlightfx_test)
-    add_test(NAME transform3dfx COMMAND transform3dfx_test)
-    # glbmodelfx_test creates a QApplication; CI machines have no display.
-    if(NOT WIN32)
-        set_tests_properties(glbmodelfx PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-    endif()
-endif()
-
 # Optional regression target that renders standard FX graphs and compares
 # them with the reference images in tests/fxrender.
 option(BUILD_FXRENDER_TESTS "Build the FX render regression test" ${BUILD_TESTS})
@@ -623,6 +609,94 @@ if(BUILD_CELFX_TESTS)
 endif()
 
 if(BUILD_CELFX_TESTS)
+    # The line engine has no toonz types: its test links nothing
+    add_executable(comiclines_test tests/comiclines_test.cpp)
+    add_test(NAME celfx_comiclines COMMAND comiclines_test)
+    set_tests_properties(celfx_comiclines PROPERTIES TIMEOUT 60)
+    add_dependencies(celfx_tests comiclines_test)
+    add_executable(motionlines_test tests/motionlines_test.cpp)
+    target_link_libraries(motionlines_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_motionlines COMMAND motionlines_test)
+    add_executable(motionlines_ui_test tests/motionlines_ui_test.cpp)
+    target_link_libraries(motionlines_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_motionlines_ui COMMAND motionlines_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_motionLinesFx.xml)
+    add_dependencies(celfx_tests motionlines_test motionlines_ui_test)
+    set_tests_properties(celfx_motionlines celfx_motionlines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_executable(burstlines_test tests/burstlines_test.cpp)
+    target_link_libraries(burstlines_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_burstlines COMMAND burstlines_test)
+    add_executable(burstlines_ui_test tests/burstlines_ui_test.cpp)
+    target_link_libraries(burstlines_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_burstlines_ui COMMAND burstlines_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_burstLinesFx.xml)
+    add_dependencies(celfx_tests burstlines_test burstlines_ui_test)
+    set_tests_properties(celfx_burstlines celfx_burstlines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The dot math has no toonz types: its test links nothing
+    add_executable(dotscreen_test tests/dotscreen_test.cpp)
+    add_test(NAME celfx_dotscreen COMMAND dotscreen_test)
+    add_executable(dotscreenfx_test tests/dotscreenfx_test.cpp)
+    target_link_libraries(dotscreenfx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_dotscreenfx COMMAND dotscreenfx_test)
+    add_executable(dotscreen_ui_test tests/dotscreen_ui_test.cpp)
+    target_link_libraries(dotscreen_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_dotscreen_ui COMMAND dotscreen_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_dotScreenFx.xml)
+    add_dependencies(celfx_tests dotscreen_test dotscreenfx_test dotscreen_ui_test)
+    set_tests_properties(celfx_dotscreen celfx_dotscreenfx celfx_dotscreen_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The wash math needs only the noise: its test links no toonz library
+    add_executable(watercolour_test tests/watercolour_test.cpp celnoise.cpp)
+    add_test(NAME celfx_watercolour COMMAND watercolour_test)
+    add_executable(watercolourfx_test tests/watercolourfx_test.cpp celnoise.cpp)
+    target_link_libraries(watercolourfx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_watercolourfx COMMAND watercolourfx_test)
+    add_executable(watercolour_ui_test tests/watercolour_ui_test.cpp celnoise.cpp)
+    target_link_libraries(watercolour_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_watercolour_ui COMMAND watercolour_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_watercolourFx.xml)
+    add_dependencies(celfx_tests watercolour_test watercolourfx_test watercolour_ui_test)
+    set_tests_properties(celfx_watercolour celfx_watercolourfx celfx_watercolour_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The stroke math has no toonz types: its test links nothing
+    add_executable(roughstroke_test tests/roughstroke_test.cpp)
+    add_test(NAME celfx_roughstroke COMMAND roughstroke_test)
+    add_executable(roughstrokefx_test tests/roughstrokefx_test.cpp)
+    target_link_libraries(roughstrokefx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_roughstrokefx COMMAND roughstrokefx_test)
+    add_executable(roughstroke_ui_test tests/roughstroke_ui_test.cpp)
+    target_link_libraries(roughstroke_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_roughstroke_ui COMMAND roughstroke_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_roughStrokeFx.xml)
+    add_dependencies(celfx_tests roughstroke_test roughstrokefx_test roughstroke_ui_test)
+    set_tests_properties(celfx_roughstroke celfx_roughstrokefx celfx_roughstroke_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The GLB Model, Three-Point Light and 3D Transformer FX. New 3D features
+    # are built in OT3D; these tests keep this tree's copy working. The
+    # renderer itself is tested on its own in glb/.
+    add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
+    target_link_libraries(glbmodelfx_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_glbmodelfx COMMAND glbmodelfx_test)
+    add_executable(threepointlightfx_test tests/threepointlightfx_test.cpp)
+    target_link_libraries(threepointlightfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_threepointlightfx COMMAND threepointlightfx_test)
+    add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
+    target_link_libraries(transform3dfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_transform3dfx COMMAND transform3dfx_test)
+    add_dependencies(celfx_tests glbmodelfx_test threepointlightfx_test transform3dfx_test)
+    set_tests_properties(celfx_glbmodelfx celfx_threepointlightfx celfx_transform3dfx PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
     add_executable(celcomposite_test tests/celcomposite_test.cpp)
     target_link_libraries(celcomposite_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_composite COMMAND celcomposite_test)
@@ -667,6 +741,16 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_particlesFx.xml)
     add_dependencies(celfx_tests particleweather_test particleweather_ui_test)
     set_tests_properties(celfx_particleweather celfx_particleweather_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${OT_PARTICLE_TEST_QPA_PLATFORM}" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    # The shipped presets load through the FX registry, as the Add FX menu does
+    add_executable(comicfx_presets_test tests/comicfx_presets_test.cpp)
+    target_link_libraries(comicfx_presets_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_comicfx_presets COMMAND comicfx_presets_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/fxs/presets)
+    add_dependencies(celfx_tests comicfx_presets_test)
+    set_tests_properties(celfx_comicfx_presets PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${OT_PARTICLE_TEST_QPA_PLATFORM}" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)

@@ -1353,6 +1353,152 @@
   <item>"STD_celBoilFx.cycle" "Cycle (Frames)" </item>
   <item>"STD_celBoilFx.blend" "Blend" </item>
   <item>"STD_celBoilFx.seed" "Seed" </item>
+  <item>"STD_motionLinesFx" "Motion Lines" </item>
+  <item>"STD_motionLinesFx.start" "Start" </item>
+  <item>"STD_motionLinesFx.end" "End" </item>
+  <item>"STD_motionLinesFx.width" "Band Width" </item>
+  <item>"STD_motionLinesFx.tile" "Tile" </item>
+  <item>"STD_motionLinesFx.lines" "Lines" </item>
+  <item>"STD_motionLinesFx.groupSize" "Lines per Group" </item>
+  <item>"STD_motionLinesFx.attraction" "Group Tightness" </item>
+  <item>"STD_motionLinesFx.positionRandom" "Position Randomness" </item>
+  <item>"STD_motionLinesFx.length" "Length" </item>
+  <item>"STD_motionLinesFx.lengthRandom" "Length Randomness" </item>
+  <item>"STD_motionLinesFx.startRandom" "Start Randomness" </item>
+  <item>"STD_motionLinesFx.thickness" "Thickness" </item>
+  <item>"STD_motionLinesFx.thicknessRandom" "Thickness Randomness" </item>
+  <item>"STD_motionLinesFx.taper" "Taper" </item>
+  <item>"STD_motionLinesFx.inLength" "Swell In" </item>
+  <item>"STD_motionLinesFx.outLength" "Swell Out" </item>
+  <item>"STD_motionLinesFx.waveAmplitude" "Wave Amplitude" </item>
+  <item>"STD_motionLinesFx.wavePeriod" "Wave Length" </item>
+  <item>"STD_motionLinesFx.wavePhase" "Wave Phase" </item>
+  <item>"STD_motionLinesFx.wavePhaseRandom" "Wave Phase Randomness" </item>
+  <item>"STD_motionLinesFx.color" "Colour" </item>
+  <item>"STD_motionLinesFx.color2" "Second Colour" </item>
+  <item>"STD_motionLinesFx.colorRandom" "Colour Randomness" </item>
+  <item>"STD_motionLinesFx.opacity" "Opacity" </item>
+  <item>"STD_motionLinesFx.opacityRandom" "Opacity Randomness" </item>
+  <item>"STD_motionLinesFx.speed" "Speed (per Frame)" </item>
+  <item>"STD_motionLinesFx.hold" "Hold (Frames)" </item>
+  <item>"STD_motionLinesFx.seed" "Seed" </item>
+  <item>"STD_burstLinesFx" "Burst Lines" </item>
+  <item>"STD_burstLinesFx.center" "Center" </item>
+  <item>"STD_burstLinesFx.innerRadius" "Inner Radius" </item>
+  <item>"STD_burstLinesFx.outerRadius" "Outer Radius" </item>
+  <item>"STD_burstLinesFx.twist" "Twist" </item>
+  <item>"STD_burstLinesFx.falloff" "Falloff" </item>
+  <item>"STD_burstLinesFx.lines" "Lines" </item>
+  <item>"STD_burstLinesFx.groupSize" "Lines per Group" </item>
+  <item>"STD_burstLinesFx.attraction" "Group Tightness" </item>
+  <item>"STD_burstLinesFx.positionRandom" "Position Randomness" </item>
+  <item>"STD_burstLinesFx.length" "Length" </item>
+  <item>"STD_burstLinesFx.lengthRandom" "Length Randomness" </item>
+  <item>"STD_burstLinesFx.startRandom" "Start Randomness" </item>
+  <item>"STD_burstLinesFx.thickness" "Thickness" </item>
+  <item>"STD_burstLinesFx.thicknessRandom" "Thickness Randomness" </item>
+  <item>"STD_burstLinesFx.taper" "Taper" </item>
+  <item>"STD_burstLinesFx.inLength" "Swell In" </item>
+  <item>"STD_burstLinesFx.outLength" "Swell Out" </item>
+  <item>"STD_burstLinesFx.waveAmplitude" "Wave Amplitude" </item>
+  <item>"STD_burstLinesFx.wavePeriod" "Wave Length" </item>
+  <item>"STD_burstLinesFx.wavePhase" "Wave Phase" </item>
+  <item>"STD_burstLinesFx.wavePhaseRandom" "Wave Phase Randomness" </item>
+  <item>"STD_burstLinesFx.color" "Colour" </item>
+  <item>"STD_burstLinesFx.color2" "Second Colour" </item>
+  <item>"STD_burstLinesFx.colorRandom" "Colour Randomness" </item>
+  <item>"STD_burstLinesFx.opacity" "Opacity" </item>
+  <item>"STD_burstLinesFx.opacityRandom" "Opacity Randomness" </item>
+  <item>"STD_burstLinesFx.speed" "Speed (per Frame)" </item>
+  <item>"STD_burstLinesFx.hold" "Hold (Frames)" </item>
+  <item>"STD_burstLinesFx.seed" "Seed" </item>
+  <item>"STD_dotScreenFx" "Dot Screen" </item>
+  <item>"STD_dotScreenFx.spacing" "Spacing" </item>
+  <item>"STD_dotScreenFx.angle" "Angle" </item>
+  <item>"STD_dotScreenFx.stagger" "Row Stagger" </item>
+  <item>"STD_dotScreenFx.jitter" "Jitter" </item>
+  <item>"STD_dotScreenFx.shape" "Shape" </item>
+  <item>"STD_dotScreenFx.size" "Size" </item>
+  <item>"STD_dotScreenFx.aspect" "Aspect" </item>
+  <item>"STD_dotScreenFx.rotation" "Rotation" </item>
+  <item>"STD_dotScreenFx.opacity" "Opacity" </item>
+  <item>"STD_dotScreenFx.softness" "Edge Softness" </item>
+  <item>"STD_dotScreenFx.color" "Colour" </item>
+  <item>"STD_dotScreenFx.color2" "Second Colour" </item>
+  <item>"STD_dotScreenFx.colorRandom" "Colour Randomness" </item>
+  <item>"STD_dotScreenFx.sizeRandom" "Size Randomness" </item>
+  <item>"STD_dotScreenFx.aspectRandom" "Aspect Randomness" </item>
+  <item>"STD_dotScreenFx.rotationRandom" "Rotation Randomness" </item>
+  <item>"STD_dotScreenFx.opacityRandom" "Opacity Randomness" </item>
+  <item>"STD_dotScreenFx.hold" "Hold (Frames)" </item>
+  <item>"STD_dotScreenFx.seed" "Seed" </item>
+  <item>"STD_dotScreenFx.target1" "Changes" </item>
+  <item>"STD_dotScreenFx.mode1" "By" </item>
+  <item>"STD_dotScreenFx.low1" "At Black" </item>
+  <item>"STD_dotScreenFx.high1" "At White" </item>
+  <item>"STD_dotScreenFx.invert1" "Invert" </item>
+  <item>"STD_dotScreenFx.source1" "Control" </item>
+  <item>"STD_dotScreenFx.rampStart1" "Ramp Start" </item>
+  <item>"STD_dotScreenFx.rampEnd1" "Ramp End" </item>
+  <item>"STD_dotScreenFx.target2" "Changes" </item>
+  <item>"STD_dotScreenFx.mode2" "By" </item>
+  <item>"STD_dotScreenFx.low2" "At Black" </item>
+  <item>"STD_dotScreenFx.high2" "At White" </item>
+  <item>"STD_dotScreenFx.invert2" "Invert" </item>
+  <item>"STD_dotScreenFx.source2" "Control" </item>
+  <item>"STD_dotScreenFx.rampStart2" "Ramp Start" </item>
+  <item>"STD_dotScreenFx.rampEnd2" "Ramp End" </item>
+  <item>"STD_dotScreenFx.target3" "Changes" </item>
+  <item>"STD_dotScreenFx.mode3" "By" </item>
+  <item>"STD_dotScreenFx.low3" "At Black" </item>
+  <item>"STD_dotScreenFx.high3" "At White" </item>
+  <item>"STD_dotScreenFx.invert3" "Invert" </item>
+  <item>"STD_dotScreenFx.source3" "Control" </item>
+  <item>"STD_dotScreenFx.rampStart3" "Ramp Start" </item>
+  <item>"STD_dotScreenFx.rampEnd3" "Ramp End" </item>
+  <item>"STD_watercolourFx" "Watercolour" </item>
+  <item>"STD_watercolourFx.wobble" "Edge Wobble" </item>
+  <item>"STD_watercolourFx.wobbleSize" "Wobble Size" </item>
+  <item>"STD_watercolourFx.bleed" "Bleed" </item>
+  <item>"STD_watercolourFx.edgeDarkening" "Edge Darkening" </item>
+  <item>"STD_watercolourFx.edgeWidth" "Edge Width" </item>
+  <item>"STD_watercolourFx.edgeTolerance" "Edge Tolerance" </item>
+  <item>"STD_watercolourFx.granulation" "Granulation" </item>
+  <item>"STD_watercolourFx.granuleSize" "Granule Size" </item>
+  <item>"STD_watercolourFx.whiteToTransparent" "White to Transparent" </item>
+  <item>"STD_watercolourFx.paper" "Paper" </item>
+  <item>"STD_watercolourFx.paperColor" "Paper Colour" </item>
+  <item>"STD_watercolourFx.paperGrain" "Paper Grain" </item>
+  <item>"STD_watercolourFx.paperSize" "Paper Grain Size" </item>
+  <item>"STD_watercolourFx.hold" "Hold (Frames)" </item>
+  <item>"STD_watercolourFx.seed" "Seed" </item>
+  <item>"STD_roughStrokeFx" "Rough Stroke" </item>
+  <item>"STD_roughStrokeFx.width" "Added Width" </item>
+  <item>"STD_roughStrokeFx.thicknessScale" "Drawn Width Scale" </item>
+  <item>"STD_roughStrokeFx.inLength" "Swell In" </item>
+  <item>"STD_roughStrokeFx.outLength" "Swell Out" </item>
+  <item>"STD_roughStrokeFx.copies" "Copies" </item>
+  <item>"STD_roughStrokeFx.copyOffset" "Copy Offset" </item>
+  <item>"STD_roughStrokeFx.copyWidthRandom" "Copy Width Randomness" </item>
+  <item>"STD_roughStrokeFx.copyOpacityRandom" "Copy Opacity Randomness" </item>
+  <item>"STD_roughStrokeFx.waveAmplitude" "Wave Amplitude" </item>
+  <item>"STD_roughStrokeFx.wavePeriod" "Wave Length" </item>
+  <item>"STD_roughStrokeFx.wavePhase" "Wave Phase" </item>
+  <item>"STD_roughStrokeFx.wavePhaseRandom" "Wave Phase Randomness" </item>
+  <item>"STD_roughStrokeFx.drift" "Drift" </item>
+  <item>"STD_roughStrokeFx.driftSize" "Drift Size" </item>
+  <item>"STD_roughStrokeFx.colorMode" "Colour" </item>
+  <item>"STD_roughStrokeFx.startColor" "Start Colour" </item>
+  <item>"STD_roughStrokeFx.endColor" "End Colour" </item>
+  <item>"STD_roughStrokeFx.opacity" "Opacity" </item>
+  <item>"STD_roughStrokeFx.revealStart" "Reveal Start" </item>
+  <item>"STD_roughStrokeFx.revealEnd" "Reveal End" </item>
+  <item>"STD_roughStrokeFx.travel" "Travel" </item>
+  <item>"STD_roughStrokeFx.speed" "Speed (per Frame)" </item>
+  <item>"STD_roughStrokeFx.loop" "Loop" </item>
+  <item>"STD_roughStrokeFx.hold" "Hold (Frames)" </item>
+  <item>"STD_roughStrokeFx.seed" "Seed" </item>
+  <item>"STD_roughStrokeFx.overSource" "Over Source" </item>
   <item>"STD_printProcessFx" "Print Process" </item>
   <item>"STD_printProcessFx.output" "Output" </item>
   <item>"STD_printProcessFx.cellSize" "Cell Size" </item>

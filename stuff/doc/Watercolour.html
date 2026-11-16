@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Watercolour</title></head>
+<body>
+<h1>Watercolour</h1>
+<p>Turns flat-colour artwork into a painted wash. Add Watercolour from the
+Stylize category and connect the drawing to Source. It works best on flat
+colours without lines; put line art over the result.</p>
+<h2>Wash</h2>
+<p><b>Edge Wobble</b> is how far the edge of each colour wanders, in the
+drawing's own pixels, and <b>Wobble Size</b> is the size of the wander's
+features: small values make a ragged edge, large values a slow curve.
+<b>Bleed</b> is how far colour spreads past an edge, so neighbouring colours
+run into each other and into the paper.</p>
+<h2>Pigment</h2>
+<p><b>Edge Darkening</b> gathers pigment at the edge of every colour, as a
+drying wash does: it is the share of the colour lost at the edge, and
+<b>Edge Width</b> is how far in from the edge it reaches. <b>Edge
+Tolerance</b> is how different two neighbouring pixels must be to count as an
+edge; raise it if a gradient or noise in the source is being outlined.
+<b>Granulation</b> makes the colour uneven inside each area, in grains of
+<b>Granule Size</b>.</p>
+<h2>Paper</h2>
+<p><b>White to Transparent</b> clears the white of the source before the
+wash is made: white becomes transparent, and every other colour keeps its
+look over white with as little opacity as that allows. Use it for drawings on
+a white background, then turn Paper off to lay the wash over other
+artwork.</p>
+<p>With <b>Paper</b> on, the wash lies on an opaque sheet of <b>Paper
+Colour</b> that covers the drawing and the bleed around it; to fill the whole
+frame, put a Colour Card of the same colour under the result. With it off,
+the result keeps its transparency and can be laid over other artwork.
+<b>Paper Grain</b> darkens the result in a fine texture of <b>Paper Grain
+Size</b>. The grain belongs to the drawing: it moves and scales with it, and
+stays the same on every frame.</p>
+<h2>Timing</h2>
+<p><b>Hold</b> is the number of frames each wash is kept before the wobble and
+the granulation change: 2 paints on twos, and a large value keeps one wash for
+a whole shot. <b>Seed</b> picks the sequence: the same seed always gives the
+same wash, so renders are repeatable.</p>
+<h2>Presets</h2>
+<p>The FX's presets hold Wet in Wet, Dry Brush and Transparent Wash; the
+defaults are a soft wash on paper.</p>
+<h2>Starting points</h2>
+<p><b>Soft wash:</b> the defaults. <b>Wet-in-wet:</b> Bleed 12 or more, Edge
+Darkening 0. <b>Dry brush:</b> Bleed 1, Wobble Size 4, Granulation 0.6.
+<b>Over line art:</b> Paper off, and the line art above the result.</p>
+<h2>Notes</h2>
+<p>Every value except Paper and White to Transparent can be animated. 8-bit, 16-bit and floating-point
+images are supported. Distances are in the drawing's own pixels, up to 64. The
+wash is tied to the drawing's position, not to the render tiles or the preview
+size, and the frames of one hold share a cache entry. With every amount at 0
+and Paper off the image passes through exactly.</p>
+</body>
+</html>

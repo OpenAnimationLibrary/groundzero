@@ -1,6 +1,7 @@
 """CI-only contracts for temporary Windows renderer setup and failure handling."""
 from contextlib import contextmanager, ExitStack
 import io
+import itertools
 import os
 from pathlib import Path
 import runpy
@@ -88,6 +89,15 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
                     cleanup.assert_called_once()
                     self.assertEqual(process.wait.call_args_list[0].kwargs, {"timeout": 17})
                     self.assertLessEqual(process.wait.call_args_list[-1].kwargs["timeout"], 15)
+
+    def test_cleanup_wait_stays_within_its_bound_on_a_still_clock(self):
+        # (t + 15) - t rounds to 15.00000000000091 at this clock reading
+        still = itertools.repeat(8188.945472969691)
+        process = Mock(pid=123, returncode=19)
+        process.wait.return_value = 19
+        process.poll.return_value = 19
+        self.invoke(process, monotonic=still)
+        self.assertLessEqual(process.wait.call_args_list[-1].kwargs["timeout"], 15)
 
     def test_returned_failure_keeps_original_status_when_tree_cleanup_is_uncertain(self):
         for status in (23, 0xC0000005):

@@ -1,0 +1,22 @@
+<fxlayout help_file="Watercolour.html">
+  <page name="Watercolour">
+    <control>wobble</control>
+    <control>wobbleSize</control>
+    <control>bleed</control>
+    <separator label="Pigment"/>
+    <control>edgeDarkening</control>
+    <control>edgeWidth</control>
+    <control>edgeTolerance</control>
+    <control>granulation</control>
+    <control>granuleSize</control>
+    <separator label="Paper"/>
+    <control>whiteToTransparent</control>
+    <control>paper</control>
+    <control>paperColor</control>
+    <control>paperGrain</control>
+    <control>paperSize</control>
+    <separator label="Timing"/>
+    <control>hold</control>
+    <control>seed</control>
+  </page>
+</fxlayout>
