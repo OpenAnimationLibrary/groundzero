@@ -7,7 +7,9 @@
 #include "tlevel_io.h"
 #include "tpalette.h"
 #include "traster.h"
+#include "trasterimage.h"
 #include "tstroke.h"
+#include "ttoonzimage.h"
 #include "tvectorimage.h"
 #include "toonz/levelset.h"
 #include "toonz/levelproperties.h"
@@ -177,6 +179,23 @@ QJsonValue paletteManifest(TXshSimpleLevel& level) {
   return QJsonObject{{"styles", styles}, {"pages", pages}};
 }
 
+QJsonObject rasterManifest(TXshSimpleLevel& level) {
+  if (level.getType() == PLI_XSHLEVEL) return {};
+  const LevelProperties* properties = level.getProperties();
+  const TPointD imageDpi            = properties->getImageDpi();
+  const TPointD effectiveDpi =
+      properties->getDpiPolicy() == LevelProperties::DP_CustomDpi
+          ? properties->getDpi()
+          : imageDpi;
+  const TDimension size = properties->getImageRes();
+  return {{"width", size.lx},
+          {"height", size.ly},
+          {"image_dpi_x", imageDpi.x},
+          {"image_dpi_y", imageDpi.y},
+          {"effective_dpi_x", effectiveDpi.x},
+          {"effective_dpi_y", effectiveDpi.y}};
+}
+
 void writeLevel(TXshSimpleLevel& level, const QString& path, double frameRate) {
   TLevelWriterP writer(TFilePath(path.toStdWString()));
   if (!writer)
@@ -220,33 +239,53 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
                     {"type", level->getType()},
                     {"path", relative},
                     {"palette", paletteManifest(*level)},
+                    {"raster", rasterManifest(*level)},
                     {"drawings", frameManifest(*level)}});
   }
   return entries;
 }
 
 class PathRestore final {
+  struct Entry final {
+    TXshSimpleLevel* level;
+    TFilePath path;
+    LevelProperties properties;
+  };
+
 public:
   explicit PathRestore(ToonzScene& scene) {
     TLevelSet* levels = scene.getLevelSet();
     for (int index = 0; index < levels->getLevelCount(); ++index) {
       TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
-      m_paths.emplace_back(level, level->getPath());
+      m_paths.push_back({level, level->getPath(), *level->getProperties()});
     }
   }
   ~PathRestore() {
-    for (const auto& entry : m_paths) entry.first->setPath(entry.second, true);
+    for (const Entry& entry : m_paths) {
+      entry.level->setPath(entry.path, true);
+      *entry.level->getProperties() = entry.properties;
+    }
   }
   void rebase() {
     for (int index = 0; index < int(m_paths.size()); ++index) {
-      TXshSimpleLevel* level = m_paths[index].first;
+      const Entry& entry     = m_paths[index];
+      TXshSimpleLevel* level = entry.level;
       const QString path = "$scenefolder/" + levelPath(index, level->getType());
       level->setPath(TFilePath(path.toStdWString()), true);
+      *level->getProperties() = entry.properties;
+      if (level->getType() != PLI_XSHLEVEL) {
+        const TPointD dpi =
+            entry.properties.getDpiPolicy() == LevelProperties::DP_CustomDpi
+                ? entry.properties.getDpi()
+                : entry.properties.getImageDpi();
+        level->getProperties()->setDpi(dpi);
+        level->getProperties()->setDpiPolicy(LevelProperties::DP_CustomDpi);
+      }
     }
   }
 
 private:
-  std::vector<std::pair<TXshSimpleLevel*, TFilePath>> m_paths;
+  std::vector<Entry> m_paths;
 };
 
 void writeScene(ToonzScene& scene, const QString& directory) {
@@ -290,6 +329,31 @@ std::vector<TFrameId> expectedFrames(const QJsonObject& entry) {
   return frames;
 }
 
+void restoreRasterProperties(TXshSimpleLevel& level, const TImageInfo& info,
+                             const QJsonObject& entry) {
+  const QJsonObject raster = entry.value("raster").toObject();
+  if (info.m_lx != raster.value("width").toInt() ||
+      info.m_ly != raster.value("height").toInt())
+    throw Error("invalid_package",
+                "The saved raster dimensions differ from their source.");
+  LevelProperties* properties = level.getProperties();
+  properties->setImageRes(TDimension(info.m_lx, info.m_ly));
+  properties->setImageDpi(TPointD(raster.value("image_dpi_x").toDouble(),
+                                  raster.value("image_dpi_y").toDouble()));
+  properties->setDpi(TPointD(raster.value("effective_dpi_x").toDouble(),
+                             raster.value("effective_dpi_y").toDouble()));
+  properties->setDpiPolicy(LevelProperties::DP_CustomDpi);
+  properties->setBpp(info.m_bitsPerSample * info.m_samplePerPixel);
+}
+
+void restoreImageDpi(const TImageP& image, const QJsonObject& entry) {
+  const QJsonObject raster = entry.value("raster").toObject();
+  const double x           = raster.value("image_dpi_x").toDouble();
+  const double y           = raster.value("image_dpi_y").toDouble();
+  if (const TRasterImageP fullcolor = image) fullcolor->setDpi(x, y);
+  if (const TToonzImageP indexed = image) indexed->setDpi(x, y);
+}
+
 void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
   TXshLevel* native = scene.getLevelSet()->getLevel(
       entry.value("name").toString().toStdWString());
@@ -316,11 +380,7 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
     if (!imageInfo)
       throw Error("invalid_package",
                   "The saved raster level has no image metadata.");
-    LevelProperties* properties = level->getProperties();
-    properties->setImageRes(TDimension(imageInfo->m_lx, imageInfo->m_ly));
-    properties->setImageDpi(TPointD(imageInfo->m_dpix, imageInfo->m_dpiy));
-    properties->setBpp(imageInfo->m_bitsPerSample *
-                       imageInfo->m_samplePerPixel);
+    restoreRasterProperties(*level, *imageInfo, entry);
   }
   for (const TFrameId& frame : frames) {
     if (info->getTable()->find(frame) == info->getTable()->end())
@@ -333,6 +393,7 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
     if (!image)
       throw Error("missing_drawing",
                   "A saved drawing cannot be independently decoded.");
+    restoreImageDpi(image, entry);
     level->setFrame(frame, image);
   }
   if (level->getFids() != frames)

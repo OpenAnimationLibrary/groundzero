@@ -64,6 +64,11 @@ reader and compares palette styles, pages, and keys before publishing. Existing
 destinations are rejected. Each artwork level must contain at least one drawing;
 an empty scene is allowed. Packages are limited to 256 levels, 4096 drawings, and
 256 MiB, with a separate conservative limit on source drawing memory.
+Native PLI encoding quantizes stroke coordinates and widths, and PNG encoding
+can change premultiplied RGB values by one code value. These files are editable
+native representations, not bitwise copies of in-memory drawings. Saved raster
+levels use explicit custom DPI to preserve authored physical size, including
+fractional DPI that PNG metadata alone cannot represent exactly.
 
 `scene.open` accepts unchanged packages produced by the same running worker.
 The worker retains the authoritative manifest privately; editing a public
