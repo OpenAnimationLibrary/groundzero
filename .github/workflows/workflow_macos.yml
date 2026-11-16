@@ -478,6 +478,7 @@ jobs:
             -executable=OpenToonz.app/Contents/MacOS/tfarmcontroller \
             -executable=OpenToonz.app/Contents/MacOS/tfarmserver
       - name: Modify Library Paths
+        id: deployed_runtime
         run: |
           cd toonz/build/toonz/OpenToonz.app/Contents/Frameworks
           for TARGETLIB in *.dylib; do
@@ -488,6 +489,37 @@ jobs:
               fi
             done
           done
+      - name: Prepare native MCP qualification runtime
+        id: mcp_runtime
+        if: ${{ !cancelled() && steps.deployed_runtime.outcome == 'success' }}
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.8'
+          enable-cache: false
+
+      - name: Qualify the deployed native MCP worker
+        if: ${{ !cancelled() && steps.mcp_runtime.outcome == 'success' }}
+        timeout-minutes: 15
+        env:
+          QT_QPA_PLATFORM: cocoa
+          GROUNDZERO_REQUIRE_VECTOR_GL: '1'
+          GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS: '1'
+        run: |
+          set -euo pipefail
+          unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
+          uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_acceptance.py \
+            --executable toonz/build/toonz/OpenToonz.app/Contents/MacOS/OpenToonz \
+            --output toonz/build/mcp-acceptance
+
+      - name: Retain native MCP acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: MCP-native-acceptance-macos-${{ github.sha }}
+          path: toonz/build/mcp-acceptance
+          if-no-files-found: ignore
+
       - name: Prepare optional benchmark bundle
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         run: |
