@@ -1,6 +1,7 @@
 #include "automation.h"
 
 #include "toonz/fxdag.h"
+#include "toonz/filepathproperties.h"
 #include "toonz/levelset.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/toonzscene.h"
@@ -157,6 +158,12 @@ Context::Context(QString workspacePath, QStringList inputRoots)
   }
   const TFilePath projectPath(
       QDir(projectDirectory).filePath("automation_otprj.xml").toStdWString());
+  FilePathProperties* pathProperties = m_project->getFilePathProperties();
+  pathProperties->setUseStandard(false);
+  pathProperties->setAcceptNonAlphabetSuffix(false);
+  pathProperties->setLetterCountForSuffix(8);
+  pathProperties->setNoSeparatorFormatAllowed(false);
+  TFilePath::setFilePathProperties(false, false, 8, false);
   if (!m_project->save(projectPath))
     throw Error("io_error", "Could not write the private worker project.");
   TProjectManager::instance()->setCurrentProjectPath(projectPath);
