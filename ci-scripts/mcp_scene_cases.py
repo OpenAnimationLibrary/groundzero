@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 from typing import TYPE_CHECKING, Any
 
-from mcp_png import decode_png, fixture_pixel
+from mcp_png import Pixel, decode_png, fixture_pixel
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -250,3 +251,96 @@ def custom_dpi_survives_reopen_and_remains_independent_of_camera(case: NativeAcc
     for x, y in ((12, 12), (20, 12), (12, 20), (20, 20)):
         case.assertEqual(pixels[y * width + x], fixture_pixel((x - 8) * 2, (y - 8) * 2, 32))
     case.assertEqual(decode_png(case.preview(document)), before)
+    _resave_custom_dpi(case, reopened)
+
+
+def _resave_custom_dpi(case: NativeAcceptance, document: str) -> None:
+    summary = _summary(case, document)
+    level_id = summary["levels"][0]["level_id"]
+    drawings = [{"number": 1, "suffix": ""}, {"number": 2, "suffix": "a"}]
+    rectangle = {
+        "coordinate_space": "raster_pixels_lower_left",
+        "x": 0,
+        "y": 0,
+        "width": 32,
+        "height": 32,
+    }
+    edited_pixels = [{"r": 80, "g": 160, "b": 240, "a": 255}] * 1024
+    case.mutate(
+        "raster.patch",
+        document,
+        level_id=level_id,
+        drawing_id=drawings[1],
+        **rectangle,
+        sharing="all_exposures",
+        pixels=edited_pixels,
+    )
+    case.mutate(
+        "column.expose",
+        document,
+        column_id=summary["columns"][0]["column_id"],
+        level_id=level_id,
+        drawing_id=drawings[1],
+        start_frame=1,
+        length=1,
+    )
+    before_pixels = [
+        case.success(
+            "raster.read_pixels",
+            {"document_id": document, "level_id": level_id, "drawing_id": drawing, **rectangle},
+        )["pixels"]
+        for drawing in drawings
+    ]
+    case.assertEqual(before_pixels[1], edited_pixels)
+    before_render = _render_dpi_frames(case, document)
+    case.assertNotEqual(before_render[0], before_render[1])
+    saved = case.mutate(
+        "scene.save_copy", document, directory=str(case.workspace / "custom-dpi-edited")
+    )
+    reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
+    case.assertNotEqual(reopened, document)
+    restored = _summary(case, reopened)
+    case.assertEqual(restored["levels"][0]["drawings"], drawings)
+    for dimension in ("width_in", "height_in"):
+        case.assertAlmostEqual(restored["camera"][dimension], 64 / 180, delta=5e-7)
+    cells = case.success(
+        "column.cells",
+        {
+            "document_id": reopened,
+            "column_id": restored["columns"][0]["column_id"],
+            "start_frame": 0,
+            "length": 2,
+        },
+    )
+    case.assertEqual([cell["drawing_id"] for cell in cells["cells"]], drawings)
+    for drawing, expected in zip(drawings, before_pixels, strict=True):
+        target = {
+            "document_id": reopened,
+            "level_id": restored["levels"][0]["level_id"],
+            "drawing_id": drawing,
+        }
+        description = case.success("drawing.inspect", target)
+        case.assertEqual((description["width"], description["height"]), (32, 32))
+        for dpi in description["dpi"]:
+            case.assertAlmostEqual(dpi, 180, delta=0.02)
+        case.assertEqual(
+            case.success("raster.read_pixels", {**target, **rectangle})["pixels"], expected
+        )
+    case.assertEqual(_render_dpi_frames(case, reopened), before_render)
+
+
+def _render_dpi_frames(case: NativeAcceptance, document: str) -> list[tuple[int, int, list[Pixel]]]:
+    revision = case.revisions[document]
+    job = case.mutate("render.submit", document, start_frame=0, end_frame=1, width=32, height=32)
+    case.assertEqual(job["source_revision"], revision)
+    status = case.wait_job(job["job_id"])
+    case.assertEqual(status["status"], "completed", status)
+    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    case.assertEqual([artifact["frame"] for artifact in artifacts], [0, 1])
+    frames = []
+    for artifact in artifacts:
+        result = case.success("artifact.read", {"artifact_id": artifact["artifact_id"]})
+        case.assertEqual(result["source_revision"], revision)
+        frames.append(decode_png(base64.b64decode(result["image"]["data"], validate=True)))
+    case.assertEqual(case.revisions[document], revision)
+    return frames
