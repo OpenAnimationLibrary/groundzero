@@ -9,6 +9,11 @@ interface NativeApi {
   close: WorkerConnection["close"];
 }
 
+interface NativeTool extends Tool {
+  description: string;
+  annotations: NonNullable<Tool["annotations"]>;
+}
+
 const descriptorSchema: Parameters<typeof fromJsonSchema>[0] = {
   type: "object" as const,
   required: ["name", "description", "inputSchema", "annotations"],
@@ -41,7 +46,7 @@ async function discover(worker: NativeApi): Promise<Tool[]> {
   if (!Array.isArray(entries) || entries.length > 256) {
     throw new WorkerError("INVALID_CATALOG", "Expected at most 256 native tool descriptors");
   }
-  const schema = fromJsonSchema<Tool>(descriptorSchema);
+  const schema = fromJsonSchema<NativeTool>(descriptorSchema);
   const tools: Tool[] = [];
   const names = new Set<string>();
   for (const entry of entries) {
@@ -52,7 +57,12 @@ async function discover(worker: NativeApi): Promise<Tool[]> {
       throw new WorkerError("INVALID_CATALOG", "Duplicate native tool name");
     }
     names.add(tool.name);
-    tools.push(tool);
+    tools.push({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      annotations: tool.annotations,
+    });
   }
   return tools;
 }

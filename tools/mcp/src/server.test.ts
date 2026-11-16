@@ -23,7 +23,9 @@ const closers: (() => Promise<void>)[] = [];
 
 async function session() {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
-    if (method === "automation.capabilities") return { protocol_version: 1, tools: [tool] };
+    if (method === "automation.capabilities") {
+      return { protocol_version: 1, tools: [{ ...tool, mutates_document: true }] };
+    }
     return { name: params["name"], revision: "next" };
   });
   const close = vi.fn();
