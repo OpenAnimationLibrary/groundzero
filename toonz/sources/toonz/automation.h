@@ -112,6 +112,11 @@ std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
                                                  const QString& directory);
 void validateAutomationScene(ToonzScene& scene);
 
+#ifdef BUILD_UI_PORT_TESTS
+void runAutomationFxTests(Context& context);
+void runAutomationMediaProcessTests(Context& context);
+#endif
+
 // Worker dispatch and protocol I/O run on the QApplication thread.
 int runWorker(int argc, char* argv[]);
 

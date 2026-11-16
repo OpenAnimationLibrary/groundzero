@@ -45,10 +45,6 @@ DV_IMPORT_API void initStdFx();
 DV_IMPORT_API void initColorFx();
 
 namespace GroundzeroAutomation {
-#ifdef BUILD_UI_PORT_TESTS
-void runAutomationFxTests(Context& context);
-void runAutomationMediaProcessTests(Context& context);
-#endif
 namespace {
 
 constexpr int maximumLineBytes = 8 * 1024 * 1024;
