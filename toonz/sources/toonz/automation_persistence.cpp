@@ -1,0 +1,563 @@
+#include "automation.h"
+#include "automation_drawing.h"
+#include "automation_fx.h"
+
+#include "timage.h"
+#include "tcolorstyles.h"
+#include "tlevel_io.h"
+#include "tpalette.h"
+#include "traster.h"
+#include "tstroke.h"
+#include "tvectorimage.h"
+#include "toonz/levelset.h"
+#include "toonz/levelproperties.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/toonzscene.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshcolumn.h"
+#include "toonz/txsheet.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/txshsimplelevel.h"
+#include "toutputproperties.h"
+
+#include <QCryptographicHash>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QSaveFile>
+#include <QSet>
+#include <QTemporaryDir>
+
+#include <algorithm>
+#include <map>
+#include <set>
+#include <vector>
+
+namespace GroundzeroAutomation {
+namespace {
+
+constexpr int MaxLevels          = 256;
+constexpr int MaxDrawings        = 4096;
+constexpr int MaxFiles           = 8192;
+constexpr qint64 MaxPackageBytes = 256 * 1024 * 1024;
+constexpr int MaxPackages        = 128;
+
+struct Package final {
+  QJsonObject manifest;
+  QByteArray manifestHash;
+};
+
+std::map<QString, Package> publishedPackages;
+
+QByteArray digest(const QByteArray& bytes) {
+  return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+}
+
+QByteArray readRegularFile(const QString& directory, const QString& relative) {
+  const QString path = QDir(directory).absoluteFilePath(relative);
+  const QFileInfo info(path);
+  if (relative.isEmpty() || QDir::isAbsolutePath(relative) ||
+      QDir::cleanPath(relative) != relative || relative.startsWith("../") ||
+      info.canonicalFilePath() != QDir::cleanPath(path) || !info.isFile() ||
+      info.isSymLink() || info.size() > MaxPackageBytes)
+    throw Error("invalid_package",
+                "A package file is missing or outside its directory.",
+                {{"file", relative}});
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly))
+    throw Error("package_read_failed", "Cannot open a package file.",
+                {{"file", relative}});
+  const QByteArray bytes = file.read(MaxPackageBytes + 1);
+  if (file.error() != QFileDevice::NoError || bytes.size() != info.size())
+    throw Error("package_read_failed", "Cannot read a complete package file.",
+                {{"file", relative}});
+  return bytes;
+}
+
+QJsonArray fileManifest(const QString& directory) {
+  QJsonArray result;
+  qint64 totalBytes = 0;
+  QDirIterator iterator(directory, QDir::Files | QDir::Hidden | QDir::System,
+                        QDirIterator::Subdirectories);
+  while (iterator.hasNext()) {
+    const QString path     = iterator.next();
+    const QString relative = QDir(directory).relativeFilePath(path);
+    if (result.size() >= MaxFiles)
+      throw Error("package_limit", "The package contains too many files.");
+    const QByteArray bytes = readRegularFile(directory, relative);
+    totalBytes += bytes.size();
+    if (totalBytes > MaxPackageBytes)
+      throw Error("package_limit", "The package exceeds 256 MiB.");
+    result.append(QJsonObject{{"path", relative},
+                              {"size_bytes", double(bytes.size())},
+                              {"sha256", QString::fromLatin1(digest(bytes))}});
+  }
+  return result;
+}
+
+void verifyFiles(const QString& directory, const Package& package) {
+  if (digest(readRegularFile(directory, "manifest.json")) !=
+      package.manifestHash)
+    throw Error("invalid_package",
+                "The package manifest changed after publication.");
+  QSet<QString> expected;
+  for (const QJsonValue& value : package.manifest.value("files").toArray()) {
+    const QJsonObject entry = value.toObject();
+    const QString relative  = entry.value("path").toString();
+    const QByteArray bytes  = readRegularFile(directory, relative);
+    if (bytes.size() != entry.value("size_bytes").toDouble() ||
+        QString::fromLatin1(digest(bytes)) != entry.value("sha256").toString())
+      throw Error("invalid_package",
+                  "A package file changed after publication.",
+                  {{"file", relative}});
+    expected.insert(relative);
+  }
+  expected.insert("manifest.json");
+  QDirIterator iterator(directory, QDir::Files | QDir::Hidden | QDir::System,
+                        QDirIterator::Subdirectories);
+  while (iterator.hasNext())
+    if (!expected.remove(QDir(directory).relativeFilePath(iterator.next())))
+      throw Error("invalid_package",
+                  "The package contains an unrecorded file.");
+  if (!expected.isEmpty())
+    throw Error("invalid_package", "The package is missing a recorded file.");
+}
+
+QString levelPath(int index, int type) {
+  const QString prefix = "assets/level-" + QString::number(index);
+  if (type == PLI_XSHLEVEL) return prefix + ".pli";
+  if (type == TZP_XSHLEVEL) return prefix + ".tlv";
+  if (type == OVL_XSHLEVEL) return prefix + "..png";
+  throw Error("unsupported_level",
+              "Only vector, Toonz raster, and RGBA drawings can be saved.");
+}
+
+QJsonArray frameManifest(TXshSimpleLevel& level) {
+  QJsonArray result;
+  for (const TFrameId& frame : level.getFids())
+    result.append(QJsonObject{{"number", frame.getNumber()},
+                              {"suffix", frame.getLetter()}});
+  return result;
+}
+
+QJsonObject styleManifest(const TColorStyle& style) {
+  const TPixel32 color = style.getMainColor();
+  return {{"name", QString::fromStdWString(style.getName())},
+          {"color", QJsonArray{color.r, color.g, color.b, color.m}}};
+}
+
+QJsonValue paletteManifest(TXshSimpleLevel& level) {
+  TPalette* palette = level.getPalette();
+  if (level.getType() == OVL_XSHLEVEL || !palette) return QJsonValue();
+  QJsonArray styles;
+  for (int index = 0; index < palette->getStyleCount(); ++index) {
+    QJsonObject style = styleManifest(*palette->getStyle(index));
+    QJsonArray keys;
+    for (const auto& key : palette->getStyleAnimation(index)) {
+      QJsonObject value = styleManifest(*key.second.style);
+      value.insert("frame", key.first);
+      value.insert("timing", int(key.second.interpolation.timing));
+      value.insert("space", int(key.second.interpolation.space));
+      keys.append(value);
+    }
+    style.insert("keys", keys);
+    styles.append(style);
+  }
+  QJsonArray pages;
+  for (int index = 0; index < palette->getPageCount(); ++index) {
+    const TPalette::Page* page = palette->getPage(index);
+    QJsonArray ids;
+    for (int position = 0; position < page->getStyleCount(); ++position)
+      ids.append(page->getStyleId(position));
+    pages.append(QJsonObject{{"name", QString::fromStdWString(page->getName())},
+                             {"styles", ids}});
+  }
+  return QJsonObject{{"styles", styles}, {"pages", pages}};
+}
+
+void writeLevel(TXshSimpleLevel& level, const QString& path, double frameRate) {
+  TLevelWriterP writer(TFilePath(path.toStdWString()));
+  if (!writer)
+    throw Error("writer_unavailable",
+                "The native level writer is unavailable.");
+  TPaletteP palette;
+  if (level.getPalette()) {
+    palette = level.getPalette()->clone();
+    writer->setPalette(palette.getPointer());
+  }
+  writer->setFrameRate(frameRate);
+  for (const TFrameId& frame : level.getFids()) {
+    const TImageP source = level.getFrame(frame, false);
+    if (!source)
+      throw Error("missing_drawing", "A drawing cannot be read while saving.",
+                  {{"drawing", QString::fromStdString(frame.expand())}});
+    const TImageP image(source->cloneImage());
+    if (palette) image->setPalette(palette.getPointer());
+    const TImageWriterP frameWriter = writer->getFrameWriter(frame);
+    if (!frameWriter)
+      throw Error("writer_unavailable",
+                  "A native frame writer is unavailable.");
+    frameWriter->save(image);
+  }
+  writer->finalize();
+}
+
+QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
+  QJsonArray entries;
+  TLevelSet* levels = scene.getLevelSet();
+  const double frameRate =
+      scene.getProperties()->getOutputProperties()->getFrameRate();
+  for (int index = 0; index < levels->getLevelCount(); ++index) {
+    TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
+    const QString relative = levelPath(index, level->getType());
+    writeLevel(*level, QDir(directory).absoluteFilePath(relative), frameRate);
+    if (level->getType() == TZP_XSHLEVEL)
+      readRegularFile(directory, relative.left(relative.size() - 3) + "tpl");
+    entries.append(
+        QJsonObject{{"name", QString::fromStdWString(level->getName())},
+                    {"type", level->getType()},
+                    {"path", relative},
+                    {"palette", paletteManifest(*level)},
+                    {"drawings", frameManifest(*level)}});
+  }
+  return entries;
+}
+
+class PathRestore final {
+public:
+  explicit PathRestore(ToonzScene& scene) {
+    TLevelSet* levels = scene.getLevelSet();
+    for (int index = 0; index < levels->getLevelCount(); ++index) {
+      TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
+      m_paths.emplace_back(level, level->getPath());
+    }
+  }
+  ~PathRestore() {
+    for (const auto& entry : m_paths) entry.first->setPath(entry.second, true);
+  }
+  void rebase() {
+    for (int index = 0; index < int(m_paths.size()); ++index) {
+      TXshSimpleLevel* level = m_paths[index].first;
+      const QString path = "$scenefolder/" + levelPath(index, level->getType());
+      level->setPath(TFilePath(path.toStdWString()), true);
+    }
+  }
+
+private:
+  std::vector<std::pair<TXshSimpleLevel*, TFilePath>> m_paths;
+};
+
+void writeScene(ToonzScene& scene, const QString& directory) {
+  PathRestore restore(scene);
+  restore.rebase();
+  scene.saveCopy(
+      TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
+}
+
+Package writePackage(Document& document, const QString& directory) {
+  validateAutomationScene(*document.scene);
+  if (!QDir(directory).mkdir("assets"))
+    throw Error("package_write_failed",
+                "Cannot create the package assets directory.");
+  const QJsonArray levels = writeLevels(*document.scene, directory);
+  writeScene(*document.scene, directory);
+  Package package;
+  package.manifest = {{"version", 1},
+                      {"profile", "worker-generated-v1"},
+                      {"scene_file", "scene.tnz"},
+                      {"source_revision", document.revisionText()},
+                      {"levels", levels},
+                      {"files", fileManifest(directory)}};
+  const QByteArray bytes =
+      QJsonDocument(package.manifest).toJson(QJsonDocument::Indented);
+  QSaveFile file(QDir(directory).absoluteFilePath("manifest.json"));
+  if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
+      !file.commit())
+    throw Error("package_write_failed", "Cannot publish the package manifest.");
+  package.manifestHash = digest(bytes);
+  return package;
+}
+
+std::vector<TFrameId> expectedFrames(const QJsonObject& entry) {
+  std::vector<TFrameId> frames;
+  for (const QJsonValue& value : entry.value("drawings").toArray()) {
+    const QJsonObject drawing = value.toObject();
+    frames.emplace_back(drawing.value("number").toInt(),
+                        drawing.value("suffix").toString());
+  }
+  return frames;
+}
+
+void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
+  TXshLevel* native = scene.getLevelSet()->getLevel(
+      entry.value("name").toString().toStdWString());
+  TXshSimpleLevel* level = native ? native->getSimpleLevel() : nullptr;
+  const TFilePath coded(
+      ("$scenefolder/" + entry.value("path").toString()).toStdWString());
+  if (!level || level->getType() != entry.value("type").toInt() ||
+      level->getPath() != coded)
+    throw Error("invalid_package",
+                "The native level does not match the package manifest.");
+  const std::vector<TFrameId> frames = expectedFrames(entry);
+  const TFilePath path               = scene.decodeFilePath(coded);
+  TLevelReaderP reader(path);
+  if (!reader)
+    throw Error("reader_unavailable", "A saved level reader is unavailable.");
+  const TLevelP info = reader->loadInfo();
+  if (!info || info->isPartialLoad() ||
+      info->getFrameCount() != int(frames.size()))
+    throw Error("invalid_package",
+                "Saved drawing count differs from the source level.");
+  level->setPalette(info->getPalette());
+  if (level->getType() != PLI_XSHLEVEL && !frames.empty()) {
+    const TImageInfo* imageInfo = reader->getImageInfo(frames.front());
+    if (!imageInfo)
+      throw Error("invalid_package",
+                  "The saved raster level has no image metadata.");
+    LevelProperties* properties = level->getProperties();
+    properties->setImageRes(TDimension(imageInfo->m_lx, imageInfo->m_ly));
+    properties->setImageDpi(TPointD(imageInfo->m_dpix, imageInfo->m_dpiy));
+    properties->setBpp(imageInfo->m_bitsPerSample *
+                       imageInfo->m_samplePerPixel);
+  }
+  for (const TFrameId& frame : frames) {
+    if (info->getTable()->find(frame) == info->getTable()->end())
+      throw Error("missing_drawing",
+                  "A saved drawing ID is missing from its level.");
+    const TImageReaderP frameReader = reader->getFrameReader(frame);
+    if (!frameReader)
+      throw Error("missing_drawing", "A saved drawing reader is unavailable.");
+    const TImageP image = frameReader->load();
+    if (!image)
+      throw Error("missing_drawing",
+                  "A saved drawing cannot be independently decoded.");
+    level->setFrame(frame, image);
+  }
+  if (level->getFids() != frames)
+    throw Error("invalid_package",
+                "The reopened drawing IDs differ from their source.");
+  validateDrawingProfile(level);
+  if (paletteManifest(*level) != entry.value("palette"))
+    throw Error("invalid_package",
+                "The reopened palette differs from the source palette.");
+}
+
+std::unique_ptr<ToonzScene> reopenPackage(Context& context,
+                                          const QString& directory,
+                                          const Package& package) {
+  verifyFiles(directory, package);
+  auto scene = std::make_unique<ToonzScene>();
+  scene->setProject(context.project());
+  scene->loadTnzFile(
+      TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
+  const QJsonArray entries = package.manifest.value("levels").toArray();
+  if (scene->hasUnrecognizedSceneData() ||
+      scene->getLevelSet()->getLevelCount() != entries.size())
+    throw Error("invalid_package",
+                "The reopened scene differs from the published scene.");
+  for (const QJsonValue& entry : entries) reopenLevel(*scene, entry.toObject());
+  validateAutomationScene(*scene);
+  verifyFiles(directory, package);
+  return scene;
+}
+
+Package publishPackage(Context& context, Document& document,
+                       const QString& destination) {
+  const QString path = context.resolvePath(destination, true);
+  const QFileInfo target(path);
+  if (target.exists() || target.isSymLink())
+    throw Error(
+        "already_exists",
+        "Choose a new package directory; existing paths are not overwritten.");
+  if (!QDir(target.absolutePath()).exists())
+    throw Error("missing_parent", "Create the package parent directory first.");
+  QTemporaryDir staging(target.absolutePath() + "/.mcp-package-XXXXXX");
+  if (!staging.isValid())
+    throw Error("package_write_failed",
+                "Cannot create a private package staging directory.");
+  const Package package = writePackage(document, staging.path());
+  reopenPackage(context, staging.path(), package);
+  context.markMutationStarted();
+  if (QFileInfo(path).exists() || !QDir().rename(staging.path(), path))
+    throw Error("package_write_failed",
+                "Cannot publish the verified package directory.");
+  staging.setAutoRemove(false);
+  return package;
+}
+
+QString admittedDirectory(Context& context, const QJsonObject& params) {
+  QString path = context.resolvePath(requiredString(params, "path"), false);
+  if (QFileInfo(path).fileName() == "manifest.json")
+    path = QFileInfo(path).absolutePath();
+  const QString directory = QFileInfo(path).canonicalFilePath();
+  if (!publishedPackages.count(directory))
+    throw Error("unregistered_package",
+                "Open only a scene package published by this worker. Arbitrary "
+                "native scenes are unsupported.");
+  return directory;
+}
+
+QJsonObject saveCopy(Context& context, const QJsonObject& params) {
+  if (publishedPackages.size() >= MaxPackages)
+    throw Error("package_limit",
+                "This worker has reached its 128 published package limit.");
+  Document& document = context.document(requiredString(params, "document_id"));
+  const QString directory =
+      context.resolvePath(requiredString(params, "directory"), true);
+  const Package package = publishPackage(context, document, directory);
+  publishedPackages.emplace(directory, package);
+  int drawings = 0;
+  for (const QJsonValue& entry : package.manifest.value("levels").toArray())
+    drawings += entry.toObject().value("drawings").toArray().size();
+  return {{"package_directory", directory},
+          {"scene_path", directory + "/scene.tnz"},
+          {"manifest_path", directory + "/manifest.json"},
+          {"verified_drawings", drawings},
+          {"document_id", document.id},
+          {"revision", document.revisionText()}};
+}
+
+QJsonObject openPackage(Context& context, const QJsonObject& params) {
+  const QString directory = admittedDirectory(context, params);
+  auto scene =
+      reopenPackage(context, directory, publishedPackages.at(directory));
+  context.markMutationStarted();
+  Document& document = context.addDocument(std::move(scene));
+  return {{"document_id", document.id},
+          {"revision", document.revisionText()},
+          {"package_directory", directory}};
+}
+
+void validateCells(ToonzScene& scene) {
+  TXsheet* sheet = scene.getXsheet();
+  if (sheet->getColumnCount() > 4096)
+    throw Error("scene_limit", "The scene exceeds the supported column limit.");
+  qint64 cells = 0;
+  std::map<TXshSimpleLevel*, std::set<TFrameId>> drawings;
+  for (int index = 0; index < sheet->getColumnCount(); ++index) {
+    TXshColumn* column = sheet->getColumn(index);
+    if (!column || column->isEmpty() || column->getZeraryFxColumn()) continue;
+    if (!column->getLevelColumn())
+      throw Error(
+          "unsupported_column",
+          "This package profile supports drawing and generator columns.");
+    int first = 0;
+    int last  = 0;
+    column->getRange(first, last);
+    cells += last - first + 1;
+    if (first < 0 || last > 1000000 || cells > 1000000)
+      throw Error("scene_limit",
+                  "The scene exceeds the supported exposure limit.");
+    for (int row = first; row <= last; ++row) {
+      const TXshCell& cell = sheet->getCell(row, index);
+      if (cell.isEmpty()) continue;
+      TXshSimpleLevel* level = cell.getSimpleLevel();
+      if (!level || !scene.getLevelSet()->hasLevel(level->getName()))
+        throw Error("missing_level",
+                    "An exposure references an unsupported or missing level.");
+      if (!drawings.count(level)) {
+        const std::vector<TFrameId> frames = level->getFids();
+        drawings.emplace(level,
+                         std::set<TFrameId>(frames.begin(), frames.end()));
+      }
+      if (!drawings.at(level).count(cell.m_frameId))
+        throw Error("missing_drawing",
+                    "An exposure references a missing drawing.");
+    }
+  }
+}
+
+QJsonObject textSchema() { return {{"type", "string"}, {"minLength", 1}}; }
+
+qint64 drawingBudget(TXshSimpleLevel& level) {
+  qint64 bytes = 0;
+  for (const TFrameId& frame : level.getFids()) {
+    const TImageP image = level.getFrame(frame, false);
+    if (!image)
+      throw Error("missing_drawing", "A source drawing cannot be read.");
+    if (const TRasterP raster = image->raster())
+      bytes +=
+          qint64(raster->getLx()) * raster->getLy() * raster->getPixelSize();
+    if (const TVectorImageP vector = image) {
+      for (UINT index = 0; index < vector->getStrokeCount(); ++index)
+        bytes += qint64(vector->getStroke(index)->getControlPointCount()) * 64 +
+                 1024;
+    }
+    bytes += 65536;
+    if (bytes > MaxPackageBytes)
+      throw Error("package_limit",
+                  "The scene exceeds the snapshot drawing memory budget.");
+  }
+  return bytes;
+}
+
+}  // namespace
+
+void validateAutomationScene(ToonzScene& scene) {
+  validateAutomationFxGraph(scene);
+  TLevelSet* levels = scene.getLevelSet();
+  if (levels->getLevelCount() > MaxLevels)
+    throw Error("scene_limit", "The scene exceeds 256 levels.");
+  int drawings = 0;
+  qint64 bytes = 0;
+  for (int index = 0; index < levels->getLevelCount(); ++index) {
+    TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
+    if (!level)
+      throw Error("unsupported_level",
+                  "The scene contains an unsupported level type.");
+    validateDrawingProfile(level);
+    if (level->getFrameCount() == 0)
+      throw Error("empty_level",
+                  "Create a drawing in each level before saving or rendering.");
+    drawings += level->getFrameCount();
+    bytes += drawingBudget(*level);
+    if (bytes > MaxPackageBytes)
+      throw Error("package_limit",
+                  "The scene exceeds the snapshot drawing memory budget.");
+    if (drawings > MaxDrawings)
+      throw Error("scene_limit", "The scene exceeds 4096 drawings.");
+  }
+  validateCells(scene);
+}
+
+std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
+                                                 Document& document,
+                                                 const QString& directory) {
+  const Package package = publishPackage(context, document, directory);
+  return reopenPackage(context, directory, package);
+}
+
+QJsonArray persistenceOperations() {
+  QJsonObject save = operation(
+      "scene.save_copy",
+      "Save a new native scene package and independently decode every drawing.",
+      {{"document_id", textSchema()}, {"directory", textSchema()}},
+      {"document_id", "directory"}, true);
+  save.insert("mutates_document", false);
+  return {
+      save,
+      operation("scene.open",
+                "Open an unchanged package published by this running worker.",
+                {{"path", textSchema()}}, {"path"}, true),
+      operation("scene.package_info",
+                "Inspect a verified package published by this worker.",
+                {{"path", textSchema()}}, {"path"})};
+}
+
+QJsonValue executePersistence(Context& context, const QString& method,
+                              const QJsonObject& params) {
+  if (method == "scene.save_copy") return saveCopy(context, params);
+  if (method == "scene.open") return openPackage(context, params);
+  if (method == "scene.package_info") {
+    const QString directory = admittedDirectory(context, params);
+    const Package& package  = publishedPackages.at(directory);
+    verifyFiles(directory, package);
+    return package.manifest;
+  }
+  throw Error("method_not_found",
+              "The persistence operation is not available.");
+}
+
+}  // namespace GroundzeroAutomation

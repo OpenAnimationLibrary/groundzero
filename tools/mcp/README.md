@@ -4,7 +4,7 @@ This local stdio server exposes the typed automation operations implemented by t
 Groundzero binary it launches. Each MCP connection owns a separate native process
 and detached documents. It does not attach to an artist's open application.
 
-Use Node.js 22.12 or newer and a Groundzero build from the same CI run as this
+Use Node.js 22.23.5 and a Groundzero build from the same CI run as this
 adapter. CI builds and tests the adapter; the `groundzero-mcp-adapter` artifact
 contains `dist`, `package.json`, the resolved lockfile, and installation settings.
 The runtime dependency is the official MCP TypeScript server SDK.
@@ -14,8 +14,8 @@ directory:
 
 ```sh
 corepack prepare pnpm@12.21.0 --activate
-pnpm audit --prod --audit-level=moderate
-pnpm install --prod --frozen-lockfile --ignore-scripts
+corepack pnpm audit --prod --audit-level=moderate
+corepack pnpm install --prod --frozen-lockfile --ignore-scripts
 ```
 
 Configure a local MCP host with the equivalent of this command and argument list,
@@ -51,6 +51,28 @@ native drawing identifiers retain their drawing number and optional suffix. Writ
 require an `operation_id`; changes to an existing document also require its latest
 `expected_revision`. Keep the original operation ID when checking a retry within
 the same worker. Receipts and document handles expire when that worker exits.
+
+The native profile supports detached scenes, PNG imports, exposures, camera and
+peg animation, vector strokes and fills, RGBA8 and Toonz raster pixels, and solid
+palette styles. Its FX catalog admits six builtins: color card, linear and radial
+gradients, over, blur, and glow. Consult the running catalog for parameters and
+limits. There is no live editor connection or undo history in this profile.
+
+`scene.save_copy` writes a new package directory containing `scene.tnz`, its
+artwork, and a hash manifest. It checks every saved drawing through the native
+reader and compares palette styles, pages, and keys before publishing. Existing
+destinations are rejected. Each artwork level must contain at least one drawing;
+an empty scene is allowed. Packages are limited to 256 levels, 4096 drawings, and
+256 MiB, with a separate conservative limit on source drawing memory.
+
+`scene.open` accepts unchanged packages produced by the same running worker.
+The worker retains the authoritative manifest privately; editing a public
+manifest cannot authorize a changed scene. Arbitrary native scenes and packages
+from previous worker sessions are rejected. Saved files remain available for
+normal application use after the worker exits. Render jobs use separate copies
+of the scene and artwork. This process isolation is not an operating system
+sandbox for native image readers, and the workspace must not be modified
+concurrently by another process.
 
 To inspect an image, start `render.preview`, poll `render.status` until completed,
 list `render.artifacts`, and pass an artifact ID to `artifact.read`. The final call

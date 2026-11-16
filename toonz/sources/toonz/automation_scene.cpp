@@ -125,7 +125,7 @@ TFrameId readDrawingId(const QJsonObject& params) {
     throw Error("invalid_argument",
                 "drawing_id must contain number and suffix.");
   const QJsonObject id = params.value("drawing_id").toObject();
-  const int number     = integerParam(id, "number", 1, MaxFrame, -1);
+  const int number     = integerParam(id, "number", 1, 999999, -1);
   if (number < 1 || !id.value("suffix").isString())
     throw Error("invalid_argument",
                 "drawing_id requires a positive number and string suffix.");
@@ -953,7 +953,7 @@ void addColumnOperations(QJsonArray& catalog) {
       {"type", "object"},
       {"additionalProperties", false},
       {"properties",
-       QJsonObject{{"number", integerSchema(1, MaxFrame)},
+       QJsonObject{{"number", integerSchema(1, 999999)},
                    {"suffix", QJsonObject{{"type", "string"},
                                           {"pattern", "^[a-z]{0,8}$"}}}}},
       {"required", QJsonArray{"number", "suffix"}}};
