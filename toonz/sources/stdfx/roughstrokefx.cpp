@@ -266,7 +266,8 @@ class RoughStrokeFx final : public TStandardRasterFx {
       m_copyOffset, m_copyWidthRandom, m_copyOpacityRandom, m_waveAmplitude,
       m_wavePeriod, m_wavePhase, m_wavePhaseRandom, m_drift, m_driftSize,
       m_colorMode, m_opacity, m_revealStart, m_revealEnd, m_travel, m_speed,
-      m_hold, m_seed;
+      m_hold, m_seed, m_dashLength, m_dashGap, m_dashPhase, m_widthVariation,
+      m_variationSize, m_overshoot, m_overshootRandom;
   TPixelParamP m_startColor, m_endColor;
   TBoolParamP m_loop, m_overSource;
 
@@ -296,6 +297,32 @@ class RoughStrokeFx final : public TStandardRasterFx {
     return RoughStroke::covered(speed, frame, int(first), int(last));
   }
 
+  // Dashes, width variation and overshoot. A gap of 0 draws the stroke
+  // solid; a dash of 0 with a gap draws dots.
+  void addLineStyle() {
+    for (TDoubleParamP *distance : {&m_dashLength, &m_dashGap, &m_dashPhase,
+                                    &m_variationSize, &m_overshoot})
+      (*distance)->setMeasureName("fxLength");
+    m_dashLength->setValueRange(0, 100000);
+    m_dashLength->setUISliderRange(0, 100);
+    m_dashGap->setValueRange(0, 100000);
+    m_dashGap->setUISliderRange(0, 100);
+    m_dashPhase->setValueRange(-1e6, 1e6);
+    m_dashPhase->setUISliderRange(-100, 100);
+    m_widthVariation->setValueRange(0, 1);
+    m_variationSize->setValueRange(0.1, 100000);
+    m_overshoot->setValueRange(0, 10000);
+    m_overshoot->setUISliderRange(0, 50);
+    m_overshootRandom->setValueRange(0, 1);
+    bindParam(this, "dashLength", m_dashLength);
+    bindParam(this, "dashGap", m_dashGap);
+    bindParam(this, "dashPhase", m_dashPhase);
+    bindParam(this, "widthVariation", m_widthVariation);
+    bindParam(this, "variationSize", m_variationSize);
+    bindParam(this, "overshoot", m_overshoot);
+    bindParam(this, "overshootRandom", m_overshootRandom);
+  }
+
 public:
   // Distances are entered in scene units and used in output pixels
   RoughStroke::Settings settings(double frame, double scale) const {
@@ -321,6 +348,15 @@ public:
     s.driftSize =
         std::max(1.0, bounded(m_driftSize->getValue(frame), 0.1, 100000) *
                           scale);
+    s.dashLength = bounded(m_dashLength->getValue(frame), 0, 100000) * scale;
+    s.dashGap    = bounded(m_dashGap->getValue(frame), 0, 100000) * scale;
+    s.dashPhase  = bounded(m_dashPhase->getValue(frame), -1e6, 1e6) * scale;
+    s.widthNoise = bounded(m_widthVariation->getValue(frame), 0, 1);
+    s.widthNoiseSize =
+        std::max(1.0, bounded(m_variationSize->getValue(frame), 0.1, 100000) *
+                          scale);
+    s.overshoot = bounded(m_overshoot->getValue(frame), 0, 10000) * scale;
+    s.overshootRandom = bounded(m_overshootRandom->getValue(frame), 0, 1);
     s.useStrokeColor = discrete(m_colorMode->getValue(frame), 0, 1) == 0;
     s.startColor     = colour(m_startColor, frame);
     s.endColor       = colour(m_endColor, frame);
@@ -359,6 +395,13 @@ public:
       , m_speed(0.0)
       , m_hold(2.0)
       , m_seed(1.0)
+      , m_dashLength(10.0)
+      , m_dashGap(0.0)
+      , m_dashPhase(0.0)
+      , m_widthVariation(0.0)
+      , m_variationSize(40.0)
+      , m_overshoot(0.0)
+      , m_overshootRandom(0.0)
       , m_startColor(TPixel32::Black)
       , m_endColor(TPixel32::Black)
       , m_loop(false)
@@ -407,6 +450,7 @@ public:
     bindParam(this, "wavePhaseRandom", m_wavePhaseRandom);
     bindParam(this, "drift", m_drift);
     bindParam(this, "driftSize", m_driftSize);
+    addLineStyle();
     bindParam(this, "colorMode", m_colorMode);
     bindParam(this, "startColor", m_startColor);
     bindParam(this, "endColor", m_endColor);
@@ -454,12 +498,14 @@ public:
     } catch (const TException &) {
       return m_source->doGetBBox(frame, box, info);
     }
-    // The strokes in scene units, grown by how far a copy can reach
+    // The strokes in scene units, grown by how far a copy can reach. Width
+    // variation can widen a stroke's own thickness as well as its width.
     const RoughStroke::Settings s = settings(frame, 1.0);
     const double reach            = RoughStroke::reach(s);
     for (const RoughStroke::Path &path : paths)
       for (const RoughStroke::Point &p : path.points) {
-        const double r = p.thickness * s.thicknessScale + reach;
+        const double r =
+            p.thickness * s.thicknessScale * (1 + s.widthNoise) + reach;
         box += TRectD(p.x - r, p.y - r, p.x + r, p.y + r);
       }
     if (m_overSource->getValue()) {

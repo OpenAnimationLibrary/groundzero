@@ -304,6 +304,60 @@ void testColumnNodes() {
 }
 
 // What does not depend on the pixels
+// Dashes, overshoot and width variation, in scene units. The plain stroke
+// runs from x = -50 to 50 at half width 2; output pixel x is centred on
+// world x - 63.5.
+template <class Pixel>
+void testLineStyle() {
+  VectorLevel level;
+  TFxP holder = new RoughStrokeFx;
+  auto &fx    = static_cast<RoughStrokeFx &>(*holder);
+  require(fx.connect("Source", level.fx().getPointer()), "Cannot connect");
+  plain(fx);
+  const TRasterPT<Pixel> solid = renderWhole<Pixel>(fx);
+
+  // Dashes 10 long with gaps of 10, from the stroke's start
+  set(fx, "dashLength", 10);
+  set(fx, "dashGap", 10);
+  const TRasterPT<Pixel> dashed = renderWhole<Pixel>(fx);
+  require(approx(pixel(dashed, 18, 16).m, 1) &&
+              approx(pixel(dashed, 28, 16).m, 0) &&
+              approx(pixel(dashed, 38, 16).m, 1),
+          "The stroke is not cut into dashes 10 long with gaps of 10");
+  // At twice the scale the dashes and gaps are twice as long in pixels
+  TRenderSettings settings = settingsFor<Pixel>();
+  settings.m_affine        = TScale(2);
+  const TRasterPT<Pixel> scaled =
+      render<Pixel>(fx, settings, TPointD(-128, -32), 256, 64, 0);
+  require(approx(pixel(scaled, 37, 32).m, 1) &&
+              approx(pixel(scaled, 57, 32).m, 0),
+          "Scaled dashes are not twice as long");
+  set(fx, "dashGap", 0);
+
+  // An overshoot of 5 goes on 5 past the start, and no further
+  set(fx, "overshoot", 5);
+  const TRasterPT<Pixel> over = renderWhole<Pixel>(fx);
+  require(approx(pixel(over, 10, 16).m, 1) && approx(pixel(solid, 10, 16).m, 0) &&
+              approx(pixel(over, 5, 16).m, 0),
+          "The overshoot does not reach 5 past the start");
+  set(fx, "overshoot", 0);
+
+  // Width variation changes the drawing, and the box grows by the share of
+  // the stroke's own thickness as well as of the added width
+  TRectD plainBox, variedBox;
+  require(fx.doGetBBox(0, plainBox, settingsFor<Pixel>()), "No box");
+  set(fx, "widthVariation", 1);
+  require(fx.doGetBBox(0, variedBox, settingsFor<Pixel>()), "No box");
+  require(approx(variedBox.getLy() - plainBox.getLy(), 2 * (1 + 1), 1e-9),
+          "The box does not grow by the width variation");
+  const TRasterPT<Pixel> varied = renderWhole<Pixel>(fx);
+  bool changed = false;
+  for (int y = 0; y < 32; ++y)
+    for (int x = 0; x < 128; ++x)
+      changed = changed || !(varied->pixels(y)[x] == solid->pixels(y)[x]);
+  require(changed, "Width variation did not change the stroke");
+}
+
 void testSettings() {
   VectorLevel level;
   TFxP holder = new RoughStrokeFx;
@@ -338,6 +392,24 @@ void testSettings() {
   }
   require(approx(fx.settings(12, 1).travel, 0.25 * (8 - 28 / 8.0), 1e-9),
           "A keyed speed is not added up frame by frame");
+
+  // Line style distances are in scene units; the shares are not scaled
+  set(fx, "dashLength", 4);
+  set(fx, "dashGap", 6);
+  set(fx, "dashPhase", 3);
+  set(fx, "widthVariation", 0.4);
+  set(fx, "variationSize", 25);
+  set(fx, "overshoot", 7);
+  set(fx, "overshootRandom", 0.5);
+  const RoughStroke::Settings s = fx.settings(0, 2);
+  require(approx(s.dashLength, 8, 1e-12) && approx(s.dashGap, 12, 1e-12) &&
+              approx(s.dashPhase, 6, 1e-12) && approx(s.widthNoise, 0.4, 1e-12) &&
+              approx(s.widthNoiseSize, 50, 1e-12) && approx(s.overshoot, 14, 1e-12) &&
+              approx(s.overshootRandom, 0.5, 1e-12),
+          "The line style settings are not scaled to output pixels");
+  set(fx, "widthVariation", 3);
+  require(approx(fx.settings(0, 1).widthNoise, 1, 1e-12),
+          "Width variation is not bounded to 1");
 }
 }  // namespace
 
@@ -353,10 +425,14 @@ int main(int argc, char **argv) {
     testColumnNodes<TPixel32>();
     testColumnNodes<TPixel64>();
     testColumnNodes<TPixelF>();
+    testLineStyle<TPixel32>();
+    testLineStyle<TPixel64>();
+    testLineStyle<TPixelF>();
     testSettings();
     std::cout << "PASS: rough stroke place, colour, tiles, reveal, travel, "
                  "scale, transforms, pixel depths, hidden strokes, opacity, "
-                 "animated palettes, column nodes, memory and keyed speed\n";
+                 "animated palettes, column nodes, dashes, overshoot, width "
+                 "variation, memory and keyed speed\n";
     return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString()

@@ -4,6 +4,15 @@
     <control>thicknessScale</control>
     <control>inLength</control>
     <control>outLength</control>
+    <separator label="Dashes"/>
+    <control>dashLength</control>
+    <control>dashGap</control>
+    <control>dashPhase</control>
+    <separator label="Width and Ends"/>
+    <control>widthVariation</control>
+    <control>variationSize</control>
+    <control>overshoot</control>
+    <control>overshootRandom</control>
     <separator label="Copies"/>
     <control>copies</control>
     <control>copyOffset</control>

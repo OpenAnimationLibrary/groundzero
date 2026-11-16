@@ -1487,6 +1487,13 @@
   <item>"STD_roughStrokeFx.wavePhaseRandom" "Wave Phase Randomness" </item>
   <item>"STD_roughStrokeFx.drift" "Drift" </item>
   <item>"STD_roughStrokeFx.driftSize" "Drift Size" </item>
+  <item>"STD_roughStrokeFx.dashLength" "Dash Length" </item>
+  <item>"STD_roughStrokeFx.dashGap" "Dash Gap" </item>
+  <item>"STD_roughStrokeFx.dashPhase" "Dash Offset" </item>
+  <item>"STD_roughStrokeFx.widthVariation" "Width Variation" </item>
+  <item>"STD_roughStrokeFx.variationSize" "Variation Size" </item>
+  <item>"STD_roughStrokeFx.overshoot" "Overshoot" </item>
+  <item>"STD_roughStrokeFx.overshootRandom" "Overshoot Randomness" </item>
   <item>"STD_roughStrokeFx.colorMode" "Colour" </item>
   <item>"STD_roughStrokeFx.startColor" "Start Colour" </item>
   <item>"STD_roughStrokeFx.endColor" "End Colour" </item>
