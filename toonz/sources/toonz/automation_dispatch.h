@@ -20,6 +20,9 @@ private:
     QJsonObject response;
   };
   void add(const QJsonArray& operations, Handler handler);
+  QJsonObject replayReceipt(const Receipt& receipt,
+                            const QByteArray& fingerprint) const;
+  quint64 checkRevision(const QJsonObject& params) const;
   QJsonValue execute(const QString& method, const QJsonObject& params);
   QJsonObject executeWrite(const Entry& entry, const QString& method,
                            const QJsonObject& params);

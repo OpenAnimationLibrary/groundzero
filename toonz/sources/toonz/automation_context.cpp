@@ -39,6 +39,45 @@ QString canonicalDirectory(const QString& path) {
   return canonical;
 }
 
+QString normalizedWorkerPath(const QString& path) {
+  const QString normalized = QDir::fromNativeSeparators(path);
+  if (normalized.isEmpty() || normalized.contains(QChar::Null) ||
+      normalized.contains('\\'))
+    throw Error("invalid_path",
+                "Use a nonempty path with forward-slash separators.");
+  for (const QString& part : normalized.split('/'))
+    if (part == "..")
+      throw Error("invalid_path", "Parent traversal is not allowed.");
+  return normalized;
+}
+
+QString canonicalAncestor(const QString& path) {
+  QString ancestor = path;
+  while (!QFileInfo::exists(ancestor)) {
+    if (QFileInfo(ancestor).isSymLink())
+      throw Error("path_denied",
+                  "Symbolic links are not allowed in worker paths.");
+    const QString parent = QFileInfo(ancestor).absolutePath();
+    if (parent == ancestor)
+      throw Error("invalid_path", "Could not resolve the path.");
+    ancestor = parent;
+  }
+  const QFileInfo existing(ancestor);
+  const QString canonical = existing.canonicalFilePath();
+  if (existing.isSymLink() || canonical != ancestor)
+    throw Error("path_denied",
+                "Symbolic links are not allowed in worker paths.");
+  return canonical;
+}
+
+bool isColumnFx(TXsheet& sheet, TFx* value) {
+  for (int index = 0; index < sheet.getColumnCount(); ++index) {
+    TXshColumn* column = sheet.getColumn(index);
+    if (column && column->getFx() == value) return true;
+  }
+  return false;
+}
+
 template <typename T>
 QString registerHandle(QHash<QString, T*>& handles, T* value,
                        const QString& kind) {
@@ -119,10 +158,7 @@ TFx* Document::fx(const QString& handle) const {
   if (dag->getXsheetFx() == value) return value;
   for (int index = 0; index < dag->getOutputFxCount(); ++index)
     if (dag->getOutputFx(index) == value) return value;
-  for (int index = 0; index < sheet->getColumnCount(); ++index) {
-    TXshColumn* column = sheet->getColumn(index);
-    if (column && column->getFx() == value) return value;
-  }
+  if (isColumnFx(*sheet, value)) return value;
   std::vector<TFx*> current;
   dag->getFxs(current);
   for (TFx* fx : current)
@@ -214,31 +250,10 @@ void Context::resetMutationStarted() { m_mutationStarted = false; }
 bool Context::mutationStarted() const { return m_mutationStarted; }
 
 QString Context::resolvePath(const QString& path, bool write) const {
-  const QString normalized = QDir::fromNativeSeparators(path);
-  if (normalized.isEmpty() || normalized.contains(QChar::Null) ||
-      normalized.contains('\\'))
-    throw Error("invalid_path",
-                "Use a nonempty path with forward-slash separators.");
-  for (const QString& part : normalized.split('/'))
-    if (part == "..")
-      throw Error("invalid_path", "Parent traversal is not allowed.");
+  const QString normalized = normalizedWorkerPath(path);
   const QString absolute =
       QDir::cleanPath(QDir(m_workspace).absoluteFilePath(normalized));
-  QString ancestor = absolute;
-  while (!QFileInfo::exists(ancestor)) {
-    if (QFileInfo(ancestor).isSymLink())
-      throw Error("path_denied",
-                  "Symbolic links are not allowed in worker paths.");
-    const QString parent = QFileInfo(ancestor).absolutePath();
-    if (parent == ancestor)
-      throw Error("invalid_path", "Could not resolve the path.");
-    ancestor = parent;
-  }
-  const QFileInfo existing(ancestor);
-  const QString canonical = existing.canonicalFilePath();
-  if (existing.isSymLink() || canonical != ancestor)
-    throw Error("path_denied",
-                "Symbolic links are not allowed in worker paths.");
+  const QString canonical = canonicalAncestor(absolute);
   bool allowed =
       beneath(absolute, m_workspace) && beneath(canonical, m_workspace);
   if (!write)

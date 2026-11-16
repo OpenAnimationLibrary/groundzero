@@ -132,6 +132,22 @@ Error nativeError(const std::exception& error) {
   return Error("native_error", QString::fromUtf8(error.what()));
 }
 
+void validateRequestFields(const QJsonObject& request) {
+  for (const QString& key : request.keys())
+    if (key != "id" && key != "method" && key != "params")
+      throw Error("invalid_request", "Unknown request field: " + key);
+}
+
+void validateRequest(const QJsonObject& request) {
+  const QJsonValue id = request.value("id");
+  if (!id.isString() || id.toString().isEmpty() || id.toString().size() > 128 ||
+      !request.value("method").isString() ||
+      !request.value("params").isObject())
+    throw Error("invalid_request",
+                "Requests require a string id, method, and object params.");
+  validateRequestFields(request);
+}
+
 QJsonValue callHandler(QJsonValue (*handler)(Context&, const QString&,
                                              const QJsonObject&),
                        Context& context, const QString& method,
@@ -195,15 +211,7 @@ QJsonObject Dispatcher::dispatch(const QJsonObject& request) {
   const QJsonValue id =
       requestId.isString() ? requestId : QJsonValue(QJsonValue::Null);
   try {
-    if (!requestId.isString() || requestId.toString().isEmpty() ||
-        requestId.toString().size() > 128 ||
-        !request.value("method").isString() ||
-        !request.value("params").isObject())
-      throw Error("invalid_request",
-                  "Requests require a string id, method, and object params.");
-    for (const QString& key : request.keys())
-      if (key != "id" && key != "method" && key != "params")
-        throw Error("invalid_request", "Unknown request field: " + key);
+    validateRequest(request);
     if (m_busy)
       throw Error("worker_busy",
                   "The worker is already executing an operation.");
@@ -246,6 +254,21 @@ QJsonValue Dispatcher::execute(const QString& method,
   return callHandler(entry.handler, m_context, method, params);
 }
 
+QJsonObject Dispatcher::replayReceipt(const Receipt& receipt,
+                                      const QByteArray& fingerprint) const {
+  if (receipt.fingerprint != fingerprint)
+    throw Error("operation_conflict",
+                "operation_id was already used for a different request.");
+  const QJsonObject response = receipt.response;
+  if (response.contains("error")) {
+    const QJsonObject error = response.value("error").toObject();
+    throw Error(error.value("code").toString(),
+                error.value("message").toString(),
+                error.value("details").toObject());
+  }
+  return response.value("result").toObject();
+}
+
 QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
                                      const QJsonObject& params) {
   const QString operationId = requiredString(params, "operation_id");
@@ -257,19 +280,8 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
           .toJson(QJsonDocument::Compact),
       QCryptographicHash::Sha256);
   auto cached = m_receipts.constFind(operationId);
-  if (cached != m_receipts.constEnd()) {
-    if (cached->fingerprint != fingerprint)
-      throw Error("operation_conflict",
-                  "operation_id was already used for a different request.");
-    const QJsonObject response = cached->response;
-    if (response.contains("error")) {
-      const QJsonObject error = response.value("error").toObject();
-      throw Error(error.value("code").toString(),
-                  error.value("message").toString(),
-                  error.value("details").toObject());
-    }
-    return response.value("result").toObject();
-  }
+  if (cached != m_receipts.constEnd())
+    return replayReceipt(cached.value(), fingerprint);
   if (m_receipts.size() >= 2048 ||
       m_receiptBytes > maximumReceiptBytes - maximumResultBytes)
     throw Error("resource_limit",
@@ -316,21 +328,23 @@ void Dispatcher::finishRevision(QJsonObject& result, const QString& documentId,
   result.insert("revision", QString::number(revision + 1));
 }
 
+quint64 Dispatcher::checkRevision(const QJsonObject& params) const {
+  const QString documentId = params.value("document_id").toString();
+  if (documentId.isEmpty()) return 0;
+  const Document& document = m_context.document(documentId);
+  if (requiredString(params, "expected_revision") != document.revisionText())
+    throw Error(
+        "revision_conflict", "The document changed; inspect it before writing.",
+        {{"document_id", documentId}, {"revision", document.revisionText()}});
+  if (document.revision == std::numeric_limits<quint64>::max())
+    throw Error("resource_limit", "The document revision limit was reached.");
+  return document.revision;
+}
+
 QJsonObject Dispatcher::applyWrite(const Entry& entry, const QString& method,
                                    const QJsonObject& params) {
   const QString documentId = params.value("document_id").toString();
-  quint64 revision         = 0;
-  if (!documentId.isEmpty()) {
-    const Document& document = m_context.document(documentId);
-    revision                 = document.revision;
-    if (requiredString(params, "expected_revision") != document.revisionText())
-      throw Error(
-          "revision_conflict",
-          "The document changed; inspect it before writing.",
-          {{"document_id", documentId}, {"revision", document.revisionText()}});
-    if (revision == std::numeric_limits<quint64>::max())
-      throw Error("resource_limit", "The document revision limit was reached.");
-  }
+  const quint64 revision   = checkRevision(params);
   const bool mutatesDocument =
       entry.descriptor.value("mutates_document").toBool(true);
   try {

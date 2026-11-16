@@ -77,6 +77,30 @@ QStringList workerArguments(int argc, char* argv[]) {
   return arguments;
 }
 
+QString canonicalWorkerRoot(const QString& path) {
+  const QFileInfo directory(path);
+  if (!directory.isAbsolute() || !directory.isDir() || directory.isSymLink())
+    throw Error("invalid_argument",
+                "Worker roots must be existing absolute directories.");
+  const QString canonical = directory.canonicalFilePath();
+  if (canonical.isEmpty())
+    throw Error("invalid_argument", "Could not resolve a worker root.");
+  return canonical;
+}
+
+void addWorkerRoot(Options& options, const QString& key, const QString& path) {
+  const QString canonical = canonicalWorkerRoot(path);
+  if (key == "--input-root") {
+    if (options.inputRoots.size() >= 16)
+      throw Error("invalid_argument", "At most 16 input roots are supported.");
+    options.inputRoots.append(canonical);
+  } else {
+    if (!options.workspace.isEmpty())
+      throw Error("invalid_argument", "Specify --workspace exactly once.");
+    options.workspace = canonical;
+  }
+}
+
 Options parseOptions(const QStringList& arguments) {
   Options options;
   for (int index = 2; index < arguments.size(); ++index) {
@@ -92,23 +116,7 @@ Options parseOptions(const QStringList& arguments) {
       throw Error(
           "invalid_argument",
           "Worker accepts --workspace DIR and repeated --input-root DIR.");
-    const QFileInfo directory(arguments[++index]);
-    if (!directory.isAbsolute() || !directory.isDir() || directory.isSymLink())
-      throw Error("invalid_argument",
-                  "Worker roots must be existing absolute directories.");
-    const QString canonical = directory.canonicalFilePath();
-    if (canonical.isEmpty())
-      throw Error("invalid_argument", "Could not resolve a worker root.");
-    if (key == "--input-root") {
-      if (options.inputRoots.size() >= 16)
-        throw Error("invalid_argument",
-                    "At most 16 input roots are supported.");
-      options.inputRoots.append(canonical);
-    } else {
-      if (!options.workspace.isEmpty())
-        throw Error("invalid_argument", "Specify --workspace exactly once.");
-      options.workspace = canonical;
-    }
+    addWorkerRoot(options, key, arguments[++index]);
   }
   if (options.workspace.isEmpty())
     throw Error("invalid_argument",
