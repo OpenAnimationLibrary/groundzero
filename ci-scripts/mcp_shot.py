@@ -7,11 +7,14 @@ import base64
 import hashlib
 import json
 import math
+import os
 import struct
+import subprocess
 import sys
 import time
 import traceback
 import zlib
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,8 @@ from run_harness_tests import annotation
 
 WIDTH, HEIGHT, FRAMES, DPI = 512, 288, 120, 128
 PROBE_FRAMES = (0, 30, 60, 90, 119)
+MOVIE_SIZE = (320, 180)
+MOVIE_PROBE_FRAMES = (0, 60, 119)
 DRAWING = {"number": 1, "suffix": ""}
 TRANSPARENT: Pixel = (0, 0, 0, 0)
 INK: Pixel = (10, 24, 41, 255)
@@ -210,7 +215,9 @@ class Shot:
             time.sleep(0.1)
         raise TimeoutError(f"Render {job} did not finish within 360 seconds")
 
-    def artifact(self, item: dict[str, Any], path: Path) -> list[Pixel]:
+    def artifact(
+        self, item: dict[str, Any], path: Path, *, size: tuple[int, int] = (WIDTH, HEIGHT)
+    ) -> list[Pixel]:
         """Check an opaque PNG artifact's checksum, dimensions, and actual decoded pixels."""
         result = self.read("artifact.read", {"artifact_id": item["artifact_id"]})
         require(result["image"]["mimeType"] == "image/png", "Artifact is not a PNG image")
@@ -218,21 +225,23 @@ class Shot:
         require(len(data) == item["size_bytes"], "Artifact byte count differs from its receipt")
         require(hashlib.sha256(data).hexdigest() == item["sha256"], "Artifact checksum changed")
         width, height, pixels = decode_png(data)
-        require((width, height) == (WIDTH, HEIGHT), "Rendered camera dimensions changed")
+        require((width, height) == size, "Rendered camera dimensions changed")
         path.write_bytes(data)
         return pixels
 
-    def preview(self, document: str, label: str, frame: int = 60) -> list[Pixel]:
-        """Render an independent frame at the final shot resolution and retain its PNG."""
+    def preview(
+        self, document: str, label: str, frame: int = 60, *, size: tuple[int, int] = (WIDTH, HEIGHT)
+    ) -> list[Pixel]:
+        """Render an independent frame at the requested resolution and retain its PNG."""
         revision = self.revisions[document]
-        job = self.write("render.preview", document, frame=frame, width=WIDTH, height=HEIGHT)
+        job = self.write("render.preview", document, frame=frame, width=size[0], height=size[1])
         self.wait(job["job_id"])
         artifacts = self.read("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
         require(len(artifacts) == 1, "A preview must produce exactly one artifact")
         require(artifacts[0]["frame"] == frame, "Preview returned another frame's artifact")
         require(job["source_revision"] == revision, "Preview used an unexpected scene revision")
         require(self.revisions[document] == revision, "Preview changed the editable document")
-        return self.artifact(artifacts[0], self.output / "previews" / f"{label}.png")
+        return self.artifact(artifacts[0], self.output / "previews" / f"{label}.png", size=size)
 
 
 def author_layer(shot: Shot, document: str, name: str, art: Canvas) -> dict[str, Any]:
@@ -633,7 +642,225 @@ def reference_frames(shot: Shot, document: str, edited_preview: str) -> dict[int
     return expected
 
 
-def create_shot(shot: Shot) -> None:
+def movie_tool(shot: Shot, media_tools: Path, name: str, arguments: list[str]) -> bytes:
+    """Run an explicitly configured media tool and retain its diagnostics.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        media_tools: Canonical directory containing the admitted real executables.
+        name: The ffmpeg or ffprobe executable basename.
+        arguments: Explicit arguments without shell interpolation.
+    """
+    executable = media_tools / (name + ".exe" if os.name == "nt" else name)
+    result = subprocess.run(
+        [str(executable), *arguments],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    (shot.output / f"movie-{name}.stderr.log").write_bytes(result.stderr)
+    require(
+        result.returncode == 0,
+        f"Movie {name} failed: {result.stderr.decode('utf-8', errors='replace')}",
+    )
+    return result.stdout
+
+
+def check_movie_artifact(shot: Shot, job: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    """Require one owned complete movie and verify its receipt against actual file bytes.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        job: The native movie submission receipt.
+    """
+    status = shot.wait(job["job_id"])
+    require(status["completed_frames"] == FRAMES, "The movie omitted shot frames")
+    require(status["format"] == "mp4", "The movie job changed format")
+    require(status["profile"] == "opaque8-mp4", "The movie job changed render profile")
+    result = shot.read("render.artifacts", {"job_id": job["job_id"]})
+    require("image" not in result, "Movie delivery returned inline image content")
+    require(len(result["artifacts"]) == 1, "The shot must produce one finalized MP4 artifact")
+    item = result["artifacts"][0]
+    expected = {
+        "kind": "movie",
+        "mime_type": "video/mp4",
+        "container": "mp4",
+        "width": MOVIE_SIZE[0],
+        "height": MOVIE_SIZE[1],
+        "frame_count": FRAMES,
+        "frame_rate": 24,
+        "source_frame_rate": 24,
+        "pixel_format": "yuv420p",
+        "alpha": "opaque",
+        "matte": "black",
+        "start_frame": 0,
+        "end_frame": FRAMES - 1,
+        "step": 1,
+        "job_id": job["job_id"],
+        "document_id": job["document_id"],
+        "source_revision": job["source_revision"],
+    }
+    for key, value in expected.items():
+        require(item[key] == value, f"Movie artifact has an unexpected {key}: {item[key]}")
+    require("image" not in item, "Movie artifact included inline image content")
+    require(item["audio"] is False, "The shot movie unexpectedly contains audio")
+    relative = Path(item["workspace_relative_path"])
+    require(not relative.is_absolute(), "Movie artifact path must be workspace relative")
+    path = (shot.output / "workspace" / relative).resolve(strict=True)
+    require(path.is_relative_to(shot.output / "workspace"), "Movie artifact escaped its workspace")
+    data = path.read_bytes()
+    require(item["size_bytes"] == len(data) > 0, "Movie artifact byte count changed")
+    require(item["sha256"] == hashlib.sha256(data).hexdigest(), "Movie artifact checksum changed")
+    return path, item
+
+
+def probe_movie(shot: Shot, media_tools: Path, path: Path, item: dict[str, Any]) -> None:
+    """Independently inspect the actual video stream, container, timing, and decoded count.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        media_tools: Canonical directory containing the admitted real executables.
+        path: The finalized movie file inside the worker workspace.
+        item: The native movie artifact metadata.
+    """
+    output = movie_tool(
+        shot,
+        media_tools,
+        "ffprobe",
+        ["-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", str(path)],
+    )
+    (shot.output / "movie-independent-ffprobe.json").write_bytes(output)
+    probe = json.loads(output)
+    require(len(probe["streams"]) == 1, "The movie must contain exactly one video stream")
+    stream = probe["streams"][0]
+    require(stream["codec_type"] == "video", "The movie did not contain a video stream")
+    require(stream["codec_name"] == item["codec"], "The movie codec differs from its receipt")
+    require((stream["width"], stream["height"]) == MOVIE_SIZE, "Movie dimensions changed")
+    require(stream["pix_fmt"] == "yuv420p", "Movie pixel format changed")
+    require(int(stream["nb_read_frames"]) == FRAMES, "The movie did not decode all 120 frames")
+    require(Fraction(stream["avg_frame_rate"]) == Fraction(24), "Movie frame rate changed")
+    require("mp4" in probe["format"]["format_name"].split(","), "The container is not MP4")
+    require(
+        probe["format"]["tags"]["major_brand"] == item["major_brand"],
+        "The movie container brand differs from its receipt",
+    )
+    duration = float(probe["format"]["duration"])
+    require(abs(duration - FRAMES / 24) <= 0.001, "Movie duration changed")
+    require(item["duration_seconds"] == duration, "Movie duration differs from its receipt")
+
+
+def compare_movie_frame(shot: Shot, frame: int, actual: bytes, reference: list[Pixel]) -> None:
+    """Bound MP4 distortion against a separate native preview at the encoded resolution.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        frame: The zero-based scene frame represented by both images.
+        actual: Decoded top-to-bottom RGB24 movie frame bytes.
+        reference: The independently rendered native PNG pixels.
+    """
+    require(all(pixel[3] == 255 for pixel in reference), "Movie reference has unexpected alpha")
+    errors = [abs(value - reference[index // 3][index % 3]) for index, value in enumerate(actual)]
+    rmse = math.sqrt(sum(error * error for error in errors) / len(errors))
+    percentile95 = sorted(errors)[math.ceil(len(errors) * 0.95) - 1]
+    metrics = {
+        "frame": frame,
+        "rgb_rmse": rmse,
+        "rgb_error_percentile95": percentile95,
+        "native_preview_pixels_sha256": pixel_hash(reference),
+    }
+    shot.proof["movie"]["independent_frame_comparisons"].append(metrics)
+    art = Canvas(*MOVIE_SIZE)
+    art.pixels = [
+        (actual[index], actual[index + 1], actual[index + 2], 255)
+        for index in range(0, len(actual), 3)
+    ]
+    write_art(shot.output / "previews" / f"movie-decoded-frame-{frame}.png", art)
+    # Native MP4 regressions allow 12 channel levels. Sparse 4:2:0 color edges may exceed
+    # that pointwise limit; both the whole-image RMS error and 95th percentile remain bounded.
+    require(
+        rmse <= 12 and percentile95 <= 12, f"Movie frame {frame} differs from preview: {metrics}"
+    )
+
+
+def decode_movie(
+    shot: Shot, media_tools: Path, path: Path, references: dict[int, list[Pixel]]
+) -> None:
+    """Decode every encoded frame without timestamp resampling and verify retained references.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        media_tools: Canonical directory containing the admitted real executables.
+        path: The finalized movie file inside the worker workspace.
+        references: Independently rendered native PNG pixels by scene frame.
+    """
+    decoded = movie_tool(
+        shot,
+        media_tools,
+        "ffmpeg",
+        [
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-fps_mode",
+            "passthrough",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ],
+    )
+    frame_bytes = MOVIE_SIZE[0] * MOVIE_SIZE[1] * 3
+    require(len(decoded) == FRAMES * frame_bytes, "Movie RGB decode omitted or duplicated frames")
+    hashes = []
+    for frame in range(FRAMES):
+        actual = decoded[frame * frame_bytes : (frame + 1) * frame_bytes]
+        hashes.append(hashlib.sha256(actual).hexdigest())
+        if frame in references:
+            compare_movie_frame(shot, frame, actual, references[frame])
+    shot.proof["movie"]["decoded_frame_hashes"] = hashes
+    require(len(set(hashes)) == FRAMES, "The movie repeated a moving shot frame")
+
+
+def render_movie(shot: Shot, document: str, media_tools: Path) -> None:
+    """Deliver the full editable shot as verified MP4 within the worker storage budget.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        document: The independently reopened editable scene document.
+        media_tools: Canonical directory containing the admitted real executables.
+    """
+    references = {
+        frame: shot.preview(document, f"movie-reference-frame-{frame}", frame, size=MOVIE_SIZE)
+        for frame in MOVIE_PROBE_FRAMES
+    }
+    revision = shot.revisions[document]
+    job = shot.write(
+        "render.submit",
+        document,
+        format="mp4",
+        start_frame=0,
+        end_frame=FRAMES - 1,
+        step=1,
+        width=MOVIE_SIZE[0],
+        height=MOVIE_SIZE[1],
+    )
+    require(job["source_revision"] == revision, "Movie used an unexpected scene revision")
+    path, item = check_movie_artifact(shot, job)
+    shot.proof["movie"] = {
+        **item,
+        "path": str(path.relative_to(shot.output)),
+        "independent_frame_comparisons": [],
+    }
+    probe_movie(shot, media_tools, path, item)
+    decode_movie(shot, media_tools, path, references)
+
+
+def create_shot(shot: Shot, media_tools: Path | None = None) -> None:
     """Author the native shot, then verify its persistence and every rendered frame."""
     document = shot.write(
         "scene.create",
@@ -657,12 +884,16 @@ def create_shot(shot: Shot) -> None:
     expected_frames = reference_frames(shot, document, expected_pixels)
     opened = reopen(shot, document, expected_pixels)
     render_sequence(shot, opened, expected_frames)
+    reserved = (WIDTH * HEIGHT * 4 + 65536) * (FRAMES + 7)
+    if media_tools is not None:
+        render_movie(shot, opened, media_tools)
+        reserved += (MOVIE_SIZE[0] * MOVIE_SIZE[1] * 4 + 65536) * (FRAMES + len(MOVIE_PROBE_FRAMES))
     shot.proof.update(
         status="passed",
         artwork_license="BSD-3-Clause",
         artwork_origin="Original procedural artwork authored through native drawing tools",
         render_reservation_bytes=(WIDTH * HEIGHT * 4 + 65536) * FRAMES,
-        retained_job_reservation_bytes=(WIDTH * HEIGHT * 4 + 65536) * (FRAMES + 7),
+        retained_job_reservation_bytes=reserved,
     )
 
 
@@ -675,7 +906,7 @@ def record_failure(shot: Shot, error: Exception) -> None:
     annotation("Native 120-frame shot", message)
 
 
-def run(executable: Path, output: Path) -> int:
+def run(executable: Path, output: Path, media_tools: Path | None = None) -> int:
     """Retain proof and native diagnostics even when a creative milestone fails."""
     for name in ("workspace", "inputs", "sources", "previews", "frames"):
         (output / name).mkdir()
@@ -684,11 +915,15 @@ def run(executable: Path, output: Path) -> int:
         license_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
     worker = Worker(
-        executable, output / "workspace", output / "inputs", output / "worker.stderr.log"
+        executable,
+        output / "workspace",
+        output / "inputs",
+        output / "worker.stderr.log",
+        media_tools=media_tools,
     )
     shot = Shot(worker, output)
     try:
-        create_shot(shot)
+        create_shot(shot, media_tools)
     except Exception as error:
         record_failure(shot, error)
     finally:
@@ -712,11 +947,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--media-tools", type=Path)
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     try:
-        return run(args.executable.resolve(strict=True), output)
+        media_tools = args.media_tools.resolve(strict=True) if args.media_tools else None
+        return run(args.executable.resolve(strict=True), output, media_tools)
     except (OSError, ValueError) as error:
         annotation("Native 120-frame shot setup", f"{type(error).__name__}: {error}")
         (output / "proof.json").write_text(
