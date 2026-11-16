@@ -55,9 +55,7 @@ def stage_fixture(arguments: argparse.Namespace, directory: Path) -> Path:
         raise ValueError("Shot proof exceeds 4 MiB")
     data = json.loads(proof.read_text(encoding="utf-8"))
     if data.get("status") != "passed" or data.get("title") != "Moonlight courier":
-        raise ValueError(
-            "Normal app handoff requires the completed fixed Moonlight courier shot"
-        )
+        raise ValueError("Normal app handoff requires the completed fixed Moonlight courier shot")
     shutil.copyfile(proof, fixture / "proof.json")
     return fixture
 
@@ -83,22 +81,19 @@ def qualify(arguments: argparse.Namespace, report: dict[str, Any]) -> None:
     """Retain the original process evidence and fail on any missing native stage."""
     original = package_hashes(arguments.package)
     state: dict[str, Any] = {"safe_to_release": True}
-    with isolated_fixture(
-        arguments.stuff, arguments.executable, arguments.windows_mesa, state
-    ) as (directory, environment):
+    with isolated_fixture(arguments.stuff, arguments.executable, arguments.windows_mesa, state) as (
+        directory,
+        environment,
+    ):
         fixture = stage_fixture(arguments, directory)
         try:
             result = launch(arguments, directory, environment, state)
             report["native_exit_code"] = result.returncode
             output = result.stdout.decode("utf-8", errors="replace")
             present = output.splitlines()
-            report["missing_markers"] = [
-                marker for marker in MARKERS if marker not in present
-            ]
+            report["missing_markers"] = [marker for marker in MARKERS if marker not in present]
             if result.returncode != 0 or report["missing_markers"]:
-                raise AssertionError(
-                    "Normal app handoff failed; inspect native-output.txt"
-                )
+                raise AssertionError("Normal app handoff failed; inspect native-output.txt")
         finally:
             output = state.get("output", b"")
             (arguments.output / "native-output.txt").write_bytes(output)
@@ -148,9 +143,7 @@ def main() -> int:
         subprocess.TimeoutExpired,
     ) as error:
         report["error"] = str(error)
-        (arguments.output / "failure.txt").write_text(
-            traceback.format_exc(), encoding="utf-8"
-        )
+        (arguments.output / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
         annotation("Normal app MCP handoff failed", str(error))
     (arguments.output / "report.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
