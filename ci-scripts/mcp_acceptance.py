@@ -298,7 +298,7 @@ class NativeAcceptance(unittest.TestCase):
                         self.assertIn("expected_revision", schema["required"])
                 self.failure(tool["name"], {"unrecognized_acceptance_argument": True})
 
-    def test_native_fx_domain_regressions(self) -> None:
+    def test_native_domain_regressions(self) -> None:
         domain_workspace = self.directory / "domain-workspace"
         domain_workspace.mkdir()
         with (self.directory / "native-domain-tests.log").open("wb") as log:
@@ -320,6 +320,12 @@ class NativeAcceptance(unittest.TestCase):
             )
         diagnostics = (self.directory / "native-domain-tests.log").read_bytes()[-4096:]
         self.assertEqual(result.returncode, 0, diagnostics.decode("utf-8", errors="replace"))
+        reports = json.loads((domain_workspace / "media-verifier-report.json").read_text())
+        self.assertTrue(reports, "Native movie verifier cases did not run")
+        self.assertIn("production-deadline", {report["case"] for report in reports})
+        for report in reports:
+            with self.subTest(native_case=report["case"]):
+                self.assertEqual(report["status"], "passed", report)
 
     def test_vector_edits_validate_the_whole_batch(self) -> None:
         document = self.create()
