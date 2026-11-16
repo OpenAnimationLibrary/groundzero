@@ -249,6 +249,30 @@ jobs:
         path: toonz/build/mcp-shot
         if-no-files-found: ignore
 
+    - name: Open and edit the MCP shot in the native application
+      id: mcp_handoff
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' && steps.mcp_shot.outcome == 'success' }}
+      timeout-minutes: 15
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_handoff.py \
+          --executable toonz/build/bin/OpenToonz --stuff stuff \
+          --package toonz/build/mcp-shot/workspace/shot \
+          --reference toonz/build/mcp-shot/previews/reopened.png \
+          --output toonz/build/mcp-handoff
+
+    - name: Retain native application handoff evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-gui-handoff-${{ github.sha }}
+        path: toonz/build/mcp-handoff
+        if-no-files-found: ignore
+
     - name: Retain reference style qualification and visual examples
       if: ${{ !inputs.baseline_only && always() }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
