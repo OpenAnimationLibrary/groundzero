@@ -213,7 +213,9 @@ def custom_dpi_survives_reopen_and_remains_independent_of_camera(case: NativeAcc
     saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "custom-dpi"))
     reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
     summary = _summary(case, reopened)
-    case.assertAlmostEqual(summary["camera"]["width_in"], 32 / 180)
+    # Native camera serialization retains six significant digits at this size.
+    for dimension in ("width_in", "height_in"):
+        case.assertAlmostEqual(summary["camera"][dimension], 32 / 180, delta=5e-7)
     case.assertEqual(decode_png(case.preview(reopened)), before)
     target = {
         "level_id": summary["levels"][0]["level_id"],
