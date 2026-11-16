@@ -680,8 +680,9 @@ if(BUILD_CELFX_TESTS)
 endif()
 
 if(BUILD_CELFX_TESTS)
-    # The GLB Model, Three-Point Light and 3D Transformer FX; the renderer
-    # itself is tested on its own in glb/
+    # The GLB Model, Three-Point Light and 3D Transformer FX. New 3D features
+    # are built in OT3D; these tests keep this tree's copy working. The
+    # renderer itself is tested on its own in glb/.
     add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
     target_link_libraries(glbmodelfx_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_glbmodelfx COMMAND glbmodelfx_test)
