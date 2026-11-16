@@ -17,6 +17,8 @@ from typing import Any
 
 import mcp_drawing_cases
 import mcp_fx_cases
+import mcp_media_cases
+import mcp_movie_cases
 import mcp_render_cases
 import mcp_scene_cases
 import mcp_worker_cases
@@ -54,6 +56,34 @@ class NativeAcceptance(unittest.TestCase):
 
     executable: Path
     output: Path
+    media_tools: Path | None = None
+
+    def test_media_directories_require_explicit_canonical_arguments(self) -> None:
+        mcp_media_cases.media_directories_require_explicit_canonical_arguments(self)
+
+    def test_media_tools_require_both_regular_unlinked_helpers(self) -> None:
+        mcp_media_cases.media_tools_require_both_regular_unlinked_helpers(self)
+
+    def test_media_tools_require_posix_execute_permission(self) -> None:
+        mcp_media_cases.media_tools_require_posix_execute_permission(self)
+
+    def test_media_tools_on_path_do_not_enable_movies(self) -> None:
+        mcp_media_cases.media_tools_on_path_do_not_enable_movies(self)
+
+    def test_movie_snapshot_metadata_and_pixels(self) -> None:
+        mcp_movie_cases.movie_snapshot_metadata_and_pixels(self)
+
+    def test_movie_without_media_tools_is_rejected(self) -> None:
+        mcp_movie_cases.movie_without_media_tools_is_rejected(self)
+
+    def test_movie_options_reject_unsupported_values(self) -> None:
+        mcp_movie_cases.movie_options_reject_unsupported_values(self)
+
+    def test_movie_cancellation_publishes_no_artifact(self) -> None:
+        mcp_movie_cases.movie_cancellation_publishes_no_artifact(self)
+
+    def test_movie_writer_failure_publishes_no_artifact(self) -> None:
+        mcp_movie_cases.movie_writer_failure_publishes_no_artifact(self)
 
     def test_parenting_preserves_local_keys_and_changes_rendered_placement(self) -> None:
         mcp_scene_cases.parenting_preserves_local_keys_and_changes_rendered_placement(self)
@@ -956,9 +986,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--media-tools", type=Path)
     args = parser.parse_args()
     NativeAcceptance.executable = args.executable.resolve(strict=True)
     NativeAcceptance.output = args.output.resolve()
+    NativeAcceptance.media_tools = (
+        args.media_tools.resolve(strict=True) if args.media_tools else None
+    )
     NativeAcceptance.output.mkdir(parents=True, exist_ok=True)
     report_path = NativeAcceptance.output / "acceptance.txt"
     with report_path.open("w", encoding="utf-8") as report:

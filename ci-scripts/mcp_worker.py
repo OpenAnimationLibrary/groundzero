@@ -15,20 +15,31 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 class Worker:
     """Own one native process and retain its stderr for CI failure diagnosis."""
 
-    def __init__(self, executable: Path, workspace: Path, inputs: Path, log: Path) -> None:
+    def __init__(
+        self,
+        executable: Path,
+        workspace: Path,
+        inputs: Path,
+        log: Path,
+        *,
+        media_tools: Path | None = None,
+    ) -> None:
         self.sequence = 0
         self.log_path = log
         self.errors = log.open("wb")
         self.responses: Queue[bytes | Exception] = Queue()
+        arguments = [
+            str(executable),
+            "--automation-worker",
+            "--workspace",
+            str(workspace),
+            "--input-root",
+            str(inputs),
+        ]
+        if media_tools is not None:
+            arguments.extend(["--media-tools", str(media_tools)])
         self.process = subprocess.Popen(
-            [
-                str(executable),
-                "--automation-worker",
-                "--workspace",
-                str(workspace),
-                "--input-root",
-                str(inputs),
-            ],
+            arguments,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.errors,
