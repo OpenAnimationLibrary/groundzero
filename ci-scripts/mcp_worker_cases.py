@@ -7,6 +7,9 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING, BinaryIO
 
+from mcp_png import decode_png, write_fixture
+from mcp_worker import Worker
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -69,3 +72,26 @@ def unreadable_input_is_not_clean_eof(test: NativeAcceptance) -> None:
     finally:
         os.close(descriptor)
     test.assertIn("protocol input failed", log_path.read_text(encoding="utf-8"))
+
+
+def unicode_roots_admit_png(test: NativeAcceptance) -> None:
+    """Exercise native command-line and codec paths containing non-ASCII characters."""
+    test.workspace = test.directory / "workspace-\u4e2d\u6587"
+    test.inputs = test.directory / "inputs-\u4e2d\u6587"
+    test.workspace.mkdir()
+    test.inputs.mkdir()
+    test.fixture = test.inputs / "fixture-\u4e2d\u6587.png"
+    write_fixture(test.fixture)
+    test.worker = Worker(
+        test.executable, test.workspace, test.inputs, test.directory / "unicode-worker.stderr.log"
+    )
+    test.addCleanup(test.worker.close)
+    document, _level, _column = test.populated_scene()
+    test.assertEqual(decode_png(test.preview(document)), decode_png(test.fixture.read_bytes()))
+    saved = test.mutate(
+        "scene.save_copy", document, directory=str(test.workspace / "package-\u4e2d\u6587")
+    )
+    reopened = test.mutate("scene.open", None, path=saved["package_directory"])
+    test.assertEqual(
+        decode_png(test.preview(reopened["document_id"])), decode_png(test.fixture.read_bytes())
+    )

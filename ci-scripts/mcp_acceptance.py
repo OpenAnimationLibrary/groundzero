@@ -75,6 +75,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_unreadable_protocol_input_is_not_clean_eof(self) -> None:
         mcp_worker_cases.unreadable_input_is_not_clean_eof(self)
 
+    def test_unicode_workspace_and_asset_paths(self) -> None:
+        mcp_worker_cases.unicode_roots_admit_png(self)
+
     def test_vector_drawing_data_survives_native_roundtrip(self) -> None:
         mcp_drawing_cases.check_vector_roundtrip(self)
 
@@ -908,7 +911,7 @@ class NativeAcceptance(unittest.TestCase):
         job = self.mutate(
             "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )
-        canceled = self.mutate("render.cancel", None, job_id=job["job_id"])
+        canceled = self.success("render.cancel", self.write_params(None, {"job_id": job["job_id"]}))
         self.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
         self.assertEqual(self.wait_job(job["job_id"])["status"], "canceled")
         self.failure("render.artifacts", {"job_id": job["job_id"]})
