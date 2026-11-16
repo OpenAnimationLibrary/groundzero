@@ -478,3 +478,81 @@ def check_drawing_number_limits(test: NativeAcceptance) -> None:
     for image_format, maximum in (("vector", 65535), ("rgba8", 999999), ("toonzRaster", 999999)):
         with test.subTest(format=image_format, maximum_drawing_number=maximum):
             _drawing_number_roundtrip(test, image_format, maximum)
+
+
+def _reject_palette_names(test: NativeAcceptance, document: str, level_id: str) -> None:
+    palette = _palette(test, document, level_id)
+    revision = test.revisions[document]
+    for name in ("|paint", "paint\0hidden"):
+        with test.subTest(invalid_style_name=repr(name)):
+            error = test.failure(
+                "palette.create_style",
+                test.write_params(
+                    document,
+                    {
+                        "level_id": level_id,
+                        "name": name,
+                        "color": {"r": 23, "g": 41, "b": 73, "a": 255},
+                    },
+                ),
+            )
+            test.assertEqual(error["code"], "invalid_params")
+            test.assertEqual(_palette(test, document, level_id), palette)
+            test.assertEqual(
+                test.success("scene.summary", {"document_id": document})["revision"], revision
+            )
+
+
+def _palette_serialization_roundtrip(test: NativeAcceptance, image_format: str) -> None:
+    document = test.create(f"{image_format} palette serialization")
+    target = _level(test, document, image_format)
+    level_id = target["level_id"]
+    color = {"r": 23, "g": 41, "b": 73, "a": 255}
+    style = test.mutate(
+        "palette.create_style", document, level_id=level_id, name="色 Ω", color=color
+    )
+    test.assertEqual(style["name"], "色 Ω")
+    _reject_palette_names(test, document, level_id)
+    maximum = 65535 if image_format == "vector" else 999999
+    test.mutate(
+        "palette.update_style",
+        document,
+        level_id=level_id,
+        style_id=style["style_id"],
+        keyframe=maximum,
+        color=color,
+    )
+    palette = _palette(test, document, level_id)
+    test.assertEqual(palette["styles"][style["style_id"]]["keyframes"], [maximum])
+    if image_format == "vector":
+        revision = test.revisions[document]
+        error = test.failure(
+            "palette.update_style",
+            test.write_params(
+                document,
+                {
+                    "level_id": level_id,
+                    "style_id": style["style_id"],
+                    "keyframe": 65536,
+                    "color": color,
+                },
+            ),
+        )
+        test.assertEqual(error["code"], "invalid_params")
+        test.assertEqual(_palette(test, document, level_id), palette)
+        test.assertEqual(
+            test.success("scene.summary", {"document_id": document})["revision"], revision
+        )
+    other, restored = _reopen(test, document, f"palette-limit-{image_format}")
+    test.assertEqual(_palette(test, other, restored["level_id"]), palette)
+
+
+def check_palette_serialization_limits(test: NativeAcceptance) -> None:
+    """Keep names and palette keyframes within their native serialized ranges.
+
+    Args:
+        test: The running acceptance case and its disposable native worker.
+    """
+    for image_format in ("vector", "toonzRaster"):
+        with test.subTest(format=image_format):
+            _palette_serialization_roundtrip(test, image_format)

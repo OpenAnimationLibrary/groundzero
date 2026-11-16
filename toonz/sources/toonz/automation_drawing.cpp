@@ -684,7 +684,10 @@ QJsonObject createStyle(Context& context, Document& document,
   auto* palette      = paletteFor(level, true);
   const auto rgba    = styleColor(params);
   const QString name = requiredString(params, "name");
-  if (name.size() > 128) invalid("Style name must have at most 128 characters");
+  if (name.size() > 128 || name.startsWith('|') || name.contains(QChar::Null))
+    invalid(
+        "Style names must have at most 128 characters, contain no NUL, and "
+        "not begin with the native studio-palette marker |");
   if (palette->getStyleCount() >= kMaxStyles)
     throw Error("resource_limit", "Palette already contains 4096 styles");
   std::unique_ptr<TColorStyle> style(new TSolidColorStyle(rgba));
@@ -709,11 +712,11 @@ TColorStyle* solidEditableStyle(TPalette* palette, int id) {
 }
 
 bool sameStyleColor(TPalette* palette, int id, const QJsonObject& params,
-                    const TPixel32& color) {
+                    const TPixel32& color, int maximumFrame) {
   const auto keys = palette->getStyleAnimation(id);
   if (!params.contains("keyframe"))
     return keys.empty() && palette->getStyle(id)->getMainColor() == color;
-  const int frame = integer(params, "keyframe", 0, 999999);
+  const int frame = integer(params, "keyframe", 0, maximumFrame);
   const auto key  = keys.find(frame);
   if (key == keys.end()) return false;
   return typeid(*key->second.style) == typeid(TSolidColorStyle) &&
@@ -727,12 +730,15 @@ QJsonObject updateStyle(Context& context, Document& document,
   const int id    = styleId(params, palette);
   auto* style     = solidEditableStyle(palette, id);
   const auto rgba = styleColor(params);
-  if (sameStyleColor(palette, id, params, rgba)) return styleJson(palette, id);
+  const int maximumFrame =
+      level->getType() == PLI_XSHLEVEL ? kMaxVectorFrame : 999999;
+  if (sameStyleColor(palette, id, params, rgba, maximumFrame))
+    return styleJson(palette, id);
   auto animation = palette->getStyleAnimation(id);
   std::unique_ptr<TColorStyle> updated(style->clone());
   updated->setMainColor(rgba);
   if (params.contains("keyframe")) {
-    const int frame = integer(params, "keyframe", 0, 999999);
+    const int frame = integer(params, "keyframe", 0, maximumFrame);
     auto found      = animation.find(frame);
     if (found == animation.end()) {
       if (animation.size() >= 4096)
@@ -1173,15 +1179,23 @@ void paletteCatalog(QJsonArray& tools) {
   properties = target(false);
   properties.insert("color", rgbaSchema());
   properties.insert(
-      "name",
-      QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}});
+      "name", QJsonObject{{"type", "string"},
+                          {"minLength", 1},
+                          {"maxLength", 128},
+                          {"pattern", "^[^|\\x00][^\\x00]*$"},
+                          {"description",
+                           "Unicode style name without NUL or a leading |"}});
   tools.append(operation("palette.create_style",
                          "Add a solid RGBA8 straight-alpha style to page zero",
                          properties,
                          {"document_id", "level_id", "color", "name"}, true));
   properties.remove("name");
   properties.insert("style_id", range(1, kMaxStyles - 1));
-  properties.insert("keyframe", range(0, 999999));
+  auto keyframe = range(0, 999999);
+  keyframe.insert("description",
+                  "Zero-based palette frame: 0..65535 for vector PLI, "
+                  "0..999999 for Toonz raster");
+  properties.insert("keyframe", keyframe);
   tools.append(operation(
       "palette.update_style",
       "Edit a solid style for the whole level; animated "
@@ -1252,23 +1266,27 @@ void validateStyleProfile(const TColorStyle* style) {
                 "Persistence admits only unlinked native solid styles");
 }
 
-void validateAnimatedStyleProfile(TPalette* palette, int id) {
+void validateAnimatedStyleProfile(TPalette* palette, int id, int maximumFrame) {
   validateStyleProfile(palette->getStyle(id));
   const auto keys = palette->getStyleAnimation(id);
   if (keys.size() > 4096)
     throw Error("resource_limit", "A style has more than 4096 keyframes");
-  for (const auto& key : keys)
+  for (const auto& key : keys) {
+    if (key.first < 0 || key.first > maximumFrame)
+      throw Error("unsupported_palette",
+                  "A palette keyframe exceeds its native level format range");
     validateStyleProfile(key.second.style.getPointer());
+  }
 }
 
-void validatePaletteProfile(TPalette* palette) {
+void validatePaletteProfile(TPalette* palette, int maximumFrame) {
   if (!palette) return;
   if (palette->getStyleCount() > kMaxStyles || palette->getRefImg() ||
       !palette->getRefImgPath().isEmpty() || !palette->getGlobalName().empty())
     throw Error("unsupported_palette",
                 "Palette exceeds limits or refers to an external asset");
   for (int id = 0; id < palette->getStyleCount(); ++id)
-    validateAnimatedStyleProfile(palette, id);
+    validateAnimatedStyleProfile(palette, id, maximumFrame);
 }
 
 void validateNativePoint(const TThickPoint& point) {
@@ -1342,7 +1360,9 @@ void validateDrawingProfile(TXshSimpleLevel* level) {
     throw Error("resource_limit",
                 "Persistence admits at most 4096 drawings per level");
   if (level->getType() != OVL_XSHLEVEL)
-    validatePaletteProfile(paletteFor(level));
+    validatePaletteProfile(paletteFor(level), level->getType() == PLI_XSHLEVEL
+                                                  ? kMaxVectorFrame
+                                                  : 999999);
   for (const auto& frame : level->getFids()) validateFrameProfile(level, frame);
 }
 
