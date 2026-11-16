@@ -918,6 +918,7 @@ FunctionTreeModel::~FunctionTreeModel() {
   // I must delete items here (not in TreeModel::~TreeModel()).
   // Channel::~Channel() refers to the model, which should be alive.
   setRootItem(0);
+  if (m_currentStageObject) m_currentStageObject->release();
   if (m_currentFx) m_currentFx->release();
 }
 
@@ -1506,6 +1507,15 @@ void FunctionTreeModel::resetAll() {
   m_currentChannel = 0;
 
   endResetModel();
+}
+
+//-----------------------------------------------------------------------------
+
+void FunctionTreeModel::setCurrentStageObject(TStageObject *obj) {
+  if (obj == m_currentStageObject) return;
+  if (obj) obj->addRef();
+  if (m_currentStageObject) m_currentStageObject->release();
+  m_currentStageObject = obj;
 }
 
 //-----------------------------------------------------------------------------
