@@ -311,9 +311,19 @@ public:
 
   void cancel() {
     if (terminal()) return;
-    cancellation = true;
-    status       = JobStatus::Canceling;
+    if (cancellation.exchange(true)) return;
+    status = JobStatus::Canceling;
+    cancelUntilClosed();
+  }
+
+  void cancelUntilClosed() {
+    if (terminal() || writersClosed) return;
     if (nativeCancel) nativeCancel();
+    // Native activation is queued: an initial stop can precede registration
+    // of the render instance. Keep the request active until writers close.
+    const auto self = shared_from_this();
+    QTimer::singleShot(10, QCoreApplication::instance(),
+                       [self]() { self->cancelUntilClosed(); });
   }
 
   bool onFrameCompleted(int frame) override {
