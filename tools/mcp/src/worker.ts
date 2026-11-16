@@ -40,8 +40,10 @@ export class WorkerConnection {
     child.stdout.on("error", (error: Error) => this.fail(error.message));
     child.stdin.on("error", (error: Error) => this.fail(error.message));
     child.on("error", (error: Error) => this.fail(error.message));
-    child.on("exit", (code, signal) => {
+    child.on("exit", () => {
       if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
+    });
+    child.on("close", (code, signal) => {
       this.fail(`Worker exited (code ${String(code)}, signal ${String(signal)})`);
     });
   }

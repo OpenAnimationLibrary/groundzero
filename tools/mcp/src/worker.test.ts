@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { WorkerConnection } from "#mcp/worker";
@@ -35,6 +36,31 @@ test("preserves structured native failure details and keeps the connection usabl
     details: { revision: 7 },
   });
   await expect(connection.request("write")).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+});
+
+test("drains a final success response after process exit before failing the connection", async () => {
+  const child = spawn(process.execPath, [
+    fileURLToPath(new URL("../fixtures/worker.mjs", import.meta.url)),
+    "final",
+  ]);
+  child.stdout.pause();
+  const connection = new WorkerConnection(child, 5_000);
+  connections.push(connection);
+  const exited = once(child, "exit");
+  const closed = once(child, "close");
+  const response = Promise.allSettled([
+    connection.request("write", { operation_id: "final-write" }),
+  ]);
+  await exited;
+  child.stdout.resume();
+  await closed;
+  expect(await response).toEqual([
+    { status: "fulfilled", value: { value: { operation_id: "final-write" } } },
+  ]);
+  await expect(connection.request("read")).rejects.toMatchObject({
+    code: "WORKER_UNAVAILABLE",
+    details: { outcome_unknown: false },
+  });
 });
 
 test.each(["malformed", "utf8", "oversized", "unknown", "ambiguous", "exit"])(

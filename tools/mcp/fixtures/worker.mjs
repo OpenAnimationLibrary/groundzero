@@ -39,6 +39,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       process.exitCode = 3;
       process.stdin.destroy();
       return;
+    case "final":
+      process.stdout.write(response + "\n");
+      process.stdin.destroy();
+      return;
     case "stall":
       return;
     default:
