@@ -6,11 +6,8 @@
 #include "tcolorstyles.h"
 #include "tlevel_io.h"
 #include "tpalette.h"
-#include "traster.h"
 #include "trasterimage.h"
-#include "tstroke.h"
 #include "ttoonzimage.h"
-#include "tvectorimage.h"
 #include "toonz/levelset.h"
 #include "toonz/levelproperties.h"
 #include "toonz/sceneproperties.h"
@@ -574,28 +571,6 @@ void validateCells(ToonzScene& scene) {
 
 QJsonObject textSchema() { return {{"type", "string"}, {"minLength", 1}}; }
 
-qint64 drawingBudget(TXshSimpleLevel& level) {
-  qint64 bytes = 0;
-  for (const TFrameId& frame : level.getFids()) {
-    const TImageP image = level.getFrame(frame, false);
-    if (!image)
-      throw Error("missing_drawing", "A source drawing cannot be read.");
-    if (const TRasterP raster = image->raster())
-      bytes +=
-          qint64(raster->getLx()) * raster->getLy() * raster->getPixelSize();
-    if (const TVectorImageP vector = image) {
-      for (UINT index = 0; index < vector->getStrokeCount(); ++index)
-        bytes += qint64(vector->getStroke(index)->getControlPointCount()) * 64 +
-                 1024;
-    }
-    bytes += 65536;
-    if (bytes > MaxPackageBytes)
-      throw Error("package_limit",
-                  "The scene exceeds the snapshot drawing memory budget.");
-  }
-  return bytes;
-}
-
 }  // namespace
 
 void validateAutomationScene(ToonzScene& scene) {
@@ -604,7 +579,6 @@ void validateAutomationScene(ToonzScene& scene) {
   if (levels->getLevelCount() > MaxLevels)
     throw Error("scene_limit", "The scene exceeds 256 levels.");
   int drawings = 0;
-  qint64 bytes = 0;
   for (int index = 0; index < levels->getLevelCount(); ++index) {
     TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
     if (!level)
@@ -615,13 +589,10 @@ void validateAutomationScene(ToonzScene& scene) {
       throw Error("empty_level",
                   "Create a drawing in each level before saving or rendering.");
     drawings += level->getFrameCount();
-    bytes += drawingBudget(*level);
-    if (bytes > MaxPackageBytes)
-      throw Error("package_limit",
-                  "The scene exceeds the snapshot drawing memory budget.");
     if (drawings > MaxDrawings)
       throw Error("scene_limit", "The scene exceeds 4096 drawings.");
   }
+  requireAssetGrowth(scene, 0);
   validateCells(scene);
 }
 
