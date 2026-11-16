@@ -242,6 +242,8 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
   QTimer poll, deadline;
   bool queued = false, clicked = false;
   bool dispatched = false, returned = false, closed = false;
+  qint64 decisionMs = -1, closeMs = -1;
+  QElapsedTimer elapsed;
   std::exception_ptr closeFailure;
   QString failure;
   std::cout << "icon-lifecycle-native: Quit " << phase << " begin" << std::endl;
@@ -264,6 +266,10 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
       for (auto *button : dialog->findChildren<QPushButton *>())
         if (button->isVisible() && button->isEnabled() &&
             QString(button->text()).remove('&') == choice) {
+          // The decision is delivered: the deadline detects only a missing
+          // prompt, not the accepted close's icon drain that follows it
+          deadline.stop();
+          decisionMs = elapsed.elapsed();
           clicked = true;
           button->click();
           return;
@@ -272,10 +278,14 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
   });
   deadline.setSingleShot(true);
   QObject::connect(&deadline, &QTimer::timeout, &context, [&]() {
-    failure = "Native Quit did not expose the required scene decision";
-    if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
-      dialog->reject();
+    QWidget *modal = QApplication::activeModalWidget();
+    failure = QString("Native Quit did not expose the required scene decision "
+                      "within 10 s (active modal widget: %1)")
+                  .arg(modal ? QString::fromLatin1(modal->metaObject()->className())
+                             : QString("none"));
+    if (auto *dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
   });
+  elapsed.start();
   poll.start(1);
   deadline.start(10000);
   // This fixture runs after the application's original exec() has returned.
@@ -288,6 +298,7 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
     dispatched = true;
     try {
       closed = window->close();
+      closeMs = elapsed.elapsed();
       returned = true;
     } catch (...) {
       closeFailure = std::current_exception();
@@ -323,7 +334,9 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
   require(failure.isEmpty(), qPrintable(failure));
   require(clicked, "Native Quit did not deliver its actual decision button");
   std::cout << "icon-lifecycle-native: Quit " << phase
-            << " decision returned closed=" << closed << std::endl;
+            << " decision returned closed=" << closed << " (decision after "
+            << decisionMs << " ms, close returned after " << closeMs << " ms)"
+            << std::endl;
   return closed;
 }
 
