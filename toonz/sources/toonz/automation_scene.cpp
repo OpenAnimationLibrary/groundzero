@@ -425,7 +425,7 @@ QJsonValue importLevel(Context& context, const QJsonObject& params) {
   const TFrameId frame(1);
   const QString path = QString::fromStdWString(
       level->getPath().withFrame(frame).getWideString());
-  const TRasterImageP raster = nativeRaster(image, dpi);
+  TRasterImageP raster = nativeRaster(image, dpi);
   QSaveFile output(path);
   context.markMutationStarted();
   if (!output.open(QIODevice::WriteOnly) || !image.save(&output, "PNG") ||
