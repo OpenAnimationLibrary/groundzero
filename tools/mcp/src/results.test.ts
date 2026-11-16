@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { toolResult } from "#mcp/results";
+import { WorkerError, errorResult } from "#mcp/errors";
+import { boundedResult, toolResult } from "#mcp/results";
 
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=";
@@ -32,4 +33,47 @@ test("rejects image dimensions beyond the preview limit", () => {
 
 test.each([null, [], 42, "text"])("rejects non-object native results", (value) => {
   expect(() => toolResult(value)).toThrow("must be an object");
+});
+
+test("keeps large metadata complete without duplicating it into the text content", () => {
+  const metadata = { payload: "x".repeat(7 * 1024 * 1024), revision: "7" };
+  const result = boundedResult(toolResult(metadata), "large-result");
+  expect(result.isError).not.toBe(true);
+  expect(result.structuredContent).toEqual(metadata);
+  expect(JSON.stringify(result.content).length).toBeLessThan(1024);
+  const envelope = { jsonrpc: "2.0", id: "large-result", result };
+  expect(Buffer.byteLength(JSON.stringify(envelope))).toBeLessThan(9 * 1024 * 1024);
+});
+
+test("retains image bytes while summarizing large accompanying metadata", () => {
+  const metadata = { payload: "灯".repeat(64 * 1024), source_revision: "3" };
+  const result = boundedResult(
+    toolResult({ ...metadata, image: { mimeType: "image/png", data: png } }),
+    1,
+  );
+  expect(result.structuredContent).toEqual(metadata);
+  expect(result.content).toContainEqual({ type: "image", mimeType: "image/png", data: png });
+});
+
+test.each(['"'.repeat(5 * 1024 * 1024), "灯".repeat(4 * 1024 * 1024)])(
+  "accounts for JSON escaping and UTF-8 bytes in the final response bound",
+  (payload) => {
+    const result = boundedResult(toolResult({ payload }), 1);
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ error: { code: "RESULT_TOO_LARGE" } });
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(1024);
+  },
+);
+
+test("also bounds native error details without sending an oversized frame", () => {
+  const error = new WorkerError("NATIVE_FAILURE", "Operation failed", {
+    detail: "x".repeat(10 * 1024 * 1024),
+  });
+  const result = boundedResult(errorResult(error), 1);
+  expect(result.structuredContent).toMatchObject({ error: { code: "RESULT_TOO_LARGE" } });
+});
+
+test("rejects request identities that cannot fit even a compact error envelope", () => {
+  const requestId = "x".repeat(9 * 1024 * 1024);
+  expect(() => boundedResult(toolResult({}), requestId)).toThrow("Request identity");
 });

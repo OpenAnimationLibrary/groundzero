@@ -86,7 +86,10 @@ returns MCP image content and source metadata. Inline PNG images are limited to
 explicitly; an artifact is available only after successful writer finalization.
 
 Native requests are limited to 256 KiB, responses to 8 MiB, and pending calls to
-16. A response timeout after 120 seconds, malformed output, or worker exit closes
+16. MCP responses are limited to 9 MiB including envelope headroom. Metadata above
+64 KiB uses a brief text summary and remains complete in `structuredContent`;
+image content retains its original bytes. A response timeout after 120 seconds,
+malformed output, or worker exit closes
 the worker and fails pending calls. A lost response can have an unknown outcome:
 inspect saved workspace state before starting another worker and replaying edits.
 Diagnostics go to stderr; stdout is reserved for MCP. No network listener is used.

@@ -1,8 +1,11 @@
-import type { CallToolResult, ImageContent } from "@modelcontextprotocol/server";
-import { WorkerError, isObject } from "#mcp/errors";
+import type { CallToolResult, ImageContent, RequestId } from "@modelcontextprotocol/server";
+import { WorkerError, errorResult, isObject } from "#mcp/errors";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
+const MAX_TEXT_BYTES = 64 * 1024;
+const MAX_RESPONSE_BYTES = 9 * 1024 * 1024;
+const SDK_METADATA_RESERVE_BYTES = 1024;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 function checkPng(bytes: Buffer): void {
@@ -47,7 +50,42 @@ export function toolResult(value: unknown): CallToolResult {
     throw new WorkerError("INVALID_RESULT", "Native operation result must be an object");
   }
   const { image, ...metadata } = value;
-  const content: CallToolResult["content"] = [{ type: "text", text: JSON.stringify(metadata) }];
+  const json = JSON.stringify(metadata);
+  const bytes = Buffer.byteLength(json);
+  const text =
+    bytes <= MAX_TEXT_BYTES
+      ? json
+      : `Metadata is ${bytes} UTF-8 bytes; read structuredContent for complete data.`;
+  const content: CallToolResult["content"] = [{ type: "text", text }];
   if (image !== undefined) content.push(previewImage(image));
   return { content, structuredContent: metadata };
+}
+
+function responseBytes(result: CallToolResult, requestId: RequestId): number {
+  const envelope = { jsonrpc: "2.0", id: requestId, result };
+  return Buffer.byteLength(JSON.stringify(envelope)) + SDK_METADATA_RESERVE_BYTES;
+}
+
+/** Bound serialized responses below the SDK's 10 MiB stdio receive buffer.
+ *
+ * Args:
+ *   result: Tool success or error content after native conversion.
+ *   requestId: The client's JSON-RPC identity, included in the size calculation.
+ * Returns:
+ *   The complete result or a compact error, with room for SDK response metadata.
+ */
+export function boundedResult(result: CallToolResult, requestId: RequestId): CallToolResult {
+  const bytes = responseBytes(result, requestId);
+  if (bytes <= MAX_RESPONSE_BYTES) return result;
+  const failure = errorResult(
+    new WorkerError("RESULT_TOO_LARGE", "Native response exceeds the 9 MiB MCP response limit", {
+      response_bytes: bytes,
+      limit_bytes: MAX_RESPONSE_BYTES,
+      recovery: "Request a smaller selection; inspect state before retrying any write",
+    }),
+  );
+  if (responseBytes(failure, requestId) > MAX_RESPONSE_BYTES) {
+    throw new WorkerError("REQUEST_ID_TOO_LARGE", "Request identity cannot fit a bounded response");
+  }
+  return failure;
 }

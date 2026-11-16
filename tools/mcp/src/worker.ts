@@ -124,7 +124,7 @@ export class WorkerConnection {
     }
     const pending = this.pending.get(value["id"]);
     if (!pending) throw new Error("Unknown or repeated native request id");
-    if (("result" in value) === ("error" in value)) {
+    if ("result" in value === "error" in value) {
       throw new Error("Expected exactly one of result and error");
     }
     if ("error" in value) {

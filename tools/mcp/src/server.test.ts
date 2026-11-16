@@ -98,3 +98,16 @@ test.each([
     createServer({ request: async () => catalog, close: () => {} }),
   ).rejects.toBeInstanceOf(WorkerError);
 });
+
+test("compiles and rejects invalid native schemas before accepting tool calls", async () => {
+  const invalid = {
+    ...tool,
+    inputSchema: { type: "object", properties: { name: { type: "not-a-schema-type" } } },
+  };
+  await expect(
+    createServer({
+      request: async () => ({ protocol_version: 1, tools: [invalid] }),
+      close: () => {},
+    }),
+  ).rejects.toThrow();
+});

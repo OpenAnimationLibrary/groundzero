@@ -1,7 +1,7 @@
 import { Server, fromJsonSchema } from "@modelcontextprotocol/server";
-import type { Tool } from "@modelcontextprotocol/server";
+import type { CallToolResult, JsonSchemaType, Tool } from "@modelcontextprotocol/server";
 import { WorkerError, errorResult, isObject } from "#mcp/errors";
-import { toolResult } from "#mcp/results";
+import { boundedResult, toolResult } from "#mcp/results";
 import type { WorkerConnection } from "#mcp/worker";
 
 interface NativeApi {
@@ -77,7 +77,12 @@ async function discover(worker: NativeApi): Promise<Tool[]> {
 export async function createServer(worker: NativeApi): Promise<Server> {
   const tools = await discover(worker);
   const validators = new Map(
-    tools.map((tool) => [tool.name, fromJsonSchema<Record<string, unknown>>(tool.inputSchema)]),
+    tools.map((tool) => [
+      tool.name,
+      // SDK Tool permits optional undefined fields; native JSON cannot contain them.
+      // fromJsonSchema compiles and validates the unchanged schema before any call.
+      fromJsonSchema<Record<string, unknown>>(tool.inputSchema as JsonSchemaType),
+    ]),
   );
   const server = new Server(
     { name: "groundzero", version: "0.1.0" },
@@ -85,8 +90,10 @@ export async function createServer(worker: NativeApi): Promise<Server> {
   );
   server.onclose = () => worker.close();
   server.setRequestHandler("tools/list", async () => ({ tools }));
-  server.setRequestHandler("tools/call", async (request) => {
+  server.setRequestHandler("tools/call", async (request, context) => {
+    let result: CallToolResult;
     try {
+      boundedResult({ content: [] }, context.mcpReq.id);
       const validator = validators.get(request.params.name);
       if (!validator) throw new WorkerError("UNKNOWN_TOOL", `Unknown tool: ${request.params.name}`);
       const parsed = await validator["~standard"].validate(request.params.arguments ?? {});
@@ -95,9 +102,15 @@ export async function createServer(worker: NativeApi): Promise<Server> {
           issues: parsed.issues.map((issue) => issue.message),
         });
       }
-      return toolResult(await worker.request(request.params.name, parsed.value));
+      result = toolResult(await worker.request(request.params.name, parsed.value));
     } catch (error) {
-      return errorResult(error);
+      result = errorResult(error);
+    }
+    try {
+      return boundedResult(result, context.mcpReq.id);
+    } catch (error) {
+      await server.close();
+      throw error;
     }
   });
   return server;
