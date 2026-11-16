@@ -35,7 +35,7 @@ class MediaStagingContracts(unittest.TestCase):
         for tool in ("ffmpeg", "ffprobe"):
             name = tool + (".exe" if windows else "")
             path = directory / name
-            path.write_bytes(f"fixture {tool} from {directory.name}\n".encode())
+            path.write_bytes(f"fixture {tool} from {directory.relative_to(self.root)}\n".encode())
             path.chmod(0o700)
             result[name] = str(path)
         return result
@@ -110,6 +110,9 @@ class MediaStagingContracts(unittest.TestCase):
             {"ffmpeg.exe", "ffprobe.exe", "avcodec.dll", "avutil.DLL"},
         )
         self.assertEqual(len(report["libraries"]), 2)
+        self.assertNotEqual(
+            (self.output / "ffmpeg.exe").read_bytes(), Path(paths["ffmpeg.exe"]).read_bytes()
+        )
         for record in [*report["tools"].values(), *report["libraries"]]:
             self.assert_record(record)
             self.assertEqual(Path(record["source"]).parent, source)
