@@ -19,7 +19,7 @@ from mcp_png import SIGNATURE, Pixel, decode_png
 from mcp_worker import Worker
 from run_harness_tests import annotation
 
-WIDTH, HEIGHT, FRAMES, DPI = 512, 288, 120, 120
+WIDTH, HEIGHT, FRAMES, DPI = 512, 288, 120, 128
 DRAWING = {"number": 1, "suffix": ""}
 TRANSPARENT: Pixel = (0, 0, 0, 0)
 INK: Pixel = (10, 24, 41, 255)
