@@ -61,7 +61,7 @@ void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-void near(double actual, double expected, const char* message) {
+void requireNear(double actual, double expected, const char* message) {
   require(std::abs(actual - expected) < 1e-8, message);
 }
 
@@ -154,8 +154,8 @@ void checkLevel(ToonzScene* scene, const QString& name,
       level->getProperties()->getDpiPolicy() == LevelProperties::DP_CustomDpi,
       "Native level lost its explicit physical scale");
   const TPointD dpi = level->getDpi(TFrameId(1));
-  near(dpi.x, 128, "Drawing horizontal DPI changed");
-  near(dpi.y, 128, "Drawing vertical DPI changed");
+  requireNear(dpi.x, 128, "Drawing horizontal DPI changed");
+  requireNear(dpi.y, 128, "Drawing vertical DPI changed");
   require(
       level->getPalette() == FullColorPalette::instance()->getPalette(scene),
       "RGBA level did not bind the native full-color palette");
@@ -187,8 +187,8 @@ void checkKeys(TDoubleParam* parameter,
   require(!parameter->isCycleEnabled(), "Animation unexpectedly became cyclic");
   for (const auto& key : keys) {
     require(parameter->isKeyframe(key.first), "Animation key frame changed");
-    near(parameter->getValue(key.first), key.second,
-         "Animation key value changed");
+    requireNear(parameter->getValue(key.first), key.second,
+                "Animation key value changed");
     require(
         parameter->getKeyframeAt(key.first).m_type == TDoubleKeyframe::Linear,
         "Animation interpolation changed");
@@ -198,8 +198,8 @@ void checkKeys(TDoubleParam* parameter,
   for (size_t index = 1; index < keys.size(); ++index) {
     const double frame = (keys[index - 1].first + keys[index].first) / 2.0;
     const double value = (keys[index - 1].second + keys[index].second) / 2.0;
-    near(parameter->getValue(frame), value,
-         "Native interpolation sample changed");
+    requireNear(parameter->getValue(frame), value,
+                "Native interpolation sample changed");
   }
 }
 
@@ -263,7 +263,8 @@ void checkNumber(TFx* effect, const char* name, double expected) {
   auto* value =
       dynamic_cast<TDoubleParam*>(effect->getParams()->getParam(name));
   require(value != nullptr, "Numeric FX parameter is missing");
-  near(value->getValue(kFrame), expected, "Numeric FX parameter changed");
+  requireNear(value->getValue(kFrame), expected,
+              "Numeric FX parameter changed");
 }
 
 void checkColor(TFx* effect, const char* name, const TPixel32& expected) {
@@ -364,10 +365,10 @@ void checkScene(const QJsonObject& drawings, bool edited) {
   require(scene->getCurrentCamera()->getRes() == TDimension(512, 288),
           "Camera resolution changed");
   const TDimensionD size = scene->getCurrentCamera()->getSize();
-  near(size.lx, 4, "Camera width changed");
-  near(size.ly, 2.25, "Camera height changed");
-  near(scene->getProperties()->getOutputProperties()->getFrameRate(), 24,
-       "Frame rate changed");
+  requireNear(size.lx, 4, "Camera width changed");
+  requireNear(size.ly, 2.25, "Camera height changed");
+  requireNear(scene->getProperties()->getOutputProperties()->getFrameRate(), 24,
+              "Frame rate changed");
   checkLevel(scene, "Harbor", drawings["Harbor"].toObject());
   checkLevel(scene, "Courier", drawings["Courier"].toObject());
   checkExposures(scene);
@@ -481,14 +482,14 @@ void editWithNativeUndo() {
   }
   require(undo->getHistoryCount() == before + 1,
           "Native edit did not create undo history");
-  near(parameter->getValue(119), original + 0.125,
-       "Native edit did not change the peg");
+  requireNear(parameter->getValue(119), original + 0.125,
+              "Native edit did not change the peg");
   undo->undo();
-  near(parameter->getValue(119), original,
-       "Native undo did not restore the peg");
+  requireNear(parameter->getValue(119), original,
+              "Native undo did not restore the peg");
   undo->redo();
-  near(parameter->getValue(119), original + 0.125,
-       "Native redo did not restore the edit");
+  requireNear(parameter->getValue(119), original + 0.125,
+              "Native redo did not restore the edit");
   TApp::instance()->getCurrentScene()->notifySceneChanged();
 }
 
