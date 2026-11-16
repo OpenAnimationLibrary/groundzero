@@ -20,6 +20,7 @@ from mcp_worker import Worker
 from run_harness_tests import annotation
 
 WIDTH, HEIGHT, FRAMES, DPI = 512, 288, 120, 128
+PROBE_FRAMES = (0, 30, 60, 90, 119)
 DRAWING = {"number": 1, "suffix": ""}
 TRANSPARENT: Pixel = (0, 0, 0, 0)
 INK: Pixel = (10, 24, 41, 255)
@@ -221,13 +222,14 @@ class Shot:
         path.write_bytes(data)
         return pixels
 
-    def preview(self, document: str, label: str) -> list[Pixel]:
-        """Render frame 60 at the final shot resolution and retain its PNG."""
+    def preview(self, document: str, label: str, frame: int = 60) -> list[Pixel]:
+        """Render an independent frame at the final shot resolution and retain its PNG."""
         revision = self.revisions[document]
-        job = self.write("render.preview", document, frame=60, width=WIDTH, height=HEIGHT)
+        job = self.write("render.preview", document, frame=frame, width=WIDTH, height=HEIGHT)
         self.wait(job["job_id"])
         artifacts = self.read("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
         require(len(artifacts) == 1, "A preview must produce exactly one artifact")
+        require(artifacts[0]["frame"] == frame, "Preview returned another frame's artifact")
         require(job["source_revision"] == revision, "Preview used an unexpected scene revision")
         require(self.revisions[document] == revision, "Preview changed the editable document")
         return self.artifact(artifacts[0], self.output / "previews" / f"{label}.png")
@@ -386,15 +388,42 @@ def export_background(shot: Shot, document: str, layer: dict[str, Any], label: s
     return pixel_hash(decode_png(Path(result["path"]).read_bytes())[2])
 
 
+def check_environment(pixels: list[Pixel], frame: int) -> dict[str, Any]:
+    """Check authored opaque landmarks and the sky independently of previous render output."""
+    landmarks: tuple[tuple[str, int, int, Pixel], ...] = (
+        ("moon", 500, 57, CREAM),
+        ("building", 574, 228, (23, 47, 66, 255)),
+        ("water", 96, 300, (13, 34, 52, 255)),
+    )
+    observed = {}
+    for name, source_x, source_y, expected in landmarks:
+        x = round(source_x - (640 - WIDTH) / 2 - 12 * frame / (FRAMES - 1))
+        y = source_y - (360 - HEIGHT) // 2
+        actual = pixels[y * WIDTH + x]
+        require(actual == expected, f"Frame {frame} lost the authored {name}: {actual}")
+        observed[name] = {"position": [x, y], "rgba": list(actual)}
+    upper, lower = pixels[64 * WIDTH + 16], pixels[128 * WIDTH + 16]
+    for pixel in (upper, lower):
+        require(
+            11 <= pixel[0] <= 49 and 20 <= pixel[1] <= 91 and 43 <= pixel[2] <= 112,
+            f"Frame {frame} sky left the authored gradient color range: {pixel}",
+        )
+        require(pixel[3] == 255, f"Frame {frame} sky is unexpectedly transparent")
+    require(lower[1] >= upper[1] + 4, f"Frame {frame} lost the vertical sky gradient")
+    return {"landmarks": observed, "sky": [list(upper), list(lower)]}
+
+
 def prove_effect_edit(shot: Shot, document: str, glow: str, background: dict[str, Any]) -> str:
     """Require a visible FX change while the background drawing and edge pixels remain unchanged."""
     background_hash = export_background(shot, document, background, "before")
     before = shot.preview(document, "before-glow")
+    check_environment(before, 60)
     shot.write(
         "scene.save_copy", document, directory=str(shot.output / "workspace" / "before-edit")
     )
     set_parameters(shot, document, glow, {"brightness": 55})
     after = shot.preview(document, "after-glow")
+    shot.proof["environment_oracle"] = check_environment(after, 60)
     changed = sum(first != second for first, second in zip(before, after, strict=True))
     require(
         changed > 1000, f"The Glow edit did not visibly affect the rendered character: {changed}"
@@ -421,26 +450,31 @@ def prove_effect_edit(shot: Shot, document: str, glow: str, background: dict[str
     return pixel_hash(after)
 
 
-def check_motion(shot: Shot, document: str, target: str, expected: tuple[float, float]) -> None:
-    """Check native motion samples at both ends of the independently reopened shot."""
+def check_motion(
+    shot: Shot, document: str, target: str, channel: str, expected: dict[int, float]
+) -> None:
+    """Check independently reopened endpoints and interior samples of each authored channel."""
     result = shot.read(
         "animation.sample",
         {
             "document_id": document,
             "object_id": target,
-            "channel": "x",
-            "unit": "inch",
-            "frames": [0, 119],
+            "channel": channel,
+            "unit": "degree" if channel == "rotation" else "inch",
+            "frames": list(expected),
         },
     )
+    require(
+        [item["frame"] for item in result["values"]] == list(expected),
+        f"Reopened {channel} motion omitted or reordered requested samples",
+    )
     values = [item["value"] for item in result["values"]]
-    require(len(values) == 2, "Reopened motion omitted an endpoint")
     require(
         all(
-            math.isclose(value, endpoint, abs_tol=1e-9)
-            for value, endpoint in zip(values, expected, strict=True)
+            math.isclose(value, sample, abs_tol=1e-9)
+            for value, sample in zip(values, expected.values(), strict=True)
         ),
-        "Reopening changed an authored motion endpoint",
+        f"Reopening changed an authored {channel} motion sample",
     )
 
 
@@ -493,8 +527,37 @@ def reopen(shot: Shot, document: str, expected_pixels: str) -> str:
     require(
         object_state["parent_id"] == peg["object_id"], "The courier lost its editable parent peg"
     )
-    check_motion(shot, opened, peg["object_id"], (-90 / DPI, 70 / DPI))
-    check_motion(shot, opened, summary["camera"]["object_id"], (0, 12 / DPI))
+    check_motion(
+        shot,
+        opened,
+        peg["object_id"],
+        "x",
+        {frame: (-90 + 160 * frame / 119) / DPI for frame in PROBE_FRAMES},
+    )
+    check_motion(
+        shot,
+        opened,
+        peg["object_id"],
+        "y",
+        {
+            frame: value / DPI
+            for frame, value in zip(PROBE_FRAMES, (-10, 8, -8, 12, -4), strict=True)
+        },
+    )
+    check_motion(
+        shot,
+        opened,
+        peg["object_id"],
+        "rotation",
+        {0: -5, 30: -1, 60: 3, 90: 3 - 6 * 30 / 59, 119: -3},
+    )
+    check_motion(
+        shot,
+        opened,
+        summary["camera"]["object_id"],
+        "x",
+        {frame: 12 * frame / 119 / DPI for frame in PROBE_FRAMES},
+    )
     for column in summary["columns"]:
         require(column["last_frame"] == FRAMES - 1, "An exposed layer does not span the whole shot")
     require(
@@ -506,7 +569,7 @@ def reopen(shot: Shot, document: str, expected_pixels: str) -> str:
     return opened
 
 
-def render_sequence(shot: Shot, document: str, expected_preview: str) -> None:
+def render_sequence(shot: Shot, document: str, expected_frames: dict[int, str]) -> None:
     """Render every frame and independently verify all 120 retained PNG artifacts."""
     job = shot.write(
         "render.submit", document, start_frame=0, end_frame=FRAMES - 1, width=WIDTH, height=HEIGHT
@@ -530,14 +593,16 @@ def render_sequence(shot: Shot, document: str, expected_preview: str) -> None:
     for item in artifacts:
         filename = f"frame.{item['frame'] + 1:04d}.png"
         pixels = shot.artifact(item, shot.output / "frames" / filename)
+        check_environment(pixels, item["frame"])
         require(
             all(pixel[3] == 255 for pixel in pixels),
             f"The opaque shot has missing pixels: {filename}",
         )
         checksum = pixel_hash(pixels)
-        if item["frame"] == 60:
+        if item["frame"] in expected_frames:
             require(
-                checksum == expected_preview, "Sequence rendering differs from the reopened preview"
+                checksum == expected_frames[item["frame"]],
+                f"Sequence frame {item['frame']} differs from its independent source preview",
             )
         checks.append(
             {
@@ -548,9 +613,22 @@ def render_sequence(shot: Shot, document: str, expected_preview: str) -> None:
             }
         )
     require(
-        checks[0]["pixels_sha256"] != checks[-1]["pixels_sha256"],
-        "The authored shot did not animate",
+        len({item["pixels_sha256"] for item in checks}) == FRAMES,
+        "The continuously moving shot repeated a rendered frame",
     )
+
+
+def reference_frames(shot: Shot, document: str, edited_preview: str) -> dict[int, str]:
+    """Retain independent pre-save renders at the endpoints and interior motion keys."""
+    expected = {60: edited_preview}
+    for frame in PROBE_FRAMES:
+        if frame == 60:
+            continue
+        pixels = shot.preview(document, f"source-frame-{frame}", frame)
+        check_environment(pixels, frame)
+        expected[frame] = pixel_hash(pixels)
+    shot.proof["independent_frame_hashes"] = expected
+    return expected
 
 
 def create_shot(shot: Shot) -> None:
@@ -574,14 +652,15 @@ def create_shot(shot: Shot) -> None:
     animate(shot, document, layers[1])
     glow = compose(shot, document, layers)
     expected_pixels = prove_effect_edit(shot, document, glow, layers[0])
+    expected_frames = reference_frames(shot, document, expected_pixels)
     opened = reopen(shot, document, expected_pixels)
-    render_sequence(shot, opened, expected_pixels)
+    render_sequence(shot, opened, expected_frames)
     shot.proof.update(
         status="passed",
         artwork_license="BSD-3-Clause",
         artwork_origin="Original procedural artwork authored through native drawing tools",
         render_reservation_bytes=(WIDTH * HEIGHT * 4 + 65536) * FRAMES,
-        retained_job_reservation_bytes=(WIDTH * HEIGHT * 4 + 65536) * (FRAMES + 3),
+        retained_job_reservation_bytes=(WIDTH * HEIGHT * 4 + 65536) * (FRAMES + 7),
     )
 
 
