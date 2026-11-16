@@ -226,17 +226,19 @@ void initializeRaster(Context& context, TXshSimpleLevel* level,
   properties->setDpiPolicy(LevelProperties::DP_ImageDpi);
 }
 
+TImageP emptyVector(TXshSimpleLevel* level, const QJsonObject& params) {
+  if (level->getType() != PLI_XSHLEVEL)
+    invalid("Vector drawings require a vector level");
+  if (params.contains("width") || params.contains("height") ||
+      params.contains("dpi"))
+    invalid("Vector drawings do not accept raster dimensions or DPI");
+  return TVectorImageP(new TVectorImage);
+}
+
 TImageP emptyImage(Context& context, TXshSimpleLevel* level,
                    const QJsonObject& params) {
   const QString format = requiredString(params, "format");
-  if (format == "vector") {
-    if (level->getType() != PLI_XSHLEVEL)
-      invalid("Vector drawings require a vector level");
-    if (params.contains("width") || params.contains("height") ||
-        params.contains("dpi"))
-      invalid("Vector drawings do not accept raster dimensions or DPI");
-    return TVectorImageP(new TVectorImage);
-  }
+  if (format == "vector") return emptyVector(level, params);
   if ((format != "rgba8" || level->getType() != OVL_XSHLEVEL) &&
       (format != "toonzRaster" || level->getType() != TZP_XSHLEVEL))
     invalid("Drawing format must match the native level type");
@@ -313,6 +315,13 @@ bool referencesInSheet(TXsheet* sheet, ExposureScan& scan) {
   return false;
 }
 
+bool referencesInCell(const TXshCell& cell, ExposureScan& scan) {
+  if (cell.getSimpleLevel() == scan.level && cell.m_frameId == scan.frame)
+    return true;
+  auto* child = cell.getChildLevel();
+  return child && referencesInSheet(child->getXsheet(), scan);
+}
+
 bool referencesInColumn(TXshCellColumn* column, ExposureScan& scan) {
   int first = 0, last = -1;
   if (!column || !column->getRange(first, last)) return false;
@@ -320,11 +329,7 @@ bool referencesInColumn(TXshCellColumn* column, ExposureScan& scan) {
   if (scan.remaining < 0)
     throw Error("resource_limit", "Exposure scan exceeds one million cells");
   for (int row = first; row <= last; ++row) {
-    const auto& cell = column->getCell(row);
-    if (cell.getSimpleLevel() == scan.level && cell.m_frameId == scan.frame)
-      return true;
-    auto* child = cell.getChildLevel();
-    if (child && referencesInSheet(child->getXsheet(), scan)) return true;
+    if (referencesInCell(column->getCell(row), scan)) return true;
   }
   return false;
 }
@@ -528,6 +533,26 @@ bool vectorChanged(const std::vector<StrokeEdit>& edits,
   return false;
 }
 
+void applyVectorEdits(const TVectorImageP& vector,
+                      std::vector<StrokeEdit>& edits) {
+  std::vector<int> removed;
+  for (auto& edit : edits) {
+    if (edit.action == "delete")
+      removed.push_back(edit.index);
+    else if (edit.action == "update") {
+      std::unique_ptr<TStroke> previous(
+          new TStroke(*vector->getStroke(edit.index)));
+      vector->replaceStroke(edit.index, edit.stroke.release());
+      vector->notifyChangedStrokes(edit.index, previous.get());
+    }
+  }
+  std::sort(removed.rbegin(), removed.rend());
+  for (int index : removed) vector->deleteStroke(index);
+  for (auto& edit : edits)
+    if (edit.action == "add") vector->addStroke(edit.stroke.release(), false);
+  vector->findRegions();
+}
+
 QJsonObject editVector(Context& context, Document& document,
                        const QJsonObject& params) {
   sharing(params);
@@ -545,22 +570,7 @@ QJsonObject editVector(Context& context, Document& document,
             {"sharing", "all_exposures"},
             {"changed", false}};
   TVectorImageP vector(original->cloneImage());
-  std::vector<int> removed;
-  for (auto& edit : edits) {
-    if (edit.action == "delete")
-      removed.push_back(edit.index);
-    else if (edit.action == "update") {
-      std::unique_ptr<TStroke> previous(
-          new TStroke(*vector->getStroke(edit.index)));
-      vector->replaceStroke(edit.index, edit.stroke.release());
-      vector->notifyChangedStrokes(edit.index, previous.get());
-    }
-  }
-  std::sort(removed.rbegin(), removed.rend());
-  for (int index : removed) vector->deleteStroke(index);
-  for (auto& edit : edits)
-    if (edit.action == "add") vector->addStroke(edit.stroke.release(), false);
-  vector->findRegions();
+  applyVectorEdits(vector, edits);
   publish(context, level, frame, vector);
   return {{"stroke_count", static_cast<int>(vector->getStrokeCount())},
           {"geometry_indices_invalidated", true},
@@ -883,7 +893,7 @@ QString pngPath(Context& context, const QJsonObject& params, bool write) {
   return path;
 }
 
-void validatePngHeader(const QString& path) {
+QByteArray readPngHeader(const QString& path) {
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly))
     throw Error("asset_unavailable",
@@ -895,6 +905,11 @@ void validatePngHeader(const QString& path) {
       header.left(8) != QByteArray::fromHex("89504e470d0a1a0a") ||
       header.mid(12, 4) != "IHDR")
     invalid("Input does not have a valid PNG signature and IHDR header");
+  return header;
+}
+
+void validatePngHeader(const QString& path) {
+  const auto header = readPngHeader(path);
   const auto* bytes = reinterpret_cast<const uchar*>(header.constData());
   const auto width  = qFromBigEndian<quint32>(bytes + 16);
   const auto height = qFromBigEndian<quint32>(bytes + 20);
@@ -1224,20 +1239,23 @@ void validateStyleProfile(const TColorStyle* style) {
                 "Persistence admits only unlinked native solid styles");
 }
 
+void validateAnimatedStyleProfile(TPalette* palette, int id) {
+  validateStyleProfile(palette->getStyle(id));
+  const auto keys = palette->getStyleAnimation(id);
+  if (keys.size() > 4096)
+    throw Error("resource_limit", "A style has more than 4096 keyframes");
+  for (const auto& key : keys)
+    validateStyleProfile(key.second.style.getPointer());
+}
+
 void validatePaletteProfile(TPalette* palette) {
   if (!palette) return;
   if (palette->getStyleCount() > kMaxStyles || palette->getRefImg() ||
       !palette->getRefImgPath().isEmpty() || !palette->getGlobalName().empty())
     throw Error("unsupported_palette",
                 "Palette exceeds limits or refers to an external asset");
-  for (int id = 0; id < palette->getStyleCount(); ++id) {
-    validateStyleProfile(palette->getStyle(id));
-    const auto keys = palette->getStyleAnimation(id);
-    if (keys.size() > 4096)
-      throw Error("resource_limit", "A style has more than 4096 keyframes");
-    for (const auto& key : keys)
-      validateStyleProfile(key.second.style.getPointer());
-  }
+  for (int id = 0; id < palette->getStyleCount(); ++id)
+    validateAnimatedStyleProfile(palette, id);
 }
 
 void validateNativePoint(const TThickPoint& point) {
