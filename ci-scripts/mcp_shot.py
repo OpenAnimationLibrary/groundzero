@@ -694,6 +694,10 @@ def run(executable: Path, output: Path) -> int:
     finally:
         try:
             worker.close()
+            require(
+                worker.process.returncode == 0,
+                f"Worker exited with code {worker.process.returncode}; see worker.stderr.log",
+            )
         except Exception as error:
             record_failure(shot, error)
         (output / "proof.json").write_text(
