@@ -26,15 +26,61 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshzeraryfxcolumn.h"
 
+#include <array>
+#include <cstring>
 #include <functional>
 #include <memory>
+#include <new>
 #include <stdexcept>
+#include <type_traits>
 
 namespace GroundzeroAutomation {
 namespace {
 
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
+}
+
+void testKeyframeInitialization() {
+  alignas(TDoubleKeyframe) std::array<unsigned char, sizeof(TDoubleKeyframe)>
+      storage;
+  storage.fill(0xa5);
+  const auto destroy = [](TDoubleKeyframe* key) { key->~TDoubleKeyframe(); };
+  std::unique_ptr<TDoubleKeyframe, decltype(destroy)> key(
+      new (storage.data()) TDoubleKeyframe(3, 7), destroy);
+  std::underlying_type_t<TDoubleKeyframe::Type> previous;
+  // Read bytes so the regression never evaluates the former uninitialized enum.
+  std::memcpy(&previous, &key->m_prevType, sizeof(previous));
+  require(previous == TDoubleKeyframe::None,
+          "A newly constructed key must have no predecessor interpolation");
+  TDoubleParamP curve(new TDoubleParam());
+  curve->setKeyframe(*key);
+  require(curve->getKeyframe(0).m_prevType == TDoubleKeyframe::None,
+          "Native insertion must preserve the first key's absent predecessor");
+}
+
+void testNativeKeyframePredecessors() {
+  TDoubleParamP curve(new TDoubleParam());
+  TDoubleKeyframe first(3, 7), last(8, 10), middle(5, 9);
+  first.m_type = TDoubleKeyframe::Constant;
+  curve->setKeyframe(first);
+  curve->setKeyframe(last);
+  require(curve->getKeyframe(1).m_prevType == TDoubleKeyframe::Constant,
+          "Native insertion must derive predecessor interpolation from the "
+          "adjacent key");
+  curve->setKeyframe(middle);
+  require(curve->getKeyframe(1).m_prevType == TDoubleKeyframe::Constant &&
+              curve->getKeyframe(2).m_prevType == TDoubleKeyframe::Linear,
+          "Insertion between keys must update both predecessor relationships");
+  first.m_type = TDoubleKeyframe::Linear;
+  curve->setKeyframe(0, first);
+  require(
+      curve->getKeyframe(0).m_prevType == TDoubleKeyframe::None &&
+          curve->getKeyframe(1).m_prevType == TDoubleKeyframe::Linear,
+      "Indexed key replacement must retain correct predecessor relationships");
+  require(
+      curve->getValue(4) == 8,
+      "Initialized predecessor metadata must preserve native interpolation");
 }
 
 QJsonObject call(Context& context, Document& document, const QString& method,
@@ -623,6 +669,8 @@ void testAssetBudget(Context& context) {
 }  // namespace
 
 void runAutomationFxTests(Context& context) {
+  testKeyframeInitialization();
+  testNativeKeyframePredecessors();
   Document& document = context.addDocument(std::make_unique<ToonzScene>());
   testCatalog(context, document);
   testGenerator(context, document);
