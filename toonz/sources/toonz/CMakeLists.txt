@@ -1143,6 +1143,27 @@ if(BUILD_UI_PORT_TESTS)
     add_test(NAME mcp_live_protocol COMMAND mcp_live_protocol_test)
     set_tests_properties(mcp_live_protocol PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_live_protocol_test)
+    add_executable(mcp_live_race_test
+        automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
+        tests/automation_live_race_test.cpp)
+    target_compile_definitions(mcp_live_race_test PRIVATE
+        AUTOMATION_LIVE_RACE_STANDALONE)
+    target_include_directories(mcp_live_race_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mcp_live_race_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+    target_link_libraries(mcp_live_race_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+    add_test(NAME mcp_live_race COMMAND mcp_live_race_test)
+    set_tests_properties(mcp_live_race PROPERTIES TIMEOUT 30)
+    add_dependencies(OpenToonz mcp_live_race_test)
+    if(WIN32)
+        add_executable(windows_ci_live_test tests/windows_ci_live_test.cpp)
+        target_include_directories(windows_ci_live_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(windows_ci_live_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(windows_ci_live_test PRIVATE Qt${QT_VERSION_MAJOR}::Core advapi32)
+        add_dependencies(OpenToonz windows_ci_live_test)
+    endif()
     if(UNIX)
         add_executable(mcp_live_security_test
             automation_error.cpp automation_live_protocol.cpp
@@ -1182,6 +1203,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_dispatch_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_live_protocol_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_live_race_test.cpp)
     target_sources(OpenToonz PRIVATE
         tests/mcp_live_generation_test.cpp tests/mcp_live_generation_test.h)
     target_sources(OpenToonz PRIVATE
