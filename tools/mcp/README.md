@@ -85,6 +85,20 @@ Dependency reads inspect authorized file metadata without loading images or
 expanding sequences, sidecars, or nested sheets. Linked Library origins are outside
 this profile. These checks do not certify package or render compatibility.
 
+`fx.macro.create` groups 2–64 connected over, blur, or glow effects into a native
+macro. Members must be top-level effects with one output root and no non-root
+consumers or terminal links outside the selection. Generators, nested macros,
+and linked parameter groups are rejected. Creation retires the selected handles;
+`fx.macro.expand` returns fresh handles for the members. Exact retries retain the
+original mappings, including after those handles retire.
+
+`fx.graph` reports macro members and exposed input mappings. Connect, disconnect,
+and terminal operations can edit the macro boundary; expand before editing member
+parameters, names, enable state, presets, or deleting the macro. A macro exposes
+at most 128 inputs, and its container and members count toward the 4096-node graph
+limit. Scene packages and render snapshots verify member parameter state and
+boundary connections through native save/reopen before publication.
+
 PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
 pixels per image. Vector drawings are limited to 4096 strokes and 32768 control
 points, with coordinates within ±32768 and radii up to 255 native units. Palettes
