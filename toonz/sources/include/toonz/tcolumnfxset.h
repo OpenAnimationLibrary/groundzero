@@ -18,6 +18,7 @@
 #include <set>
 #include <map>
 #include <string>
+#include <cstdint>
 
 class TFx;
 class TXsheetFx;
@@ -32,6 +33,9 @@ protected:
 public:
   TFxSet();
   virtual ~TFxSet();
+
+  //! Changes only when the owned effect membership changes.
+  std::uint64_t membershipGeneration() const noexcept;
 
   void addFx(TFx *fx);
   bool removeFx(TFx *fx);
@@ -54,6 +58,8 @@ public:
   virtual void loadData(TIStream &os);
 
 private:
+  std::uint64_t m_membershipGeneration = 0;
+
   // not implemented
   TFxSet(const TFxSet &);
   TFxSet &operator=(const TFxSet &);

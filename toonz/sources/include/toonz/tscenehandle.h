@@ -6,6 +6,7 @@
 #include <QObject>
 #include <map>
 #include <memory>
+#include <cstdint>
 
 #include "tcommon.h"
 
@@ -32,6 +33,7 @@ class DVAPI TSceneHandle final : public QObject {
 
   ToonzScene *m_scene;
   bool m_dirtyFlag;
+  std::uint64_t m_bindingGeneration = 0;
   struct RetainedScene;
   static std::shared_ptr<RetainedScene> retainedScene(ToonzScene *scene);
 
@@ -40,6 +42,8 @@ public:
   ~TSceneHandle();
 
   ToonzScene *getScene() const;
+  //! Changes on every actual scene binding, including a binding to nullptr.
+  std::uint64_t bindingGeneration() const noexcept;
 
   // Keep the current scene alive across event service and delayed retirement.
   // This does not transfer ownership of the current scene to the handle/token.

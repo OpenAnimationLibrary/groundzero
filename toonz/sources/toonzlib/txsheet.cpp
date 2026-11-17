@@ -2,6 +2,7 @@
 
 // TnzCore includes
 #include "tstream.h"
+#include "tmutationgeneration.h"
 
 // TnzBase includes
 #include "toutputproperties.h"
@@ -94,6 +95,7 @@ void setColumnName(TXsheet *xsh, int col) {
 
 struct TXsheet::TXsheetImp {
   unsigned long m_id;  //!< The xsheet instance's unique identifier
+  std::uint64_t m_columnGeneration = 0;
 
   TColumnSetT<TXshColumn> m_columnSet;
 
@@ -218,6 +220,10 @@ TXsheet::~TXsheet() {
 //-----------------------------------------------------------------------------
 
 unsigned long TXsheet::id() const { return m_imp->m_id; }
+
+std::uint64_t TXsheet::columnGeneration() const noexcept {
+  return m_imp->m_columnGeneration;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -444,6 +450,7 @@ void TXsheet::clearCells(int row, int col, int rowCount) {
 //-----------------------------------------------------------------------------
 
 void TXsheet::clearAll() {
+  TMutation::advanceGeneration(m_imp->m_columnGeneration);
   // unused variables removed
   m_imp->m_columnSet.clear();
 
@@ -1180,6 +1187,7 @@ void TXsheet::loadData(TIStream &is) {
         is >> p;
         TXshColumn *column = dynamic_cast<TXshColumn *>(p);
         if (!column) throw TException("expected xsheet column");
+        TMutation::advanceGeneration(m_imp->m_columnGeneration);
         m_imp->m_columnSet.insertColumn(col++, column);
         column->setXsheet(this);
         if (TXshZeraryFxColumn *zc =
@@ -1345,6 +1353,7 @@ void TXsheet::insertColumn(int col, TXshColumn *column) {
 void TXsheet::insertColumn(int col, TXshColumn *column,
                           TStageObject *stageObject) {
   if (col < 0) col = 0;
+  TMutation::advanceGeneration(m_imp->m_columnGeneration);
   column->setXsheet(this);
   m_imp->m_columnSet.insertColumn(col, column);
   m_imp->m_pegTree->insertColumn(col, stageObject);
@@ -1369,6 +1378,7 @@ void TXsheet::insertColumn(int col, TXshColumn *column,
 void TXsheet::removeColumn(int col) {
   TXshColumn *column = getColumn(col);
   if (column) {
+    TMutation::advanceGeneration(m_imp->m_columnGeneration);
     TFx *fx = column->getFx();
     if (fx) {
       getFxDag()->removeFromXsheet(fx);
@@ -1394,6 +1404,7 @@ void TXsheet::removeColumn(int col) {
 
 void TXsheet::moveColumn(int srcIndex, int dstIndex) {
   if (srcIndex == dstIndex) return;
+  TMutation::advanceGeneration(m_imp->m_columnGeneration);
   assert(srcIndex >= 0);
   assert(dstIndex >= 0);
   int col = std::max(srcIndex, dstIndex);
@@ -1463,6 +1474,8 @@ int TXsheet::getFirstFreeColumnIndex() const {
 //-----------------------------------------------------------------------------
 
 TXshColumn *TXsheet::touchColumn(int index, TXshColumn::ColumnType type) {
+  if (index >= m_imp->m_columnSet.getColumnCount())
+    TMutation::advanceGeneration(m_imp->m_columnGeneration);
   TXshColumn *column = m_imp->m_columnSet.touchColumn(index, type).getPointer();
   if (index < 0 || !column) return nullptr;
 
@@ -1613,7 +1626,11 @@ ToonzScene *TXsheet::getScene() const { return m_imp->m_scene; }
 
 //-----------------------------------------------------------------------------
 
-void TXsheet::setScene(ToonzScene *scene) { m_imp->m_scene = scene; }
+void TXsheet::setScene(ToonzScene *scene) {
+  if (m_imp->m_scene != scene)
+    TMutation::advanceGeneration(m_imp->m_columnGeneration);
+  m_imp->m_scene = scene;
+}
 
 //-----------------------------------------------------------------------------
 

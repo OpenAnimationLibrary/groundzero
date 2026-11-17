@@ -8,6 +8,7 @@
 
 // STD includes
 #include <set>
+#include <cstdint>
 
 #undef DVAPI
 #undef DVVAR
@@ -72,9 +73,13 @@ class DVAPI TLevelSet {
   std::set<TXshLevel *>
       m_saveSet;  //!< If m_saveSet is not empty, only its levels
                   //!< will be saved
+  std::uint64_t m_membershipGeneration = 0;
 public:
   TLevelSet();
   ~TLevelSet();
+
+  //! Changes when owned levels or their name bindings change.
+  std::uint64_t membershipGeneration() const noexcept;
 
   bool insertLevel(TXshLevel *level);
   bool renameLevel(TXshLevel *level, const std::wstring &newName);

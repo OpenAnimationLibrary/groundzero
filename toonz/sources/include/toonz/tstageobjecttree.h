@@ -4,6 +4,7 @@
 #define T_STAGE_OBJECT_TREE_INCLUDED
 
 #include <memory>
+#include <cstdint>
 
 #include "toonz/tstageobject.h"
 #include "toonz/txsheet.h"
@@ -105,6 +106,9 @@ class DVAPI TStageObjectTree final : public TPersist {
 public:
   TStageObjectTree();
   ~TStageObjectTree();
+
+  //! Changes when owned stage objects or splines are inserted, removed or rebound.
+  std::uint64_t membershipGeneration() const noexcept;
 
   /*!
           The method retrieves a stage object with the passed TStageObjectId \b

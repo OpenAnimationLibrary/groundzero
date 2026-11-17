@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <set>
+#include <cstdint>
 
 // TnzCore includes
 #include "traster.h"
@@ -169,6 +170,9 @@ public:
 
   //! Returns a unique identifier associated with the xsheet instance.
   unsigned long id() const;
+
+  //! Changes on column ownership/reindexing and replacement of the native tree/DAG.
+  std::uint64_t columnGeneration() const noexcept;
 
   /*! Returns max frame number used in xsheet.
           \sa getMaxFrame()

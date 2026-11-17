@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 
 #include "toonz/tscenehandle.h"
+#include "tmutationgeneration.h"
 
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
@@ -70,10 +71,15 @@ std::shared_ptr<void> TSceneHandle::retainScene(ToonzScene *scene) {
 
 ToonzScene *TSceneHandle::getScene() const { return m_scene; }
 
+std::uint64_t TSceneHandle::bindingGeneration() const noexcept {
+  return m_bindingGeneration;
+}
+
 //-----------------------------------------------------------------------------
 
 void TSceneHandle::setScene(ToonzScene *scene) {
   if (m_scene == scene) return;
+  TMutation::advanceGeneration(m_bindingGeneration);
   auto old = retainedScene(m_scene);
   auto next = retainedScene(scene);
   if (next) {
