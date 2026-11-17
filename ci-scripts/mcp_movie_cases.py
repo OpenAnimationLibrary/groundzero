@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 from fractions import Fraction
 from pathlib import Path
@@ -353,7 +354,10 @@ def movie_writer_failure_publishes_no_artifact(case: NativeAcceptance) -> None:
     document, _effect = _fixture(case)
     before = case.success("scene.summary", {"document_id": document})
     # The real probe rejects encoder-only arguments; startup already admitted both real tools.
-    shutil.copy2(_binary(directory, "ffprobe"), _binary(directory, "ffmpeg"))
+    encoder = _binary(directory, "ffmpeg")
+    encoder.chmod(encoder.stat().st_mode | stat.S_IWUSR)
+    encoder.unlink()
+    shutil.copy2(_binary(directory, "ffprobe"), encoder)
     job = case.mutate("render.submit", document, **_options())
     _unpublished(case, job, "failed")
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
