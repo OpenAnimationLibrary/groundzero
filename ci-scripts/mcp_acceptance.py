@@ -35,6 +35,7 @@ import mcp_production_cases
 import mcp_receipt_cases
 import mcp_render_cases
 import mcp_renumber_cases
+import mcp_rig_cases
 import mcp_scene_cases
 import mcp_text_cases
 import mcp_vector_opacity_cases
@@ -186,6 +187,27 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_audio_movie_render_stays_video_only(self) -> None:
         mcp_audio_cases.audio_movie_render_stays_video_only(self)
+
+    def test_rig_hook_attach_renders_and_reopens(self) -> None:
+        mcp_rig_cases.rig_hook_attach_renders_and_reopens(self)
+
+    def test_rig_pass_hook_matches_render(self) -> None:
+        mcp_rig_cases.rig_pass_hook_matches_render(self)
+
+    def test_rig_additive_scale_renders_and_reopens(self) -> None:
+        mcp_rig_cases.rig_additive_scale_renders_and_reopens(self)
+
+    def test_rig_handles_and_pivot_report_world_changes(self) -> None:
+        mcp_rig_cases.rig_handles_and_pivot_report_world_changes(self)
+
+    def test_rig_hook_lifecycle_and_drawing_edits(self) -> None:
+        mcp_rig_cases.rig_hook_lifecycle_and_drawing_edits(self)
+
+    def test_rig_layer_lifecycle_and_animation_keys(self) -> None:
+        mcp_rig_cases.rig_layer_lifecycle_and_animation_keys(self)
+
+    def test_rig_parent_policy_and_refusals(self) -> None:
+        mcp_rig_cases.rig_parent_policy_and_refusals(self)
 
     def test_vector_opacity_round_trip(self) -> None:
         mcp_vector_opacity_cases.vector_opacity_round_trip(self)
@@ -1032,7 +1054,11 @@ class NativeAcceptance(unittest.TestCase):
         first = self.mutate("object.create", document, name="First", kind="pegbar")
         second = self.mutate("object.create", document, name="Second", kind="pegbar")
         self.mutate(
-            "object.parent", document, object_id=first["object_id"], parent_id=second["object_id"]
+            "object.parent",
+            document,
+            object_id=first["object_id"],
+            parent_id=second["object_id"],
+            placement_policy="preserve_local",
         )
         before = self.success("scene.summary", {"document_id": document})
         self.failure(
@@ -1042,6 +1068,7 @@ class NativeAcceptance(unittest.TestCase):
                 {
                     "object_id": second["object_id"],
                     "parent_id": first["object_id"],
+                    "placement_policy": "preserve_local",
                 },
             ),
         )

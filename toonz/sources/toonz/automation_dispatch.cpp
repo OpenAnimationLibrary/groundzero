@@ -4,6 +4,8 @@
 #include "automation_text.h"
 #include "automation_path.h"
 #include "automation_audio.h"
+#include "automation_hook.h"
+#include "automation_rig.h"
 
 #include "texception.h"
 
@@ -226,7 +228,10 @@ QString toolsetDescription(const QString& toolset) {
        "macros, text, inspection, assistance, rendering and packages."},
       {"audio",
        "Sound sources, sound columns, clips, column volume and exact offline "
-       "WAV mixdown."}};
+       "WAV mixdown."},
+      {"rigging",
+       "Level hooks, object handles and pivots, additive offset layers, and "
+       "rig inspection and placement evaluation."}};
   const auto found = descriptions.constFind(toolset);
   if (found == descriptions.constEnd())
     throw Error("internal_error",
@@ -260,6 +265,8 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(textOperations(), executeText, "core");
   add(pathOperations(), executePath, "core");
   add(audioOperations(), executeAudio, "audio");
+  add(rigOperations(), executeRig, "rigging");
+  add(hookOperations(), executeHook, "rigging");
   add(
       assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {

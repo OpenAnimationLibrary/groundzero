@@ -38,7 +38,11 @@ def parenting_preserves_local_keys_and_changes_rendered_placement(case: NativeAc
         "animation.set_keys", document, **_channel(peg["object_id"]), keys=[_key(0, 4 / 120)]
     )
     case.mutate(
-        "object.parent", document, object_id=column["object_id"], parent_id=peg["object_id"]
+        "object.parent",
+        document,
+        object_id=column["object_id"],
+        parent_id=peg["object_id"],
+        placement_policy="preserve_local",
     )
     case.assertEqual(
         case.success("animation.keys", {"document_id": document, **target}), keys_before
@@ -52,12 +56,20 @@ def parenting_preserves_local_keys_and_changes_rendered_placement(case: NativeAc
     case.assertEqual(after[2][16 * width + 2][3], 0)
     revision = case.revisions[document]
     repeated = case.mutate(
-        "object.parent", document, object_id=column["object_id"], parent_id=peg["object_id"]
+        "object.parent",
+        document,
+        object_id=column["object_id"],
+        parent_id=peg["object_id"],
+        placement_policy="preserve_local",
     )
     case.assertEqual(repeated["revision"], revision)
     table = next(item for item in _summary(case, document)["objects"] if item["kind"] == "table")
     case.mutate(
-        "object.parent", document, object_id=column["object_id"], parent_id=table["object_id"]
+        "object.parent",
+        document,
+        object_id=column["object_id"],
+        parent_id=table["object_id"],
+        placement_policy="preserve_local",
     )
     case.assertEqual(decode_png(case.preview(document)), before)
 
@@ -69,8 +81,14 @@ def parenting_rejections_preserve_every_object(case: NativeAcceptance) -> None:
         case.mutate("object.create", document, name=name, kind="pegbar")["object_id"]
         for name in ("First", "Second", "Third")
     ]
-    case.mutate("object.parent", document, object_id=pegs[0], parent_id=pegs[1])
-    case.mutate("object.parent", document, object_id=pegs[1], parent_id=pegs[2])
+    for child, parent in ((pegs[0], pegs[1]), (pegs[1], pegs[2])):
+        case.mutate(
+            "object.parent",
+            document,
+            object_id=child,
+            parent_id=parent,
+            placement_policy="preserve_local",
+        )
     before = _summary(case, document)
     table = next(item["object_id"] for item in before["objects"] if item["kind"] == "table")
     rejected = (
@@ -83,7 +101,10 @@ def parenting_rejections_preserve_every_object(case: NativeAcceptance) -> None:
         with case.subTest(child=child, parent=parent):
             case.failure(
                 "object.parent",
-                case.write_params(document, {"object_id": child, "parent_id": parent}),
+                case.write_params(
+                    document,
+                    {"object_id": child, "parent_id": parent, "placement_policy": "preserve_local"},
+                ),
             )
             case.assertEqual(_summary(case, document), before)
 
@@ -109,12 +130,20 @@ def locked_columns_and_deleted_handles_remain_consistent(case: NativeAcceptance)
     case.assertEqual(case.revisions[document], revision)
     child = case.mutate("column.create", document, name="Child")
     case.mutate(
-        "object.parent", document, object_id=child["object_id"], parent_id=column["object_id"]
+        "object.parent",
+        document,
+        object_id=child["object_id"],
+        parent_id=column["object_id"],
+        placement_policy="preserve_local",
     )
     case.failure("column.delete", case.write_params(document, {"column_id": column_id}))
     table = next(item for item in _summary(case, document)["objects"] if item["kind"] == "table")
     case.mutate(
-        "object.parent", document, object_id=child["object_id"], parent_id=table["object_id"]
+        "object.parent",
+        document,
+        object_id=child["object_id"],
+        parent_id=table["object_id"],
+        placement_policy="preserve_local",
     )
     graph = case.success("fx.graph", {"document_id": document})
     effect = next(item["fx_id"] for item in graph["effects"] if item.get("column_id") == column_id)
@@ -172,7 +201,7 @@ def animation_precision_and_batch_errors_preserve_existing_keys(case: NativeAcce
         case.success("animation.sample", {"document_id": document, **z_target, "frames": [0]})[
             "values"
         ],
-        [{"frame": 0, "value": 25}],
+        [{"frame": 0, "value": 25, "base_value": 25, "offset_value": 0}],
     )
 
 

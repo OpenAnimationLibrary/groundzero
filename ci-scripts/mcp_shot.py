@@ -319,7 +319,11 @@ def animate(shot: Shot, document: str, courier: dict[str, Any]) -> None:
     """Give the courier an editable flight peg and the camera a gentle tracking move."""
     peg = shot.write("object.create", document, name="Courier flight", kind="pegbar")
     shot.write(
-        "object.parent", document, object_id=courier["object_id"], parent_id=peg["object_id"]
+        "object.parent",
+        document,
+        object_id=courier["object_id"],
+        parent_id=peg["object_id"],
+        placement_policy="preserve_local",
     )
     set_motion(
         shot,

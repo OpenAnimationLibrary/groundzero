@@ -166,6 +166,7 @@ def _animated_scene(case: NativeAcceptance) -> tuple[str, dict[str, str]]:
         document,
         object_id=column["object_id"],
         parent_id=target["object_id"],
+        placement_policy="preserve_local",
     )
     case.mutate("animation.set_keys", document, **target, keys=_rich_keys(1 / 2400))
     camera = case.success("camera.inspect", {"document_id": document})

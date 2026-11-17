@@ -201,6 +201,8 @@ set(HEADERS
     automation_animation.h
     automation_path.h
     automation_audio.h
+    automation_rig.h
+    automation_hook.h
     automation_vector_opacity.h
     automation_dispatch.h
     automation_containment.h
@@ -291,6 +293,8 @@ set(SOURCES
     automation_path.cpp
     automation_audio.cpp
     automation_audio_format.cpp
+    automation_rig.cpp
+    automation_hook.cpp
     automation_vector_opacity.cpp
     automation_scene.cpp
     automation_fx.cpp
@@ -1277,6 +1281,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_production_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_vector_opacity_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_assistance_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_macro_test.cpp)

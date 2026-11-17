@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_dispatch.h"
 #include "automation_path.h"
+#include "automation_rig.h"
 
 #include "tdoubleparam.h"
 #include "tstroke.h"
@@ -178,9 +179,13 @@ void nestedConsumerInvalidation(Context& context) {
   const QString child  = peg(dispatcher, document);
   const QString leaf   = peg(dispatcher, document);
   result(dispatcher, "object.parent",
-         addressed(document, {{"object_id", child}, {"parent_id", parent}}));
+         addressed(document, {{"object_id", child},
+                              {"parent_id", parent},
+                              {"placement_policy", "preserve_local"}}));
   result(dispatcher, "object.parent",
-         addressed(document, {{"object_id", leaf}, {"parent_id", child}}));
+         addressed(document, {{"object_id", leaf},
+                              {"parent_id", child},
+                              {"placement_policy", "preserve_local"}}));
   auto* a = document.object(parent);
   auto* b = document.object(child);
   auto* c = document.object(leaf);
@@ -298,8 +303,8 @@ void hierarchyAndPathCapacity(Context& context) {
   auto* extra     = stage->getStageObject(TStageObjectId::PegbarId(64));
   bool refused    = false;
   try {
-    validateAutomationPathParent(*document.scene, extra,
-                                 stage->getStageObject(parent));
+    validateAutomationStageParent(*document.scene, *extra,
+                                  *stage->getStageObject(parent));
   } catch (const Error&) {
     refused = true;
   }
