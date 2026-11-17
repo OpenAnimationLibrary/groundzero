@@ -1,4 +1,6 @@
 import { appendFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { createConnection } from "node:net";
 
 const mode = process.argv[2];
 const methods = [
@@ -103,4 +105,17 @@ process.stdin.on("data", (chunk) => {
     answer(request);
   }
 });
-initial();
+function start() {
+  if (mode !== "leased") {
+    initial();
+    return;
+  }
+  hello.client_id = randomUUID();
+  const lease = createConnection(process.env["LIVE_FIXTURE_SOCKET"]);
+  lease.once("data", () => initial());
+  lease.on("error", () => process.exit(1));
+  lease.on("end", () => process.exit(1));
+  process.stdin.once("end", () => lease.end());
+}
+
+start();
