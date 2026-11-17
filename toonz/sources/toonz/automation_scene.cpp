@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_animation.h"
 #include "automation_drawing.h"
 
 #include "tdoubleparam.h"
@@ -707,7 +708,7 @@ struct Channel {
   QString unit;
 };
 
-Channel readChannel(const QJsonObject& params) {
+const std::map<QString, Channel>& animationChannels() {
   static const std::map<QString, Channel> channels = {
       {"x", {TStageObject::T_X, "inch"}},
       {"y", {TStageObject::T_Y, "inch"}},
@@ -716,6 +717,11 @@ Channel readChannel(const QJsonObject& params) {
       {"scale_x", {TStageObject::T_ScaleX, "scalar"}},
       {"scale_y", {TStageObject::T_ScaleY, "scalar"}},
       {"scale", {TStageObject::T_Scale, "scalar"}}};
+  return channels;
+}
+
+Channel readChannel(const QJsonObject& params) {
+  const auto& channels = animationChannels();
   const auto channel = channels.find(requiredString(params, "channel"));
   if (channel == channels.end())
     throw Error("unsupported_channel", "Unsupported animation channel.");
@@ -723,6 +729,35 @@ Channel readChannel(const QJsonObject& params) {
     throw Error("invalid_unit",
                 "This channel requires unit " + channel->second.unit + ".");
   return channel->second;
+}
+
+QJsonValue inspectAnimationChannels(Context& context, const QJsonObject& params) {
+  Document& document = getDocument(context, params);
+  TStageObject* object = document.object(requiredString(params, "object_id"));
+  QString objectReason;
+  try {
+    requireEditable(document, object);
+  } catch (const Error& error) {
+    objectReason = error.message;
+  }
+  QJsonArray result;
+  for (const auto& item : animationChannels()) {
+    const auto* curve = object->getParam(item.second.native);
+    QString reason = animationUnsupportedReason(*curve);
+    if (reason.isEmpty()) reason = objectReason;
+    if (reason.isEmpty() && curve->isEditorLocked()) reason = "The channel is editor-locked.";
+    result.append(QJsonObject{
+        {"channel", item.first}, {"unit", item.second.unit},
+        {"editor_locked", curve->isEditorLocked()},
+        {"key_count", curve->getKeyframeCount()}, {"writable", reason.isEmpty()},
+        {"unsupported_reason", reason.isEmpty() ? QJsonValue() : QJsonValue(reason)},
+        {"interpolations", QJsonArray{"constant", "linear", "ease_in_out", "speed_in_out"}},
+        {"frame_bounds", QJsonArray{0, MaxFrame}},
+        {"value_bounds", QJsonArray{-1000000, 1000000}},
+        {"step_bounds", QJsonArray{1, 1000}}, {"key_time", "integer"},
+        {"sample_time", "fractional"}});
+  }
+  return QJsonObject{{"object_id", document.idForObject(object)}, {"channels", result}};
 }
 
 QJsonArray readArray(const QJsonObject& params, const QString& name) {
@@ -749,96 +784,29 @@ std::vector<int> readFrames(const QJsonObject& params) {
   return frames;
 }
 
-TDoubleKeyframe readKey(const QJsonValue& value) {
-  if (!value.isObject())
-    throw Error("invalid_argument", "Each key must be an object.");
-  const QJsonObject item = value.toObject();
-  const int frame        = integerParam(item, "frame", 0, MaxFrame, -1);
-  if (frame < 0 || !item.contains("value"))
-    throw Error("invalid_argument",
-                "Each key needs a frame and numeric value.");
-  const double number = numberParam(item, "value", -1000000, 1000000, 0);
-  const QString interpolation = requiredString(item, "interpolation");
-  if (interpolation != "linear" && interpolation != "constant")
-    throw Error("unsupported_interpolation",
-                "Use explicit linear or constant interpolation.");
-  TDoubleKeyframe key(frame, number);
-  key.m_isKeyframe = true;
-  key.m_type       = interpolation == "linear" ? TDoubleKeyframe::Linear
-                                               : TDoubleKeyframe::Constant;
-  key.m_prevType   = key.m_type;
-  key.m_step       = 1;
-  return key;
-}
-
-std::vector<TDoubleKeyframe> readKeys(const QJsonObject& params) {
-  std::vector<TDoubleKeyframe> keys;
-  QSet<int> seen;
-  for (const QJsonValue& value : readArray(params, "keys")) {
-    const TDoubleKeyframe key = readKey(value);
-    const int frame           = static_cast<int>(key.m_frame);
-    if (seen.contains(frame))
-      throw Error("invalid_argument", "Key frames must be unique.");
-    seen.insert(frame);
-    keys.push_back(key);
-  }
-  std::sort(keys.begin(), keys.end());
-  return keys;
-}
-
 QJsonValue inspectKeys(Context& context, const QJsonObject& params) {
   Document& document    = getDocument(context, params);
   TStageObject* object  = document.object(requiredString(params, "object_id"));
   const Channel channel = readChannel(params);
   TDoubleParam* curve   = object->getParam(channel.native);
-  QJsonArray keys;
-  for (int index = 0; index < curve->getKeyframeCount(); ++index) {
-    const TDoubleKeyframe& key = curve->getKeyframe(index);
-    QString interpolation      = "unsupported";
-    if (key.m_type == TDoubleKeyframe::Constant) interpolation = "constant";
-    if (key.m_type == TDoubleKeyframe::Linear) interpolation = "linear";
-    keys.append(QJsonObject{{"frame", key.m_frame},
-                            {"value", key.m_value},
-                            {"interpolation", interpolation}});
-  }
   return QJsonObject{{"object_id", document.idForObject(object)},
                      {"channel", params.value("channel")},
                      {"unit", channel.unit},
-                     {"keys", keys}};
-}
-
-bool preflightKeys(TDoubleParam* curve,
-                   const std::vector<TDoubleKeyframe>& keys) {
-  int count    = curve->getKeyframeCount();
-  bool changed = false;
-  for (const TDoubleKeyframe& key : keys) {
-    if (!curve->isKeyframe(key.m_frame)) {
-      ++count;
-      changed = true;
-      continue;
-    }
-    const TDoubleKeyframe& current = curve->getKeyframeAt(key.m_frame);
-    changed = changed || key.m_type != current.m_type ||
-              key.m_value != current.m_value || current.m_step != 1;
-  }
-  if (count > MaxSpan)
-    throw Error("resource_limit",
-                "An animation channel may contain at most 10000 keys.");
-  return changed;
+                     {"value_space", "base_channel"},
+                     {"editor_locked", curve->isEditorLocked()},
+                     {"keys", inspectAnimationKeys(*curve)}};
 }
 
 QJsonValue setKeys(Context& context, const QJsonObject& params) {
   Document& document   = getDocument(context, params);
   TStageObject* object = document.object(requiredString(params, "object_id"));
   requireEditable(document, object);
-  const Channel channel                   = readChannel(params);
-  const std::vector<TDoubleKeyframe> keys = readKeys(params);
-  TDoubleParam* curve                     = object->getParam(channel.native);
-  if (curve->isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  if (!preflightKeys(curve, keys)) return inspectKeys(context, params);
+  const Channel channel = readChannel(params);
+  TDoubleParam* curve = object->getParam(channel.native);
+  const auto edit = prepareAnimationKeyEdit(*curve, readArray(params, "keys"));
+  if (!edit.changed) return inspectKeys(context, params);
   context.markMutationStarted();
-  for (const TDoubleKeyframe& key : keys) curve->setKeyframe(key);
+  for (const auto& key : edit.keys) curve->setKeyframe(key);
   return inspectKeys(context, params);
 }
 
@@ -849,11 +817,7 @@ QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
   const Channel channel         = readChannel(params);
   const std::vector<int> frames = readFrames(params);
   TDoubleParam* curve           = object->getParam(channel.native);
-  if (curve->isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  for (const int frame : frames)
-    if (!curve->isKeyframe(frame))
-      throw Error("missing_key", "Every requested key must exist.");
+  validateAnimationKeyDeletion(*curve, frames);
   context.markMutationStarted();
   for (const int frame : frames) curve->deleteKeyframe(frame);
   return inspectKeys(context, params);
@@ -863,14 +827,29 @@ QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
   Document& document    = getDocument(context, params);
   TStageObject* object  = document.object(requiredString(params, "object_id"));
   const Channel channel = readChannel(params);
-  const std::vector<int> frames = readFrames(params);
+  const QJsonArray frames = readArray(params, "frames");
+  TDoubleParam* curve = object->getParam(channel.native);
+  requireSupportedAnimationCurve(*curve);
+  if (object->getOffsetLayerCount() != 0)
+    throw Error("unsupported_interpolation", "Offset-layer sampling is not qualified.");
+  QSet<double> seen;
   QJsonArray values;
-  for (const int frame : frames)
-    values.append(QJsonObject{
-        {"frame", frame}, {"value", object->getParam(channel.native, frame)}});
+  for (const auto& value : frames) {
+    const double frame = numberParam({{"frame", value}}, "frame", 0, MaxFrame, 0);
+    if (seen.contains(frame))
+      throw Error("invalid_argument", "frames must not contain duplicates.");
+    seen.insert(frame);
+    double sampled = 0;
+    std::string error;
+    if (!curve->getValueChecked(frame, sampled, error) || !std::isfinite(sampled))
+      throw Error("invalid_argument", "Native animation evaluation failed: " +
+                  QString::fromStdString(error), {{"frame", frame}});
+    values.append(QJsonObject{{"frame", frame}, {"value", sampled}});
+  }
   return QJsonObject{{"object_id", document.idForObject(object)},
                      {"channel", params.value("channel")},
                      {"unit", channel.unit},
+                     {"value_space", "effective_local_channel"},
                      {"values", values}};
 }
 
@@ -979,6 +958,48 @@ void addColumnOperations(QJsonArray& catalog) {
       true));
 }
 
+QJsonObject strictObjectSchema(const QJsonObject& properties, const QJsonArray& required) {
+  return {{"type", "object"}, {"additionalProperties", false},
+          {"properties", properties}, {"required", required}};
+}
+
+QJsonObject speedSchema(bool incoming) {
+  return strictObjectSchema(
+      {{"frame_delta", numberSchema(incoming ? -MaxFrame : 0, incoming ? 0 : MaxFrame)},
+       {"value_delta", numberSchema(-1000000, 1000000)}},
+      {"frame_delta", "value_delta"});
+}
+
+QJsonObject incomingSchema() {
+  QJsonObject speed = speedSchema(true);
+  auto properties = speed.value("properties").toObject();
+  properties.insert("kind", enumSchema({"speed"}));
+  speed["properties"] = properties;
+  speed["required"] = QJsonArray{"kind", "frame_delta", "value_delta"};
+  return {{"oneOf", QJsonArray{
+      strictObjectSchema({{"kind", enumSchema({"none"})}}, {"kind"}), speed,
+      strictObjectSchema({{"kind", enumSchema({"ease"})},
+                          {"frames", numberSchema(0, MaxFrame)}}, {"kind", "frames"})}}};
+}
+
+QJsonObject animationKeySchema() {
+  const QJsonObject base{{"frame", integerSchema(0, MaxFrame)},
+                         {"value", numberSchema(-1000000, 1000000)},
+                         {"step", integerSchema(1, 1000)},
+                         {"incoming", incomingSchema()}};
+  const QJsonArray required{"frame", "value", "interpolation"};
+  QJsonArray withControl = required;
+  withControl.append("outgoing");
+  return {{"oneOf", QJsonArray{
+      strictObjectSchema(merge(base, {{"interpolation", enumSchema({"linear", "constant"})}}),
+                          required),
+      strictObjectSchema(merge(base, {{"interpolation", enumSchema({"speed_in_out"})},
+                                      {"outgoing", speedSchema(false)}}), withControl),
+      strictObjectSchema(merge(base, {{"interpolation", enumSchema({"ease_in_out"})},
+          {"outgoing", strictObjectSchema({{"frames", numberSchema(0, MaxFrame)}}, {"frames"})}}),
+                          withControl)}}};
+}
+
 void addAnimationOperations(QJsonArray& catalog) {
   QJsonObject object = merge(documentSchema(), {{"object_id", textSchema()}});
   catalog.append(operation(
@@ -990,6 +1011,9 @@ void addAnimationOperations(QJsonArray& catalog) {
       "object.parent", "Reparent an object, preserving its local animation.",
       merge(object, {{"parent_id", textSchema()}}),
       {"document_id", "object_id", "parent_id"}, true));
+  catalog.append(operation(
+      "animation.channels", "Discover stage channels, units, bounds and edit admission.",
+      object, {"document_id", "object_id"}));
   QJsonObject animation = merge(
       object, {{"channel", enumSchema({"x", "y", "z", "rotation", "scale_x",
                                        "scale_y", "scale"})},
@@ -1003,25 +1027,17 @@ void addAnimationOperations(QJsonArray& catalog) {
   const QJsonObject frames =
       merge(animation, {{"frames", arraySchema(integerSchema(0, MaxFrame))}});
   catalog.append(operation(
-      "animation.sample", "Sample effective native channel values at frame 0+.",
-      frames, withFrames));
+      "animation.sample", "Sample effective local channel values at integral or fractional frames.",
+      merge(animation, {{"frames", arraySchema(numberSchema(0, MaxFrame))}}), withFrames));
   catalog.append(operation("animation.delete_keys",
                            "Delete existing keys after complete validation.",
                            frames, withFrames, true));
-  const QJsonObject key{
-      {"type", "object"},
-      {"additionalProperties", false},
-      {"properties",
-       QJsonObject{{"frame", integerSchema(0, MaxFrame)},
-                   {"value", numberSchema(-1000000, 1000000)},
-                   {"interpolation", enumSchema({"linear", "constant"})}}},
-      {"required", QJsonArray{"frame", "value", "interpolation"}}};
   QJsonArray withKeys = required;
   withKeys.append("keys");
   catalog.append(operation(
       "animation.set_keys",
-      "Insert or replace keys with explicit interpolation.",
-      merge(animation, {{"keys", arraySchema(key)}}), withKeys, true));
+      "Replace sparse keys with explicit steps and independent incoming/outgoing controls.",
+      merge(animation, {{"keys", arraySchema(animationKeySchema())}}), withKeys, true));
 }
 
 }  // namespace
@@ -1069,6 +1085,7 @@ QJsonValue executeScene(Context& context, const QString& method,
       {"camera.update", updateCamera},
       {"object.create", createObject},
       {"object.parent", parentObject},
+      {"animation.channels", inspectAnimationChannels},
       {"animation.keys", inspectKeys},
       {"animation.set_keys", setKeys},
       {"animation.delete_keys", deleteKeys},

@@ -164,7 +164,8 @@ def animation_precision_and_batch_errors_preserve_existing_keys(case: NativeAcce
     _reject_animation_batches(case, document, target)
     case.mutate("animation.delete_keys", document, **target, frames=[0])
     remaining = case.success("animation.keys", {"document_id": document, **target})
-    case.assertEqual(remaining["keys"], [_key(1000000, 7)])
+    expected = {**_key(1000000, 7), "step": 1, "incoming": {"kind": "none"}, "linked_handles": True}
+    case.assertEqual(remaining["keys"], [expected])
     z_target = {"object_id": peg["object_id"], "channel": "z", "unit": "native_z"}
     case.mutate("animation.set_keys", document, **z_target, keys=[_key(0, 25)])
     case.assertEqual(
