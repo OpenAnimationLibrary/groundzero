@@ -199,6 +199,7 @@ endif()
 set(HEADERS
     automation.h
     automation_animation.h
+    automation_path.h
     automation_dispatch.h
     automation_containment.h
     automation_production.h
@@ -285,6 +286,7 @@ set(SOURCES
     automation_error.cpp
     automation_dispatch.cpp
     automation_animation.cpp
+    automation_path.cpp
     automation_scene.cpp
     automation_fx.cpp
     automation_drawing.cpp
@@ -1266,6 +1268,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_group_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_production_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_assistance_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_macro_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_text_test.cpp)

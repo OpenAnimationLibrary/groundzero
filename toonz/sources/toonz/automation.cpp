@@ -38,6 +38,7 @@
 #include "automation_production.h"
 #include "automation_assistance.h"
 #include "automation_macro.h"
+#include "automation_path.h"
 #include "automation_text.h"
 #include "tests/automation_animation_test.h"
 #endif
@@ -365,6 +366,7 @@ int domainTestResult(Context& context) {
     runAutomationFxAuthoringTests(context);
     runAutomationGroupTests(context);
     runAutomationAnimationTests();
+    runAutomationPathTests(context);
     runAutomationProductionTests(context);
     runAutomationAssistanceTests();
     runAutomationMacroTests(context);

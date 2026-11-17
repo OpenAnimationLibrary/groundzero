@@ -2,6 +2,7 @@
 #include "automation_production.h"
 #include "automation_assistance.h"
 #include "automation_text.h"
+#include "automation_path.h"
 
 #include "texception.h"
 
@@ -240,6 +241,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(persistenceOperations(), executePersistence);
   add(productionOperations(), executeProduction);
   add(textOperations(), executeText);
+  add(pathOperations(), executePath);
   add(assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {
         return executeAssistance(method, params);

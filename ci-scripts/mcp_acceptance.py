@@ -25,6 +25,7 @@ import mcp_fx_cases
 import mcp_group_cases
 import mcp_macro_cases
 import mcp_media_cases
+import mcp_motion_path_cases
 import mcp_movie_cases
 import mcp_movie_eof
 import mcp_palette_cases
@@ -134,6 +135,18 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_whole_curve_rejections_and_quantized_steps(self) -> None:
         mcp_curve_cases.whole_curve_rejections_and_quantized_steps(self)
+
+    def test_motion_path_lifecycle_handles_and_receipts(self) -> None:
+        mcp_motion_path_cases.motion_path_lifecycle_handles_and_receipts(self)
+
+    def test_motion_path_animation_render_and_reopen(self) -> None:
+        mcp_motion_path_cases.motion_path_animation_render_and_reopen(self)
+
+    def test_motion_path_unused_geometry_and_name_roundtrip(self) -> None:
+        mcp_motion_path_cases.motion_path_unused_geometry_and_name_roundtrip(self)
+
+    def test_motion_path_geometry_percentage_and_revision_rejections(self) -> None:
+        mcp_motion_path_cases.motion_path_geometry_percentage_and_revision_rejections(self)
 
     def test_text_outline_round_trip_and_edit(self) -> None:
         mcp_text_cases.text_outline_round_trip_and_edit(self)
