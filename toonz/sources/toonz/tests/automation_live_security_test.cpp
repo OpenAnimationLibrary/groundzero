@@ -168,6 +168,25 @@ void ordinaryCleanup(const QString& path) {
   require(!QFile::exists(path) && !QFile::exists(socket),
           "Owned grant or socket remained after revocation");
 }
+
+#ifdef Q_OS_MACOS
+void extendedAclAdmission(const QString& path) {
+  QProcess chmod;
+  chmod.start("/bin/chmod", {"+a", "everyone allow read", path});
+  require(chmod.waitForFinished(3000) && chmod.exitCode() == 0,
+          "Cannot create the native extended-ACL fixture");
+  struct stat info{};
+  require(stat(QFile::encodeName(path).constData(), &info) == 0 &&
+              (info.st_mode & 07777) == 0600,
+          "Extended-ACL fixture changed the POSIX mode oracle");
+  deniedRead(path);
+  chmod.start("/bin/chmod", {"-N", path});
+  require(chmod.waitForFinished(3000) && chmod.exitCode() == 0,
+          "Cannot remove the native extended-ACL fixture");
+  require(!SecuritySession::read(path)->token().isEmpty(),
+          "Private grant did not recover after ACL removal");
+}
+#endif
 }  // namespace
 int main(int argc, char* argv[]) {
   if (argc > 1) return runConnector(argc, argv);
@@ -194,6 +213,9 @@ int main(int argc, char* argv[]) {
     connectorRoundTrip(publisher, path, false);
     connectorRoundTrip(publisher, path, true);
     fileAdmission(path, root);
+#ifdef Q_OS_MACOS
+    extendedAclAdmission(path);
+#endif
     replacementCleanup(publisher, path);
     ordinaryCleanup(root + "/ordinary.json");
     std::puts(
