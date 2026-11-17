@@ -3,6 +3,7 @@
 
 #include "tfilepath.h"
 #include "tfx.h"
+#include "tmacrofx.h"
 #include "tpalette.h"
 #include "tsystem.h"
 #include "toonz/fxdag.h"
@@ -65,11 +66,13 @@ struct Report final {
   QJsonArray reasons;
   QMap<QString, TFx*> effects;
   QSet<TFx*> seenEffects;
+  QSet<TFx*> qualifiedMacros;
   QHash<TXshLevel*, QString> levelIds;
   std::vector<TXshLevel*> levels;
   QSet<TXshLevel*> used;
   int columnCount = 0;
   int cells       = 0;
+  int macroMembers = 0;
 
   Report(Context& owner, Document& value, QString operation)
       : context(owner), document(value), method(std::move(operation)) {}
@@ -183,6 +186,40 @@ void collectGraph(Report& report) {
   }
 }
 
+QSet<TFx*> collectMacroCandidates(Report& report, int& members) {
+  QSet<TFx*> candidates;
+  for (TFx* fx : report.effects) {
+    auto* macro = dynamic_cast<TMacroFx*>(fx);
+    if (!macro) continue;
+    const auto count = macro->getFxs().size();
+    if (count < 2 || count > 64) return {};
+    if (count > size_t(MaxEntities - report.effects.size() - members)) {
+      report.incomplete("fx_limit");
+      return {};
+    }
+    members += static_cast<int>(count);
+    candidates.insert(fx);
+  }
+  return candidates;
+}
+
+void qualifyMacros(Report& report) {
+  if (report.reasons.contains("fx_limit") ||
+      report.reasons.contains("column_limit"))
+    return;
+  int members     = 0;
+  auto candidates = collectMacroCandidates(report, members);
+  if (candidates.isEmpty()) return;
+  try {
+    validateAutomationFxGraph(*report.document.scene);
+  } catch (const Error&) {
+    report.incomplete("unsupported_fx");
+    return;
+  }
+  report.qualifiedMacros = std::move(candidates);
+  report.macroMembers    = members;
+}
+
 TFx* parameterFx(TFx* fx) {
   auto* column = dynamic_cast<TZeraryColumnFx*>(fx);
   return column ? column->getZeraryFx() : fx;
@@ -200,7 +237,8 @@ bool supportedFx(TFx* fx) {
 void inspectFx(Report& report) {
   for (auto it = report.effects.constBegin(); it != report.effects.constEnd();
        ++it) {
-    if (supportedFx(it.value())) continue;
+    if (report.qualifiedMacros.contains(it.value()) || supportedFx(it.value()))
+      continue;
     report.incomplete("unsupported_fx");
     if (!report.validates()) continue;
     auto row = issue("unsupportedFx",
@@ -599,10 +637,11 @@ QJsonObject page(Report& report, const QJsonObject& params) {
   QJsonArray items;
   for (int index = offset; index < end; ++index)
     items.append(report.rows.at(index));
-  const QJsonObject scanned{{"levels", static_cast<int>(report.levels.size())},
-                            {"columns", report.columnCount},
-                            {"fx_nodes", report.effects.size()},
-                            {"scanned_cells", report.cells}};
+  const QJsonObject scanned{
+      {"levels", static_cast<int>(report.levels.size())},
+      {"columns", report.columnCount},
+      {"fx_nodes", report.effects.size() + report.macroMembers},
+      {"scanned_cells", report.cells}};
   QJsonObject result{{"document_id", report.document.id},
                      {"source_revision", report.document.revisionText()},
                      {"profile", "worker-generated-v1"},
@@ -673,6 +712,7 @@ QJsonValue executeProduction(Context& context, const QString& method,
   Report report(context, document, method);
   collectLevels(report);
   collectGraph(report);
+  qualifyMacros(report);
   inspectFx(report);
   if (method == "cast.list")
     castInventory(report);

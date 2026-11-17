@@ -1,6 +1,7 @@
 #include "automation_production.h"
 
 #include "tfx.h"
+#include "tmacrofx.h"
 #include "tpalette.h"
 #include "tstream.h"
 #include "tsystem.h"
@@ -424,6 +425,91 @@ void responseByteBoundary(Context& context) {
           "Byte rejection changed native revision");
 }
 
+TFxP inspectionEffect(Fixture& fixture, const std::string& type) {
+  TFxP effect(TFx::create(type));
+  require(bool(effect), "Cannot create native inspection effect");
+  fixture.document.scene->getTopXsheet()->getFxDag()->assignUniqueId(
+      effect.getPointer());
+  return effect;
+}
+
+TMacroFx* inspectionMacro(Fixture& fixture) {
+  TFxP first = inspectionEffect(fixture, "STD_blurFx");
+  TFxP last  = inspectionEffect(fixture, "STD_glowFx");
+  last->getInputPort(0)->setFx(first.getPointer());
+  TFxP macro(TMacroFx::create({first, last}));
+  require(bool(macro), "Cannot create native inspection macro");
+  auto* graph = fixture.document.scene->getTopXsheet()->getFxDag();
+  graph->assignUniqueId(macro.getPointer());
+  graph->getInternalFxs()->addFx(macro.getPointer());
+  return static_cast<TMacroFx*>(macro.getPointer());
+}
+
+int inspectedFxNodes(const QJsonObject& report) {
+  return report.value("scanned").toObject().value("fx_nodes").toInt();
+}
+
+void qualifiedMacroInspection(Context& context) {
+  Fixture fixture(context);
+  const int initial = inspectedFxNodes(fixture.read("scene.validate"));
+  inspectionMacro(fixture);
+  const auto before = nativeState(fixture);
+  for (const QString& method :
+       {"cast.list", "cast.usage", "scene.dependencies", "scene.validate"}) {
+    const auto report = fixture.read(method);
+    require(report.value("traversal_complete").toBool(),
+            "Qualified macro was reported as unsupported");
+    require(inspectedFxNodes(report) == initial + 3,
+            "Macro descendants were omitted from the native inspection count");
+  }
+  require(nativeState(fixture) == before && fixture.document.revision == 7,
+          "Macro inspection changed native contents or revision");
+}
+
+void unsupportedMacroInspection(Context& context) {
+  Fixture fixture(context);
+  auto* macro = inspectionMacro(fixture);
+  macro->getRoot()->setFxId(L"outside_profile");
+  for (const QString& method :
+       {"cast.list", "cast.usage", "scene.dependencies", "scene.validate"}) {
+    const auto report = fixture.read(method);
+    require(!report.value("traversal_complete").toBool() &&
+                report.value("reasons").toArray().contains("unsupported_fx"),
+            "Malformed macro did not retain an incomplete inspection report");
+    if (method == "scene.validate")
+      require(hasCode(report, "unsupportedFx"),
+              "Malformed macro did not produce a bounded validation issue");
+  }
+  TFxP empty(new TMacroFx);
+  auto* graph = fixture.document.scene->getTopXsheet()->getFxDag();
+  graph->assignUniqueId(empty.getPointer());
+  graph->getInternalFxs()->addFx(empty.getPointer());
+  require(hasCode(fixture.read("scene.validate"), "unsupportedFx"),
+          "Empty macro entered an unbounded native traversal");
+  require(fixture.document.revision == 7,
+          "Unsupported macro inspection changed revision");
+}
+
+void macroInspectionBudget(Context& context) {
+  Fixture fixture(context);
+  const int initial = inspectedFxNodes(fixture.read("scene.validate"));
+  inspectionMacro(fixture);
+  auto* effects =
+      fixture.document.scene->getTopXsheet()->getFxDag()->getInternalFxs();
+  for (int index = 0; index < 4096 - initial - 3; ++index)
+    effects->addFx(inspectionEffect(fixture, "STD_blurFx").getPointer());
+  auto report = fixture.read("scene.validate");
+  require(report.value("traversal_complete").toBool() &&
+              inspectedFxNodes(report) == 4096,
+          "Exact macro descendant budget was rejected");
+  effects->addFx(inspectionEffect(fixture, "STD_blurFx").getPointer());
+  report = fixture.read("scene.validate");
+  require(!report.value("traversal_complete").toBool() &&
+              report.value("reasons").toArray().contains("fx_limit") &&
+              inspectedFxNodes(report) <= 4096,
+          "Macro descendants bypassed the global FX inspection budget");
+}
+
 }  // namespace
 
 void runAutomationProductionTests(Context& context) {
@@ -437,9 +523,12 @@ void runAutomationProductionTests(Context& context) {
   inconsistentNetworkAlias(context);
   linkedOriginsAndStaleReads(context);
   responseByteBoundary(context);
+  qualifiedMacroInspection(context);
+  unsupportedMacroInspection(context);
+  macroInspectionBudget(context);
   require(context.mutationStarted() == mutation,
           "Read inspection changed the worker mutation marker");
-  std::cout << "PASS: native production inspection boundaries (9 groups)\n";
+  std::cout << "PASS: native production inspection boundaries (12 groups)\n";
 }
 
 }  // namespace GroundzeroAutomation
