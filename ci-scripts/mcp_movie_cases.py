@@ -151,17 +151,29 @@ def _check_artifact(case: NativeAcceptance, artifact: dict[str, Any]) -> Path:
     return path
 
 
-def _run_tool(case: NativeAcceptance, name: str, arguments: list[str]) -> bytes:
+def _run_tool(
+    case: NativeAcceptance, name: str, arguments: list[str], *, timeout: int = 60
+) -> bytes:
     result = subprocess.run(
         [str(_binary(_media_directory(case), name)), *arguments],
         stdin=subprocess.DEVNULL,
         capture_output=True,
-        timeout=60,
+        timeout=timeout,
         check=False,
     )
     (case.directory / f"{name}.stderr.log").write_bytes(result.stderr)
     case.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
     return result.stdout
+
+
+def _frame_sync_args(case: NativeAcceptance) -> list[str]:
+    output = _run_tool(case, "ffmpeg", ["-hide_banner", "-h", "full"], timeout=8)
+    help_text = output + (case.directory / "ffmpeg.stderr.log").read_bytes()
+    if b"-fps_mode" in help_text:
+        return ["-fps_mode", "passthrough"]
+    if b"-vsync" in help_text:
+        return ["-vsync", "0"]
+    raise AssertionError("Configured FFmpeg has no supported frame passthrough option")
 
 
 def _probe(case: NativeAcceptance, path: Path, artifact: dict[str, Any]) -> None:
@@ -199,8 +211,7 @@ def _decoded_colors(case: NativeAcceptance, path: Path) -> None:
             str(path),
             "-map",
             "0:v:0",
-            "-fps_mode",
-            "passthrough",
+            *_frame_sync_args(case),
             "-f",
             "rawvideo",
             "-pix_fmt",
@@ -313,7 +324,8 @@ def movie_cancellation_publishes_no_artifact(case: NativeAcceptance) -> None:
     document, _effect = _fixture(case)
     before = case.success("scene.summary", {"document_id": document})
     job = case.mutate("render.submit", document, **{**_options(), "end_frame": 129})
-    case.mutate("render.cancel", None, job_id=job["job_id"])
+    canceled = case.success("render.cancel", case.write_params(None, {"job_id": job["job_id"]}))
+    case.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
     _unpublished(case, job, "canceled")
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
     case.assertTrue(case.preview(document))
