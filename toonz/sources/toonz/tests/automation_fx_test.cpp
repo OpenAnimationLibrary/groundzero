@@ -2,6 +2,7 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
+#include "automation_live_protocol.h"
 
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
@@ -689,6 +690,7 @@ void runAutomationFxTests(Context& context) {
   context.removeDocument(document.id);
   testAssetBudget(context);
   runAutomationDispatcherTests(context);
+  Live::runAutomationLiveProtocolTests();
 }
 
 }  // namespace GroundzeroAutomation

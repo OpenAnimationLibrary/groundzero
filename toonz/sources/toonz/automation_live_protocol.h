@@ -19,5 +19,9 @@ bool isWrite(const QString& method);
 QJsonObject capabilities(const QString& mode);
 QJsonObject liveError(const Error& error);
 
+#ifdef BUILD_UI_PORT_TESTS
+void runAutomationLiveProtocolTests();
+#endif
+
 }  // namespace Live
 }  // namespace GroundzeroAutomation

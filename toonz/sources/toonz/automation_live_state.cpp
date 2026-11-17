@@ -218,7 +218,8 @@ void SharedState::finish(const std::shared_ptr<Ticket>& ticket,
   releaseCapacity(*ticket);
   if (oversized) {
     m_writesDisabled = true;
-    ticket->outcome  = failure(
+    m_status.insert("write_admission", false);
+    ticket->outcome = failure(
         "partially_applied",
         "The live outcome exceeded reserved storage. Inspect editor state and "
         "restart.",
