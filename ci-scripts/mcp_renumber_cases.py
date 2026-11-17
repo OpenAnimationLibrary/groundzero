@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mcp_png import decode_png
+from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -20,6 +21,7 @@ FRAMES = [
     {"number": 21, "suffix": "z"},
 ]
 DPI = 120.25
+RENDER_FRAMES = (0, 2, 4, 6, 7)
 RECTANGLE = {
     "coordinate_space": "raster_pixels_lower_left",
     "x": 0,
@@ -172,6 +174,48 @@ def _files(package: Path) -> dict[str, str]:
     }
 
 
+def _rendered_frames(test: NativeAcceptance, document: str) -> dict[int, list[Pixel]]:
+    revision = test.revisions[document]
+    job = test.mutate("render.submit", document, start_frame=0, end_frame=7, width=32, height=32)
+    test.assertEqual(job["source_revision"], revision)
+    status = test.wait_job(job["job_id"])
+    test.assertEqual(status["status"], "completed", status)
+    test.assertTrue(status["writers_closed"])
+    test.assertEqual(status["completed_frames"], 8)
+    artifacts = test.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    test.assertEqual(sorted(artifact["frame"] for artifact in artifacts), list(range(8)))
+    rendered = {}
+    for artifact in artifacts:
+        frame = artifact["frame"]
+        if frame not in RENDER_FRAMES:
+            continue
+        result = test.success("artifact.read", {"artifact_id": artifact["artifact_id"]})
+        test.assertEqual(result["frame"], frame)
+        test.assertEqual(result["source_revision"], revision)
+        test.assertEqual(result["image"]["mimeType"], "image/png")
+        data = base64.b64decode(result["image"]["data"], validate=True)
+        test.assertEqual(hashlib.sha256(data).hexdigest(), artifact["sha256"])
+        width, height, pixels = decode_png(data)
+        test.assertEqual((width, height), (32, 32))
+        rendered[frame] = pixels
+    test.assertEqual(test.revisions[document], revision)
+    return rendered
+
+
+def _render_baseline(test: NativeAcceptance, document: str) -> dict[int, list[Pixel]]:
+    rendered = _rendered_frames(test, document)
+    test.assertEqual(set(rendered), set(RENDER_FRAMES))
+    for frame, pixels in rendered.items():
+        test.assertTrue(any(pixel[3] for pixel in pixels), f"Frame {frame} has no visible artwork")
+        test.assertGreater(len(set(pixels)), 1, f"Frame {frame} has no visible artwork boundary")
+    test.assertEqual(
+        len({tuple(rendered[frame]) for frame in RENDER_FRAMES[:4]}),
+        4,
+        "Each exposed drawing must render a distinct image before renumbering",
+    )
+    return rendered
+
+
 def _assert_mapping_art(
     test: NativeAcceptance,
     document: str,
@@ -200,7 +244,7 @@ def check_renumber_roundtrip(test: NativeAcceptance, image_format: str) -> None:
     original_art = [
         _art(test, document, {"level_id": level_id, "drawing_id": frame}) for frame in FRAMES
     ]
-    before_render = decode_png(test.preview(document))
+    before_render = _render_baseline(test, document)
     palette = (
         None
         if image_format == "rgba8"
@@ -220,10 +264,11 @@ def check_renumber_roundtrip(test: NativeAcceptance, image_format: str) -> None:
     test.assertEqual(result["drawings_renumbered"], 3)
     test.assertEqual(result["exposures_updated"], 12)
     _assert_mapping_art(test, document, level_id, rotated, original_art)
-    test.assertEqual(decode_png(test.preview(document)), before_render)
+    test.assertEqual(_rendered_frames(test, document), before_render)
     package = _save(test, document, f"renumber-cycle-{image_format}")
     document, level_id = _open(test, package)
     _assert_mapping_art(test, document, level_id, rotated, original_art)
+    test.assertEqual(_rendered_frames(test, document), before_render)
     maximum = 65535 if image_format == "vector" else 999999
     boundary = {"number": maximum, "suffix": "abcdefgh"}
     swapped = [rotated[1], rotated[0], rotated[2], boundary]
@@ -237,6 +282,7 @@ def check_renumber_roundtrip(test: NativeAcceptance, image_format: str) -> None:
     test.assertEqual(result["drawings_renumbered"], 3)
     test.assertEqual(result["exposures_updated"], 12)
     _assert_mapping_art(test, document, level_id, swapped, original_art)
+    test.assertEqual(_rendered_frames(test, document), before_render)
     test.failure(
         "drawing.inspect", {"document_id": document, "level_id": level_id, "drawing_id": FRAMES[3]}
     )
@@ -248,6 +294,7 @@ def check_renumber_roundtrip(test: NativeAcceptance, image_format: str) -> None:
         test.assertTrue(any(f"{maximum}abcdefgh" in path.name for path in package.rglob("*.png")))
     document, level_id = _open(test, package)
     _assert_mapping_art(test, document, level_id, swapped, original_art)
+    test.assertEqual(_rendered_frames(test, document), before_render)
     if palette is not None:
         test.assertEqual(
             test.success("palette.inspect", {"document_id": document, "level_id": level_id}),
