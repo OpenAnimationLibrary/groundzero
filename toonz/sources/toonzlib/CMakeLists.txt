@@ -128,6 +128,7 @@ set(HEADERS
     ../include/toonz/sceneresources.h
     ../include/toonz/skeleton.h
     ../include/toonz/stage.h
+    ../include/toonz/stageunits.h
     ../include/toonz/stage2.h
     ../include/toonz/stageobjectutil.h
     ../include/toonz/stageplayer.h

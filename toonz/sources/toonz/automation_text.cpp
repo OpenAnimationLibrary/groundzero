@@ -6,7 +6,7 @@
 #include "tregion.h"
 #include "tsimplecolorstyles.h"
 #include "tstroke.h"
-#include "toonz/stage.h"
+#include "toonz/stageunits.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
