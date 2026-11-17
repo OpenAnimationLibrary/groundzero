@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
+# Apple's linker searches every archive on the command line, so a static
+# library never needs to be repeated; with CMP0156 (CMake 3.29+) CMake stops
+# repeating them. Without it the pinned OpenEXR archive appears twice on
+# the FX library's link line (Homebrew's opencv_imgcodecs names
+# OpenEXR::OpenEXR as a dependency) and ld warns about the duplicate.
+if(APPLE AND POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
 
 set(CMAKE_BUILD_TYPE_INIT Release)
 
