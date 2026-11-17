@@ -42,24 +42,25 @@ def _otool(record: dict[str, Any]) -> str:
     )
 
 
+def _replace_load_values(
+    record: dict[str, Any], key: str, value: str, replacement: str
+) -> None:
+    record[key] = [replacement if item == value else item for item in record[key]]
+
+
 def _install_name(arguments: list[str], record: dict[str, Any]) -> None:
     record["signed"] = False
     position = 1
     while position < len(arguments) - 1:
         option, value = arguments[position : position + 2]
-        if option == "-change":
-            record["dependencies"] = [
-                arguments[position + 2] if item == value else item
-                for item in record["dependencies"]
-            ]
-            position += 1
-        elif option == "-rpath":
-            record["rpaths"] = [
-                arguments[position + 2] if item == value else item
-                for item in record["rpaths"]
-            ]
-            position += 1
-        elif option == "-id":
+        replacements = {"-change": "dependencies", "-rpath": "rpaths"}
+        if option in replacements:
+            _replace_load_values(
+                record, replacements[option], value, arguments[position + 2]
+            )
+            position += 3
+            continue
+        if option == "-id":
             record["identifier"] = value
         elif option == "-delete_rpath":
             record["rpaths"].remove(value)
@@ -206,11 +207,11 @@ class MacosBundleContracts(unittest.TestCase):
             dependencies=(str(source),),
             rpaths=("@executable_path/../Frameworks",),
         )
-        with patch.dict(os.environ, {"DYLD_LIBRARY_PATH": str(self.libraries)}):
-            with self.assertRaisesRegex(
-                RuntimeError, "Nonportable absolute dependency"
-            ):
-                bundling.verify_bundle(self.app)
+        with (
+            patch.dict(os.environ, {"DYLD_LIBRARY_PATH": str(self.libraries)}),
+            self.assertRaisesRegex(RuntimeError, "Nonportable absolute dependency"),
+        ):
+            bundling.verify_bundle(self.app)
         self.image(
             self.main,
             dependencies=("@rpath/libambient.dylib",),
@@ -218,6 +219,48 @@ class MacosBundleContracts(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "Unresolved dependency"):
             bundling.verify_bundle(self.app)
+
+    def test_versioned_external_alias_reuses_the_bundled_dylib(self) -> None:
+        original = self.image(
+            self.libraries / "libnative.4.13.0.dylib",
+            identifier="@rpath/libnative.413.dylib",
+        )
+        alias = self.frameworks / "libnative.413.dylib"
+        _write(alias, _record(original))
+        self.image(self.main, dependencies=(str(original), str(alias)))
+        self.assertEqual(bundling.deploy_bundle(self.app, (self.libraries,)), 2)
+        self.assertFalse((self.frameworks / original.name).exists())
+        self.assertEqual(
+            _record(self.main)["dependencies"],
+            ["@loader_path/../Frameworks/libnative.413.dylib"] * 2,
+        )
+        self.assertEqual(bundling.verify_bundle(self.app), 2)
+
+    def test_existing_dylib_aliases_use_one_load_path(self) -> None:
+        first = self.image(
+            self.frameworks / "libnative.4.13.0.dylib",
+            identifier="@rpath/libnative.4.13.0.dylib",
+        )
+        second = self.frameworks / "libnative.413.dylib"
+        record = _record(first)
+        record["identifier"] = "@rpath/libnative.413.dylib"
+        _write(second, record)
+        self.image(
+            self.main,
+            dependencies=(
+                "@loader_path/../Frameworks/" + first.name,
+                "@loader_path/../Frameworks/" + second.name,
+            ),
+            rpaths=("@executable_path/../Frameworks",),
+        )
+        with self.assertRaisesRegex(RuntimeError, "Duplicate dylib load paths"):
+            bundling.verify_bundle(self.app)
+        self.assertEqual(bundling.deploy_bundle(self.app, ()), 3)
+        self.assertEqual(
+            _record(self.main)["dependencies"],
+            ["@loader_path/../Frameworks/libnative.4.13.0.dylib"] * 2,
+        )
+        self.assertEqual(bundling.verify_bundle(self.app), 3)
 
     def test_conflicting_library_roots_and_destination_names_reject(self) -> None:
         first = self.image(self.libraries / "libsame.dylib")
@@ -393,15 +436,17 @@ class MacosBundleContracts(unittest.TestCase):
     ) -> None:
         with self.assertRaisesRegex(RuntimeError, "Malformed Mach-O name"):
             bundling.parse_image("Load command 0\n cmd LC_LOAD_DYLIB\n missing-name\n")
-        with patch.object(
-            bundling.subprocess,
-            "run",
-            side_effect=subprocess.CalledProcessError(
-                1, ["otool"], stderr="native diagnostic"
+        with (
+            patch.object(
+                bundling.subprocess,
+                "run",
+                side_effect=subprocess.CalledProcessError(
+                    1, ["otool"], stderr="native diagnostic"
+                ),
             ),
+            self.assertRaisesRegex(RuntimeError, "native diagnostic"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "native diagnostic"):
-                bundling.verify_bundle(self.app)
+            bundling.verify_bundle(self.app)
 
 
 if __name__ == "__main__":

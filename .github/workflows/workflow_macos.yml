@@ -497,9 +497,15 @@ jobs:
         run: |
           set -euo pipefail
           application="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app"
-          python3 ci-scripts/macos_bundle.py "$application" \
-            --library-root "$(brew --prefix)/lib" \
+          library_roots=(
+            --library-root "$(brew --prefix)/lib"
             --library-root "$(brew --prefix qt@5)/lib"
+          )
+          gcc_runtime="$(brew --prefix)/lib/gcc/current"
+          if [[ -d "$gcc_runtime" ]]; then
+            library_roots+=(--library-root "$gcc_runtime")
+          fi
+          python3 ci-scripts/macos_bundle.py "$application" "${library_roots[@]}"
           webp_notice="$(brew --prefix webp)/COPYING"
           test -s "$webp_notice"
           mkdir -p "$application/Contents/Resources/licenses"

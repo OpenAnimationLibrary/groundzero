@@ -200,6 +200,18 @@ class _Bundle:
         self.metadata: dict[Path, Image] = {}
         self.origins: dict[Path, Path] = {}
         self.architecture_sets: dict[Path, frozenset[str]] = {}
+        self.dependencies: dict[frozenset[str], Path] = {}
+        for path in _images(self.application):
+            self.register_dependency(path)
+
+    def register_dependency(self, path: Path) -> Path:
+        """Reuse one loaded dylib path across equivalent versioned aliases."""
+        image = self.inspect(path)
+        if image.identifier is None or not image.uuids:
+            return path
+        canonical = self.dependencies.setdefault(image.uuids, path)
+        self.require_architectures(canonical)
+        return canonical
 
     def architectures(self, path: Path) -> frozenset[str]:
         """Read the architectures supported by one native image."""
@@ -254,30 +266,26 @@ class _Bundle:
         if not reference.startswith("@rpath/"):
             raise RuntimeError(f"Unsupported dependency {reference!r} in {owner}")
         relative = reference[len("@rpath/") :]
-        candidates = []
-        for image in dict.fromkeys((owner, self.main, self.origins.get(owner, owner))):
-            for rpath in self.inspect(image).rpaths:
-                directory = _expand(rpath, image, executable)
-                if directory is not None:
-                    candidates.append(directory / relative)
+        candidates = self.runpath_candidates(owner, relative)
         if not deployed:
             candidates.extend([self.frameworks / relative, executable / relative])
             candidates.extend(root / relative for root in self.library_roots)
         return candidates
 
+    def runpath_candidates(self, owner: Path, relative: str) -> list[Path]:
+        """Find a declared runpath in the owner, its origin or the main image."""
+        candidates = []
+        images = dict.fromkeys((owner, self.main, self.origins.get(owner, owner)))
+        for image in images:
+            for rpath in self.inspect(image).rpaths:
+                directory = _expand(rpath, image, self.executable_directory(owner))
+                if directory is not None:
+                    candidates.append(directory / relative)
+        return candidates
+
     def resolve(self, owner: Path, reference: str, *, deployed: bool) -> Path:
         """Resolve a dependency, rejecting external paths in verification mode."""
-        candidates = self.candidates(owner, reference, deployed=deployed)
-        found = []
-        for candidate in candidates:
-            if candidate.is_file():
-                actual = candidate.resolve(strict=True)
-                if deployed and not _inside(actual, self.application):
-                    raise RuntimeError(
-                        f"Ambient dependency {reference!r} in {owner}: {actual}"
-                    )
-                if actual not in found:
-                    found.append(actual)
+        found = self.resolved_candidates(owner, reference, deployed=deployed)
         if not found:
             raise RuntimeError(f"Unresolved dependency {reference!r} in {owner}")
         if any(not self.same_image(found[0], candidate) for candidate in found[1:]):
@@ -286,6 +294,22 @@ class _Bundle:
             )
         self.require_architectures(found[0])
         return found[0]
+
+    def resolved_candidates(
+        self, owner: Path, reference: str, *, deployed: bool
+    ) -> list[Path]:
+        """Collect existing unique paths without allowing deployed dependencies to escape."""
+        found = []
+        for candidate in self.candidates(owner, reference, deployed=deployed):
+            if candidate.is_file():
+                actual = candidate.resolve(strict=True)
+                if deployed and not _inside(actual, self.application):
+                    raise RuntimeError(
+                        f"Ambient dependency {reference!r} in {owner}: {actual}"
+                    )
+                if actual not in found:
+                    found.append(actual)
+        return found
 
     def same_image(self, first: Path, second: Path) -> bool:
         """Compare identity across install-name edits, rejecting name collisions."""
@@ -302,7 +326,7 @@ class _Bundle:
         """Copy an actual dependency once, preserving framework layout and symlinks."""
         self.require_architectures(source)
         if _inside(source, self.application):
-            return source
+            return self.register_dependency(source)
         if not _macho(source):
             raise RuntimeError(f"Dependency is not Mach-O: {source}")
         framework = next(
@@ -313,13 +337,8 @@ class _Bundle:
             destination = (
                 self.frameworks / framework.name / source.relative_to(framework)
             )
-        if destination.exists():
-            self.require_architectures(destination)
-            if not self.same_image(source, destination):
-                raise RuntimeError(f"Conflicting bundled dependency: {destination}")
-            destination = destination.resolve(strict=True)
-            self.origins[destination] = source
-            return destination
+        if existing := self.existing_dependency(source, destination):
+            return existing
         self.frameworks.mkdir(parents=True, exist_ok=True)
         if framework is None:
             shutil.copy2(source, destination)
@@ -327,7 +346,21 @@ class _Bundle:
             shutil.copytree(framework, self.frameworks / framework.name, symlinks=True)
         destination = destination.resolve(strict=True)
         self.origins[destination] = source
-        return destination
+        return self.register_dependency(destination)
+
+    def existing_dependency(self, source: Path, destination: Path) -> Path | None:
+        """Check name collisions before reusing a complete native dylib identity."""
+        if destination.exists():
+            self.require_architectures(destination)
+            if not self.same_image(source, destination):
+                raise RuntimeError(f"Conflicting bundled dependency: {destination}")
+            destination = destination.resolve(strict=True)
+            self.origins[destination] = source
+            return self.register_dependency(destination)
+        image = self.inspect(source)
+        if image.identifier is not None:
+            return self.dependencies.get(image.uuids)
+        return None
 
     def rewrite(self, owner: Path, links: dict[str, Path]) -> None:
         """Replace loader references and remove non-bundle, non-system search paths."""
@@ -374,6 +407,28 @@ class _Bundle:
         return arguments
 
 
+def _verify_runpaths(bundle: _Bundle, owner: Path, info: Image) -> None:
+    for rpath in info.rpaths:
+        expanded = _expand(rpath, owner, bundle.executable_directory(owner))
+        if not _system(rpath) and (
+            rpath.startswith("/")
+            or expanded is None
+            or not _inside(expanded, bundle.application)
+        ):
+            raise RuntimeError(f"Ambient runpath {rpath!r} in {owner}")
+
+
+def _verify_load_path(
+    bundle: _Bundle, target: Path, loaded: dict[frozenset[str], Path]
+) -> None:
+    info = bundle.inspect(target)
+    if info.identifier is None or not info.uuids:
+        return
+    first = loaded.setdefault(info.uuids, target)
+    if first != target:
+        raise RuntimeError(f"Duplicate dylib load paths: {first} and {target}")
+
+
 def verify_bundle(application: Path) -> int:
     """Reject dependencies and runpaths that can escape a shipped application.
 
@@ -382,24 +437,19 @@ def verify_bundle(application: Path) -> int:
     """
     bundle = _Bundle(application)
     images = _images(bundle.application)
+    loaded: dict[frozenset[str], Path] = {}
     for owner in images:
         bundle.require_architectures(owner)
         info = bundle.inspect(owner)
-        for rpath in info.rpaths:
-            expanded = _expand(rpath, owner, bundle.executable_directory(owner))
-            if not _system(rpath) and (
-                rpath.startswith("/")
-                or expanded is None
-                or not _inside(expanded, bundle.application)
-            ):
-                raise RuntimeError(f"Ambient runpath {rpath!r} in {owner}")
+        _verify_runpaths(bundle, owner, info)
         for reference in info.dependencies:
             if not _system(reference):
                 if reference.startswith("/"):
                     raise RuntimeError(
                         f"Nonportable absolute dependency {reference!r} in {owner}"
                     )
-                bundle.resolve(owner, reference, deployed=True)
+                target = bundle.resolve(owner, reference, deployed=True)
+                _verify_load_path(bundle, target, loaded)
         _native_signature(owner)
     if "@executable_path/../Frameworks" not in bundle.inspect(bundle.main).rpaths:
         raise RuntimeError("Main executable lacks its bundle Frameworks runpath")
