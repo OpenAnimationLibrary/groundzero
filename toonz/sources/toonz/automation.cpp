@@ -369,17 +369,55 @@ bool writeResponse(QFile& output, QJsonObject response) {
   return true;
 }
 
+#ifdef BUILD_UI_PORT_TESTS
+int domainTestResult(Context& context) {
+  try {
+    runAutomationFxTests(context);
+    runAutomationMediaProcessTests(context);
+    return 0;
+  } catch (const Error& error) {
+    std::cerr << "automation-worker: domain tests: "
+              << error.code.toStdString() << ": "
+              << error.message.toStdString() << '\n';
+  } catch (const TException& error) {
+    std::cerr << "automation-worker: domain tests: "
+              << QString::fromStdWString(error.getMessage()).toStdString()
+              << '\n';
+  } catch (const std::exception& error) {
+    std::cerr << "automation-worker: domain tests: " << error.what() << '\n';
+  } catch (...) {
+    std::cerr << "automation-worker: domain tests: unknown native exception\n";
+  }
+  return 2;
+}
+
+int executeDomainTests(QApplication& application, Context& context) {
+  bool completed = false;
+  const bool queued = QMetaObject::invokeMethod(
+      &application,
+      [&application, &context, &completed] {
+        const int result = domainTestResult(context);
+        completed = true;
+        application.exit(result);
+      },
+      Qt::QueuedConnection);
+  if (!queued)
+    throw Error("internal_error", "Could not queue native domain tests.");
+  const int result = application.exec();
+  TImageCache::instance()->clear(true);
+  if (!completed)
+    throw Error("internal_error",
+                "The application exited before native domain tests finished.");
+  return result;
+}
+#endif
+
 int executeWorker(QApplication& application, QFile& output,
                   const Options& options) {
   Context context(options.workspace, options.inputRoots);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
-  if (options.testDomains) {
-    runAutomationFxTests(context);
-    runAutomationMediaProcessTests(context);
-    TImageCache::instance()->clear(true);
-    return 0;
-  }
+  if (options.testDomains) return executeDomainTests(application, context);
 #endif
   Dispatcher dispatcher(context);
   InputThread reader(application, [&dispatcher, &output](const QByteArray& line,

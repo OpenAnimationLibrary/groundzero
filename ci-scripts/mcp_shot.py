@@ -642,7 +642,9 @@ def reference_frames(shot: Shot, document: str, edited_preview: str) -> dict[int
     return expected
 
 
-def movie_tool(shot: Shot, media_tools: Path, name: str, arguments: list[str]) -> bytes:
+def movie_tool(
+    shot: Shot, media_tools: Path, name: str, arguments: list[str], *, timeout: int = 60
+) -> bytes:
     """Run an explicitly configured media tool and retain its diagnostics.
 
     Args:
@@ -650,13 +652,14 @@ def movie_tool(shot: Shot, media_tools: Path, name: str, arguments: list[str]) -
         media_tools: Canonical directory containing the admitted real executables.
         name: The ffmpeg or ffprobe executable basename.
         arguments: Explicit arguments without shell interpolation.
+        timeout: Maximum number of seconds allowed for the media tool.
     """
     executable = media_tools / (name + ".exe" if os.name == "nt" else name)
     result = subprocess.run(
         [str(executable), *arguments],
         stdin=subprocess.DEVNULL,
         capture_output=True,
-        timeout=60,
+        timeout=timeout,
         check=False,
     )
     (shot.output / f"movie-{name}.stderr.log").write_bytes(result.stderr)
@@ -665,6 +668,22 @@ def movie_tool(shot: Shot, media_tools: Path, name: str, arguments: list[str]) -
         f"Movie {name} failed: {result.stderr.decode('utf-8', errors='replace')}",
     )
     return result.stdout
+
+
+def movie_frame_sync_args(shot: Shot, media_tools: Path) -> list[str]:
+    """Select an advertised option that preserves every decoded movie frame.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        media_tools: Canonical directory containing the admitted real executables.
+    """
+    output = movie_tool(shot, media_tools, "ffmpeg", ["-hide_banner", "-h", "full"], timeout=8)
+    help_text = output + (shot.output / "movie-ffmpeg.stderr.log").read_bytes()
+    if b"-fps_mode" in help_text:
+        return ["-fps_mode", "passthrough"]
+    if b"-vsync" in help_text:
+        return ["-vsync", "0"]
+    raise AssertionError("Configured FFmpeg has no supported frame passthrough option")
 
 
 def check_movie_artifact(shot: Shot, job: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
@@ -805,8 +824,7 @@ def decode_movie(
             str(path),
             "-map",
             "0:v:0",
-            "-fps_mode",
-            "passthrough",
+            *movie_frame_sync_args(shot, media_tools),
             "-f",
             "rawvideo",
             "-pix_fmt",
