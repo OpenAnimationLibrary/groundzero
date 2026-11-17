@@ -188,10 +188,12 @@ void nestedConsumerInvalidation(Context& context) {
   b->getParam(TStageObject::T_Path)->setDefaultValue(75);
   attach(dispatcher, document, parent, path, false);
   attach(dispatcher, document, child, path, false);
+  const auto childLocal = [&] {
+    return a->getPlacement(0).inv() * b->getPlacement(0);
+  };
   near(a->getPlacement(0).a13 / Stage::inch, 0.5);
-  near(b->getPlacement(0).a13 / Stage::inch, 1.5);
-  const auto before = c->getParentPlacement(0) * c->getPlacement(0);
-  near(before.a13 / Stage::inch, 2);
+  near(childLocal().a13 / Stage::inch, 1.5);
+  near(c->getPlacement(0).a13 / Stage::inch, 2);
   b->lock(true);
   rejected(dispatcher, document, "motion_path.update",
            updatePathParams(document, path, points(0, 4)), "locked");
@@ -199,8 +201,8 @@ void nestedConsumerInvalidation(Context& context) {
   result(dispatcher, "motion_path.update",
          updatePathParams(document, path, points(0, 4)));
   near(a->getPlacement(0).a23 / Stage::inch, 1);
-  near(b->getPlacement(0).a23 / Stage::inch, 3);
-  const auto after = c->getParentPlacement(0) * c->getPlacement(0);
+  near(childLocal().a23 / Stage::inch, 3);
+  const auto after = c->getPlacement(0);
   near(after.a13, 0);
   near(after.a23 / Stage::inch, 4);
   context.removeDocument(document.id);
