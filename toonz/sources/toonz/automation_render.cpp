@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_audio.h"
+#include "automation_fx.h"
 #include "automation_media.h"
 #include "automation_neural.h"
 #include "stdfx/neuralstyleworker.h"
@@ -280,6 +281,7 @@ public:
   QString error;
   Request request;
   QJsonObject assistance;
+  QJsonArray provenance;
   std::shared_ptr<const NeuralStyle::WorkerExecution> neuralExecution;
   std::unique_ptr<ToonzScene> snapshot;
   std::unique_ptr<MovieRenderer> renderer;
@@ -302,27 +304,29 @@ public:
   }
 
   QJsonObject describe() const {
-    QJsonObject result{{"job_id", id},
-            {"document_id", documentId},
-            {"source_revision", revision},
-            {"status", statusText(status)},
-            {"frame_count", request.count()},
-            {"completed_frames", int(completed.size())},
-            {"failed_frames", int(failed.size())},
-            {"writers_closed", writersClosed},
-            {"width", request.width},
-            {"height", request.height},
-            {"start_frame", request.start},
-            {"end_frame", request.end},
-            {"step", request.step},
-            {"frame_rate", frameRate},
-            {"format", formatText(request.format)},
-            {"profile",
-             request.format == Format::Mp4 ? "opaque8-mp4" : "rgba8-png"},
-            {"color_space", "nonlinear"},
-            {"color_space_gamma", 2.2},
-            {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
-            {"error", error}};
+    QJsonObject result{
+        {"job_id", id},
+        {"document_id", documentId},
+        {"source_revision", revision},
+        {"status", statusText(status)},
+        {"frame_count", request.count()},
+        {"completed_frames", int(completed.size())},
+        {"failed_frames", int(failed.size())},
+        {"writers_closed", writersClosed},
+        {"width", request.width},
+        {"height", request.height},
+        {"start_frame", request.start},
+        {"end_frame", request.end},
+        {"step", request.step},
+        {"frame_rate", frameRate},
+        {"format", formatText(request.format)},
+        {"profile",
+         request.format == Format::Mp4 ? "opaque8-mp4" : "rgba8-png"},
+        {"color_space", "nonlinear"},
+        {"color_space_gamma", 2.2},
+        {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
+        {"error", error},
+        {"fx_provenance", provenance}};
     if (!assistance.isEmpty()) result.insert("assistance", assistance);
     return result;
   }
@@ -727,7 +731,12 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   if (Preferences::instance()->isSceneNumberingEnabled())
     throw Error("unsupported_render_settings",
                 "Disable scene numbering before automated rendering.");
+  validateAutomationFxGraph(*document.scene);
+  const QJsonArray provenance =
+      preflightAutomationRender(document, request.width, request.height,
+                                request.start, request.end, request.step);
   auto job                 = std::make_shared<RenderJob>();
+  job->provenance          = provenance;
   job->id                  = newId("job_");
   job->documentId          = document.id;
   job->revision            = document.revisionText();
@@ -788,9 +797,12 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
   if (Preferences::instance()->isSceneNumberingEnabled())
     throw Error("unsupported_render_settings", "Disable scene numbering before automated rendering.");
   validateAutomationScene(*document.scene);
+  const QJsonArray provenance = preflightAutomationRender(
+      document, request.width, request.height, request.start, request.end, 1);
   checkNeuralDeadline(deadline);
   const NeuralPreview preview = prepareNeuralPreview(context, document, params, deadline);
   auto job = std::make_shared<RenderJob>();
+  job->provenance = provenance;
   job->id = newId("job_");
   job->documentId = document.id;
   job->revision = document.revisionText();

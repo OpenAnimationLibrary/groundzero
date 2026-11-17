@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_fx.h"
+#include "automation_fx_profile.h"
 #include "automation_macro.h"
 #include "tmacrofx.h"
 
@@ -38,33 +39,7 @@
 namespace GroundzeroAutomation {
 namespace {
 
-const QStringList& colorCompositeTypes() {
-  static const QStringList types = {
-      "STD_brightContFx", "STD_hsvScaleFx", "multFx",
-      "screenFx",         "inFx",           "outFx",
-      "invertFx",         "blendFx"};
-  return types;
-}
-
-void validateColorCompositeProfile(TFx* fx);
-
-const QStringList& allowedTypes() {
-  static const QStringList types = {"colorCardFx",
-                                    "overFx",
-                                    "STD_iwa_LinearGradientFx",
-                                    "STD_radialGradientFx",
-                                    "STD_blurFx",
-                                    "STD_glowFx",
-                                    "STD_brightContFx",
-                                    "STD_hsvScaleFx",
-                                    "multFx",
-                                    "screenFx",
-                                    "inFx",
-                                    "outFx",
-                                    "invertFx",
-                                    "blendFx"};
-  return types;
-}
+const QStringList& allowedTypes() { return automationFxProfileTypes(); }
 
 QJsonObject stringSchema() { return {{"type", "string"}, {"minLength", 1}}; }
 
@@ -156,6 +131,18 @@ void requireColumnEditable(Document& document, TFx* fx) {
                 "Unlock the column and stage object before modifying it.");
 }
 
+// Names the affected effect in a constraint failure raised by action.
+template <typename Action>
+auto constraintForFx(Document& document, TFx* node, Action action) {
+  try {
+    return action();
+  } catch (Error& error) {
+    if (error.code == "PARAMETER_CONSTRAINT")
+      error.details.insert("fx_id", document.idForFx(node));
+    throw;
+  }
+}
+
 TFxP makeEffect(const QString& type) {
   if (!allowedTypes().contains(type))
     throw Error("UNSUPPORTED_FX",
@@ -177,9 +164,19 @@ TFxP makeEffect(const QString& type) {
   if (!fx || fx->getFxType() != name)
     throw Error("NATIVE_FAILURE",
                 "Builtin factory returned an unexpected effect.");
-  validateColorCompositeProfile(fx);
+  validateAutomationFxProfile(fx);
   object.release();
   return TFxP(fx);
+}
+
+bool typeAvailable(const QString& type) {
+  try {
+    makeEffect(type);
+    return true;
+  } catch (const Error& error) {
+    if (error.code != "UNAVAILABLE_FX") throw;
+    return false;
+  }
 }
 
 TFxP makeOutput() {
@@ -195,76 +192,9 @@ TFxP makeOutput() {
   return effect;
 }
 
-QJsonObject numericSchema(TDoubleParam* param) {
-  QJsonObject schema{{"type", "number"}};
-  double minimum, maximum, step;
-  if (param->getValueRange(minimum, maximum, step)) {
-    schema["minimum"] = minimum;
-    schema["maximum"] = maximum;
-  }
-  schema["measure"] = QString::fromStdString(param->getMeasureName());
-  if (!param->getUIChoices().empty()) {
-    QJsonArray choices;
-    for (const auto& choice : param->getUIChoices())
-      choices.append(QString::fromStdString(choice));
-    schema["choices"] = choices;
-  }
-  return schema;
-}
-
-QJsonObject fixedArraySchema(int size, const QJsonObject& items) {
-  return {{"type", "array"},
-          {"minItems", size},
-          {"maxItems", size},
-          {"items", items}};
-}
-
-QJsonObject discreteSchema(TParam* param) {
-  if (auto* integer = dynamic_cast<TIntParam*>(param)) {
-    int minimum, maximum;
-    integer->getValueRange(minimum, maximum);
-    return {{"type", "integer"}, {"minimum", minimum}, {"maximum", maximum}};
-  }
-  if (dynamic_cast<TBoolParam*>(param)) return {{"type", "boolean"}};
-  if (auto* enumeration = dynamic_cast<TEnumParam*>(param)) {
-    QJsonArray values, captions;
-    for (int index = 0; index < enumeration->getItemCount(); ++index) {
-      int value;
-      std::string caption;
-      enumeration->getItem(index, value, caption);
-      values.append(value);
-      captions.append(QString::fromStdString(caption));
-    }
-    return {{"type", "integer"}, {"enum", values}, {"captions", captions}};
-  }
-  return {};
-}
-
-QJsonObject valueSchema(TParam* param) {
-  if (auto* number = dynamic_cast<TDoubleParam*>(param))
-    return numericSchema(number);
-  if (dynamic_cast<TPixelParam*>(param))
-    return fixedArraySchema(
-        4, {{"type", "integer"}, {"minimum", 0}, {"maximum", 255}});
-  if (dynamic_cast<TPointParam*>(param))
-    return fixedArraySchema(2, {{"type", "number"}});
-  return discreteSchema(param);
-}
-
 QJsonObject profileSchema(TFx* fx, TParam* param, const QString& name) {
-  QJsonObject schema     = valueSchema(param);
-  const std::string type = parameterFx(fx)->getFxType();
-  if (type == "STD_hsvScaleFx" &&
-      (name == "hue_scale" || name == "saturation_scale" ||
-       name == "value_scale")) {
-    schema["minimum"] = 0;
-    schema["maximum"] = 400;
-  }
-  if (type == "multFx" && name == "value") {
-    schema["minimum"] = -255;
-    schema["maximum"] = 255;
-  }
-  return schema;
+  return automationFxParameterSchema(parameterFx(fx), param,
+                                     name.toStdString());
 }
 
 QJsonValue discreteValue(TParam* param) {
@@ -353,42 +283,41 @@ QJsonArray portsDescription(TFx* fx, Document* document = nullptr) {
   return ports;
 }
 
+QJsonObject catalogEntry(const QString& type) {
+  TFxP fx = makeEffect(type);
+  QJsonObject entry{
+      {"type", type},
+      {"available", true},
+      {"native_fx_version", fx->getFxVersion()},
+      {"authoring", QJsonArray{"rename", "enabled.set", "duplicate",
+                               "preset.save", "preset.apply"}},
+      {"generator", dynamic_cast<TZeraryFx*>(fx.getPointer()) != nullptr},
+      {"ports", portsDescription(fx.getPointer())},
+      {"parameters", parameterDescriptions(fx.getPointer(), 0)}};
+  const QJsonObject profile = automationFxProfileDescription(type);
+  for (auto field = profile.begin(); field != profile.end(); ++field)
+    entry.insert(field.key(), field.value());
+  return entry;
+}
+
 QJsonValue effectCatalog() {
   QJsonArray effects;
   for (const auto& type : allowedTypes()) {
     try {
-      TFxP fx = makeEffect(type);
-      effects.append(QJsonObject{
-          {"type", type},
-          {"available", true},
-          {"native_fx_version", fx->getFxVersion()},
-          {"authoring", QJsonArray{"rename", "enabled.set", "duplicate",
-                                   "preset.save", "preset.apply"}},
-          {"generator", dynamic_cast<TZeraryFx*>(fx.getPointer()) != nullptr},
-          {"ports", portsDescription(fx.getPointer())},
-          {"parameters", parameterDescriptions(fx.getPointer(), 0)}});
+      effects.append(catalogEntry(type));
     } catch (const Error& error) {
       if (error.code != "UNAVAILABLE_FX") throw;
       effects.append(QJsonObject{
           {"type", type}, {"available", false}, {"reason", error.message}});
     }
   }
-  return QJsonObject{{"profile", "builtin-2d-v1"},
+  return QJsonObject{{"profile", automationFxProfileName()},
                      {"external_dependencies", QJsonArray{}},
                      {"effects", effects},
                      {"output_creation_type", "output"}};
 }
 
-QJsonArray diagnostics(TFx* fx) {
-  QJsonArray result;
-  if (fx->getFxType() == "STD_glowFx" &&
-      !fx->getInputPort("Light")->isConnected())
-    result.append(QJsonObject{
-        {"code", "GLOW_WITHOUT_LIGHT"},
-        {"message",
-         "Glow has no Light input; Source passes through unchanged."}});
-  return result;
-}
+QJsonArray diagnostics(TFx* fx) { return automationFxProfileDiagnostics(fx); }
 
 QJsonObject describeFx(Document& document, TFx* fx) {
   TFx* native = parameterFx(fx);
@@ -559,7 +488,8 @@ QJsonValue duplicateEffect(Context& context, Document& document,
   const auto name = params.contains("name")
                         ? authoringName(params).toStdWString()
                         : native->getName();
-  validateColorCompositeProfile(native);
+  constraintForFx(document, source,
+                  [native] { validateAutomationFxProfile(native); });
   TFxP copy = makeEffect(type);
   copy->setFxVersion(native->getFxVersion());
   copy->getParams()->copy(native->getParams());
@@ -634,7 +564,7 @@ void writePresetFile(const QString& path, const QByteArray& bytes) {
 }
 
 QByteArray saveNativePreset(TFx* fx, const QString& path) {
-  validateColorCompositeProfile(fx);
+  validateAutomationFxProfile(fx);
   requirePresetKeyBudget(fx);
   try {
     TOStream stream(TFilePath(path.toStdWString()));
@@ -798,7 +728,9 @@ QJsonValue applyPreset(Context& context, Document& document,
   if (!staging.isValid())
     throw Error("PRESET_WRITE_FAILED",
                 "Cannot create a private preset verification directory.");
-  TFxP candidate = verifiedPreset(document, native, bytes, staging.path());
+  TFxP candidate = constraintForFx(document, fx, [&] {
+    return verifiedPreset(document, native, bytes, staging.path());
+  });
   const bool changed =
       saveNativePreset(native, staging.path() + "/previous.preset") != bytes;
   if (changed) {
@@ -860,6 +792,7 @@ void validateColumnOwnership(TColumnFx* fx, TXsheet* sheet) {
     if (wrapper->getZeraryFx()->getColumnFx() != wrapper)
       throw Error("INVALID_GRAPH",
                   "Generator does not belong to its column wrapper.");
+    validateAutomationFxProfile(wrapper->getZeraryFx());
   }
 }
 
@@ -886,7 +819,7 @@ void validateNode(TFx* fx, TXsheet* sheet) {
     throw Error("INVALID_GRAPH",
                 "A generator must be owned by a scene column wrapper.");
   requireEditable(fx);
-  validateColorCompositeProfile(fx);
+  validateAutomationFxProfile(fx);
 }
 
 void validateEdges(const std::set<TFx*>& members, FxDag* graph) {
@@ -1087,65 +1020,14 @@ TParam* editableParameter(TFx* fx, const QString& name) {
     throw Error("UNKNOWN_PARAMETER",
                 "Effect has no public parameter with this exact name.",
                 {{"parameter", name}});
-  if (valueSchema(entry->getParam()).isEmpty())
+  if (profileSchema(fx, entry->getParam(), name).isEmpty())
     throw Error("UNSUPPORTED_PARAMETER",
                 "Complex or external-resource parameter is not editable.");
   return entry->getParam();
 }
 
-void validateNumber(const QJsonValue& value, const QJsonObject& schema) {
-  if (!value.isDouble() || !std::isfinite(value.toDouble()))
-    throw Error("INVALID_PARAMS",
-                "Parameter value must be a finite JSON number.");
-  const double number = value.toDouble();
-  if (schema.value("type") == "integer" && std::floor(number) != number)
-    throw Error("INVALID_PARAMS", "Parameter value must be an integer.");
-  const double minimum =
-      schema.value("minimum").toDouble(-std::numeric_limits<double>::max());
-  const double maximum =
-      schema.value("maximum").toDouble(std::numeric_limits<double>::max());
-  if (number < minimum)
-    throw Error("OUT_OF_RANGE", "Parameter value is below its native minimum.");
-  if (number > maximum)
-    throw Error("OUT_OF_RANGE", "Parameter value exceeds its native maximum.");
-}
-
-void validateProfileKeys(TDoubleParam* number, const QJsonObject& schema) {
-  if (number->getKeyframeCount() > 4096)
-    throw Error("RESOURCE_LIMIT", "Effect parameter exceeds 4096 scalar keys.");
-  validateNumber(number->getDefaultValue(), schema);
-  for (int index = 0; index < number->getKeyframeCount(); ++index) {
-    const auto& key = number->getKeyframe(index);
-    validateNumber(key.m_value, schema);
-    const auto previous =
-        index == 0 ? TDoubleKeyframe::None : TDoubleKeyframe::Linear;
-    if (key.m_type != TDoubleKeyframe::Linear || key.m_prevType != previous ||
-        key.m_step != 1)
-      throw Error(
-          "UNSUPPORTED_PARAMETER",
-          "Color/composite FX admit only scalar linear animation keys.");
-  }
-}
-
-void validateColorCompositeProfile(TFx* fx) {
-  const QString type = QString::fromStdString(fx->getFxType());
-  if (!colorCompositeTypes().contains(type)) return;
-  if (fx->getFxVersion() != 1)
-    throw Error("UNSUPPORTED_FX",
-                "Color/composite FX require native version 1.");
-  TParamContainer* params = fx->getParams();
-  for (int index = 0; index < params->getParamCount(); ++index) {
-    const auto* entry = params->getParamVar(index);
-    auto* number      = dynamic_cast<TDoubleParam*>(entry->getParam());
-    if (!number) continue;
-    validateProfileKeys(
-        number,
-        profileSchema(fx, number, QString::fromStdString(entry->getName())));
-  }
-}
-
 void validateScalar(const QJsonValue& value, const QJsonObject& schema) {
-  validateNumber(value, schema);
+  validateAutomationFxNumber(value, schema);
   if (schema.contains("enum") &&
       !schema.value("enum").toArray().contains(value))
     throw Error("OUT_OF_RANGE",
@@ -1164,8 +1046,17 @@ void validateValue(const QJsonValue& value, const QJsonObject& schema) {
     if (!value.isArray() || value.toArray().size() != count)
       throw Error("INVALID_PARAMS", "Parameter array has the wrong size.",
                   {{"size", count}});
-    for (const auto& component : value.toArray())
-      validateNumber(component, schema.value("items").toObject());
+    const QJsonArray components = value.toArray();
+    const QJsonArray prefix     = schema.value("prefixItems").toArray();
+    for (int index = 0; index < components.size(); ++index) {
+      validateAutomationFxNumber(components[index],
+                                 schema.value("items").toObject());
+      const QJsonObject item = prefix.at(index).toObject();
+      if (item.contains("const") && components[index] != item.value("const"))
+        throw Error("OUT_OF_RANGE",
+                    "Parameter component must equal its constant.",
+                    {{"index", index}, {"const", item.value("const")}});
+    }
     return;
   }
   validateScalar(value, schema);
@@ -1260,18 +1151,16 @@ void verifyParameterEdit(TParam* param, const QJsonValue& value, int frame,
                 "Native parameter update failed its readback check.");
 }
 
-void validateProfileEdit(TFx* fx, TParam* param, int frame, bool key) {
-  TFx* native = parameterFx(fx);
-  if (!colorCompositeTypes().contains(
-          QString::fromStdString(native->getFxType())))
-    return;
-  validateColorCompositeProfile(native);
-  if (!key) return;
-  auto* number = dynamic_cast<TDoubleParam*>(param);
-  if (!number) return;
-  if (number->getKeyframeCount() >= 4096 && !number->isKeyframe(frame))
-    throw Error("RESOURCE_LIMIT",
-                "Effect parameter is limited to 4096 scalar keys.");
+// Applies the edit to a detached copy first, so key limits and
+// cross-parameter constraints reject it before the document changes.
+void validateEditedProfile(TFx* fx, const QString& name,
+                           const QJsonValue& value, int frame, bool key) {
+  TFx* native    = parameterFx(fx);
+  TFxP candidate = native->clone(false);
+  candidate->setFxVersion(native->getFxVersion());
+  applyParameter(candidate->getParams()->getParam(name.toStdString()), value,
+                 frame, key);
+  validateAutomationFxProfile(candidate.getPointer());
 }
 
 QJsonValue changeParameter(Context& context, Document& document,
@@ -1284,7 +1173,8 @@ QJsonValue changeParameter(Context& context, Document& document,
   const QJsonValue value = params.value("value");
   validateValue(value, profileSchema(fx, param, name));
   validateParameterEdit(param, key);
-  validateProfileEdit(fx, param, frame, key);
+  constraintForFx(document, fx,
+                  [&] { validateEditedProfile(fx, name, value, frame, key); });
   if (unchangedParameter(param, value, frame, key))
     return parameterDescription(fx, param, name, frame);
   TParamP backup = param->clone();
@@ -1369,6 +1259,10 @@ bool isAutomationFxTypeSupported(const QString& type) {
   return allowedTypes().contains(type);
 }
 
+bool isAutomationFxTypeAvailable(const QString& type) {
+  return allowedTypes().contains(type) && typeAvailable(type);
+}
+
 void validateAutomationFxGraph(ToonzScene& scene) {
   const std::set<TFx*> members = sceneMembers(scene);
   if (members.size() > 4096)
@@ -1379,6 +1273,21 @@ void validateAutomationFxGraph(ToonzScene& scene) {
   validateAutomationMacros(scene, members);
   for (TFx* fx : members) validateNode(fx, sheet);
   validateEdges(members, graph);
+}
+
+QJsonObject recipeOperation() {
+  const QJsonArray categories{
+      "background", "title",       "transition", "atmosphere", "cel_finishing",
+      "matte",      "stylization", "light",      "particles",  "procedural"};
+  return operation(
+      "fx.recipe.list",
+      "List static FX recipes: atomic tool-call steps that run with the "
+      "existing tools. An argument whose whole value is ${input.<name>} or "
+      "${steps.<id>.<field>} takes that JSON value; supply expected_revision "
+      "and operation_id per call. Check frames assume the input defaults.",
+      {{"recipe_id", stringSchema()},
+       {"category", QJsonObject{{"type", "string"}, {"enum", categories}}}},
+      {});
 }
 
 QJsonArray fxOperations() {
@@ -1408,6 +1317,7 @@ QJsonArray fxOperations() {
       operation("fx.catalog",
                 "Discover allowed builtin effects and native typed parameters.",
                 {}, {}),
+      recipeOperation(),
       operation("fx.graph",
                 "Inspect graph, generator columns, ports, terminals, and "
                 "current output.",
@@ -1451,6 +1361,7 @@ QJsonArray fxOperations() {
 QJsonValue executeFx(Context& context, const QString& method,
                      const QJsonObject& params) {
   if (method == "fx.catalog") return effectCatalog();
+  if (method == "fx.recipe.list") return listAutomationFxRecipes(params);
   Document& document = context.document(requiredString(params, "document_id"));
   if (method.startsWith("fx.macro."))
     return executeMacro(context, document, method, params);

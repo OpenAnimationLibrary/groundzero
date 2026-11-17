@@ -199,6 +199,7 @@ endif()
 set(HEADERS
     automation.h
     automation_animation.h
+    automation_fx_profile.h
     automation_path.h
     automation_audio.h
     automation_rig.h
@@ -300,6 +301,9 @@ set(SOURCES
     automation_vector_opacity.cpp
     automation_scene.cpp
     automation_fx.cpp
+    automation_fx_preflight.cpp
+    automation_fx_profile.cpp
+    automation_fx_recipes.cpp
     automation_drawing.cpp
     automation_render.cpp
     automation_media.cpp

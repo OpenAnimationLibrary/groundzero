@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_fx_profile.h"
 #include "automation_macro.h"
 
 #include "tfx.h"
@@ -33,6 +34,7 @@ void validateMemberIdentity(TFx* fx) {
   require(
       memberType(fx),
       "Macro members require over, Blur or Glow; expand other effects first.");
+  validateAutomationFxProfile(fx);
   const QString id = key(fx);
   require(!id.isEmpty() && !id.contains('_'),
           "Macro member IDs must be nonempty without underscores.");
