@@ -8,7 +8,7 @@
 ///   path: Absolute path to a new or existing empty directory without links.
 void prepareMcpLivePrivateDirectory(const QString& path);
 
-/// Create Windows ACL/reparse variants of an already working private grant.
+/// Create hosted Windows ACL/reparse variants through the fixed privileged broker.
 /// Args:
 ///   sessionPath: The active fixture grant whose contents remain outside evidence.
 /// Returns:

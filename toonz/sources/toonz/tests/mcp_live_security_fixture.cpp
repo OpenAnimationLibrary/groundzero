@@ -1,23 +1,32 @@
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "mcp_live_security_fixture.h"
 
 #include <QByteArray>
+#include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QThread>
+#include <QUuid>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <aclapi.h>
 #include <sddl.h>
-#include <windows.h>
 #else
 #include <sys/stat.h>
 #include <unistd.h>
@@ -65,30 +74,36 @@ QString currentSid() {
   return QString::fromWCharArray(text);
 }
 
-LocalMemory securityDescriptor(bool broad) {
+LocalMemory securityDescriptor(bool broad, const QString& broker = {}) {
   QString text = "D:P(A;;FA;;;SY)(A;;FA;;;" + currentSid() + ")";
   if (broad) text += "(A;;FR;;;WD)";
+  if (!broker.isEmpty()) text += "(A;;FA;;;" + broker + ")";
   PSECURITY_DESCRIPTOR raw = nullptr;
   require(ConvertStringSecurityDescriptorToSecurityDescriptorW(
-              reinterpret_cast<LPCWSTR>(text.utf16()), SDDL_REVISION_1, &raw, nullptr),
+              reinterpret_cast<LPCWSTR>(text.utf16()), SDDL_REVISION_1, &raw,
+              nullptr),
           "Cannot construct the fixture DACL");
   return LocalMemory(raw, &::LocalFree);
 }
 
-void applyDacl(const QString& path, bool broad, bool protectedAcl) {
-  const auto descriptor = securityDescriptor(broad);
-  PACL acl = nullptr;
-  BOOL present = FALSE;
-  BOOL defaulted = FALSE;
-  require(GetSecurityDescriptorDacl(descriptor.get(), &present, &acl, &defaulted) && present && acl,
-          "Cannot inspect the fixture DACL");
-  const DWORD protection =
-      protectedAcl ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION;
-  const auto native = QDir::toNativeSeparators(path).toStdWString();
-  require(SetNamedSecurityInfoW(const_cast<LPWSTR>(native.c_str()), SE_FILE_OBJECT,
-                                DACL_SECURITY_INFORMATION | protection, nullptr, nullptr, acl,
-                                nullptr) == ERROR_SUCCESS,
-          "Cannot apply the fixture DACL");
+void applyDacl(const QString& path, bool broad, bool protectedAcl,
+               const QString& broker = {}) {
+  const auto descriptor = securityDescriptor(broad, broker);
+  PACL acl              = nullptr;
+  BOOL present          = FALSE;
+  BOOL defaulted        = FALSE;
+  require(
+      GetSecurityDescriptorDacl(descriptor.get(), &present, &acl, &defaulted) &&
+          present && acl,
+      "Cannot inspect the fixture DACL");
+  const DWORD protection = protectedAcl ? PROTECTED_DACL_SECURITY_INFORMATION
+                                        : UNPROTECTED_DACL_SECURITY_INFORMATION;
+  const auto native      = QDir::toNativeSeparators(path).toStdWString();
+  require(
+      SetNamedSecurityInfoW(const_cast<LPWSTR>(native.c_str()), SE_FILE_OBJECT,
+                            DACL_SECURITY_INFORMATION | protection, nullptr,
+                            nullptr, acl, nullptr) == ERROR_SUCCESS,
+      "Cannot apply the fixture DACL");
 }
 
 void requireUnlinkedDirectory(const QString& path) {
@@ -123,27 +138,113 @@ QString privateFile(const QString& directory, const QByteArray& contents) {
   return path;
 }
 
-QString symbolicFile(const QString& root, const QString& target) {
-  const QString path = QDir(root).filePath("session-link.json");
-  const auto native = QDir::toNativeSeparators(path).toStdWString();
-  const auto destination = QDir::toNativeSeparators(target).toStdWString();
-  require(CreateSymbolicLinkW(native.c_str(), destination.c_str(),
-                              SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE),
-          "Windows live security qualification requires file symlink creation");
-  files.append(path);
+QJsonObject controlObject(const QString& path) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly) && file.size() <= 16384,
+          "Cannot read bounded Windows fixture control");
+  QJsonParseError error;
+  const auto document = QJsonDocument::fromJson(file.readAll(), &error);
+  require(file.error() == QFile::NoError &&
+              error.error == QJsonParseError::NoError && document.isObject(),
+          "Windows fixture control must be a valid JSON object");
+  return document.object();
+}
+
+QString controlDirectory() {
+  require(qEnvironmentVariable("GITHUB_ACTIONS") == "true" &&
+              qEnvironmentVariable("RUNNER_ENVIRONMENT") == "github-hosted" &&
+              qEnvironmentVariable("RUNNER_OS") == "Windows",
+          "Windows live reparse fixtures require their hosted test launcher");
+  const QString path = QDir::fromNativeSeparators(
+      qEnvironmentVariable("GROUNDZERO_WINDOWS_LIVE_CONTROL"));
+  const QFileInfo info(path);
+  require(info.isAbsolute() && info.isDir() && !info.isSymLink() &&
+              info.canonicalFilePath().compare(path, Qt::CaseInsensitive) == 0,
+          "Windows fixture control must be its canonical staged directory");
   return path;
 }
 
-QString symbolicDirectory(const QString& root, const QString& target) {
-  const QString path = QDir(root).filePath("directory-link");
-  const auto native = QDir::toNativeSeparators(path).toStdWString();
-  const auto destination = QDir::toNativeSeparators(target).toStdWString();
-  require(CreateSymbolicLinkW(
-              native.c_str(), destination.c_str(),
-              SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE),
-          "Windows live security qualification requires directory symlink creation");
-  directories.append(path);
-  return QDir(path).filePath("session.json");
+QString brokerIdentity(const QString& control) {
+  const auto context = controlObject(QDir(control).filePath("context.json"));
+  require(context.keys() == QStringList{"launcher_sid", "owner_logon_sha256",
+                                        "owner_user_sha256", "protocol"} &&
+              context.value("protocol") == "groundzero-windows-live-ci-v1",
+          "Windows fixture launcher context is invalid");
+  const QString broker = context.value("launcher_sid").toString();
+  PSID brokerSid       = nullptr;
+  require(ConvertStringSidToSidW(reinterpret_cast<LPCWSTR>(broker.utf16()),
+                                 &brokerSid),
+          "Windows fixture broker SID is invalid");
+  const LocalMemory brokerMemory(brokerSid, &::LocalFree);
+  PSID ownerSid       = nullptr;
+  const QString owner = currentSid();
+  require(ConvertStringSidToSidW(reinterpret_cast<LPCWSTR>(owner.utf16()),
+                                 &ownerSid),
+          "Windows fixture owner SID is invalid");
+  const LocalMemory ownerMemory(ownerSid, &::LocalFree);
+  const QByteArray bytes(static_cast<const char*>(ownerSid),
+                         int(GetLengthSid(ownerSid)));
+  const auto hash =
+      QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+  require(!EqualSid(brokerSid, ownerSid) &&
+              context.value("owner_user_sha256") == QString::fromLatin1(hash),
+          "Windows fixture launcher does not describe the current owner");
+  LPWSTR encoded = nullptr;
+  require(ConvertSidToStringSidW(brokerSid, &encoded),
+          "Cannot normalize broker SID");
+  const LocalMemory encodedMemory(encoded, &::LocalFree);
+  return QString::fromWCharArray(encoded);
+}
+
+void publishReparseRequest(const QString& control, const QString& root,
+                           const QString& id) {
+  const QString path = QDir(control).filePath("reparse-request.json");
+  require(!QFileInfo::exists(path), "Reparse fixture request must be new");
+  const QJsonObject request{{"protocol", "groundzero-windows-live-ci-v1"},
+                            {"kind", "reparse"},
+                            {"id", id},
+                            {"fixture_root", root}};
+  const auto bytes = QJsonDocument(request).toJson(QJsonDocument::Compact);
+  QSaveFile output(path);
+  require(output.open(QIODevice::WriteOnly) &&
+              output.write(bytes) == bytes.size() && output.commit(),
+          "Cannot publish the fixed reparse fixture request");
+}
+
+void waitForReparseFixtures(const QString& control, const QString& id) {
+  const QString path = QDir(control).filePath("reparse-response.json");
+  QElapsedTimer deadline;
+  deadline.start();
+  while (!QFileInfo::exists(path) && deadline.elapsed() < 7000)
+    QThread::msleep(20);
+  require(QFileInfo::exists(path),
+          "Privileged reparse fixture setup exceeded seven seconds");
+  const auto response = controlObject(path);
+  require(
+      response.keys() ==
+              QStringList{"created", "id", "ownership_verified", "status"} &&
+          response.value("id") == id && response.value("status") == "passed" &&
+          response.value("ownership_verified") == true &&
+          response.value("created").toArray() ==
+              QJsonArray{"session-link.json", "directory-link"},
+      "Privileged reparse fixture setup failed its ownership checks");
+}
+
+void createReparseFixtures(const QString& root) {
+  const QString control = controlDirectory();
+  const QString broker  = brokerIdentity(control);
+  files.append(QDir(root).filePath("session-link.json"));
+  directories.append(QDir(root).filePath("directory-link"));
+  applyDacl(root, false, true, broker);
+  try {
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    publishReparseRequest(control, root, id);
+    waitForReparseFixtures(control, id);
+  } catch (...) {
+    applyDacl(root, false, true);
+    throw;
+  }
+  applyDacl(root, false, true);
 }
 
 QJsonObject variant(const QString& name, const QString& path) {
@@ -151,28 +252,39 @@ QJsonObject variant(const QString& name, const QString& path) {
 }
 
 QJsonArray windowsVariants(const QString& root, const QByteArray& contents) {
-  const auto unprotected = privateDirectory(root, "unprotected-file");
+  const auto unprotected     = privateDirectory(root, "unprotected-file");
   const auto unprotectedFile = privateFile(unprotected, contents);
   applyDacl(unprotectedFile, false, false);
-  const auto broad = privateDirectory(root, "broad-file");
+  const auto broad     = privateDirectory(root, "broad-file");
   const auto broadFile = privateFile(broad, contents);
   applyDacl(broadFile, true, true);
-  const auto parent = privateDirectory(root, "unprotected-parent");
+  const auto parent     = privateDirectory(root, "unprotected-parent");
   const auto parentFile = privateFile(parent, contents);
   applyDacl(parent, false, false);
-  const auto target = privateDirectory(root, "link-target");
+  const auto target     = privateDirectory(root, "link-target");
   const auto targetFile = privateFile(target, contents);
-  QJsonArray result{variant("unprotected session DACL", unprotectedFile),
-                    variant("Everyone-readable session DACL", broadFile),
-                    variant("unprotected parent DACL", parentFile),
-                    variant("reparse session file", symbolicFile(root, targetFile)),
-                    variant("reparse directory ancestor", symbolicDirectory(root, target))};
+  createReparseFixtures(root);
+  QJsonArray result{
+      variant("unprotected session DACL", unprotectedFile),
+      variant("Everyone-readable session DACL", broadFile),
+      variant("unprotected parent DACL", parentFile),
+      variant("reparse session file", QDir(root).filePath("session-link.json")),
+      variant("reparse directory ancestor",
+              QDir(root).filePath("directory-link/session.json"))};
   for (int index = 0; index < result.size(); ++index) {
     QJsonObject entry = result[index].toObject();
     entry.insert("baseline", targetFile);
     result[index] = entry;
   }
   return result;
+}
+
+void removeWindowsFixture(const QString& path, bool directory) {
+  const auto native = QDir::toNativeSeparators(path).toStdWString();
+  const bool removed = directory ? RemoveDirectoryW(native.c_str()) : DeleteFileW(native.c_str());
+  const DWORD error = GetLastError();
+  require(removed || error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND,
+          "Cannot remove a private Windows security fixture");
 }
 
 #endif
@@ -225,15 +337,17 @@ QJsonArray createMcpLiveInsecureFiles(const QString& sessionPath) {
 void removeMcpLiveInsecureFiles() {
   while (!files.isEmpty()) {
     const auto path = files.last();
+#ifdef _WIN32
+    removeWindowsFixture(path, false);
+#else
     require(QFile::remove(path), "Cannot remove a token-bearing security fixture");
+#endif
     files.removeLast();
   }
   while (!directories.isEmpty()) {
     const auto path = directories.last();
 #ifdef _WIN32
-    const auto native = QDir::toNativeSeparators(path).toStdWString();
-    require(RemoveDirectoryW(native.c_str()),
-            "Cannot remove the private security fixture directory");
+    removeWindowsFixture(path, true);
 #else
     require(QDir().rmdir(path), "Cannot remove the private security fixture directory");
 #endif

@@ -2,10 +2,21 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { chmod, copyFile, link, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  link,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 const protocol = "groundzero-live-v1";
 const catalog = [
@@ -282,6 +293,111 @@ async function rejectedFile(executable, path, token, label) {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await bounded(outcome, `${label} process cleanup`);
   }
+}
+
+const windowsProtocol = "groundzero-windows-live-ci-v1";
+
+async function controlObject(path) {
+  const bytes = await readFile(path);
+  assert(bytes.length <= 16384, "Windows fixture control exceeds 16 KiB");
+  const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  assert(value && typeof value === "object" && !Array.isArray(value));
+  return value;
+}
+
+async function windowsOwner(control) {
+  const configuration = await controlObject(join(control, "context.json"));
+  assert.deepEqual(Object.keys(configuration).sort(), [
+    "launcher_sid",
+    "owner_logon_sha256",
+    "owner_user_sha256",
+    "protocol",
+  ]);
+  assert.equal(configuration.protocol, windowsProtocol);
+  const report = await controlObject(join(control, "owner.json"));
+  assert.equal(report.status, "passed");
+  const owner = report.identity;
+  assert.equal(owner.elevated, false);
+  for (const field of ["user_sha256", "logon_sha256"]) {
+    assert.match(owner[field], /^[0-9a-f]{64}$/);
+    assert.equal(configuration[`owner_${field}`], owner[field]);
+  }
+  assert(Number.isInteger(owner.pid) && owner.pid > 0);
+  return owner;
+}
+
+async function peerResponse(path) {
+  const deadline = performance.now() + 25000;
+  while (performance.now() < deadline) {
+    try {
+      return await controlObject(path);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await delay(20);
+  }
+  throw new Error("Windows native peer probes exceeded 25 seconds");
+}
+
+function verifyIdentityDenials(response, owner) {
+  assert.deepEqual(Object.keys(response).sort(), ["id", "status", "wrong_logon", "wrong_user"]);
+  assert.equal(response.status, "passed");
+  for (const name of ["wrong_user", "wrong_logon"]) {
+    const report = response[name];
+    assert.equal(report.status, "passed");
+    assert.equal(report.identity.elevated, false);
+    assert.notEqual(report.identity.logon_sha256, owner.logon_sha256);
+    assert(Number.isInteger(report.identity.pid) && report.identity.pid > 0);
+  }
+  assert.notEqual(response.wrong_user.identity.user_sha256, owner.user_sha256);
+  assert.equal(response.wrong_logon.identity.user_sha256, owner.user_sha256);
+  assert.deepEqual(response.wrong_user.probe, { denial: "ERROR_ACCESS_DENIED", win32_error: 5 });
+  assert.deepEqual(response.wrong_logon.probe, {
+    denial: "live_security",
+    connector_exit_code: 1,
+    connector_stdout_bytes: 0,
+  });
+}
+
+async function windowsIdentities(context, session) {
+  assert.equal(process.env.GITHUB_ACTIONS, "true");
+  assert.equal(process.env.RUNNER_ENVIRONMENT, "github-hosted");
+  assert.equal(process.env.RUNNER_OS, "Windows");
+  const control = process.env.GROUNDZERO_WINDOWS_LIVE_CONTROL;
+  assert(
+    control && isAbsolute(control),
+    "Hosted Windows qualification requires its fixed launcher",
+  );
+  const owner = await windowsOwner(control);
+  await connectorBaseline(context, session);
+  const id = randomUUID();
+  const request = {
+    protocol: windowsProtocol,
+    kind: "identity",
+    id,
+    session_path: context.session,
+    endpoint: session.endpoint,
+  };
+  await assert.rejects(readFile(join(control, "peer-request.json")), { code: "ENOENT" });
+  await assert.rejects(readFile(join(control, "peer-response.json")), { code: "ENOENT" });
+  const temporary = join(control, `peer-request-${id}.tmp`);
+  await writeFile(temporary, JSON.stringify(request), { flag: "wx" });
+  await rename(temporary, join(control, "peer-request.json"));
+  const response = await bounded(
+    peerResponse(join(control, "peer-response.json")),
+    "Windows native identity probes",
+    26000,
+  );
+  assert.equal(response.id, id);
+  verifyIdentityDenials(response, owner);
+  assert.deepEqual(await descriptor(context.session), session);
+  await connectorBaseline(context, session);
+  return {
+    owner,
+    wrong_user: response.wrong_user,
+    wrong_logon: response.wrong_logon,
+    positive_connectors: 2,
+  };
 }
 
 async function posixFiles(context, session) {
@@ -586,6 +702,7 @@ export async function verifyLiveSecurity(context, phase) {
   await connectorBaseline(context, session);
   const report = { authentication: await authenticationFailures(session), sessionFiles: 0 };
   if (process.platform === "win32") {
+    report.windows_identities = await windowsIdentities(context, session);
     const variants = await phase("security-files");
     try {
       assert.equal(
@@ -597,6 +714,7 @@ export async function verifyLiveSecurity(context, phase) {
       for (const variant of variants.files) {
         await rejectedFile(context.executable, variant.path, session.token, variant.name);
       }
+      await connectorBaseline({ ...context, session: variants.files[0].baseline }, session);
       report.sessionFiles = variants.files.length;
     } finally {
       await phase("security-files-cleanup");
