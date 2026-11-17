@@ -13,6 +13,7 @@
 #include "toonz/txsheet.h"
 #include "toonz/toonzscene.h"
 #include "toonz/levelset.h"
+#include "toonz/levelproperties.h"
 #include "toonz/palettecontroller.h"
 #include "toonz/tpalettehandle.h"
 #include "toonz/preferences.h"
@@ -222,6 +223,52 @@ void emptyInputs(TestApplication& app) {
       << std::endl;
 }
 
+void readOnlyOwner(TestApplication& app, bool entireLevel) {
+  const auto level = makeLevel(app, OVL_XSHLEVEL);
+  app.level.setLevel(level.getPointer());
+  TUndoManager::manager()->reset();
+  RasterSelection selection;
+  selection.setCurrentImage(level->getFrame(TFrameId(1), false),
+                            TXshCell(level.getPointer(), TFrameId(1)));
+  QApplication::clipboard()->setImage(clipboardPixels());
+  selection.pasteSelection();
+  checkFloating(selection);
+  TUndoManager::manager()->undo();
+  selection.select(TRectD(-1, -1, 1, 1));
+  const TRectD bounds = selection.getSelectionBound();
+  require(!bounds.isEmpty(),
+          "Refused paste must preserve an existing selection");
+  const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+  const bool dirty  = level->getDirtyFlag();
+  level->setIsReadOnly(entireLevel);
+  level->getProperties()->setIsStopMotion(!entireLevel);
+  require(
+      entireLevel ? level->isReadOnly() : level->isFrameReadOnly(TFrameId(1)),
+      "Fixture must use native level or frame read-only admission");
+  app.level.setLevel(nullptr);
+  selection.pasteSelection();
+  require(!selection.isFloating() && selection.getSelectionBound() == bounds,
+          "Read-only fallback owner must preserve the selection");
+  require(TUndoManager::manager()->getHistoryCount() == 1 &&
+              TUndoManager::manager()->getCurrentHistoryIndex() == history,
+          "Refused paste must preserve native history and its redo branch");
+  require(level->getDirtyFlag() == dirty &&
+              app.sheet.getXsheet()->getCell(0, 0) ==
+                  TXshCell(level.getPointer(), TFrameId(1)),
+          "Refused paste must preserve dirty state and the native exposure");
+  unchangedCanvas(level.getPointer());
+  level->setIsReadOnly(false);
+  level->getProperties()->setIsStopMotion(false);
+  TUndoManager::manager()->redo();
+  checkFloating(selection);
+  TUndoManager::manager()->reset();
+  selection.setFloatingSeletion(TRasterP());
+  std::cout << "rasterpaste-test: "
+            << (entireLevel ? "read-only level" : "read-only frame")
+            << " fallback preserves selection and native redo PASS"
+            << std::endl;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -239,6 +286,8 @@ int main(int argc, char* argv[]) {
     pasteCase(native, OVL_XSHLEVEL, true);
     pasteCase(native, TZI_XSHLEVEL, true);
     pasteCase(native, OVL_XSHLEVEL, false);
+    readOnlyOwner(native, true);
+    readOnlyOwner(native, false);
     emptyInputs(native);
     QApplication::clipboard()->clear();
     TImageCache::instance()->clear(true);

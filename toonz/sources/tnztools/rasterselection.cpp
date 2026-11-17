@@ -1419,6 +1419,7 @@ void RasterSelection::pasteSelection() {
     const TXshCell &cell = TTool::getImageCell();
     sl                  = cell.getSimpleLevel();
     if (!sl || cell.getImage(false, 1) != image) return;
+    if (sl->isReadOnly() || sl->isFrameReadOnly(cell.m_frameId)) return;
   }
 
   m_currentImage = image;
