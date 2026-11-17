@@ -470,6 +470,23 @@ if(BUILD_LUT3D_TESTS OR BUILD_UI_PORT_TESTS)
         add_test(NAME neuralstyle_execution COMMAND neuralstyle_execution_test)
     endif()
     set_tests_properties(neuralstyle_validation neuralstyle_execution PROPERTIES TIMEOUT 30)
+    add_executable(neuralstyle_worker_test tests/neuralstyle_worker_test.cpp)
+    target_include_directories(neuralstyle_worker_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(neuralstyle_worker_test PRIVATE
+        toonzlib ${TNZLIBS} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        ${OpenCV_LIBS} Threads::Threads)
+    if(APPLE)
+        add_test(NAME neuralstyle_worker COMMAND ${CMAKE_COMMAND} -E env
+            "DYLD_LIBRARY_PATH=$<TARGET_FILE_DIR:OpenToonz>"
+            "$<TARGET_FILE:neuralstyle_worker_test>")
+    elseif(WIN32)
+        set(neuralstyle_worker_path "$<TARGET_FILE_DIR:OpenToonz>;${neuralstyle_test_path}")
+        add_test(NAME neuralstyle_worker COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=${neuralstyle_worker_path}" "$<TARGET_FILE:neuralstyle_worker_test>")
+    else()
+        add_test(NAME neuralstyle_worker COMMAND neuralstyle_worker_test)
+    endif()
+    set_tests_properties(neuralstyle_worker PROPERTIES TIMEOUT 30)
 endif()
 
 # Optional regression target that renders standard FX graphs and compares
