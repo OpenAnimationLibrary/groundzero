@@ -218,6 +218,18 @@ QJsonValue callHandler(QJsonValue (*handler)(Context&, const QString&,
   }
 }
 
+QString toolsetDescription(const QString& toolset) {
+  static const QMap<QString, QString> descriptions = {
+      {"core",
+       "Scenes, levels, drawings, palettes, animation, motion paths, FX, "
+       "macros, text, inspection, assistance, rendering and packages."}};
+  const auto found = descriptions.constFind(toolset);
+  if (found == descriptions.constEnd())
+    throw Error("internal_error",
+                "A native operation names an undescribed toolset.");
+  return found.value();
+}
+
 }  // namespace
 
 QJsonObject errorObject(const Error& error) {
@@ -227,31 +239,52 @@ QJsonObject errorObject(const Error& error) {
 }
 
 Dispatcher::Dispatcher(Context& context) : m_context(context) {
-  m_catalog.append(operation(
-      "automation.capabilities",
-      "Inspect this worker's protocol and available native operations.", {},
-      {}));
-  m_catalog.append(operation(
+  addWorkerOperation(
+      operation("automation.capabilities",
+                "Inspect this worker's protocol, toolsets and available native "
+                "operations.",
+                {}, {}));
+  addWorkerOperation(operation(
       "automation.list_documents",
       "List detached documents and their current revisions.", {}, {}));
-  add(sceneOperations(), executeScene);
-  add(fxOperations(), executeFx);
-  add(drawingOperations(), executeDrawing);
-  add(renderOperations(), executeRender);
-  add(persistenceOperations(), executePersistence);
-  add(productionOperations(), executeProduction);
-  add(textOperations(), executeText);
-  add(pathOperations(), executePath);
-  add(assistanceOperations(),
+  add(sceneOperations(), executeScene, "core");
+  add(fxOperations(), executeFx, "core");
+  add(drawingOperations(), executeDrawing, "core");
+  add(renderOperations(), executeRender, "core");
+  add(persistenceOperations(), executePersistence, "core");
+  add(productionOperations(), executeProduction, "core");
+  add(textOperations(), executeText, "core");
+  add(pathOperations(), executePath, "core");
+  add(
+      assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {
         return executeAssistance(method, params);
-      });
+      },
+      "core");
 }
 
-void Dispatcher::add(const QJsonArray& operations, Handler handler) {
+void Dispatcher::addWorkerOperation(QJsonObject descriptor) {
+  descriptor.insert("toolset", "core");
+  m_toolsets["core"].append(descriptor.value("name").toString());
+  m_catalog.append(descriptor);
+}
+
+QJsonArray Dispatcher::toolsetCatalog() const {
+  QJsonArray toolsets;
+  for (auto it = m_toolsets.constBegin(); it != m_toolsets.constEnd(); ++it)
+    toolsets.append(
+        QJsonObject{{"name", it.key()},
+                    {"description", toolsetDescription(it.key())},
+                    {"tools", QJsonArray::fromStringList(it.value())}});
+  return toolsets;
+}
+
+void Dispatcher::add(const QJsonArray& operations, Handler handler,
+                     const QString& toolset) {
+  toolsetDescription(toolset);
   for (const QJsonValue& value : operations) {
-    const QJsonObject descriptor = value.toObject();
-    const QString name           = descriptor.value("name").toString();
+    QJsonObject descriptor = value.toObject();
+    const QString name     = descriptor.value("name").toString();
     if (name.isEmpty() || m_entries.contains(name))
       throw Error(
           "internal_error",
@@ -260,7 +293,9 @@ void Dispatcher::add(const QJsonArray& operations, Handler handler) {
         name == "automation.list_documents")
       throw Error("internal_error",
                   "A native domain cannot replace a worker operation.");
+    descriptor.insert("toolset", toolset);
     m_entries.insert(name, {descriptor, handler});
+    m_toolsets[toolset].append(name);
     m_catalog.append(descriptor);
   }
 }
@@ -293,9 +328,10 @@ QJsonValue Dispatcher::execute(const QString& method,
       throw Error("invalid_params", "This operation accepts no parameters.");
     if (method == "automation.capabilities")
       return QJsonObject{
-          {"protocol_version", 1},
+          {"protocol_version", 2},
           {"workspace", m_context.workspace()},
           {"tools", m_catalog},
+          {"toolsets", toolsetCatalog()},
           {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
           {"isolation", "private_process"}};
     return QJsonObject{{"documents", m_context.documents()}};

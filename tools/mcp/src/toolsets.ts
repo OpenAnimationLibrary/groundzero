@@ -1,0 +1,230 @@
+import type { Tool } from "@modelcontextprotocol/server";
+import { WorkerError, isObject } from "#mcp/errors";
+
+/** Most native tools one session may expose at once. */
+export const MAX_EXPOSED_TOOLS = 256;
+const MAX_TOOLSETS = 64;
+const TOOLSET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+const REQUIRED_TOOLSET = "core";
+
+export interface ToolsetDescriptor {
+  name: string;
+  description: string;
+  tools: string[];
+}
+
+const namesSchema = {
+  type: "object" as const,
+  additionalProperties: false,
+  required: ["names"],
+  properties: {
+    names: {
+      type: "array",
+      minItems: 1,
+      maxItems: MAX_TOOLSETS,
+      uniqueItems: true,
+      items: { type: "string", pattern: TOOLSET_NAME.source },
+    },
+  },
+};
+
+/** Adapter-owned tools that switch which native toolsets this session exposes. */
+export const TOOLSET_TOOLS: Tool[] = [
+  {
+    name: "toolsets.list",
+    description:
+      "List the native toolsets, what each covers, how many tools it has and whether it is enabled.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: "toolsets.enable",
+    description:
+      "Expose the tools of the named toolsets in this session. The tool list then changes.",
+    inputSchema: namesSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: "toolsets.disable",
+    description:
+      "Hide the tools of the named toolsets in this session. The core toolset stays enabled.",
+    inputSchema: namesSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+];
+
+const TOOLSET_TOOL_NAMES = new Set(TOOLSET_TOOLS.map((tool) => tool.name));
+
+function invalidCatalog(message: string): WorkerError {
+  return new WorkerError("INVALID_CATALOG", message);
+}
+
+function isToolsetName(value: unknown): value is string {
+  return typeof value === "string" && TOOLSET_NAME.test(value);
+}
+
+function isDescription(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024;
+}
+
+function parseDescriptor(entry: unknown): ToolsetDescriptor {
+  if (
+    !isObject(entry) ||
+    !isToolsetName(entry["name"]) ||
+    !isDescription(entry["description"]) ||
+    !Array.isArray(entry["tools"])
+  ) {
+    throw invalidCatalog("Invalid native toolset descriptor");
+  }
+  const tools = entry["tools"];
+  if (!tools.every((tool): tool is string => typeof tool === "string")) {
+    throw invalidCatalog("Invalid native toolset descriptor");
+  }
+  return { name: entry["name"], description: entry["description"], tools };
+}
+
+function owners(toolsets: ToolsetDescriptor[], catalog: Set<string>): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const toolset of toolsets) {
+    for (const tool of toolset.tools) {
+      if (!catalog.has(tool) || result.has(tool)) {
+        throw invalidCatalog("Native toolsets must partition the tool catalog");
+      }
+      result.set(tool, toolset.name);
+    }
+  }
+  if (result.size !== catalog.size) {
+    throw invalidCatalog("Native toolsets must partition the tool catalog");
+  }
+  return result;
+}
+
+/** Validate that the native toolsets partition the catalog and include core.
+ *
+ * Args:
+ *   value: The `toolsets` field of the native capabilities.
+ *   tools: The validated native tools.
+ * Returns:
+ *   The toolsets in native order.
+ */
+export function parseToolsets(value: unknown, tools: Tool[]): ToolsetDescriptor[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_TOOLSETS) {
+    throw invalidCatalog(`Expected 1 to ${MAX_TOOLSETS} native toolsets`);
+  }
+  const catalog = new Set(tools.map((tool) => tool.name));
+  const reserved = [...catalog].find((name) => TOOLSET_TOOL_NAMES.has(name));
+  if (reserved !== undefined) throw invalidCatalog(`Native tool ${reserved} is reserved`);
+  const toolsets = value.map(parseDescriptor);
+  const names = new Set(toolsets.map((toolset) => toolset.name));
+  if (names.size !== toolsets.length) throw invalidCatalog("Duplicate native toolset name");
+  if (!names.has(REQUIRED_TOOLSET)) throw invalidCatalog("The native catalog has no core toolset");
+  owners(toolsets, catalog);
+  return toolsets;
+}
+
+/** Which native toolsets one MCP session exposes. */
+export class ToolsetState {
+  private readonly enabled = new Set<string>([REQUIRED_TOOLSET]);
+  private readonly owners = new Map<string, string>();
+
+  constructor(
+    private readonly toolsets: ToolsetDescriptor[],
+    private readonly tools: Tool[],
+    requested: string[],
+  ) {
+    for (const toolset of toolsets) {
+      for (const tool of toolset.tools) this.owners.set(tool, toolset.name);
+    }
+    const names = requested.includes("all") ? toolsets.map((toolset) => toolset.name) : requested;
+    this.enable(names);
+  }
+
+  /** Every native tool plus the toolset tools, for argument validation. */
+  all(): Tool[] {
+    return [...this.tools, ...TOOLSET_TOOLS];
+  }
+
+  /** Native tools of enabled toolsets in catalog order, then the toolset tools. */
+  visible(): Tool[] {
+    return [...this.tools.filter((tool) => this.isEnabled(tool.name)), ...TOOLSET_TOOLS];
+  }
+
+  isToolsetTool(name: string): boolean {
+    return TOOLSET_TOOL_NAMES.has(name);
+  }
+
+  /** Reject a native tool whose toolset this session has not enabled. */
+  requireEnabled(name: string): void {
+    const owner = this.owners.get(name);
+    if (owner === undefined || this.enabled.has(owner)) return;
+    throw new WorkerError("TOOLSET_DISABLED", `Enable the "${owner}" toolset to use ${name}`, {
+      toolset: owner,
+    });
+  }
+
+  list(): Record<string, unknown> {
+    return {
+      toolsets: this.toolsets.map((toolset) => ({
+        name: toolset.name,
+        description: toolset.description,
+        tool_count: toolset.tools.length,
+        enabled: this.enabled.has(toolset.name),
+      })),
+      exposed_tool_count: this.exposedCount(this.enabled),
+    };
+  }
+
+  /** Enable toolsets; returns whether the exposed tools changed. */
+  enable(names: string[]): boolean {
+    this.requireKnown(names);
+    const next = new Set([...this.enabled, ...names]);
+    const exposed = this.exposedCount(next);
+    if (exposed > MAX_EXPOSED_TOOLS) {
+      throw new WorkerError(
+        "TOOLSET_LIMIT",
+        `Enabling these toolsets would expose ${exposed} tools; the limit is ${MAX_EXPOSED_TOOLS}`,
+        { exposed_tool_count: exposed, limit: MAX_EXPOSED_TOOLS },
+      );
+    }
+    return this.replace(next);
+  }
+
+  /** Disable toolsets other than core; returns whether the exposed tools changed. */
+  disable(names: string[]): boolean {
+    this.requireKnown(names);
+    if (names.includes(REQUIRED_TOOLSET)) {
+      throw new WorkerError("TOOLSET_REQUIRED", "The core toolset cannot be disabled");
+    }
+    return this.replace(new Set([...this.enabled].filter((name) => !names.includes(name))));
+  }
+
+  private isEnabled(tool: string): boolean {
+    const owner = this.owners.get(tool);
+    return owner !== undefined && this.enabled.has(owner);
+  }
+
+  private exposedCount(enabled: Set<string>): number {
+    return this.toolsets
+      .filter((toolset) => enabled.has(toolset.name))
+      .reduce((total, toolset) => total + toolset.tools.length, 0);
+  }
+
+  private requireKnown(names: string[]): void {
+    const known = new Set(this.toolsets.map((toolset) => toolset.name));
+    const unknown = names.filter((name) => !known.has(name));
+    if (unknown.length > 0) {
+      throw new WorkerError("UNKNOWN_TOOLSET", `Unknown toolset: ${unknown.join(", ")}`, {
+        unknown,
+        available: [...known],
+      });
+    }
+  }
+
+  private replace(next: Set<string>): boolean {
+    const changed =
+      next.size !== this.enabled.size || [...next].some((name) => !this.enabled.has(name));
+    this.enabled.clear();
+    for (const name of next) this.enabled.add(name);
+    return changed;
+  }
+}

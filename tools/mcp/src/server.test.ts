@@ -2,6 +2,7 @@ import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
 import { WorkerError } from "#mcp/errors";
 import { createLiveServer, createServer } from "#mcp/server";
+import { TOOLSET_TOOLS } from "#mcp/toolsets";
 
 const tool = {
   name: "scene.rename",
@@ -24,7 +25,11 @@ const closers: (() => Promise<void>)[] = [];
 async function session() {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
     if (method === "automation.capabilities") {
-      return { protocol_version: 1, tools: [{ ...tool, mutates_document: true }] };
+      return {
+        protocol_version: 2,
+        tools: [{ ...tool, mutates_document: true, toolset: "core" }],
+        toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
+      };
     }
     return { name: params["name"], revision: "next" };
   });
@@ -48,7 +53,7 @@ afterEach(async () => {
 test("advertises only tools implemented by the current native worker", async () => {
   const { client } = await session();
   const result = await client.listTools();
-  expect(result.tools).toEqual([tool]);
+  expect(result.tools).toEqual([tool, ...TOOLSET_TOOLS]);
 });
 
 test("passes operation identities unchanged to native mutations", async () => {
@@ -88,11 +93,17 @@ test("keeps native failures visible as tool errors", async () => {
   expect(result.structuredContent).toMatchObject({ error: { code: "REVISION_CONFLICT" } });
 });
 
+const core = (names: string[]) => [{ name: "core", description: "Core tools", tools: names }];
+
 test.each([
-  { protocol_version: 2, tools: [] },
-  { protocol_version: 1, tools: [tool, tool] },
-  { protocol_version: 1, tools: [{ name: "missing-schema" }] },
-  { protocol_version: 1, tools: Array.from({ length: 257 }, () => tool) },
+  { protocol_version: 1, tools: [tool], toolsets: core([tool.name]) },
+  { protocol_version: 2, tools: [tool, tool], toolsets: core([tool.name]) },
+  { protocol_version: 2, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
+  {
+    protocol_version: 2,
+    tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, name: `tool.${i}` })),
+    toolsets: core(Array.from({ length: 1025 }, (_, i) => `tool.${i}`)),
+  },
 ])("rejects an incompatible or malformed native catalog", async (catalog) => {
   await expect(
     createServer({ request: async () => catalog, close: () => {} }),
@@ -106,7 +117,7 @@ test("compiles and rejects invalid native schemas before accepting tool calls", 
   };
   await expect(
     createServer({
-      request: async () => ({ protocol_version: 1, tools: [invalid] }),
+      request: async () => ({ protocol_version: 2, tools: [invalid], toolsets: core([tool.name]) }),
       close: () => {},
     }),
   ).rejects.toThrow();

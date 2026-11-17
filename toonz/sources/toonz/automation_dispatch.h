@@ -2,7 +2,9 @@
 
 #include "automation.h"
 
+#include <QMap>
 #include <QSet>
+#include <QStringList>
 
 namespace GroundzeroAutomation {
 
@@ -24,7 +26,10 @@ private:
     QByteArray fingerprint;
     QJsonObject response;
   };
-  void add(const QJsonArray& operations, Handler handler);
+  void add(const QJsonArray& operations, Handler handler,
+           const QString& toolset);
+  void addWorkerOperation(QJsonObject descriptor);
+  QJsonArray toolsetCatalog() const;
   void checkReceiptCapacity(bool control) const;
   void rememberReceipt(const QString& operationId, const Receipt& receipt,
                        const QString& controlJob);
@@ -44,6 +49,7 @@ private:
   QSet<QString> m_controlJobs;
   qint64 m_receiptBytes = 0;
   QJsonArray m_catalog;
+  QMap<QString, QStringList> m_toolsets;
   bool m_busy = false;
 };
 

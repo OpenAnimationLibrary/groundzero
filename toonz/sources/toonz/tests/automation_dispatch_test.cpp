@@ -268,36 +268,75 @@ void partialCancellation(Context& context, Dispatcher& dispatcher) {
   verifyReplay(dispatcher, params, receipt);
 }
 
+void toolsetCatalog(Context& context) {
+  Dispatcher dispatcher(context);
+  const QJsonObject capabilities =
+      result(dispatcher, "automation.capabilities", {});
+  require(capabilities.value("protocol_version").toInt() == 2,
+          "Toolset catalogs require protocol version 2");
+  QSet<QString> listed;
+  for (const QJsonValue& value : capabilities.value("toolsets").toArray()) {
+    const QJsonObject toolset = value.toObject();
+    require(!toolset.value("description").toString().isEmpty(),
+            "Every toolset needs a description");
+    for (const QJsonValue& name : toolset.value("tools").toArray()) {
+      require(!listed.contains(name.toString()),
+              "A tool is listed in more than one toolset");
+      listed.insert(name.toString());
+    }
+  }
+  const QJsonArray tools = capabilities.value("tools").toArray();
+  require(listed.size() == tools.size(),
+          "Toolsets must list exactly the catalog's tools");
+  for (const QJsonValue& value : tools) {
+    const QJsonObject tool = value.toObject();
+    require(tool.value("toolset").toString() == "core" &&
+                listed.contains(tool.value("name").toString()),
+            "Every current tool belongs to the core toolset");
+  }
+}
+
 }  // namespace
 
 void runAutomationDispatcherTests(Context& context) {
+  toolsetCatalog(context);
   {
     Dispatcher dispatcher(context);
-    dispatcher.add(unicodeOperations(), echoString);
+    bool refused = false;
+    try {
+      dispatcher.add(unicodeOperations(), echoString, "undescribed");
+    } catch (const Error& error) {
+      refused = error.code == "internal_error";
+    }
+    require(refused, "An undescribed toolset must be refused at registration");
+  }
+  {
+    Dispatcher dispatcher(context);
+    dispatcher.add(unicodeOperations(), echoString, "core");
     unicodeBoundaries(dispatcher);
     unicodeOperationIds(context, dispatcher);
   }
   QString jobId;
   {
     Dispatcher dispatcher(context);
-    dispatcher.add(boundaryOperations(), largeResult);
+    dispatcher.add(boundaryOperations(), largeResult, "core");
     dispatcher.m_entries["render.cancel"].handler = oversizedResult;
     oversizedResultPressure(context, dispatcher);
   }
   {
     Dispatcher dispatcher(context);
-    dispatcher.add(boundaryOperations(), largeResult);
+    dispatcher.add(boundaryOperations(), largeResult, "core");
     jobId = bytePressure(context, dispatcher);
   }
   {
     Dispatcher dispatcher(context);
-    dispatcher.add(boundaryOperations(), largeResult);
+    dispatcher.add(boundaryOperations(), largeResult, "core");
     dispatcher.m_entries["render.cancel"].handler = escapedCancellation;
     terminalPressure(dispatcher, jobId);
   }
   {
     Dispatcher dispatcher(context);
-    dispatcher.add(boundaryOperations(), largeResult);
+    dispatcher.add(boundaryOperations(), largeResult, "core");
     dispatcher.m_entries["render.cancel"].handler = oversizedCancellation;
     partialCancellation(context, dispatcher);
   }

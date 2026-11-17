@@ -4,6 +4,7 @@ import { WorkerError, errorResult, isObject } from "#mcp/errors";
 import { boundedResult, toolResult } from "#mcp/results";
 import { LIVE_TOOL_NAMES } from "#mcp/live-protocol";
 import type { LiveHello } from "#mcp/live-protocol";
+import { ToolsetState, parseToolsets } from "#mcp/toolsets";
 
 export interface NativeApi {
   request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -38,17 +39,23 @@ const descriptorSchema: Parameters<typeof fromJsonSchema>[0] = {
   },
 };
 
-async function discover(worker: NativeApi): Promise<Tool[]> {
+const MAX_CATALOG_TOOLS = 1024;
+
+async function discover(worker: NativeApi, requested: string[]): Promise<ToolsetState> {
   const result = await worker.request("automation.capabilities");
-  if (!isObject(result) || result["protocol_version"] !== 1) {
-    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 1");
+  if (!isObject(result) || result["protocol_version"] !== 2) {
+    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 2");
   }
-  return catalog(result["tools"]);
+  const tools = await catalog(result["tools"]);
+  return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
 }
 
 async function catalog(entries: unknown): Promise<Tool[]> {
-  if (!Array.isArray(entries) || entries.length > 256) {
-    throw new WorkerError("INVALID_CATALOG", "Expected at most 256 native tool descriptors");
+  if (!Array.isArray(entries) || entries.length > MAX_CATALOG_TOOLS) {
+    throw new WorkerError(
+      "INVALID_CATALOG",
+      `Expected at most ${MAX_CATALOG_TOOLS} native tool descriptors`,
+    );
   }
   const schema = fromJsonSchema<NativeTool>(descriptorSchema);
   const tools: Tool[] = [];
@@ -71,16 +78,20 @@ async function catalog(entries: unknown): Promise<Tool[]> {
   return tools;
 }
 
-/** Build an MCP server exposing the validated catalog of this native binary.
+/** Build an MCP server exposing the enabled toolsets of this native binary.
  *
  * Args:
  *   worker: A private worker whose lifetime ends when the MCP connection closes.
+ *   toolsets: Toolsets enabled at start in addition to core; "all" enables every toolset.
  * Returns:
  *   A new MCP server ready for one connection's protocol negotiation.
  */
-export async function createServer(worker: NativeApi): Promise<Server> {
-  const tools = await discover(worker);
-  return serverWithTools(worker, tools, false);
+export async function createServer(
+  worker: NativeApi,
+  toolsets: string[] = ["core"],
+): Promise<Server> {
+  const state = await discover(worker, toolsets);
+  return serverWithTools(worker, state.all(), false, state);
 }
 
 /** Expose only the authenticated editor's exact six-tool live catalog.
@@ -102,7 +113,25 @@ export async function createLiveServer(connection: NativeApi, hello: LiveHello):
   return serverWithTools(connection, tools, true);
 }
 
-function serverWithTools(worker: NativeApi, tools: Tool[], live: boolean): Server {
+async function toolsetCall(
+  state: ToolsetState,
+  server: Server,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (name === "toolsets.list") return state.list();
+  const names = args["names"] as string[];
+  const changed = name === "toolsets.enable" ? state.enable(names) : state.disable(names);
+  if (changed) await server.sendToolListChanged();
+  return { ...state.list(), changed };
+}
+
+function serverWithTools(
+  worker: NativeApi,
+  tools: Tool[],
+  live: boolean,
+  state?: ToolsetState,
+): Server {
   const validators = new Map(
     tools.map((tool) => [
       tool.name,
@@ -113,23 +142,23 @@ function serverWithTools(worker: NativeApi, tools: Tool[], live: boolean): Serve
   );
   const server = new Server(
     { name: "groundzero", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: state ? { listChanged: true } : {} } },
   );
   server.onclose = () => worker.close();
-  server.setRequestHandler("tools/list", async () => ({ tools }));
+  server.setRequestHandler("tools/list", async () => ({ tools: state ? state.visible() : tools }));
   server.setRequestHandler("tools/call", async (request, context) => {
     let result: CallToolResult;
     try {
       boundedResult({ content: [] }, context.mcpReq.id);
-      const validator = validators.get(request.params.name);
-      if (!validator) throw new WorkerError("UNKNOWN_TOOL", `Unknown tool: ${request.params.name}`);
-      const parsed = await validator["~standard"].validate(request.params.arguments ?? {});
-      if (parsed.issues) {
-        throw new WorkerError("INVALID_ARGUMENTS", "Tool arguments do not match its input schema", {
-          issues: parsed.issues.map((issue) => issue.message),
-        });
-      }
-      result = nativeToolResult(await worker.request(request.params.name, parsed.value), live);
+      const name = request.params.name;
+      const validator = validators.get(name);
+      if (!validator) throw new WorkerError("UNKNOWN_TOOL", `Unknown tool: ${name}`);
+      state?.requireEnabled(name);
+      const args = await validArguments(validator, request.params.arguments ?? {});
+      result =
+        state?.isToolsetTool(name) === true
+          ? toolResult(await toolsetCall(state, server, name, args))
+          : nativeToolResult(await worker.request(name, args), live);
     } catch (error) {
       result = errorResult(error);
     }
@@ -141,6 +170,21 @@ function serverWithTools(worker: NativeApi, tools: Tool[], live: boolean): Serve
     }
   });
   return server;
+}
+
+type Validator = ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;
+
+async function validArguments(
+  validator: Validator,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const parsed = await validator["~standard"].validate(args);
+  if (parsed.issues) {
+    throw new WorkerError("INVALID_ARGUMENTS", "Tool arguments do not match its input schema", {
+      issues: parsed.issues.map((issue) => issue.message),
+    });
+  }
+  return parsed.value;
 }
 
 function nativeToolResult(value: unknown, live: boolean): CallToolResult {

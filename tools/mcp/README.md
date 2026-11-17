@@ -53,6 +53,24 @@ argument naming a canonical directory containing regular executable `ffmpeg` and
 fixed for the session and does not add an input root. Without it, media helpers
 are disabled; the worker does not discover them through `PATH`.
 
+Native tools are grouped into toolsets, so a session only carries the tool
+definitions it needs. The `core` toolset is always enabled. Add others at launch
+with `--toolsets audio,rigging`, or use `--toolsets all`. Unknown names stop the
+adapter at startup. During a session:
+
+- `toolsets.list` reports each toolset, what it covers, its tool count and
+  whether it is enabled.
+- `toolsets.enable` and `toolsets.disable` take `{"names": [...]}`. They change
+  the advertised tool list and send `notifications/tools/list_changed`. Both are
+  idempotent, and `core` cannot be disabled.
+- Calling a tool whose toolset is disabled returns `TOOLSET_DISABLED`, with the
+  toolset in `details.toolset`. Nothing reaches the worker.
+- A session exposes at most 256 native tools. A request that would exceed this
+  returns `TOOLSET_LIMIT` and leaves the enabled toolsets unchanged.
+
+The adapter requires native automation protocol version 2. An older or newer
+worker is refused with `INCOMPATIBLE_WORKER`.
+
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
 schemas describe their exact arguments and bounds. Frames start at zero. Native
 drawing numbers range from 1 to 65535 for vector levels and from 1 to 999999 for

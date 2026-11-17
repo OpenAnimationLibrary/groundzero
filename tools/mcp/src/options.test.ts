@@ -111,6 +111,7 @@ test("canonicalizes executable and deduplicates explicit input roots", async () 
     executable: await realpath(process.execPath),
     workspace: path,
     inputRoots: [path],
+    toolsets: ["core"],
   });
 });
 
@@ -166,4 +167,45 @@ test("live attachment requires an explicit executable and a single absolute sess
   await expect(parseOptions([...prefix, session, "--live-session", session])).rejects.toThrow(
     "at most once",
   );
+});
+
+test("selects core toolsets by default and accepts a distinct toolset list", async () => {
+  const path = await workspace();
+  const base = ["--executable", process.execPath, "--workspace", path];
+  const defaults = await parseOptions(base);
+  assert(!("liveSession" in defaults));
+  expect(defaults.toolsets).toEqual(["core"]);
+  const chosen = await parseOptions([...base, "--toolsets", "audio,rigging"]);
+  assert(!("liveSession" in chosen));
+  expect(chosen.toolsets).toEqual(["audio", "rigging"]);
+  const all = await parseOptions([...base, "--toolsets", "all"]);
+  assert(!("liveSession" in all));
+  expect(all.toolsets).toEqual(["all"]);
+});
+
+test.each(["", "audio,", "Audio", "audio,audio", "audio rigging", "../core"])(
+  "rejects the toolset list %j",
+  async (value) => {
+    const path = await workspace();
+    const args = ["--executable", process.execPath, "--workspace", path, "--toolsets", value];
+    await expect(parseOptions(args)).rejects.toThrow("--toolsets");
+  },
+);
+
+test("rejects repeated toolset lists and toolsets for the live editor", async () => {
+  const path = await workspace();
+  const base = ["--executable", process.execPath, "--workspace", path];
+  await expect(
+    parseOptions([...base, "--toolsets", "audio", "--toolsets", "rigging"]),
+  ).rejects.toThrow("--toolsets");
+  await expect(
+    parseOptions([
+      "--executable",
+      process.execPath,
+      "--live-session",
+      join(path, "session"),
+      "--toolsets",
+      "audio",
+    ]),
+  ).rejects.toThrow("toolsets");
 });

@@ -10,12 +10,16 @@ export interface WorkerOptions {
   mediaToolsDirectory?: string;
 }
 
+export interface DetachedOptions extends WorkerOptions {
+  toolsets: string[];
+}
+
 export interface LiveOptions {
   executable: string;
   liveSession: string;
 }
 
-export type AdapterOptions = WorkerOptions | LiveOptions;
+export type AdapterOptions = DetachedOptions | LiveOptions;
 
 async function directory(path: string): Promise<string> {
   if (!isAbsolute(path)) throw new Error(`Directory must be absolute: ${path}`);
@@ -53,12 +57,13 @@ function launchArguments(args: string[]) {
       "input-root": { type: "string", multiple: true },
       "media-tools": { type: "string" },
       "live-session": { type: "string" },
+      toolsets: { type: "string" },
     },
     strict: true,
     allowPositionals: false,
     tokens: true,
   });
-  for (const name of ["media-tools", "live-session"]) {
+  for (const name of ["media-tools", "live-session", "toolsets"]) {
     if (tokens.filter((token) => token.kind === "option" && token.name === name).length > 1) {
       throw new Error(`Specify --${name} at most once`);
     }
@@ -81,9 +86,12 @@ function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
   if (
     values.workspace !== undefined ||
     values["input-root"] !== undefined ||
-    values["media-tools"] !== undefined
+    values["media-tools"] !== undefined ||
+    values.toolsets !== undefined
   ) {
-    throw new Error("--live-session cannot be combined with workspace, input-root, or media-tools");
+    throw new Error(
+      "--live-session cannot be combined with workspace, input-root, media-tools, or toolsets",
+    );
   }
   const liveSession = values["live-session"];
   if (liveSession === undefined || !isAbsolute(liveSession) || liveSession.includes("\0")) {
@@ -92,14 +100,32 @@ function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
   return { executable, liveSession };
 }
 
+function toolsetNames(value: string | undefined): string[] {
+  if (value === undefined) return ["core"];
+  const names = value.split(",");
+  if (
+    names.length > 64 ||
+    names.some((name) => !/^[a-z][a-z0-9-]{0,31}$/.test(name)) ||
+    new Set(names).size !== names.length
+  ) {
+    throw new Error("--toolsets must be a comma-separated list of distinct toolset names, or all");
+  }
+  return names;
+}
+
 async function detachedOptions(
   executable: string,
   values: LaunchArguments,
-): Promise<WorkerOptions> {
+): Promise<DetachedOptions> {
   if (!values.workspace) throw new Error("--workspace must be an absolute directory");
   const workspace = await directory(values.workspace);
   const inputRoots = await Promise.all((values["input-root"] ?? []).map(directory));
-  const options: WorkerOptions = { executable, workspace, inputRoots: [...new Set(inputRoots)] };
+  const options: DetachedOptions = {
+    executable,
+    workspace,
+    inputRoots: [...new Set(inputRoots)],
+    toolsets: toolsetNames(values.toolsets),
+  };
   if (values["media-tools"] !== undefined) {
     options.mediaToolsDirectory = await mediaDirectory(values["media-tools"]);
   }

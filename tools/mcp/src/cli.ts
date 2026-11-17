@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     try {
       const api = { request: worker.request.bind(worker), close };
       if ("ready" in worker) return await createLiveServer(api, await worker.ready);
-      return await createServer(api);
+      return await createServer(api, "toolsets" in options ? options.toolsets : ["core"]);
     } catch (error) {
       close();
       throw error;
