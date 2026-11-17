@@ -35,6 +35,7 @@ import mcp_render_cases
 import mcp_renumber_cases
 import mcp_scene_cases
 import mcp_text_cases
+import mcp_vector_opacity_cases
 import mcp_vector_transform_cases
 import mcp_worker_cases
 from mcp_png import decode_png, fixture_pixel, write_fixture
@@ -147,6 +148,12 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_motion_path_geometry_percentage_and_revision_rejections(self) -> None:
         mcp_motion_path_cases.motion_path_geometry_percentage_and_revision_rejections(self)
+
+    def test_vector_opacity_round_trip(self) -> None:
+        mcp_vector_opacity_cases.vector_opacity_round_trip(self)
+
+    def test_vector_selection_and_rejection_purity(self) -> None:
+        mcp_vector_opacity_cases.vector_selection_and_rejection_purity(self)
 
     def test_text_outline_round_trip_and_edit(self) -> None:
         mcp_text_cases.text_outline_round_trip_and_edit(self)

@@ -56,9 +56,7 @@ def _fixture(case: NativeAcceptance) -> tuple[str, dict[str, Any]]:
     return document, target
 
 
-def _inspect(
-    case: NativeAcceptance, document: str, target: dict[str, Any]
-) -> dict[str, Any]:
+def _inspect(case: NativeAcceptance, document: str, target: dict[str, Any]) -> dict[str, Any]:
     return case.success(
         "vector.opacity.inspect",
         {
@@ -100,14 +98,10 @@ def vector_opacity_round_trip(case: NativeAcceptance) -> None:
     saved = case.mutate(
         "scene.save_copy", document, directory=str(case.workspace / "opacity-package")
     )
-    manifest = json.loads(
-        (case.workspace / "opacity-package" / "manifest.json").read_text()
-    )
+    manifest = json.loads((case.workspace / "opacity-package" / "manifest.json").read_text())
     case.assertRegex(manifest["levels"][0]["stroke_opacity_sha256"], "^[0-9a-f]{64}$")
     case.mutate("scene.discard", document)
-    opened = case.mutate("scene.open", None, path=saved["package_directory"])[
-        "document_id"
-    ]
+    opened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
     summary = case.success("scene.summary", {"document_id": opened})
     target["level_id"] = summary["levels"][0]["level_id"]
     case.assertEqual(_inspect(case, opened, target)["knots"], PROFILE)
