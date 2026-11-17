@@ -1,4 +1,6 @@
+#include "automation_hook.h"
 #include "automation_path.h"
+#include "automation_rig.h"
 #include "automation_vector_opacity.h"
 #include "automation.h"
 #include "automation_audio.h"
@@ -252,7 +254,9 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
     TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
     if (!level) continue;  // Sound sources are copied by writeAutomationSounds.
     const QString relative = levelPath(index, level->getType());
-    writeLevel(*level, QDir(directory).absoluteFilePath(relative), frameRate);
+    const QString file     = QDir(directory).absoluteFilePath(relative);
+    writeLevel(*level, file, frameRate);
+    const QJsonValue hooks = writeAutomationHooks(*level, file);
     if (level->getType() == TZP_XSHLEVEL)
       readRegularFile(directory, relative.left(relative.size() - 3) + "tpl");
     entries.append(
@@ -265,6 +269,7 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
                          : QJsonValue()},
                     {"palette", paletteManifest(*level)},
                     {"raster", rasterManifest(*level)},
+                    {"hooks_sha256", hooks},
                     {"drawings", frameManifest(*level)}});
   }
   return entries;
@@ -447,6 +452,7 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
   if (level->getFids() != frames)
     throw Error("invalid_package",
                 "The reopened drawing IDs differ from their source.");
+  readAutomationHooks(scene, *level, entry.value("hooks_sha256"));
   validateDrawingProfile(level);
   if (level->getType() == PLI_XSHLEVEL &&
       vectorLevelOpacityDigest(*level) !=
@@ -546,6 +552,7 @@ QJsonObject openPackage(Context& context, const QJsonObject& params) {
   context.markMutationStarted();
   Document& document    = context.addDocument(std::move(scene));
   document.soundSources = sounds;
+  initializeAutomationRig(document);
   return {{"document_id", document.id},
           {"revision", document.revisionText()},
           {"package_directory", directory}};
@@ -610,6 +617,7 @@ QJsonObject textSchema() { return {{"type", "string"}, {"minLength", 1}}; }
 void validateAutomationScene(ToonzScene& scene) {
   validateAutomationFxGraph(scene);
   validateAutomationPaths(scene);
+  validateAutomationRig(scene);
   TLevelSet* levels = scene.getLevelSet();
   if (levels->getLevelCount() > MaxLevels)
     throw Error("scene_limit", "The scene exceeds 256 levels.");
@@ -631,6 +639,7 @@ void validateAutomationScene(ToonzScene& scene) {
   validateAutomationAudio(scene);
   requireAssetGrowth(scene, 0);
   validateCells(scene);
+  validateAutomationHooks(scene);
 }
 
 std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,

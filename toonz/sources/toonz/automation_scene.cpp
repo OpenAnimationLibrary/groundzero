@@ -3,6 +3,7 @@
 #include "automation_audio.h"
 #include "automation_path.h"
 #include "automation_drawing.h"
+#include "automation_rig.h"
 
 #include "tdoubleparam.h"
 #include "toutputproperties.h"
@@ -724,12 +725,23 @@ QJsonValue parentObject(Context& context, const QJsonObject& params) {
   TStageObject* parent = document.object(requiredString(params, "parent_id"));
   requireEditable(document, object);
   checkParent(document, object, parent);
-  validateAutomationPathParent(*document.scene, object, parent);
-  if (object->getParent() == parent->getId())
-    return describeObject(document, object);
-  context.markMutationStarted();
-  object->setParent(parent->getId());
-  return describeObject(document, object);
+  validateAutomationStageParent(*document.scene, *object, *parent);
+  const std::string handle = automationParentHandle(
+      document, *object, *parent, params.value("parent_handle"));
+  const auto frames = automationReportFrames(params);
+  const auto before = automationPlacements(*document.scene, *object, frames);
+  if (object->getParent() != parent->getId() ||
+      object->getParentHandle() != handle) {
+    context.markMutationStarted();
+    object->setParent(parent->getId());
+    object->setParentHandle(handle);
+  }
+  QJsonObject result = describeObject(document, object);
+  result.insert("parent_handle", automationHandleRecord(handle));
+  insertAutomationWorldChanges(
+      result, frames, before,
+      automationPlacements(*document.scene, *object, frames));
+  return result;
 }
 
 struct Channel {
@@ -750,51 +762,118 @@ const std::map<QString, Channel>& animationChannels() {
   return channels;
 }
 
+const Channel WeightChannel{TStageObject::T_ChannelCount, "scalar"};
+
 Channel readChannel(const QJsonObject& params) {
   const auto& channels = animationChannels();
-  const auto channel = channels.find(requiredString(params, "channel"));
-  if (channel == channels.end())
+  const QString name   = requiredString(params, "channel");
+  const auto channel   = channels.find(name);
+  if (channel == channels.end() && name != "weight")
     throw Error("unsupported_channel", "Unsupported animation channel.");
-  if (requiredString(params, "unit") != channel->second.unit)
+  const Channel result = name == "weight" ? WeightChannel : channel->second;
+  if (requiredString(params, "unit") != result.unit)
     throw Error("invalid_unit",
-                "This channel requires unit " + channel->second.unit + ".");
-  return channel->second;
+                "This channel requires unit " + result.unit + ".");
+  return result;
 }
 
-QString channelAdmission(Document& document, TStageObject& object, Channel channel) {
-  const auto* curve = object.getParam(channel.native);
+// The base channel of an object, or one curve or the weight of its layer.
+struct CurveTarget {
+  TStageObject* object;
+  TDoubleParam* curve;
+  Channel channel;
+  QString valueSpace;
+  int layer = -1;
+};
+
+bool isWeight(const CurveTarget& target) {
+  return target.channel.native == TStageObject::T_ChannelCount;
+}
+
+CurveTarget readTarget(Document& document, const QJsonObject& params) {
+  TStageObject* object  = document.object(requiredString(params, "object_id"));
+  const Channel channel = readChannel(params);
+  const bool weight     = channel.native == TStageObject::T_ChannelCount;
+  if (!params.contains("layer_id")) {
+    if (weight)
+      throw Error("invalid_params", "The weight channel requires layer_id.");
+    return {object, object->getParam(channel.native), channel, "base_channel"};
+  }
+  const auto layer =
+      automationLayer(document, requiredString(params, "layer_id"));
+  if (layer.object != object)
+    throw Error("invalid_params", "layer_id belongs to another object.");
+  if (channel.native == TStageObject::T_Path)
+    throw Error("unsupported_channel",
+                "Offset layers have no path_position curve.");
+  if (weight)
+    return {object, object->getOffsetLayer(layer.index).m_weight.getPointer(),
+            channel, "offset_layer_weight", layer.index};
+  return {object, object->getOffsetParam(layer.index, channel.native), channel,
+          "offset_layer_curve", layer.index};
+}
+
+QString curveAdmission(Document& document, const CurveTarget& target) {
   try {
-    if (channel.native == TStageObject::T_Path)
-      requireAutomationPathTarget(*document.scene, object, true);
-    else requireEditable(document, &object);
-    if (curve->isEditorLocked()) return "The channel is editor-locked.";
-    return animationUnsupportedReason(*curve);
+    if (target.channel.native == TStageObject::T_Path)
+      requireAutomationPathTarget(*document.scene, *target.object, true);
+    else
+      requireEditable(document, target.object);
+    if (target.curve->isEditorLocked()) return "The channel is editor-locked.";
+    return animationUnsupportedReason(*target.curve);
   } catch (const Error& error) {
     return error.message;
   }
 }
 
+QJsonObject channelDescriptor(Document& document, const QString& name,
+                              const CurveTarget& target) {
+  const QString reason = curveAdmission(document, target);
+  const bool path      = target.channel.native == TStageObject::T_Path;
+  const int bound      = isWeight(target) ? 10 : 1000000;
+  return {
+      {"channel", name},
+      {"unit", target.channel.unit},
+      {"editor_locked", target.curve->isEditorLocked()},
+      {"key_count", target.curve->getKeyframeCount()},
+      {"writable", reason.isEmpty()},
+      {"unsupported_reason",
+       reason.isEmpty() ? QJsonValue() : QJsonValue(reason)},
+      {"interpolations",
+       path ? QJsonArray{"constant", "linear"}
+            : QJsonArray{"constant", "linear", "ease_in_out", "speed_in_out"}},
+      {"frame_bounds", QJsonArray{0, MaxFrame}},
+      {"value_bounds", path ? QJsonArray{0, 100} : QJsonArray{-bound, bound}},
+      {"step_bounds", path ? QJsonArray{1, 1} : QJsonArray{1, 1000}},
+      {"key_time", "integer"},
+      {"sample_time", "fractional"}};
+}
+
 QJsonValue inspectAnimationChannels(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
   TStageObject* object = document.object(requiredString(params, "object_id"));
+  const bool layered   = params.contains("layer_id");
   QJsonArray result;
   for (const auto& item : animationChannels()) {
-    const auto* curve = object->getParam(item.second.native);
-    const QString reason = channelAdmission(document, *object, item.second);
-    const bool path = item.second.native == TStageObject::T_Path;
-    result.append(QJsonObject{
-        {"channel", item.first}, {"unit", item.second.unit},
-        {"editor_locked", curve->isEditorLocked()},
-        {"key_count", curve->getKeyframeCount()}, {"writable", reason.isEmpty()},
-        {"unsupported_reason", reason.isEmpty() ? QJsonValue() : QJsonValue(reason)},
-        {"interpolations", path ? QJsonArray{"constant", "linear"} :
-                                  QJsonArray{"constant", "linear", "ease_in_out", "speed_in_out"}},
-        {"frame_bounds", QJsonArray{0, MaxFrame}},
-        {"value_bounds", path ? QJsonArray{0, 100} : QJsonArray{-1000000, 1000000}},
-        {"step_bounds", path ? QJsonArray{1, 1} : QJsonArray{1, 1000}},
-        {"key_time", "integer"}, {"sample_time", "fractional"}});
+    if (layered && item.second.native == TStageObject::T_Path) continue;
+    QJsonObject request = params;
+    request.insert("channel", item.first);
+    request.insert("unit", item.second.unit);
+    result.append(
+        channelDescriptor(document, item.first, readTarget(document, request)));
   }
-  return QJsonObject{{"object_id", document.idForObject(object)}, {"channels", result}};
+  if (layered) {
+    QJsonObject request = params;
+    request.insert("channel", "weight");
+    request.insert("unit", "scalar");
+    result.append(
+        channelDescriptor(document, "weight", readTarget(document, request)));
+  }
+  return QJsonObject{
+      {"object_id", document.idForObject(object)},
+      {"channels", result},
+      {"value_space", layered ? "offset_layer" : "base_channel"},
+      {"offset_layers", automationLayerSummaries(document, *object)}};
 }
 
 QJsonArray readArray(const QJsonObject& params, const QString& name) {
@@ -822,30 +901,38 @@ std::vector<int> readFrames(const QJsonObject& params) {
 }
 
 QJsonValue inspectKeys(Context& context, const QJsonObject& params) {
-  Document& document    = getDocument(context, params);
-  TStageObject* object  = document.object(requiredString(params, "object_id"));
-  const Channel channel = readChannel(params);
-  TDoubleParam* curve   = object->getParam(channel.native);
-  if (channel.native == TStageObject::T_Path)
-    requireAutomationPathTarget(*document.scene, *object, false);
-  return QJsonObject{{"object_id", document.idForObject(object)},
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  if (target.channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *target.object, false);
+  return QJsonObject{{"object_id", document.idForObject(target.object)},
                      {"channel", params.value("channel")},
-                     {"unit", channel.unit},
-                     {"value_space", "base_channel"},
-                     {"editor_locked", curve->isEditorLocked()},
-                     {"keys", inspectAnimationKeys(*curve)}};
+                     {"unit", target.channel.unit},
+                     {"value_space", target.valueSpace},
+                     {"editor_locked", target.curve->isEditorLocked()},
+                     {"keys", inspectAnimationKeys(*target.curve)}};
+}
+
+void requireWeightKeys(const CurveTarget& target,
+                       const std::vector<TDoubleKeyframe>& keys) {
+  if (!isWeight(target)) return;
+  for (const auto& key : keys)
+    if (std::abs(key.m_value) > 10)
+      throw Error("invalid_argument",
+                  "Layer weights must stay within -10 and 10.",
+                  {{"frame", key.m_frame}, {"field", "value"}});
 }
 
 QJsonValue setKeys(Context& context, const QJsonObject& params) {
-  Document& document   = getDocument(context, params);
-  TStageObject* object = document.object(requiredString(params, "object_id"));
-  requireEditable(document, object);
-  const Channel channel = readChannel(params);
-  TDoubleParam* curve = object->getParam(channel.native);
-  if (channel.native == TStageObject::T_Path)
-    requireAutomationPathTarget(*document.scene, *object, true);
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
+  TDoubleParam* curve = target.curve;
+  if (target.channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *target.object, true);
   const auto edit = prepareAnimationKeyEdit(*curve, readArray(params, "keys"));
-  if (channel.native == TStageObject::T_Path) {
+  requireWeightKeys(target, edit.keys);
+  if (target.channel.native == TStageObject::T_Path) {
     TDoubleParamP prospective(new TDoubleParam(*curve));
     for (const auto& key : edit.keys) prospective->setKeyframe(key);
     validateAutomationPathPosition(*prospective);
@@ -857,17 +944,15 @@ QJsonValue setKeys(Context& context, const QJsonObject& params) {
 }
 
 QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
-  Document& document   = getDocument(context, params);
-  TStageObject* object = document.object(requiredString(params, "object_id"));
-  requireEditable(document, object);
-  const Channel channel         = readChannel(params);
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
   const std::vector<int> frames = readFrames(params);
-  TDoubleParam* curve           = object->getParam(channel.native);
-  if (channel.native == TStageObject::T_Path)
-    requireAutomationPathTarget(*document.scene, *object, true);
-  validateAnimationKeyDeletion(*curve, frames);
+  if (target.channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *target.object, true);
+  validateAnimationKeyDeletion(*target.curve, frames);
   context.markMutationStarted();
-  for (const int frame : frames) curve->deleteKeyframe(frame);
+  for (const int frame : frames) target.curve->deleteKeyframe(frame);
   return inspectKeys(context, params);
 }
 
@@ -925,17 +1010,53 @@ QJsonValue retimeAnimationCurve(Context& context, const QJsonObject& params) {
                      {"affected_domains", QJsonArray{"target_channel"}}};
 }
 
+void requireSampledLayers(const CurveTarget& target) {
+  requireSupportedAnimationCurve(*target.curve);
+  if (target.layer >= 0) {
+    requireSupportedAnimationCurve(
+        *target.object->getOffsetLayer(target.layer).m_weight);
+    return;
+  }
+  if (!TStageObject::isOffsetChannel(target.channel.native)) return;
+  for (int index = 0; index < target.object->getOffsetLayerCount(); ++index) {
+    requireSupportedAnimationCurve(
+        *target.object->getOffsetLayer(index).m_weight);
+    requireSupportedAnimationCurve(
+        *target.object->getOffsetParam(index, target.channel.native));
+  }
+}
+
+QJsonObject sampleValue(const CurveTarget& target, double frame) {
+  double value = 0;
+  std::string error;
+  if (!target.curve->getValueChecked(frame, value, error) ||
+      !std::isfinite(value))
+    throw Error(
+        "invalid_argument",
+        "Native animation evaluation failed: " + QString::fromStdString(error),
+        {{"frame", frame}});
+  if (target.layer < 0) {
+    const double offset =
+        target.object->getOffsetValue(target.channel.native, frame);
+    return {{"frame", frame},
+            {"value", value + offset},
+            {"base_value", value},
+            {"offset_value", offset}};
+  }
+  const auto& layer   = target.object->getOffsetLayer(target.layer);
+  const double weight = isWeight(target) ? 1 : layer.m_weight->getValue(frame);
+  return {{"frame", frame},
+          {"value", value},
+          {"weighted_value", layer.m_enabled ? weight * value : 0.0}};
+}
+
 QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
-  Document& document    = getDocument(context, params);
-  TStageObject* object  = document.object(requiredString(params, "object_id"));
-  const Channel channel = readChannel(params);
-  const QJsonArray frames = readArray(params, "frames");
-  TDoubleParam* curve = object->getParam(channel.native);
-  requireSupportedAnimationCurve(*curve);
-  if (channel.native == TStageObject::T_Path)
-    requireAutomationPathTarget(*document.scene, *object, false);
-  if (object->getOffsetLayerCount() != 0)
-    throw Error("unsupported_interpolation", "Offset-layer sampling is not qualified.");
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  const QJsonArray frames  = readArray(params, "frames");
+  requireSampledLayers(target);
+  if (target.channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *target.object, false);
   QSet<double> seen;
   QJsonArray values;
   for (const auto& value : frames) {
@@ -943,18 +1064,15 @@ QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
     if (seen.contains(frame))
       throw Error("invalid_argument", "frames must not contain duplicates.");
     seen.insert(frame);
-    double sampled = 0;
-    std::string error;
-    if (!curve->getValueChecked(frame, sampled, error) || !std::isfinite(sampled))
-      throw Error("invalid_argument", "Native animation evaluation failed: " +
-                  QString::fromStdString(error), {{"frame", frame}});
-    values.append(QJsonObject{{"frame", frame}, {"value", sampled}});
+    values.append(sampleValue(target, frame));
   }
-  return QJsonObject{{"object_id", document.idForObject(object)},
-                     {"channel", params.value("channel")},
-                     {"unit", channel.unit},
-                     {"value_space", "effective_local_channel"},
-                     {"values", values}};
+  return QJsonObject{
+      {"object_id", document.idForObject(target.object)},
+      {"channel", params.value("channel")},
+      {"unit", target.channel.unit},
+      {"value_space", target.layer < 0 ? QString("effective_local_channel")
+                                       : target.valueSpace},
+      {"values", values}};
 }
 
 QJsonObject cameraSchema() {
@@ -1164,16 +1282,30 @@ void addAnimationOperations(QJsonArray& catalog) {
             {{"name", textSchema()}, {"kind", enumSchema({"pegbar"})}}),
       {"document_id", "name", "kind"}, true));
   catalog.append(operation(
-      "object.parent", "Reparent an object, preserving its local animation.",
-      merge(object, {{"parent_id", textSchema()}}),
-      {"document_id", "object_id", "parent_id"}, true));
+      "object.parent",
+      "Reparent an object and optionally set its parent handle. Local keys "
+      "are kept, so stage placement may move; report_frames returns the "
+      "world changes.",
+      merge(object,
+            {{"parent_id", textSchema()},
+             {"placement_policy", QJsonObject{{"const", "preserve_local"}}},
+             {"parent_handle", automationHandleInputSchema()},
+             {"report_frames", automationReportFramesSchema()}}),
+      {"document_id", "object_id", "parent_id", "placement_policy"}, true));
+  const QJsonObject layer{
+      {"type", "string"}, {"minLength", 1}, {"maxLength", 128}};
   catalog.append(operation(
-      "animation.channels", "Discover stage channels, units, bounds and edit admission.",
-      object, {"document_id", "object_id"}));
+      "animation.channels",
+      "Discover stage channels, units, bounds and edit admission; layer_id "
+      "lists that offset layer's channels and weight.",
+      merge(object, {{"layer_id", layer}}), {"document_id", "object_id"}));
   QJsonObject animation = merge(
-      object, {{"channel", enumSchema({"x", "y", "z", "rotation", "scale_x",
-                                       "scale_y", "scale", "path_position"})},
-               {"unit", enumSchema({"inch", "degree", "scalar", "native_z", "percent"})}});
+      object,
+      {{"channel", enumSchema({"x", "y", "z", "rotation", "scale_x", "scale_y",
+                               "scale", "path_position", "weight"})},
+       {"unit",
+        enumSchema({"inch", "degree", "scalar", "native_z", "percent"})},
+       {"layer_id", layer}});
   const QJsonArray required{"document_id", "object_id", "channel", "unit"};
   catalog.append(operation("animation.keys",
                            "Read native curve keys with explicit units.",
@@ -1183,8 +1315,12 @@ void addAnimationOperations(QJsonArray& catalog) {
   const QJsonObject frames =
       merge(animation, {{"frames", arraySchema(integerSchema(0, MaxFrame))}});
   catalog.append(operation(
-      "animation.sample", "Sample effective local channel values at integral or fractional frames.",
-      merge(animation, {{"frames", arraySchema(numberSchema(0, MaxFrame))}}), withFrames));
+      "animation.sample",
+      "Sample effective local channel values with their base and offset-layer "
+      "parts at integral or fractional frames; layer_id samples one layer "
+      "curve.",
+      merge(animation, {{"frames", arraySchema(numberSchema(0, MaxFrame))}}),
+      withFrames));
   catalog.append(operation("animation.delete_keys",
                            "Delete existing keys after complete validation.",
                            frames, withFrames, true));

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tdoubleparam.h"
+
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -47,6 +49,7 @@ struct Document final {
   QHash<TStageObjectSpline*, QString> pathIds;
   // Verified file metadata of sound sources, keyed by their cast level.
   QHash<TXshLevel*, QJsonObject> soundSources;
+  QHash<QString, TDoubleParamP> offsetLayers;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);

@@ -48,19 +48,6 @@ void initializeAutomationPaths(Document& document);
 //   bounds.
 void validateAutomationPaths(ToonzScene& scene);
 
-// Refuse a reparenting that would exceed path-scene topology bounds before
-// writes.
-//
-// Args:
-//   scene: Owner of both resolved native stage objects.
-//   object: Object whose prospective parent changes.
-//   parent: Proposed parent; the native tree remains unchanged during
-//   validation.
-// Throws:
-//   Error: Cyclic, missing or excessive-depth prospective ancestry.
-void validateAutomationPathParent(ToonzScene& scene, TStageObject* object,
-                                  TStageObject* parent);
-
 // Check the target's path profile and, for writes, locks and bounded ancestry.
 //
 // Args:

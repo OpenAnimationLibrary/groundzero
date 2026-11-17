@@ -52,8 +52,7 @@ void requireCounts(TStageObjectTree& stage) {
         "Motion paths require at most 128 paths and 4096 stage objects.");
 }
 
-void validateParents(TStageObjectTree& stage, TStageObject* moved = nullptr,
-                     TStageObject* replacement = nullptr) {
+void validateParents(TStageObjectTree& stage) {
   requireCounts(stage);
   for (int index = 0; index < stage.getStageObjectCount(); ++index) {
     auto* object = stage.getStageObject(index);
@@ -62,8 +61,7 @@ void validateParents(TStageObjectTree& stage, TStageObject* moved = nullptr,
     while (object) {
       if (!seen.insert(object->getId()).second)
         invalid("Motion path scene contains a parent cycle.");
-      const auto parent =
-          object == moved ? replacement->getId() : object->getParent();
+      const auto parent = object->getParent();
       if (parent == TStageObjectId::NoneId) break;
       if (++depth > MaxDepth)
         invalid("Motion path scenes allow at most 64 parent edges.");
@@ -668,12 +666,6 @@ void initializeAutomationPaths(Document& document) {
     registerPath(document, path);
     for (auto* object : consumers(stage, path)) document.idForObject(object);
   }
-}
-
-void validateAutomationPathParent(ToonzScene& scene, TStageObject* object,
-                                  TStageObject* parent) {
-  auto& stage = *tree(scene);
-  if (stage.getSplineCount() != 0) validateParents(stage, object, parent);
 }
 
 QJsonArray pathOperations() {

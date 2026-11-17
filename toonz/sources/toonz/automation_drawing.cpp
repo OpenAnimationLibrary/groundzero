@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_audio.h"
 #include "automation_drawing.h"
+#include "automation_hook.h"
 #include "automation_vector_opacity.h"
 #include "tstrokeopacity.h"
 
@@ -315,7 +316,10 @@ QJsonObject cloneDrawing(Context& context, Document& document,
   imageFormat(image);
   requireAssetGrowth(*document.scene, automationImageBytes(image), 1);
   publish(context, level, destination, TImageP(image->cloneImage()));
-  return imageSummary(level, destination);
+  auto result = imageSummary(level, destination);
+  result.insert("source_hook_keys_not_copied",
+                automationHookKeys(*level, source));
+  return result;
 }
 
 struct DrawingExposure final {
@@ -392,10 +396,14 @@ QJsonObject removeDrawing(Context& context, Document& document,
   scanExposures(document, scan);
   if (!scan.exposures.empty())
     throw Error("in_use", "Remove every exposure before removing this drawing");
+  requireAutomationHookRemoval(document, *level, frame);
+  const int hookKeys = automationHookKeys(*level, frame);
   context.markMutationStarted();
   level->eraseFrame(frame);
   level->setDirtyFlag(true);
-  return {{"removed", frameJson(frame)}};
+  if (automationHookKeys(*level, frame) != 0)
+    throw Error("native_error", "Native drawing removal kept hook keys");
+  return {{"removed", frameJson(frame)}, {"hook_keys_removed", hookKeys}};
 }
 
 using DrawingMapping = std::map<TFrameId, TFrameId>;
@@ -448,12 +456,14 @@ void prepareRenumberExposures(ExposureScan& scan,
 }
 
 void applyRenumber(Context& context, TXshSimpleLevel* level,
-                   const std::vector<TFrameId>& frames, ExposureScan& scan) {
+                   const std::vector<TFrameId>& frames, ExposureScan& scan,
+                   const AutomationHookRenumber& hooks) {
   std::vector<TImageP> images;
   for (const auto& frame : level->getFids())
     images.push_back(imageFor(level, frame));
   context.markMutationStarted();
   level->renumber(frames);
+  verifyAutomationHookRenumber(*level, hooks);
   for (const auto& exposure : scan.exposures)
     if (!exposure.column->setCell(exposure.row, exposure.cell))
       throw Error("native_error",
@@ -480,18 +490,21 @@ QJsonObject renumberDrawing(Context& context, Document& document,
                     {"destination_drawing_id", frameJson(entry.second)}});
     if (entry.first != entry.second) scan.frames.insert(entry.first);
   }
+  AutomationHookRenumber hooks;
   if (!scan.frames.empty()) {
     if (level->isReadOnly())
       throw Error("locked", "The drawing level is read-only");
     validateDrawingProfile(level);
     requireAssetGrowth(*document.scene, 0);
+    hooks = prepareAutomationHookRenumber(*level, mapping);
     scanExposures(document, scan);
     prepareRenumberExposures(scan, mapping);
-    applyRenumber(context, level, frames, scan);
+    applyRenumber(context, level, frames, scan, hooks);
   }
   return {{"mapping", resultMapping},
           {"drawings_renumbered", static_cast<int>(scan.frames.size())},
           {"exposures_updated", static_cast<int>(scan.exposures.size())},
+          {"hook_keys_renumbered", hooks.moved},
           {"sharing", "all_exposures"}};
 }
 
