@@ -19,7 +19,7 @@ namespace {
 constexpr int MaximumProbeBytes = 1024 * 1024;
 constexpr qint64 HashChunkBytes = 1024 * 1024;
 
-bool near(double actual, double expected) {
+bool ratesMatch(double actual, double expected) {
   return std::isfinite(actual) && actual > 0 &&
          std::abs(actual - expected) <= std::max(0.000001, expected * 0.000006);
 }
@@ -55,7 +55,8 @@ QJsonObject movieTiming(const QJsonObject& stream, const QJsonObject& format,
   const int count =
       stream.value("nb_read_frames").toString().toInt(&validCount);
   const double fps = rate(stream.value("avg_frame_rate").toString());
-  if (!validCount || count != config.frameCount || !near(fps, config.frameRate))
+  if (!validCount || count != config.frameCount ||
+      !ratesMatch(fps, config.frameRate))
     return {};
   const double duration =
       format.value("duration").toString().toDouble(&durationParsed);

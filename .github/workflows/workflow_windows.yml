@@ -239,7 +239,7 @@ jobs:
           python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py `
-            --report toonz/build/mcp-acceptance/media-staging-contracts.txt
+            --report mcp-media-staging-contracts.txt
           exit $LASTEXITCODE
 
       - name: Verify failure-only native binary retention
@@ -521,6 +521,10 @@ jobs:
         if: ${{ !cancelled() && steps.mcp_runtime.outcome == 'success' }}
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -ErrorAction Stop `
+            -Path "toonz/build/mcp-acceptance" | Out-Null
+          Copy-Item -LiteralPath "mcp-media-staging-contracts.txt" `
+            -Destination "toonz/build/mcp-acceptance/media-staging-contracts.txt" -ErrorAction Stop
           $environment = Join-Path $env:RUNNER_TEMP "mcp-python"
           uv venv --python 3.13 "$environment"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
