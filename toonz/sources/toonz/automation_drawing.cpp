@@ -1564,6 +1564,65 @@ void vectorCatalog(QJsonArray& tools) {
   vectorTransformCatalog(tools);
 }
 
+QJsonObject groupOperation(const QString& name, const QString& description,
+                           QJsonObject properties, QJsonArray required,
+                           bool writes) {
+  properties.insert("drawing_id", drawingIdentity(kMaxVectorFrame));
+  auto result = operation(name, description, properties, required, writes);
+  auto schema = result.value("inputSchema").toObject();
+  properties  = schema.value("properties").toObject();
+  for (const auto& key : QStringList{"document_id", "level_id", "operation_id",
+                                     "expected_revision"}) {
+    if (!properties.contains(key)) continue;
+    properties.insert(
+        key, QJsonObject{{"type", "string"},
+                         {"minLength", 1},
+                         {"maxLength", key == "expected_revision" ? 20 : 128}});
+  }
+  schema.insert("properties", properties);
+  result.insert("inputSchema", schema);
+  return result;
+}
+
+void vectorGroupCatalog(QJsonArray& tools) {
+  auto properties = target();
+  QJsonArray required{"document_id", "level_id", "drawing_id"};
+  tools.append(groupOperation(
+      "vector.structure",
+      "Inspect revision-bound native stroke order and group spans, including "
+      "nested "
+      "groups; at most 4096 strokes/groups, depth 16 and 1 MiB of metadata",
+      properties, required, false));
+  properties.insert("sharing", choice({"all_exposures"}));
+  properties.insert("first_index", range(0, kMaxStrokes - 1));
+  required.append("sharing");
+  required.append("first_index");
+  tools.append(groupOperation(
+      "vector.group.remove",
+      "Ungroup one complete flat group at its first stroke; reject nested or "
+      "entered "
+      "content and any native result that changes painted boundaries",
+      properties, required, true));
+  properties.insert("count", range(1, kMaxStrokes));
+  required.append("count");
+  tools.append(groupOperation("vector.group.create",
+                              "Group an adjacent ungrouped range without "
+                              "reordering; an exactly matching flat "
+                              "group is a no-op. Reject nested/entered content "
+                              "and changed painted boundaries",
+                              properties, required, true));
+  properties.insert("before_index", range(0, kMaxStrokes));
+  required.append("before_index");
+  tools.append(groupOperation("vector.order.move",
+                              "Move one complete flat group or adjacent "
+                              "ungrouped strokes before a pre-edit "
+                              "index; stroke_count means front/end. "
+                              "Destinations within the range are no-ops. "
+                              "Reject split groups, nested/entered content and "
+                              "changed painted boundaries",
+                              properties, required, true));
+}
+
 void paletteCatalog(QJsonArray& tools) {
   auto properties = target(false);
   properties.insert("offset", range(0, kMaxStyles));
@@ -1832,13 +1891,14 @@ void preflightStrokeTransform(const TStroke& stroke, const TAffine& affine,
     transformedPoint(stroke.getControlPoint(index), affine, thicknessScale);
 }
 
-QString transformedEdge(const TEdge& edge, const TAffine& affine) {
+QString transformedEdge(const TEdge& edge, const TAffine& affine,
+                        bool nativeIds) {
   const bool reflected = affine.det() < 0.0;
   const double first   = reflected ? edge.m_w1 : edge.m_w0;
   const double last    = reflected ? edge.m_w0 : edge.m_w1;
   QJsonArray signature{edge.getStyle()};
   if (edge.m_index >= 0) {
-    signature.append(edge.m_index);
+    signature.append(nativeIds ? edge.m_s->getId() : edge.m_index);
     signature.append(first);
     signature.append(last);
   } else {
@@ -1854,13 +1914,14 @@ QString transformedEdge(const TEdge& edge, const TAffine& affine) {
       QJsonDocument(signature).toJson(QJsonDocument::Compact));
 }
 
-QJsonArray regionEdges(const TRegion& region, const TAffine& affine) {
+QJsonArray regionEdges(const TRegion& region, const TAffine& affine,
+                       bool nativeIds) {
   QStringList edges;
   for (UINT index = 0; index < region.getEdgeCount(); ++index) {
     const TEdge* edge = region.getEdge(index);
     if (!edge || !edge->m_s)
       throw Error("unsupported_geometry", "A vector region has no native edge");
-    edges.append(transformedEdge(*edge, affine));
+    edges.append(transformedEdge(*edge, affine, nativeIds));
   }
   if (edges.isEmpty())
     throw Error("unsupported_geometry",
@@ -1869,7 +1930,8 @@ QJsonArray regionEdges(const TRegion& region, const TAffine& affine) {
   return QJsonArray::fromStringList(edges);
 }
 
-QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine) {
+QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine,
+                          bool nativeIds = false) {
   if (vector->getRegionCount() > kMaxTransformEdges)
     throw Error("resource_limit", "Vector transform has too many regions");
   std::vector<std::pair<TRegion*, QString>> pending;
@@ -1885,8 +1947,8 @@ QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine) {
             size_t(kMaxTransformEdges))
       throw Error("resource_limit",
                   "Vector transform is limited to 65536 region edges");
-    const int style = region->getStyle();
-    const auto edges = regionEdges(*region, affine);
+    const int style  = region->getStyle();
+    const auto edges = regionEdges(*region, affine, nativeIds);
     const QJsonObject record{
         {"parent", pending[index].second},
         {"style", style},
@@ -1990,6 +2052,352 @@ QJsonObject transformVector(Context& context, Document& document,
           {"sharing", "all_exposures"},
           {"thickness_mode", mode},
           {"changed", changed}};
+}
+
+struct GroupSpan final {
+  int first;
+  int count;
+  int parent;
+  int depth;
+};
+
+struct GroupStructure final {
+  std::vector<GroupSpan> groups;
+  std::vector<int> membership;
+  int entered = 0;
+  bool nested = false;
+};
+
+void appendGroupStroke(GroupStructure& result, std::vector<int>& stack,
+                       int index, int depth, int common) {
+  stack.resize(common);
+  while (int(stack.size()) < depth) {
+    if (result.groups.size() >= size_t(kMaxStrokes))
+      throw Error("resource_limit",
+                  "Vector structure is limited to 4096 groups");
+    const int parent = stack.empty() ? -1 : stack.back();
+    stack.push_back(static_cast<int>(result.groups.size()));
+    result.groups.push_back({index, 0, parent, static_cast<int>(stack.size())});
+  }
+  for (int group : stack) ++result.groups[group].count;
+  result.membership.push_back(stack.empty() ? -1 : stack.back());
+  result.nested |= depth > 1;
+}
+
+GroupStructure groupStructure(const TVectorImageP& image) {
+  GroupStructure result;
+  result.entered = image->isInsideGroup();
+  if (result.entered < 0 || result.entered > 16)
+    throw Error("resource_limit", "Vector structure admits group depths 0..16");
+  std::vector<int> stack;
+  std::set<int> ids;
+  for (UINT index = 0; index < image->getStrokeCount(); ++index) {
+    const int depth = image->getGroupDepth(index);
+    if (depth < 0 || depth > 16)
+      throw Error("resource_limit",
+                  "Vector structure admits group depths 0..16");
+    if (!ids.insert(image->getStroke(index)->getId()).second)
+      throw Error("unsupported_geometry",
+                  "Native stroke IDs must be unique within a drawing");
+    const int common =
+        index == 0 ? 0
+                   : std::min({depth, int(stack.size()),
+                               image->getCommonGroupDepth(index - 1, index)});
+    appendGroupStroke(result, stack, index, depth, common);
+  }
+  return result;
+}
+
+QJsonValue nullableIndex(int index) {
+  return index < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(index);
+}
+
+QJsonArray groupSpans(const GroupStructure& structure) {
+  QJsonArray result;
+  for (size_t index = 0; index < structure.groups.size(); ++index) {
+    const auto& group = structure.groups[index];
+    result.append(QJsonObject{{"index", static_cast<int>(index)},
+                              {"parent_index", nullableIndex(group.parent)},
+                              {"first_index", group.first},
+                              {"count", group.count},
+                              {"depth", group.depth}});
+  }
+  return result;
+}
+
+QJsonObject boundedGroupResult(const QJsonObject& result) {
+  if (QJsonDocument(result).toJson(QJsonDocument::Compact).size() > 1024 * 1024)
+    throw Error("resource_limit",
+                "Vector structure results are limited to 1 MiB");
+  return result;
+}
+
+QJsonObject inspectVectorStructure(Context&, Document& document,
+                                   const QJsonObject& params) {
+  auto* level      = simpleLevel(document, params);
+  const auto frame = frameId(params);
+  validateFrameNumber(level, frame);
+  const auto image     = vectorFor(level, frame);
+  const auto structure = groupStructure(image);
+  QJsonArray strokes;
+  for (UINT index = 0; index < image->getStrokeCount(); ++index)
+    strokes.append(QJsonObject{
+        {"index", static_cast<int>(index)},
+        {"native_id", image->getStroke(index)->getId()},
+        {"group_depth", image->getGroupDepth(index)},
+        {"innermost_group_index", nullableIndex(structure.membership[index])}});
+  QJsonArray reasons;
+  if (structure.entered != 0) reasons.append("entered_group_context");
+  if (structure.nested) reasons.append("nested_groups");
+  return boundedGroupResult(
+      {{"document_id", document.id},
+       {"level_id", requiredString(params, "level_id")},
+       {"drawing_id", frameJson(frame)},
+       {"geometry_revision", document.revisionText()},
+       {"scope", "detached"},
+       {"order", "bottom_to_top"},
+       {"inside_group_depth", structure.entered},
+       {"stroke_count", static_cast<int>(image->getStrokeCount())},
+       {"strokes", strokes},
+       {"groups", groupSpans(structure)},
+       {"write_admission", reasons.isEmpty()},
+       {"unsupported_reasons", reasons}});
+}
+
+enum class GroupAction { Create, Remove, Move };
+
+struct GroupEdit final {
+  GroupAction action;
+  int first;
+  int count;
+  int before   = 0;
+  bool changed = true;
+  std::vector<int> order;
+  std::vector<int> membership;
+};
+
+void requireFlatGroups(const GroupStructure& structure) {
+  if (structure.entered != 0)
+    throw Error("unsupported_grouping",
+                "Exit the native entered group before editing structure");
+  if (structure.nested)
+    throw Error("unsupported_grouping",
+                "Group writes admit only drawings with flat root groups");
+}
+
+void requireGroupRange(const GroupEdit& edit) {
+  if (edit.first > int(edit.membership.size()) - edit.count)
+    invalid("The requested stroke range exceeds the drawing");
+}
+
+bool completeGroup(const GroupEdit& edit, const GroupStructure& structure) {
+  const int group = edit.membership[edit.first];
+  if (group < 0) return false;
+  const auto& span = structure.groups[group];
+  return span.first == edit.first && span.count == edit.count;
+}
+
+void requireUngroupedRange(const GroupEdit& edit) {
+  for (int index = edit.first; index < edit.first + edit.count; ++index)
+    if (edit.membership[index] >= 0)
+      throw Error("unsupported_grouping",
+                  "The range must be ungrouped or one complete flat group");
+}
+
+void prepareCreateGroup(GroupEdit& edit, const GroupStructure& structure) {
+  if (completeGroup(edit, structure)) {
+    edit.changed = false;
+    return;
+  }
+  requireUngroupedRange(edit);
+  std::fill(edit.membership.begin() + edit.first,
+            edit.membership.begin() + edit.first + edit.count, kMaxStrokes);
+}
+
+void prepareRemoveGroup(GroupEdit& edit, const GroupStructure& structure) {
+  const int group = edit.membership[edit.first];
+  if (group < 0) throw Error("not_found", "There is no group at first_index");
+  const auto& span = structure.groups[group];
+  if (span.first != edit.first)
+    invalid("first_index must address the first stroke of a complete group");
+  edit.count = span.count;
+  std::fill(edit.membership.begin() + edit.first,
+            edit.membership.begin() + edit.first + edit.count, -1);
+}
+
+bool destinationSplitsGroup(const GroupEdit& edit) {
+  if (edit.before == 0 || edit.before == int(edit.order.size())) return false;
+  return edit.membership[edit.before] >= 0 &&
+         edit.membership[edit.before] == edit.membership[edit.before - 1];
+}
+
+void prepareMoveGroup(GroupEdit& edit, const GroupStructure& structure) {
+  if (!completeGroup(edit, structure)) requireUngroupedRange(edit);
+  if (edit.before > int(edit.order.size()))
+    invalid("before_index exceeds the drawing");
+  if (edit.before >= edit.first && edit.before <= edit.first + edit.count) {
+    edit.changed = false;
+    return;
+  }
+  if (destinationSplitsGroup(edit))
+    throw Error("unsupported_grouping",
+                "before_index cannot split another group");
+  auto begin = edit.order.begin();
+  if (edit.before < edit.first)
+    std::rotate(begin + edit.before, begin + edit.first,
+                begin + edit.first + edit.count);
+  else
+    std::rotate(begin + edit.first, begin + edit.first + edit.count,
+                begin + edit.before);
+}
+
+GroupEdit prepareGroupEdit(GroupAction action, const GroupStructure& structure,
+                           const QJsonObject& params) {
+  requireFlatGroups(structure);
+  GroupEdit edit{action, integer(params, "first_index", 0, kMaxStrokes - 1), 1};
+  edit.membership = structure.membership;
+  for (size_t index = 0; index < edit.membership.size(); ++index)
+    edit.order.push_back(static_cast<int>(index));
+  if (action != GroupAction::Remove)
+    edit.count = integer(params, "count", 1, kMaxStrokes);
+  requireGroupRange(edit);
+  switch (action) {
+  case GroupAction::Create:
+    prepareCreateGroup(edit, structure);
+    break;
+  case GroupAction::Remove:
+    prepareRemoveGroup(edit, structure);
+    break;
+  case GroupAction::Move:
+    edit.before = integer(params, "before_index", 0, kMaxStrokes);
+    prepareMoveGroup(edit, structure);
+    break;
+  }
+  return edit;
+}
+
+void applyGroupEdit(const TVectorImageP& candidate, const GroupEdit& edit) {
+  switch (edit.action) {
+  case GroupAction::Create:
+    candidate->group(edit.first, edit.count);
+    break;
+  case GroupAction::Remove:
+    if (candidate->ungroup(edit.first) != edit.count)
+      throw Error("native_error",
+                  "Native ungroup changed an unexpected stroke range");
+    break;
+  case GroupAction::Move:
+    if (!candidate->canMoveStrokes(edit.first, edit.count, edit.before))
+      throw Error("unsupported_grouping",
+                  "The native grouping model rejects this move");
+    candidate->moveStrokes(edit.first, edit.count, edit.before);
+    break;
+  }
+}
+
+void verifyGroupMembership(const GroupEdit& edit,
+                           const GroupStructure& actual) {
+  for (size_t index = 0; index < edit.order.size(); ++index) {
+    const int expected = edit.membership[edit.order[index]];
+    if ((expected < 0) != (actual.membership[index] < 0))
+      throw Error("native_error",
+                  "Native grouping changed unexpected stroke membership");
+    if (index == 0) continue;
+    const bool sameExpected =
+        expected >= 0 && expected == edit.membership[edit.order[index - 1]];
+    const bool sameActual =
+        actual.membership[index] >= 0 &&
+        actual.membership[index] == actual.membership[index - 1];
+    if (sameExpected != sameActual)
+      throw Error("native_error",
+                  "Native grouping split or combined an unexpected group");
+  }
+}
+
+void verifyGroupGeometry(const TVectorImageP& original,
+                         const TVectorImageP& candidate,
+                         const GroupEdit& edit) {
+  if (candidate->getStrokeCount() != original->getStrokeCount())
+    throw Error("native_error", "Native grouping changed the stroke count");
+  for (size_t index = 0; index < edit.order.size(); ++index) {
+    const auto& before = *original->getStroke(edit.order[index]);
+    const auto& after  = *candidate->getStroke(index);
+    verifyStrokeTransform(before, after, TAffine(), 1.0);
+    if (before.getOpacity() != after.getOpacity() ||
+        before.getOpacityProfile() != after.getOpacityProfile())
+      throw Error("native_error", "Native grouping changed stroke opacity");
+  }
+  const auto structure = groupStructure(candidate);
+  requireFlatGroups(structure);
+  verifyGroupMembership(edit, structure);
+}
+
+QJsonObject groupEditResult(const TVectorImageP& original,
+                            const TVectorImageP& candidate,
+                            const GroupEdit& edit, const QJsonObject& params) {
+  std::vector<int> positions(edit.order.size());
+  for (size_t index = 0; index < edit.order.size(); ++index)
+    positions[edit.order[index]] = static_cast<int>(index);
+  QJsonArray mapping;
+  for (size_t index = 0; index < positions.size(); ++index)
+    mapping.append(
+        QJsonObject{{"native_id", original->getStroke(index)->getId()},
+                    {"previous_index", static_cast<int>(index)},
+                    {"index", positions[index]}});
+  return boundedGroupResult(
+      {{"level_id", requiredString(params, "level_id")},
+       {"drawing_id", frameJson(frameId(params))},
+       {"scope", "detached"},
+       {"sharing", "all_exposures"},
+       {"changed", edit.changed},
+       {"geometry_indices_invalidated", edit.changed},
+       {"undo_available", false},
+       {"stroke_count", static_cast<int>(candidate->getStrokeCount())},
+       {"groups", groupSpans(groupStructure(candidate))},
+       {"order_mapping", mapping}});
+}
+
+QJsonObject editVectorGroups(Context& context, Document& document,
+                             const QJsonObject& params, GroupAction action) {
+  sharing(params);
+  auto* level      = simpleLevel(document, params);
+  const auto frame = frameId(params);
+  validateFrameNumber(level, frame);
+  const auto original = vectorFor(level, frame);
+  const auto edit = prepareGroupEdit(action, groupStructure(original), params);
+  for (UINT index = 0; index < original->getStrokeCount(); ++index)
+    validateNativeStroke(*original->getStroke(index), paletteFor(level));
+  requireAssetGrowth(*document.scene, 0);
+  if (!edit.changed) return groupEditResult(original, original, edit, params);
+  auto candidate = original->clone();
+  candidate->findRegions();
+  const auto topology = vectorTopology(candidate, TAffine(), true);
+  applyGroupEdit(candidate, edit);
+  candidate->findRegions();
+  verifyGroupGeometry(original, candidate, edit);
+  if (vectorTopology(candidate, TAffine(), true) != topology)
+    throw Error(
+        "unsupported_grouping",
+        "Grouping would change painted boundaries; "
+        "select complete boundaries or keep the current group structure");
+  const auto result = groupEditResult(original, candidate, edit, params);
+  publish(context, level, frame, candidate);
+  return result;
+}
+
+QJsonObject createVectorGroup(Context& context, Document& document,
+                              const QJsonObject& params) {
+  return editVectorGroups(context, document, params, GroupAction::Create);
+}
+
+QJsonObject removeVectorGroup(Context& context, Document& document,
+                              const QJsonObject& params) {
+  return editVectorGroups(context, document, params, GroupAction::Remove);
+}
+
+QJsonObject moveVectorOrder(Context& context, Document& document,
+                            const QJsonObject& params) {
+  return editVectorGroups(context, document, params, GroupAction::Move);
 }
 
 void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
@@ -2107,6 +2515,7 @@ QJsonArray drawingOperations() {
   drawingCatalog(tools);
   renumberCatalog(tools);
   vectorCatalog(tools);
+  vectorGroupCatalog(tools);
   paletteCatalog(tools);
   palettePageCatalog(tools);
   paletteStyleCatalog(tools);
@@ -2144,6 +2553,10 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"vector.edit", editVector},
       {"vector.fill", fillVector},
       {"vector.transform", transformVector},
+      {"vector.structure", inspectVectorStructure},
+      {"vector.group.create", createVectorGroup},
+      {"vector.group.remove", removeVectorGroup},
+      {"vector.order.move", moveVectorOrder},
       {"palette.inspect", inspectPalette},
       {"palette.create_style", createStyle},
       {"palette.update_style", updateStyle},

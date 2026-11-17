@@ -83,6 +83,17 @@ palette links. Style names cannot contain NUL or start with `|`. Palette keyfram
 use frames 0–65535 for vector levels and 0–999999 for Toonz raster levels. Consult
 the running catalog for the remaining operation-specific bounds.
 
+`vector.structure` reports stroke order and native group spans, including nested
+groups, with at most 4096 strokes/groups, depth 16, and 1 MiB of metadata. Spans
+expire when the document revision changes; native stroke IDs are not persistent
+across reopening PLI files. `vector.group.create`, `vector.group.remove`, and
+`vector.order.move` edit flat groups at the root context. They require explicit
+`all_exposures` ownership and reject nested drawings, partial groups, destinations
+inside another group, and edits that would change painted boundaries. A move's
+`before_index` refers to the original order; the stroke count means the front/end.
+Exact no-ops preserve the revision. These detached tools do not change editor
+selection or create native undo entries.
+
 Palette pages can be inspected, created, renamed, reordered, and removed when
 empty. A palette admits up to 128 pages; page zero and transparent style zero
 stay first. Style moves preserve numeric IDs and artwork references. Style
