@@ -386,3 +386,106 @@ test("delivers an MP4 file and verified metadata through actual MCP stdio", asyn
     await rm(workspace, { recursive: true, force: true });
   }
 }, 120_000);
+
+function productionItems(data: Record<string, unknown>): Record<string, unknown>[] {
+  const values = data["items"];
+  if (!Array.isArray(values)) throw new Error("Production read has no item array");
+  return values.map((value) => {
+    if (!isObject(value)) throw new Error("Production read contains a non-object item");
+    return value;
+  });
+}
+
+async function productionScene(client: Client): Promise<Record<string, unknown>> {
+  let state = await call(client, "scene.create", {
+    name: "Production reads",
+    operation_id: "production-create",
+  });
+  for (const name of ["First", "Second"]) {
+    state = await call(client, "level.create", {
+      document_id: state["document_id"],
+      expected_revision: state["revision"],
+      operation_id: `production-${name}`,
+      name,
+      format: "vector",
+    });
+  }
+  return state;
+}
+
+async function checkProductionReads(client: Client, state: Record<string, unknown>): Promise<void> {
+  const args = { document_id: state["document_id"], expected_revision: state["revision"] };
+  const before = await call(client, "scene.summary", { document_id: args.document_id });
+  const first = await call(client, "cast.list", { ...args, limit: 1 });
+  const second = await call(client, "cast.list", { ...args, offset: 1, limit: 1 });
+  expect(productionItems(first)[0]).toMatchObject({
+    name: "First",
+    format: "vector",
+    library: null,
+  });
+  expect(productionItems(second)[0]).toMatchObject({ name: "Second", format: "vector" });
+  expect(first["next_offset"]).toBe(1);
+  expect(second["next_offset"]).toBeNull();
+  for (const name of ["cast.list", "cast.usage", "scene.dependencies", "scene.validate"]) {
+    const result = await call(client, name, args);
+    expect(result).toMatchObject({
+      source_revision: state["revision"],
+      scope: "root_sheet",
+      traversal_complete: true,
+      limits: { scanned_cells: 100_000, response_bytes: 1_048_576 },
+    });
+    const stale = await client.callTool({
+      name,
+      arguments: { ...args, expected_revision: "stale" },
+    });
+    expect(stale.isError).toBe(true);
+    expect(stale.structuredContent).toMatchObject({ error: { code: "stale_revision" } });
+    const invalid = await client.callTool({ name, arguments: { document_id: args.document_id } });
+    expect(invalid.isError).toBe(true);
+    expect(invalid.structuredContent).toMatchObject({ error: { code: "invalid_params" } });
+  }
+  expect(await call(client, "scene.summary", { document_id: args.document_id })).toEqual(before);
+}
+
+test("keeps production reads revision-bound through actual MCP stdio", async () => {
+  const executable = process.env["GROUNDZERO_EXECUTABLE"];
+  if (!executable) throw new Error("test:native requires GROUNDZERO_EXECUTABLE");
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-mcp-production-")));
+  const client = new Client(
+    { name: "groundzero-production-test", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+          "--executable",
+          executable,
+          "--workspace",
+          workspace,
+        ],
+        env: environment(),
+        stderr: "inherit",
+      }),
+    );
+    const catalog = await client.listTools();
+    for (const name of ["cast.list", "cast.usage", "scene.dependencies", "scene.validate"]) {
+      const tool = catalog.tools.find((candidate) => candidate.name === name);
+      expect(tool?.inputSchema).toMatchObject({
+        required: ["document_id", "expected_revision"],
+        additionalProperties: false,
+        properties: { limit: { minimum: 1, maximum: 128 }, offset: { maximum: 4096 } },
+      });
+      expect(tool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+    }
+    await checkProductionReads(client, await productionScene(client));
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }
+}, 30_000);

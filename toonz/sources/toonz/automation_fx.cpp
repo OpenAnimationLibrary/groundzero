@@ -1228,6 +1228,10 @@ QJsonArray authoringOperations() {
 
 }  // namespace
 
+bool isAutomationFxTypeSupported(const QString& type) {
+  return allowedTypes().contains(type);
+}
+
 void validateAutomationFxGraph(ToonzScene& scene) {
   const std::set<TFx*> members = sceneMembers(scene);
   if (members.size() > 4096)

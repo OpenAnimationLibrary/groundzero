@@ -1,4 +1,5 @@
 #include "automation_dispatch.h"
+#include "automation_production.h"
 
 #include "texception.h"
 
@@ -220,6 +221,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(drawingOperations(), executeDrawing);
   add(renderOperations(), executeRender);
   add(persistenceOperations(), executePersistence);
+  add(productionOperations(), executeProduction);
 }
 
 void Dispatcher::add(const QJsonArray& operations, Handler handler) {
