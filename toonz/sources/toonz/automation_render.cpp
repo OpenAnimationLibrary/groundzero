@@ -1,5 +1,11 @@
 #include "automation.h"
 #include "automation_media.h"
+#include "automation_neural.h"
+#include "stdfx/neuralstyleworker.h"
+#include "toonz/fxdag.h"
+#include "toonz/tcolumnfxset.h"
+#include "toonz/txsheet.h"
+#include "toonz/tcolumnfx.h"
 
 #include "toonz/boardsettings.h"
 #include "toonz/movierenderer.h"
@@ -272,6 +278,8 @@ public:
   QString mediaToolsDirectory;
   QString error;
   Request request;
+  QJsonObject assistance;
+  std::shared_ptr<const NeuralStyle::WorkerExecution> neuralExecution;
   std::unique_ptr<ToonzScene> snapshot;
   std::unique_ptr<MovieRenderer> renderer;
   std::shared_ptr<MovieVerification> verification;
@@ -293,7 +301,7 @@ public:
   }
 
   QJsonObject describe() const {
-    return {{"job_id", id},
+    QJsonObject result{{"job_id", id},
             {"document_id", documentId},
             {"source_revision", revision},
             {"status", statusText(status)},
@@ -314,6 +322,8 @@ public:
             {"color_space_gamma", 2.2},
             {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
             {"error", error}};
+    if (!assistance.isEmpty()) result.insert("assistance", assistance);
+    return result;
   }
 
   TFilePath outputPath() const {
@@ -326,6 +336,8 @@ public:
     Q_ASSERT(writersClosed);
     nativeCancel = {};
     renderer.reset();
+    if (neuralExecution && !neuralExecution->helpersClosed())
+      neuralExecution->closureFailed();
     snapshot.reset();
   }
 
@@ -336,6 +348,29 @@ public:
     releaseNativeState();
   }
 
+  void expireNeural() {
+    if (neuralExecution && neuralExecution->expired()) cancellation = true;
+  }
+
+  void checkNeuralPublication() const {
+    if (!neuralExecution) return;
+    QString diagnostic;
+    if (!neuralExecution->verify(diagnostic))
+      throw Error("neural_execution_changed", diagnostic);
+    checkNeuralDeadline(neuralExecution->deadline);
+  }
+
+  void observeNeuralDeadline() {
+    if (!neuralExecution || terminal()) return;
+    if (neuralExecution->expired()) {
+      cancel();
+      return;
+    }
+    const auto self = shared_from_this();
+    QTimer::singleShot(20, QCoreApplication::instance(),
+                       [self]() { self->observeNeuralDeadline(); });
+  }
+
   void scheduleBuild() {
     const auto self = shared_from_this();
     QTimer::singleShot(0, QCoreApplication::instance(),
@@ -343,6 +378,7 @@ public:
   }
 
   void buildFrame() {
+    expireNeural();
     if (cancellation) {
       writersClosed = true;
       status        = JobStatus::Canceled;
@@ -438,6 +474,7 @@ public:
 
   void finish(MovieRenderer::CompletionStatus result,
               const QString& diagnostic) {
+    expireNeural();
     writersClosed = true;
     // The native terminal callback and render-end cleanup run on this thread.
     // This queued continuation runs after they return. Drop graphs before the
@@ -516,6 +553,7 @@ public:
   }
 
   void verifyFrame() {
+    expireNeural();
     if (cancellation) {
       artifacts.clear();
       status = JobStatus::Canceled;
@@ -531,6 +569,7 @@ public:
       if (bytes > request.reserveBytes())
         throw Error("render_limit",
                     "The output exceeded the reserved storage budget.");
+      checkNeuralPublication();
       artifacts.push_back(std::move(artifact));
       nextVerification += request.step;
       if (nextVerification <= request.end)
@@ -707,6 +746,69 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   return job->describe();
 }
 
+static Request neuralRequest(ToonzScene& scene, const QJsonObject& params) {
+  const auto resolution = scene.getCurrentCamera()->getRes();
+  if (resolution.lx <= 0 || resolution.ly <= 0 || resolution.lx > 1024 || resolution.ly > 1024)
+    throw Error("render_limit", "Neural preview requires a camera at most 1024 by 1024 pixels.");
+  Request request;
+  request.width = resolution.lx;
+  request.height = resolution.ly;
+  request.start = integerParam(params, "frame", 0, 999999, -1);
+  request.end = request.start;
+  return request;
+}
+
+static void attachNeuralPreview(RenderJob& job, const NeuralPreview& preview) {
+  auto* graph = job.snapshot->getXsheet()->getFxDag();
+  auto* output = graph->getCurrentOutputFx();
+  if (!output || output->getInputPortCount() != 1 || !output->getInputPort(0)->getFx())
+    throw Error("render_failed", "The scene has no selected renderable output.");
+  TFxP neural = NeuralStyle::createWorkerPreviewFx(
+      preview.profile, preview.strength, preview.frame, preview.execution);
+  neural->getInputPort("Source")->setFx(output->getInputPort(0)->getFx());
+  graph->getInternalFxs()->addFx(neural.getPointer());
+  output->getInputPort(0)->setFx(neural.getPointer());
+  job.neuralExecution = preview.execution;
+  job.assistance = preview.metadata;
+}
+
+static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
+  const auto deadline = NeuralStyle::WorkerExecution::Clock::now() + std::chrono::seconds(120);
+  if (!context.helpersContained())
+    throw Error("unsupported_containment",
+                "Neural preview requires the supported MCP adapter's contained worker launch.");
+  auto& document = context.document(requiredString(params, "document_id"));
+  const Request request = neuralRequest(*document.scene, params);
+  auto& state = renderState(context);
+  state.admit(request);
+  validateWriter(context, Format::Png);
+  if (Preferences::instance()->isSceneNumberingEnabled())
+    throw Error("unsupported_render_settings", "Disable scene numbering before automated rendering.");
+  validateAutomationScene(*document.scene);
+  checkNeuralDeadline(deadline);
+  const NeuralPreview preview = prepareNeuralPreview(context, document, params, deadline);
+  auto job = std::make_shared<RenderJob>();
+  job->id = newId("job_");
+  job->documentId = document.id;
+  job->revision = document.revisionText();
+  job->request = request;
+  job->workspace = context.workspace();
+  job->directory = context.resolvePath(context.workspace() + "/renders/" + job->id, true);
+  checkNeuralDeadline(deadline);
+  context.markMutationStarted();
+  if (QFileInfo::exists(job->directory) || !QDir().mkpath(job->directory + "/frames"))
+    throw Error("render_output_failed", "Cannot create a private Neural preview output directory.");
+  job->snapshot = createRenderSnapshot(context, document, job->directory + "/snapshot");
+  checkNeuralDeadline(deadline);
+  attachNeuralPreview(*job, preview);
+  configureSnapshot(*job);
+  checkNeuralDeadline(deadline);
+  state.jobs.emplace(job->id, job);
+  job->observeNeuralDeadline();
+  job->scheduleBuild();
+  return job->describe();
+}
+
 static void validateMovieArtifact(Context& context, const Artifact& artifact) {
   if (artifact.format != Format::Mp4) return;
   const QString path = context.resolvePath(artifact.path, false);
@@ -844,6 +946,7 @@ QJsonArray renderOperations() {
   sequence.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
   sequence.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
   return {
+      neuralPreviewOperation(),
       operation("render.capabilities",
                 "Inspect bounded native render profiles and configured media "
                 "support.",
@@ -876,6 +979,7 @@ QJsonValue executeRender(Context& context, const QString& method,
                 "Native render commands require the application thread.");
   if (method == "render.capabilities")
     return RenderDetail::renderCapabilities(context);
+  if (method == "assistance.neural.preview") return RenderDetail::submitNeural(context, params);
   if (method == "render.preview")
     return RenderDetail::submit(context, params, true);
   if (method == "render.submit")
