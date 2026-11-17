@@ -57,7 +57,8 @@ void sendFrame(QIODevice& stream, const QJsonObject& object) {
   while (stream.bytesToWrite())
     require(stream.waitForBytesWritten(1000), "Write timed out");
 }
-void connectorRoundTrip(SecuritySession& publisher, const QString& path) {
+void connectorRoundTrip(SecuritySession& publisher, const QString& path,
+                        bool serverCloses) {
   QProcess connector;
   connector.start(QCoreApplication::applicationFilePath(),
                   {"--automation-live-connect", path});
@@ -94,9 +95,10 @@ void connectorRoundTrip(SecuritySession& publisher, const QString& path) {
   const QJsonObject response{{"id", "one"},
                              {"result", QJsonObject{{"boundary", "verified"}}}};
   sendFrame(peer, response);
+  if (serverCloses) peer.disconnectFromServer();
   require(parseMessage(readFrame(connector), maximumResponseBytes) == response,
           "Connector changed forwarded response");
-  connector.closeWriteChannel();
+  if (!serverCloses) connector.closeWriteChannel();
   require(connector.waitForFinished(3000), "Connector ignored EOF");
   require(connector.exitCode() == 0, "Connector failed natural shutdown");
   require(connector.readAllStandardError().isEmpty(),
@@ -156,6 +158,16 @@ void replacementCleanup(SecuritySession& publisher, const QString& path) {
         "Revocation deleted or modified replacement");
   }
 }
+
+void ordinaryCleanup(const QString& path) {
+  SecuritySession publisher(path, "inspect");
+  publisher.listenDescriptor();
+  publisher.publish();
+  const QString socket = publisher.endpoint();
+  require(publisher.revoke(), "Owned grant revocation failed");
+  require(!QFile::exists(path) && !QFile::exists(socket),
+          "Owned grant or socket remained after revocation");
+}
 }  // namespace
 int main(int argc, char* argv[]) {
   if (argc > 1) return runConnector(argc, argv);
@@ -179,9 +191,11 @@ int main(int argc, char* argv[]) {
     require(reader->token() == publisher.token(), "Grant token changed");
     require(!constantTimeTokenEquals(publisher.token(), QByteArray(64, 'z')),
             "Wrong token accepted");
-    connectorRoundTrip(publisher, path);
+    connectorRoundTrip(publisher, path, false);
+    connectorRoundTrip(publisher, path, true);
     fileAdmission(path, root);
     replacementCleanup(publisher, path);
+    ordinaryCleanup(root + "/ordinary.json");
     std::puts(
         "PASS: actual native security, connector round trip, private-file "
         "errors, EOF, cleanup");
