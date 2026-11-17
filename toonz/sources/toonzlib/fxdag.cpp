@@ -1,6 +1,7 @@
 
 
 #include "toonz/fxdag.h"
+#include "tmutationgeneration.h"
 
 // TnzLib includes
 #include "toonz/tcolumnfxset.h"
@@ -43,10 +44,15 @@ FxDag::~FxDag() {
   for (i = 0; i < (int)m_outputFxs.size(); i++) m_outputFxs[i]->release();
 }
 
+std::uint64_t FxDag::outputGeneration() const noexcept {
+  return m_outputGeneration;
+}
+
 //-------------------------------------------------------------------
 
 TOutputFx *FxDag::addOutputFx(TOutputFx *outputFx) {
   if (!outputFx) outputFx = new TOutputFx();
+  TMutation::advanceGeneration(m_outputGeneration);
   outputFx->addRef();
   m_xsheetFx->setNewIdentifier();
   assert(outputFx->getInputPortCount() == 1);
@@ -62,6 +68,7 @@ void FxDag::removeOutputFx(TOutputFx *fx) {
   if (std::find(m_outputFxs.begin(), m_outputFxs.end(), fx) ==
       m_outputFxs.end())
     return;
+  TMutation::advanceGeneration(m_outputGeneration);
   m_outputFxs.erase(std::remove(m_outputFxs.begin(), m_outputFxs.end(), fx),
                     m_outputFxs.end());
   fx->release();
@@ -78,6 +85,7 @@ void FxDag::setCurrentOutputFx(TOutputFx *fx) {
   it = std::find(m_outputFxs.begin(), m_outputFxs.end(), fx);
   if (it == m_outputFxs.end()) return;
   if (it == m_outputFxs.begin()) return;
+  TMutation::advanceGeneration(m_outputGeneration);
   std::swap(*it, *m_outputFxs.begin());
 }
 
@@ -261,6 +269,7 @@ void FxDag::saveData(TOStream &os, int occupiedColumnCount) {
 void FxDag::loadData(TIStream &is) {
   VersionNumber tnzVersion = is.getVersion();
   int k;
+  if (!m_outputFxs.empty()) TMutation::advanceGeneration(m_outputGeneration);
   for (k = 0; k < (int)m_outputFxs.size(); k++) m_outputFxs[k]->release();
   m_outputFxs.clear();
   std::string tagName;
@@ -329,6 +338,7 @@ void FxDag::loadData(TIStream &is) {
       fx->addRef();
       fx->setNewIdentifier();
       if (tagName == "xsheet") {
+        TMutation::advanceGeneration(m_outputGeneration);
         m_xsheetFx->release();
         m_xsheetFx = fx;
 
@@ -336,7 +346,10 @@ void FxDag::loadData(TIStream &is) {
         if (xsheetFx) xsheetFx->setFxDag(this);
       } else {
         TOutputFx *outputFx = dynamic_cast<TOutputFx *>(fx);
-        if (outputFx) m_outputFxs.push_back(outputFx);
+        if (outputFx) {
+          TMutation::advanceGeneration(m_outputGeneration);
+          m_outputFxs.push_back(outputFx);
+        }
       }
     } else if (tagName == "grid_dimension") {
       is >> m_dagGridDimension;

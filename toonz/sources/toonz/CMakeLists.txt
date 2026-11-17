@@ -274,6 +274,7 @@ set(HEADERS
 set(SOURCES
     automation.cpp
     automation_context.cpp
+    automation_error.cpp
     automation_dispatch.cpp
     automation_scene.cpp
     automation_fx.cpp
@@ -281,6 +282,16 @@ set(SOURCES
     automation_render.cpp
     automation_media.cpp
     automation_persistence.cpp
+    automation_live.cpp
+    automation_live_protocol.cpp
+    automation_live_state.cpp
+    automation_live_transport.cpp
+    automation_live_scene.cpp
+    automation_live_security.cpp
+    automation_live_security_posix.cpp
+    automation_live_security_windows.cpp
+    automation_live_connector.cpp
+    automation_live_startup.cpp
     activechecks.cpp
     languagemanager.cpp
     commandpalette.cpp
@@ -1115,10 +1126,37 @@ target_sources(OpenToonz PRIVATE mediacachepopup.cpp mediacachepopup.h)
 target_link_libraries(OpenToonz spdlog::spdlog_header_only Threads::Threads)
 if(WIN32)
     target_compile_definitions(OpenToonz PRIVATE SPDLOG_WCHAR_FILENAMES)
-    target_link_libraries(OpenToonz shell32)
+    target_link_libraries(OpenToonz shell32 bcrypt advapi32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    add_executable(mcp_live_protocol_test
+        automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
+        tests/automation_live_protocol_test.cpp)
+    target_compile_definitions(mcp_live_protocol_test PRIVATE
+        AUTOMATION_LIVE_PROTOCOL_STANDALONE)
+    target_include_directories(mcp_live_protocol_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mcp_live_protocol_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+    target_link_libraries(mcp_live_protocol_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+    add_test(NAME mcp_live_protocol COMMAND mcp_live_protocol_test)
+    set_tests_properties(mcp_live_protocol PROPERTIES TIMEOUT 30)
+    add_dependencies(OpenToonz mcp_live_protocol_test)
+    if(UNIX)
+        add_executable(mcp_live_security_test
+            automation_error.cpp automation_live_protocol.cpp
+            automation_live_security.cpp automation_live_security_posix.cpp
+            automation_live_connector.cpp tests/automation_live_security_test.cpp)
+        target_include_directories(mcp_live_security_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(mcp_live_security_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(mcp_live_security_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+        add_test(NAME mcp_live_security COMMAND mcp_live_security_test)
+        set_tests_properties(mcp_live_security PROPERTIES TIMEOUT 60)
+        add_dependencies(OpenToonz mcp_live_security_test)
+    endif()
     add_executable(mcp_ffprobe_fixture tests/mcp_ffprobe_fixture.cpp)
     target_compile_features(mcp_ffprobe_fixture PRIVATE cxx_std_17)
     target_link_libraries(mcp_ffprobe_fixture PRIVATE Threads::Threads)
@@ -1142,6 +1180,13 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_dispatch_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_live_protocol_test.cpp)
+    target_sources(OpenToonz PRIVATE
+        tests/mcp_live_generation_test.cpp tests/mcp_live_generation_test.h)
+    target_sources(OpenToonz PRIVATE
+        mcpliveintegrationtest.cpp mcpliveintegrationtest.h
+        tests/mcp_live_security_fixture.cpp tests/mcp_live_security_fixture.h)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE batchtaskintegrationtest.cpp batchtaskintegrationtest.h)

@@ -857,8 +857,9 @@ bool sameStyleColor(TPalette* palette, int id, const QJsonObject& params,
   const int frame = integer(params, "keyframe", 0, maximumFrame);
   const auto key  = keys.find(frame);
   if (key == keys.end()) return false;
-  return typeid(*key->second.style) == typeid(TSolidColorStyle) &&
-         key->second.style->getMainColor() == color;
+  const auto* style = key->second.style.getPointer();
+  return typeid(*style) == typeid(TSolidColorStyle) &&
+         style->getMainColor() == color;
 }
 
 void requirePaletteKeyGrowth(ToonzScene& scene, TPalette* palette, int id,
@@ -895,7 +896,8 @@ QJsonObject updateStyle(Context& context, Document& document,
       animation.emplace(frame, std::move(key));
     } else {
       std::unique_ptr<TColorStyle> key(found->second.style->clone());
-      if (typeid(*key) != typeid(TSolidColorStyle))
+      const auto* keyStyle = key.get();
+      if (typeid(*keyStyle) != typeid(TSolidColorStyle))
         throw Error("unsupported_style",
                     "The selected keyframe is not a solid color style");
       key->setMainColor(rgba);

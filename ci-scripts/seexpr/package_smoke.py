@@ -84,6 +84,11 @@ def macos_package(artifact, installed):
     executable = application / "Contents" / "MacOS" / "OpenToonz"
     if not executable.is_file():
         raise RuntimeError("The installed bundle is missing its native application")
+    webp_notice = application / "Contents" / "Resources" / "licenses" / "WebP-COPYING"
+    if not webp_notice.is_file() or not webp_notice.read_text(encoding="utf-8").strip():
+        raise RuntimeError("The installed bundle is missing its WebP dependency notice")
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "macos_bundle.py"),
+                    "--verify", str(application)], check=True, timeout=300)
     return executable, require_stuff(application / "portablestuff")
 
 

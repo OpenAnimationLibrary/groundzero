@@ -5,6 +5,7 @@
 
 #include "tcommon.h"
 #include <vector>
+#include <cstdint>
 
 #undef DVAPI
 #undef DVVAR
@@ -32,10 +33,14 @@ class DVAPI FxDag {
   std::map<std::wstring, TFx *> m_idTable;
   int m_groupIdCount;
   int m_dagGridDimension;
+  std::uint64_t m_outputGeneration = 0;
 
 public:
   FxDag();
   ~FxDag();
+
+  //! Changes on output membership/selection and replacement of the xsheet FX.
+  std::uint64_t outputGeneration() const noexcept;
 
   // FxDag *clone() const;
   void assignUniqueId(TFx *fx);

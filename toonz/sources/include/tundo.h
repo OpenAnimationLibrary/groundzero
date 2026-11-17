@@ -4,6 +4,7 @@
 #define T_UNDO_INCLUDED
 
 #include <memory>
+#include <cstdint>
 
 // TnzCore includes
 #include "tsmartpointer.h"
@@ -83,6 +84,12 @@ public:
   ~TUndoManager();
 
   static TUndoManager *manager();
+
+  //! Native history generations saturate at UINT64_MAX, which is not a valid token.
+  std::uint64_t changeGeneration() const noexcept;
+  std::uint64_t resetGeneration() const noexcept;
+  //! True throughout history callbacks and between beginBlock()/endBlock().
+  bool isBusy() const noexcept;
 
   void beginBlock();
   void endBlock();

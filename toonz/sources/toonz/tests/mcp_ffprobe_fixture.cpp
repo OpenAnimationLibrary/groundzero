@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -15,8 +16,12 @@
 #include <vector>
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -125,6 +130,74 @@ void validateInvocation(const Invocation& call) {
   requireField(query, "format_tags", "major_brand");
 }
 
+bool isEncoder(const Invocation& call) {
+  return call.options.size() >= 2 && call.options[0] == "-f" &&
+         call.options[1] == "rawvideo";
+}
+
+void validateEncoder(const Invocation& call) {
+  if (optionValue(call.options, "-i") != "-")
+    throw std::runtime_error("Encoder fixture requires native stdin input");
+  const auto input = std::find(call.options.begin(), call.options.end(), "-i");
+  const std::vector<std::string> prefix(call.options.begin(), input);
+  if (optionValue(prefix, "-video_size") != "32x32")
+    throw std::runtime_error("Encoder fixture requires 32x32 frames");
+  const std::string format = optionValue(prefix, "-pix_fmt");
+  const std::array<std::string, 4> formats{"rgba", "bgra", "argb", "abgr"};
+  if (std::find(formats.begin(), formats.end(), format) == formats.end())
+    throw std::runtime_error("Encoder fixture requires native 32-bit pixels");
+}
+
+std::streamsize drainEncoderInput() {
+#ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1)
+    throw std::runtime_error("Cannot read encoder stdin as binary data");
+#endif
+  std::array<char, 4096> buffer;
+  std::streamsize bytes = 0;
+  while (std::cin.read(buffer.data(),
+                       static_cast<std::streamsize>(buffer.size())) ||
+         std::cin.gcount()) {
+    bytes += std::cin.gcount();
+    if (bytes > 3 * 32 * 32 * 4)
+      throw std::runtime_error("Encoder fixture received too many frame bytes");
+  }
+  if (!std::cin.eof() || bytes != 3 * 32 * 32 * 4)
+    throw std::runtime_error(
+        "Encoder fixture did not receive exactly three frames");
+  return bytes;
+}
+
+void publishEncoderMarker(const std::filesystem::path& movie,
+                          std::streamsize bytes, unsigned long pid) {
+  std::filesystem::path path = movie;
+  path += ".encoder-eof.json";
+  std::filesystem::path temporary = path;
+  temporary += ".tmp";
+  std::ofstream marker(temporary, std::ios::binary | std::ios::trunc);
+  marker << "{\"pid\":" << pid << ",\"input_bytes\":" << bytes << "}\n";
+  marker.close();
+  if (!marker) throw std::runtime_error("Cannot publish encoder EOF marker");
+  std::filesystem::rename(temporary, path);
+}
+
+int stallEncoder(const Invocation& call) {
+  validateEncoder(call);
+  const std::streamsize bytes = drainEncoderInput();
+  std::ofstream movie(call.movie, std::ios::binary | std::ios::trunc);
+  movie << "Incomplete fixed encoder fixture output\n";
+  movie.close();
+  if (!movie) throw std::runtime_error("Cannot write partial encoder output");
+#ifdef _WIN32
+  const auto pid = GetCurrentProcessId();
+#else
+  const auto pid = getpid();
+#endif
+  publishEncoderMarker(call.movie, bytes, static_cast<unsigned long>(pid));
+  std::this_thread::sleep_for(std::chrono::seconds(75));
+  return 0;
+}
+
 std::string metadata(const std::string& mode) {
   std::string result =
       R"({"streams":[{"codec_type":"video","codec_name":"mpeg4",)"
@@ -207,6 +280,7 @@ int execute(const std::string& mode, const std::filesystem::path& movie) {
 int main(int argc, char* argv[]) {
   try {
     const Invocation call = invocation(argc, argv);
+    if (isEncoder(call)) return stallEncoder(call);
     validateInvocation(call);
     return execute(fixtureMode(), call.movie);
   } catch (const std::exception& error) {

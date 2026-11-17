@@ -119,6 +119,12 @@ jobs:
           python3 ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py \
             --report mcp-media-staging-contracts.txt
 
+      - name: Verify macOS dependency deployment contracts
+        run: |
+          set -euo pipefail
+          python3 ci-scripts/run_harness_tests.py --pattern test_macos_bundle.py \
+            --report macos-bundle-contracts.txt
+
       - name: Select SeExpr parser tools
         run: |
           brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"
@@ -470,6 +476,7 @@ jobs:
 
       - name: Introduce Libraries and Stuff
         run: |
+          set -euo pipefail
           cd toonz/build/toonz
           cp -pr ../../../stuff OpenToonz.app/portablestuff
           mkdir -p OpenToonz.app/Contents/Resources/sdk
@@ -485,18 +492,22 @@ jobs:
             -executable=OpenToonz.app/Contents/MacOS/tconverter \
             -executable=OpenToonz.app/Contents/MacOS/tfarmcontroller \
             -executable=OpenToonz.app/Contents/MacOS/tfarmserver
-      - name: Modify Library Paths
+      - name: Complete and verify the application dependency closure
         id: deployed_runtime
         run: |
-          cd toonz/build/toonz/OpenToonz.app/Contents/Frameworks
-          for TARGETLIB in *.dylib; do
-            otool -L "$TARGETLIB" | grep ".dylib" | grep -v "$TARGETLIB" | grep -v "@executable_path/../Frameworks" | awk '{print $1}' | while read -r FROMPATH; do
-              LIBNAME=$(basename "$FROMPATH")
-              if [[ -e ./$LIBNAME ]]; then
-                install_name_tool -change "$FROMPATH" "@executable_path/../Frameworks/$LIBNAME" "$TARGETLIB"
-              fi
-            done
-          done
+          set -euo pipefail
+          application="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app"
+          python3 ci-scripts/macos_bundle.py "$application" \
+            --library-root "$(brew --prefix)/lib" \
+            --library-root "$(brew --prefix qt@5)/lib"
+          webp_notice="$(brew --prefix webp)/COPYING"
+          test -s "$webp_notice"
+          mkdir -p "$application/Contents/Resources/licenses"
+          cp -p "$webp_notice" "$application/Contents/Resources/licenses/WebP-COPYING"
+          cmp "$webp_notice" "$application/Contents/Resources/licenses/WebP-COPYING"
+          # The helper repairs individual Mach-O signatures after rewriting paths.
+          # Existing portablestuff layout is not a sealed/notarized application bundle.
+          python3 ci-scripts/macos_bundle.py --verify "$application"
       - name: Prepare native MCP qualification runtime
         id: mcp_runtime
         if: ${{ !cancelled() && steps.deployed_runtime.outcome == 'success' }}
@@ -560,12 +571,17 @@ jobs:
 
       - name: Create Artifact
         run: |
+          set -euo pipefail
           cd toonz/build/toonz
           cmake -E rm -f OpenToonz.app/Contents/MacOS/mcp_ffprobe_fixture
           test ! -e OpenToonz.app/Contents/MacOS/mcp_ffprobe_fixture
+          python3 "$GITHUB_WORKSPACE/ci-scripts/macos_bundle.py" --verify OpenToonz.app
           echo "Creating DMG..."
           ATTEMPT=1
-          until /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -dmg -verbose=0 && [ -f OpenToonz.dmg ]; do
+          # Match createDiskImage()'s format without redeploying the verified application.
+          # https://github.com/qt/qttools/blob/5.15/src/macdeployqt/shared/shared.cpp
+          until hdiutil create OpenToonz.dmg -srcfolder OpenToonz.app \
+            -format UDZO -fs HFS+ -volname OpenToonz -ov && [ -f OpenToonz.dmg ]; do
             echo "Attempt $ATTEMPT failed to build DMG."
             if [ $ATTEMPT -eq 10 ]; then
               echo ">>> DMG file creation failed after 10 attempts. Aborting!"

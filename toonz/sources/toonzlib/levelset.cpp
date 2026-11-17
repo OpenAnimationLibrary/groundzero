@@ -9,6 +9,7 @@
 #include "toonz/toonzscene.h"
 
 #include "toonz/levelset.h"
+#include "tmutationgeneration.h"
 
 //=============================================================================
 
@@ -29,9 +30,15 @@ TLevelSet::TLevelSet() : m_defaultFolder(defaultRootFolder) {
 
 TLevelSet::~TLevelSet() { clear(); }
 
+std::uint64_t TLevelSet::membershipGeneration() const noexcept {
+  return m_membershipGeneration;
+}
+
 //-----------------------------------------------------------------------------
 
 void TLevelSet::clear() {
+  if (!m_levels.empty() || !m_levelTable.empty())
+    TMutation::advanceGeneration(m_membershipGeneration);
   for (std::vector<TXshLevel *>::iterator it = m_levels.begin();
        it != m_levels.end(); ++it) {
     TXshLevel *level = *it;
@@ -54,6 +61,9 @@ void TLevelSet::removeLevel(TXshLevel *level, bool deleteIt) {
   // if(level->getSimpleLevel())
   //  level->getSimpleLevel()->clearFrames();
 
+  if (std::find(m_levels.begin(), m_levels.end(), level) != m_levels.end() ||
+      m_levelTable.count(level->getName()) != 0)
+    TMutation::advanceGeneration(m_membershipGeneration);
   m_levels.erase(std::remove(m_levels.begin(), m_levels.end(), level),
                  m_levels.end());
   m_levelTable.erase(level->getName());
@@ -67,6 +77,7 @@ void TLevelSet::removeLevel(TXshLevel *level, bool deleteIt) {
 bool TLevelSet::renameLevel(TXshLevel *level, const std::wstring &newName) {
   if (level->getName() == newName) return true;
   if (m_levelTable.count(newName) > 0) return false;
+  TMutation::advanceGeneration(m_membershipGeneration);
   m_levelTable.erase(level->getName());
   level->setName(newName);
   m_levelTable[newName] = level;
@@ -141,6 +152,7 @@ bool TLevelSet::insertLevel(TXshLevel *xl) {
   if (it != m_levelTable.end() && it->second == xl)
     return it->second == xl;
   else {
+    TMutation::advanceGeneration(m_membershipGeneration);
     xl->addRef();
     m_levelTable[xl->getName()] = xl;
     m_levels.push_back(xl);

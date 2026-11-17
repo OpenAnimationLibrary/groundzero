@@ -2,11 +2,12 @@ import { Server, fromJsonSchema } from "@modelcontextprotocol/server";
 import type { CallToolResult, JsonSchemaType, Tool } from "@modelcontextprotocol/server";
 import { WorkerError, errorResult, isObject } from "#mcp/errors";
 import { boundedResult, toolResult } from "#mcp/results";
-import type { WorkerConnection } from "#mcp/worker";
+import { LIVE_TOOL_NAMES } from "#mcp/live-protocol";
+import type { LiveHello } from "#mcp/live-protocol";
 
-interface NativeApi {
-  request: WorkerConnection["request"];
-  close: WorkerConnection["close"];
+export interface NativeApi {
+  request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+  close: () => void;
 }
 
 interface NativeTool extends Tool {
@@ -42,7 +43,10 @@ async function discover(worker: NativeApi): Promise<Tool[]> {
   if (!isObject(result) || result["protocol_version"] !== 1) {
     throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 1");
   }
-  const entries = result["tools"];
+  return catalog(result["tools"]);
+}
+
+async function catalog(entries: unknown): Promise<Tool[]> {
   if (!Array.isArray(entries) || entries.length > 256) {
     throw new WorkerError("INVALID_CATALOG", "Expected at most 256 native tool descriptors");
   }
@@ -76,6 +80,29 @@ async function discover(worker: NativeApi): Promise<Tool[]> {
  */
 export async function createServer(worker: NativeApi): Promise<Server> {
   const tools = await discover(worker);
+  return serverWithTools(worker, tools, false);
+}
+
+/** Expose only the authenticated editor's exact six-tool live catalog.
+ *
+ * Args:
+ *   connection: Native connector whose closure leaves the editor running.
+ *   hello: Authenticated native hello containing the active permission mode.
+ * Returns:
+ *   An MCP server with no detached-worker tools or fallback.
+ */
+export async function createLiveServer(connection: NativeApi, hello: LiveHello): Promise<Server> {
+  const tools = await catalog(hello.tools);
+  if (
+    tools.length !== LIVE_TOOL_NAMES.size ||
+    tools.some((tool) => !LIVE_TOOL_NAMES.has(tool.name))
+  ) {
+    throw new WorkerError("INVALID_CATALOG", "Expected the exact six-tool live editor catalog");
+  }
+  return serverWithTools(connection, tools, true);
+}
+
+function serverWithTools(worker: NativeApi, tools: Tool[], live: boolean): Server {
   const validators = new Map(
     tools.map((tool) => [
       tool.name,
@@ -102,7 +129,7 @@ export async function createServer(worker: NativeApi): Promise<Server> {
           issues: parsed.issues.map((issue) => issue.message),
         });
       }
-      result = toolResult(await worker.request(request.params.name, parsed.value));
+      result = nativeToolResult(await worker.request(request.params.name, parsed.value), live);
     } catch (error) {
       result = errorResult(error);
     }
@@ -114,4 +141,11 @@ export async function createServer(worker: NativeApi): Promise<Server> {
     }
   });
   return server;
+}
+
+function nativeToolResult(value: unknown, live: boolean): CallToolResult {
+  if (live && isObject(value) && "image" in value) {
+    throw new WorkerError("INVALID_RESULT", "Live inspection does not return image artifacts");
+  }
+  return toolResult(value);
 }
