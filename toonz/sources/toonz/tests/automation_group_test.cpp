@@ -186,6 +186,34 @@ void testNativeNoOp(Context& context) {
   context.removeDocument(document.id);
 }
 
+void testGroupCountBoundary(Context& context) {
+  auto& document    = context.addDocument(std::make_unique<ToonzScene>());
+  const auto target = makeDrawing(context, document);
+  const auto image  = nativeImage(document, target);
+  addNativeStrokes(image, 257);
+  for (int index = 0; index < 256; ++index)
+    for (int depth = 0; depth < 16; ++depth) image->group(index, 1);
+  require(inspect(context, target).value("groups").toArray().size() == 4096,
+          "Structure must admit exactly 4096 bounded native group nodes");
+  image->group(256, 1);
+  rejects(context, "resource_limit", [&] { inspect(context, target); });
+  require(image->getGroupDepth(256) == 1,
+          "Group-count rejection changed native membership");
+  context.removeDocument(document.id);
+}
+
+void testDuplicateNativeIds(Context& context) {
+  auto& document    = context.addDocument(std::make_unique<ToonzScene>());
+  const auto target = makeDrawing(context, document);
+  const auto image  = nativeImage(document, target);
+  addNativeStrokes(image, 2);
+  image->getStroke(1)->setId(image->getStroke(0)->getId());
+  rejects(context, "unsupported_geometry", [&] { inspect(context, target); });
+  require(image->getStroke(1)->getId() == image->getStroke(0)->getId(),
+          "Ambiguous-identity rejection changed the source stroke IDs");
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationGroupTests(Context& context) {
@@ -193,6 +221,8 @@ void runAutomationGroupTests(Context& context) {
   testDepthLimit(context);
   testStructureCountBoundary(context);
   testNativeNoOp(context);
+  testGroupCountBoundary(context);
+  testDuplicateNativeIds(context);
 }
 
 }  // namespace GroundzeroAutomation
