@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
 #include <QStringList>
 
 #include <map>
@@ -31,6 +32,15 @@ public:
   QString message;
   QJsonObject details;
 };
+
+// One explicitly granted shared root; read-only unless writable is granted.
+struct SharedRootGrant final {
+  QString path;
+  bool writable = false;
+};
+
+// The shared root roles in their reporting order.
+const QStringList& sharedRootRoles();
 
 struct Document final {
   explicit Document(std::unique_ptr<ToonzScene> ownedScene);
@@ -83,6 +93,10 @@ public:
   std::shared_ptr<RenderState> renderState;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
+  // Set once from validated startup configuration, keyed by shared root role.
+  QMap<QString, SharedRootGrant> sharedRoots;
+  // The private per-process runtime directory inside the workspace.
+  QString runtimeDirectory;
 
 private:
   QString m_workspace;
