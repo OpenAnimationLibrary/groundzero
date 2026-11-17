@@ -27,7 +27,7 @@ public:
   Service(const Service&)            = delete;
   Service& operator=(const Service&) = delete;
   void start();
-  void stop();
+  void stop() noexcept;
   bool running() const;
 
 private:
