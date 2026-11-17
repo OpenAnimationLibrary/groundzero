@@ -1025,6 +1025,12 @@ if(BUILD_RELIABILITY_TESTS)
     add_executable(rasterallocation_test tnzcore/tests/rasterallocation_test.cpp)
     target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterallocation COMMAND rasterallocation_test)
+    add_executable(rasterrelease_test tnzcore/tests/rasterrelease_test.cpp)
+    target_link_libraries(rasterrelease_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME rasterrelease COMMAND rasterrelease_test)
+    add_executable(ropmin_test tnzcore/tests/ropmin_test.cpp)
+    target_link_libraries(ropmin_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME ropmin COMMAND ropmin_test)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
     target_include_directories(timagecache_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/common/tsystem)
@@ -1064,6 +1070,16 @@ add_subdirectory(colorfx)
 add_subdirectory(image)
 add_subdirectory(toonzqt)
 add_subdirectory(tnztools)
+if(BUILD_RELIABILITY_TESTS)
+    # Declared outside tnztools' directory so it does not inherit its DLL
+    # export definitions on Windows.
+    add_executable(rasterpaste_test tnztools/tests/rasterpaste_test.cpp)
+    target_link_libraries(rasterpaste_test PRIVATE tnztools toonzqt toonzlib tnzext tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
+    add_test(NAME rasterpaste COMMAND rasterpaste_test)
+    set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)
 

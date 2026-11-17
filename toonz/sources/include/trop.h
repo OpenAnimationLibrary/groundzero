@@ -417,8 +417,8 @@ DVAPI _RASTER *convertRaster50to46(const TRasterP &inRas,
                                    const TPaletteP &inPalette);
 
 //! Release the old toonz raster.
-/*! If the \b doReleaseBuffer is true, the buffer is released
-    (the palette is always deleted!)
+/*! Releases the wrapper and its copied palette, preserving the borrowed raster
+    buffer. Throws TRopException if \b doReleaseBuffer is true.
   */
 DVAPI void releaseRaster46(_RASTER *&r, bool doReleaseBuffer = false);
 

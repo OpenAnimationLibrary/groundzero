@@ -1415,6 +1415,12 @@ void RasterSelection::pasteSelection() {
   TXshLevel *xl       = app->getCurrentLevel()->getLevel();
   TXshSimpleLevel *sl = xl ? xl->getSimpleLevel() : nullptr;
   int levelType       = sl ? sl->getType() : NO_XSHLEVEL;
+  if (!sl) {
+    const TXshCell &cell = TTool::getImageCell();
+    sl                  = cell.getSimpleLevel();
+    if (!sl || cell.getImage(false, 1) != image) return;
+    if (sl->isReadOnly() || sl->isFrameReadOnly(cell.m_frameId)) return;
+  }
 
   m_currentImage = image;
   m_fid          = tool->getCurrentFid();
@@ -1480,7 +1486,7 @@ void RasterSelection::pasteSelection() {
 
   if (!riData && clipImage.height() > 0 &&
       (levelType == OVL_XSHLEVEL ||
-       m_currentImage->getType() == OVL_XSHLEVEL)) {
+       m_currentImage->getType() == TImage::RASTER)) {
     // An image was pasted from outside OpenToonz
 
     // Set up variables
