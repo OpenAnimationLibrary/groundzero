@@ -1,25 +1,29 @@
 #!/usr/bin/env node
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { parseOptions } from "#mcp/options";
-import { createServer } from "#mcp/server";
+import { launchLive } from "#mcp/live";
+import { createLiveServer, createServer } from "#mcp/server";
+import type { NativeApi } from "#mcp/server";
 import { launchWorker } from "#mcp/worker";
 
 async function main(): Promise<void> {
   const options = await parseOptions(process.argv.slice(2));
-  const workers = new Set<ReturnType<typeof launchWorker>>();
+  const workers = new Set<NativeApi>();
   const closeWorkers = () => {
     for (const worker of workers) worker.close();
     workers.clear();
   };
   const handle = serveStdio(async () => {
-    const worker = launchWorker(options);
+    const worker = "liveSession" in options ? launchLive(options) : launchWorker(options);
     workers.add(worker);
     const close = () => {
       worker.close();
       workers.delete(worker);
     };
     try {
-      return await createServer({ request: worker.request.bind(worker), close });
+      const api = { request: worker.request.bind(worker), close };
+      if ("ready" in worker) return await createLiveServer(api, await worker.ready);
+      return await createServer(api);
     } catch (error) {
       close();
       throw error;

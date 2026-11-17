@@ -1,8 +1,8 @@
 # Groundzero MCP
 
-This local stdio server exposes the typed automation operations implemented by the
-Groundzero binary it launches. Each MCP connection owns a separate native process
-and detached documents. It does not attach to an artist's open application.
+This local stdio server exposes the typed automation operations implemented by
+Groundzero. Detached sessions own separate native processes and documents. Live
+sessions attach to an editor explicitly launched with live automation enabled.
 
 Use Node.js 22.23.5 and a Groundzero build from the same CI run as this
 adapter. CI builds and tests the adapter; the `groundzero-mcp-adapter` artifact
@@ -17,6 +17,8 @@ corepack prepare pnpm@12.21.0 --activate
 corepack pnpm audit --prod --audit-level=moderate
 corepack pnpm install --prod --frozen-lockfile --ignore-scripts
 ```
+
+## Detached sessions
 
 Configure a local MCP host with the equivalent of this command and argument list,
 replacing each example path with its absolute installed path:
@@ -138,6 +140,58 @@ On POSIX systems, media-enabled workers run under a private supervisor that
 terminates their process group when the connection closes, times out, or loses
 its parent. Windows workers contain media helpers in a native job object.
 Forcibly killing the POSIX supervisor itself can bypass its cleanup.
+
+## Live editor sessions
+
+Launch the normal application with an explicit permission mode and a new session
+file in an existing private directory:
+
+```sh
+/opt/groundzero/bin/Groundzero --automation-live inspect \
+  --automation-live-session /work/private/editor-session.json
+```
+
+Use `edit` in place of `inspect` to permit the two qualified native edits. The
+directory and grant must belong to the current user: POSIX requires directory
+mode `0700` and file mode `0600`; Windows requires protected ACLs allowing only
+the user and SYSTEM. The application creates the grant exclusively. Treat this
+file as a secret; do not paste its contents into a prompt or log.
+
+Attach the MCP host using the trusted application executable and that file:
+
+```sh
+node /opt/groundzero-mcp/dist/cli.js \
+  --executable /opt/groundzero/bin/Groundzero \
+  --live-session /work/private/editor-session.json
+```
+
+The adapter starts a non-GUI connector to the selected editor. Native code checks
+the session-file security and operating-system peer identity before authenticating.
+Live attachment excludes `--workspace`, `--input-root`, and `--media-tools`.
+
+Both permission modes advertise exactly `live.status`, `live.inspect`,
+`live.stage.set_key_value`, `live.fx.set_scalar_value`, `live.receipt`, and
+`live.capabilities`. Inspect mode rejects writes with `permission_denied`.
+Edit mode can change an existing camera/pegbar x, y, or rotation key, or the
+qualified native Blur scalar. A changed value creates one native undo entry;
+same-value edits preserve history. Use the returned schemas and editable-target
+fingerprints rather than detached revision fields. Fingerprints cover qualified
+target dependencies; pixels, palette content, and asset bytes are excluded.
+
+The editor accepts two authenticated clients sharing handles and operation
+receipts. Each connection permits four pending requests, with 64 KiB requests
+and 1 MiB native responses. Busy GUI work is rejected with `gui_busy`;
+`live.status` and `live.receipt` remain available with their documented cached
+semantics. There is no live rendering, filesystem operation, or generic undo tool.
+
+Disconnecting an adapter leaves the editor and admitted edits running. After a
+lost reply, reconnect to the same instance and query `live.receipt` with the
+original operation UUID. Exact retries return the retained outcome; changed
+arguments conflict. Receipts expire when the editor stops live automation or
+exits, and a new instance requires fresh inspection. Use the editor's visible
+`Stop Live Automation` action to revoke the session and close its connections.
+
+## Repository checks
 
 Repository checks run in CI: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`,
 `pnpm test`, and `pnpm build`. `pnpm test:native` requires a built native executable

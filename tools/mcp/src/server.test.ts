@@ -1,7 +1,7 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
 import { WorkerError } from "#mcp/errors";
-import { createServer } from "#mcp/server";
+import { createLiveServer, createServer } from "#mcp/server";
 
 const tool = {
   name: "scene.rename",
@@ -110,4 +110,98 @@ test("compiles and rejects invalid native schemas before accepting tool calls", 
       close: () => {},
     }),
   ).rejects.toThrow();
+});
+
+function liveCatalog() {
+  return [
+    "live.status",
+    "live.inspect",
+    "live.stage.set_key_value",
+    "live.fx.set_scalar_value",
+    "live.receipt",
+    "live.capabilities",
+  ].map((name) => ({
+    ...tool,
+    name,
+    inputSchema: {
+      type: "object" as const,
+      additionalProperties: false,
+      required: ["operation_id", "expected_fingerprint"],
+      properties: {
+        operation_id: { type: "string" as const },
+        expected_fingerprint: { type: "string" as const },
+      },
+    },
+  }));
+}
+
+async function liveSession(mode: "inspect" | "edit") {
+  const request = vi.fn(async (_method: string, params: Record<string, unknown> = {}) => ({
+    mode,
+    operation_id: params["operation_id"],
+  }));
+  const server = await createLiveServer(
+    { request, close: () => {} },
+    {
+      instanceId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      mode,
+      tools: liveCatalog(),
+      limits: {},
+    },
+  );
+  const client = new Client({ name: "live-adapter-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  closers.push(async () => {
+    await client.close();
+    await server.close();
+  });
+  return { client, request };
+}
+
+test.each(["inspect", "edit"] as const)(
+  "uses only the authenticated live catalog in %s mode",
+  async (mode) => {
+    const { client, request } = await liveSession(mode);
+    expect((await client.listTools()).tools.map((entry) => entry.name)).toEqual(
+      liveCatalog().map((entry) => entry.name),
+    );
+    expect(request).not.toHaveBeenCalled();
+    const args = { operation_id: "shared-operation", expected_fingerprint: "a".repeat(64) };
+    await client.callTool({ name: "live.stage.set_key_value", arguments: args });
+    expect(request).toHaveBeenLastCalledWith("live.stage.set_key_value", args);
+    const rejected = await client.callTool({ name: "scene.create", arguments: {} });
+    expect(rejected.isError).toBe(true);
+    expect(request).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("retains native live permission decisions", async () => {
+  const { client, request } = await liveSession("inspect");
+  const args = { operation_id: "same-operation", expected_fingerprint: "b".repeat(64) };
+  request.mockRejectedValueOnce(
+    new WorkerError("permission_denied", "This session is inspect-only"),
+  );
+  const denied = await client.callTool({ name: "live.stage.set_key_value", arguments: args });
+  expect(denied.structuredContent).toMatchObject({ error: { code: "permission_denied" } });
+});
+
+test("rejects a live catalog that adds detached authority or omits an approved method", async () => {
+  const entries = liveCatalog();
+  for (const tools of [entries.slice(1), [...entries.slice(1), tool]]) {
+    await expect(
+      createLiveServer(
+        { request: async () => ({}), close: () => {} },
+        {
+          instanceId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          mode: "edit",
+          tools,
+          limits: {},
+        },
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_CATALOG" });
+  }
 });

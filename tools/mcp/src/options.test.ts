@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { chmod, mkdtemp, realpath, rmdir, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +45,7 @@ test("accepts a fixed canonical media pair without adding filesystem read grants
     "--media-tools",
     media,
   ]);
+  assert(!("liveSession" in options));
   expect(options.mediaToolsDirectory).toBe(media);
   expect(options.inputRoots).toEqual([]);
 });
@@ -127,4 +129,41 @@ test("rejects absent directories and relative roots", async () => {
   const args = ["--executable", process.execPath, "--workspace", path];
   await expect(parseOptions([...args, "--input-root", join(path, "missing")])).rejects.toThrow();
   await expect(parseOptions([...args, "--input-root", "relative"])).rejects.toThrow("absolute");
+});
+
+test("selects the trusted non-GUI connector without reading a session grant", async () => {
+  const path = await workspace();
+  const session = join(path, "session-native-will-validate.json");
+  expect(await parseOptions(["--executable", process.execPath, "--live-session", session])).toEqual(
+    { executable: await realpath(process.execPath), liveSession: session },
+  );
+});
+
+test.each(["--workspace", "--input-root", "--media-tools"])(
+  "rejects detached grants with live attachment: %s",
+  async (flag) => {
+    const path = await workspace();
+    await expect(
+      parseOptions([
+        "--executable",
+        process.execPath,
+        "--live-session",
+        join(path, "session.json"),
+        flag,
+        path,
+      ]),
+    ).rejects.toThrow("cannot be combined");
+  },
+);
+
+test("live attachment requires an explicit executable and a single absolute session path", async () => {
+  const path = await workspace();
+  const session = join(path, "session.json");
+  await expect(parseOptions(["--live-session", session])).rejects.toThrow("Usage:");
+  const prefix = ["--executable", process.execPath, "--live-session"];
+  await expect(parseOptions([...prefix, "relative"])).rejects.toThrow("absolute");
+  await expect(parseOptions([...prefix, ""])).rejects.toThrow("absolute");
+  await expect(parseOptions([...prefix, session, "--live-session", session])).rejects.toThrow(
+    "at most once",
+  );
 });
