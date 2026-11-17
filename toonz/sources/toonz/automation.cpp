@@ -33,6 +33,10 @@
 #include <functional>
 #include <iostream>
 
+#ifdef BUILD_UI_PORT_TESTS
+#include "tests/automation_animation_test.h"
+#endif
+
 #ifdef _WIN32
 #include <io.h>
 #include <qt_windows.h>
@@ -379,6 +383,9 @@ bool writeResponse(QFile& output, QJsonObject response) {
 int domainTestResult(Context& context) {
   try {
     runAutomationFxTests(context);
+    runAutomationFxAuthoringTests(context);
+    runAutomationGroupTests(context);
+    runAutomationAnimationTests();
     runAutomationMediaProcessTests(context);
     return 0;
   } catch (const Error& error) {

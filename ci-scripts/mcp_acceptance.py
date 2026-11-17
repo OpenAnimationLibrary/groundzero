@@ -15,9 +15,12 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import mcp_animation_cases
 import mcp_artwork_cases
 import mcp_drawing_cases
+import mcp_fx_authoring_cases
 import mcp_fx_cases
+import mcp_group_cases
 import mcp_media_cases
 import mcp_movie_cases
 import mcp_movie_eof
@@ -63,6 +66,48 @@ class NativeAcceptance(unittest.TestCase):
     executable: Path
     output: Path
     media_tools: Path | None = None
+
+    def test_animation_channel_descriptors_and_fractional_sampling(self) -> None:
+        mcp_animation_cases.animation_channel_descriptors_and_fractional_sampling(self)
+
+    def test_rich_animation_round_trips_and_renders(self) -> None:
+        mcp_animation_cases.rich_animation_round_trips_and_renders(self)
+
+    def test_rich_animation_rejections_preserve_scene(self) -> None:
+        mcp_animation_cases.rich_animation_rejections_preserve_scene(self)
+
+    def test_rich_animation_retries_and_noops(self) -> None:
+        mcp_animation_cases.rich_animation_retries_and_noops(self)
+
+    def test_rich_animation_delete_keys_obeys_control_kinds(self) -> None:
+        mcp_animation_cases.rich_animation_delete_keys_obeys_control_kinds(self)
+
+    def test_vector_groups_preserve_paint_and_roundtrip(self) -> None:
+        mcp_group_cases.vector_groups_preserve_paint_and_roundtrip(self)
+
+    def test_vector_groups_reject_partial_boundaries(self) -> None:
+        mcp_group_cases.vector_groups_reject_partial_boundaries(self)
+
+    def test_vector_order_preserves_groups_and_stacking(self) -> None:
+        mcp_group_cases.vector_order_preserves_groups_and_stacking(self)
+
+    def test_vector_group_noops_and_rejections(self) -> None:
+        mcp_group_cases.vector_group_noops_and_rejections(self)
+
+    def test_fx_duplicate_and_enable_preserve_native_roundtrip(self) -> None:
+        mcp_fx_authoring_cases.fx_duplicate_and_enable_preserve_native_roundtrip(self)
+
+    def test_fx_presets_preserve_keys_and_target_graph(self) -> None:
+        mcp_fx_authoring_cases.fx_presets_preserve_keys_and_target_graph(self)
+
+    def test_fx_authoring_rejections_preserve_document(self) -> None:
+        mcp_fx_authoring_cases.fx_authoring_rejections_preserve_document(self)
+
+    def test_fx_preset_integrity_and_file_receipts(self) -> None:
+        mcp_fx_authoring_cases.fx_preset_integrity_and_file_receipts(self)
+
+    def test_fx_preset_capacity_keeps_exact_replay(self) -> None:
+        mcp_fx_authoring_cases.fx_preset_capacity_keeps_exact_replay(self)
 
     def test_compound_artwork_edits_preserve_native_roundtrip(self) -> None:
         mcp_artwork_cases.artwork_transform_renumber_palette_roundtrip(self)
