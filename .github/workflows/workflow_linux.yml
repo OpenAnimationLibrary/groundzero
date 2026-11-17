@@ -436,7 +436,7 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache childstack_lifetime centerline_colors levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation rasterrelease ropmin rasterpaste timagecache childstack_lifetime centerline_colors levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level
 
     - name: Qualify image-cache builder release with LeakSanitizer
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
