@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_animation_cases import _pixels_match, _render, _sample, _simple
@@ -153,6 +154,18 @@ def motion_path_unused_geometry_and_name_roundtrip(case: NativeAcceptance) -> No
     restored = _read(case, "motion_path.inspect", reopened, path_id=listed[0]["path_id"])
     case.assertEqual(restored["control_points"], path["control_points"])
     case.assertEqual(restored["consumers"], [])
+    native_file = Path(saved["package_directory"]) / "scene.tnz"
+    original = native_file.read_bytes()
+    documents = case.success("automation.list_documents", {})
+    native_file.write_bytes(b"<scene><splines><malformed-native-path")
+    error = case.failure(
+        "scene.open", case.write_params(None, {"path": saved["package_directory"]})
+    )
+    case.assertEqual(error["code"], "invalid_package")
+    case.assertEqual(case.success("automation.list_documents", {}), documents)
+    native_file.write_bytes(original)
+    recovered = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
+    case.assertEqual(len(_read(case, "motion_path.list", recovered)["paths"]), 1)
 
 
 def motion_path_animation_render_and_reopen(case: NativeAcceptance) -> None:

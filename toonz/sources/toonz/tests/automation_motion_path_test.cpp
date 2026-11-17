@@ -169,6 +169,43 @@ void sharedConsumersAndIndependentCopy(Context& context) {
   context.removeDocument(document.id);
 }
 
+void nestedConsumerInvalidation(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document = createDocument(context, dispatcher);
+  const QString path =
+      createPath(dispatcher, document, points()).value("path_id").toString();
+  const QString parent = peg(dispatcher, document);
+  const QString child  = peg(dispatcher, document);
+  const QString leaf   = peg(dispatcher, document);
+  result(dispatcher, "object.parent",
+         addressed(document, {{"object_id", child}, {"parent_id", parent}}));
+  result(dispatcher, "object.parent",
+         addressed(document, {{"object_id", leaf}, {"parent_id", child}}));
+  auto* a = document.object(parent);
+  auto* b = document.object(child);
+  auto* c = document.object(leaf);
+  a->getParam(TStageObject::T_Path)->setDefaultValue(25);
+  b->getParam(TStageObject::T_Path)->setDefaultValue(75);
+  attach(dispatcher, document, parent, path, false);
+  attach(dispatcher, document, child, path, false);
+  near(a->getPlacement(0).a13 / Stage::inch, 0.5);
+  near(b->getPlacement(0).a13 / Stage::inch, 1.5);
+  const auto before = c->getParentPlacement(0) * c->getPlacement(0);
+  near(before.a13 / Stage::inch, 2);
+  b->lock(true);
+  rejected(dispatcher, document, "motion_path.update",
+           updatePathParams(document, path, points(0, 4)), "locked");
+  b->lock(false);
+  result(dispatcher, "motion_path.update",
+         updatePathParams(document, path, points(0, 4)));
+  near(a->getPlacement(0).a23 / Stage::inch, 1);
+  near(b->getPlacement(0).a23 / Stage::inch, 3);
+  const auto after = c->getParentPlacement(0) * c->getPlacement(0);
+  near(after.a13, 0);
+  near(after.a23 / Stage::inch, 4);
+  context.removeDocument(document.id);
+}
+
 void canonicalGeometryAndDegeneracy(Context& context) {
   Dispatcher dispatcher(context);
   auto& document = createDocument(context, dispatcher);
@@ -340,6 +377,7 @@ void aggregateGeometryCapacity(Context& context) {
 void runAutomationPathTests(Context& context) {
   canonicalGeometryAndDegeneracy(context);
   sharedConsumersAndIndependentCopy(context);
+  nestedConsumerInvalidation(context);
   nativeLockAndPercentageBoundaries(context);
   hierarchyAndPathCapacity(context);
   aggregateGeometryCapacity(context);
