@@ -638,7 +638,8 @@ void validateAutomationPathPosition(const TDoubleParam& curve) {
 void requireAutomationPathTarget(ToonzScene& scene, TStageObject& object,
                                  bool writable) {
   requireTarget(scene, object, writable);
-  if (writable) validateParents(*tree(scene));
+  if (writable && tree(scene)->getSplineCount() != 0)
+    validateParents(*tree(scene));
 }
 
 void requireAutomationPathObjectGrowth(ToonzScene& scene) {

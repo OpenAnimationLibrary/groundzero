@@ -276,6 +276,37 @@ void hierarchyAndPathCapacity(Context& context) {
           "Path capacity rejection changed owned handles");
   context.removeDocument(document.id);
 }
+void unattachedPercentageBeforePathAdmission(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document = createDocument(context, dispatcher);
+  auto* stage    = document.scene->getXsheet()->getStageObjectTree();
+  auto parent    = TStageObjectId::TableId;
+  for (int index = 0; index < 65; ++index) {
+    auto* object = stage->getStageObject(TStageObjectId::PegbarId(index));
+    object->setParent(parent);
+    parent = object->getId();
+  }
+  auto* target      = stage->getStageObject(parent);
+  const auto object = document.idForObject(target);
+  result(dispatcher, "animation.set_keys",
+         addressed(
+             document,
+             {{"object_id", object},
+              {"channel", "path_position"},
+              {"unit", "percent"},
+              {"keys", QJsonArray{QJsonObject{{"frame", 0},
+                                              {"value", 50},
+                                              {"interpolation", "linear"}}}}}));
+  near(target->getParam(TStageObject::T_Path)->getValue(0), 50);
+  auto params = geometry(points());
+  params.insert("name", "First path beyond hierarchy admission");
+  rejected(dispatcher, document, "motion_path.create",
+           addressed(document, params), "invalid_params");
+  require(document.paths.isEmpty() && stage->getSplineCount() == 0,
+          "Rejected first path changed the path-free scene");
+  context.removeDocument(document.id);
+}
+
 QJsonArray manyPoints(int count) {
   QJsonArray result;
   for (int index = 0; index < count; ++index)
@@ -312,6 +343,7 @@ void runAutomationPathTests(Context& context) {
   nativeLockAndPercentageBoundaries(context);
   hierarchyAndPathCapacity(context);
   aggregateGeometryCapacity(context);
+  unattachedPercentageBeforePathAdmission(context);
   std::cout << "automation-motion-path-test: geometry, ownership, locks and "
                "bounds PASS\n";
 }
