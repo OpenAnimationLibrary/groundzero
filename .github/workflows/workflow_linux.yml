@@ -803,6 +803,31 @@ jobs:
         python3 ../../ci-scripts/mcp_check.py --title "MCP adapter contracts" \
           --output runtime-checks/contracts.txt corepack pnpm test
 
+    - name: Qualify live MCP clients in the native editor
+      if: >-
+        ${{ !cancelled() && steps.native_targets.outcome == 'success' &&
+            steps.mcp_adapter.outcome == 'success' }}
+      timeout-minutes: 5
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        uv venv --python 3.13 "$RUNNER_TEMP/mcp-live-python"
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-live-python/bin/python" ci-scripts/mcp_live.py \
+          --executable toonz/build/bin/OpenToonz --stuff stuff \
+          --node "$(command -v node)" --adapter tools/mcp/dist/cli.js \
+          --client tools/mcp/fixtures/live-client.mjs --output toonz/build/mcp-live
+
+    - name: Retain live MCP editor qualification evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-live-editor-${{ github.sha }}
+        path: toonz/build/mcp-live
+        if-no-files-found: ignore
+
     - name: Qualify MCP client against the native worker
       if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.mcp_media_tools.outcome == 'success' }}
       working-directory: tools/mcp
