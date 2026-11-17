@@ -18,7 +18,6 @@
 #include "toonz/tpalettehandle.h"
 #include "toonz/preferences.h"
 #include "toonz/studiopalette.h"
-#include "toonz/toonzfolders.h"
 #include "toonzqt/tselectionhandle.h"
 #include "tenv.h"
 #include "timagecache.h"
@@ -112,7 +111,6 @@ void initialize(const QString& root, const char* executable) {
     TEnv::setArgPathValue("TOONZ" + entry.first, path.toStdString());
   }
   require(QDir().mkpath(root + "/cache"), "Create private cache");
-  ToonzFolder::setCacheRootFolder(TFilePath((root + "/cache").toStdWString()));
   TImageCache::instance()->setRootDir(
       TFilePath((root + "/cache").toStdWString()));
   StudioPalette::enable(false);
