@@ -30,6 +30,16 @@ namespace {
 
 thread_local int eventDepth = 0;
 
+bool hasLiveLaunchOptions(int argc, char* argv[]) {
+  for (int index = 1; index < argc; ++index) {
+    const QString argument = QString::fromLocal8Bit(argv[index]);
+    if (argument == "--automation-live" ||
+        argument == "--automation-live-session")
+      return true;
+  }
+  return false;
+}
+
 QStringList launchArguments(int argc, char* argv[]) {
   QStringList arguments;
 #ifdef _WIN32
@@ -114,6 +124,7 @@ bool Application::notify(QObject* receiver, QEvent* event) {
 }
 
 Options parseLiveOptions(int& argc, char* argv[]) {
+  if (!hasLiveLaunchOptions(argc, argv)) return {};
   Options options;
   const QStringList arguments = launchArguments(argc, argv);
   QStringList remaining;

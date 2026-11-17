@@ -3,6 +3,8 @@
 // Tnz6 includes
 #include "crashhandler.h"
 #include "automation.h"
+#include "automation_live_startup.h"
+#include "automation_live_security.h"
 #include "autosaverecovery.h"
 #include "mainwindow.h"
 #include "flipbook.h"
@@ -27,6 +29,7 @@
 #include "batchtaskintegrationtest.h"
 #include "nativeuiintegrationtest.h"
 #include "iconlifecycleintegrationtest.h"
+#include "mcpliveintegrationtest.h"
 #endif
 
 // TnzTools includes
@@ -285,11 +288,38 @@ static void script_output(int type, const QString &value) {
     std::cout << value.toStdString() << std::endl;
 }
 
+static bool prepareLiveLaunch(int& argc, char* argv[],
+                              GroundzeroAutomation::Live::Options& options) {
+  try {
+    options = GroundzeroAutomation::Live::parseLiveOptions(argc, argv);
+    return true;
+  } catch (const GroundzeroAutomation::Error& error) {
+    std::cerr << "live-automation: " << error.message.toStdString() << '\n';
+    return false;
+  }
+}
+
+static void startLiveUi(GroundzeroAutomation::Live::LiveUi& owner) {
+  try {
+    owner.start();
+  } catch (const GroundzeroAutomation::Error& error) {
+    std::cerr << "live-automation: " << error.message.toStdString() << '\n';
+    DVGui::warning(error.message);
+  } catch (const std::exception& error) {
+    std::cerr << "live-automation: startup failed: " << error.what() << '\n';
+    DVGui::warning(QObject::tr("Live automation could not start. Check application diagnostics."));
+  }
+}
+
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-live-connect")
+    return GroundzeroAutomation::Live::runConnector(argc, argv);
   if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-worker")
     return GroundzeroAutomation::runWorker(argc, argv);
+  GroundzeroAutomation::Live::Options liveOptions;
+  if (!prepareLiveLaunch(argc, argv, liveOptions)) return 2;
 #ifdef BUILD_UI_PORT_TESTS
   if (argc == 2 && QString::fromLocal8Bit(argv[1]) == "--test-batch-task-child")
     return runBatchTaskFixtureChild();
@@ -413,7 +443,7 @@ int main(int argc, char *argv[]) {
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
   nativeUiCheckpoint("constructing QApplication");
-  QApplication a(argc, argv);
+  GroundzeroAutomation::Live::Application a(argc, argv);
   nativeUiCheckpoint("QApplication constructed");
 #ifdef BUILD_UI_PORT_TESTS
   if (nativeUiTest) {
@@ -999,9 +1029,19 @@ int main(int argc, char *argv[]) {
   if (!nativeIntegrationTest && !AutosaveRecovery::showRecoveryDialog())
     CrashHandler::showPendingReport();
 
+  std::unique_ptr<GroundzeroAutomation::Live::LiveUi> liveUi;
+  if (!liveOptions.mode.isEmpty()) {
+    liveUi = std::make_unique<GroundzeroAutomation::Live::LiveUi>(a, w, liveOptions);
+    QTimer::singleShot(0, &a, [&liveUi] { startLiveUi(*liveUi); });
+  }
+
 #ifdef BUILD_UI_PORT_TESTS
   if (nativeUiTest)
     QTimer::singleShot(0, &a, [&a, &w, nativeIconClearOnly] {
+      if (!nativeIconClearOnly && qgetenv("GROUNDZERO_NATIVE_UI_SUITE") == "mcp-live") {
+        startMcpLiveIntegrationTest(&w, [&a](int result) { a.exit(result); });
+        return;
+      }
       // The required clear scenario has its own fresh terminal process. It
       // shares native preparation/startup but does not repeat artist suites.
       a.exit(nativeIconClearOnly ? 0 : runNativeUiIntegrationTest(&w));
@@ -1015,6 +1055,11 @@ int main(int argc, char *argv[]) {
     });
 #endif
   int ret = a.exec();
+  if (liveUi) liveUi->stop();
+#ifdef BUILD_UI_PORT_TESTS
+  if (nativeUiTest && qgetenv("GROUNDZERO_NATIVE_UI_SUITE") == "mcp-live")
+    ret = finishMcpLiveIntegrationTest();
+#endif
   nativeUiCheckpoint("native application event loop returned");
 
 #ifdef BUILD_UI_PORT_TESTS
