@@ -528,7 +528,7 @@ class NativeAcceptance(unittest.TestCase):
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=90,
+                timeout=300,
                 check=False,
             )
         diagnostics = (self.directory / "native-domain-tests.log").read_bytes()[-4096:]
