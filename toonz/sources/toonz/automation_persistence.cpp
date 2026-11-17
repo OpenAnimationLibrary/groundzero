@@ -1,6 +1,7 @@
 #include "automation_path.h"
 #include "automation_vector_opacity.h"
 #include "automation.h"
+#include "automation_audio.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
 #include "automation_macro.h"
@@ -249,6 +250,7 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
       scene.getProperties()->getOutputProperties()->getFrameRate();
   for (int index = 0; index < levels->getLevelCount(); ++index) {
     TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
+    if (!level) continue;  // Sound sources are copied by writeAutomationSounds.
     const QString relative = levelPath(index, level->getType());
     writeLevel(*level, QDir(directory).absoluteFilePath(relative), frameRate);
     if (level->getType() == TZP_XSHLEVEL)
@@ -271,6 +273,7 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
 class PathRestore final {
   struct Entry final {
     TXshSimpleLevel* level;
+    int index;
     TFilePath path;
     LevelProperties properties;
   };
@@ -280,7 +283,9 @@ public:
     TLevelSet* levels = scene.getLevelSet();
     for (int index = 0; index < levels->getLevelCount(); ++index) {
       TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
-      m_paths.push_back({level, level->getPath(), *level->getProperties()});
+      if (level)
+        m_paths.push_back(
+            {level, index, level->getPath(), *level->getProperties()});
     }
   }
   ~PathRestore() {
@@ -290,10 +295,10 @@ public:
     }
   }
   void rebase() {
-    for (int index = 0; index < int(m_paths.size()); ++index) {
-      const Entry& entry     = m_paths[index];
+    for (const Entry& entry : m_paths) {
       TXshSimpleLevel* level = entry.level;
-      const QString path = "$scenefolder/" + levelPath(index, level->getType());
+      const QString path =
+          "$scenefolder/" + levelPath(entry.index, level->getType());
       level->setPath(TFilePath(path.toStdWString()), true);
       *level->getProperties() = entry.properties;
       if (level->getType() != PLI_XSHLEVEL) {
@@ -314,6 +319,7 @@ private:
 void writeScene(ToonzScene& scene, const QString& directory) {
   PathRestore restore(scene);
   restore.rebase();
+  AutomationSoundPaths sounds(scene);
   scene.saveCopy(
       TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
 }
@@ -325,15 +331,18 @@ Package writePackage(Document& document, const QString& directory) {
                 "Cannot create the package assets directory.");
   const QByteArray macroFingerprint = automationMacroFingerprint(*document.scene, directory);
   const QJsonArray levels = writeLevels(*document.scene, directory);
+  const QJsonObject sounds = writeAutomationSounds(*document.scene, directory);
   writeScene(*document.scene, directory);
   Package package;
   package.macroFingerprint = macroFingerprint;
-  package.manifest = {{"version", 1},
-                      {"profile", "worker-generated-v1"},
-                      {"scene_file", "scene.tnz"},
-                      {"source_revision", document.revisionText()},
-                      {"levels", levels},
-                      {"files", fileManifest(directory)}};
+  package.manifest         = {{"version", 1},
+                              {"profile", "worker-generated-v1"},
+                              {"scene_file", "scene.tnz"},
+                              {"source_revision", document.revisionText()},
+                              {"levels", levels}};
+  for (auto entry = sounds.begin(); entry != sounds.end(); ++entry)
+    package.manifest.insert(entry.key(), entry.value());
+  package.manifest.insert("files", fileManifest(directory));
   const QByteArray bytes =
       QJsonDocument(package.manifest).toJson(QJsonDocument::Indented);
   QSaveFile file(QDir(directory).absoluteFilePath("manifest.json"));
@@ -458,11 +467,13 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
   scene->loadTnzFile(
       TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
   const QJsonArray entries = package.manifest.value("levels").toArray();
+  const int sounds         = package.manifest.value("sounds").toArray().size();
   if (scene->hasUnrecognizedSceneData() ||
-      scene->getLevelSet()->getLevelCount() != entries.size())
+      scene->getLevelSet()->getLevelCount() != entries.size() + sounds)
     throw Error("invalid_package",
                 "The reopened scene differs from the published scene.");
   for (const QJsonValue& entry : entries) reopenLevel(*scene, entry.toObject());
+  reopenAutomationSounds(*scene, package.manifest);
   validateAutomationScene(*scene);
   indexAutomationMacroMembers(*scene);
   if (automationMacroFingerprint(*scene, context.workspace()) != package.macroFingerprint)
@@ -531,8 +542,10 @@ QJsonObject openPackage(Context& context, const QJsonObject& params) {
   const QString directory = admittedDirectory(context, params);
   auto scene =
       reopenPackage(context, directory, publishedPackages.at(directory));
+  const auto sounds = adoptAutomationSounds(context, *scene);
   context.markMutationStarted();
-  Document& document = context.addDocument(std::move(scene));
+  Document& document    = context.addDocument(std::move(scene));
+  document.soundSources = sounds;
   return {{"document_id", document.id},
           {"revision", document.revisionText()},
           {"package_directory", directory}};
@@ -540,8 +553,11 @@ QJsonObject openPackage(Context& context, const QJsonObject& params) {
 
 using DrawingIndex = std::map<TXshSimpleLevel*, std::set<TFrameId>>;
 
+// Sound columns are admitted by clip enumeration in validateAutomationAudio;
+// their getCell() allocates a cell per call.
 std::pair<int, int> drawingColumnRange(TXshColumn* column) {
-  if (!column || column->isEmpty() || column->getZeraryFxColumn())
+  if (!column || column->isEmpty() || column->getZeraryFxColumn() ||
+      column->getSoundColumn())
     return {0, -1};
   if (!column->getLevelColumn())
     throw Error("unsupported_column",
@@ -599,6 +615,7 @@ void validateAutomationScene(ToonzScene& scene) {
     throw Error("scene_limit", "The scene exceeds 256 levels.");
   int drawings = 0;
   for (int index = 0; index < levels->getLevelCount(); ++index) {
+    if (levels->getLevel(index)->getSoundLevel()) continue;
     TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
     if (!level)
       throw Error("unsupported_level",
@@ -611,6 +628,7 @@ void validateAutomationScene(ToonzScene& scene) {
     if (drawings > MaxDrawings)
       throw Error("scene_limit", "The scene exceeds 4096 drawings.");
   }
+  validateAutomationAudio(scene);
   requireAssetGrowth(scene, 0);
   validateCells(scene);
 }

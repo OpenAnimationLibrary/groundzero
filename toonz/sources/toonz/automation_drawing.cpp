@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_audio.h"
 #include "automation_drawing.h"
 #include "automation_vector_opacity.h"
 #include "tstrokeopacity.h"
@@ -359,7 +360,9 @@ bool referencesInCell(TXsheet* sheet, int index, int row, ExposureScan& scan) {
 }
 
 bool referencesInColumn(TXsheet* sheet, int index, ExposureScan& scan) {
-  auto* entry  = sheet->getColumn(index);
+  auto* entry = sheet->getColumn(index);
+  // Sound clips expose no drawings, and their getCell() allocates per call.
+  if (entry && entry->getSoundColumn()) return false;
   auto* column = entry ? entry->getCellColumn() : nullptr;
   int first = 0, last = -1;
   if (!column || !column->getRange(first, last)) return false;
@@ -2692,7 +2695,8 @@ void requireAssetCounts(TLevelSet* levels, int additionalDrawings,
     throw Error("resource_limit", "The document admits at most 256 levels");
   qint64 drawings = additionalDrawings;
   for (int index = 0; index < levels->getLevelCount(); ++index)
-    drawings += budgetLevel(levels, index)->getFrameCount();
+    if (!levels->getLevel(index)->getSoundLevel())
+      drawings += budgetLevel(levels, index)->getFrameCount();
   if (drawings < 0 || drawings > 4096)
     throw Error("resource_limit", "The document admits at most 4096 drawings");
 }
@@ -2700,6 +2704,10 @@ void requireAssetCounts(TLevelSet* levels, int additionalDrawings,
 qint64 sceneAssetBytes(TLevelSet* levels) {
   qint64 bytes = 0;
   for (int index = 0; index < levels->getLevelCount(); ++index) {
+    if (auto* sound = levels->getLevel(index)->getSoundLevel()) {
+      bytes += automationSoundBytes(*sound);
+      continue;
+    }
     auto* level = budgetLevel(levels, index);
     bytes += paletteAssetBytes(level->getPalette());
     for (const auto& frame : level->getFids())

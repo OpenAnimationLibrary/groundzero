@@ -200,6 +200,7 @@ set(HEADERS
     automation.h
     automation_animation.h
     automation_path.h
+    automation_audio.h
     automation_vector_opacity.h
     automation_dispatch.h
     automation_containment.h
@@ -288,6 +289,8 @@ set(SOURCES
     automation_dispatch.cpp
     automation_animation.cpp
     automation_path.cpp
+    automation_audio.cpp
+    automation_audio_format.cpp
     automation_vector_opacity.cpp
     automation_scene.cpp
     automation_fx.cpp

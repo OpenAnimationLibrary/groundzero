@@ -300,7 +300,8 @@ QJsonValue drawingId(const TFrameId& frame) {
 }
 
 QJsonObject castRow(Report& report, TXshLevel* level) {
-  const int count        = level->getFrameCount();
+  // A sound source has audio frames, not drawings.
+  const int count        = level->getSoundLevel() ? 0 : level->getFrameCount();
   const QStringList tags = level->getCastTags();
   if (count < 0 || count > MaxRecords || tags.size() > 32)
     throw Error("resource_limit",

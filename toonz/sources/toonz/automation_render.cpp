@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_audio.h"
 #include "automation_media.h"
 #include "automation_neural.h"
 #include "stdfx/neuralstyleworker.h"
@@ -615,6 +616,8 @@ static void configureMovie(RenderJob& job, TOutputProperties& output) {
 }
 
 static void configureSnapshot(RenderJob& job) {
+  // Renders carry no audio, so the native writer never builds a device mix.
+  muteAutomationSound(*job.snapshot);
   job.snapshot->getCurrentCamera()->setRes(
       TDimension(job.request.width, job.request.height));
   TOutputProperties* output =

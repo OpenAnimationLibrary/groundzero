@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_animation.h"
+#include "automation_audio.h"
 #include "automation_path.h"
 #include "automation_drawing.h"
 
@@ -147,12 +148,13 @@ QString levelFormat(int type) {
   if (type == PLI_XSHLEVEL) return "vector";
   if (type == TZP_XSHLEVEL) return "toonzRaster";
   if (type == OVL_XSHLEVEL) return "rgba8";
+  if (type == SND_XSHLEVEL) return "sound";
   return "unsupported";
 }
 
 QJsonObject describeLevel(Document& document, TXshLevel* level) {
   std::vector<TFrameId> frames;
-  level->getFids(frames);
+  if (!level->getSoundLevel()) level->getFids(frames);
   QJsonArray drawings;
   for (const TFrameId& frame : frames) drawings.append(drawingId(frame));
   return {{"level_id", document.idForLevel(level)},
@@ -177,11 +179,18 @@ QJsonObject describeObject(Document& document, TStageObject* object) {
           {"locked", object->isLocked()}};
 }
 
+QString columnKind(TXshColumn* column) {
+  if (column->getSoundColumn()) return "sound";
+  if (column->getZeraryFxColumn()) return "generator";
+  return "level";
+}
+
 QJsonObject describeColumn(Document& document, TXshColumn* column) {
   const int index = columnIndex(document, column);
   TStageObject* object =
       tree(document)->getStageObject(TStageObjectId::ColumnId(index), false);
   return {{"column_id", document.idForColumn(column)},
+          {"kind", columnKind(column)},
           {"object_id", document.idForObject(object)},
           {"position", index},
           {"name", QString::fromStdString(object->getName())},
@@ -261,6 +270,7 @@ void applySettings(ToonzScene& scene, const Settings& settings) {
   scene.getCurrentCamera()->setRes(TDimension(settings.width, settings.height));
   scene.getProperties()->getOutputProperties()->setFrameRate(settings.fps);
   scene.getProperties()->getPreviewProperties()->setFrameRate(settings.fps);
+  setAutomationSoundFrameRate(scene, settings.fps);
 }
 
 QJsonValue createScene(Context& context, const QJsonObject& params) {
@@ -294,6 +304,12 @@ QJsonValue updateSettings(Context& context, const QJsonObject& params) {
   TStageObject* camera = tree(document)->getStageObject(
       tree(document)->getCurrentCameraId(), false);
   requireEditable(document, camera);
+  // Native clip positions are rounded when the frame rate changes.
+  if (settings.fps != current.fps &&
+      automationSceneHasSoundClips(*document.scene))
+    throw Error("timing_conflict",
+                "Remove every sound clip before changing the frame rate.",
+                {{"frame_rate", current.fps}});
   context.markMutationStarted();
   applySettings(*document.scene, settings);
   return describeScene(document);
@@ -506,6 +522,8 @@ QJsonValue updateColumn(Context& context, const QJsonObject& params) {
   const bool locked  = boolParam(params, "locked", column->isLocked());
   const double opacity =
       numberParam(params, "opacity", 0, 1, column->getOpacity() / 255.0);
+  if (column->getSoundColumn() && params.contains("opacity"))
+    throw Error("invalid_params", "Sound columns have no opacity.");
   if (changesColumnContent(params)) requireEditable(document, object);
   const UCHAR alpha = static_cast<UCHAR>(std::lround(opacity * 255));
   const QJsonObject updated{{"name", name},
@@ -527,7 +545,8 @@ QJsonValue deleteColumn(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
   const QString id   = requiredString(params, "column_id");
   TXshColumn* column = document.column(id);
-  if (column->getColumnType() != TXshColumn::eLevelType)
+  if (column->getColumnType() != TXshColumn::eLevelType &&
+      column->getColumnType() != TXshColumn::eSoundType)
     throw Error("incompatible_column",
                 "Use the owning subsystem to delete this column type.");
   const int index = columnIndex(document, column);
@@ -596,6 +615,9 @@ QJsonValue exposeColumn(Context& context, const QJsonObject& params) {
       tree(document)->getStageObject(TStageObjectId::ColumnId(index), false);
   requireEditable(document, object);
   TXshLevel* level     = document.level(requiredString(params, "level_id"));
+  if (column->getSoundColumn() || level->getSoundLevel())
+    throw Error("incompatible_column",
+                "Place sound with audio.clip.place, not drawing exposures.");
   const TFrameId frame = readDrawingId(params);
   validateDrawing(level, frame);
   const CellRange range = readRange(params);
@@ -626,6 +648,9 @@ QJsonValue exposeColumn(Context& context, const QJsonObject& params) {
 QJsonValue inspectCells(Context& context, const QJsonObject& params) {
   Document& document    = getDocument(context, params);
   TXshColumn* column    = document.column(requiredString(params, "column_id"));
+  if (column->getSoundColumn())
+    throw Error("incompatible_column",
+                "Sound columns have clips, not cells; use audio.inspect.");
   const int index       = columnIndex(document, column);
   const CellRange range = readRange(params);
   QJsonArray cells;

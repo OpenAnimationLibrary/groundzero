@@ -45,6 +45,8 @@ struct Document final {
   QHash<QString, TStageObject*> objects;
   QHash<QString, TStageObjectSpline*> paths;
   QHash<TStageObjectSpline*, QString> pathIds;
+  // Verified file metadata of sound sources, keyed by their cast level.
+  QHash<TXshLevel*, QJsonObject> soundSources;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);
