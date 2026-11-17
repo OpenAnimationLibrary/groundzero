@@ -186,6 +186,52 @@ of the scene and artwork. This process isolation is not an operating system
 sandbox for native image readers, and the workspace must not be modified
 concurrently by another process.
 
+The `audio` toolset imports sound and places it on the timeline. `audio.import`
+copies a WAV or AIFF file into the workspace as a sound source after checking its
+structure without the native reader: 8-, 16- or 24-bit PCM or 32-bit float WAV, 8-
+or 16-bit AIFF, mono or stereo, 8000–96000 Hz, at most 160 MiB, 600 seconds and
+128 MiB decoded. Float samples must be finite and within ±2.0. Extensible WAV,
+AIFC, 32-bit integer PCM and 24- or 32-bit AIFF return `unsupported_format`;
+damaged files return `invalid_asset`. A document admits 64 sources, 32 sound
+columns and 1024 clips (256 per column). Imports, clip placement and mixdown
+require a frame rate that the scene file stores exactly, such as 23.976, 24 or
+29.97, and return `timing_conflict` otherwise. `scene.settings` refuses a frame
+rate change while any clip exists, because the native change rounds clip
+positions.
+
+`audio.column.create` appends a sound column with an explicit `volume_permille`
+(0–1000); `audio.column.set_volume` changes it. `audio.clip.place` puts source
+frames `[source_start_frame, source_start_frame + frame_count)` at
+`timeline_start_frame`. A clip is addressed by `{column_id, timeline_start_frame}`
+at the current revision. Overlaps return `audio_overlap` with the conflicting
+clip keys; nothing is trimmed. A clip that would continue an adjacent clip of the
+same source is refused, because the native column would join the two.
+`audio.clip.update` replaces a clip's placement and `audio.clip.remove` keeps the
+source in the cast. `column.update` mutes a sound column with `visible: false`
+and `column.delete` removes it with its clips; sound columns have no opacity.
+`column.cells` and `column.expose` refuse sound columns and sources.
+`scene.summary` reports each column's `kind` and sound sources as format `sound`.
+`audio.inspect` reports sources with their format, digests and native frame
+count, columns with clips and source sample ranges, and the columns a mix
+includes or excludes.
+
+`audio.mixdown` writes the native mix of frames `[start_frame, end_frame]` to a
+new `.wav` file in the workspace without using an audio device. The first
+included column's first clip sets the format, 8-bit mixes are written as 16-bit,
+integer samples saturate and float samples can exceed full scale (see `peak`).
+Muted and empty columns, later columns at zero volume, and columns whose clips
+span a single frame (empty natively) are excluded. A clip ending at the first
+mixed frame, or starting just after the last one, can contribute one boundary
+sample, as in the native mix. Mixdowns are limited to 600 seconds and 64 MiB of
+PCM, and a worker writes at most 128 files and 256 MiB. The written file is
+decoded again and compared with the mix before it is published.
+
+Packages store each sound source as a byte-exact copy, and `scene.open` checks
+every source, clip, volume, mute and lock state and the frame rate. Saving refuses
+an empty sound column that is locked or muted, and a last sound column whose clips
+span a single frame, since native scene files drop them. Trailing empty columns
+are not saved. Renders mute sound columns, so movies stay video-only.
+
 To inspect an image, start `render.preview`, poll `render.status` until completed,
 list `render.artifacts`, and pass an artifact ID to `artifact.read`. The final call
 returns MCP image content and source metadata. Inline PNG images are limited to
