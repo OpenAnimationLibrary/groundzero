@@ -1132,6 +1132,16 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    add_executable(mcp_path_test
+        automation_context.cpp automation_error.cpp tests/automation_path_test.cpp)
+    target_include_directories(mcp_path_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mcp_path_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+    target_link_libraries(mcp_path_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME mcp_path_authority COMMAND mcp_path_test)
+    set_tests_properties(mcp_path_authority PROPERTIES TIMEOUT 30)
+    add_dependencies(OpenToonz mcp_path_test)
     add_executable(mcp_live_protocol_test
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_protocol_test.cpp)
