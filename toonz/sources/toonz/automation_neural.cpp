@@ -60,8 +60,9 @@ bool beneath(const QString& path, const QString& root) {
 #else
   const auto sensitivity = Qt::CaseSensitive;
 #endif
+  const QString prefix = root.endsWith('/') ? root : root + '/';
   return path.compare(root, sensitivity) == 0 ||
-         path.startsWith(root + '/', sensitivity);
+         path.startsWith(prefix, sensitivity);
 }
 
 QString packageDirectory(const Context& context) {
