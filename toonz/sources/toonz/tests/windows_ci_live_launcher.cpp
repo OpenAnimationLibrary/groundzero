@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cwchar>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -852,8 +853,21 @@ void deleteOwnedProfile(const QString& sid) {
     throw Failure("delete_created_profile", status);
 }
 
+void requireAccountAbsent(const QString& name) {
+  LPBYTE raw        = nullptr;
+  const auto status = NetUserGetInfo(nullptr, wide(name), 0, &raw);
+  const NetMemory information(raw, &::NetApiBufferFree);
+  if (status == NERR_UserNotFound) return;
+  if (status == NERR_Success)
+    throw Failure("cleanup_account_creation_uncertain", ERROR_INVALID_DATA);
+  throw Failure("cleanup_account_presence", status);
+}
+
 void deleteOwnedAccount(Account& account) {
-  if (!account.created) return;
+  if (!account.created) {
+    requireAccountAbsent(account.name);
+    return;
+  }
   require(!account.sid.isEmpty() && accountSid(account.name) == account.sid,
           "cleanup_account_identity_changed");
   if (account.profile) {
@@ -1532,8 +1546,40 @@ void fixtureFile(const QString& path, const QString& owner) {
   writeBytes(file.get(), "fixed cleanup fixture\n");
 }
 
+class ExistingPrivilege final {
+public:
+  explicit ExistingPrivilege(LPCWSTR name) : m_token(currentToken()) {
+    TOKEN_PRIVILEGES desired{};
+    desired.PrivilegeCount           = 1;
+    desired.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    checked(LookupPrivilegeValueW(nullptr, name, &desired.Privileges[0].Luid),
+            "fixture_privilege_lookup");
+    DWORD size = sizeof(m_previous);
+    SetLastError(ERROR_SUCCESS);
+    checked(AdjustTokenPrivileges(m_token.get(), FALSE, &desired, size,
+                                  &m_previous, &size),
+            "fixture_privilege_enable");
+    if (GetLastError() != ERROR_SUCCESS)
+      throw Failure("fixture_privilege_unavailable", GetLastError());
+  }
+  ~ExistingPrivilege() {
+    SetLastError(ERROR_SUCCESS);
+    if (!AdjustTokenPrivileges(m_token.get(), FALSE, &m_previous, 0, nullptr,
+                               nullptr) ||
+        GetLastError() != ERROR_SUCCESS)
+      std::terminate();
+  }
+  ExistingPrivilege(const ExistingPrivilege&)            = delete;
+  ExistingPrivilege& operator=(const ExistingPrivilege&) = delete;
+
+private:
+  Handle m_token;
+  TOKEN_PRIVILEGES m_previous{};
+};
+
 void fixtureJunction(const QString& path, const QString& target,
                      const QString& owner) {
+  const ExistingPrivilege symbolicLink(SE_CREATE_SYMBOLIC_LINK_NAME);
   fixtureDirectory(path, owner);
   const auto substitute = "\\??\\" + QDir::toNativeSeparators(target);
   const auto printable  = QDir::toNativeSeparators(target);
@@ -1576,6 +1622,20 @@ void fixtureJunction(const QString& path, const QString& target,
   require(handleOwner(file.get()) == owner, "cleanup_junction_owner");
 }
 
+void recoverAccount(QJsonObject& account);
+
+void expectFixtureFailure(const std::function<void()>& operation,
+                          const char* expected) {
+  try {
+    operation();
+  } catch (const Failure& error) {
+    require(QString::fromLatin1(error.what()) == expected,
+            "unexpected_cleanup_fixture_failure");
+    return;
+  }
+  throw Failure("cleanup_fixture_was_admitted", ERROR_INVALID_DATA);
+}
+
 class CleanupFixtures final {
 public:
   CleanupFixtures(const Configuration& config, const Account& owner,
@@ -1583,6 +1643,7 @@ public:
       : m_config(config), m_owner(owner), m_other(other), m_journal(journal) {}
 
   QJsonObject run() {
+    rejectAccountIntent();
     fixtureFile(temp() + "/private.json", m_owner.sid);
     erase();
     resetTemporary();
@@ -1598,7 +1659,9 @@ public:
             {"root_junction_rejected", true},
             {"nested_junction_target_preserved", true},
             {"journal_acl_rejected", true},
-            {"journal_run_rejected", true}};
+            {"journal_run_rejected", true},
+            {"unconfirmed_account_rejected", true},
+            {"unrecorded_account_sid_rejected", true}};
   }
 
 private:
@@ -1618,14 +1681,29 @@ private:
   }
 
   void rejected(const char* operation) {
-    try {
-      erase();
-    } catch (const Failure& error) {
-      require(QString::fromLatin1(error.what()) == operation,
-              "unexpected_cleanup_fixture_failure");
-      return;
-    }
-    throw Failure("cleanup_fixture_was_admitted", ERROR_INVALID_DATA);
+    expectFixtureFailure([this] { erase(); }, operation);
+  }
+
+  void rejectAccountIntent() {
+    auto pending = accountRecord(m_owner);
+    pending.insert("created", false);
+    pending.insert("sid", "");
+    pending.insert("profile_loaded", false);
+    expectFixtureFailure([&pending] { recoverAccount(pending); },
+                         "cleanup_account_creation_uncertain");
+    Account unknown("owner");
+    unknown.name = m_owner.name;
+    expectFixtureFailure([&unknown] { deleteOwnedAccount(unknown); },
+                         "cleanup_account_creation_uncertain");
+    unknown.created = true;
+    expectFixtureFailure([&unknown] { deleteOwnedAccount(unknown); },
+                         "cleanup_account_identity_changed");
+    require(accountSid(m_owner.name) == m_owner.sid,
+            "cleanup_intent_fixture_changed_account");
+    Account absent("owner");
+    auto absentRecord = accountRecord(absent);
+    recoverAccount(absentRecord);
+    deleteOwnedAccount(absent);
   }
 
   void deleteFixedLeaf(const QString& path, const QString& owner) {
@@ -1745,12 +1823,16 @@ void recoverAccount(QJsonObject& account) {
   exactKeys(account, {"role", "name", "sid", "created", "profile_loaded"});
   require(account.value("role") == "owner" || account.value("role") == "other",
           "cleanup_account_role");
-  if (account.value("created") != true) return;
   const auto name = required(account, "name");
-  const auto sid  = required(account, "sid");
-  require(QRegularExpression("^gzl[0-9a-f]{16}$").match(name).hasMatch() &&
-              sid.startsWith("S-1-5-21-"),
-          "cleanup_created_identity");
+  require(QRegularExpression("^gzl[0-9a-f]{16}$").match(name).hasMatch(),
+          "cleanup_created_name");
+  require(account.value("created").isBool(), "cleanup_created_state");
+  if (account.value("created") == false) {
+    requireAccountAbsent(name);
+    return;
+  }
+  const auto sid = required(account, "sid");
+  require(sid.startsWith("S-1-5-21-"), "cleanup_created_identity");
   try {
     require(accountSid(name) == sid, "cleanup_sid_changed");
   } catch (const Failure& error) {
