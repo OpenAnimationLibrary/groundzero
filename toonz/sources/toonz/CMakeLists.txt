@@ -292,6 +292,7 @@ set(SOURCES
     automation_assistance.cpp
     automation_macro.cpp
     automation_macro_validation.cpp
+    automation_macro_persistence.cpp
     automation_text.cpp
     automation_live.cpp
     automation_live_protocol.cpp

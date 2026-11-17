@@ -33,6 +33,7 @@ import mcp_receipt_cases
 import mcp_render_cases
 import mcp_renumber_cases
 import mcp_scene_cases
+import mcp_text_cases
 import mcp_vector_transform_cases
 import mcp_worker_cases
 from mcp_png import decode_png, fixture_pixel, write_fixture
@@ -133,6 +134,12 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_whole_curve_rejections_and_quantized_steps(self) -> None:
         mcp_curve_cases.whole_curve_rejections_and_quantized_steps(self)
+
+    def test_text_outline_round_trip_and_edit(self) -> None:
+        mcp_text_cases.text_outline_round_trip_and_edit(self)
+
+    def test_text_rejections_preserve_drawing(self) -> None:
+        mcp_text_cases.text_rejections_preserve_drawing(self)
 
     def test_passive_inspection_preserves_state(self) -> None:
         mcp_assistance_cases.passive_inspection_preserves_state(self)
