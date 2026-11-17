@@ -25,6 +25,7 @@ import mcp_media_cases
 import mcp_movie_cases
 import mcp_movie_eof
 import mcp_palette_cases
+import mcp_production_cases
 import mcp_receipt_cases
 import mcp_render_cases
 import mcp_renumber_cases
@@ -114,6 +115,15 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_compound_artwork_edits_preserve_native_roundtrip(self) -> None:
         mcp_artwork_cases.artwork_transform_renumber_palette_roundtrip(self)
+
+    def test_cast_paging_preserves_native_state(self) -> None:
+        mcp_production_cases.cast_paging_preserves_native_state(self)
+
+    def test_scene_usage_and_dependencies(self) -> None:
+        mcp_production_cases.scene_usage_and_dependencies(self)
+
+    def test_scene_cell_limit_suppresses_unused_claims(self) -> None:
+        mcp_production_cases.scene_cell_limit_suppresses_unused_claims(self)
 
     def test_vector_renumber_preserves_exposures_and_native_roundtrip(self) -> None:
         mcp_renumber_cases.check_renumber_roundtrip(self, "vector")

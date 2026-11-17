@@ -200,6 +200,7 @@ set(HEADERS
     automation.h
     automation_animation.h
     automation_dispatch.h
+    automation_production.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -284,6 +285,7 @@ set(SOURCES
     automation_render.cpp
     automation_media.cpp
     automation_persistence.cpp
+    automation_production.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp
@@ -1236,6 +1238,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_group_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_production_test.cpp)
     target_sources(OpenToonz PRIVATE
         tests/automation_animation_test.cpp tests/automation_animation_test.h)
     target_sources(OpenToonz PRIVATE tests/automation_dispatch_test.cpp)
