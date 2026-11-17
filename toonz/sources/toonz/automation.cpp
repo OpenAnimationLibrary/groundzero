@@ -281,8 +281,11 @@ void initializeNative(const QString& runtime, const char* executable,
 class InputThread final : public QThread {
 public:
   using Consumer = std::function<bool(const QByteArray&, bool)>;
-  InputThread(QApplication& application, Consumer consumer)
-      : m_application(application), m_consumer(std::move(consumer)) {}
+  using Stop = std::function<void()>;
+  InputThread(QApplication& application, Consumer consumer, Stop stop)
+      : m_application(application),
+        m_consumer(std::move(consumer)),
+        m_stop(std::move(stop)) {}
   int exitCode() const { return m_exitCode; }
 
 protected:
@@ -292,8 +295,7 @@ protected:
     while ((next = std::fgetc(stdin)) != EOF) {
       if (next == '\n') {
         if (!deliver(line, false)) {
-          QMetaObject::invokeMethod(&m_application, "quit",
-                                    Qt::QueuedConnection);
+          requestStop();
           return;
         }
         line.clear();
@@ -302,8 +304,7 @@ protected:
         if (line.size() > maximumLineBytes) {
           m_exitCode = 2;
           deliver({}, true);
-          QMetaObject::invokeMethod(&m_application, "quit",
-                                    Qt::QueuedConnection);
+          requestStop();
           return;
         }
       }
@@ -314,10 +315,14 @@ protected:
     } else if (!line.isEmpty()) {
       deliver(line, false);
     }
-    QMetaObject::invokeMethod(&m_application, "quit", Qt::QueuedConnection);
+    requestStop();
   }
 
 private:
+  void requestStop() {
+    QMetaObject::invokeMethod(&m_application, m_stop, Qt::QueuedConnection);
+  }
+
   bool deliver(const QByteArray& line, bool tooLarge) {
     bool keepReading = false;
     QMetaObject::invokeMethod(
@@ -331,6 +336,7 @@ private:
   }
   QApplication& m_application;
   Consumer m_consumer;
+  Stop m_stop;
   int m_exitCode = 0;
 };
 
@@ -420,10 +426,17 @@ int executeWorker(QApplication& application, QFile& output,
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
   Dispatcher dispatcher(context);
-  InputThread reader(application, [&dispatcher, &output](const QByteArray& line,
-                                                         bool tooLarge) {
-    return writeResponse(output, processLine(dispatcher, line, tooLarge));
-  });
+  InputThread reader(
+      application,
+      [&dispatcher, &output](const QByteArray& line, bool tooLarge) {
+        return writeResponse(output, processLine(dispatcher, line, tooLarge));
+      },
+      [&application, &context]() {
+        // A native writer can be inside a nested event loop. Set its abort
+        // token before quit unwinds that loop into a blocking writer join.
+        requestRenderCancellation(context);
+        application.quit();
+      });
   reader.start();
   const int result = application.exec();
   reader.wait();

@@ -19,6 +19,7 @@ import mcp_drawing_cases
 import mcp_fx_cases
 import mcp_media_cases
 import mcp_movie_cases
+import mcp_movie_eof
 import mcp_render_cases
 import mcp_scene_cases
 import mcp_worker_cases
@@ -84,6 +85,9 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_movie_writer_failure_publishes_no_artifact(self) -> None:
         mcp_movie_cases.movie_writer_failure_publishes_no_artifact(self)
+
+    def test_movie_eof_interrupts_encoder_finalization(self) -> None:
+        mcp_movie_eof.movie_eof_interrupts_encoder_finalization(self)
 
     def test_parenting_preserves_local_keys_and_changes_rendered_placement(self) -> None:
         mcp_scene_cases.parenting_preserves_local_keys_and_changes_rendered_placement(self)

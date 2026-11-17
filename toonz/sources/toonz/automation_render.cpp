@@ -886,9 +886,15 @@ QJsonValue executeRender(Context& context, const QString& method,
   return RenderDetail::executeJob(context, method, params);
 }
 
-void shutdownRender(Context& context) {
+void requestRenderCancellation(Context& context) {
+  Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
   if (!context.renderState) return;
   for (const auto& entry : context.renderState->jobs) entry.second->cancel();
+}
+
+void shutdownRender(Context& context) {
+  requestRenderCancellation(context);
+  if (!context.renderState) return;
   if (context.renderState->idle()) return;
   QEventLoop drain;
   QTimer poll;

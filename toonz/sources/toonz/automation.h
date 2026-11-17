@@ -106,6 +106,8 @@ QJsonValue executeRender(Context& context, const QString& method,
                          const QJsonObject& params);
 QJsonValue executePersistence(Context& context, const QString& method,
                               const QJsonObject& params);
+// Request cancellation on the application thread without waiting for callbacks.
+void requestRenderCancellation(Context& context);
 void shutdownRender(Context& context);
 std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
                                                  Document& document,
