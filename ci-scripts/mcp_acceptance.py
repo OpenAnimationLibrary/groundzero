@@ -100,6 +100,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_fx_presets_preserve_keys_and_target_graph(self) -> None:
         mcp_fx_authoring_cases.fx_presets_preserve_keys_and_target_graph(self)
 
+    def test_fx_presets_cover_each_admitted_native_type(self) -> None:
+        mcp_fx_authoring_cases.fx_presets_cover_each_admitted_native_type(self)
+
     def test_fx_authoring_rejections_preserve_document(self) -> None:
         mcp_fx_authoring_cases.fx_authoring_rejections_preserve_document(self)
 
