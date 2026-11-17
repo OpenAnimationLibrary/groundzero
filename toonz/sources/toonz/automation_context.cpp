@@ -29,6 +29,13 @@ bool beneath(const QString& path, const QString& root) {
   return path == root || path.startsWith(prefix);
 }
 
+bool allowedPath(const QString& absolute, const QString& canonical,
+                 const QStringList& roots) {
+  for (const QString& root : roots)
+    if (beneath(absolute, root) && beneath(canonical, root)) return true;
+  return false;
+}
+
 QString canonicalDirectory(const QString& path) {
   const QFileInfo info(path);
   if (!info.isAbsolute() || !info.isDir() || info.isSymLink())
@@ -247,14 +254,12 @@ QString Context::resolvePath(const QString& path, bool write) const {
   const QString normalized = normalizedWorkerPath(path);
   const QString absolute =
       QDir::cleanPath(QDir(m_workspace).absoluteFilePath(normalized));
+  QStringList roots{m_workspace};
+  if (!write) roots.append(m_inputRoots);
+  if (!allowedPath(absolute, absolute, roots))
+    throw Error("path_denied", "The path is outside the allowed roots.");
   const QString canonical = canonicalAncestor(absolute);
-  bool allowed =
-      beneath(absolute, m_workspace) && beneath(canonical, m_workspace);
-  if (!write)
-    for (const QString& root : m_inputRoots)
-      allowed =
-          allowed || (beneath(absolute, root) && beneath(canonical, root));
-  if (!allowed)
+  if (!allowedPath(absolute, canonical, roots))
     throw Error("path_denied", "The path is outside the allowed roots.");
   return absolute;
 }

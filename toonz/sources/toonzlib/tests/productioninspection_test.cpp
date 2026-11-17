@@ -20,6 +20,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <set>
@@ -29,6 +30,16 @@
 DV_IMPORT_API void initStdFx();
 
 namespace {
+
+struct RestoreDirectory final {
+  QString previous = QDir::currentPath();
+  ~RestoreDirectory() {
+    if (!QDir::setCurrent(previous)) {
+      std::cerr << "FAIL: cannot restore fixture working directory\n";
+      std::abort();
+    }
+  }
+};
 
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
@@ -304,6 +315,7 @@ int main(int argc, char* argv[]) {
   QCoreApplication app(argc, argv);
   try {
     QTemporaryDir directory;
+    RestoreDirectory restore;
     require(directory.isValid(),
             "cannot create private inspection fixture root");
     require(QDir().mkpath(directory.filePath("portablestuff")) &&
