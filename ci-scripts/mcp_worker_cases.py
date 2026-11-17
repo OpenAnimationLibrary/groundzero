@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 
 from mcp_png import decode_png, write_fixture
@@ -114,3 +116,92 @@ def unicode_names_preserve_data_and_reject_unpaired_surrogates(test: NativeAccep
         test.revisions[document] = created["revision"]
         test.assertEqual(created["name"], "Recovered")
         before = test.success("scene.summary", {"document_id": document})
+
+
+def _reject_relative_roots(test: NativeAcceptance, launch: Path, before: set[Path]) -> None:
+    """Preserve the worker CLI requirement for absolute roots."""
+    for workspace, inputs in (
+        ("../workspace", str(test.inputs)),
+        (str(test.workspace), "../inputs"),
+    ):
+        rejected = subprocess.run(
+            [
+                str(test.executable),
+                "--automation-worker",
+                "--workspace",
+                workspace,
+                "--input-root",
+                inputs,
+            ],
+            cwd=launch,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        test.assertEqual(rejected.returncode, 2)
+        test.assertEqual(rejected.stdout, "")
+        test.assertIn("invalid_argument", rejected.stderr)
+        test.assertEqual(set(test.workspace.glob("runtime_*")), before)
+
+
+def private_bootstrap_ignores_launch_configuration(test: NativeAcceptance) -> None:
+    """Keep native startup inside its runtime despite arbitrary launch directories.
+
+    Args:
+        test: A fresh real-worker acceptance fixture.
+    """
+    expected = test.success("automation.capabilities", {})
+    for mode in ("plain", "misleading-config", "relative-executable"):
+        launch = test.directory / mode
+        launch.mkdir()
+        synthetic_root = launch / "unused-system-root"
+        if mode == "misleading-config":
+            for app in (".app", "OpenToonz.app"):
+                config = launch / app / "Contents" / "Resources" / "SystemVar.ini"
+                config.parent.mkdir(parents=True)
+                config.write_text(
+                    f"TOONZROOT={synthetic_root}\nTOONZPROFILES={synthetic_root}/profiles\n"
+                )
+        executable = str(test.executable)
+        if mode == "relative-executable":
+            executable = os.path.relpath(test.executable, launch)
+        requests = [
+            {"id": "capabilities", "method": "automation.capabilities", "params": {}},
+            {
+                "id": "create",
+                "method": "scene.create",
+                "params": {"name": "Private bootstrap", "operation_id": "bootstrap-create"},
+            },
+        ]
+        result = subprocess.run(
+            [
+                executable,
+                "--automation-worker",
+                "--workspace",
+                str(test.workspace),
+                "--input-root",
+                str(test.inputs),
+            ],
+            input="".join(json.dumps(request) + "\n" for request in requests),
+            cwd=launch,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        (launch / "stdout.ndjson").write_text(result.stdout)
+        (launch / "stderr.log").write_text(result.stderr)
+        test.assertEqual(result.returncode, 0, result.stderr)
+        test.assertEqual(result.stderr, "", mode)
+        responses = [json.loads(line) for line in result.stdout.splitlines()]
+        test.assertEqual(len(responses), 2)
+        test.assertEqual(responses[0]["result"]["workspace"], str(test.workspace))
+        test.assertEqual(responses[0]["result"]["tools"], expected["tools"])
+        test.assertEqual(responses[1]["result"]["name"], "Private bootstrap")
+        test.assertFalse(synthetic_root.exists())
+    runtimes = list(test.workspace.glob("runtime_*"))
+    test.assertGreaterEqual(len(runtimes), 3)
+    for runtime in runtimes:
+        test.assertTrue((runtime / "portablestuff").is_dir())
+    _reject_relative_roots(test, launch, set(runtimes))

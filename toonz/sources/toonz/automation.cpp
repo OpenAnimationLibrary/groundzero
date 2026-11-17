@@ -234,7 +234,8 @@ QString createRuntimeDirectory(const QString& workspace) {
   if (!QDir().mkpath(path))
     throw Error("io_error",
                 "Could not create the private worker runtime directory.");
-  for (const QString& name : {QString("settings"), QString("cache/ffmpeg")})
+  for (const QString& name : {QString("settings"), QString("cache/ffmpeg"),
+                              QString("portablestuff")})
     if (!QDir(path).mkpath(name))
       throw Error("io_error", "Could not initialize private worker storage.");
   return path;
@@ -470,6 +471,8 @@ int runWorker(int argc, char* argv[]) {
                      QFileDevice::AutoCloseHandle))
       throw Error("io_error", "Could not open the worker protocol stream.");
     const QString runtime = createRuntimeDirectory(options.workspace);
+    if (!QDir::setCurrent(runtime))
+      throw Error("io_error", "Could not enter the private worker runtime directory.");
     int applicationArgc   = 1;
 #ifdef _WIN32
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
@@ -481,7 +484,8 @@ int runWorker(int argc, char* argv[]) {
     application.setQuitOnLastWindowClosed(false);
     QCoreApplication::setOrganizationName("GroundzeroAutomation");
     QCoreApplication::setApplicationName("GroundzeroAutomationWorker");
-    initializeNative(runtime, argv[0], options);
+    const QByteArray executable = QFile::encodeName(QCoreApplication::applicationFilePath());
+    initializeNative(runtime, executable.constData(), options);
     return executeWorker(application, output, options);
   } catch (const Error& error) {
     std::cerr << "automation-worker: " << error.code.toStdString() << ": "
