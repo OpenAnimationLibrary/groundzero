@@ -4,9 +4,13 @@
 
 class QMainWindow;
 
-// Runs only in the prepared disposable native UI process. Completion is
-// asynchronous so the production bridge serves the outer application loop.
+/// Start the fixed disposable GUI/SDK journey on the outer application loop.
+/// Args:
+///   window: The native editor window that owns the fixture and production LiveUi.
+///   completed: Reports a journey that finishes before application shutdown.
 void startMcpLiveIntegrationTest(QMainWindow* window, std::function<void(int)> completed);
 
-// Reaps the fixed SDK child after QApplication exits; never services GUI events.
+/// Reap the fixed SDK child after QApplication exits without servicing GUI events.
+/// Returns:
+///   Zero only when the SDK child and independent native observations both pass.
 int finishMcpLiveIntegrationTest();
