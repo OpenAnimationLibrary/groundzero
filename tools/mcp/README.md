@@ -53,6 +53,15 @@ argument naming a canonical directory containing regular executable `ffmpeg` and
 fixed for the session and does not add an input root. Without it, media helpers
 are disabled; the worker does not discover them through `PATH`.
 
+Shared studio palettes and the Library are reachable only through explicit
+`--shared-root ROLE=DIR` arguments, at most one per role: `studio_palettes`,
+`project_palettes` or `library`. Each directory must be canonical, must not be a
+symlink, and must not overlap the workspace or another shared root; input roots
+may overlap. Shared roots are read-only. `--shared-write ROLE` records a write
+grant for a configured role; the current tools only read. The worker never uses
+the editor's own STUDIOPALETTE or LIBRARY folders. Without a grant, the tools
+stay listed and return `root_unavailable`.
+
 Native tools are grouped into toolsets, so a session only carries the tool
 definitions it needs. The `core` toolset is always enabled. Add others at launch
 with `--toolsets audio,rigging`, or use `--toolsets all`. Unknown names stop the
@@ -223,6 +232,38 @@ native representations, not bitwise copies of in-memory drawings. Saved raster
 levels use explicit custom DPI to preserve authored physical size, including
 fractional DPI that PNG metadata alone cannot represent exactly.
 
+The `shared-library` toolset reads granted shared roots and never writes to them.
+`shared.roots` reports each role's grant, availability and native layout.
+`studio_palette.list` pages one folder (at most 8192 entries, 256 per page):
+subfolders, then `.tpl` palettes with the palette id read from the first 64 KiB.
+`studio_palette.inspect` reports a palette's id, `sha256:` file revision,
+lock and read-only state, pages and up to 128 styles per page with their link
+state (`source`, `on`, `off` or `malformed`). `studio_palette.find` scans the
+palette roots for an id within 20,000 entries, depth 16, 8192 files, 256 MiB and
+30 seconds; a scan that hits a bound or skips a symlink reports `partial`, and
+duplicate ids are listed rather than resolved. `library.list` and
+`library.inspect` report each template or pose set's sidecar identity:
+`not_recorded` when there is none, never an invented id; `malformed`,
+`kind_mismatch` and `duplicate_id` otherwise. `library.inspect` lists every
+dependency file with its location (`item_folder`, `library`, `outside_library`
+or `unresolved`) and digest, plus a `dependency_digest`; files outside the
+Library are never read. `library.thumbnail` returns a template icon or one pose
+thumbnail re-encoded as PNG of at most 512 pixels. Listings carry a
+`listing:` revision; folders that change while listed return
+`revision_conflict` with `details.scope: "listing"`. Names and paths are
+root-relative with forward slashes, NFC, and segments of 1–120 characters;
+hidden entries, symlinks and junctions are skipped and counted, never followed.
+
+Every studio palette, template and pose-set file is hashed, copied privately and
+parsed by a short-lived helper process of the same executable, never in the
+worker. Palettes are limited to 4 MiB, 4096 styles and 128 pages; templates to
+16 MiB and 256 levels; pose sets to 4 MiB and 1024 poses. A helper that crashes,
+runs past 10 seconds or exceeds 1 GiB of memory is stopped; the call returns
+`unsupported_palette` or `invalid_library_item` with `details.cause` set to
+`crashed`, `timeout` or `memory`, and the worker and its documents remain
+available. A file the native parser rejects returns the same code with
+`details.cause: "rejected"`. Each parse adds about half a second.
+
 `scene.open` accepts unchanged packages produced by the same running worker.
 The worker retains the authoritative manifest privately; editing a public
 manifest cannot authorize a changed scene. Arbitrary native scenes and packages
@@ -341,7 +382,8 @@ node /opt/groundzero-mcp/dist/cli.js \
 
 The adapter starts a non-GUI connector to the selected editor. Native code checks
 the session-file security and operating-system peer identity before authenticating.
-Live attachment excludes `--workspace`, `--input-root`, and `--media-tools`.
+Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
+`--shared-root`, and `--shared-write`.
 
 Both permission modes advertise exactly `live.status`, `live.inspect`,
 `live.stage.set_key_value`, `live.fx.set_scalar_value`, `live.receipt`, and
