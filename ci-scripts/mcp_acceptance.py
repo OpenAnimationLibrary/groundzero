@@ -17,10 +17,13 @@ from typing import Any
 
 import mcp_animation_cases
 import mcp_artwork_cases
+import mcp_assistance_cases
+import mcp_curve_cases
 import mcp_drawing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
+import mcp_macro_cases
 import mcp_media_cases
 import mcp_movie_cases
 import mcp_movie_eof
@@ -112,6 +115,27 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_fx_preset_capacity_keeps_exact_replay(self) -> None:
         mcp_fx_authoring_cases.fx_preset_capacity_keeps_exact_replay(self)
+
+    def test_macro_roundtrip_preserves_pixels_and_mapping(self) -> None:
+        mcp_macro_cases.macro_roundtrip_preserves_pixels_and_mapping(self)
+
+    def test_macro_retries_retire_handles_without_reapplying(self) -> None:
+        mcp_macro_cases.macro_retries_retire_handles_without_reapplying(self)
+
+    def test_macro_preflight_and_boundary_edits_preserve_scene(self) -> None:
+        mcp_macro_cases.macro_preflight_and_boundary_edits_preserve_scene(self)
+
+    def test_whole_curve_copy_preserves_independence_and_receipts(self) -> None:
+        mcp_curve_cases.whole_curve_copy_preserves_independence_and_receipts(self)
+
+    def test_whole_curve_retime_preserves_samples_rendering_and_reopen(self) -> None:
+        mcp_curve_cases.whole_curve_retime_preserves_samples_rendering_and_reopen(self)
+
+    def test_whole_curve_rejections_and_quantized_steps(self) -> None:
+        mcp_curve_cases.whole_curve_rejections_and_quantized_steps(self)
+
+    def test_passive_inspection_preserves_state(self) -> None:
+        mcp_assistance_cases.passive_inspection_preserves_state(self)
 
     def test_compound_artwork_edits_preserve_native_roundtrip(self) -> None:
         mcp_artwork_cases.artwork_transform_renumber_palette_roundtrip(self)

@@ -35,6 +35,9 @@
 
 #ifdef BUILD_UI_PORT_TESTS
 #include "automation_production.h"
+#include "automation_assistance.h"
+#include "automation_macro.h"
+#include "automation_text.h"
 #include "tests/automation_animation_test.h"
 #endif
 
@@ -389,6 +392,9 @@ int domainTestResult(Context& context) {
     runAutomationGroupTests(context);
     runAutomationAnimationTests();
     runAutomationProductionTests(context);
+    runAutomationAssistanceTests();
+    runAutomationMacroTests(context);
+    runAutomationTextTests(context);
     runAutomationMediaProcessTests(context);
     return 0;
   } catch (const Error& error) {
