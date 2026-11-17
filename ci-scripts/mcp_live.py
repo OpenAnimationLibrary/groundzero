@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import traceback
 from pathlib import Path
 from typing import Any
@@ -135,6 +136,26 @@ def validate_phases(native: dict[str, Any]) -> None:
         raise AssertionError("Native Stop was not observed inside a committing history callback")
 
 
+def confirm_process_group_exit(state: dict[str, Any]) -> None:
+    """Verify POSIX descendants exited after the already reaped native parent.
+
+    Args:
+        state: The captured runner's original process identity and cleanup witness.
+    """
+    if os.name == "nt":
+        return
+    state["safe_to_release"] = False
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(state["pid"], 0)
+        except ProcessLookupError:
+            state["safe_to_release"] = True
+            return
+        time.sleep(0.05)
+    raise AssertionError("The native parent exited but its original process group remains")
+
+
 def qualify(arguments: argparse.Namespace, report: dict[str, Any], session: Path) -> None:
     """Run the fixed asynchronous native suite and retain evidence after cleanup.
 
@@ -161,10 +182,14 @@ def qualify(arguments: argparse.Namespace, report: dict[str, Any], session: Path
             report["native_exit_code"] = result.returncode
             if result.returncode != 0:
                 raise AssertionError("Live GUI qualification failed; inspect native-output.txt")
+            confirm_process_group_exit(state)
             validate_evidence(fixture, report)
         finally:
             (arguments.output / "native-output.txt").write_bytes(state.get("output", b""))
             report["process_tree_stopped"] = state["safe_to_release"]
+            report["native_process_id"] = state.get("pid")
+            report["started_at"] = state.get("started_at")
+            report["finished_at"] = state.get("finished_at")
             if state["safe_to_release"]:
                 shutil.copytree(fixture, arguments.output / "evidence")
     report["status"] = "passed"
