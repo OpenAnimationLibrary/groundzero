@@ -101,6 +101,7 @@ def scene_cell_limit_suppresses_unused_claims(case: NativeAcceptance) -> None:
             drawing_id={"number": 1, "suffix": ""},
             start_frame=start,
             length=min(10000, 100001 - start),
+            overwrite=True,
         )
     report = _read(case, document, "cast.usage")
     case.assertIs(report["traversal_complete"], False)

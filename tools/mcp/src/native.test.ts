@@ -442,7 +442,19 @@ async function checkProductionReads(client: Client, state: Record<string, unknow
     expect(stale.structuredContent).toMatchObject({ error: { code: "stale_revision" } });
     const invalid = await client.callTool({ name, arguments: { document_id: args.document_id } });
     expect(invalid.isError).toBe(true);
-    expect(invalid.structuredContent).toMatchObject({ error: { code: "invalid_params" } });
+    expect(invalid.structuredContent).toMatchObject({ error: { code: "INVALID_ARGUMENTS" } });
+    const unicode = await client.callTool({
+      name,
+      arguments: { ...args, expected_revision: "🚀".repeat(128) },
+    });
+    expect(unicode.isError).toBe(true);
+    expect(unicode.structuredContent).toMatchObject({ error: { code: "stale_revision" } });
+    const tooLong = await client.callTool({
+      name,
+      arguments: { ...args, expected_revision: "🚀".repeat(129) },
+    });
+    expect(tooLong.isError).toBe(true);
+    expect(tooLong.structuredContent).toMatchObject({ error: { code: "INVALID_ARGUMENTS" } });
   }
   expect(await call(client, "scene.summary", { document_id: args.document_id })).toEqual(before);
 }
