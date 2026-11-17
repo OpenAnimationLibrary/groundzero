@@ -175,6 +175,17 @@ jobs:
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           ninja -j "$(sysctl -n hw.ncpu)" 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      - name: Test native MCP path authority before deployment
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          evidence="$GITHUB_WORKSPACE/toonz/build/mcp-acceptance"
+          mkdir -p "$evidence"
+          ctest --test-dir toonz/build --output-on-failure --no-tests=error \
+            --output-junit "$evidence/path-authority.xml" -R '^mcp_path_authority$' \
+            2>&1 | tee "$evidence/path-authority.txt"
+
       - name: Preserve compiled objects
         if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

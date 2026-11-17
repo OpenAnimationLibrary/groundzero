@@ -198,6 +198,17 @@ jobs:
           errors.txt
         if-no-files-found: ignore
 
+    - name: Test native MCP path authority
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      timeout-minutes: 2
+      run: |
+        set -euo pipefail
+        evidence="$GITHUB_WORKSPACE/toonz/build/mcp-acceptance"
+        mkdir -p "$evidence"
+        ctest --test-dir toonz/build --output-on-failure --no-tests=error \
+          --output-junit "$evidence/path-authority.xml" -R '^mcp_path_authority$' \
+          2>&1 | tee "$evidence/path-authority.txt"
+
     - name: Prepare native Neural Style component
       run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
 

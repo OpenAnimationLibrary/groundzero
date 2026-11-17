@@ -348,12 +348,25 @@ jobs:
 
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
+        id: native_build
         run: |
           @echo on
           cd toonz\build || exit /b 1
           msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;verbosity=minimal" ALL_BUILD.vcxproj
         # Preserve cmd logging and exit handling; fixed paths and environment only.
         shell: cmd # zizmor: ignore[misfeature]
+
+      - name: Test native MCP path authority
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE "toonz/build/mcp-acceptance"
+          New-Item -ItemType Directory -Force -ErrorAction Stop -Path $evidence | Out-Null
+          ctest --test-dir toonz/build -C RelWithDebInfo --output-on-failure --no-tests=error `
+            --output-junit "$evidence/path-authority.xml" -R '^mcp_path_authority$' `
+            2>&1 | Tee-Object -FilePath "$evidence/path-authority.txt"
+          exit $LASTEXITCODE
 
       - name: Verify benchmark harness contracts
         if: ${{ !inputs.baseline_only }}
