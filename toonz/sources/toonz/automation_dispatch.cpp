@@ -333,7 +333,7 @@ QJsonObject Dispatcher::replayReceipt(const Receipt& receipt,
 QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
                                      const QJsonObject& params) {
   const QString operationId = requiredString(params, "operation_id");
-  if (operationId.size() > 128)
+  if (unicodeLength(operationId, "params.operation_id") > 128)
     throw Error("invalid_params",
                 "operation_id must contain at most 128 characters.");
   const QByteArray fingerprint = QCryptographicHash::hash(

@@ -64,6 +64,27 @@ void unicodeBoundaries(Dispatcher& dispatcher) {
     rejected(dispatcher, "fixture.unicode", {{"value", value}}, "invalid_params");
 }
 
+void unicodeOperationIds(Context& context, Dispatcher& dispatcher) {
+  const QString rocket = QString::fromUtf8("\xf0\x9f\x9a\x80");
+  const QString operationId = rocket.repeated(128);
+  QJsonObject params{{"operation_id", operationId}, {"name", "Unicode receipt"},
+                     {"width_px", 32}, {"height_px", 32}, {"frame_rate", 24}};
+  const int before = context.documents().size();
+  const auto created = result(dispatcher, "scene.create", params);
+  require(created.value("operation_id") == operationId &&
+              context.documents().size() == before + 1,
+          "128 supplementary operation ID characters did not create exactly one scene");
+  require(result(dispatcher, "scene.create", params) == created &&
+              context.documents().size() == before + 1,
+          "Unicode operation ID replay created a duplicate scene");
+  params.insert("name", "Conflicting Unicode receipt");
+  rejected(dispatcher, "scene.create", params, "operation_conflict");
+  params.insert("operation_id", operationId + rocket);
+  rejected(dispatcher, "scene.create", params, "invalid_params");
+  require(context.documents().size() == before + 1,
+          "Rejected Unicode operation IDs changed the document inventory");
+}
+
 QJsonValue largeResult(Context&, const QString&, const QJsonObject&) {
   return QJsonObject{{"payload", QString(7 * 1024 * 1024, QChar('x'))}};
 }
@@ -254,6 +275,7 @@ void runAutomationDispatcherTests(Context& context) {
     Dispatcher dispatcher(context);
     dispatcher.add(unicodeOperations(), echoString);
     unicodeBoundaries(dispatcher);
+    unicodeOperationIds(context, dispatcher);
   }
   QString jobId;
   {

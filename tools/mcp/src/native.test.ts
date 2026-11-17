@@ -501,3 +501,56 @@ test("keeps production reads revision-bound through actual MCP stdio", async () 
     }
   }
 }, 30_000);
+
+test("preserves Unicode operation ID boundaries and retry receipts", async () => {
+  const executable = process.env["GROUNDZERO_EXECUTABLE"];
+  if (!executable) throw new Error("test:native requires GROUNDZERO_EXECUTABLE");
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-mcp-unicode-id-")));
+  const client = new Client({ name: "unicode-operation-test", version: "1.0.0" });
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+          "--executable",
+          executable,
+          "--workspace",
+          workspace,
+        ],
+        env: environment(),
+        stderr: "inherit",
+      }),
+    );
+    const args = {
+      operation_id: "🚀".repeat(128),
+      name: "Unicode receipt",
+      width_px: 32,
+      height_px: 32,
+      frame_rate: 24,
+    };
+    const created = await call(client, "scene.create", args);
+    expect(created["operation_id"]).toBe(args.operation_id);
+    expect(await call(client, "scene.create", args)).toEqual(created);
+    const before = await call(client, "scene.summary", { document_id: created["document_id"] });
+    for (const [arguments_, code] of [
+      [{ ...args, name: "Conflict" }, "operation_conflict"],
+      [{ ...args, operation_id: "🚀".repeat(129) }, "INVALID_ARGUMENTS"],
+    ] as const) {
+      const rejected = await client.callTool({ name: "scene.create", arguments: arguments_ });
+      expect(rejected.isError).toBe(true);
+      expect(rejected.structuredContent).toMatchObject({ error: { code } });
+    }
+    expect(
+      await call(client, "scene.summary", {
+        document_id: created["document_id"],
+      }),
+    ).toEqual(before);
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }
+}, 30_000);
