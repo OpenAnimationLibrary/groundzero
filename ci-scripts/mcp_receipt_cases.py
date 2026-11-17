@@ -114,7 +114,9 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
         case.assertEqual(result["status"], "completed", result)
         case.assertIs(result["writers_closed"], True)
         case.assertEqual(case.success("render.status", {"job_id": job_id}), retained["status"])
-        case.assertEqual(case.success("render.artifacts", {"job_id": job_id}), retained["artifacts"])
+        case.assertEqual(
+            case.success("render.artifacts", {"job_id": job_id}), retained["artifacts"]
+        )
     exhausted = case.write_params(None, {"job_id": "unknown-job-after-reserve-full"})
     case.assertEqual(case.failure("render.cancel", exhausted)["code"], "resource_limit")
     fresh = case.write_params(document, {"width_px": 64})
