@@ -1,6 +1,7 @@
 #include "typetooltext.h"
 
 #include <QGuiApplication>
+#include <QFontDatabase>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QJsonArray>
@@ -21,12 +22,23 @@ void require(bool condition, const char *message) {
   }
 }
 
+TypeToolFontSettings installedTestFont() {
+  const QFontDatabase database;
+  for (const auto& family : {"DejaVu Sans", "Arial", "Liberation Sans"}) {
+    if (!database.families().contains(family)) continue;
+    const auto styles = database.styles(family);
+    for (const auto& style : {"Book", "Regular"})
+      if (styles.contains(style)) return {family, style, "24"};
+  }
+  require(false, "Type Tool text tests require DejaVu Sans, Arial or Liberation Sans");
+  return {};
+}
+
 TypeToolTextEntry markdown(const QString &source) {
   TypeToolTextEntry entry;
   entry.source = source;
   entry.format = TypeToolTextFormat::Markdown;
-  entry.font   = {QStringLiteral("DejaVu Sans"), QStringLiteral("Book"),
-                  QStringLiteral("24")};
+  entry.font   = installedTestFont();
   return entry;
 }
 }  // namespace
