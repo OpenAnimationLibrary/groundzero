@@ -133,6 +133,8 @@ function launchArguments() {
       workspace: { type: "string" },
       "input-root": { type: "string", multiple: true },
       "media-tools": { type: "string" },
+      "shared-root": { type: "string", multiple: true },
+      "shared-write": { type: "string", multiple: true },
     },
     strict: true,
     allowPositionals: false,
@@ -150,8 +152,15 @@ function launchArguments() {
     "--toolsets",
     "all",
   ];
+  return [...args, ...grantArguments(values)];
+}
+
+function grantArguments(values) {
+  const args = [];
   for (const root of values["input-root"] ?? []) args.push("--input-root", root);
   if (values["media-tools"] !== undefined) args.push("--media-tools", values["media-tools"]);
+  for (const root of values["shared-root"] ?? []) args.push("--shared-root", root);
+  for (const role of values["shared-write"] ?? []) args.push("--shared-write", role);
   return args;
 }
 

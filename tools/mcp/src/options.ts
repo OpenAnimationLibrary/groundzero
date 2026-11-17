@@ -1,14 +1,23 @@
 import { constants } from "node:fs";
 import { access, lstat, realpath } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
+
+export interface SharedRoot {
+  role: string;
+  path: string;
+  writable: boolean;
+}
 
 export interface WorkerOptions {
   executable: string;
   workspace: string;
   inputRoots: string[];
   mediaToolsDirectory?: string;
+  sharedRoots?: SharedRoot[];
 }
+
+const SHARED_ROLES = new Set(["studio_palettes", "project_palettes", "library"]);
 
 export interface DetachedOptions extends WorkerOptions {
   toolsets: string[];
@@ -56,6 +65,8 @@ function launchArguments(args: string[]) {
       workspace: { type: "string" },
       "input-root": { type: "string", multiple: true },
       "media-tools": { type: "string" },
+      "shared-root": { type: "string", multiple: true },
+      "shared-write": { type: "string", multiple: true },
       "live-session": { type: "string" },
       toolsets: { type: "string" },
     },
@@ -82,15 +93,20 @@ function launchArguments(args: string[]) {
 
 type LaunchArguments = ReturnType<typeof launchArguments>;
 
+const DETACHED_ONLY = [
+  "workspace",
+  "input-root",
+  "media-tools",
+  "shared-root",
+  "shared-write",
+  "toolsets",
+] as const;
+
 function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
-  if (
-    values.workspace !== undefined ||
-    values["input-root"] !== undefined ||
-    values["media-tools"] !== undefined ||
-    values.toolsets !== undefined
-  ) {
+  if (DETACHED_ONLY.some((name) => values[name] !== undefined)) {
     throw new Error(
-      "--live-session cannot be combined with workspace, input-root, media-tools, or toolsets",
+      "--live-session cannot be combined with workspace, input-root, media-tools, " +
+        "shared-root, shared-write, or toolsets",
     );
   }
   const liveSession = values["live-session"];
@@ -113,6 +129,48 @@ function toolsetNames(value: string | undefined): string[] {
   return names;
 }
 
+function overlapping(first: string, second: string): boolean {
+  const within = (path: string, root: string) =>
+    path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+  return within(first, second) || within(second, first);
+}
+
+async function sharedRootGrants(values: LaunchArguments): Promise<Map<string, string>> {
+  const roots = new Map<string, string>();
+  for (const grant of values["shared-root"] ?? []) {
+    const separator = grant.indexOf("=");
+    const role = grant.slice(0, Math.max(separator, 0));
+    if (!SHARED_ROLES.has(role)) {
+      throw new Error(
+        "--shared-root requires ROLE=ABSOLUTE_DIR with ROLE studio_palettes, " +
+          "project_palettes or library",
+      );
+    }
+    if (roots.has(role)) throw new Error(`Specify --shared-root ${role} at most once`);
+    roots.set(role, await directory(grant.slice(separator + 1)));
+  }
+  return roots;
+}
+
+async function sharedRoots(
+  values: LaunchArguments,
+  workspace: string,
+): Promise<SharedRoot[] | undefined> {
+  const roots = await sharedRootGrants(values);
+  const writes = values["shared-write"] ?? [];
+  if (new Set(writes).size !== writes.length || writes.some((role) => !roots.has(role))) {
+    throw new Error("--shared-write must name a configured --shared-root role at most once");
+  }
+  const paths = [workspace, ...roots.values()];
+  for (const [index, path] of paths.entries()) {
+    if (paths.slice(index + 1).some((other) => overlapping(path, other))) {
+      throw new Error("Shared roots must not overlap the workspace or one another");
+    }
+  }
+  if (roots.size === 0) return undefined;
+  return [...roots].map(([role, path]) => ({ role, path, writable: writes.includes(role) }));
+}
+
 async function detachedOptions(
   executable: string,
   values: LaunchArguments,
@@ -129,6 +187,8 @@ async function detachedOptions(
   if (values["media-tools"] !== undefined) {
     options.mediaToolsDirectory = await mediaDirectory(values["media-tools"]);
   }
+  const shared = await sharedRoots(values, workspace);
+  if (shared !== undefined) options.sharedRoots = shared;
   return options;
 }
 

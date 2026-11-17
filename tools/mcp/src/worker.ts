@@ -174,6 +174,26 @@ function requirePipes(child: ChildProcess): asserts child is ChildProcessWithout
   }
 }
 
+/** Return the native worker arguments that fix every filesystem grant at launch.
+ *
+ * Args:
+ *   options: Validated canonical workspace, input, media and shared-root grants.
+ * Returns:
+ *   Arguments after the executable, read-only shared roots unless granted for writing.
+ */
+export function workerArguments(options: WorkerOptions): string[] {
+  const args = ["--automation-worker", "--workspace", options.workspace];
+  for (const root of options.inputRoots) args.push("--input-root", root);
+  if (options.mediaToolsDirectory) args.push("--media-tools", options.mediaToolsDirectory);
+  for (const root of options.sharedRoots ?? []) {
+    args.push("--shared-root", `${root.role}=${root.path}`);
+  }
+  for (const root of options.sharedRoots ?? []) {
+    if (root.writable) args.push("--shared-write", root.role);
+  }
+  return args;
+}
+
 /** Spawn the configured executable with filesystem grants fixed in its arguments.
  *
  * Args:
@@ -182,9 +202,7 @@ function requirePipes(child: ChildProcess): asserts child is ChildProcessWithout
  *   A private connection owned by the caller until close.
  */
 export function launchWorker(options: WorkerOptions): WorkerConnection {
-  const args = ["--automation-worker", "--workspace", options.workspace];
-  for (const root of options.inputRoots) args.push("--input-root", root);
-  if (options.mediaToolsDirectory) args.push("--media-tools", options.mediaToolsDirectory);
+  const args = workerArguments(options);
   const supervised = process.platform !== "win32";
   const command = supervised ? process.execPath : options.executable;
   const launchArgs = supervised

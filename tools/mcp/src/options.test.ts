@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, realpath, rmdir, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rmdir,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { parseOptions } from "#mcp/options";
+import { workerArguments } from "#mcp/worker";
 
 const directories: string[] = [];
 const links: string[] = [];
@@ -140,7 +150,7 @@ test("selects the trusted non-GUI connector without reading a session grant", as
   );
 });
 
-test.each(["--workspace", "--input-root", "--media-tools"])(
+test.each(["--workspace", "--input-root", "--media-tools", "--shared-root", "--shared-write"])(
   "rejects detached grants with live attachment: %s",
   async (flag) => {
     const path = await workspace();
@@ -208,4 +218,86 @@ test("rejects repeated toolset lists and toolsets for the live editor", async ()
       "audio",
     ]),
   ).rejects.toThrow("toolsets");
+});
+
+test("grants explicit shared roots read-only unless a write role is named", async () => {
+  const path = await workspace();
+  const studio = await workspace();
+  const library = await workspace();
+  const options = await parseOptions([
+    "--executable",
+    process.execPath,
+    "--workspace",
+    path,
+    "--shared-root",
+    `studio_palettes=${studio}`,
+    "--shared-root",
+    `library=${library}`,
+    "--shared-write",
+    "library",
+  ]);
+  assert(!("liveSession" in options));
+  expect(options.sharedRoots).toEqual([
+    { role: "studio_palettes", path: studio, writable: false },
+    { role: "library", path: library, writable: true },
+  ]);
+  expect(workerArguments(options)).toEqual([
+    "--automation-worker",
+    "--workspace",
+    path,
+    "--shared-root",
+    `studio_palettes=${studio}`,
+    "--shared-root",
+    `library=${library}`,
+    "--shared-write",
+    "library",
+  ]);
+});
+
+test("passes no shared roots unless they are granted", async () => {
+  const path = await workspace();
+  const options = await parseOptions(["--executable", process.execPath, "--workspace", path]);
+  assert(!("liveSession" in options));
+  expect(options.sharedRoots).toBeUndefined();
+  expect(workerArguments(options)).toEqual(["--automation-worker", "--workspace", path]);
+});
+
+test("rejects unsafe, overlapping and ambiguous shared root grants", async () => {
+  const path = await workspace();
+  const studio = await workspace();
+  const inside = join(path, "inside");
+  await mkdir(inside);
+  directories.push(inside);
+  const alias = join(path, "alias");
+  await symlink(studio, alias, "dir");
+  links.push(alias);
+  const cases: [string[], string][] = [
+    [["--shared-root", studio], "ROLE=ABSOLUTE_DIR"],
+    [["--shared-root", `elsewhere=${studio}`], "ROLE=ABSOLUTE_DIR"],
+    [["--shared-root", "library=relative"], "absolute"],
+    [["--shared-root", `library=${alias}`], "symlink"],
+    [["--shared-root", `library=${studio}`, "--shared-root", `library=${studio}`], "at most once"],
+    [["--shared-root", `library=${inside}`], "overlap"],
+    [
+      ["--shared-root", `library=${studio}`, "--shared-root", `studio_palettes=${studio}`],
+      "overlap",
+    ],
+    [["--shared-write", "library"], "configured"],
+    [
+      [
+        "--shared-root",
+        `library=${studio}`,
+        "--shared-write",
+        "library",
+        "--shared-write",
+        "library",
+      ],
+      "configured",
+    ],
+  ];
+  for (const [extra, message] of cases) {
+    await expect(
+      parseOptions(["--executable", process.execPath, "--workspace", path, ...extra]),
+    ).rejects.toThrow(message);
+  }
 });
