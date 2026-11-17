@@ -111,9 +111,15 @@ posix("native exit cleans descendants and drains its final protocol response", a
 posix("loss of the parent IPC channel still cleans the whole media group", async () => {
   const { child, connection } = start();
   const port = await descendantPort(connection);
-  const closed = once(child, "close");
+  const { stdout, stderr } = child;
+  if (!stdout || !stderr) throw new Error("Supervisor fixture requires private output pipes");
+  // Node 22's local disconnect omits IPC from aggregate close accounting:
+  // https://github.com/nodejs/node/blob/v22.23.5/lib/internal/child_process.js#L917-L945
+  const stopped = Promise.all([once(child, "exit"), once(stdout, "end"), once(stderr, "end")]);
+  stderr.resume();
   child.disconnect();
-  await closed;
+  await stopped;
+  expect(child.signalCode).toBe("SIGKILL");
   expect(await listening(port)).toBe(false);
   await expect(connection.request("ready")).rejects.toMatchObject({ code: "WORKER_UNAVAILABLE" });
 });
