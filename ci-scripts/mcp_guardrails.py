@@ -33,7 +33,7 @@ def main() -> int:
         path = PurePosixPath(filename)
         directories = {part.lower() for part in path.parts[:-1]}
         planning_path = any(
-            re.search(r"(^|[-_.])(plans?|planning|reviews?)([-_.]|$)", part, re.I)
+            re.search(r"(^|[-_.])(plans?|planning|reviews?)([-_.]|$)", part, re.IGNORECASE)
             for part in path.parts
         )
         if directories.intersection({".agents", ".codex"}) or planning_path:
