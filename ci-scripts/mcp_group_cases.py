@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from mcp_png import Pixel, decode_png
@@ -280,7 +281,7 @@ def vector_groups_reject_partial_boundaries(case: NativeAcceptance) -> None:
     document, target, styles = _new_scene(case)
     corners = ((-5, -5), (5, -5), (5, 5), (-5, 5), (-5, -5))
     edits = []
-    for first, last in zip(corners, corners[1:], strict=False):
+    for first, last in pairwise(corners):
         points = (first, ((first[0] + last[0]) / 2, (first[1] + last[1]) / 2), last)
         edits.append(
             {
