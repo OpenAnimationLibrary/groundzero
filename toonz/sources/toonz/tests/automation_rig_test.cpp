@@ -2,6 +2,7 @@
 #include "automation_dispatch.h"
 #include "automation_rig.h"
 
+#include "tvectorimage.h"
 #include "toonz/hook.h"
 #include "toonz/levelset.h"
 #include "toonz/stageunits.h"
@@ -697,6 +698,47 @@ void renumberVerifiesHookMove(Context& context) {
   context.removeDocument(document.id);
 }
 
+QString filledLevel(Dispatcher& dispatcher, Document& document,
+                    const QString& name) {
+  const QString id =
+      result(dispatcher, "level.create",
+             at(document, {{"name", name}, {"format", "vector"}}))
+          .value("level_id")
+          .toString();
+  auto* level = nativeLevel(document, id);
+  for (int number = 1; number <= 128; ++number)
+    level->setFrame(TFrameId(number), TImageP(new TVectorImage()));
+  for (int hook = 0; hook < 64; ++hook)
+    for (int number = 1; number <= 128; ++number)
+      level->getHookSet()->touchHook(hook)->setAPos(TFrameId(number),
+                                                    TPointD());
+  return id;
+}
+
+void hookKeyBudgets(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document     = createDocument(context, dispatcher);
+  const QString full = filledLevel(dispatcher, document, "Full");
+  rejected(dispatcher, document, "hook.set",
+           at(document, hookParams(full, 65, {position(1, point(0, 0))})),
+           "resource_limit");
+  result(dispatcher, "hook.set",
+         at(document, hookParams(full, 1, {position(1, point(0, 0))})));
+  for (int index = 1; index < 8; ++index)
+    filledLevel(dispatcher, document, "Full " + QString::number(index));
+  const QString spare = createLevel(dispatcher, document, "Spare", 1);
+  rejected(dispatcher, document, "hook.set",
+           at(document, hookParams(spare, 1, {position(1, point(0, 0))})),
+           "resource_limit");
+  nativeLevel(document, full)
+      ->getHookSet()
+      ->getHook(1)
+      ->eraseFrame(TFrameId(1));
+  result(dispatcher, "hook.set",
+         at(document, hookParams(spare, 1, {position(1, point(0, 0))})));
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationRigTests(Context& context) {
@@ -710,6 +752,7 @@ void runAutomationRigTests(Context& context) {
   hookAdmissionRefusals(context);
   evaluationBoundsAndPaging(context);
   renumberVerifiesHookMove(context);
+  hookKeyBudgets(context);
   std::cout << "automation-rig-test: hooks, handles, pivots, layers and "
                "admission PASS\n";
 }
