@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import tempfile
+import unittest
 from pathlib import Path
 
-import pytest
 from windows_ci_live_test import stage_dependencies
 
 
@@ -31,88 +32,84 @@ def roots(directory: Path) -> tuple[Path, Path]:
     return server, client
 
 
-def test_stages_runtime_closure_with_dependency_cycle(tmp_path: Path) -> None:
-    """A dependency cycle must terminate with each installed package copied once."""
-    source, destination = tmp_path / "source", tmp_path / "staged"
-    server, _ = roots(source)
-    metadata = json.loads((server / "package.json").read_text())
-    metadata["dependencies"] = {"cycle-a": "1.0.0"}
-    (server / "package.json").write_text(json.dumps(metadata))
-    package(source / "node_modules/cycle-a", "cycle-a", "1.0.0", {"cycle-b": "1.0.0"})
-    package(source / "node_modules/cycle-b", "cycle-b", "1.0.0", {"cycle-a": "1.0.0"})
-    identities = stage_dependencies(source, destination)
-    assert len(identities) == 4
-    for identity in identities:
-        copied = destination / "node_modules" / identity["name"]
-        assert (copied / "index.mjs").read_text() == (
-            f'export const version = "{identity["version"]}";\n'
-        )
-        assert not (copied / "node_modules").exists()
+class RuntimeStagingTests(unittest.TestCase):
+    """Check the dependency closure copied from installed package trees."""
 
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.source = self.root / "source"
+        self.destination = self.root / "staged"
 
-@pytest.mark.parametrize(
-    ("other_version", "message"),
-    [
-        ("2.0.0", "conflicting installed versions"),
-        ("1.0.0", "distinct installed copies"),
-    ],
-)
-def test_rejects_conflicting_nested_packages(
-    tmp_path: Path, other_version: str, message: str
-) -> None:
-    """Flattening must not silently select a different installed dependency context."""
-    source = tmp_path / "source"
-    server, client = roots(source)
-    for parent, version in ((server, "1.0.0"), (client, other_version)):
-        metadata = json.loads((parent / "package.json").read_text())
-        metadata["dependencies"] = {"shared": version}
-        (parent / "package.json").write_text(json.dumps(metadata))
-        package(parent / "node_modules/shared", "shared", version)
-    with pytest.raises(ValueError, match=message):
-        stage_dependencies(source, tmp_path / "staged")
+    def test_stages_runtime_closure_with_dependency_cycle(self) -> None:
+        """A dependency cycle must copy each installed package exactly once."""
+        server, _ = roots(self.source)
+        metadata = json.loads((server / "package.json").read_text())
+        metadata["dependencies"] = {"cycle-a": "1.0.0"}
+        (server / "package.json").write_text(json.dumps(metadata))
+        package(self.source / "node_modules/cycle-a", "cycle-a", "1.0.0", {"cycle-b": "1.0.0"})
+        package(self.source / "node_modules/cycle-b", "cycle-b", "1.0.0", {"cycle-a": "1.0.0"})
+        identities = stage_dependencies(self.source, self.destination)
+        self.assertEqual(len(identities), 4)
+        for identity in identities:
+            copied = self.destination / "node_modules" / identity["name"]
+            self.assertEqual(
+                (copied / "index.mjs").read_text(),
+                f'export const version = "{identity["version"]}";\n',
+            )
+            self.assertFalse((copied / "node_modules").exists())
 
+    def _reject_nested(self, other_version: str, message: str) -> None:
+        server, client = roots(self.source)
+        for parent, version in ((server, "1.0.0"), (client, other_version)):
+            metadata = json.loads((parent / "package.json").read_text())
+            metadata["dependencies"] = {"shared": version}
+            (parent / "package.json").write_text(json.dumps(metadata))
+            package(parent / "node_modules/shared", "shared", version)
+        with self.assertRaisesRegex(ValueError, message):
+            stage_dependencies(self.source, self.destination)
 
-def test_rejects_missing_required_dependency(tmp_path: Path) -> None:
-    """An incomplete installed dependency tree cannot produce a prepared result."""
-    source = tmp_path / "source"
-    server, _ = roots(source)
-    metadata = json.loads((server / "package.json").read_text())
-    metadata["dependencies"] = {"missing": "1.0.0"}
-    (server / "package.json").write_text(json.dumps(metadata))
-    with pytest.raises(
-        FileNotFoundError, match="runtime dependency is missing: missing"
-    ):
-        stage_dependencies(source, tmp_path / "staged")
+    def test_rejects_conflicting_nested_versions(self) -> None:
+        """Flattening must not select a different installed dependency version."""
+        self._reject_nested("2.0.0", "conflicting installed versions")
 
+    def test_rejects_distinct_nested_contexts(self) -> None:
+        """Equal package versions must not hide distinct installed dependency contexts."""
+        self._reject_nested("1.0.0", "distinct installed copies")
 
-def test_preserves_absent_optional_dependency(tmp_path: Path) -> None:
-    """A dependency omitted from the actual installation must remain absent."""
-    source = tmp_path / "source"
-    server, _ = roots(source)
-    metadata = json.loads((server / "package.json").read_text())
-    metadata["optionalDependencies"] = {"uninstalled-platform-package": "1.0.0"}
-    (server / "package.json").write_text(json.dumps(metadata))
-    assert len(stage_dependencies(source, tmp_path / "staged")) == 2
+    def test_rejects_missing_required_dependency(self) -> None:
+        """An incomplete installed tree cannot produce a prepared result."""
+        server, _ = roots(self.source)
+        metadata = json.loads((server / "package.json").read_text())
+        metadata["dependencies"] = {"missing": "1.0.0"}
+        (server / "package.json").write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(FileNotFoundError, "runtime dependency is missing: missing"):
+            stage_dependencies(self.source, self.destination)
 
+    def test_preserves_absent_optional_dependency(self) -> None:
+        """A dependency omitted from the actual installation must remain absent."""
+        server, _ = roots(self.source)
+        metadata = json.loads((server / "package.json").read_text())
+        metadata["optionalDependencies"] = {"uninstalled-platform-package": "1.0.0"}
+        (server / "package.json").write_text(json.dumps(metadata))
+        self.assertEqual(len(stage_dependencies(self.source, self.destination)), 2)
 
-def test_rejects_runtime_package_aliases(tmp_path: Path) -> None:
-    """A flattened package name must remain the name resolved by its importer."""
-    source = tmp_path / "source"
-    server, _ = roots(source)
-    metadata = json.loads((server / "package.json").read_text())
-    metadata["dependencies"] = {"alias": "npm:actual@1.0.0"}
-    (server / "package.json").write_text(json.dumps(metadata))
-    package(source / "node_modules/alias", "actual", "1.0.0")
-    with pytest.raises(ValueError, match="Aliased runtime packages"):
-        stage_dependencies(source, tmp_path / "staged")
+    def test_rejects_runtime_package_aliases(self) -> None:
+        """A flattened package name must remain the name resolved by its importer."""
+        server, _ = roots(self.source)
+        metadata = json.loads((server / "package.json").read_text())
+        metadata["dependencies"] = {"alias": "npm:actual@1.0.0"}
+        (server / "package.json").write_text(json.dumps(metadata))
+        package(self.source / "node_modules/alias", "actual", "1.0.0")
+        with self.assertRaisesRegex(ValueError, "Aliased runtime packages"):
+            stage_dependencies(self.source, self.destination)
 
-
-def test_rejects_bundled_dependencies_before_omitting_them(tmp_path: Path) -> None:
-    """Bundled modules cannot disappear when nested node_modules directories are excluded."""
-    source = tmp_path / "source"
-    server, _ = roots(source)
-    metadata = json.loads((server / "package.json").read_text())
-    metadata["bundledDependencies"] = ["hidden"]
-    (server / "package.json").write_text(json.dumps(metadata))
-    with pytest.raises(ValueError, match="Bundled runtime dependencies"):
-        stage_dependencies(source, tmp_path / "staged")
+    def test_rejects_bundled_dependencies_before_omitting_them(self) -> None:
+        """Bundled modules cannot disappear when nested modules are excluded."""
+        server, _ = roots(self.source)
+        metadata = json.loads((server / "package.json").read_text())
+        metadata["bundledDependencies"] = ["hidden"]
+        (server / "package.json").write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(ValueError, "Bundled runtime dependencies"):
+            stage_dependencies(self.source, self.destination)
