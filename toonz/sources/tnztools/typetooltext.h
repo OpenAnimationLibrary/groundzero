@@ -5,6 +5,10 @@
 #include <QPainterPath>
 #include <QString>
 
+#include <functional>
+
+class QTextDocument;
+
 namespace TypeToolText {
 
 constexpr int cTextHistoryLimit = 20;
@@ -41,6 +45,9 @@ struct OutlineLayout final {
 
 OutlineLayout buildOutlineLayout(const TypeToolTextEntry &entry,
                                  bool vertical = false);
+using LayoutInspection = std::function<void(const QTextDocument &)>;
+OutlineLayout buildOutlineLayout(const TypeToolTextEntry &entry, bool vertical,
+                                 const LayoutInspection &inspection);
 QImage rasterizeOutlineLayout(const OutlineLayout &layout, QRect &bounds);
 bool saveTextSource(const QString &fileName, const QString &source,
                     QString &error);
