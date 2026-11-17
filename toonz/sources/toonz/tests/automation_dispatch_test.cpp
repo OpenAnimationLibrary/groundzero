@@ -34,6 +34,36 @@ void rejected(Dispatcher& dispatcher, const QString& method,
           "Receipt fixture received an unexpected rejection");
 }
 
+QJsonValue echoString(Context&, const QString&, const QJsonObject& params) {
+  return params;
+}
+
+QJsonArray unicodeOperations() {
+  return {operation("fixture.unicode", "Private Unicode length boundary",
+                    {{"value", QJsonObject{{"type", "string"},
+                                          {"minLength", 2},
+                                          {"maxLength", 2}}}},
+                    {"value"}, false)};
+}
+
+void unicodeBoundaries(Dispatcher& dispatcher) {
+  const QString rocket = QString::fromUtf8("\xf0\x9f\x9a\x80");
+  const QString combining = QString::fromUtf8("e\xcc\x81");
+  for (const QString& value : {QString("ab"), rocket + "a", combining}) {
+    const QJsonObject params{{"value", value}};
+    require(result(dispatcher, "fixture.unicode", params) == params,
+            "Unicode scalar values did not survive schema validation");
+  }
+  for (const QString& value : {QString(), QString("a"), rocket,
+                               rocket + "ab", QString(3, QChar('a'))})
+    rejected(dispatcher, "fixture.unicode", {{"value", value}}, "invalid_params");
+  for (const QString& value : {QString(QChar(0xd800)), QString(QChar(0xdc00)),
+                               QString(QChar(0xd800)) + "a",
+                               QString("a") + QChar(0xdc00),
+                               QString(QChar(0xdc00)) + QChar(0xd800)})
+    rejected(dispatcher, "fixture.unicode", {{"value", value}}, "invalid_params");
+}
+
 QJsonValue largeResult(Context&, const QString&, const QJsonObject&) {
   return QJsonObject{{"payload", QString(7 * 1024 * 1024, QChar('x'))}};
 }
@@ -220,6 +250,11 @@ void partialCancellation(Context& context, Dispatcher& dispatcher) {
 }  // namespace
 
 void runAutomationDispatcherTests(Context& context) {
+  {
+    Dispatcher dispatcher(context);
+    dispatcher.add(unicodeOperations(), echoString);
+    unicodeBoundaries(dispatcher);
+  }
   QString jobId;
   {
     Dispatcher dispatcher(context);

@@ -95,3 +95,22 @@ def unicode_roots_admit_png(test: NativeAcceptance) -> None:
     test.assertEqual(
         decode_png(test.preview(reopened["document_id"])), decode_png(test.fixture.read_bytes())
     )
+
+
+def unicode_names_preserve_data_and_reject_unpaired_surrogates(test: NativeAcceptance) -> None:
+    """Preserve Unicode names and refuse malformed escaped UTF-16 before mutation."""
+    document = test.create()
+    for name in ("Latin", "\u4e2d\u6587", "\U0001f680", "e\u0301"):
+        created = test.mutate("object.create", document, kind="pegbar", name=name)
+        test.assertEqual(created["name"], name)
+    before = test.success("scene.summary", {"document_id": document})
+    for name in ("\ud800", "\udc00", "\ud800a", "a\udc00", "\udc00\ud800"):
+        params = test.write_params(document, {"kind": "pegbar", "name": name})
+        error = test.failure("object.create", params)
+        test.assertEqual(error["code"], "invalid_params")
+        test.assertEqual(test.success("scene.summary", {"document_id": document}), before)
+        params["name"] = "Recovered"
+        created = test.success("object.create", params)
+        test.revisions[document] = created["revision"]
+        test.assertEqual(created["name"], "Recovered")
+        before = test.success("scene.summary", {"document_id": document})

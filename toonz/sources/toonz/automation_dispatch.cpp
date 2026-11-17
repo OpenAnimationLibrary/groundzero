@@ -129,9 +129,24 @@ void validateChoices(const QJsonValue& value, const QJsonObject& schema,
     reject(path, "Value does not match the required constant.");
 }
 
+int unicodeLength(const QString& value, const QString& path) {
+  int size = 0;
+  for (int index = 0; index < value.size(); ++index) {
+    const QChar unit = value.at(index);
+    if (unit.isHighSurrogate()) {
+      if (++index == value.size() || !value.at(index).isLowSurrogate())
+        reject(path, "String contains an unpaired Unicode surrogate.");
+    } else if (unit.isLowSurrogate()) {
+      reject(path, "String contains an unpaired Unicode surrogate.");
+    }
+    ++size;
+  }
+  return size;
+}
+
 void validateString(const QString& value, const QJsonObject& schema,
                     const QString& path) {
-  const int size = value.size();
+  const int size = unicodeLength(value, path);
   if (schema.contains("minLength") && size < schema.value("minLength").toInt())
     reject(path, "String is too short.");
   if (schema.contains("maxLength") && size > schema.value("maxLength").toInt())
