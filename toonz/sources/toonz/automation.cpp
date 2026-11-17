@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_dispatch.h"
+#include "automation_containment.h"
 
 #include "tenv.h"
 #include "texception.h"
@@ -176,33 +177,6 @@ Options parseOptions(const QStringList& arguments) {
     throw Error("invalid_argument",
                 "Automation worker requires --workspace DIR.");
   return options;
-}
-
-void establishMediaContainment(const Options& options) {
-#ifdef _WIN32
-  if (options.mediaToolsDirectory.isEmpty()) return;
-  const HANDLE job = CreateJobObjectW(nullptr, nullptr);
-  if (!job)
-    throw Error("media_containment_failed",
-                "Cannot create the worker media job.");
-  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-  const bool configured =
-      SetHandleInformation(job, HANDLE_FLAG_INHERIT, 0) &&
-      SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
-                              sizeof(limits));
-  if (!configured || !AssignProcessToJobObject(job, GetCurrentProcess())) {
-    const DWORD error = GetLastError();
-    CloseHandle(job);
-    throw Error("media_containment_failed",
-                "Cannot contain native media helpers in the worker job.",
-                {{"windows_error", QString::number(error)}});
-  }
-  // The sole non-inheritable handle lives until OS process teardown. Closing
-  // it on this stack would terminate the worker itself, which is a job member.
-#else
-  Q_UNUSED(options);
-#endif
 }
 
 int reserveProtocolOutput() {
@@ -435,8 +409,8 @@ int executeDomainTests(QApplication& application, Context& context) {
 #endif
 
 int executeWorker(QApplication& application, QFile& output,
-                  const Options& options) {
-  Context context(options.workspace, options.inputRoots);
+                  const Options& options, bool helpersContained) {
+  Context context(options.workspace, options.inputRoots, helpersContained);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
@@ -466,7 +440,7 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(workerArguments(argc, argv));
-    establishMediaContainment(options);
+    const bool helpersContained = establishAutomationContainment();
 #ifndef _WIN32
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
       throw Error("io_error",
@@ -492,7 +466,7 @@ int runWorker(int argc, char* argv[]) {
     QCoreApplication::setApplicationName("GroundzeroAutomationWorker");
     const QByteArray executable = QFile::encodeName(QCoreApplication::applicationFilePath());
     initializeNative(runtime, executable.constData(), options);
-    return executeWorker(application, output, options);
+    return executeWorker(application, output, options, helpersContained);
   } catch (const Error& error) {
     std::cerr << "automation-worker: " << error.code.toStdString() << ": "
               << error.message.toStdString() << '\n';

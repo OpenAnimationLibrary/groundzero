@@ -1,4 +1,7 @@
+import { acceptControlChannel } from "#fixtures/control-channel";
 import { createInterface } from "node:readline";
+
+await acceptControlChannel();
 
 const mode = process.argv[2];
 

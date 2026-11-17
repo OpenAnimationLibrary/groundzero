@@ -191,10 +191,13 @@ A lost response can have an unknown outcome:
 inspect saved workspace state before starting another worker and replaying edits.
 Diagnostics go to stderr; stdout is reserved for MCP. No network listener is used.
 
-On POSIX systems, media-enabled workers run under a private supervisor that
-terminates their process group when the connection closes, times out, or loses
-its parent. Windows workers contain media helpers in a native job object.
-Forcibly killing the POSIX supervisor itself can bypass its cleanup.
+On POSIX systems, every adapter-launched worker uses a private process-group
+supervisor. The native worker verifies its parent socket credentials and a bounded
+startup handshake. A separate native guardian terminates its current group when
+that channel disappears or receives unexpected data, including after supervisor
+loss. Connection closure and timeouts also trigger group cleanup. Windows startup
+requires an owned kill-on-close Job Object before accepting requests. Raw POSIX
+workers remain usable for existing operations but have no verified helper containment.
 
 ## Live editor sessions
 

@@ -185,7 +185,7 @@ export function launchWorker(options: WorkerOptions): WorkerConnection {
   const args = ["--automation-worker", "--workspace", options.workspace];
   for (const root of options.inputRoots) args.push("--input-root", root);
   if (options.mediaToolsDirectory) args.push("--media-tools", options.mediaToolsDirectory);
-  const supervised = process.platform !== "win32" && options.mediaToolsDirectory !== undefined;
+  const supervised = process.platform !== "win32";
   const command = supervised ? process.execPath : options.executable;
   const launchArgs = supervised
     ? [fileURLToPath(new URL("./supervisor.js", import.meta.url)), options.executable, ...args]

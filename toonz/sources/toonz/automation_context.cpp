@@ -176,9 +176,10 @@ TStageObject* Document::object(const QString& handle) const {
               "The stage object is no longer in this document.");
 }
 
-Context::Context(QString workspacePath, QStringList inputRoots)
+Context::Context(QString workspacePath, QStringList inputRoots, bool helpersContained)
     : m_workspace(canonicalDirectory(workspacePath))
-    , m_project(std::make_shared<TProject>()) {
+    , m_project(std::make_shared<TProject>())
+    , m_helpersContained(helpersContained) {
   for (const QString& root : inputRoots)
     m_inputRoots.append(canonicalDirectory(root));
   const QString projectDirectory = resolvePath(opaqueId("project"), true);
@@ -249,6 +250,7 @@ QString Context::workspace() const { return m_workspace; }
 void Context::markMutationStarted() { m_mutationStarted = true; }
 void Context::resetMutationStarted() { m_mutationStarted = false; }
 bool Context::mutationStarted() const { return m_mutationStarted; }
+bool Context::helpersContained() const { return m_helpersContained; }
 
 QString Context::resolvePath(const QString& path, bool write) const {
   const QString normalized = normalizedWorkerPath(path);

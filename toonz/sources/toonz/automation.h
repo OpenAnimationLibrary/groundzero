@@ -56,7 +56,7 @@ struct Document final {
 
 class Context final {
 public:
-  Context(QString workspace, QStringList inputRoots);
+  Context(QString workspace, QStringList inputRoots, bool helpersContained = false);
   ~Context();
   Context(const Context&)            = delete;
   Context& operator=(const Context&) = delete;
@@ -71,6 +71,7 @@ public:
   void markMutationStarted();
   void resetMutationStarted();
   bool mutationStarted() const;
+  bool helpersContained() const;
   std::shared_ptr<RenderState> renderState;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
@@ -81,6 +82,7 @@ private:
   std::shared_ptr<TProject> m_project;
   std::map<QString, std::unique_ptr<Document>> m_documents;
   bool m_mutationStarted = false;
+  const bool m_helpersContained;
 };
 
 // Catalog entries use MCP tool descriptors with strict inputSchema objects.

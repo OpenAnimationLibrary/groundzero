@@ -1,3 +1,4 @@
+import { acceptControlChannel } from "#fixtures/control-channel";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createInterface } from "node:readline";
@@ -29,4 +30,7 @@ function worker() {
 }
 
 if (process.argv[2] === "descendant") descendant();
-else worker();
+else {
+  await acceptControlChannel();
+  worker();
+}
