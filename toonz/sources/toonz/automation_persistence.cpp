@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
+#include "automation_macro.h"
 
 #include "timage.h"
 #include "tcolorstyles.h"
@@ -46,6 +47,7 @@ constexpr int MaxPackages        = 128;
 struct Package final {
   QJsonObject manifest;
   QByteArray manifestHash;
+  QByteArray macroFingerprint;
 };
 
 std::map<QString, Package> publishedPackages;
@@ -315,9 +317,11 @@ Package writePackage(Document& document, const QString& directory) {
   if (!QDir(directory).mkdir("assets"))
     throw Error("package_write_failed",
                 "Cannot create the package assets directory.");
+  const QByteArray macroFingerprint = automationMacroFingerprint(*document.scene, directory);
   const QJsonArray levels = writeLevels(*document.scene, directory);
   writeScene(*document.scene, directory);
   Package package;
+  package.macroFingerprint = macroFingerprint;
   package.manifest = {{"version", 1},
                       {"profile", "worker-generated-v1"},
                       {"scene_file", "scene.tnz"},
@@ -449,6 +453,9 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
                 "The reopened scene differs from the published scene.");
   for (const QJsonValue& entry : entries) reopenLevel(*scene, entry.toObject());
   validateAutomationScene(*scene);
+  indexAutomationMacroMembers(*scene);
+  if (automationMacroFingerprint(*scene, context.workspace()) != package.macroFingerprint)
+    throw Error("invalid_package", "The reopened macro graph differs from its published source.");
   verifyFiles(directory, package);
   return scene;
 }

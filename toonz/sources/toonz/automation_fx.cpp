@@ -1,5 +1,7 @@
 #include "automation.h"
 #include "automation_fx.h"
+#include "automation_macro.h"
+#include "tmacrofx.h"
 
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
@@ -81,6 +83,20 @@ std::set<TFx*> sceneMembers(ToonzScene& scene) {
 
 std::set<TFx*> graphMembers(Document& document) {
   return sceneMembers(*document.scene);
+}
+
+size_t graphNodeCount(Document& document) {
+  const auto members = graphMembers(document);
+  size_t count = members.size();
+  for (TFx* fx : members) {
+    auto* macro = dynamic_cast<TMacroFx*>(fx);
+    if (!macro) continue;
+    const size_t children = macro->getFxs().size();
+    if (children < 2 || children > 64)
+      throw Error("INVALID_MACRO", "Macro members exceed the admitted profile.");
+    count += children;
+  }
+  return count;
 }
 
 TFx* ownedFx(Document& document, const QString& id) {
@@ -351,10 +367,13 @@ QJsonObject describeFx(Document& document, TFx* fx) {
     result["column_index"]      = column->getColumnIndex();
     result["generator_wrapper"] = dynamic_cast<TZeraryColumnFx*>(fx) != nullptr;
   }
+  if (auto* macro = dynamic_cast<TMacroFx*>(fx))
+    result["macro"] = describeAutomationMacro(document, macro);
   return result;
 }
 
 QJsonValue inspectGraph(Document& document) {
+  validateAutomationFxGraph(*document.scene);
   QJsonArray effects;
   for (TFx* fx : graphMembers(document))
     effects.append(describeFx(document, fx));
@@ -415,7 +434,7 @@ QJsonValue createEffect(Context& context, Document& document,
                         const QJsonObject& params) {
   const QString type = requiredString(params, "type");
   const int frames   = integerParam(params, "frame_count", 1, 10000, 1);
-  if (graphMembers(document).size() >= 4096)
+  if (graphNodeCount(document) >= 4096)
     throw Error("RESOURCE_LIMIT",
                 "The automation graph is limited to 4096 effect nodes.");
   TFxP effect = type == "output" ? makeOutput() : makeEffect(type);
@@ -489,7 +508,7 @@ QJsonValue duplicateEffect(Context& context, Document& document,
   requireEditable(source);
   requireColumnEditable(document, source);
   const int frames = integerParam(params, "frame_count", 1, 10000, 1);
-  if (graphMembers(document).size() >= 4096)
+  if (graphNodeCount(document) >= 4096)
     throw Error("RESOURCE_LIMIT",
                 "The automation graph is limited to 4096 effect nodes.");
   TFx* native = parameterFx(source);
@@ -820,6 +839,7 @@ void validateNode(TFx* fx, TXsheet* sheet) {
     validateColumnOwnership(column, sheet);
     return;
   }
+  if (dynamic_cast<TMacroFx*>(fx)) return;
   if (dynamic_cast<TZeraryFx*>(fx))
     throw Error("INVALID_GRAPH",
                 "A generator must be owned by a scene column wrapper.");
@@ -856,7 +876,7 @@ void validateEdges(const std::set<TFx*>& members, FxDag* graph) {
 }
 
 TFxPort* editablePort(TFx* fx, const QString& name) {
-  if (!dynamic_cast<TOutputFx*>(fx)) requireEditable(fx);
+  if (!dynamic_cast<TOutputFx*>(fx) && !dynamic_cast<TMacroFx*>(fx)) requireEditable(fx);
   TFxPort* port = fx->getInputPort(name.toStdString());
   if (!port)
     throw Error("UNKNOWN_PORT",
@@ -882,6 +902,7 @@ void validateConnection(FxDag* graph, TFx* destination, TFxPort* port,
 
 QJsonValue connectEffect(Context& context, Document& document,
                          const QJsonObject& params, bool disconnect) {
+  validateAutomationFxGraph(*document.scene);
   TFx* destination = ownedFx(document, requiredString(params, "fx_id"));
   TFxPort* port    = editablePort(destination, requiredString(params, "port"));
   TFx* source = disconnect
@@ -906,7 +927,8 @@ QJsonValue connectEffect(Context& context, Document& document,
 QJsonValue setTerminal(Context& context, Document& document,
                        const QJsonObject& params) {
   TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
-  if (!dynamic_cast<TColumnFx*>(fx)) requireEditable(fx);
+  validateAutomationFxGraph(*document.scene);
+  if (!dynamic_cast<TColumnFx*>(fx) && !dynamic_cast<TMacroFx*>(fx)) requireEditable(fx);
   requireColumnEditable(document, fx);
   if (!params.value("enabled").isBool())
     throw Error("INVALID_PARAMS", "enabled must be a boolean.");
@@ -1182,6 +1204,8 @@ QJsonValue changeParameter(Context& context, Document& document,
 QJsonValue getParameters(Context&, Document& document,
                          const QJsonObject& params) {
   TFx* fx         = ownedFx(document, requiredString(params, "fx_id"));
+  if (dynamic_cast<TMacroFx*>(fx))
+    throw Error("UNSUPPORTED_PARAMETER", "Expand the macro before reading member parameters.");
   const int frame = integerParam(params, "frame", 0, 1000000, 0);
   return QJsonObject{{"fx_id", document.idForFx(fx)},
                      {"frame", frame},
@@ -1228,6 +1252,18 @@ QJsonArray authoringOperations() {
 
 }  // namespace
 
+TFxP makeAutomationEffect(const QString& type) { return makeEffect(type); }
+
+QJsonObject describeAutomationFx(Document& document, TFx* fx) {
+  return describeFx(document, fx);
+}
+
+QByteArray automationFxPresetBytes(TFx* fx, const QString& path) {
+  return saveNativePreset(fx, path);
+}
+
+QString automationFxName(const QJsonObject& params) { return authoringName(params); }
+
 bool isAutomationFxTypeSupported(const QString& type) {
   return allowedTypes().contains(type);
 }
@@ -1239,6 +1275,7 @@ void validateAutomationFxGraph(ToonzScene& scene) {
                 "The automation graph is limited to 4096 effect nodes.");
   TXsheet* sheet = scene.getXsheet();
   FxDag* graph   = sheet->getFxDag();
+  validateAutomationMacros(scene, members);
   for (TFx* fx : members) validateNode(fx, sheet);
   validateEdges(members, graph);
 }
@@ -1306,6 +1343,7 @@ QJsonArray fxOperations() {
           "Set a linear key on an animatable parameter; frames start at 0.",
           key, {"document_id", "fx_id", "parameter", "value", "frame"}, true)};
   for (const auto& entry : authoringOperations()) operations.append(entry);
+  for (const auto& entry : macroOperations()) operations.append(entry);
   return operations;
 }
 
@@ -1313,6 +1351,7 @@ QJsonValue executeFx(Context& context, const QString& method,
                      const QJsonObject& params) {
   if (method == "fx.catalog") return effectCatalog();
   Document& document = context.document(requiredString(params, "document_id"));
+  if (method.startsWith("fx.macro.")) return executeMacro(context, document, method, params);
   using Handler      = QJsonValue (*)(Context&, Document&, const QJsonObject&);
   static const std::map<QString, Handler> handlers = {
       {"fx.create", createEffect},
