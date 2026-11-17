@@ -442,6 +442,8 @@ int domainTestResult(Context& context) {
     runAutomationFxTests(context);
     runAutomationFxAuthoringTests(context);
     runAutomationColorCompositeTests(context);
+    runAutomationFxFinishingTests(context);
+    runAutomationFxPreflightTests(context);
     runAutomationGroupTests(context);
     runAutomationVectorOpacityTests(context);
     runAutomationAnimationTests();

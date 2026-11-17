@@ -142,6 +142,8 @@ void validateAutomationScene(ToonzScene& scene);
 void runAutomationFxTests(Context& context);
 void runAutomationFxAuthoringTests(Context& context);
 void runAutomationColorCompositeTests(Context& context);
+void runAutomationFxFinishingTests(Context& context);
+void runAutomationFxPreflightTests(Context& context);
 void runAutomationGroupTests(Context& context);
 void runAutomationMediaProcessTests(Context& context);
 #endif

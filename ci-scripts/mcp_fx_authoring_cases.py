@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +46,23 @@ NATIVE_PRESETS: dict[str, dict[str, Any]] = {
     "outFx": {},
     "invertFx": {},
     "blendFx": {},
+    "STD_iwa_BloomFx": {"size": 6, "gain": 4, "decay": 2},
+    "STD_lightWrapFx": {"width": 12, "softness": 2, "intensity": 2, "blend": 1},
+    "STD_backlitFx": {"value": 6, "fade": 60, "color": [255, 200, 40, 255]},
+    "STD_bodyHighLightFx": {"mode": 1, "point": [4, -4], "blur": 2, "transparency": 0.8},
+    "STD_lightSpotFx": {"a": 6, "b": 3, "softness": 1, "color": [255, 220, 120, 255]},
+    "STD_targetSpotFx": {"z": 50, "angle": 30, "color": [120, 220, 255, 255]},
+    "STD_directionalBlurFx": {"intensity": 6, "angle": 45},
+    "STD_localBlurFx": {"value": 6},
+    "STD_posterizeFx": {"levels": 2},
+    "STD_solarizeFx": {"maximum": 1.5, "peak_edge": 60},
+    "STD_sharpenFx": {"intensity": 200},
+    "STD_embossFx": {"intensity": 0.8, "radius": 2},
+    "STD_erodeDilateFx": {"radius": -3},
+    "STD_matteChokeFx": {"amount": -3, "feather": 2},
+    "STD_channelMixerFx": {"red_to_green": 1, "green_to_green": 0},
+    "STD_gammaFx": {"value": 2},
+    "STD_iwa_AdjustExposureFx": {"scale": 1, "gammaAdjust": 1},
 }
 
 ORIGINAL_TYPES = (
@@ -484,7 +501,11 @@ def _wired_effect(case: NativeAcceptance, document: str, kind: str, artwork: str
     return node["fx_id"]
 
 
-def presets_cover_native_types(case: NativeAcceptance, kinds: Sequence[str]) -> None:
+def presets_cover_native_types(
+    case: NativeAcceptance,
+    kinds: Sequence[str],
+    make_source: Callable[[NativeAcceptance, str], str] | None = None,
+) -> None:
     """Compare actual copied and reopened renders for each listed native preset factory.
 
     Each type takes four preview renders, so keep a call within the worker's 32-job limit.
@@ -492,8 +513,11 @@ def presets_cover_native_types(case: NativeAcceptance, kinds: Sequence[str]) -> 
     Args:
         case: A fresh native worker acceptance fixture.
         kinds: Native FX types from NATIVE_PRESETS to cover.
+        make_source: Creates the effect wired to every input; defaults to the quadrant artwork.
     """
     document, artwork = _artwork_fixture(case)
+    if make_source is not None:
+        artwork = make_source(case, document)
     references = {}
     parameters = {}
     for kind in kinds:

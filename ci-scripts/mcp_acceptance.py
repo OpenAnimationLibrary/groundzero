@@ -22,6 +22,7 @@ import mcp_audio_cases
 import mcp_color_composite_cases
 import mcp_curve_cases
 import mcp_drawing_cases
+import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
@@ -34,6 +35,7 @@ import mcp_movie_eof
 import mcp_palette_cases
 import mcp_production_cases
 import mcp_receipt_cases
+import mcp_recipe_cases
 import mcp_render_cases
 import mcp_renumber_cases
 import mcp_rig_cases
@@ -138,6 +140,45 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_color_composite_keys_survive_copy_and_reopen(self) -> None:
         mcp_color_composite_cases.color_composite_keys_survive_copy_and_reopen(self)
+
+    def test_finishing_bounds_reject_before_mutation(self) -> None:
+        mcp_finishing_cases.finishing_bounds_reject_before_mutation(self)
+
+    def test_finishing_gradient_separation_rejects_before_mutation(self) -> None:
+        mcp_finishing_cases.finishing_gradient_separation_rejects_before_mutation(self)
+
+    def test_finishing_preflight_bounds_render_extent(self) -> None:
+        mcp_finishing_cases.finishing_preflight_bounds_render_extent(self)
+
+    def test_finishing_preflight_requires_unmirrored_erosion(self) -> None:
+        mcp_finishing_cases.finishing_preflight_requires_unmirrored_erosion(self)
+
+    def test_finishing_required_inputs_are_diagnosed(self) -> None:
+        mcp_finishing_cases.finishing_required_inputs_are_diagnosed(self)
+
+    def test_light_presets_cover_native_types(self) -> None:
+        mcp_finishing_cases.light_presets_cover_native_types(self)
+
+    def test_stylize_presets_cover_native_types(self) -> None:
+        mcp_finishing_cases.stylize_presets_cover_native_types(self)
+
+    def test_grade_presets_cover_native_types(self) -> None:
+        mcp_finishing_cases.grade_presets_cover_native_types(self)
+
+    def test_recipe_light_wrap_composite_runs_literally(self) -> None:
+        mcp_recipe_cases.recipe_light_wrap_composite_runs_literally(self)
+
+    def test_recipe_backlit_rim_light_runs_literally(self) -> None:
+        mcp_recipe_cases.recipe_backlit_rim_light_runs_literally(self)
+
+    def test_recipe_exposure_grade_runs_literally(self) -> None:
+        mcp_recipe_cases.recipe_exposure_grade_runs_literally(self)
+
+    def test_recipe_cross_dissolve_runs_literally(self) -> None:
+        mcp_recipe_cases.recipe_cross_dissolve_runs_literally(self)
+
+    def test_recipe_iris_wipe_runs_literally(self) -> None:
+        mcp_recipe_cases.recipe_iris_wipe_runs_literally(self)
 
     def test_macro_roundtrip_preserves_pixels_and_mapping(self) -> None:
         mcp_macro_cases.macro_roundtrip_preserves_pixels_and_mapping(self)

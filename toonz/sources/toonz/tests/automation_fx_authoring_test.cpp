@@ -20,6 +20,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -156,9 +157,9 @@ void checkDetachedHandlers(GroundzeroAutomation::Context& context) {
   auto* original = dynamic_cast<TZeraryColumnFx*>(document.fx(source));
   require(original != nullptr, "Source generator wrapper is absent");
   auto* sourceRed = redChannel(original->getZeraryFx());
-  sourceRed->setDefaultValue(17);
-  sourceRed->setKeyframe(TDoubleKeyframe(0, 24));
-  sourceRed->setKeyframe(TDoubleKeyframe(12, 200));
+  sourceRed->setDefaultValue(17 / 255.0);
+  sourceRed->setKeyframe(TDoubleKeyframe(0, 24 / 255.0));
+  sourceRed->setKeyframe(TDoubleKeyframe(12, 200 / 255.0));
   const auto copy = command(context, document.id, "fx.duplicate",
                             {{"fx_id", source}, {"frame_count", 7}});
   auto* duplicate = dynamic_cast<TZeraryColumnFx*>(
@@ -179,11 +180,12 @@ void checkDetachedHandlers(GroundzeroAutomation::Context& context) {
       original->getZeraryFx()->getFxId() != duplicate->getZeraryFx()->getFxId(),
       "Generator copy reused the native persistent identity");
   auto* copiedRed = redChannel(duplicate->getZeraryFx());
-  require(copiedRed->getDefaultValue() == 17 && copiedRed->getValue(6) == 112 &&
+  require(copiedRed->getDefaultValue() == 17 / 255.0 &&
+              std::fabs(copiedRed->getValue(6) - 112 / 255.0) < 1e-12 &&
               copiedRed->getKeyframeCount() == 2,
           "Generator copy lost its default or keyed interpolation");
-  copiedRed->setKeyframe(TDoubleKeyframe(0, 99));
-  require(sourceRed->getValue(0) == 24,
+  copiedRed->setKeyframe(TDoubleKeyframe(0, 99 / 255.0));
+  require(sourceRed->getValue(0) == 24 / 255.0,
           "Editing copied animation changed its source");
   validateAutomationFxGraph(*document.scene);
   context.removeDocument(document.id);

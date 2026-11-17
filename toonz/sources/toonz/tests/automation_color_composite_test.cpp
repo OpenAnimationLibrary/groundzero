@@ -449,8 +449,8 @@ void runAutomationColorCompositeTests(Context& context) {
                   .toObject()
                   .value("effects")
                   .toArray()
-                  .size() == 14,
-          "Color/composite catalog must retain the six earlier factories");
+                  .size() == 31,
+          "Color/composite catalog must retain the earlier factories");
   QTemporaryDir directory(context.workspace() +
                           "/color-composite-tests-XXXXXX");
   require(directory.isValid(),
