@@ -71,9 +71,15 @@ and reusing an operation ID for different arguments always conflicts.
 
 The native profile supports detached scenes, PNG imports, exposures, camera and
 peg animation, vector strokes and fills, RGBA8 and Toonz raster pixels, and solid
-palette styles. Its FX catalog admits six builtins: color card, linear and radial
-gradients, over, blur, and glow. Consult the running catalog for parameters and
-limits. There is no live editor connection or undo history in this profile.
+palette styles. Its FX catalog admits fourteen builtins: color card, linear and
+radial gradients, over, blur, glow, brightness/contrast, HSV adjustment, multiply,
+screen, inside/outside matte, RGB inversion, and cross-dissolve. Consult the running
+catalog for exact native type, port and parameter names. HSV percentage scales
+are limited to 0–400 and multiply offsets to −255–255; multiply truncates fractional
+offsets toward zero in its native integer kernel. The eight color/composite effects
+use native version 1 and scalar linear animation keys. These bounds also apply to
+presets, scene packages and render snapshots. There is no live editor connection
+or undo history in this profile.
 
 `cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
 current detached document. Supply its `document_id` and latest `expected_revision`

@@ -123,8 +123,8 @@ void expectNoMutation(Context& context, const std::function<void()>& action) {
 void testCatalog(Context& context, Document& document) {
   const QJsonObject catalog = executeFx(context, "fx.catalog", {}).toObject();
   const QJsonArray effects  = catalog.value("effects").toArray();
-  require(effects.size() == 6,
-          "Builtin profile must expose only its six qualified effects");
+  require(effects.size() == 14,
+          "Builtin profile must expose only its fourteen qualified effects");
   require(catalog.value("external_dependencies").toArray().isEmpty(),
           "Builtin profile must not declare external dependencies");
   for (const QJsonValue& entry : effects) {

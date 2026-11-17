@@ -38,10 +38,31 @@
 namespace GroundzeroAutomation {
 namespace {
 
-const QStringList& allowedTypes() {
+const QStringList& colorCompositeTypes() {
   static const QStringList types = {
-      "colorCardFx",          "overFx",     "STD_iwa_LinearGradientFx",
-      "STD_radialGradientFx", "STD_blurFx", "STD_glowFx"};
+      "STD_brightContFx", "STD_hsvScaleFx", "multFx",
+      "screenFx",         "inFx",           "outFx",
+      "invertFx",         "blendFx"};
+  return types;
+}
+
+void validateColorCompositeProfile(TFx* fx);
+
+const QStringList& allowedTypes() {
+  static const QStringList types = {"colorCardFx",
+                                    "overFx",
+                                    "STD_iwa_LinearGradientFx",
+                                    "STD_radialGradientFx",
+                                    "STD_blurFx",
+                                    "STD_glowFx",
+                                    "STD_brightContFx",
+                                    "STD_hsvScaleFx",
+                                    "multFx",
+                                    "screenFx",
+                                    "inFx",
+                                    "outFx",
+                                    "invertFx",
+                                    "blendFx"};
   return types;
 }
 
@@ -87,13 +108,14 @@ std::set<TFx*> graphMembers(Document& document) {
 
 size_t graphNodeCount(Document& document) {
   const auto members = graphMembers(document);
-  size_t count = members.size();
+  size_t count       = members.size();
   for (TFx* fx : members) {
     auto* macro = dynamic_cast<TMacroFx*>(fx);
     if (!macro) continue;
     const size_t children = macro->getFxs().size();
     if (children < 2 || children > 64)
-      throw Error("INVALID_MACRO", "Macro members exceed the admitted profile.");
+      throw Error("INVALID_MACRO",
+                  "Macro members exceed the admitted profile.");
     count += children;
   }
   return count;
@@ -155,6 +177,7 @@ TFxP makeEffect(const QString& type) {
   if (!fx || fx->getFxType() != name)
     throw Error("NATIVE_FAILURE",
                 "Builtin factory returned an unexpected effect.");
+  validateColorCompositeProfile(fx);
   object.release();
   return TFxP(fx);
 }
@@ -228,6 +251,22 @@ QJsonObject valueSchema(TParam* param) {
   return discreteSchema(param);
 }
 
+QJsonObject profileSchema(TFx* fx, TParam* param, const QString& name) {
+  QJsonObject schema     = valueSchema(param);
+  const std::string type = parameterFx(fx)->getFxType();
+  if (type == "STD_hsvScaleFx" &&
+      (name == "hue_scale" || name == "saturation_scale" ||
+       name == "value_scale")) {
+    schema["minimum"] = 0;
+    schema["maximum"] = 400;
+  }
+  if (type == "multFx" && name == "value") {
+    schema["minimum"] = -255;
+    schema["maximum"] = 255;
+  }
+  return schema;
+}
+
 QJsonValue discreteValue(TParam* param) {
   if (auto* integer = dynamic_cast<TIntParam*>(param))
     return integer->getValue();
@@ -264,9 +303,9 @@ QJsonValue parameterValue(TParam* param, double frame) {
   return discreteValue(param);
 }
 
-QJsonObject parameterDescription(TParam* param, const QString& name,
+QJsonObject parameterDescription(TFx* fx, TParam* param, const QString& name,
                                  double frame) {
-  const QJsonObject schema = valueSchema(param);
+  const QJsonObject schema = profileSchema(fx, param, name);
   QJsonObject result{{"name", name},
                      {"animatable", param->isAnimatable()},
                      {"supported", !schema.isEmpty()},
@@ -291,8 +330,9 @@ QJsonArray parameterDescriptions(TFx* fx, double frame) {
   for (int index = 0; index < params->getParamCount(); ++index) {
     const TParamVar* entry = params->getParamVar(index);
     if (entry->isHidden() || entry->isObsolete()) continue;
-    result.append(parameterDescription(
-        entry->getParam(), QString::fromStdString(entry->getName()), frame));
+    result.append(parameterDescription(fx, entry->getParam(),
+                                       QString::fromStdString(entry->getName()),
+                                       frame));
   }
   return result;
 }
@@ -519,7 +559,8 @@ QJsonValue duplicateEffect(Context& context, Document& document,
   const auto name = params.contains("name")
                         ? authoringName(params).toStdWString()
                         : native->getName();
-  TFxP copy       = makeEffect(type);
+  validateColorCompositeProfile(native);
+  TFxP copy = makeEffect(type);
   copy->setFxVersion(native->getFxVersion());
   copy->getParams()->copy(native->getParams());
   copy->setName(name);
@@ -593,6 +634,7 @@ void writePresetFile(const QString& path, const QByteArray& bytes) {
 }
 
 QByteArray saveNativePreset(TFx* fx, const QString& path) {
+  validateColorCompositeProfile(fx);
   requirePresetKeyBudget(fx);
   try {
     TOStream stream(TFilePath(path.toStdWString()));
@@ -844,6 +886,7 @@ void validateNode(TFx* fx, TXsheet* sheet) {
     throw Error("INVALID_GRAPH",
                 "A generator must be owned by a scene column wrapper.");
   requireEditable(fx);
+  validateColorCompositeProfile(fx);
 }
 
 void validateEdges(const std::set<TFx*>& members, FxDag* graph) {
@@ -876,7 +919,8 @@ void validateEdges(const std::set<TFx*>& members, FxDag* graph) {
 }
 
 TFxPort* editablePort(TFx* fx, const QString& name) {
-  if (!dynamic_cast<TOutputFx*>(fx) && !dynamic_cast<TMacroFx*>(fx)) requireEditable(fx);
+  if (!dynamic_cast<TOutputFx*>(fx) && !dynamic_cast<TMacroFx*>(fx))
+    requireEditable(fx);
   TFxPort* port = fx->getInputPort(name.toStdString());
   if (!port)
     throw Error("UNKNOWN_PORT",
@@ -924,11 +968,16 @@ QJsonValue connectEffect(Context& context, Document& document,
   return describeFx(document, destination);
 }
 
+void requireTerminalEditable(TFx* fx) {
+  if (!dynamic_cast<TColumnFx*>(fx) && !dynamic_cast<TMacroFx*>(fx))
+    requireEditable(fx);
+}
+
 QJsonValue setTerminal(Context& context, Document& document,
                        const QJsonObject& params) {
   TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
   validateAutomationFxGraph(*document.scene);
-  if (!dynamic_cast<TColumnFx*>(fx) && !dynamic_cast<TMacroFx*>(fx)) requireEditable(fx);
+  requireTerminalEditable(fx);
   requireColumnEditable(document, fx);
   if (!params.value("enabled").isBool())
     throw Error("INVALID_PARAMS", "enabled must be a boolean.");
@@ -1061,6 +1110,40 @@ void validateNumber(const QJsonValue& value, const QJsonObject& schema) {
     throw Error("OUT_OF_RANGE", "Parameter value exceeds its native maximum.");
 }
 
+void validateProfileKeys(TDoubleParam* number, const QJsonObject& schema) {
+  if (number->getKeyframeCount() > 4096)
+    throw Error("RESOURCE_LIMIT", "Effect parameter exceeds 4096 scalar keys.");
+  validateNumber(number->getDefaultValue(), schema);
+  for (int index = 0; index < number->getKeyframeCount(); ++index) {
+    const auto& key = number->getKeyframe(index);
+    validateNumber(key.m_value, schema);
+    const auto previous =
+        index == 0 ? TDoubleKeyframe::None : TDoubleKeyframe::Linear;
+    if (key.m_type != TDoubleKeyframe::Linear || key.m_prevType != previous ||
+        key.m_step != 1)
+      throw Error(
+          "UNSUPPORTED_PARAMETER",
+          "Color/composite FX admit only scalar linear animation keys.");
+  }
+}
+
+void validateColorCompositeProfile(TFx* fx) {
+  const QString type = QString::fromStdString(fx->getFxType());
+  if (!colorCompositeTypes().contains(type)) return;
+  if (fx->getFxVersion() != 1)
+    throw Error("UNSUPPORTED_FX",
+                "Color/composite FX require native version 1.");
+  TParamContainer* params = fx->getParams();
+  for (int index = 0; index < params->getParamCount(); ++index) {
+    const auto* entry = params->getParamVar(index);
+    auto* number      = dynamic_cast<TDoubleParam*>(entry->getParam());
+    if (!number) continue;
+    validateProfileKeys(
+        number,
+        profileSchema(fx, number, QString::fromStdString(entry->getName())));
+  }
+}
+
 void validateScalar(const QJsonValue& value, const QJsonObject& schema) {
   validateNumber(value, schema);
   if (schema.contains("enum") &&
@@ -1177,6 +1260,20 @@ void verifyParameterEdit(TParam* param, const QJsonValue& value, int frame,
                 "Native parameter update failed its readback check.");
 }
 
+void validateProfileEdit(TFx* fx, TParam* param, int frame, bool key) {
+  TFx* native = parameterFx(fx);
+  if (!colorCompositeTypes().contains(
+          QString::fromStdString(native->getFxType())))
+    return;
+  validateColorCompositeProfile(native);
+  if (!key) return;
+  auto* number = dynamic_cast<TDoubleParam*>(param);
+  if (!number) return;
+  if (number->getKeyframeCount() >= 4096 && !number->isKeyframe(frame))
+    throw Error("RESOURCE_LIMIT",
+                "Effect parameter is limited to 4096 scalar keys.");
+}
+
 QJsonValue changeParameter(Context& context, Document& document,
                            const QJsonObject& params, bool key) {
   TFx* fx            = ownedFx(document, requiredString(params, "fx_id"));
@@ -1185,10 +1282,11 @@ QJsonValue changeParameter(Context& context, Document& document,
   requireColumnEditable(document, fx);
   const int frame        = integerParam(params, "frame", 0, 1000000, 0);
   const QJsonValue value = params.value("value");
-  validateValue(value, valueSchema(param));
+  validateValue(value, profileSchema(fx, param, name));
   validateParameterEdit(param, key);
+  validateProfileEdit(fx, param, frame, key);
   if (unchangedParameter(param, value, frame, key))
-    return parameterDescription(param, name, frame);
+    return parameterDescription(fx, param, name, frame);
   TParamP backup = param->clone();
   context.markMutationStarted();
   try {
@@ -1198,14 +1296,15 @@ QJsonValue changeParameter(Context& context, Document& document,
     param->copy(backup.getPointer());
     throw;
   }
-  return parameterDescription(param, name, frame);
+  return parameterDescription(fx, param, name, frame);
 }
 
 QJsonValue getParameters(Context&, Document& document,
                          const QJsonObject& params) {
-  TFx* fx         = ownedFx(document, requiredString(params, "fx_id"));
+  TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
   if (dynamic_cast<TMacroFx*>(fx))
-    throw Error("UNSUPPORTED_PARAMETER", "Expand the macro before reading member parameters.");
+    throw Error("UNSUPPORTED_PARAMETER",
+                "Expand the macro before reading member parameters.");
   const int frame = integerParam(params, "frame", 0, 1000000, 0);
   return QJsonObject{{"fx_id", document.idForFx(fx)},
                      {"frame", frame},
@@ -1262,7 +1361,9 @@ QByteArray automationFxPresetBytes(TFx* fx, const QString& path) {
   return saveNativePreset(fx, path);
 }
 
-QString automationFxName(const QJsonObject& params) { return authoringName(params); }
+QString automationFxName(const QJsonObject& params) {
+  return authoringName(params);
+}
 
 bool isAutomationFxTypeSupported(const QString& type) {
   return allowedTypes().contains(type);
@@ -1351,8 +1452,9 @@ QJsonValue executeFx(Context& context, const QString& method,
                      const QJsonObject& params) {
   if (method == "fx.catalog") return effectCatalog();
   Document& document = context.document(requiredString(params, "document_id"));
-  if (method.startsWith("fx.macro.")) return executeMacro(context, document, method, params);
-  using Handler      = QJsonValue (*)(Context&, Document&, const QJsonObject&);
+  if (method.startsWith("fx.macro."))
+    return executeMacro(context, document, method, params);
+  using Handler = QJsonValue (*)(Context&, Document&, const QJsonObject&);
   static const std::map<QString, Handler> handlers = {
       {"fx.create", createEffect},
       {"fx.rename", renameEffect},
