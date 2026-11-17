@@ -282,18 +282,21 @@ QJsonObject candidate(Context& context, const QString& type,
       imageHashes(loaded, directory + "/" + type + "-restored-");
   require(original == restored,
           "Candidate saved PNG bytes differ after native roundtrip");
-  return {{"type", type},
-          {"native_fx_version", effect->getFxVersion()},
-          {"descriptor", call(context, document, "fx.parameter.get",
-                              {{"fx_id", document.idForFx(effect)}})},
-          {"preset", preset},
-          {"safe_boundary_checks", boundaries},
-          {"effect_animated_parameter", animated},
-          {"preset_apply_pixels_exact", true},
-          {"enable_bypass_observed", true},
-          {"pixel_hashes", original},
-          {"roundtrip_pixels_exact", true},
-          {"independent_parameter_copy", true}};
+  const QJsonObject summary{
+      {"type", type},
+      {"native_fx_version", effect->getFxVersion()},
+      {"descriptor", call(context, document, "fx.parameter.get",
+                          {{"fx_id", document.idForFx(effect)}})},
+      {"preset", preset},
+      {"safe_boundary_checks", boundaries},
+      {"effect_animated_parameter", animated},
+      {"preset_apply_pixels_exact", true},
+      {"enable_bypass_observed", true},
+      {"pixel_hashes", original},
+      {"roundtrip_pixels_exact", true},
+      {"independent_parameter_copy", true}};
+  context.removeDocument(document.id);
+  return summary;
 }
 void rejects(const std::function<void()>& action, const QString& code) {
   try {
@@ -375,6 +378,7 @@ void invalidBounds(Context& context, const QString& directory) {
     number->clearKeyframes();
     validateAutomationFxGraph(*document.scene);
   }
+  context.removeDocument(document.id);
 }
 void scalarAdmissionEdges(Context& context) {
   auto& document = context.addDocument(std::make_unique<ToonzScene>());
@@ -416,6 +420,7 @@ void scalarAdmissionEdges(Context& context) {
   rejects([&] { validateAutomationFxGraph(*document.scene); },
           "RESOURCE_LIMIT");
   number->clearKeyframes();
+  context.removeDocument(document.id);
 }
 void retainedCurvePolicy(Context& context) {
   auto& document = context.addDocument(std::make_unique<ToonzScene>());
@@ -435,6 +440,7 @@ void retainedCurvePolicy(Context& context) {
           "UNSUPPORTED_FX");
   fx->setFxVersion(1);
   validateAutomationFxGraph(*document.scene);
+  context.removeDocument(document.id);
 }
 }  // namespace
 namespace GroundzeroAutomation {
