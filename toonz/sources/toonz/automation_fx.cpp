@@ -4,9 +4,11 @@
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
 #include "tfx.h"
+#include "tfxattributes.h"
 #include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
+#include "tstream.h"
 #include "trasterfx.h"
 #include "tzeraryfx.h"
 #include "toonz/fxdag.h"
@@ -17,6 +19,13 @@
 #include "toonz/tstageobjecttree.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshzeraryfxcolumn.h"
+
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QTemporaryDir>
 
 #include <algorithm>
 #include <cmath>
@@ -296,6 +305,9 @@ QJsonValue effectCatalog() {
       effects.append(QJsonObject{
           {"type", type},
           {"available", true},
+          {"native_fx_version", fx->getFxVersion()},
+          {"authoring", QJsonArray{"rename", "enabled.set", "duplicate",
+                                   "preset.save", "preset.apply"}},
           {"generator", dynamic_cast<TZeraryFx*>(fx.getPointer()) != nullptr},
           {"ports", portsDescription(fx.getPointer())},
           {"parameters", parameterDescriptions(fx.getPointer(), 0)}});
@@ -328,6 +340,9 @@ QJsonObject describeFx(Document& document, TFx* fx) {
       {"fx_id", document.idForFx(fx)},
       {"type", QString::fromStdString(native->getFxType())},
       {"name", QString::fromStdWString(native->getName())},
+      {"enabled", fx->getAttributes()->isEnabled() &&
+                      native->getAttributes()->isEnabled()},
+      {"native_fx_version", native->getFxVersion()},
       {"ports", portsDescription(fx, &document)},
       {"terminal", dag(document)->getTerminalFxs()->containsFx(fx)},
       {"diagnostics", diagnostics(native)}};
@@ -377,17 +392,7 @@ TFx* insertGenerator(Document& document, TFx* fx, int frameCount) {
   return wrapper;
 }
 
-QJsonValue createEffect(Context& context, Document& document,
-                        const QJsonObject& params) {
-  const QString type = requiredString(params, "type");
-  const int frames   = integerParam(params, "frame_count", 1, 10000, 1);
-  if (graphMembers(document).size() >= 4096)
-    throw Error("RESOURCE_LIMIT",
-                "The automation graph is limited to 4096 effect nodes.");
-  TFxP effect = type == "output" ? makeOutput() : makeEffect(type);
-  TFx* fx     = effect.getPointer();
-  if (params.contains("name"))
-    fx->setName(requiredString(params, "name").toStdWString());
+TFx* insertEffect(Context& context, Document& document, TFx* fx, int frames) {
   TXsheet* sheet = document.scene->getXsheet();
   for (int index = 0; index < fx->getParams()->getParamCount(); ++index)
     assignGrammar(fx->getParams()->getParam(index), sheet);
@@ -403,7 +408,351 @@ QJsonValue createEffect(Context& context, Document& document,
   if (graphMembers(document).count(fx) == 0)
     throw Error("NATIVE_FAILURE",
                 "Created effect was not inserted into the scene graph.");
-  return describeFx(document, fx);
+  return fx;
+}
+
+QJsonValue createEffect(Context& context, Document& document,
+                        const QJsonObject& params) {
+  const QString type = requiredString(params, "type");
+  const int frames   = integerParam(params, "frame_count", 1, 10000, 1);
+  if (graphMembers(document).size() >= 4096)
+    throw Error("RESOURCE_LIMIT",
+                "The automation graph is limited to 4096 effect nodes.");
+  TFxP effect = type == "output" ? makeOutput() : makeEffect(type);
+  if (params.contains("name"))
+    effect->setName(requiredString(params, "name").toStdWString());
+  return describeFx(
+      document, insertEffect(context, document, effect.getPointer(), frames));
+}
+
+QString authoringName(const QJsonObject& params) {
+  const QString name = requiredString(params, "name");
+  if (name.size() > 256)
+    throw Error("INVALID_PARAMS",
+                "Effect names are limited to 256 UTF-16 code units.");
+  for (QChar character : name)
+    if (character.isNull() || character.category() == QChar::Other_Control)
+      throw Error("INVALID_PARAMS",
+                  "Effect names cannot contain control characters.");
+  return name;
+}
+
+QJsonValue renameEffect(Context& context, Document& document,
+                        const QJsonObject& params) {
+  TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
+  requireEditable(fx);
+  requireColumnEditable(document, fx);
+  const auto name    = authoringName(params).toStdWString();
+  TFx* native        = parameterFx(fx);
+  const bool changed = native->getName() != name;
+  if (changed) {
+    context.markMutationStarted();
+    native->setName(name);
+    if (native->getName() != name)
+      throw Error("NATIVE_FAILURE",
+                  "Native effect rename did not take effect.");
+  }
+  auto result       = describeFx(document, fx);
+  result["changed"] = changed;
+  return result;
+}
+
+QJsonValue enableEffect(Context& context, Document& document,
+                        const QJsonObject& params) {
+  TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
+  requireEditable(fx);
+  requireColumnEditable(document, fx);
+  if (!params.value("enabled").isBool())
+    throw Error("INVALID_PARAMS", "enabled must be a boolean.");
+  const bool enabled = params.value("enabled").toBool();
+  TFx* native        = parameterFx(fx);
+  const bool changed = fx->getAttributes()->isEnabled() != enabled ||
+                       native->getAttributes()->isEnabled() != enabled;
+  if (changed) {
+    context.markMutationStarted();
+    fx->getAttributes()->enable(enabled);
+    native->getAttributes()->enable(enabled);
+  }
+  if (fx->getAttributes()->isEnabled() != enabled ||
+      native->getAttributes()->isEnabled() != enabled)
+    throw Error("NATIVE_FAILURE",
+                "Native effect enable state did not take effect.");
+  auto result       = describeFx(document, fx);
+  result["enabled"] = enabled;
+  result["changed"] = changed;
+  return result;
+}
+
+QJsonValue duplicateEffect(Context& context, Document& document,
+                           const QJsonObject& params) {
+  TFx* source = ownedFx(document, requiredString(params, "fx_id"));
+  requireEditable(source);
+  requireColumnEditable(document, source);
+  const int frames = integerParam(params, "frame_count", 1, 10000, 1);
+  if (graphMembers(document).size() >= 4096)
+    throw Error("RESOURCE_LIMIT",
+                "The automation graph is limited to 4096 effect nodes.");
+  TFx* native = parameterFx(source);
+  if (params.contains("frame_count") && !dynamic_cast<TZeraryFx*>(native))
+    throw Error("INVALID_PARAMS",
+                "frame_count applies only to a duplicated generator.");
+  const auto type = QString::fromStdString(native->getFxType());
+  const auto name = params.contains("name")
+                        ? authoringName(params).toStdWString()
+                        : native->getName();
+  TFxP copy       = makeEffect(type);
+  copy->setFxVersion(native->getFxVersion());
+  copy->getParams()->copy(native->getParams());
+  copy->setName(name);
+  const bool enabled = source->getAttributes()->isEnabled() &&
+                       native->getAttributes()->isEnabled();
+  copy->getAttributes()->enable(enabled);
+  TFx* inserted = insertEffect(context, document, copy.getPointer(), frames);
+  inserted->getAttributes()->enable(enabled);
+  auto result            = describeFx(document, inserted);
+  result["source_fx_id"] = document.idForFx(source);
+  result["enabled"]      = enabled;
+  result["changed"]      = true;
+  return result;
+}
+
+constexpr qint64 maximumPresetBytes = 1024 * 1024;
+
+struct PublishedPreset final {
+  QJsonObject manifest;
+  QByteArray manifestBytes;
+};
+
+std::map<QString, PublishedPreset> publishedPresets;
+
+QByteArray presetDigest(const QByteArray& bytes) {
+  return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+}
+
+void requirePresetKeyBudget(TFx* fx) {
+  std::vector<TParam*> pending;
+  for (int index = 0; index < fx->getParams()->getParamCount(); ++index)
+    pending.push_back(fx->getParams()->getParam(index));
+  qint64 keys = 0;
+  int visited = 0;
+  while (!pending.empty()) {
+    TParam* param = pending.back();
+    pending.pop_back();
+    if (++visited > 4096)
+      throw Error("RESOURCE_LIMIT", "Preset parameter structure is too large.");
+    if (auto* number = dynamic_cast<TDoubleParam*>(param))
+      keys += number->getKeyframeCount();
+    if (auto* set = dynamic_cast<TParamSet*>(param))
+      for (int index = 0; index < set->getParamCount(); ++index)
+        pending.push_back(set->getParam(index).getPointer());
+    if (keys > 4096)
+      throw Error("RESOURCE_LIMIT", "Presets are limited to 4096 scalar keys.");
+  }
+}
+
+QByteArray readPresetFile(const QString& path) {
+  const QFileInfo info(path);
+  if (!info.isFile() || info.isSymLink() ||
+      info.canonicalFilePath() != QDir::cleanPath(path))
+    throw Error("INVALID_PRESET", "Preset files must be regular owned files.");
+  if (info.size() > maximumPresetBytes)
+    throw Error("RESOURCE_LIMIT", "Preset files are limited to 1 MiB.");
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly))
+    throw Error("PRESET_READ_FAILED", "Cannot open the preset file.");
+  const QByteArray bytes = file.read(maximumPresetBytes + 1);
+  if (file.error() != QFileDevice::NoError || bytes.size() != info.size())
+    throw Error("PRESET_READ_FAILED", "Cannot read the complete preset file.");
+  return bytes;
+}
+
+void writePresetFile(const QString& path, const QByteArray& bytes) {
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+      file.write(bytes) != bytes.size() || !file.flush())
+    throw Error("PRESET_WRITE_FAILED", "Cannot write the private preset file.");
+}
+
+QByteArray saveNativePreset(TFx* fx, const QString& path) {
+  requirePresetKeyBudget(fx);
+  try {
+    TOStream stream(TFilePath(path.toStdWString()));
+    if (!stream)
+      throw Error("PRESET_WRITE_FAILED",
+                  "Cannot create a native preset stream.");
+    stream.setFullPrecision(true);
+    fx->savePreset(stream);
+  } catch (const TException&) {
+    throw Error("PRESET_WRITE_FAILED", "Native preset serialization failed.");
+  }
+  return readPresetFile(path);
+}
+
+TFxP verifiedPreset(Document& document, TFx* source, const QByteArray& bytes,
+                    const QString& staging) {
+  TFxP candidate = makeEffect(QString::fromStdString(source->getFxType()));
+  candidate->setFxVersion(source->getFxVersion());
+  for (int index = 0; index < candidate->getParams()->getParamCount(); ++index)
+    assignGrammar(candidate->getParams()->getParam(index),
+                  document.scene->getXsheet());
+  const QString path = staging + "/input.preset";
+  writePresetFile(path, bytes);
+  try {
+    TIStream stream(TFilePath(path.toStdWString()));
+    if (!stream)
+      throw Error("INVALID_PRESET", "Cannot open the native preset stream.");
+    candidate->loadPreset(stream);
+  } catch (const TException&) {
+    throw Error("INVALID_PRESET", "Native preset loading failed.");
+  }
+  if (saveNativePreset(candidate.getPointer(), staging + "/verified.preset") !=
+      bytes)
+    throw Error(
+        "INVALID_PRESET",
+        "The native preset did not preserve every serialized parameter.");
+  return candidate;
+}
+
+QJsonObject presetManifest(Document& document, TFx* native,
+                           const QByteArray& bytes) {
+  return {{"format_version", 1},
+          {"type", QString::fromStdString(native->getFxType())},
+          {"native_fx_version", native->getFxVersion()},
+          {"sha256", QString::fromLatin1(presetDigest(bytes))},
+          {"size_bytes", bytes.size()},
+          {"source_revision", document.revisionText()}};
+}
+
+QString newPresetDirectory(Context& context, const QJsonObject& params) {
+  const QString requested = requiredString(params, "directory");
+  if (!QDir::isAbsolutePath(requested))
+    throw Error("INVALID_PARAMS",
+                "Preset directory must be an absolute workspace path.");
+  const QString path = context.resolvePath(requested, true);
+  const QFileInfo target(path);
+  if (target.exists() || target.isSymLink())
+    throw Error(
+        "ALREADY_EXISTS",
+        "Choose a new preset directory; existing paths are not overwritten.");
+  if (!QDir(target.absolutePath()).exists())
+    throw Error("MISSING_PARENT", "Create the preset parent directory first.");
+  if (publishedPresets.size() >= 128)
+    throw Error("RESOURCE_LIMIT",
+                "This worker has reached its 128 published preset limit.");
+  return path;
+}
+
+QJsonValue savePreset(Context& context, Document& document,
+                      const QJsonObject& params) {
+  TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
+  requireEditable(fx);
+  TFx* native             = parameterFx(fx);
+  const QString directory = newPresetDirectory(context, params);
+  QTemporaryDir staging(QFileInfo(directory).absolutePath() +
+                        "/.mcp-preset-XXXXXX");
+  if (!staging.isValid())
+    throw Error("PRESET_WRITE_FAILED",
+                "Cannot create a private preset staging directory.");
+  const QByteArray bytes =
+      saveNativePreset(native, staging.path() + "/effect.preset");
+  QTemporaryDir verification(context.workspace() + "/.mcp-preset-check-XXXXXX");
+  if (!verification.isValid())
+    throw Error("PRESET_WRITE_FAILED",
+                "Cannot create a private preset verification directory.");
+  verifiedPreset(document, native, bytes, verification.path());
+  const QJsonObject manifest = presetManifest(document, native, bytes);
+  const QByteArray manifestBytes =
+      QJsonDocument(manifest).toJson(QJsonDocument::Compact);
+  writePresetFile(staging.path() + "/manifest.json", manifestBytes);
+  context.markMutationStarted();
+  if (QFileInfo::exists(directory) || !QDir().rename(staging.path(), directory))
+    throw Error("PRESET_WRITE_FAILED",
+                "Cannot publish the verified preset directory.");
+  staging.setAutoRemove(false);
+  publishedPresets.emplace(directory, PublishedPreset{manifest, manifestBytes});
+  return QJsonObject{{"preset_directory", directory},
+                     {"manifest", manifest},
+                     {"fx_id", document.idForFx(fx)}};
+}
+
+void requirePresetIdentity(const QJsonObject& manifest, TFx* native) {
+  if (manifest.value("type") != QString::fromStdString(native->getFxType()) ||
+      manifest.value("native_fx_version") != native->getFxVersion())
+    throw Error("INCOMPATIBLE_PRESET",
+                "Preset effect type and native version must match the target.");
+}
+
+QByteArray admittedPreset(Context& context, TFx* native,
+                          const QJsonObject& params) {
+  const QString requested = requiredString(params, "directory");
+  if (!QDir::isAbsolutePath(requested))
+    throw Error("INVALID_PARAMS",
+                "Preset directory must be an absolute workspace path.");
+  const QString directory = context.resolvePath(requested, false);
+  const auto found        = publishedPresets.find(directory);
+  if (found == publishedPresets.end())
+    throw Error("UNREGISTERED_PRESET",
+                "Apply only a preset published by this worker.");
+  const auto& preset = found->second;
+  if (readPresetFile(directory + "/manifest.json") != preset.manifestBytes)
+    throw Error("INVALID_PRESET",
+                "The preset manifest changed after publication.");
+  if (QDir(directory).entryList(QDir::AllEntries | QDir::Hidden | QDir::System |
+                                QDir::NoDotAndDotDot) !=
+      QStringList{"effect.preset", "manifest.json"})
+    throw Error("INVALID_PRESET",
+                "The preset directory contains unexpected entries.");
+  const auto& manifest = preset.manifest;
+  requirePresetIdentity(manifest, native);
+  const QByteArray bytes = readPresetFile(directory + "/effect.preset");
+  if (bytes.size() != manifest.value("size_bytes").toInt() ||
+      QString::fromLatin1(presetDigest(bytes)) !=
+          manifest.value("sha256").toString())
+    throw Error("INVALID_PRESET",
+                "The native preset changed after publication.");
+  return bytes;
+}
+
+void replacePresetParameters(TFx* target, TFx* candidate, TFx* backup,
+                             const QByteArray& bytes, const QString& staging) {
+  try {
+    target->getParams()->copy(candidate->getParams());
+    if (saveNativePreset(target, staging + "/applied.preset") != bytes)
+      throw Error("NATIVE_FAILURE",
+                  "Applied preset failed its native parameter readback.");
+  } catch (...) {
+    target->getParams()->copy(backup->getParams());
+    throw;
+  }
+}
+
+QJsonValue applyPreset(Context& context, Document& document,
+                       const QJsonObject& params) {
+  TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
+  requireEditable(fx);
+  requireColumnEditable(document, fx);
+  TFx* native            = parameterFx(fx);
+  const QByteArray bytes = admittedPreset(context, native, params);
+  QTemporaryDir staging(context.workspace() + "/.mcp-preset-apply-XXXXXX");
+  if (!staging.isValid())
+    throw Error("PRESET_WRITE_FAILED",
+                "Cannot create a private preset verification directory.");
+  TFxP candidate = verifiedPreset(document, native, bytes, staging.path());
+  const bool changed =
+      saveNativePreset(native, staging.path() + "/previous.preset") != bytes;
+  if (changed) {
+    TFxP backup = makeEffect(QString::fromStdString(native->getFxType()));
+    backup->setFxVersion(native->getFxVersion());
+    backup->getParams()->copy(native->getParams());
+    context.markMutationStarted();
+    replacePresetParameters(native, candidate.getPointer(), backup.getPointer(),
+                            bytes, staging.path());
+  }
+  const QString id = document.idForFx(fx);
+  return QJsonObject{{"changed", changed},
+                     {"fx_id", id},
+                     {"affected_fx_ids", QJsonArray{id}},
+                     {"sha256", QString::fromLatin1(presetDigest(bytes))}};
 }
 
 void appendInputs(TFx* fx, FxDag* graph, std::vector<TFx*>& pending) {
@@ -839,6 +1188,44 @@ QJsonValue getParameters(Context&, Document& document,
                      {"parameters", parameterDescriptions(fx, frame)}};
 }
 
+QJsonArray authoringOperations() {
+  const QJsonObject effect{{"document_id", stringSchema()},
+                           {"fx_id", stringSchema()}};
+  QJsonObject rename = effect;
+  rename["name"] =
+      QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}};
+  QJsonObject enable    = effect;
+  enable["enabled"]     = QJsonObject{{"type", "boolean"}};
+  QJsonObject duplicate = rename;
+  duplicate["frame_count"] =
+      QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 10000}};
+  QJsonObject preset  = effect;
+  preset["directory"] = stringSchema();
+  auto save = operation("fx.preset.save",
+                        "Publish a new native preset package; keep the "
+                        "document revision unchanged.",
+                        preset, {"document_id", "fx_id", "directory"}, true);
+  save["mutates_document"] = false;
+  return {
+      operation("fx.rename", "Rename an admitted builtin effect.", rename,
+                {"document_id", "fx_id", "name"}, true),
+      operation("fx.enabled.set",
+                "Set native enable/bypass state for a builtin effect.", enable,
+                {"document_id", "fx_id", "enabled"}, true),
+      operation(
+          "fx.duplicate",
+          "Copy independent parameters into a new disconnected builtin effect. "
+          "Generator exposures begin at frame 0; frame_count defaults to 1.",
+          duplicate, {"document_id", "fx_id"}, true),
+      save,
+      operation("fx.preset.apply",
+                "Apply an unchanged preset published by this worker to the "
+                "same native "
+                "effect type/version; preserve names, graph connections and "
+                "exposures.",
+                preset, {"document_id", "fx_id", "directory"}, true)};
+}
+
 }  // namespace
 
 void validateAutomationFxGraph(ToonzScene& scene) {
@@ -875,7 +1262,7 @@ QJsonArray fxOperations() {
       {"description", "Value must match the native parameter schema."}};
   QJsonObject key = change;
   key["frame"]    = frameSchema();
-  return {
+  QJsonArray operations{
       operation("fx.catalog",
                 "Discover allowed builtin effects and native typed parameters.",
                 {}, {}),
@@ -914,6 +1301,8 @@ QJsonArray fxOperations() {
           "fx.parameter.set_key",
           "Set a linear key on an animatable parameter; frames start at 0.",
           key, {"document_id", "fx_id", "parameter", "value", "frame"}, true)};
+  for (const auto& entry : authoringOperations()) operations.append(entry);
+  return operations;
 }
 
 QJsonValue executeFx(Context& context, const QString& method,
@@ -923,6 +1312,11 @@ QJsonValue executeFx(Context& context, const QString& method,
   using Handler      = QJsonValue (*)(Context&, Document&, const QJsonObject&);
   static const std::map<QString, Handler> handlers = {
       {"fx.create", createEffect},
+      {"fx.rename", renameEffect},
+      {"fx.enabled.set", enableEffect},
+      {"fx.duplicate", duplicateEffect},
+      {"fx.preset.save", savePreset},
+      {"fx.preset.apply", applyPreset},
       {"fx.delete", deleteEffect},
       {"fx.terminal.set", setTerminal},
       {"fx.output.select", selectOutput},
