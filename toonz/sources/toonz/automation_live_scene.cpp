@@ -254,6 +254,7 @@ public:
   quint64 serial       = 0;
   quint64 binding      = 0;
   quint64 historyReset = 0;
+  quint64 historySeen  = 0;
   QString membership;
   QString observed;
   bool started = false;
@@ -327,6 +328,17 @@ bool bindingChanged(const SceneState& state, TSceneHandle* handle) {
          (state.scene && state.sheet != state.scene->getXsheet());
 }
 
+void observeHistory(SceneState& state, quint64 generation) {
+  if (state.historySeen == generation) return;
+  state.historySeen = generation;
+  ++state.serial;
+  if (!state.observed.isEmpty()) {
+    state.observed.clear();
+    state.reasons = {
+        "Native history changed; inspect the current metadata again."};
+  }
+}
+
 void refresh(SceneState& state) {
   guiThread();
   auto* handle  = TApp::instance()->getCurrentScene();
@@ -334,6 +346,7 @@ void refresh(SceneState& state) {
   availableGeneration(handle->bindingGeneration());
   availableGeneration(history->resetGeneration());
   availableGeneration(history->changeGeneration());
+  observeHistory(state, history->changeGeneration());
   if (bindingChanged(state, handle)) {
     state.retire();
     state.binding      = handle->bindingGeneration();
@@ -721,7 +734,8 @@ void observe(SceneState& state, const Snapshot& data) {
     state.observed = current;
     ++state.serial;
   }
-  state.reasons = data.reasons;
+  state.reasons     = data.reasons;
+  state.historySeen = TUndoManager::manager()->changeGeneration();
 }
 
 struct Channel final {
@@ -955,11 +969,13 @@ public:
     m_after = m_before;
   }
   void setValue(double value) { m_after.m_value = value; }
-  void apply() const {
-    if (m_index < 0)
+  void apply(SceneState& state) const {
+    if (m_index < 0) {
+      state.started = true;
       m_curve->setDefaultValue(m_after.m_value);
-    else {
+    } else {
       KeyframeSetter setter(m_curve.getPointer(), m_index, false);
+      state.started = true;
       setter.setValue(m_after.m_value);
     }
   }
@@ -971,6 +987,15 @@ public:
                 : QObject::tr("Live Automation: Stage Key");
   }
 };
+
+void verifyCommitOwner(SceneState& state) {
+  if (bindingChanged(state, TApp::instance()->getCurrentScene()))
+    throw Error("native_error",
+                "The scene binding changed during the native scalar edit.");
+  if (memberships(state) != state.membership)
+    throw Error("native_error",
+                "Native ownership changed during the scalar edit.");
+}
 
 QJsonObject commitScalar(SceneState& state, const Snapshot& before,
                          const QJsonObject& target, TDoubleParam* curve,
@@ -1002,14 +1027,19 @@ QJsonObject commitScalar(SceneState& state, const Snapshot& before,
     keys[index]      = key;
     expected["keys"] = keys;
   }
-  state.started = true;
-  undo->apply();
+  undo->apply(state);
+  verifyCommitOwner(state);
+  if (TUndoManager::manager()->changeGeneration() != state.historySeen)
+    throw Error("native_error",
+                "Native ownership or history changed during the scalar edit.");
   ReadBudget afterBudget;
   if (curveJson(curve, afterBudget) != expected)
     throw Error("native_error",
                 "Native scalar edit changed unexpected curve metadata.");
   TUndoManager::manager()->add(undo.release());
+  verifyCommitOwner(state);
   notifyNative(state.scene, fx);
+  verifyCommitOwner(state);
   const auto after = snapshot(state);
   observe(state, after);
   result["after_fingerprint"]  = fingerprint(after, target);
@@ -1040,6 +1070,7 @@ QJsonObject refreshScene(SceneState& state) {
   return {{"scene_epoch", state.scene ? QJsonValue(QString::number(state.epoch))
                                       : QJsonValue()},
           {"observation_serial", QString::number(state.serial)},
+          {"admission_observation_cached", true},
           {"write_admission", state.scene && state.reasons.isEmpty()},
           {"reasons", state.reasons}};
 }
