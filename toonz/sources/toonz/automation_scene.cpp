@@ -342,7 +342,10 @@ std::unique_ptr<TXshSimpleLevel> prepareLevel(Context& context,
   if (type == types.end())
     throw Error("unsupported_format", "Unsupported level format.");
   requireAssetGrowth(*document.scene,
-                     format == "rgba8" ? 0 : 2 * AutomationStyleBytes, 0, 1);
+                     format == "rgba8"
+                         ? 0
+                         : 2 * AutomationStyleBytes + AutomationPageBytes,
+                     0, 1);
   auto level = std::make_unique<TXshSimpleLevel>(name.toStdWString());
   level->setScene(document.scene.get());
   level->setType(type->second.first);

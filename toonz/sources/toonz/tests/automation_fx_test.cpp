@@ -592,9 +592,24 @@ void testAssetBudget(Context& context) {
   Document& document     = context.addDocument(std::make_unique<ToonzScene>());
   const QString vectorId = createBudgetAssets(context, document);
   checkBudgetFixture(document, vectorId);
-  // Two drawing headers, six RGBA pixels, one three-point stroke, two styles.
-  qint64 used = 2 * 65536 + 6 * 4 + 3 * 64 + 1024 + 2 * 1024;
+  // Two drawing headers, six RGBA pixels, one stroke, two styles, one page.
+  qint64 used = 2 * 65536 + 6 * 4 + 3 * 64 + 1024 + 2 * 1024 + 1024;
   checkBudgetBoundary(context, document, vectorId, used);
+  auto* level             = document.level(vectorId)->getSimpleLevel();
+  const TImageP heldImage = level->getFrame(TFrameId(1), false);
+  const TPaletteP previousPalette(level->getPalette());
+  executeDrawing(context, "palette.page.create",
+                 {{"document_id", document.id},
+                  {"level_id", vectorId},
+                  {"name", "Copied styles"}});
+  used += 1024;
+  checkBudgetBoundary(context, document, vectorId, used);
+  require(previousPalette->getPageCount() == 1,
+          "Page edits must preserve detached palette readers");
+  require(level->getPalette()->getPageCount() == 2,
+          "Page creation must publish the native page");
+  require(heldImage->getPalette() == level->getPalette(),
+          "Loaded drawings must bind the newly published level palette");
   const QJsonObject color{{"r", 23}, {"g", 41}, {"b", 73}, {"a", 255}};
   QJsonObject style{{"document_id", document.id},
                     {"level_id", vectorId},
@@ -616,6 +631,16 @@ void testAssetBudget(Context& context) {
                QJsonObject{{"r", 180}, {"g", 80}, {"b", 25}, {"a", 255}});
   executeDrawing(context, "palette.update_style", style);
   checkBudgetBoundary(context, document, vectorId, used);
+  executeDrawing(context, "palette.clone_style",
+                 {{"document_id", document.id},
+                  {"level_id", vectorId},
+                  {"style_id", created.value("style_id")},
+                  {"page_index", 1},
+                  {"name", "Copied animated style"}});
+  used += 3 * 1024;
+  checkBudgetBoundary(context, document, vectorId, used);
+  require(heldImage->getPalette() == level->getPalette(),
+          "Animated style copies must rebind previously loaded drawings");
   context.removeDocument(document.id);
 }
 

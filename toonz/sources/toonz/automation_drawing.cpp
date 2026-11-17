@@ -44,6 +44,7 @@ constexpr int kMaxPatch         = 16384;
 constexpr int kMaxStrokes       = 4096;
 constexpr int kMaxPoints        = 1025;
 constexpr int kMaxStyles        = 4096;
+constexpr int kMaxPages         = 128;
 constexpr int kMaxVectorFrame   = 65535;
 constexpr double kMaxCoordinate = 32768.0;
 constexpr double kMaxThickness  = 255.0;
@@ -806,16 +807,21 @@ QJsonObject inspectPalette(Context&, Document& document,
           {"sharing", "whole_level"}};
 }
 
-QJsonObject createStyle(Context& context, Document& document,
-                        const QJsonObject& params) {
-  auto* level        = simpleLevel(document, params);
-  auto* palette      = paletteFor(level, true);
-  const auto rgba    = styleColor(params);
+QString styleName(const QJsonObject& params) {
   const QString name = requiredString(params, "name");
   if (name.size() > 128 || name.startsWith('|') || name.contains(QChar::Null))
     invalid(
         "Style names must have at most 128 characters, contain no NUL, and "
         "not begin with the native studio-palette marker |");
+  return name;
+}
+
+QJsonObject createStyle(Context& context, Document& document,
+                        const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* palette      = paletteFor(level, true);
+  const auto rgba    = styleColor(params);
+  const QString name = styleName(params);
   if (palette->getStyleCount() >= kMaxStyles)
     throw Error("resource_limit", "Palette already contains 4096 styles");
   requireAssetGrowth(*document.scene, AutomationStyleBytes);
@@ -902,6 +908,201 @@ QJsonObject updateStyle(Context& context, Document& document,
   palette->setDirtyFlag(true);
   level->setDirtyFlag(true);
   return styleJson(palette, id);
+}
+
+bool validPageName(const QString& name, bool vectorFirstPage) {
+  return !name.isEmpty() && name.size() <= 128 && !name.contains(QChar::Null) &&
+         !(vectorFirstPage && name.startsWith("refimage"));
+}
+
+QString pageName(const QJsonObject& params, bool vectorFirstPage) {
+  const QString name = requiredString(params, "name");
+  if (!validPageName(name, vectorFirstPage))
+    invalid(
+        "Page names must have 1..128 characters and no NUL; vector page "
+        "zero cannot begin with the native refimage marker");
+  return name;
+}
+
+QJsonObject pagesJson(TPalette* palette) {
+  QJsonArray pages;
+  for (int index = 0; index < palette->getPageCount(); ++index) {
+    const auto* page = palette->getPage(index);
+    QJsonArray ids;
+    for (int position = 0; position < page->getStyleCount(); ++position)
+      ids.append(page->getStyleId(position));
+    pages.append(QJsonObject{{"page_index", index},
+                             {"name", QString::fromStdWString(page->getName())},
+                             {"style_ids", ids}});
+  }
+  return {{"pages", pages},
+          {"page_count", palette->getPageCount()},
+          {"style_count", palette->getStyleCount()},
+          {"sharing", "whole_level"},
+          {"indices", "zero_based_at_document_revision"}};
+}
+
+QJsonObject inspectPages(Context&, Document& document,
+                         const QJsonObject& params) {
+  return pagesJson(paletteFor(simpleLevel(document, params)));
+}
+
+void publishPalette(Context& context, TXshSimpleLevel* level,
+                    const TPaletteP& palette) {
+  std::vector<TImageP> drawings;
+  for (const auto& frame : level->getFids())
+    drawings.push_back(imageFor(level, frame));
+  context.markMutationStarted();
+  level->setPalette(palette.getPointer());
+  for (const auto& drawing : drawings)
+    drawing->setPalette(palette.getPointer());
+  palette->setDirtyFlag(true);
+  level->setDirtyFlag(true);
+}
+
+QJsonObject createPage(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* original     = paletteFor(level, true);
+  const QString name = pageName(params, false);
+  if (original->getPageCount() >= kMaxPages)
+    throw Error("resource_limit", "Palette already contains 128 pages");
+  requireAssetGrowth(*document.scene, AutomationPageBytes);
+  const TPaletteP palette(original->clone());
+  palette->addPage(name.toStdWString());
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject renamePage(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level    = simpleLevel(document, params);
+  auto* original = paletteFor(level, true);
+  const int index =
+      integer(params, "page_index", 0, original->getPageCount() - 1);
+  const QString name =
+      pageName(params, index == 0 && level->getType() == PLI_XSHLEVEL);
+  if (original->getPage(index)->getName() == name.toStdWString())
+    return pagesJson(original);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  palette->getPage(index)->setName(name.toStdWString());
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject movePage(Context& context, Document& document,
+                     const QJsonObject& params) {
+  auto* level           = simpleLevel(document, params);
+  auto* original        = paletteFor(level, true);
+  const int last        = original->getPageCount() - 1;
+  const int index       = integer(params, "page_index", 1, last);
+  const int destination = integer(params, "to_index", 1, last);
+  if (index == destination) return pagesJson(original);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  palette->movePage(palette->getPage(index), destination);
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject removePage(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level    = simpleLevel(document, params);
+  auto* original = paletteFor(level, true);
+  const int index =
+      integer(params, "page_index", 1, original->getPageCount() - 1);
+  if (original->getPage(index)->getStyleCount() != 0)
+    throw Error("page_not_empty", "Move the page's styles before removing it");
+  requireAssetGrowth(*document.scene, -AutomationPageBytes);
+  const TPaletteP palette(original->clone());
+  palette->erasePage(index);
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject moveStyle(Context& context, Document& document,
+                      const QJsonObject& params) {
+  auto* level    = simpleLevel(document, params);
+  auto* original = paletteFor(level, true);
+  const int id   = styleId(params, original);
+  if (id == 0) invalid("The transparent style must remain first on page zero");
+  const int destination =
+      integer(params, "page_index", 0, original->getPageCount() - 1);
+  auto* source = original->getStylePage(id);
+  if (!source)
+    throw Error("unsupported_palette", "The style has no native page");
+  const auto* targetPage = original->getPage(destination);
+  const int last = targetPage->getStyleCount() - (source == targetPage ? 1 : 0);
+  const int position =
+      integer(params, "position", destination == 0 ? 1 : 0, last);
+  if (source == targetPage && source->search(id) == position)
+    return pagesJson(original);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  auto* current = palette->getStylePage(id);
+  current->removeStyle(current->search(id));
+  palette->getPage(destination)->insertStyle(position, id);
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+TPalette::StyleAnimation namedAnimation(TPalette* palette, int id,
+                                        const std::wstring& name) {
+  auto animation = palette->getStyleAnimation(id);
+  for (auto& entry : animation) {
+    TColorStyleP style(entry.second.style->clone());
+    style->setName(name);
+    entry.second.style = style;
+  }
+  return animation;
+}
+
+QJsonObject renameStyle(Context& context, Document& document,
+                        const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* original     = paletteFor(level, true);
+  const int id       = styleId(params, original);
+  const auto* source = solidEditableStyle(original, id);
+  const auto name    = styleName(params).toStdWString();
+  if (source->getName() == name) return styleJson(original, id);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  const auto animation = namedAnimation(palette.getPointer(), id, name);
+  TColorStyleP renamed(source->clone());
+  renamed->setName(name);
+  palette->replaceStyleAnimation(id, animation, *renamed);
+  palette->getStyle(id)->setName(name);
+  publishPalette(context, level, palette);
+  return styleJson(palette.getPointer(), id);
+}
+
+QJsonObject cloneStyle(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* original     = paletteFor(level, true);
+  const int sourceId = styleId(params, original);
+  const auto* source = solidEditableStyle(original, sourceId);
+  const auto name    = styleName(params).toStdWString();
+  const int page =
+      integer(params, "page_index", 0, original->getPageCount() - 1);
+  if (original->getStyleCount() >= kMaxStyles)
+    throw Error("resource_limit", "Palette already contains 4096 styles");
+  const qint64 snapshots = qint64(original->getKeyframeCount(sourceId)) + 1;
+  requireAssetGrowth(*document.scene, snapshots * AutomationStyleBytes);
+  const TPaletteP palette(original->clone());
+  const auto animation = namedAnimation(original, sourceId, name);
+  std::unique_ptr<TColorStyle> copied(source->clone());
+  copied->setName(name);
+  const int id = palette->addStyle(copied.release());
+  if (id < 0)
+    throw Error("resource_limit", "Native palette refused the copied style");
+  palette->getPage(page)->addStyle(id);
+  TColorStyleP unkeyed(palette->getStyle(id)->clone());
+  palette->replaceStyleAnimation(id, animation, *unkeyed);
+  palette->getStyle(id)->setName(name);
+  publishPalette(context, level, palette);
+  return styleJson(palette.getPointer(), id);
 }
 
 struct PixelRect final {
@@ -1362,6 +1563,66 @@ void paletteCatalog(QJsonArray& tools) {
       properties, {"document_id", "level_id", "style_id", "color"}, true));
 }
 
+void palettePageCatalog(QJsonArray& tools) {
+  auto properties = target(false);
+  const QJsonArray targetRequired{"document_id", "level_id"};
+  tools.append(
+      operation("palette.pages",
+                "Inspect page order and membership; style IDs remain stable",
+                properties, targetRequired));
+  properties.insert("name", QJsonObject{{"type", "string"},
+                                        {"minLength", 1},
+                                        {"maxLength", 128},
+                                        {"pattern", "^[^\\x00]+$"}});
+  tools.append(operation("palette.page.create",
+                         "Append an empty native palette page", properties,
+                         {"document_id", "level_id", "name"}, true));
+  properties.insert("page_index", range(0, kMaxPages - 1));
+  tools.append(operation(
+      "palette.page.rename",
+      "Rename a page; vector page zero cannot begin with refimage", properties,
+      {"document_id", "level_id", "page_index", "name"}, true));
+  properties.remove("name");
+  properties.insert("page_index", range(1, kMaxPages - 1));
+  tools.append(operation(
+      "palette.page.remove", "Remove an empty page other than pinned page zero",
+      properties, {"document_id", "level_id", "page_index"}, true));
+  properties.insert("to_index", range(1, kMaxPages - 1));
+  tools.append(operation(
+      "palette.page.move", "Move a page; page zero stays first", properties,
+      {"document_id", "level_id", "page_index", "to_index"}, true));
+  properties.remove("to_index");
+  properties.insert("page_index", range(0, kMaxPages - 1));
+  properties.insert("style_id", range(1, kMaxStyles - 1));
+  properties.insert("position", range(0, kMaxStyles - 1));
+  tools.append(operation(
+      "palette.style.move",
+      "Move a style without changing its ID or keys; position is its final "
+      "zero-based position and transparent style zero stays first on page zero",
+      properties,
+      {"document_id", "level_id", "style_id", "page_index", "position"}, true));
+}
+
+void paletteStyleCatalog(QJsonArray& tools) {
+  auto properties = target(false);
+  properties.insert("style_id", range(1, kMaxStyles - 1));
+  properties.insert("name", QJsonObject{{"type", "string"},
+                                        {"minLength", 1},
+                                        {"maxLength", 128},
+                                        {"pattern", "^[^|\\x00][^\\x00]*$"}});
+  tools.append(operation(
+      "palette.rename_style",
+      "Rename a solid style and every animation key snapshot", properties,
+      {"document_id", "level_id", "style_id", "name"}, true));
+  properties.insert("page_index", range(0, kMaxPages - 1));
+  tools.append(operation(
+      "palette.clone_style",
+      "Append an independent solid style with all animation keys to a page; "
+      "existing style IDs and artwork references stay unchanged",
+      properties, {"document_id", "level_id", "style_id", "name", "page_index"},
+      true));
+}
+
 void rasterCatalog(QJsonArray& tools) {
   auto properties = target();
   properties.insert("coordinate_space", choice({"raster_pixels_lower_left"}));
@@ -1437,12 +1698,45 @@ void validateAnimatedStyleProfile(TPalette* palette, int id, int maximumFrame) {
   }
 }
 
+void validatePageStyles(TPalette* palette, const TPalette::Page* page,
+                        std::set<int>& seen) {
+  for (int index = 0; index < page->getStyleCount(); ++index) {
+    const int id = page->getStyleId(index);
+    if (id < 0 || id >= palette->getStyleCount() || !seen.insert(id).second ||
+        palette->getStylePage(id) != page)
+      throw Error("unsupported_palette",
+                  "Palette page membership is inconsistent");
+  }
+}
+
+void validatePalettePages(TPalette* palette, bool vectorPalette) {
+  if (palette->getPageCount() < 1 || palette->getPageCount() > kMaxPages)
+    throw Error("unsupported_palette",
+                "Persistence admits 1..128 palette pages");
+  if (palette->getPage(0)->getStyleId(0) != 0)
+    throw Error("unsupported_palette",
+                "Transparent style zero must be first on page zero");
+  std::set<int> seen;
+  for (int index = 0; index < palette->getPageCount(); ++index) {
+    const auto* page = palette->getPage(index);
+    if (!validPageName(QString::fromStdWString(page->getName()),
+                       vectorPalette && index == 0))
+      throw Error("unsupported_palette",
+                  "A palette page name cannot be preserved natively");
+    validatePageStyles(palette, page, seen);
+  }
+  if (int(seen.size()) != palette->getStyleCount())
+    throw Error("unsupported_palette",
+                "Unpaged styles are outside the persistence profile");
+}
+
 void validatePaletteProfile(TPalette* palette, int maximumFrame) {
   if (!palette) return;
   if (palette->getStyleCount() > kMaxStyles || palette->getRefImg() ||
       !palette->getRefImgPath().isEmpty() || !palette->getGlobalName().empty())
     throw Error("unsupported_palette",
                 "Palette exceeds limits or refers to an external asset");
+  validatePalettePages(palette, maximumFrame == kMaxVectorFrame);
   for (int id = 0; id < palette->getStyleCount(); ++id)
     validateAnimatedStyleProfile(palette, id, maximumFrame);
 }
@@ -1517,7 +1811,10 @@ qint64 paletteAssetBytes(TPalette* palette) {
       throw Error("resource_limit", "A style has more than 4096 keyframes");
     snapshots += keys;
   }
-  return snapshots * AutomationStyleBytes;
+  if (palette->getPageCount() > kMaxPages)
+    throw Error("resource_limit", "Palette exceeds the 128-page limit");
+  return snapshots * AutomationStyleBytes +
+         qint64(palette->getPageCount()) * AutomationPageBytes;
 }
 
 void requireAssetCounts(TLevelSet* levels, int additionalDrawings,
@@ -1583,6 +1880,8 @@ QJsonArray drawingOperations() {
   renumberCatalog(tools);
   vectorCatalog(tools);
   paletteCatalog(tools);
+  palettePageCatalog(tools);
+  paletteStyleCatalog(tools);
   rasterCatalog(tools);
   return tools;
 }
@@ -1619,6 +1918,14 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"palette.inspect", inspectPalette},
       {"palette.create_style", createStyle},
       {"palette.update_style", updateStyle},
+      {"palette.pages", inspectPages},
+      {"palette.page.create", createPage},
+      {"palette.page.rename", renamePage},
+      {"palette.page.move", movePage},
+      {"palette.page.remove", removePage},
+      {"palette.style.move", moveStyle},
+      {"palette.rename_style", renameStyle},
+      {"palette.clone_style", cloneStyle},
       {"raster.read_pixels", readPixels},
       {"raster.patch", patchPixels},
       {"raster.import_png", importPng},
