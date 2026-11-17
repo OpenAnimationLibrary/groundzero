@@ -108,7 +108,12 @@ public:
   static bool isEnabled() { return m_enabled; };
   static void enable(bool enabled);
 
-  void save(const TFilePath &path, TPalette *palette);
+  //! Writes the studio palette file envelope (root tag with the palette id)
+  //! beside the destination, then replaces it. Needs no instance.
+  static void save(const TFilePath& path, TPalette* palette);
+  //! Reads a studio palette file envelope. Returns 0 if it cannot be read.
+  //! Needs no instance; the caller owns the returned palette.
+  static TPalette* load(const TFilePath& path);
 
   void removeEntry(const std::wstring paletteId);
   void addEntry(const std::wstring paletteId, const TFilePath &path);
@@ -122,8 +127,6 @@ private:
   TFilePath m_root;
   std::map<std::wstring, TFilePath> m_table;
   std::vector<Listener *> m_listeners;
-
-  TPalette *load(const TFilePath &path);
 
   static bool m_enabled;
 };
