@@ -2,7 +2,6 @@
 
 #include <QCryptographicHash>
 #include <QJsonDocument>
-#include <QMutexLocker>
 
 namespace GroundzeroAutomation {
 namespace Live {
@@ -89,7 +88,7 @@ Admission SharedState::cachedRead(const QJsonObject& request) const {
 
 Admission SharedState::admit(const QString& clientId,
                              const QJsonObject& request, bool replyAvailable) {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   checkAvailable();
   const QString method     = request.value("method").toString();
   const QJsonObject params = request.value("params").toObject();
@@ -194,7 +193,7 @@ void SharedState::expire(Ticket& ticket) {
 }
 
 std::shared_ptr<Ticket> SharedState::takeNext() {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   const auto queued = m_queued;
   for (const auto& ticket : queued) expire(*ticket);
   if (m_stopped || m_queued.isEmpty()) {
@@ -213,7 +212,7 @@ void SharedState::finish(const std::shared_ptr<Ticket>& ticket,
       ticket->write &&
       QJsonDocument(outcome).toJson(QJsonDocument::Compact).size() >
           maximumReceiptBytes;
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (ticket->phase != Ticket::Phase::Started) return;
   releaseCapacity(*ticket);
   if (oversized) {
@@ -231,14 +230,14 @@ void SharedState::finish(const std::shared_ptr<Ticket>& ticket,
 }
 
 QJsonObject SharedState::poll(const std::shared_ptr<Ticket>& ticket) {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   expire(*ticket);
   return ticket->phase == Ticket::Phase::Terminal ? ticket->outcome
                                                   : QJsonObject{};
 }
 
 void SharedState::disconnect(const QString& clientId) {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   const auto pending = m_queued;
   for (const auto& ticket : pending) {
     if (ticket->clientId != clientId) continue;
@@ -250,7 +249,7 @@ void SharedState::disconnect(const QString& clientId) {
 }
 
 void SharedState::revoke() {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   m_stopped          = true;
   const auto pending = m_queued;
   for (const auto& ticket : pending) {
@@ -262,7 +261,7 @@ void SharedState::revoke() {
 }
 
 void SharedState::updateStatus(QJsonObject status) {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   status.insert("instance_id", m_instanceId);
   status.insert("mode", m_mode);
   status.insert("limits", limits());
@@ -274,13 +273,13 @@ void SharedState::updateStatus(QJsonObject status) {
 }
 
 void SharedState::disableWrites() {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   m_writesDisabled = true;
   m_status.insert("write_admission", false);
 }
 
 bool SharedState::writesDisabled() const {
-  QMutexLocker lock(&m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   return m_writesDisabled;
 }
 

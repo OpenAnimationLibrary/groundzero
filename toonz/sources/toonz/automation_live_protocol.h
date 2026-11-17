@@ -21,6 +21,7 @@ QJsonObject liveError(const Error& error);
 
 #ifdef BUILD_UI_PORT_TESTS
 void runAutomationLiveProtocolTests();
+void runAutomationLiveRaceTests();
 #endif
 
 }  // namespace Live

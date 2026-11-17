@@ -691,6 +691,7 @@ void runAutomationFxTests(Context& context) {
   testAssetBudget(context);
   runAutomationDispatcherTests(context);
   Live::runAutomationLiveProtocolTests();
+  Live::runAutomationLiveRaceTests();
 }
 
 }  // namespace GroundzeroAutomation

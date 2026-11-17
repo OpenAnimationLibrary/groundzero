@@ -2,9 +2,8 @@
 
 #include "automation_live_protocol.h"
 
-#include <QMutex>
-
 #include <chrono>
+#include <mutex>
 
 namespace GroundzeroAutomation {
 namespace Live {
@@ -58,7 +57,7 @@ private:
   void checkAdmission(Ticket& ticket, bool replyAvailable);
   void checkAvailable() const;
 
-  mutable QMutex m_mutex;
+  mutable std::mutex m_mutex;
   const QString m_instanceId;
   const QString m_mode;
   QHash<QString, std::shared_ptr<Ticket>> m_receipts;
