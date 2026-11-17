@@ -9,7 +9,6 @@
 #include "tparamset.h"
 #include "tundo.h"
 #include "tunit.h"
-#include "toonz/doubleparamcmd.h"
 #include "toonz/fxdag.h"
 #include "toonz/levelset.h"
 #include "toonz/sceneproperties.h"
@@ -946,11 +945,21 @@ class ScalarUndo final : public TUndo {
   bool m_fx;
   std::shared_ptr<void> m_lease;
 
+  void setScalar(double value) const {
+    if (m_index < 0) {
+      m_curve->setDefaultValue(value);
+      return;
+    }
+    if (!m_curve->isKeyframe(m_before.m_frame))
+      throw Error("native_error",
+                  "The native scalar key disappeared before restoration.");
+    if (m_curve->setValue(m_before.m_frame, value))
+      throw Error("native_error",
+                  "A scalar-only edit unexpectedly created a native key.");
+  }
+
   void restore(const TDoubleKeyframe& key) const {
-    if (m_index < 0)
-      m_curve->setDefaultValue(key.m_value);
-    else
-      m_curve->setKeyframe(m_index, key);
+    setScalar(key.m_value);
     notifyNative(m_scene, m_fx);
   }
 
@@ -970,14 +979,11 @@ public:
   }
   void setValue(double value) { m_after.m_value = value; }
   void apply(SceneState& state) const {
-    if (m_index < 0) {
-      state.started = true;
-      m_curve->setDefaultValue(m_after.m_value);
-    } else {
-      KeyframeSetter setter(m_curve.getPointer(), m_index, false);
-      state.started = true;
-      setter.setValue(m_after.m_value);
-    }
+    if (m_index >= 0 && !m_curve->isKeyframe(m_before.m_frame))
+      throw Error("target_deleted",
+                  "The existing scalar key disappeared before commit.");
+    state.started = true;
+    setScalar(m_after.m_value);
   }
   void undo() const override { restore(m_before); }
   void redo() const override { restore(m_after); }
