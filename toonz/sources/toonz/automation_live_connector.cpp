@@ -15,8 +15,6 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <fcntl.h>
-#include <io.h>
 #include <windows.h>
 #else
 #include <poll.h>
@@ -48,12 +46,42 @@ bool takeFrame(QByteArray& input, int maximum, QByteArray& body) {
   return true;
 }
 
+#ifdef Q_OS_WIN
+bool writeHandle(HANDLE handle, const QByteArray& bytes) {
+  int position = 0;
+  while (position < bytes.size()) {
+    DWORD written = 0;
+    if (!WriteFile(handle, bytes.constData() + position,
+                   DWORD(bytes.size() - position), &written, nullptr) ||
+        written == 0)
+      return false;
+    position += int(written);
+  }
+  return true;
+}
+
+void writeOutput(const QByteArray& bytes) {
+  if (!writeHandle(GetStdHandle(STD_OUTPUT_HANDLE), bytes))
+    failed("connector_io");
+}
+
+void reportFailure(const QByteArray& code) {
+  writeHandle(GetStdHandle(STD_ERROR_HANDLE),
+              "Groundzero live connector failed: " + code + ".\n");
+}
+#else
 void writeOutput(const QByteArray& bytes) {
   if (std::fwrite(bytes.constData(), 1, size_t(bytes.size()), stdout) !=
           size_t(bytes.size()) ||
       std::fflush(stdout) != 0)
     failed("connector_io");
 }
+
+void reportFailure(const QByteArray& code) {
+  std::fprintf(stderr, "Groundzero live connector failed: %s.\n",
+               code.constData());
+}
+#endif
 
 void send(QLocalSocket& socket, const QByteArray& frame) {
   if (socket.state() != QLocalSocket::ConnectedState ||
@@ -119,10 +147,8 @@ void authenticate(QLocalSocket& socket, const SecuritySession& session) {
 #ifdef Q_OS_WIN
 
 void prepareInput() {
-  if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
-      _setmode(_fileno(stdout), _O_BINARY) == -1)
-    failed("connector_io");
-  if (GetFileType(GetStdHandle(STD_INPUT_HANDLE)) != FILE_TYPE_PIPE)
+  if (GetFileType(GetStdHandle(STD_INPUT_HANDLE)) != FILE_TYPE_PIPE ||
+      GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) != FILE_TYPE_PIPE)
     failed("connector_io");
 }
 
@@ -254,10 +280,9 @@ int runConnector(int argc, char* argv[]) {
     socket.abort();
     return 0;
   } catch (const Error& error) {
-    std::fprintf(stderr, "Groundzero live connector failed: %s.\n",
-                 error.code.toUtf8().constData());
+    reportFailure(error.code.toUtf8());
   } catch (...) {
-    std::fputs("Groundzero live connector failed: internal_error.\n", stderr);
+    reportFailure("internal_error");
   }
   return 1;
 }
