@@ -111,7 +111,9 @@ def animation_channel_descriptors_and_fractional_sampling(
         {"document_id": document, "object_id": target["object_id"]},
     )
     channels = {entry["channel"]: entry for entry in descriptor["channels"]}
-    case.assertEqual(set(channels), {"x", "y", "z", "rotation", "scale_x", "scale_y", "scale"})
+    case.assertEqual(
+        set(channels), {"x", "y", "z", "rotation", "scale_x", "scale_y", "scale", "path_position"}
+    )
     case.assertEqual(channels["x"]["unit"], "inch")
     case.assertEqual(channels["rotation"]["unit"], "degree")
     case.assertEqual(channels["z"]["unit"], "native_z")
@@ -120,7 +122,9 @@ def animation_channel_descriptors_and_fractional_sampling(
         case.assertIsNone(channel["unsupported_reason"])
         case.assertEqual(channel["key_time"], "integer")
         case.assertEqual(channel["sample_time"], "fractional")
-        case.assertEqual(channel["step_bounds"], [1, 1000])
+        case.assertEqual(
+            channel["step_bounds"], [1, 1] if channel["channel"] == "path_position" else [1, 1000]
+        )
     case.mutate(
         "animation.set_keys",
         document,

@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_animation.h"
+#include "automation_path.h"
 #include "automation_drawing.h"
 
 #include "tdoubleparam.h"
@@ -463,6 +464,7 @@ QJsonValue inspectLevel(Context& context, const QJsonObject& params) {
 
 QJsonValue createColumn(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
+  requireAutomationPathObjectGrowth(*document.scene);
   const QString name = nameParam(params);
   TXsheet* sheet     = document.scene->getXsheet();
   const int index    = sheet->getColumnCount();
@@ -646,6 +648,7 @@ QJsonValue inspectCamera(Context& context, const QJsonObject& params) {
 
 QJsonValue createObject(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
+  requireAutomationPathObjectGrowth(*document.scene);
   const QString name = nameParam(params);
   if (requiredString(params, "kind") != "pegbar")
     throw Error("unsupported_kind",
@@ -696,6 +699,7 @@ QJsonValue parentObject(Context& context, const QJsonObject& params) {
   TStageObject* parent = document.object(requiredString(params, "parent_id"));
   requireEditable(document, object);
   checkParent(document, object, parent);
+  validateAutomationPathParent(*document.scene, object, parent);
   if (object->getParent() == parent->getId())
     return describeObject(document, object);
   context.markMutationStarted();
@@ -716,7 +720,8 @@ const std::map<QString, Channel>& animationChannels() {
       {"rotation", {TStageObject::T_Angle, "degree"}},
       {"scale_x", {TStageObject::T_ScaleX, "scalar"}},
       {"scale_y", {TStageObject::T_ScaleY, "scalar"}},
-      {"scale", {TStageObject::T_Scale, "scalar"}}};
+      {"scale", {TStageObject::T_Scale, "scalar"}},
+      {"path_position", {TStageObject::T_Path, "percent"}}};
   return channels;
 }
 
@@ -731,31 +736,38 @@ Channel readChannel(const QJsonObject& params) {
   return channel->second;
 }
 
+QString channelAdmission(Document& document, TStageObject& object, Channel channel) {
+  const auto* curve = object.getParam(channel.native);
+  try {
+    if (channel.native == TStageObject::T_Path)
+      requireAutomationPathTarget(*document.scene, object, true);
+    else requireEditable(document, &object);
+    if (curve->isEditorLocked()) return "The channel is editor-locked.";
+    return animationUnsupportedReason(*curve);
+  } catch (const Error& error) {
+    return error.message;
+  }
+}
+
 QJsonValue inspectAnimationChannels(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
   TStageObject* object = document.object(requiredString(params, "object_id"));
-  QString objectReason;
-  try {
-    requireEditable(document, object);
-  } catch (const Error& error) {
-    objectReason = error.message;
-  }
   QJsonArray result;
   for (const auto& item : animationChannels()) {
     const auto* curve = object->getParam(item.second.native);
-    QString reason = animationUnsupportedReason(*curve);
-    if (reason.isEmpty()) reason = objectReason;
-    if (reason.isEmpty() && curve->isEditorLocked()) reason = "The channel is editor-locked.";
+    const QString reason = channelAdmission(document, *object, item.second);
+    const bool path = item.second.native == TStageObject::T_Path;
     result.append(QJsonObject{
         {"channel", item.first}, {"unit", item.second.unit},
         {"editor_locked", curve->isEditorLocked()},
         {"key_count", curve->getKeyframeCount()}, {"writable", reason.isEmpty()},
         {"unsupported_reason", reason.isEmpty() ? QJsonValue() : QJsonValue(reason)},
-        {"interpolations", QJsonArray{"constant", "linear", "ease_in_out", "speed_in_out"}},
+        {"interpolations", path ? QJsonArray{"constant", "linear"} :
+                                  QJsonArray{"constant", "linear", "ease_in_out", "speed_in_out"}},
         {"frame_bounds", QJsonArray{0, MaxFrame}},
-        {"value_bounds", QJsonArray{-1000000, 1000000}},
-        {"step_bounds", QJsonArray{1, 1000}}, {"key_time", "integer"},
-        {"sample_time", "fractional"}});
+        {"value_bounds", path ? QJsonArray{0, 100} : QJsonArray{-1000000, 1000000}},
+        {"step_bounds", path ? QJsonArray{1, 1} : QJsonArray{1, 1000}},
+        {"key_time", "integer"}, {"sample_time", "fractional"}});
   }
   return QJsonObject{{"object_id", document.idForObject(object)}, {"channels", result}};
 }
@@ -789,6 +801,8 @@ QJsonValue inspectKeys(Context& context, const QJsonObject& params) {
   TStageObject* object  = document.object(requiredString(params, "object_id"));
   const Channel channel = readChannel(params);
   TDoubleParam* curve   = object->getParam(channel.native);
+  if (channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *object, false);
   return QJsonObject{{"object_id", document.idForObject(object)},
                      {"channel", params.value("channel")},
                      {"unit", channel.unit},
@@ -803,7 +817,14 @@ QJsonValue setKeys(Context& context, const QJsonObject& params) {
   requireEditable(document, object);
   const Channel channel = readChannel(params);
   TDoubleParam* curve = object->getParam(channel.native);
+  if (channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *object, true);
   const auto edit = prepareAnimationKeyEdit(*curve, readArray(params, "keys"));
+  if (channel.native == TStageObject::T_Path) {
+    TDoubleParamP prospective(new TDoubleParam(*curve));
+    for (const auto& key : edit.keys) prospective->setKeyframe(key);
+    validateAutomationPathPosition(*prospective);
+  }
   if (!edit.changed) return inspectKeys(context, params);
   context.markMutationStarted();
   for (const auto& key : edit.keys) curve->setKeyframe(key);
@@ -817,6 +838,8 @@ QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
   const Channel channel         = readChannel(params);
   const std::vector<int> frames = readFrames(params);
   TDoubleParam* curve           = object->getParam(channel.native);
+  if (channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *object, true);
   validateAnimationKeyDeletion(*curve, frames);
   context.markMutationStarted();
   for (const int frame : frames) curve->deleteKeyframe(frame);
@@ -826,6 +849,8 @@ QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
 TDoubleParam* wholeCurveTarget(Document& document, const QJsonObject& target,
                                bool writable) {
   auto* object = document.object(requiredString(target, "object_id"));
+  if (readChannel(target).native == TStageObject::T_Path)
+    throw Error("unsupported_channel", "Whole-curve copy and retime do not admit path_position.");
   if (writable) requireEditable(document, object);
   if (object->getOffsetLayerCount() != 0)
     throw Error("unsupported_interpolation",
@@ -882,6 +907,8 @@ QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
   const QJsonArray frames = readArray(params, "frames");
   TDoubleParam* curve = object->getParam(channel.native);
   requireSupportedAnimationCurve(*curve);
+  if (channel.native == TStageObject::T_Path)
+    requireAutomationPathTarget(*document.scene, *object, false);
   if (object->getOffsetLayerCount() != 0)
     throw Error("unsupported_interpolation", "Offset-layer sampling is not qualified.");
   QSet<double> seen;
@@ -1120,8 +1147,8 @@ void addAnimationOperations(QJsonArray& catalog) {
       object, {"document_id", "object_id"}));
   QJsonObject animation = merge(
       object, {{"channel", enumSchema({"x", "y", "z", "rotation", "scale_x",
-                                       "scale_y", "scale"})},
-               {"unit", enumSchema({"inch", "degree", "scalar", "native_z"})}});
+                                       "scale_y", "scale", "path_position"})},
+               {"unit", enumSchema({"inch", "degree", "scalar", "native_z", "percent"})}});
   const QJsonArray required{"document_id", "object_id", "channel", "unit"};
   catalog.append(operation("animation.keys",
                            "Read native curve keys with explicit units.",

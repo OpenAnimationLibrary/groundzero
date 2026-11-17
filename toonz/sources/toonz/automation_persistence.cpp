@@ -1,3 +1,4 @@
+#include "automation_path.h"
 #include "automation.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
@@ -582,6 +583,7 @@ QJsonObject textSchema() { return {{"type", "string"}, {"minLength", 1}}; }
 
 void validateAutomationScene(ToonzScene& scene) {
   validateAutomationFxGraph(scene);
+  validateAutomationPaths(scene);
   TLevelSet* levels = scene.getLevelSet();
   if (levels->getLevelCount() > MaxLevels)
     throw Error("scene_limit", "The scene exceeds 256 levels.");

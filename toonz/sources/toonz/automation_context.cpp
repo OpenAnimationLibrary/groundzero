@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_path.h"
 
 #include "toonz/fxdag.h"
 #include "toonz/filepathproperties.h"
@@ -114,7 +115,9 @@ void createDirectory(const QString& path) {
 }  // namespace
 
 Document::Document(std::unique_ptr<ToonzScene> ownedScene)
-    : id(opaqueId("document")), scene(std::move(ownedScene)) {}
+    : id(opaqueId("document")), scene(std::move(ownedScene)) {
+  initializeAutomationPaths(*this);
+}
 
 Document::~Document() = default;
 

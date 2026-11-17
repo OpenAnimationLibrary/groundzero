@@ -13,6 +13,7 @@ class QApplication;
 class TFx;
 class TProject;
 class TStageObject;
+class TStageObjectSpline;
 class ToonzScene;
 class TXshColumn;
 class TXshLevel;
@@ -42,6 +43,8 @@ struct Document final {
   QHash<QString, TXshColumn*> columns;
   QHash<QString, TFx*> effects;
   QHash<QString, TStageObject*> objects;
+  QHash<QString, TStageObjectSpline*> paths;
+  QHash<TStageObjectSpline*, QString> pathIds;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);
