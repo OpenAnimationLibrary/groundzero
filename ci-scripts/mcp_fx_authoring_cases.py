@@ -20,6 +20,31 @@ COLORS: dict[int, Pixel] = {
     12: (200, 40, 16, 255),
 }
 
+NATIVE_PRESETS: dict[str, dict[str, Any]] = {
+    "colorCardFx": {"color": [24, 72, 192, 255]},
+    "STD_iwa_LinearGradientFx": {
+        "startPoint": [-4, 0],
+        "endPoint": [4, 0],
+        "startColor": [24, 72, 192, 255],
+        "endColor": [200, 40, 16, 255],
+    },
+    "STD_radialGradientFx": {
+        "period": 5,
+        "innerperiod": 1,
+        "color1": [24, 72, 192, 255],
+        "color2": [200, 40, 16, 255],
+    },
+    "overFx": {},
+    "STD_blurFx": {"value": 1},
+    "STD_glowFx": {"value": 1, "brightness": 25, "fade": 100, "color": [40, 80, 160, 255]},
+}
+
+
+def _close_worker(case: NativeAcceptance) -> None:
+    case.worker.close()
+    diagnostics = case.worker.log_path.read_text(encoding="utf-8", errors="replace")
+    case.assertEqual(case.worker.process.returncode, 0, diagnostics)
+
 
 def _scene(case: NativeAcceptance) -> str:
     return case.mutate(
@@ -151,6 +176,7 @@ def fx_duplicate_and_enable_preserve_native_roundtrip(case: NativeAcceptance) ->
     _assert_colors(case, restored)
     _output(case, restored, names["Independent"])
     case.assertEqual(set(_pixels(case, restored, 0)), {(240, 16, 80, 255)})
+    _close_worker(case)
 
 
 def _save(case: NativeAcceptance, document: str, effect: str, name: str) -> dict[str, Any]:
@@ -169,7 +195,7 @@ def _save(case: NativeAcceptance, document: str, effect: str, name: str) -> dict
     return result
 
 
-def _blur_fixture(case: NativeAcceptance) -> tuple[str, str, str]:
+def _artwork_fixture(case: NativeAcceptance) -> tuple[str, str]:
     document = _scene(case)
     level = case.mutate("level.import", document, path=str(case.fixture), name="Quadrants", dpi=128)
     column = case.mutate("column.create", document, name="Artwork")
@@ -187,6 +213,11 @@ def _blur_fixture(case: NativeAcceptance) -> tuple[str, str, str]:
         for node in _graph(case, document)["effects"]
         if node.get("column_id") == column["column_id"]
     )
+    return document, source
+
+
+def _blur_fixture(case: NativeAcceptance) -> tuple[str, str, str]:
+    document, source = _artwork_fixture(case)
     blur = case.mutate("fx.create", document, type="STD_blurFx", name="Original blur")["fx_id"]
     case.mutate("fx.connect", document, fx_id=blur, port="Source", source_fx_id=source)
     _output(case, document, blur)
@@ -241,6 +272,7 @@ def fx_presets_preserve_keys_and_target_graph(case: NativeAcceptance) -> None:
     case.mutate("fx.enabled.set", restored, fx_id=names["Target blur"], enabled=True)
     for frame in COLORS:
         case.assertEqual(_pixels(case, restored, frame), original[frame], frame)
+    _close_worker(case)
 
 
 def _reject_unchanged(
@@ -248,9 +280,14 @@ def _reject_unchanged(
 ) -> None:
     before = _graph(case, document)
     revision = case.revisions[document]
+    target = {"document_id": document, "fx_id": params.get("fx_id"), "frame": 6}
+    owned = any(node["fx_id"] == target["fx_id"] for node in before["effects"])
+    parameters = case.success("fx.parameter.get", target) if owned else None
     error = case.failure(method, case.write_params(document, params))
     case.assertEqual(error["code"], code, error)
     case.assertEqual(_graph(case, document), before)
+    if owned:
+        case.assertEqual(case.success("fx.parameter.get", target), parameters)
     case.assertEqual(case.success("scene.summary", {"document_id": document})["revision"], revision)
 
 
@@ -281,6 +318,7 @@ def fx_authoring_rejections_preserve_document(case: NativeAcceptance) -> None:
         ("fx.duplicate", {}),
     ):
         _reject_unchanged(case, document, method, {"fx_id": card["fx_id"], **values}, "locked")
+    _close_worker(case)
 
 
 def fx_preset_integrity_and_file_receipts(case: NativeAcceptance) -> None:
@@ -332,6 +370,7 @@ def fx_preset_integrity_and_file_receipts(case: NativeAcceptance) -> None:
     case.mutate("fx.preset.apply", other, fx_id=independent, directory=str(directory))
     _output(case, other, independent)
     _assert_colors(case, other)
+    _close_worker(case)
 
 
 def _preset_path_rejections(
@@ -415,3 +454,59 @@ def fx_preset_capacity_keeps_exact_replay(case: NativeAcceptance) -> None:
     else:
         case.fail("Ordinary receipt limit was not enforced")
     case.assertEqual(case.success("fx.preset.save", first_params), first)
+    _close_worker(case)
+
+
+def _wired_effect(case: NativeAcceptance, document: str, kind: str, artwork: str) -> str:
+    node = case.mutate("fx.create", document, type=kind, frame_count=13)
+    for port in node["ports"]:
+        case.mutate(
+            "fx.connect", document, fx_id=node["fx_id"], port=port["name"], source_fx_id=artwork
+        )
+    return node["fx_id"]
+
+
+def fx_presets_cover_each_admitted_native_type(case: NativeAcceptance) -> None:
+    """Compare actual copied and reopened renders for every admitted native preset factory."""
+    document, artwork = _artwork_fixture(case)
+    catalog = case.success("fx.catalog", {})
+    case.assertEqual({effect["type"] for effect in catalog["effects"]}, set(NATIVE_PRESETS))
+    references = {}
+    parameters = {}
+    for kind, values in NATIVE_PRESETS.items():
+        source = _wired_effect(case, document, kind, artwork)
+        _output(case, document, source)
+        baseline = _pixels(case, document, 6)
+        for parameter, value in values.items():
+            case.mutate(
+                "fx.parameter.set", document, fx_id=source, parameter=parameter, value=value
+            )
+        references[kind] = _pixels(case, document, 6)
+        if values:
+            case.assertNotEqual(references[kind], baseline, kind)
+        else:
+            case.assertEqual(references[kind], baseline, kind)
+        parameters[kind] = case.success(
+            "fx.parameter.get", {"document_id": document, "fx_id": source, "frame": 6}
+        )["parameters"]
+        preset = _save(case, document, source, "native-" + kind)
+        target = _wired_effect(case, document, kind, artwork)
+        case.mutate("fx.rename", document, fx_id=target, name="Target " + kind)
+        graph = _node(case, document, target)
+        applied = case.mutate(
+            "fx.preset.apply", document, fx_id=target, directory=preset["preset_directory"]
+        )
+        case.assertEqual(applied["changed"], bool(values), kind)
+        case.assertEqual(_node(case, document, target), graph)
+        _output(case, document, target)
+        case.assertEqual(_pixels(case, document, 6), references[kind], kind)
+    restored, names = _reopen(case, document)
+    for kind in NATIVE_PRESETS:
+        target = names["Target " + kind]
+        actual = case.success(
+            "fx.parameter.get", {"document_id": restored, "fx_id": target, "frame": 6}
+        )["parameters"]
+        case.assertEqual(actual, parameters[kind], kind)
+        _output(case, restored, target)
+        case.assertEqual(_pixels(case, restored, 6), references[kind], kind)
+    _close_worker(case)
