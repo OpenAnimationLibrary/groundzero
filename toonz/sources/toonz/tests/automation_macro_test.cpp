@@ -17,6 +17,9 @@
 #include "toonz/toonzscene.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
+#include "toonz/txshsimplelevel.h"
 #include "tparamcontainer.h"
 #include "traster.h"
 #include "trenderer.h"
@@ -502,6 +505,60 @@ void admissionBudget(Context& context) {
         "Effect admission ignored macro descendants in the 4096-node budget");
   }
 }
+void fingerprintConnections(Context& context) {
+  auto& document        = context.addDocument(std::make_unique<ToonzScene>());
+  const Fixture fixture = setup(context, document);
+  auto* macro = macroFrom(document, group(context, document, fixture));
+  auto* sheet = document.scene->getXsheet();
+  auto* graph = sheet->getFxDag();
+  graph->removeFromXsheet(macro);
+  const int firstIndex = sheet->getColumnCount();
+  sheet->insertColumn(firstIndex, new TXshLevelColumn());
+  sheet->insertColumn(firstIndex + 1, new TXshLevelColumn());
+  auto* level =
+      document.scene->createNewLevel(PLI_XSHLEVEL, L"MacroColumnIdentity");
+  sheet->setCell(0, firstIndex, TXshCell(level, TFrameId(1)));
+  sheet->setCell(0, firstIndex + 1, TXshCell(level, TFrameId(1)));
+
+  TFx* first  = sheet->getColumn(firstIndex)->getFx();
+  TFx* second = sheet->getColumn(firstIndex + 1)->getFx();
+  require(
+      first != second && first->getFxId().empty() && second->getFxId().empty(),
+      "Normal drawing-column identity regression fixture changed");
+  TFxPort* port = macro->getInputPort(0);
+  port->setFx(first);
+  const QByteArray firstHash =
+      automationMacroFingerprint(*document.scene, context.workspace());
+  port->setFx(second);
+  const QByteArray secondHash =
+      automationMacroFingerprint(*document.scene, context.workspace());
+  require(firstHash != secondHash,
+          "Macro fingerprint conflated two normal drawing columns");
+  port->setFx(nullptr);
+  const QByteArray nullHash =
+      automationMacroFingerprint(*document.scene, context.workspace());
+  port->setFx(graph->getXsheetFx());
+  const QByteArray xsheetHash =
+      automationMacroFingerprint(*document.scene, context.workspace());
+  require(nullHash != xsheetHash,
+          "Macro fingerprint conflated null and Xsheet inputs");
+  require(xsheetHash != firstHash && xsheetHash != secondHash,
+          "Macro fingerprint conflated structural and column identities");
+  QTemporaryDir directory(context.workspace() + "/macro-columns-XXXXXX");
+  require(directory.isValid(),
+          "Cannot create drawing-column roundtrip fixture");
+  port->setFx(second);
+  const TFilePath path((directory.path() + "/columns.tnz").toStdWString());
+  document.scene->saveCopy(path);
+  ToonzScene loaded;
+  loaded.setProject(document.scene->getProject());
+  loaded.loadTnzFile(path);
+  validateAutomationFxGraph(loaded);
+  indexAutomationMacroMembers(loaded);
+  require(automationMacroFingerprint(loaded, context.workspace()) == secondHash,
+          "Drawing-column macro connection identity changed across native "
+          "persistence");
+}
 void dispatcherFault(Context& context, int point) {
   auto& document        = context.addDocument(std::make_unique<ToonzScene>());
   const Fixture fixture = setup(context, document);
@@ -554,6 +611,7 @@ void runAutomationMacroTests(Context& context) {
   maximumAndDisabled(context);
   malformedGraphs(context);
   admissionBudget(context);
+  fingerprintConnections(context);
   for (int point : {1, 2, 3, 7, 8}) createFault(context, point);
   for (int point : {4, 5, 6, 9}) expandFault(context, point);
   for (int point = 1; point <= 9; ++point) dispatcherFault(context, point);
