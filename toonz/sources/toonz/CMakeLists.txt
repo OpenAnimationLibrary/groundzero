@@ -1139,7 +1139,19 @@ if(BUILD_UI_PORT_TESTS)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
     target_link_libraries(mcp_path_test PRIVATE
         toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
-    add_test(NAME mcp_path_authority COMMAND mcp_path_test)
+    if(APPLE)
+        add_test(NAME mcp_path_authority COMMAND ${CMAKE_COMMAND} -E env
+            "DYLD_LIBRARY_PATH=$<TARGET_FILE_DIR:OpenToonz>"
+            "$<TARGET_FILE:mcp_path_test>")
+    elseif(WIN32)
+        set(mcp_path_runtime_path
+            "$<TARGET_FILE_DIR:OpenToonz>;$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>")
+        string(APPEND mcp_path_runtime_path ";$ENV{PATH}")
+        add_test(NAME mcp_path_authority COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=${mcp_path_runtime_path}" "$<TARGET_FILE:mcp_path_test>")
+    else()
+        add_test(NAME mcp_path_authority COMMAND mcp_path_test)
+    endif()
     set_tests_properties(mcp_path_authority PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_path_test)
     add_executable(mcp_live_protocol_test
