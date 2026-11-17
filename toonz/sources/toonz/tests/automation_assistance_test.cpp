@@ -159,6 +159,9 @@ void invalidDeclarations() {
 }
 
 void payloadsRemainUnread() {
+#ifdef Q_OS_WIN
+  std::cout << "SKIP POSIX-only payloadsRemainUnread on Windows\n";
+#else
   QTemporaryDir root;
   const QDir directory       = package(root.path());
   const QJsonObject manifest = neuralManifest(directory);
@@ -171,6 +174,7 @@ void payloadsRemainUnread() {
         "integrity_and_runtime_not_verified");
   std::cout << "metadata discovery does not read executable/runtime/model "
                "payloads PASS\n";
+#endif
 }
 
 void modelIdentity() {
@@ -190,6 +194,9 @@ void modelIdentity() {
 }
 
 void symlinks() {
+#ifdef Q_OS_WIN
+  std::cout << "SKIP POSIX-only symlinks on Windows\n";
+#else
   QTemporaryDir root;
   QTemporaryDir external;
   const QDir directory       = package(root.path());
@@ -215,9 +222,13 @@ void symlinks() {
   state(inspect(other.path(), Posix, 1), "incomplete",
         "component_directory_not_regular");
   std::cout << "component, manifest and package symlink boundaries PASS\n";
+#endif
 }
 
 void posixCadmium() {
+#ifdef Q_OS_WIN
+  std::cout << "SKIP POSIX-only posixCadmium on Windows\n";
+#else
   QTemporaryDir root;
   const QString worker = root.filePath("cadmium-sidecar");
   writeFile(worker, "test");
@@ -231,6 +242,7 @@ void posixCadmium() {
   state(inspect(root.path(), Posix, 0), "incomplete", "version_unsupported");
   std::cout
       << "POSIX Cadmium presence does not launch or inspect models PASS\n";
+#endif
 }
 
 void windowsCadmiumMetadata() {
@@ -328,6 +340,7 @@ void declarationAndFilesystemEdges() {
           text.isEmpty() ? "manifest_size_invalid" : "manifest_invalid_json");
   }
   saveManifest(directory, valid);
+#ifndef Q_OS_WIN
   require(QFile::setPermissions(directory.filePath("package.json"),
                                 QFile::Permissions()),
           "Deny manifest reads");
@@ -335,6 +348,7 @@ void declarationAndFilesystemEdges() {
   require(QFile::setPermissions(directory.filePath("package.json"),
                                 QFile::ReadOwner | QFile::WriteOwner),
           "Restore manifest");
+#endif
   require(QFile::remove(directory.filePath("package.json")), "Remove manifest");
   require(QDir().mkdir(directory.filePath("package.json")),
           "Create manifest directory");
