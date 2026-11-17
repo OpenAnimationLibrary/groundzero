@@ -72,7 +72,11 @@ def validate_clients(sdk: dict[str, Any]) -> None:
         raise AssertionError("All four sequential SDK clients must close their transports")
     if sdk.get("concurrent_clients") != 2:
         raise AssertionError("The live service must be exercised by two concurrent SDK clients")
-    for key in ("active_shutdown_observed", "stop_during_commit_observed"):
+    for key in (
+        "active_shutdown_observed",
+        "stop_during_commit_observed",
+        "concurrent_connections_observed",
+    ):
         if sdk.get(key) is not True:
             raise AssertionError(f"The SDK journey did not observe {key}")
     tools = {call["tool"] for call in sdk["calls"]}

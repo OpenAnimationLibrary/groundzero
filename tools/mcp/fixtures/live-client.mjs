@@ -433,17 +433,21 @@ async function sceneRetirement(client, report) {
   const reset = await inspect(client, report);
   assert.notEqual(reset.scene_epoch, reinstated.scene_epoch);
   assert.equal((await phase("snapshot")).native.history_count, 0);
+}
+
+async function destructiveSceneReplacement(client, report) {
+  const before = await inspect(client, report);
   const replaced = (await phase("scene-replace")).native;
   assert.equal(replaced.original_scene_current, false);
   await failure(
     client,
     "live.inspect",
-    { scene_epoch: reset.scene_epoch },
+    { scene_epoch: before.scene_epoch },
     "scene_changed",
     report,
   );
   const newScene = await inspect(client, report);
-  assert.notEqual(newScene.scene_epoch, reset.scene_epoch);
+  assert.notEqual(newScene.scene_epoch, before.scene_epoch);
   assert.equal(newScene.editable_targets.length, 0);
   const restored = (await phase("scene-reinstate")).native;
   assert.equal(restored.original_scene_current, true);
@@ -454,15 +458,17 @@ async function sceneRetirement(client, report) {
     "scene_changed",
     report,
   );
-  await inspect(client, report);
+  const cleared = await inspect(client, report);
+  assert.deepEqual(
+    cleared.editable_targets,
+    [],
+    "Native New Scene clears the retired scene before its pointer can be reinstated",
+  );
 }
 
 async function journey(context, report, slots) {
   assert.equal((await verifyLiveSecurity(context, phase)).status, "passed");
-  slots.push(await connect(context, "first"));
-  report.clients = slots.length;
-  slots.push(await connect(context, "second"));
-  report.clients = slots.length;
+  await connectPair(context, report, slots);
   report.concurrent_clients = 2;
   const [first, second] = slots;
   const capabilities = await success(first, "live.capabilities", {}, report);
@@ -491,6 +497,18 @@ async function journey(context, report, slots) {
   await close(second, report);
   const stoppedEdit = await stopDuringCommit(context, report, slots);
   await activeShutdown(context, report, slots, stoppedEdit);
+}
+
+async function connectPair(context, report, slots) {
+  const results = await Promise.allSettled([connect(context, "first"), connect(context, "second")]);
+  for (const result of results) {
+    if (result.status === "fulfilled") slots.push(result.value);
+  }
+  report.clients = slots.length;
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+  report.concurrent_connections_observed = true;
 }
 
 async function stopDuringCommit(context, report, slots) {
@@ -537,6 +555,7 @@ async function activeShutdown(context, report, slots, stoppedEdit) {
   report.clients = slots.length;
   const snapshot = await inspect(client, report);
   metadataPreserved(stoppedEdit.curve, stage(snapshot, "camera").curve, 10, stoppedEdit.value);
+  await destructiveSceneReplacement(client, report);
   const before = (await phase("snapshot")).native;
   assert.deepEqual((await phase("shutdown")).native, before);
   await failure(client, "live.status", {}, "LIVE_UNAVAILABLE", report);

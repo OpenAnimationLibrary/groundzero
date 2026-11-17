@@ -13,8 +13,11 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/tstageobjectspline.h"
 #include "toonz/tstageobjecttree.h"
+#include "toonz/txshcell.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/txshsoundtextlevel.h"
 #include "tstream.h"
 #include "tundo.h"
 
@@ -181,12 +184,16 @@ void levelMembership() {
 void columnMembership() {
   ToonzScene scene;
   TXsheet* sheet = scene.getXsheet();
+  TXshSimpleLevelP level(new TXshSimpleLevel(L"Generation drawing"));
+  level->setType(PLI_XSHLEVEL);
+  const TXshCell drawing(level.getPointer(), TFrameId(1));
   auto before = sheet->columnGeneration();
-  sheet->touchColumn(2, TXshColumn::eLevelType);
+  require(sheet->setCell(0, 2, drawing), "Cannot create the drawing column fixture");
   require(sheet->getColumnCount() == 3 && sheet->columnGeneration() > before,
           "Automatically created columns were untracked");
   before = sheet->columnGeneration();
-  TXshColumnP column(sheet->touchColumn(2, TXshColumn::eLevelType));
+  TXshColumnP column(sheet->getColumn(2));
+  require(sheet->setCell(1, 2, drawing), "Cannot extend the existing drawing column");
   require(sheet->columnGeneration() == before, "Existing column touch changed ownership");
   sheet->moveColumn(2, 0);
   require(sheet->columnGeneration() > before && sheet->getColumn(0) == column.getPointer(),
@@ -197,9 +204,15 @@ void columnMembership() {
   before = sheet->columnGeneration();
   sheet->insertColumn(0, column.getPointer());
   require(sheet->columnGeneration() > before, "Column reinsertion revived prior ownership");
+  sheet->clearCells(0, 0, 2);
+  TXshSoundTextLevelP text(new TXshSoundTextLevel(L"Generation text"));
+  text->setType(SND_TXT_XSHLEVEL);
+  text->setFrameText(0, QStringLiteral("Fixture"));
   before = sheet->columnGeneration();
-  sheet->touchColumn(0, TXshColumn::eSoundType);
-  require(sheet->columnGeneration() > before && sheet->getColumn(0) != column.getPointer(),
+  require(sheet->setCell(0, 0, TXshCell(text.getPointer(), TFrameId(1))),
+          "Cannot replace the empty column with a text column");
+  require(sheet->columnGeneration() > before && sheet->getColumn(0) != column.getPointer() &&
+              sheet->getColumn(0)->getColumnType() == TXshColumn::eSoundTextType,
           "Empty-column type replacement was untracked");
   TStageObjectP oldStage(sheet->getStageObject(TStageObjectId::CameraId(0)));
   TFxP oldOutput(sheet->getFxDag()->getCurrentOutputFx());
