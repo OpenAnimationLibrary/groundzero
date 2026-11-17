@@ -16,6 +16,7 @@
 #endif
 
 namespace NeuralStyle {
+class WorkerExecution;
 struct Cancellation {
   const std::atomic_bool *flag;
   const int *renderFlag;
@@ -49,6 +50,8 @@ public:
   // a scene or arbitrary downloaded manifest. Checksums detect corruption, not
   // authenticity of an attacker-replaced executable and manifest together.
   explicit Session(const QString &packageDirectory);
+  Session(const QString &packageDirectory,
+          std::shared_ptr<const WorkerExecution> execution);
   ~Session();
   Session(const Session &) = delete;
   Session &operator=(const Session &) = delete;

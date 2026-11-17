@@ -5,6 +5,7 @@
 #include "celfxsourcegrid.h"
 #include "neuraltemporal.h"
 #include "toonz/neuralstyle.h"
+#include "stdfx/neuralstyleworker.h"
 #include <QCache>
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -122,6 +123,7 @@ class NeuralStyleFx final : public GlobalControllableFx {
   FX_PLUGIN_DECLARATION(NeuralStyleFx)
   TRasterFxPort m_source,m_mask,m_ink;
   TStringParamP m_profile;
+  std::shared_ptr<const NeuralStyle::WorkerExecution> m_execution;
   TDoubleParamP m_strength;
   TIntParamP m_history,m_start,m_end;
   bool validShot() const {
@@ -173,6 +175,50 @@ public:
     m_start->setValueRange(1,1000000);m_end->setValueRange(1,1000000);
     enableComputeInFloat(true);
   }
+  void configureWorker(const NeuralStyle::Profile& profile, double strength, int frame,
+                       std::shared_ptr<const NeuralStyle::WorkerExecution> execution) {
+    m_profile->setValue(NeuralStyle::serialize(profile).toStdWString());
+    m_strength->setDefaultValue(strength);
+    m_history->setValue(0);
+    m_start->setValue(frame + 1);
+    m_end->setValue(frame + 1);
+    m_execution = std::move(execution);
+    enableComputeInFloat(false);
+  }
+  TFx* clone(bool recursive = true) const override {
+    auto* result = static_cast<NeuralStyleFx*>(TFx::clone(recursive));
+    result->m_execution = m_execution;
+    return result;
+  }
+  void validateWorkerExecution() const {
+    if (!m_execution) return;
+    QString error;
+    if (!m_execution->verify(error)) throw TException(error.toStdWString());
+  }
+  std::unique_lock<std::timed_mutex> guardWorkerCompute(const int* cancel) const {
+    if (!m_execution) return {};
+    auto lock = m_execution->lockCompute(cancel);
+    if (!lock.owns_lock()) throw TException("Neural preview canceled while waiting for image buffers.");
+    return lock;
+  }
+  void validateWorkerTile(const TTile& tile) const {
+    if (!m_execution) return;
+    const TRaster32P raster = tile.getRaster();
+    if (!raster || qint64(raster->getLx()) * raster->getLy() > 1048576 ||
+        m_mask.isConnected() || m_ink.isConnected())
+      throw TException("Neural worker preview requires a bounded RGBA8 tile without masks.");
+  }
+  void appendWorkerIdentity(QCryptographicHash& hash) const {
+    if (m_execution) hash.addData(m_execution->cacheNamespace.toUtf8());
+  }
+  void checkWorkerDeadline() const {
+    if (m_execution && m_execution->expired())
+      throw TException("Neural preview exceeded its total work budget.");
+  }
+  std::unique_ptr<NeuralStyle::Session> workerSession() const {
+    if (inferenceForTests) return {};
+    return std::make_unique<NeuralStyle::Session>(componentDirectory(), m_execution);
+  }
   bool canHandle(const TRenderSettings &,double) override{return true;}
   bool requiresFullPrecisionSerialization() const override{return true;}
   TAffine handledAffine(const TRenderSettings &info,double) override{return info.m_affine;}
@@ -201,6 +247,7 @@ public:
     QCryptographicHash hash(QCryptographicHash::Sha256);
     hash.addData(QByteArray::fromStdString(TRasterFx::getAlias(frame,info)));
     hash.addData(componentIdentity());
+    appendWorkerIdentity(hash);
     std::ostringstream camera;camera.imbue(std::locale::classic());camera<<std::setprecision(17)
       <<info.m_cameraBox.x0<<','<<info.m_cameraBox.y0<<','<<info.m_cameraBox.x1<<','<<info.m_cameraBox.y1
       <<':'<<m_strength->getValue(frame);
@@ -229,6 +276,9 @@ public:
     }
   }
   void doCompute(TTile &tile,double frame,const TRenderSettings &info) override {
+    const auto computeGuard = guardWorkerCompute(info.m_isCanceled);
+    validateWorkerExecution();
+    validateWorkerTile(tile);
     if(!m_source.isConnected()){tile.getRaster()->clear();return;}
     if(!m_profile->getValue().empty() && m_strength->getValue(frame)>0 &&
        qint64(tile.getRaster()->getLx())*tile.getRaster()->getLy()>16777216)
@@ -284,8 +334,7 @@ public:
     std::unique_ptr<NeuralStyle::Session> session;
     if(!pending.empty()) {
       std::vector<QImage> inferred;
-      if (!inferenceForTests)
-        session.reset(new NeuralStyle::Session(componentDirectory()));
+      session = workerSession();
       const bool styled =
           inferenceForTests
               ? inferenceForTests(profile.reference, pending, inferred, error)
@@ -322,7 +371,21 @@ public:
     else if(TRaster64P r=output)complete=composite<TPixel64>(r,selection.getRaster(),ink.getRaster(),previous.styled,grid,tile.m_pos,strength,info.m_isCanceled);
     else if(TRasterFP r=output)complete=composite<TPixelF>(r,selection.getRaster(),ink.getRaster(),previous.styled,grid,tile.m_pos,strength,info.m_isCanceled);
     else throw TException("Neural Style: unsupported raster type.");
+    checkWorkerDeadline();
     if(complete)raster->copy(output);
   }
 };
 FX_PLUGIN_IDENTIFIER(NeuralStyleFx,"neuralStyleFx")
+
+
+TFx* NeuralStyle::createWorkerPreviewFx(
+    const Profile& profile, double strength, int frame,
+    std::shared_ptr<const WorkerExecution> execution) {
+  if (!execution || profile.reference.size() != QSize(256, 256) ||
+      !std::isfinite(strength) || strength < 1 || strength > 100 ||
+      frame < 0 || frame > 999999)
+    throw TException("Invalid transient Neural preview configuration.");
+  auto result = std::make_unique<NeuralStyleFx>();
+  result->configureWorker(profile, strength, frame, std::move(execution));
+  return result.release();
+}
