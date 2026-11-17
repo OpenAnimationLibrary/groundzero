@@ -2,16 +2,20 @@
 #include "automation_drawing.h"
 
 #include "tcolorstyles.h"
+#include "tgeometry.h"
 #include "timage_io.h"
 #include "timageinfo.h"
 #include "tpalette.h"
 #include "trasterimage.h"
+#include "tregion.h"
 #include "tsimplecolorstyles.h"
 #include "tstroke.h"
 #include "ttoonzimage.h"
 #include "tvectorimage.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txshcell.h"
 #include "toonz/txshchildlevel.h"
@@ -22,6 +26,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QtEndian>
@@ -32,19 +37,22 @@
 #include <memory>
 #include <set>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
 namespace GroundzeroAutomation {
 namespace {
 
-constexpr int kMaxPixels        = 16777216;
-constexpr int kMaxPatch         = 16384;
-constexpr int kMaxStrokes       = 4096;
-constexpr int kMaxPoints        = 1025;
-constexpr int kMaxStyles        = 4096;
-constexpr int kMaxVectorFrame   = 65535;
-constexpr double kMaxCoordinate = 32768.0;
-constexpr double kMaxThickness  = 255.0;
+constexpr int kMaxPixels         = 16777216;
+constexpr int kMaxPatch          = 16384;
+constexpr int kMaxStrokes        = 4096;
+constexpr int kMaxPoints         = 1025;
+constexpr int kMaxStyles         = 4096;
+constexpr int kMaxPages          = 128;
+constexpr int kMaxVectorFrame    = 65535;
+constexpr double kMaxCoordinate  = 32768.0;
+constexpr double kMaxThickness   = 255.0;
+constexpr int kMaxTransformEdges = 65536;
 
 [[noreturn]] void invalid(const QString& message) {
   throw Error("invalid_params", message);
@@ -307,56 +315,67 @@ QJsonObject cloneDrawing(Context& context, Document& document,
   return imageSummary(level, destination);
 }
 
-struct ExposureScan final {
-  TXshSimpleLevel* level;
-  TFrameId frame;
-  qint64 remaining = 1000000;
-  std::set<TXsheet*> visited;
+struct DrawingExposure final {
+  TXshCellColumn* column;
+  TStageObject* object;
+  int row;
+  TXshCell cell;
 };
 
-bool referencesInColumn(TXshCellColumn* column, ExposureScan& scan);
+struct ExposureScan final {
+  TXshSimpleLevel* level;
+  std::set<TFrameId> frames;
+  bool firstOnly;
+  qint64 remaining = 1000000;
+  std::set<TXsheet*> visited;
+  std::vector<DrawingExposure> exposures;
+};
+
+bool referencesInColumn(TXsheet* sheet, int index, ExposureScan& scan);
 
 bool referencesInSheet(TXsheet* sheet, ExposureScan& scan) {
   if (!sheet || !scan.visited.insert(sheet).second) return false;
   if (scan.visited.size() > 128)
     throw Error("resource_limit", "Exposure scan exceeds 128 nested sheets");
-  for (int index = 0; index < sheet->getColumnCount(); ++index) {
-    auto* column = sheet->getColumn(index);
-    if (column && referencesInColumn(column->getCellColumn(), scan))
-      return true;
-  }
+  for (int index = 0; index < sheet->getColumnCount(); ++index)
+    if (referencesInColumn(sheet, index, scan)) return true;
   return false;
 }
 
-bool referencesInCell(const TXshCell& cell, ExposureScan& scan) {
-  if (cell.getSimpleLevel() == scan.level && cell.m_frameId == scan.frame)
-    return true;
+bool referencesInCell(TXsheet* sheet, int index, int row, ExposureScan& scan) {
+  auto* column     = sheet->getColumn(index)->getCellColumn();
+  const auto& cell = column->getCell(row);
+  if (cell.getSimpleLevel() == scan.level &&
+      scan.frames.count(cell.m_frameId)) {
+    auto* object = sheet->getStageObjectTree()->getStageObject(
+        TStageObjectId::ColumnId(index), false);
+    scan.exposures.push_back({column, object, row, cell});
+    if (scan.firstOnly) return true;
+  }
   auto* child = cell.getChildLevel();
   return child && referencesInSheet(child->getXsheet(), scan);
 }
 
-bool referencesInColumn(TXshCellColumn* column, ExposureScan& scan) {
+bool referencesInColumn(TXsheet* sheet, int index, ExposureScan& scan) {
+  auto* entry  = sheet->getColumn(index);
+  auto* column = entry ? entry->getCellColumn() : nullptr;
   int first = 0, last = -1;
   if (!column || !column->getRange(first, last)) return false;
   scan.remaining -= static_cast<qint64>(last) - first + 1;
   if (scan.remaining < 0)
     throw Error("resource_limit", "Exposure scan exceeds one million cells");
-  for (int row = first; row <= last; ++row) {
-    if (referencesInCell(column->getCell(row), scan)) return true;
-  }
+  for (int row = first; row <= last; ++row)
+    if (referencesInCell(sheet, index, row, scan)) return true;
   return false;
 }
 
-bool referencedDrawing(Document& document, TXshSimpleLevel* level,
-                       const TFrameId& frame) {
-  ExposureScan scan{level, frame, 1000000, {}};
-  if (referencesInSheet(document.scene->getXsheet(), scan)) return true;
+void scanExposures(Document& document, ExposureScan& scan) {
+  if (referencesInSheet(document.scene->getXsheet(), scan)) return;
   auto* levels = document.scene->getLevelSet();
   for (int i = 0; i < levels->getLevelCount(); ++i) {
     auto* child = levels->getLevel(i)->getChildLevel();
-    if (child && referencesInSheet(child->getXsheet(), scan)) return true;
+    if (child && referencesInSheet(child->getXsheet(), scan)) return;
   }
-  return false;
 }
 
 QJsonObject removeDrawing(Context& context, Document& document,
@@ -364,12 +383,111 @@ QJsonObject removeDrawing(Context& context, Document& document,
   auto* level      = simpleLevel(document, params);
   const auto frame = frameId(params);
   imageFor(level, frame);
-  if (referencedDrawing(document, level, frame))
+  ExposureScan scan{level, {frame}, true, 1000000, {}, {}};
+  scanExposures(document, scan);
+  if (!scan.exposures.empty())
     throw Error("in_use", "Remove every exposure before removing this drawing");
   context.markMutationStarted();
   level->eraseFrame(frame);
   level->setDirtyFlag(true);
   return {{"removed", frameJson(frame)}};
+}
+
+using DrawingMapping = std::map<TFrameId, TFrameId>;
+
+DrawingMapping drawingMapping(TXshSimpleLevel* level,
+                              const QJsonObject& params) {
+  DrawingMapping mapping;
+  for (const auto& item : array(params, "mapping", 1, 4096)) {
+    if (!item.isObject()) invalid("Each mapping entry must be an object");
+    const auto entry = item.toObject();
+    keys(entry, {"drawing_id", "destination_drawing_id"});
+    const auto source      = frameId(entry);
+    const auto destination = frameId(entry, "destination_drawing_id");
+    validateFrameNumber(level, destination);
+    if (!level->isFid(source))
+      throw Error("not_found", "A source drawing identity does not exist");
+    if (!mapping.emplace(source, destination).second)
+      invalid("A source drawing appears more than once in mapping");
+  }
+  return mapping;
+}
+
+std::vector<TFrameId> renamedFrames(TXshSimpleLevel* level,
+                                    const DrawingMapping& mapping) {
+  std::vector<TFrameId> frames = level->getFids();
+  std::set<TFrameId> destinations;
+  for (auto& frame : frames) {
+    const auto renamed = mapping.find(frame);
+    if (renamed != mapping.end()) frame = renamed->second;
+    if (!destinations.insert(frame).second)
+      throw Error("already_exists",
+                  "A destination collides with another drawing; include all "
+                  "moved drawings in the same mapping");
+  }
+  return frames;
+}
+
+void prepareRenumberExposures(ExposureScan& scan,
+                              const DrawingMapping& mapping) {
+  for (auto& exposure : scan.exposures) {
+    if (exposure.column->isLocked() ||
+        (exposure.object && exposure.object->isLocked()))
+      throw Error("locked",
+                  "An affected drawing exposure is in a locked column");
+    exposure.cell.m_frameId = mapping.at(exposure.cell.m_frameId);
+    if (!exposure.column->canSetCell(exposure.cell))
+      throw Error("incompatible_column",
+                  "An exposure cannot accept its renamed drawing");
+  }
+}
+
+void applyRenumber(Context& context, TXshSimpleLevel* level,
+                   const std::vector<TFrameId>& frames, ExposureScan& scan) {
+  std::vector<TImageP> images;
+  for (const auto& frame : level->getFids())
+    images.push_back(imageFor(level, frame));
+  context.markMutationStarted();
+  level->renumber(frames);
+  for (const auto& exposure : scan.exposures)
+    if (!exposure.column->setCell(exposure.row, exposure.cell))
+      throw Error("native_error",
+                  "A preflighted drawing exposure could not be renamed");
+  for (size_t index = 0; index < frames.size(); ++index)
+    if (imageFor(level, frames[index]).getPointer() !=
+        images[index].getPointer())
+      throw Error("native_error",
+                  "Native renumbering changed a drawing's image binding");
+  level->setDirtyFlag(true);
+}
+
+QJsonObject renumberDrawing(Context& context, Document& document,
+                            const QJsonObject& params) {
+  sharing(params);
+  auto* level        = simpleLevel(document, params);
+  const auto mapping = drawingMapping(level, params);
+  const auto frames  = renamedFrames(level, mapping);
+  ExposureScan scan{level, {}, false, 1000000, {}, {}};
+  QJsonArray resultMapping;
+  for (const auto& entry : mapping) {
+    resultMapping.append(
+        QJsonObject{{"drawing_id", frameJson(entry.first)},
+                    {"destination_drawing_id", frameJson(entry.second)}});
+    if (entry.first != entry.second) scan.frames.insert(entry.first);
+  }
+  if (!scan.frames.empty()) {
+    if (level->isReadOnly())
+      throw Error("locked", "The drawing level is read-only");
+    validateDrawingProfile(level);
+    requireAssetGrowth(*document.scene, 0);
+    scanExposures(document, scan);
+    prepareRenumberExposures(scan, mapping);
+    applyRenumber(context, level, frames, scan);
+  }
+  return {{"mapping", resultMapping},
+          {"drawings_renumbered", static_cast<int>(scan.frames.size())},
+          {"exposures_updated", static_cast<int>(scan.exposures.size())},
+          {"sharing", "all_exposures"}};
 }
 
 TVectorImageP vectorFor(TXshSimpleLevel* level, const TFrameId& frame) {
@@ -694,16 +812,21 @@ QJsonObject inspectPalette(Context&, Document& document,
           {"sharing", "whole_level"}};
 }
 
-QJsonObject createStyle(Context& context, Document& document,
-                        const QJsonObject& params) {
-  auto* level        = simpleLevel(document, params);
-  auto* palette      = paletteFor(level, true);
-  const auto rgba    = styleColor(params);
+QString styleName(const QJsonObject& params) {
   const QString name = requiredString(params, "name");
   if (name.size() > 128 || name.startsWith('|') || name.contains(QChar::Null))
     invalid(
         "Style names must have at most 128 characters, contain no NUL, and "
         "not begin with the native studio-palette marker |");
+  return name;
+}
+
+QJsonObject createStyle(Context& context, Document& document,
+                        const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* palette      = paletteFor(level, true);
+  const auto rgba    = styleColor(params);
+  const QString name = styleName(params);
   if (palette->getStyleCount() >= kMaxStyles)
     throw Error("resource_limit", "Palette already contains 4096 styles");
   requireAssetGrowth(*document.scene, AutomationStyleBytes);
@@ -736,8 +859,9 @@ bool sameStyleColor(TPalette* palette, int id, const QJsonObject& params,
   const int frame = integer(params, "keyframe", 0, maximumFrame);
   const auto key  = keys.find(frame);
   if (key == keys.end()) return false;
-  return typeid(*key->second.style) == typeid(TSolidColorStyle) &&
-         key->second.style->getMainColor() == color;
+  const auto* style = key->second.style.getPointer();
+  return typeid(*style) == typeid(TSolidColorStyle) &&
+         style->getMainColor() == color;
 }
 
 void requirePaletteKeyGrowth(ToonzScene& scene, TPalette* palette, int id,
@@ -774,7 +898,8 @@ QJsonObject updateStyle(Context& context, Document& document,
       animation.emplace(frame, std::move(key));
     } else {
       std::unique_ptr<TColorStyle> key(found->second.style->clone());
-      if (typeid(*key) != typeid(TSolidColorStyle))
+      const auto* keyStyle = key.get();
+      if (typeid(*keyStyle) != typeid(TSolidColorStyle))
         throw Error("unsupported_style",
                     "The selected keyframe is not a solid color style");
       key->setMainColor(rgba);
@@ -790,6 +915,201 @@ QJsonObject updateStyle(Context& context, Document& document,
   palette->setDirtyFlag(true);
   level->setDirtyFlag(true);
   return styleJson(palette, id);
+}
+
+bool validPageName(const QString& name, bool vectorFirstPage) {
+  return !name.isEmpty() && name.size() <= 128 && !name.contains(QChar::Null) &&
+         !(vectorFirstPage && name.startsWith("refimage"));
+}
+
+QString pageName(const QJsonObject& params, bool vectorFirstPage) {
+  const QString name = requiredString(params, "name");
+  if (!validPageName(name, vectorFirstPage))
+    invalid(
+        "Page names must have 1..128 characters and no NUL; vector page "
+        "zero cannot begin with the native refimage marker");
+  return name;
+}
+
+QJsonObject pagesJson(TPalette* palette) {
+  QJsonArray pages;
+  for (int index = 0; index < palette->getPageCount(); ++index) {
+    const auto* page = palette->getPage(index);
+    QJsonArray ids;
+    for (int position = 0; position < page->getStyleCount(); ++position)
+      ids.append(page->getStyleId(position));
+    pages.append(QJsonObject{{"page_index", index},
+                             {"name", QString::fromStdWString(page->getName())},
+                             {"style_ids", ids}});
+  }
+  return {{"pages", pages},
+          {"page_count", palette->getPageCount()},
+          {"style_count", palette->getStyleCount()},
+          {"sharing", "whole_level"},
+          {"indices", "zero_based_at_document_revision"}};
+}
+
+QJsonObject inspectPages(Context&, Document& document,
+                         const QJsonObject& params) {
+  return pagesJson(paletteFor(simpleLevel(document, params)));
+}
+
+void publishPalette(Context& context, TXshSimpleLevel* level,
+                    const TPaletteP& palette) {
+  std::vector<TImageP> drawings;
+  for (const auto& frame : level->getFids())
+    drawings.push_back(imageFor(level, frame));
+  context.markMutationStarted();
+  level->setPalette(palette.getPointer());
+  for (const auto& drawing : drawings)
+    drawing->setPalette(palette.getPointer());
+  palette->setDirtyFlag(true);
+  level->setDirtyFlag(true);
+}
+
+QJsonObject createPage(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* original     = paletteFor(level, true);
+  const QString name = pageName(params, false);
+  if (original->getPageCount() >= kMaxPages)
+    throw Error("resource_limit", "Palette already contains 128 pages");
+  requireAssetGrowth(*document.scene, AutomationPageBytes);
+  const TPaletteP palette(original->clone());
+  palette->addPage(name.toStdWString());
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject renamePage(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level    = simpleLevel(document, params);
+  auto* original = paletteFor(level, true);
+  const int index =
+      integer(params, "page_index", 0, original->getPageCount() - 1);
+  const QString name =
+      pageName(params, index == 0 && level->getType() == PLI_XSHLEVEL);
+  if (original->getPage(index)->getName() == name.toStdWString())
+    return pagesJson(original);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  palette->getPage(index)->setName(name.toStdWString());
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject movePage(Context& context, Document& document,
+                     const QJsonObject& params) {
+  auto* level           = simpleLevel(document, params);
+  auto* original        = paletteFor(level, true);
+  const int last        = original->getPageCount() - 1;
+  const int index       = integer(params, "page_index", 1, last);
+  const int destination = integer(params, "to_index", 1, last);
+  if (index == destination) return pagesJson(original);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  palette->movePage(palette->getPage(index), destination);
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject removePage(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level    = simpleLevel(document, params);
+  auto* original = paletteFor(level, true);
+  const int index =
+      integer(params, "page_index", 1, original->getPageCount() - 1);
+  if (original->getPage(index)->getStyleCount() != 0)
+    throw Error("page_not_empty", "Move the page's styles before removing it");
+  requireAssetGrowth(*document.scene, -AutomationPageBytes);
+  const TPaletteP palette(original->clone());
+  palette->erasePage(index);
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+QJsonObject moveStyle(Context& context, Document& document,
+                      const QJsonObject& params) {
+  auto* level    = simpleLevel(document, params);
+  auto* original = paletteFor(level, true);
+  const int id   = styleId(params, original);
+  if (id == 0) invalid("The transparent style must remain first on page zero");
+  const int destination =
+      integer(params, "page_index", 0, original->getPageCount() - 1);
+  auto* source = original->getStylePage(id);
+  if (!source)
+    throw Error("unsupported_palette", "The style has no native page");
+  const auto* targetPage = original->getPage(destination);
+  const int last = targetPage->getStyleCount() - (source == targetPage ? 1 : 0);
+  const int position =
+      integer(params, "position", destination == 0 ? 1 : 0, last);
+  if (source == targetPage && source->search(id) == position)
+    return pagesJson(original);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  auto* current = palette->getStylePage(id);
+  current->removeStyle(current->search(id));
+  palette->getPage(destination)->insertStyle(position, id);
+  publishPalette(context, level, palette);
+  return pagesJson(palette.getPointer());
+}
+
+TPalette::StyleAnimation namedAnimation(TPalette* palette, int id,
+                                        const std::wstring& name) {
+  auto animation = palette->getStyleAnimation(id);
+  for (auto& entry : animation) {
+    TColorStyleP style(entry.second.style->clone());
+    style->setName(name);
+    entry.second.style = style;
+  }
+  return animation;
+}
+
+QJsonObject renameStyle(Context& context, Document& document,
+                        const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* original     = paletteFor(level, true);
+  const int id       = styleId(params, original);
+  const auto* source = solidEditableStyle(original, id);
+  const auto name    = styleName(params).toStdWString();
+  if (source->getName() == name) return styleJson(original, id);
+  requireAssetGrowth(*document.scene, 0);
+  const TPaletteP palette(original->clone());
+  const auto animation = namedAnimation(palette.getPointer(), id, name);
+  TColorStyleP renamed(source->clone());
+  renamed->setName(name);
+  palette->replaceStyleAnimation(id, animation, *renamed);
+  palette->getStyle(id)->setName(name);
+  publishPalette(context, level, palette);
+  return styleJson(palette.getPointer(), id);
+}
+
+QJsonObject cloneStyle(Context& context, Document& document,
+                       const QJsonObject& params) {
+  auto* level        = simpleLevel(document, params);
+  auto* original     = paletteFor(level, true);
+  const int sourceId = styleId(params, original);
+  const auto* source = solidEditableStyle(original, sourceId);
+  const auto name    = styleName(params).toStdWString();
+  const int page =
+      integer(params, "page_index", 0, original->getPageCount() - 1);
+  if (original->getStyleCount() >= kMaxStyles)
+    throw Error("resource_limit", "Palette already contains 4096 styles");
+  const qint64 snapshots = qint64(original->getKeyframeCount(sourceId)) + 1;
+  requireAssetGrowth(*document.scene, snapshots * AutomationStyleBytes);
+  const TPaletteP palette(original->clone());
+  const auto animation = namedAnimation(original, sourceId, name);
+  std::unique_ptr<TColorStyle> copied(source->clone());
+  copied->setName(name);
+  const int id = palette->addStyle(copied.release());
+  if (id < 0)
+    throw Error("resource_limit", "Native palette refused the copied style");
+  palette->getPage(page)->addStyle(id);
+  TColorStyleP unkeyed(palette->getStyle(id)->clone());
+  palette->replaceStyleAnimation(id, animation, *unkeyed);
+  palette->getStyle(id)->setName(name);
+  publishPalette(context, level, palette);
+  return styleJson(palette.getPointer(), id);
 }
 
 struct PixelRect final {
@@ -1162,6 +1482,53 @@ void drawingCatalog(QJsonArray& tools) {
       target(), {"document_id", "level_id", "drawing_id"}, true));
 }
 
+void renumberCatalog(QJsonArray& tools) {
+  const QJsonObject entry{
+      {"type", "object"},
+      {"additionalProperties", false},
+      {"properties",
+       QJsonObject{{"drawing_id", drawingIdentity()},
+                   {"destination_drawing_id", drawingIdentity()}}},
+      {"required", QJsonArray{"drawing_id", "destination_drawing_id"}}};
+  auto properties = target(false);
+  properties.insert("mapping", boundedArray(entry, 1, 4096));
+  properties.insert("sharing", choice({"all_exposures"}));
+  tools.append(operation(
+      "drawing.renumber",
+      "Rename drawings simultaneously, including swaps and cycles, and update "
+      "all held exposures; locked uses and final identity collisions reject",
+      properties, {"document_id", "level_id", "mapping", "sharing"}, true));
+}
+
+void vectorTransformCatalog(QJsonArray& tools) {
+  auto properties = target();
+  properties.insert("coordinate_space", choice({"drawing_native"}));
+  properties.insert("sharing", choice({"all_exposures"}));
+  properties.insert("thickness_mode",
+                    choice({"preserve", "scale_geometric_mean"}));
+  const QJsonObject coefficient{{"type", "number"},
+                                {"minimum", -kMaxCoordinate},
+                                {"maximum", kMaxCoordinate}};
+  QJsonObject fields;
+  const QJsonArray names{"a11", "a12", "a13", "a21", "a22", "a23"};
+  for (const auto& name : names) fields.insert(name.toString(), coefficient);
+  properties.insert("matrix", QJsonObject{{"type", "object"},
+                                          {"additionalProperties", false},
+                                          {"properties", fields},
+                                          {"required", names}});
+  tools.append(operation(
+      "vector.transform",
+      "Transform the whole drawing: x'=a11*x+a12*y+a13, "
+      "y'=a21*x+a22*y+a23. Require abs(det)>=0.001; preserve native radii "
+      "or scale them by sqrt(abs(det)). Retain stroke IDs and painted "
+      "topology; "
+      "admit at most 65536 region edges and native coordinate/radius bounds.",
+      properties,
+      {"document_id", "level_id", "drawing_id", "coordinate_space", "sharing",
+       "matrix", "thickness_mode"},
+      true));
+}
+
 void vectorCatalog(QJsonArray& tools) {
   auto properties = target();
   properties.insert("offset", range(0, kMaxStrokes));
@@ -1194,6 +1561,7 @@ void vectorCatalog(QJsonArray& tools) {
                 {"document_id", "level_id", "drawing_id", "coordinate_space",
                  "sharing", "x", "y", "style_id"},
                 true));
+  vectorTransformCatalog(tools);
 }
 
 void paletteCatalog(QJsonArray& tools) {
@@ -1230,6 +1598,66 @@ void paletteCatalog(QJsonArray& tools) {
       "styles require a zero-based keyframe and preserve other "
       "keys/interpolation",
       properties, {"document_id", "level_id", "style_id", "color"}, true));
+}
+
+void palettePageCatalog(QJsonArray& tools) {
+  auto properties = target(false);
+  const QJsonArray targetRequired{"document_id", "level_id"};
+  tools.append(
+      operation("palette.pages",
+                "Inspect page order and membership; style IDs remain stable",
+                properties, targetRequired));
+  properties.insert("name", QJsonObject{{"type", "string"},
+                                        {"minLength", 1},
+                                        {"maxLength", 128},
+                                        {"pattern", "^[^\\x00]+$"}});
+  tools.append(operation("palette.page.create",
+                         "Append an empty native palette page", properties,
+                         {"document_id", "level_id", "name"}, true));
+  properties.insert("page_index", range(0, kMaxPages - 1));
+  tools.append(operation(
+      "palette.page.rename",
+      "Rename a page; vector page zero cannot begin with refimage", properties,
+      {"document_id", "level_id", "page_index", "name"}, true));
+  properties.remove("name");
+  properties.insert("page_index", range(1, kMaxPages - 1));
+  tools.append(operation(
+      "palette.page.remove", "Remove an empty page other than pinned page zero",
+      properties, {"document_id", "level_id", "page_index"}, true));
+  properties.insert("to_index", range(1, kMaxPages - 1));
+  tools.append(operation(
+      "palette.page.move", "Move a page; page zero stays first", properties,
+      {"document_id", "level_id", "page_index", "to_index"}, true));
+  properties.remove("to_index");
+  properties.insert("page_index", range(0, kMaxPages - 1));
+  properties.insert("style_id", range(1, kMaxStyles - 1));
+  properties.insert("position", range(0, kMaxStyles - 1));
+  tools.append(operation(
+      "palette.style.move",
+      "Move a style without changing its ID or keys; position is its final "
+      "zero-based position and transparent style zero stays first on page zero",
+      properties,
+      {"document_id", "level_id", "style_id", "page_index", "position"}, true));
+}
+
+void paletteStyleCatalog(QJsonArray& tools) {
+  auto properties = target(false);
+  properties.insert("style_id", range(1, kMaxStyles - 1));
+  properties.insert("name", QJsonObject{{"type", "string"},
+                                        {"minLength", 1},
+                                        {"maxLength", 128},
+                                        {"pattern", "^[^|\\x00][^\\x00]*$"}});
+  tools.append(operation(
+      "palette.rename_style",
+      "Rename a solid style and every animation key snapshot", properties,
+      {"document_id", "level_id", "style_id", "name"}, true));
+  properties.insert("page_index", range(0, kMaxPages - 1));
+  tools.append(operation(
+      "palette.clone_style",
+      "Append an independent solid style with all animation keys to a page; "
+      "existing style IDs and artwork references stay unchanged",
+      properties, {"document_id", "level_id", "style_id", "name", "page_index"},
+      true));
 }
 
 void rasterCatalog(QJsonArray& tools) {
@@ -1307,12 +1735,45 @@ void validateAnimatedStyleProfile(TPalette* palette, int id, int maximumFrame) {
   }
 }
 
+void validatePageStyles(TPalette* palette, const TPalette::Page* page,
+                        std::set<int>& seen) {
+  for (int index = 0; index < page->getStyleCount(); ++index) {
+    const int id = page->getStyleId(index);
+    if (id < 0 || id >= palette->getStyleCount() || !seen.insert(id).second ||
+        palette->getStylePage(id) != page)
+      throw Error("unsupported_palette",
+                  "Palette page membership is inconsistent");
+  }
+}
+
+void validatePalettePages(TPalette* palette, bool vectorPalette) {
+  if (palette->getPageCount() < 1 || palette->getPageCount() > kMaxPages)
+    throw Error("unsupported_palette",
+                "Persistence admits 1..128 palette pages");
+  if (palette->getPage(0)->getStyleId(0) != 0)
+    throw Error("unsupported_palette",
+                "Transparent style zero must be first on page zero");
+  std::set<int> seen;
+  for (int index = 0; index < palette->getPageCount(); ++index) {
+    const auto* page = palette->getPage(index);
+    if (!validPageName(QString::fromStdWString(page->getName()),
+                       vectorPalette && index == 0))
+      throw Error("unsupported_palette",
+                  "A palette page name cannot be preserved natively");
+    validatePageStyles(palette, page, seen);
+  }
+  if (int(seen.size()) != palette->getStyleCount())
+    throw Error("unsupported_palette",
+                "Unpaged styles are outside the persistence profile");
+}
+
 void validatePaletteProfile(TPalette* palette, int maximumFrame) {
   if (!palette) return;
   if (palette->getStyleCount() > kMaxStyles || palette->getRefImg() ||
       !palette->getRefImgPath().isEmpty() || !palette->getGlobalName().empty())
     throw Error("unsupported_palette",
                 "Palette exceeds limits or refers to an external asset");
+  validatePalettePages(palette, maximumFrame == kMaxVectorFrame);
   for (int id = 0; id < palette->getStyleCount(); ++id)
     validateAnimatedStyleProfile(palette, id, maximumFrame);
 }
@@ -1338,6 +1799,197 @@ void validateNativeStroke(const TStroke& stroke, TPalette* palette) {
                 "A vector stroke refers to an absent palette style");
   for (int index = 0; index < count; ++index)
     validateNativePoint(stroke.getControlPoint(index));
+}
+
+TAffine vectorAffine(const QJsonObject& params) {
+  if (!params.value("matrix").isObject()) invalid("matrix must be an object");
+  const QJsonObject matrix = params.value("matrix").toObject();
+  keys(matrix, {"a11", "a12", "a13", "a21", "a22", "a23"});
+  const TAffine affine(number(matrix, "a11", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a12", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a13", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a21", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a22", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a23", -kMaxCoordinate, kMaxCoordinate));
+  if (std::abs(affine.det()) < 0.001)
+    throw Error("unsupported_transform",
+                "Vector transforms require abs(determinant) >= 0.001");
+  return affine;
+}
+
+TThickPoint transformedPoint(const TThickPoint& point, const TAffine& affine,
+                             double thicknessScale) {
+  validateNativePoint(point);
+  const TThickPoint result(affine * TPointD(point.x, point.y),
+                           point.thick * thicknessScale);
+  validateNativePoint(result);
+  return result;
+}
+
+void preflightStrokeTransform(const TStroke& stroke, const TAffine& affine,
+                              double thicknessScale) {
+  for (int index = 0; index < stroke.getControlPointCount(); ++index)
+    transformedPoint(stroke.getControlPoint(index), affine, thicknessScale);
+}
+
+QString transformedEdge(const TEdge& edge, const TAffine& affine) {
+  const bool reflected = affine.det() < 0.0;
+  const double first   = reflected ? edge.m_w1 : edge.m_w0;
+  const double last    = reflected ? edge.m_w0 : edge.m_w1;
+  QJsonArray signature{edge.getStyle()};
+  if (edge.m_index >= 0) {
+    signature.append(edge.m_index);
+    signature.append(first);
+    signature.append(last);
+  } else {
+    preflightStrokeTransform(*edge.m_s, affine, 1.0);
+    signature.append("autoclose");
+    signature.append(edge.m_s->getChunkCount());
+    for (double parameter : {first, (first + last) * 0.5, last}) {
+      const TPointD point = affine * edge.m_s->getPoint(parameter);
+      signature.append(QJsonArray{point.x, point.y});
+    }
+  }
+  return QString::fromUtf8(
+      QJsonDocument(signature).toJson(QJsonDocument::Compact));
+}
+
+QJsonArray regionEdges(const TRegion& region, const TAffine& affine) {
+  QStringList edges;
+  for (UINT index = 0; index < region.getEdgeCount(); ++index) {
+    const TEdge* edge = region.getEdge(index);
+    if (!edge || !edge->m_s)
+      throw Error("unsupported_geometry", "A vector region has no native edge");
+    edges.append(transformedEdge(*edge, affine));
+  }
+  if (edges.isEmpty())
+    throw Error("unsupported_geometry",
+                "A vector region has no native boundary");
+  std::sort(edges.begin(), edges.end());
+  return QJsonArray::fromStringList(edges);
+}
+
+QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine) {
+  if (vector->getRegionCount() > kMaxTransformEdges)
+    throw Error("resource_limit", "Vector transform has too many regions");
+  std::vector<std::pair<TRegion*, QString>> pending;
+  for (UINT index = 0; index < vector->getRegionCount(); ++index)
+    pending.emplace_back(vector->getRegion(index), QString());
+  QStringList result;
+  qint64 edgeCount = 0;
+  for (size_t index = 0; index < pending.size(); ++index) {
+    const auto* region = pending[index].first;
+    edgeCount += region->getEdgeCount();
+    if (edgeCount > kMaxTransformEdges ||
+        pending.size() + region->getSubregionCount() >
+            size_t(kMaxTransformEdges))
+      throw Error("resource_limit",
+                  "Vector transform is limited to 65536 region edges");
+    const int style = region->getStyle();
+    const auto edges = regionEdges(*region, affine);
+    const QJsonObject record{
+        {"parent", pending[index].second},
+        {"style", style},
+        {"children", static_cast<int>(region->getSubregionCount())},
+        {"edges", edges}};
+    result.append(QString::fromUtf8(
+        QJsonDocument(record).toJson(QJsonDocument::Compact)));
+    for (UINT child = 0; child < region->getSubregionCount(); ++child)
+      pending.emplace_back(region->getSubregion(child),
+                           edges.first().toString());
+  }
+  std::sort(result.begin(), result.end());
+  return QJsonArray::fromStringList(result);
+}
+
+void rebuildReflectedRegions(const TVectorImageP& before,
+                             const TVectorImageP& after,
+                             const TAffine& affine) {
+  if (affine.det() >= 0.0) return;
+  std::vector<int> indices;
+  std::vector<std::unique_ptr<TStroke>> retained;
+  std::vector<TStroke*> previous;
+  for (UINT index = 0; index < before->getStrokeCount(); ++index) {
+    indices.push_back(static_cast<int>(index));
+    retained.emplace_back(std::make_unique<TStroke>(*before->getStroke(index)));
+    previous.push_back(retained.back().get());
+  }
+  // Native color transfer needs original strokes and the reversed winding.
+  // An empty previous-stroke list permits a whole-group shortcut that skips it.
+  if (!indices.empty()) after->notifyChangedStrokes(indices, previous, true);
+}
+
+bool verifyStrokeTransform(const TStroke& before, const TStroke& after,
+                           const TAffine& affine, double thicknessScale) {
+  if (before.getId() != after.getId() ||
+      before.getStyle() != after.getStyle() ||
+      before.isSelfLoop() != after.isSelfLoop() ||
+      before.getControlPointCount() != after.getControlPointCount())
+    throw Error("native_error", "Native transform changed stroke identity");
+  bool changed = false;
+  for (int index = 0; index < before.getControlPointCount(); ++index) {
+    const auto original = before.getControlPoint(index);
+    const auto actual   = after.getControlPoint(index);
+    const auto expected = transformedPoint(original, affine, thicknessScale);
+    validateNativePoint(actual);
+    if (actual != expected)
+      throw Error("native_error", "Native transform did not apply the matrix");
+    changed |= actual != original;
+  }
+  return changed;
+}
+
+bool verifyVectorTransform(const TVectorImageP& before,
+                           const TVectorImageP& after, const TAffine& affine,
+                           double thicknessScale) {
+  if (before->getStrokeCount() != after->getStrokeCount())
+    throw Error("native_error", "Native transform changed the stroke count");
+  bool changed = false;
+  for (UINT index = 0; index < before->getStrokeCount(); ++index) {
+    if (before->getGroupDepth(index) != after->getGroupDepth(index))
+      throw Error("native_error", "Native transform changed a stroke group");
+    changed |=
+        verifyStrokeTransform(*before->getStroke(index),
+                              *after->getStroke(index), affine, thicknessScale);
+  }
+  return changed;
+}
+
+QJsonObject transformVector(Context& context, Document& document,
+                            const QJsonObject& params) {
+  sharing(params);
+  if (requiredString(params, "coordinate_space") != "drawing_native")
+    invalid("Vector transforms use drawing_native coordinates");
+  const QString mode = requiredString(params, "thickness_mode");
+  if (mode != "preserve" && mode != "scale_geometric_mean")
+    invalid("Unsupported vector thickness_mode");
+  const TAffine affine = vectorAffine(params);
+  const double thicknessScale =
+      mode == "preserve" ? 1.0 : std::sqrt(std::abs(affine.det()));
+  auto* level         = simpleLevel(document, params);
+  const auto frame    = frameId(params);
+  const auto original = vectorFor(level, frame);
+  for (UINT index = 0; index < original->getStrokeCount(); ++index) {
+    validateNativeStroke(*original->getStroke(index), paletteFor(level));
+    preflightStrokeTransform(*original->getStroke(index), affine,
+                             thicknessScale);
+  }
+  requireAssetGrowth(*document.scene, 0);
+  TVectorImageP vector(original->cloneImage());
+  vector->findRegions();
+  const QJsonArray topology = vectorTopology(vector, affine);
+  vector->transform(affine, mode == "scale_geometric_mean");
+  rebuildReflectedRegions(original, vector, affine);
+  if (vectorTopology(vector, TAffine()) != topology)
+    throw Error("native_error", "Native transform changed painted topology");
+  const bool changed =
+      verifyVectorTransform(original, vector, affine, thicknessScale);
+  if (changed) publish(context, level, frame, vector);
+  return {{"stroke_count", static_cast<int>(vector->getStrokeCount())},
+          {"geometry_indices_invalidated", changed},
+          {"sharing", "all_exposures"},
+          {"thickness_mode", mode},
+          {"changed", changed}};
 }
 
 void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
@@ -1387,7 +2039,10 @@ qint64 paletteAssetBytes(TPalette* palette) {
       throw Error("resource_limit", "A style has more than 4096 keyframes");
     snapshots += keys;
   }
-  return snapshots * AutomationStyleBytes;
+  if (palette->getPageCount() > kMaxPages)
+    throw Error("resource_limit", "Palette exceeds the 128-page limit");
+  return snapshots * AutomationStyleBytes +
+         qint64(palette->getPageCount()) * AutomationPageBytes;
 }
 
 void requireAssetCounts(TLevelSet* levels, int additionalDrawings,
@@ -1450,8 +2105,11 @@ void requireAssetGrowth(ToonzScene& scene, qint64 additionalBytes,
 QJsonArray drawingOperations() {
   QJsonArray tools;
   drawingCatalog(tools);
+  renumberCatalog(tools);
   vectorCatalog(tools);
   paletteCatalog(tools);
+  palettePageCatalog(tools);
+  paletteStyleCatalog(tools);
   rasterCatalog(tools);
   return tools;
 }
@@ -1481,12 +2139,22 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"drawing.inspect", inspectDrawing},
       {"drawing.clone", cloneDrawing},
       {"drawing.remove", removeDrawing},
+      {"drawing.renumber", renumberDrawing},
       {"vector.inspect", inspectVector},
       {"vector.edit", editVector},
       {"vector.fill", fillVector},
+      {"vector.transform", transformVector},
       {"palette.inspect", inspectPalette},
       {"palette.create_style", createStyle},
       {"palette.update_style", updateStyle},
+      {"palette.pages", inspectPages},
+      {"palette.page.create", createPage},
+      {"palette.page.rename", renamePage},
+      {"palette.page.move", movePage},
+      {"palette.page.remove", removePage},
+      {"palette.style.move", moveStyle},
+      {"palette.rename_style", renameStyle},
+      {"palette.clone_style", cloneStyle},
       {"raster.read_pixels", readPixels},
       {"raster.patch", patchPixels},
       {"raster.import_png", importPng},

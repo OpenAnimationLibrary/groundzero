@@ -83,6 +83,14 @@ palette links. Style names cannot contain NUL or start with `|`. Palette keyfram
 use frames 0–65535 for vector levels and 0–999999 for Toonz raster levels. Consult
 the running catalog for the remaining operation-specific bounds.
 
+Palette pages can be inspected, created, renamed, reordered, and removed when
+empty. A palette admits up to 128 pages; page zero and transparent style zero
+stay first. Style moves preserve numeric IDs and artwork references. Style
+renames and copies preserve all animation keys; a copy receives a new ID.
+Page names use 1–128 characters without NUL; vector page zero cannot begin with
+`refimage`, which the native PLI reader reserves. Physical style deletion and
+unpaged styles are not supported.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
@@ -90,7 +98,7 @@ destinations are rejected. Each artwork level must contain at least one drawing;
 an empty scene is allowed. Packages are limited to 256 MiB; before artwork grows,
 the worker checks limits of 256 levels, 4096 drawings, and a separate 256 MiB
 aggregate estimate covering raster and vector frames plus conservative overhead
-for frames, palette styles, and keyframes. This estimate is an admission limit,
+for frames, palette pages, styles, and keyframes. This estimate is an admission limit,
 not a bound on process memory.
 Native PLI encoding quantizes stroke coordinates and widths, and PNG encoding
 can change premultiplied RGB values by one code value. These files are editable

@@ -11,6 +11,7 @@ namespace GroundzeroAutomation {
 constexpr qint64 AutomationAssetLimitBytes      = 256 * 1024 * 1024;
 constexpr qint64 AutomationDrawingOverheadBytes = 65536;
 constexpr qint64 AutomationStyleBytes           = 1024;
+constexpr qint64 AutomationPageBytes            = 1024;
 
 // Conservative native asset estimates, not a bound on process memory.
 qint64 automationRasterBytes(int width, int height);
