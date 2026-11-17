@@ -19,8 +19,11 @@ import mcp_drawing_cases
 import mcp_fx_cases
 import mcp_media_cases
 import mcp_movie_cases
+import mcp_palette_cases
 import mcp_render_cases
+import mcp_renumber_cases
 import mcp_scene_cases
+import mcp_vector_transform_cases
 import mcp_worker_cases
 from mcp_png import decode_png, fixture_pixel, write_fixture
 from mcp_worker import Worker
@@ -57,6 +60,45 @@ class NativeAcceptance(unittest.TestCase):
     executable: Path
     output: Path
     media_tools: Path | None = None
+
+    def test_vector_renumber_preserves_exposures_and_native_roundtrip(self) -> None:
+        mcp_renumber_cases.check_renumber_roundtrip(self, "vector")
+
+    def test_rgba_renumber_preserves_exposures_and_native_roundtrip(self) -> None:
+        mcp_renumber_cases.check_renumber_roundtrip(self, "rgba8")
+
+    def test_toonz_renumber_preserves_exposures_and_native_roundtrip(self) -> None:
+        mcp_renumber_cases.check_renumber_roundtrip(self, "toonzRaster")
+
+    def test_drawing_renumber_rejections_preserve_scene(self) -> None:
+        mcp_renumber_cases.check_renumber_rejections(self)
+
+    def test_drawing_renumber_preserves_imported_source(self) -> None:
+        mcp_renumber_cases.check_renumber_import_preserves_source(self)
+
+    def test_vector_palette_lifecycle_preserves_native_roundtrip(self) -> None:
+        mcp_palette_cases.check_vector_palette_lifecycle(self)
+
+    def test_toonz_palette_lifecycle_preserves_native_roundtrip(self) -> None:
+        mcp_palette_cases.check_toonz_palette_lifecycle(self)
+
+    def test_palette_page_rejections_preserve_palette(self) -> None:
+        mcp_palette_cases.check_palette_page_rejections(self)
+
+    def test_palette_page_capacity_preserves_native_roundtrip(self) -> None:
+        mcp_palette_cases.check_palette_page_capacity(self)
+
+    def test_vector_affine_preserves_paint_and_native_roundtrip(self) -> None:
+        mcp_vector_transform_cases.vector_affine_preserves_paint_and_roundtrip(self)
+
+    def test_vector_transform_rejections_and_noops_preserve_revision(self) -> None:
+        mcp_vector_transform_cases.vector_transform_rejections_and_noops(self)
+
+    def test_vector_transform_scales_radii_explicitly(self) -> None:
+        mcp_vector_transform_cases.vector_transform_scales_radii_explicitly(self)
+
+    def test_vector_transform_respects_fractional_pli_precision(self) -> None:
+        mcp_vector_transform_cases.vector_transform_fractional_pli_precision(self)
 
     def test_media_directories_require_explicit_canonical_arguments(self) -> None:
         mcp_media_cases.media_directories_require_explicit_canonical_arguments(self)
