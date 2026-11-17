@@ -162,6 +162,52 @@ Page names use 1–128 characters without NUL; vector page zero cannot begin wit
 `refimage`, which the native PLI reader reserves. Physical style deletion and
 unpaged styles are not supported.
 
+The `rigging` toolset holds the hook, handle, pivot, offset-layer and rig tools below;
+the `object.parent`, `animation.*` and `drawing.*` behavior they rely on is in `core`.
+`rig.inspect` and `rig.evaluate` read the actual stage hierarchy: parents, handles,
+stored pivots, hook bindings for each exposed level, offset-layer summaries, and stage
+placements in inches at integer frames. Supply the latest `expected_revision`.
+`rig.inspect` pages at most 512 objects or 1 MiB; `rig.evaluate` takes at most 512
+object-frame pairs. Every scene is limited to 4096 stage objects and 64 parent edges.
+
+`hook.inspect`, `hook.set`, and `hook.delete` edit level hooks `H1`–`H99`. Hooks belong
+to the level, so an edit moves every column that exposes it: results list
+`columns_affected` and `users`, and edits are refused while any of those columns is
+locked. Positions are inches on unsuffixed drawings within ±1000 inches; vector levels
+use 53.33333 native units per inch and raster levels use pixels at the level DPI.
+Native hook files keep about six significant digits, so `hook.set` canonicalizes
+through the native writer and rejects a displacement above `max_coordinate_error_inch`.
+A `b` within one native unit of `a` is rejected rather than snapped. A level holds at
+most 99 hooks and 8192 keys, a scene 65,536 keys. Removing a hook's last key is refused
+while objects use it. `drawing.renumber` moves hook keys with their drawings and refuses
+suffixed IDs for them, `drawing.remove` removes them, and `drawing.clone` does not copy
+them; each reports the count. Scene packages carry each level's native
+`<level>_hooks.xml` sidecar in the manifest, and reopening compares it with the source.
+
+`object.handles.set` sets an object's own handle (its pivot origin) and parent handle
+(its attachment point) to a peg-hole letter or a column hook, without compensation. As
+in the editor, an own hook handle resets the stored center and offset; `pivot_reset`
+reports their previous values. `object.pivot.set` sets the stored center in inches and
+either preserves stage placement at one frame or keeps the offset; center and offset
+are canonicalized like hooks. Both return `world_changes` for up to 64 `report_frames`,
+where `preserved` means within 1e-6 inch and 1e-9 in the linear terms. `object.parent`
+requires `placement_policy: "preserve_local"`: local keys are kept, so the object may
+move. It accepts an optional `parent_handle` and `report_frames`, and refuses a hook
+handle under a parent that is not a column.
+
+`offset_layer.create`, `offset_layer.update`, and `offset_layer.delete` manage additive
+layers on pegbars, columns, and cameras that do not follow a path: at most 16 per object
+and 1024 per scene, with unique names and weights within ±10. An enabled layer adds
+weight × curve to each channel; scale offsets add to the scale factors. Edit layer curves
+with `animation.keys`, `animation.set_keys`, and `animation.delete_keys` by passing
+`layer_id`, using channel `weight` for the layer weight. `animation.sample` reports
+`base_value`, `offset_value`, and the effective `value`; with `layer_id` it reports the
+curve value and `weighted_value`, which is 0 while the layer is disabled. Layer handles
+survive renames and reordering, expire on deletion, and are reissued when a package is
+reopened. Whole-curve copy and retime still refuse objects with layers. IK, pins,
+published channels, Plastic deformation, and hook tracker regions are outside this
+profile, and these tools have no live-editor or undo counterpart.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
