@@ -18,6 +18,7 @@ from typing import Any
 import mcp_animation_cases
 import mcp_artwork_cases
 import mcp_assistance_cases
+import mcp_audio_cases
 import mcp_color_composite_cases
 import mcp_curve_cases
 import mcp_drawing_cases
@@ -164,6 +165,27 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_motion_path_geometry_percentage_and_revision_rejections(self) -> None:
         mcp_motion_path_cases.motion_path_geometry_percentage_and_revision_rejections(self)
+
+    def test_audio_import_inspect_and_bounded_parser(self) -> None:
+        mcp_audio_cases.audio_import_inspect_and_bounded_parser(self)
+
+    def test_audio_clip_edits_reject_before_mutation(self) -> None:
+        mcp_audio_cases.audio_clip_edits_reject_before_mutation(self)
+
+    def test_audio_mixdown_matches_independent_model(self) -> None:
+        mcp_audio_cases.audio_mixdown_matches_independent_model(self)
+
+    def test_audio_mixdown_formats_and_saturation(self) -> None:
+        mcp_audio_cases.audio_mixdown_formats_and_saturation(self)
+
+    def test_audio_save_reopen_render_and_scene_tools(self) -> None:
+        mcp_audio_cases.audio_save_reopen_render_and_scene_tools(self)
+
+    def test_audio_mixdown_rejections_and_receipts(self) -> None:
+        mcp_audio_cases.audio_mixdown_rejections_and_receipts(self)
+
+    def test_audio_movie_render_stays_video_only(self) -> None:
+        mcp_audio_cases.audio_movie_render_stays_video_only(self)
 
     def test_vector_opacity_round_trip(self) -> None:
         mcp_vector_opacity_cases.vector_opacity_round_trip(self)

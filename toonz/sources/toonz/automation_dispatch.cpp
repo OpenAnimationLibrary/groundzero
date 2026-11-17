@@ -3,6 +3,7 @@
 #include "automation_assistance.h"
 #include "automation_text.h"
 #include "automation_path.h"
+#include "automation_audio.h"
 
 #include "texception.h"
 
@@ -222,7 +223,10 @@ QString toolsetDescription(const QString& toolset) {
   static const QMap<QString, QString> descriptions = {
       {"core",
        "Scenes, levels, drawings, palettes, animation, motion paths, FX, "
-       "macros, text, inspection, assistance, rendering and packages."}};
+       "macros, text, inspection, assistance, rendering and packages."},
+      {"audio",
+       "Sound sources, sound columns, clips, column volume and exact offline "
+       "WAV mixdown."}};
   const auto found = descriptions.constFind(toolset);
   if (found == descriptions.constEnd())
     throw Error("internal_error",
@@ -255,6 +259,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(productionOperations(), executeProduction, "core");
   add(textOperations(), executeText, "core");
   add(pathOperations(), executePath, "core");
+  add(audioOperations(), executeAudio, "audio");
   add(
       assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {

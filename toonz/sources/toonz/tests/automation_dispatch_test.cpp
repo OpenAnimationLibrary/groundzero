@@ -290,9 +290,11 @@ void toolsetCatalog(Context& context) {
           "Toolsets must list exactly the catalog's tools");
   for (const QJsonValue& value : tools) {
     const QJsonObject tool = value.toObject();
-    require(tool.value("toolset").toString() == "core" &&
-                listed.contains(tool.value("name").toString()),
-            "Every current tool belongs to the core toolset");
+    const QString name     = tool.value("name").toString();
+    const QString toolset  = name.startsWith("audio.") ? "audio" : "core";
+    require(
+        tool.value("toolset").toString() == toolset && listed.contains(name),
+        "Every current tool belongs to its domain's toolset");
   }
 }
 

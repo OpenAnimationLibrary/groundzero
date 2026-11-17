@@ -39,6 +39,7 @@
 #include "automation_assistance.h"
 #include "automation_macro.h"
 #include "automation_path.h"
+#include "automation_audio.h"
 #include "automation_text.h"
 #include "automation_vector_opacity.h"
 #include "tests/automation_animation_test.h"
@@ -370,6 +371,7 @@ int domainTestResult(Context& context) {
     runAutomationVectorOpacityTests(context);
     runAutomationAnimationTests();
     runAutomationPathTests(context);
+    runAutomationAudioTests(context);
     runAutomationProductionTests(context);
     runAutomationAssistanceTests();
     runAutomationMacroTests(context);
