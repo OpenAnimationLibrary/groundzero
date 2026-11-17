@@ -48,6 +48,7 @@ set(HEADERS
     ../include/toonz/lut3d.h
     ../include/toonz/colormatch.h
     ../include/toonz/neuralstyle.h
+    ../include/toonz/neuralstyleexecution.h
     ../include/toonz/particlecache.h
     skeletonlut.h
     tcenterlinevectP.h
@@ -239,6 +240,7 @@ set(SOURCES
     lut3d.cpp
     colormatch.cpp
     neuralstyle.cpp
+    neuralstyleexecution.cpp
     neuralstyleprofile.cpp
     logger.cpp
     motionpreset.cpp

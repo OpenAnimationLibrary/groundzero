@@ -200,8 +200,10 @@ set(HEADERS
     automation.h
     automation_animation.h
     automation_dispatch.h
+    automation_containment.h
     automation_production.h
     automation_assistance.h
+    automation_neural.h
     automation_macro.h
     automation_text.h
     activechecks.h
@@ -279,6 +281,7 @@ set(HEADERS
 set(SOURCES
     automation.cpp
     automation_context.cpp
+    automation_containment.cpp
     automation_error.cpp
     automation_dispatch.cpp
     automation_animation.cpp
@@ -290,6 +293,7 @@ set(SOURCES
     automation_persistence.cpp
     automation_production.cpp
     automation_assistance.cpp
+    automation_neural.cpp
     automation_macro.cpp
     automation_macro_validation.cpp
     automation_macro_persistence.cpp
@@ -1208,6 +1212,21 @@ if(BUILD_UI_PORT_TESTS)
         add_dependencies(OpenToonz windows_ci_live_launcher)
     endif()
     if(UNIX)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_executable(mcp_containment_test
+            automation_containment.cpp automation_error.cpp
+            tests/automation_containment_test.cpp)
+        target_compile_definitions(mcp_containment_test PRIVATE AUTOMATION_CONTAINMENT_TESTING)
+        target_include_directories(mcp_containment_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(mcp_containment_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(mcp_containment_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+        add_test(NAME mcp_containment COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../../ci-scripts/mcp_containment_acceptance.py"
+            --executable "$<TARGET_FILE:mcp_containment_test>")
+        set_tests_properties(mcp_containment PROPERTIES TIMEOUT 90)
+        add_dependencies(OpenToonz mcp_containment_test)
         add_executable(mcp_live_security_test
             automation_error.cpp automation_live_protocol.cpp
             automation_live_security.cpp automation_live_security_posix.cpp
