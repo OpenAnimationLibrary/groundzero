@@ -268,13 +268,22 @@ void partialCancellation(Context& context, Dispatcher& dispatcher) {
   verifyReplay(dispatcher, params, receipt);
 }
 
+QString domainToolset(const QString& name) {
+  if (name.startsWith("audio.")) return "audio";
+  if (name.startsWith("rig.") || name.startsWith("hook.") ||
+      name.startsWith("offset_layer.") || name == "object.handles.set" ||
+      name == "object.pivot.set")
+    return "rigging";
+  return "core";
+}
+
 void toolsetCatalog(Context& context) {
   Dispatcher dispatcher(context);
   const QJsonObject capabilities =
       result(dispatcher, "automation.capabilities", {});
   require(capabilities.value("protocol_version").toInt() == 2,
           "Toolset catalogs require protocol version 2");
-  QSet<QString> listed;
+  QHash<QString, QString> listed;
   for (const QJsonValue& value : capabilities.value("toolsets").toArray()) {
     const QJsonObject toolset = value.toObject();
     require(!toolset.value("description").toString().isEmpty(),
@@ -282,7 +291,7 @@ void toolsetCatalog(Context& context) {
     for (const QJsonValue& name : toolset.value("tools").toArray()) {
       require(!listed.contains(name.toString()),
               "A tool is listed in more than one toolset");
-      listed.insert(name.toString());
+      listed.insert(name.toString(), toolset.value("name").toString());
     }
   }
   const QJsonArray tools = capabilities.value("tools").toArray();
@@ -291,10 +300,9 @@ void toolsetCatalog(Context& context) {
   for (const QJsonValue& value : tools) {
     const QJsonObject tool = value.toObject();
     const QString name     = tool.value("name").toString();
-    const QString toolset  = name.startsWith("audio.") ? "audio" : "core";
-    require(
-        tool.value("toolset").toString() == toolset && listed.contains(name),
-        "Every current tool belongs to its domain's toolset");
+    const QString toolset  = tool.value("toolset").toString();
+    require(toolset == domainToolset(name) && listed.value(name) == toolset,
+            "Every current tool belongs to its domain's toolset");
   }
 }
 
