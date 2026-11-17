@@ -70,7 +70,10 @@ public:
     EaseIn,
     EaseOut,
     EaseInPercentage,
-    EaseOutPercentage
+    EaseOutPercentage,
+    GroupPoint = 100,
+    GroupOut   = 101,
+    GroupIn    = 102
   };
 
   struct FrozenComparisonCurve {
