@@ -74,6 +74,9 @@ jobs:
     - name: Verify CI failure classification and pagination
       run: python3 -m unittest discover -s ci-scripts/tests -p test_ci_audit.py -v
 
+    - name: Verify the no-PII hook resolves commit repositories
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_no_pii.py -v
+
     - name: Verify Unicode regression reporting
       run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
 
