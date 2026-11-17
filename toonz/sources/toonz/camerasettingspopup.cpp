@@ -5,7 +5,6 @@
 #include "menubarcommandids.h"
 #include "tapp.h"
 #include "camerasettingspopup.h"
-#include "reslist.h"
 #include "castselection.h"
 
 // TnzTools includes

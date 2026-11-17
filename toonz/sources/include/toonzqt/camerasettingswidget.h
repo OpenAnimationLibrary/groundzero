@@ -29,7 +29,6 @@ class TCamera;
 class QRadioButton;
 class QComboBox;
 class QLabel;
-class ResListManager;
 class TFilePath;
 class TXshSimpleLevel;
 class TXshLevel;
