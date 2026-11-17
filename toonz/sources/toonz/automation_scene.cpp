@@ -823,6 +823,58 @@ QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
   return inspectKeys(context, params);
 }
 
+TDoubleParam* wholeCurveTarget(Document& document, const QJsonObject& target,
+                               bool writable) {
+  auto* object = document.object(requiredString(target, "object_id"));
+  if (writable) requireEditable(document, object);
+  if (object->getOffsetLayerCount() != 0)
+    throw Error("unsupported_interpolation",
+                "Whole-curve edits do not admit offset layers.");
+  return object->getParam(readChannel(target).native);
+}
+
+QJsonValue copyAnimationCurve(Context& context, const QJsonObject& params) {
+  Document& document     = getDocument(context, params);
+  const auto source      = params.value("source").toObject();
+  const auto destination = params.value("destination").toObject();
+  if (source.value("unit") != destination.value("unit"))
+    throw Error("invalid_params",
+                "Curve copy requires matching source and destination units.");
+  auto* sourceCurve      = wholeCurveTarget(document, source, false);
+  auto* destinationCurve = wholeCurveTarget(document, destination, true);
+  const auto edit = prepareAnimationCurveCopy(*sourceCurve, *destinationCurve);
+  if (edit.changed) {
+    context.markMutationStarted();
+    applyAnimationCurveEdit(*destinationCurve, edit);
+  }
+  return QJsonObject{{"source", source},
+                     {"destination", destination},
+                     {"default_value", destinationCurve->getDefaultValue()},
+                     {"keys", inspectAnimationKeys(*destinationCurve)},
+                     {"independent", true},
+                     {"affected_domains", QJsonArray{"destination_channel"}}};
+}
+
+QJsonValue retimeAnimationCurve(Context& context, const QJsonObject& params) {
+  Document& document = getDocument(context, params);
+  auto* curve        = wholeCurveTarget(document, params, true);
+  const QJsonObject mapping{{"origin_frame", params.value("origin_frame")},
+                            {"shift_frames", params.value("shift_frames")},
+                            {"scale", params.value("scale")}};
+  const auto edit = prepareAnimationCurveRetime(*curve, mapping);
+  if (edit.changed) {
+    context.markMutationStarted();
+    applyAnimationCurveEdit(*curve, edit);
+  }
+  return QJsonObject{{"object_id", params.value("object_id")},
+                     {"channel", params.value("channel")},
+                     {"unit", params.value("unit")},
+                     {"default_value", curve->getDefaultValue()},
+                     {"keys", inspectAnimationKeys(*curve)},
+                     {"time_mapping", mapping},
+                     {"affected_domains", QJsonArray{"target_channel"}}};
+}
+
 QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
   Document& document    = getDocument(context, params);
   TStageObject* object  = document.object(requiredString(params, "object_id"));
@@ -1000,6 +1052,58 @@ QJsonObject animationKeySchema() {
                           withControl)}}};
 }
 
+QJsonObject wholeCurveOperation(const QString& name, const QString& description,
+                                const QJsonObject& properties,
+                                const QJsonArray& required) {
+  auto descriptor = operation(name, description, properties, required, true);
+  auto schema     = descriptor.value("inputSchema").toObject();
+  auto fields     = schema.value("properties").toObject();
+  const QJsonObject handle{
+      {"type", "string"}, {"minLength", 1}, {"maxLength", 128}};
+  for (const auto& field : {"document_id", "operation_id", "expected_revision"})
+    fields.insert(field, handle);
+  schema.insert("properties", fields);
+  descriptor.insert("inputSchema", schema);
+  return descriptor;
+}
+
+void addWholeCurveOperations(QJsonArray& catalog) {
+  const QJsonObject target{
+      {"object_id",
+       QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
+      {"channel",
+       QJsonObject{{"enum", QJsonArray{"x", "y", "z", "rotation", "scale_x",
+                                       "scale_y", "scale"}}}},
+      {"unit", QJsonObject{{"enum", QJsonArray{"inch", "degree", "scalar",
+                                               "native_z"}}}}};
+  const auto targetSchema =
+      strictObjectSchema(target, {"object_id", "channel", "unit"});
+  catalog.append(wholeCurveOperation(
+      "animation.copy_curve",
+      "Copy a supported whole curve into an independently owned destination "
+      "channel.",
+      merge(documentSchema(),
+            {{"source", targetSchema},
+             {"destination", targetSchema},
+             {"destination_policy", QJsonObject{{"const", "replace_all"}}}}),
+      {"document_id", "source", "destination", "destination_policy"}));
+  const auto scale =
+      strictObjectSchema({{"numerator", integerSchema(1, MaxFrame)},
+                          {"denominator", integerSchema(1, MaxFrame)}},
+                         {"numerator", "denominator"});
+  catalog.append(wholeCurveOperation(
+      "animation.retime_curve",
+      "Apply exact rational timing to one whole curve, preserving its values "
+      "and ownership.",
+      merge(merge(documentSchema(), target),
+            {{"origin_frame", integerSchema(0, MaxFrame)},
+             {"shift_frames", integerSchema(-MaxFrame, MaxFrame)},
+             {"scale", scale},
+             {"step_policy", QJsonObject{{"const", "scale_exact"}}}}),
+      {"document_id", "object_id", "channel", "unit", "origin_frame",
+       "shift_frames", "scale", "step_policy"}));
+}
+
 void addAnimationOperations(QJsonArray& catalog) {
   QJsonObject object = merge(documentSchema(), {{"object_id", textSchema()}});
   catalog.append(operation(
@@ -1049,6 +1153,7 @@ QJsonArray sceneOperations() {
   addLevelOperations(catalog);
   addColumnOperations(catalog);
   addAnimationOperations(catalog);
+  addWholeCurveOperations(catalog);
   return catalog;
 }
 
@@ -1087,6 +1192,8 @@ QJsonValue executeScene(Context& context, const QString& method,
       {"object.parent", parentObject},
       {"animation.channels", inspectAnimationChannels},
       {"animation.keys", inspectKeys},
+      {"animation.copy_curve", copyAnimationCurve},
+      {"animation.retime_curve", retimeAnimationCurve},
       {"animation.set_keys", setKeys},
       {"animation.delete_keys", deleteKeys},
       {"animation.sample", sampleAnimation}};

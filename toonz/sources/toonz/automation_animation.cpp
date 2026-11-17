@@ -346,6 +346,118 @@ QJsonObject keyJson(const TDoubleKeyframe& key) {
   return result;
 }
 
+void validateWholeCurve(const TDoubleParam& curve, bool writable) {
+  if (writable && curve.isEditorLocked())
+    throw Error("locked", "The destination animation channel is locked.");
+  validateCurve(curve);
+  for (int index = 0; index < curve.getKeyframeCount(); ++index) {
+    const double offset = curve.getKeyframe(index).m_similarShapeOffset;
+    if (!std::isfinite(offset))
+      throw Error("invalid_params",
+                  "Stored inactive key metadata must remain finite.");
+  }
+  const double value = curve.getDefaultValue();
+  if (!std::isfinite(value) || std::abs(value) > MaxAnimationValue)
+    throw Error("invalid_params",
+                "The curve default value exceeds finite profile bounds.");
+}
+
+bool sameStoredControls(const TDoubleKeyframe& left,
+                        const TDoubleKeyframe& right) {
+  return left.m_speedIn == right.m_speedIn &&
+         left.m_speedOut == right.m_speedOut &&
+         left.m_linkedHandles == right.m_linkedHandles &&
+         left.m_fileParams.m_fieldIndex == right.m_fileParams.m_fieldIndex &&
+         left.m_unitName == right.m_unitName &&
+         left.m_similarShapeOffset == right.m_similarShapeOffset;
+}
+
+bool sameStoredKey(const TDoubleKeyframe& left, const TDoubleKeyframe& right) {
+  return left.m_frame == right.m_frame && left.m_value == right.m_value &&
+         left.m_type == right.m_type && left.m_prevType == right.m_prevType &&
+         left.m_isKeyframe == right.m_isKeyframe &&
+         left.m_step == right.m_step && sameStoredControls(left, right);
+}
+
+bool matchesCurveEdit(const TDoubleParam& curve,
+                      const AnimationCurveEdit& edit) {
+  if (curve.getDefaultValue() != edit.defaultValue ||
+      curve.getKeyframeCount() != static_cast<int>(edit.keys.size()))
+    return false;
+  for (int index = 0; index < curve.getKeyframeCount(); ++index)
+    if (!sameStoredKey(curve.getKeyframe(index), edit.keys[index]))
+      return false;
+  return true;
+}
+
+void validateCurveEdit(const TDoubleParam& destination,
+                       AnimationCurveEdit& edit) {
+  TDoubleParamP prospective(new TDoubleParam(destination));
+  applyAnimationCurveEdit(*prospective, edit);
+  validateWholeCurve(*prospective, false);
+  if (!matchesCurveEdit(*prospective, edit))
+    throw Error("invalid_params",
+                "Native curve replacement would alter stored key metadata.");
+  edit.changed = !matchesCurveEdit(destination, edit);
+}
+
+qint64 mappingInteger(const QJsonObject& object, const QString& field,
+                      int minimum, int maximum) {
+  const auto value    = object.value(field);
+  const double number = value.toDouble();
+  if (!value.isDouble() || !std::isfinite(number) ||
+      number != std::floor(number) || number < minimum || number > maximum)
+    throw Error("invalid_params", "Time mapping requires a bounded integer.",
+                {{"field", field}});
+  return static_cast<qint64>(number);
+}
+
+struct TimeMapping final {
+  qint64 origin;
+  qint64 shift;
+  qint64 numerator;
+  qint64 denominator;
+};
+
+TimeMapping readTimeMapping(const QJsonObject& mapping) {
+  const auto scale = mapping.value("scale").toObject();
+  return {mappingInteger(mapping, "origin_frame", 0, MaxAnimationFrame),
+          mappingInteger(mapping, "shift_frames", -MaxAnimationFrame,
+                         MaxAnimationFrame),
+          mappingInteger(scale, "numerator", 1, MaxAnimationFrame),
+          mappingInteger(scale, "denominator", 1, MaxAnimationFrame)};
+}
+
+qint64 scaleExactly(qint64 value, const TimeMapping& mapping) {
+  const qint64 product = value * mapping.numerator;
+  if (product % mapping.denominator != 0)
+    throw Error("invalid_params",
+                "Time mapping produces a nonintegral key time or step.");
+  return product / mapping.denominator;
+}
+
+TDoubleKeyframe retimedKey(TDoubleKeyframe key, const TimeMapping& mapping) {
+  const qint64 frame =
+      mapping.origin + mapping.shift +
+      scaleExactly(static_cast<qint64>(key.m_frame) - mapping.origin, mapping);
+  if (frame < 0 || frame > MaxAnimationFrame)
+    throw Error("invalid_params",
+                "Retimed key lies outside the supported frame range.");
+  key.m_frame = static_cast<double>(frame);
+  if (key.m_step > 1) {
+    const qint64 step = scaleExactly(key.m_step, mapping);
+    if (step < 2 || step > 1000)
+      throw Error("invalid_params",
+                  "Retimed quantized step must remain between 2 and 1000.");
+    key.m_step = static_cast<int>(step);
+  }
+  const double ratio =
+      static_cast<double>(mapping.numerator) / mapping.denominator;
+  key.m_speedIn.x *= ratio;
+  key.m_speedOut.x *= ratio;
+  return key;
+}
+
 }  // namespace
 
 AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
@@ -389,6 +501,37 @@ void validateAnimationKeyDeletion(const TDoubleParam& curve,
   }
   validateTransition(curve, *prospective, {}, true);
   validateCurve(*prospective);
+}
+
+AnimationCurveEdit prepareAnimationCurveCopy(const TDoubleParam& source,
+                                             const TDoubleParam& destination) {
+  validateWholeCurve(source, false);
+  validateWholeCurve(destination, true);
+  AnimationCurveEdit edit;
+  edit.defaultValue = source.getDefaultValue();
+  for (int index = 0; index < source.getKeyframeCount(); ++index)
+    edit.keys.push_back(source.getKeyframe(index));
+  validateCurveEdit(destination, edit);
+  return edit;
+}
+
+AnimationCurveEdit prepareAnimationCurveRetime(const TDoubleParam& curve,
+                                               const QJsonObject& mapping) {
+  validateWholeCurve(curve, true);
+  const auto time = readTimeMapping(mapping);
+  AnimationCurveEdit edit;
+  edit.defaultValue = curve.getDefaultValue();
+  for (int index = 0; index < curve.getKeyframeCount(); ++index)
+    edit.keys.push_back(retimedKey(curve.getKeyframe(index), time));
+  validateCurveEdit(curve, edit);
+  return edit;
+}
+
+void applyAnimationCurveEdit(TDoubleParam& destination,
+                             const AnimationCurveEdit& edit) {
+  destination.clearKeyframes();
+  destination.setDefaultValue(edit.defaultValue);
+  for (const auto& key : edit.keys) destination.setKeyframe(key);
 }
 
 QString animationUnsupportedReason(const TDoubleParam& curve) {

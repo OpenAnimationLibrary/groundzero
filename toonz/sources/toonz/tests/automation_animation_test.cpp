@@ -345,9 +345,185 @@ void deletionAndAdmissionGuards() {
            [&]() { prepareAnimationKeyEdit(*curve, mixedRecords()); });
 }
 
+QJsonObject mapping(int numerator, int denominator, int shift = 0,
+                    int origin = 0) {
+  return {{"origin_frame", origin},
+          {"shift_frames", shift},
+          {"scale", QJsonObject{{"numerator", numerator},
+                                {"denominator", denominator}}}};
+}
+
+void verifyDestinationIdentity(const TDoubleParam& destination) {
+  double minimum = 0, maximum = 0, step = 0;
+  destination.getValueRange(minimum, maximum, step);
+  require(destination.getName() == "destination" &&
+              destination.getMeasureName() == "length" &&
+              destination.getWorkspaceId() == "destination-workspace" &&
+              !destination.isEditorLocked() && minimum == -5 && maximum == 9,
+          "Whole copy replaced destination identity or editor metadata");
+}
+
+void wholeCurveCopyPreservesOwnership() {
+  const auto source = mixedCurve();
+  source->setMeasureName("length");
+  for (int index = 0; index < source->getKeyframeCount(); ++index)
+    source->setKeyframe(index, source->getKeyframe(index));
+  source->setDefaultValue(23);
+  source->setEditorLocked(true);
+  TDoubleParamP destination(new TDoubleParam(7));
+  destination->setName("destination");
+  destination->setMeasureName("length");
+  destination->setWorkspaceId("destination-workspace");
+  destination->setValueRange(-5, 9);
+  CurveObserver observer(*destination);
+  const auto edit = prepareAnimationCurveCopy(*source, *destination);
+  require(edit.changed && observer.changes == 0,
+          "Copy preflight mutated destination");
+  applyAnimationCurveEdit(*destination, edit);
+  verifyMixedCurve(destination);
+  near(destination->getDefaultValue(), 23);
+  verifyDestinationIdentity(*destination);
+  const int changes = observer.changes;
+  require(!prepareAnimationCurveCopy(*source, *destination).changed &&
+              !prepareAnimationCurveCopy(*destination, *destination).changed &&
+              observer.changes == changes,
+          "Equal whole curve copy was not a no-op");
+  source->clearKeyframes();
+  source->setDefaultValue(99);
+  verifyMixedCurve(destination);
+  near(destination->getDefaultValue(), 23);
+}
+
+void wholeCurveInactiveMetadataAndDefaults() {
+  TDoubleParamP source(new TDoubleParam(17));
+  TDoubleParamP destination(new TDoubleParam());
+  source->setMeasureName("length");
+  destination->setMeasureName("length");
+  auto stored = key(4, 8, TDoubleKeyframe::Linear, {-7, 6}, {8, 9});
+  stored.m_fileParams.m_fieldIndex = 42;
+  stored.m_unitName                = "mm";
+  stored.m_similarShapeOffset      = 13;
+  source->setKeyframe(stored);
+  applyAnimationCurveEdit(*destination,
+                          prepareAnimationCurveCopy(*source, *destination));
+  const auto& copied = destination->getKeyframe(0);
+  require(copied.m_speedIn == stored.m_speedIn &&
+              copied.m_speedOut == stored.m_speedOut &&
+              copied.m_fileParams.m_fieldIndex == 42 &&
+              copied.m_unitName == "mm" && copied.m_similarShapeOffset == 13 &&
+              copied.m_linkedHandles == stored.m_linkedHandles,
+          "Copy discarded inactive native metadata");
+  source->clearKeyframes();
+  applyAnimationCurveEdit(*destination,
+                          prepareAnimationCurveCopy(*source, *destination));
+  require(destination->getKeyframeCount() == 0,
+          "Empty copy retained destination keys");
+  near(destination->getValue(10), 17);
+  require(!prepareAnimationCurveRetime(*destination, mapping(7, 3, 8)).changed,
+          "An empty curve retime changed content");
+}
+
+void verifyMappedSamples(const TDoubleParam& before, const TDoubleParam& after,
+                         double scale, double shift) {
+  for (int quarter = 0; quarter <= 144; ++quarter) {
+    const double frame = quarter / 4.0;
+    near(after.getValue(frame * scale + shift), before.getValue(frame));
+  }
+}
+
+void wholeCurveRetimeAndRoundTrip() {
+  const auto original = mixedCurve();
+  TDoubleParamP retimed(new TDoubleParam(*original));
+  const auto edit = prepareAnimationCurveRetime(*retimed, mapping(3, 2, 4));
+  require(edit.changed &&
+              inspectAnimationKeys(*retimed) == inspectAnimationKeys(*original),
+          "Retime preflight mutated the curve");
+  applyAnimationCurveEdit(*retimed, edit);
+  verifyMappedSamples(*original, *retimed, 1.5, 4);
+  near(retimed->getKeyframe(1).m_speedIn.y, -24);
+  near(retimed->getKeyframe(1).m_speedIn.x, -6);
+  near(retimed->getKeyframe(1).m_speedOut.x, 4.5);
+  require(!prepareAnimationCurveRetime(*retimed, mapping(7, 7)).changed,
+          "Identity rational retime was not a no-op");
+  QTemporaryDir directory;
+  require(directory.isValid(), "Retime fixture directory is unavailable");
+  const TFilePath path(directory.filePath("retimed.xml"));
+  {
+    TOStream output(path);
+    retimed->saveData(output);
+  }
+  TDoubleParamP reopened(new TDoubleParam());
+  {
+    TIStream input(path);
+    reopened->loadData(input);
+  }
+  verifyMappedSamples(*original, *reopened, 1.5, 4);
+}
+
+void wholeCurveStepsAndRejections() {
+  const auto curve = mixedCurve();
+  for (const auto& invalidMapping :
+       {mapping(1, 5), mapping(1, 1, -1), mapping(1000000, 1), mapping(0, 1),
+        mapping(1, 0)})
+    rejected(*curve, "invalid_params",
+             [&]() { prepareAnimationCurveRetime(*curve, invalidMapping); });
+  auto first   = curve->getKeyframe(0);
+  first.m_step = 2;
+  curve->setKeyframe(first);
+  rejected(*curve, "invalid_params",
+           [&]() { prepareAnimationCurveRetime(*curve, mapping(1, 2)); });
+  rejected(*curve, "invalid_params",
+           [&]() { prepareAnimationCurveRetime(*curve, mapping(1, 3)); });
+  TDoubleParamP doubled(new TDoubleParam(*curve));
+  applyAnimationCurveEdit(
+      *doubled, prepareAnimationCurveRetime(*curve, mapping(2, 1, 3)));
+  require(doubled->getKeyframe(0).m_step == 4 &&
+              doubled->getKeyframe(1).m_step == 1,
+          "Retime changed continuous steps or lost quantization");
+  verifyMappedSamples(*curve, *doubled, 2, 3);
+  curve->setEditorLocked(true);
+  rejected(*curve, "locked",
+           [&]() { prepareAnimationCurveRetime(*curve, mapping(1, 1)); });
+  rejected(*curve, "locked",
+           [&]() { prepareAnimationCurveCopy(*doubled, *curve); });
+  curve->setEditorLocked(false);
+  curve->enableCycle(true);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationCurveCopy(*curve, *doubled); });
+  curve->enableCycle(false);
+  curve->setDefaultValue(std::numeric_limits<double>::infinity());
+  rejected(*curve, "invalid_params",
+           [&]() { prepareAnimationCurveCopy(*curve, *doubled); });
+}
+
+void wholeCurveUnsupportedMetadataIsAtomic() {
+  const auto source = mixedCurve();
+  TDoubleParamP destination(new TDoubleParam());
+  auto stored             = source->getKeyframe(0);
+  stored.m_expressionText = "inactive-expression";
+  source->setKeyframe(stored);
+  rejected(*destination, "unsupported_interpolation",
+           [&]() { prepareAnimationCurveCopy(*source, *destination); });
+  stored.m_expressionText.clear();
+  stored.m_fileParams.m_path = TFilePath("inactive-file.txt");
+  source->setKeyframe(stored);
+  rejected(*destination, "unsupported_interpolation",
+           [&]() { prepareAnimationCurveCopy(*source, *destination); });
+  stored.m_fileParams.m_path  = TFilePath();
+  stored.m_similarShapeOffset = std::numeric_limits<double>::quiet_NaN();
+  source->setKeyframe(stored);
+  rejected(*destination, "invalid_params",
+           [&]() { prepareAnimationCurveCopy(*source, *destination); });
+}
+
 }  // namespace
 
 void runAutomationAnimationTests() {
+  wholeCurveUnsupportedMetadataIsAtomic();
+  wholeCurveCopyPreservesOwnership();
+  wholeCurveInactiveMetadataAndDefaults();
+  wholeCurveRetimeAndRoundTrip();
+  wholeCurveStepsAndRejections();
   mixedSegmentControls();
   steppedFractionalSamples();
   mixedControlsRoundTrip();
