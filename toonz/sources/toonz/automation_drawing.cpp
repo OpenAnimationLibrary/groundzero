@@ -12,6 +12,8 @@
 #include "tvectorimage.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txshcell.h"
 #include "toonz/txshchildlevel.h"
@@ -307,56 +309,67 @@ QJsonObject cloneDrawing(Context& context, Document& document,
   return imageSummary(level, destination);
 }
 
-struct ExposureScan final {
-  TXshSimpleLevel* level;
-  TFrameId frame;
-  qint64 remaining = 1000000;
-  std::set<TXsheet*> visited;
+struct DrawingExposure final {
+  TXshCellColumn* column;
+  TStageObject* object;
+  int row;
+  TXshCell cell;
 };
 
-bool referencesInColumn(TXshCellColumn* column, ExposureScan& scan);
+struct ExposureScan final {
+  TXshSimpleLevel* level;
+  std::set<TFrameId> frames;
+  bool firstOnly;
+  qint64 remaining = 1000000;
+  std::set<TXsheet*> visited;
+  std::vector<DrawingExposure> exposures;
+};
+
+bool referencesInColumn(TXsheet* sheet, int index, ExposureScan& scan);
 
 bool referencesInSheet(TXsheet* sheet, ExposureScan& scan) {
   if (!sheet || !scan.visited.insert(sheet).second) return false;
   if (scan.visited.size() > 128)
     throw Error("resource_limit", "Exposure scan exceeds 128 nested sheets");
-  for (int index = 0; index < sheet->getColumnCount(); ++index) {
-    auto* column = sheet->getColumn(index);
-    if (column && referencesInColumn(column->getCellColumn(), scan))
-      return true;
-  }
+  for (int index = 0; index < sheet->getColumnCount(); ++index)
+    if (referencesInColumn(sheet, index, scan)) return true;
   return false;
 }
 
-bool referencesInCell(const TXshCell& cell, ExposureScan& scan) {
-  if (cell.getSimpleLevel() == scan.level && cell.m_frameId == scan.frame)
-    return true;
+bool referencesInCell(TXsheet* sheet, int index, int row, ExposureScan& scan) {
+  auto* column     = sheet->getColumn(index)->getCellColumn();
+  const auto& cell = column->getCell(row);
+  if (cell.getSimpleLevel() == scan.level &&
+      scan.frames.count(cell.m_frameId)) {
+    auto* object = sheet->getStageObjectTree()->getStageObject(
+        TStageObjectId::ColumnId(index), false);
+    scan.exposures.push_back({column, object, row, cell});
+    if (scan.firstOnly) return true;
+  }
   auto* child = cell.getChildLevel();
   return child && referencesInSheet(child->getXsheet(), scan);
 }
 
-bool referencesInColumn(TXshCellColumn* column, ExposureScan& scan) {
+bool referencesInColumn(TXsheet* sheet, int index, ExposureScan& scan) {
+  auto* entry  = sheet->getColumn(index);
+  auto* column = entry ? entry->getCellColumn() : nullptr;
   int first = 0, last = -1;
   if (!column || !column->getRange(first, last)) return false;
   scan.remaining -= static_cast<qint64>(last) - first + 1;
   if (scan.remaining < 0)
     throw Error("resource_limit", "Exposure scan exceeds one million cells");
-  for (int row = first; row <= last; ++row) {
-    if (referencesInCell(column->getCell(row), scan)) return true;
-  }
+  for (int row = first; row <= last; ++row)
+    if (referencesInCell(sheet, index, row, scan)) return true;
   return false;
 }
 
-bool referencedDrawing(Document& document, TXshSimpleLevel* level,
-                       const TFrameId& frame) {
-  ExposureScan scan{level, frame, 1000000, {}};
-  if (referencesInSheet(document.scene->getXsheet(), scan)) return true;
+void scanExposures(Document& document, ExposureScan& scan) {
+  if (referencesInSheet(document.scene->getXsheet(), scan)) return;
   auto* levels = document.scene->getLevelSet();
   for (int i = 0; i < levels->getLevelCount(); ++i) {
     auto* child = levels->getLevel(i)->getChildLevel();
-    if (child && referencesInSheet(child->getXsheet(), scan)) return true;
+    if (child && referencesInSheet(child->getXsheet(), scan)) return;
   }
-  return false;
 }
 
 QJsonObject removeDrawing(Context& context, Document& document,
@@ -364,12 +377,111 @@ QJsonObject removeDrawing(Context& context, Document& document,
   auto* level      = simpleLevel(document, params);
   const auto frame = frameId(params);
   imageFor(level, frame);
-  if (referencedDrawing(document, level, frame))
+  ExposureScan scan{level, {frame}, true, 1000000, {}, {}};
+  scanExposures(document, scan);
+  if (!scan.exposures.empty())
     throw Error("in_use", "Remove every exposure before removing this drawing");
   context.markMutationStarted();
   level->eraseFrame(frame);
   level->setDirtyFlag(true);
   return {{"removed", frameJson(frame)}};
+}
+
+using DrawingMapping = std::map<TFrameId, TFrameId>;
+
+DrawingMapping drawingMapping(TXshSimpleLevel* level,
+                              const QJsonObject& params) {
+  DrawingMapping mapping;
+  for (const auto& item : array(params, "mapping", 1, 4096)) {
+    if (!item.isObject()) invalid("Each mapping entry must be an object");
+    const auto entry = item.toObject();
+    keys(entry, {"drawing_id", "destination_drawing_id"});
+    const auto source      = frameId(entry);
+    const auto destination = frameId(entry, "destination_drawing_id");
+    validateFrameNumber(level, destination);
+    if (!level->isFid(source))
+      throw Error("not_found", "A source drawing identity does not exist");
+    if (!mapping.emplace(source, destination).second)
+      invalid("A source drawing appears more than once in mapping");
+  }
+  return mapping;
+}
+
+std::vector<TFrameId> renamedFrames(TXshSimpleLevel* level,
+                                    const DrawingMapping& mapping) {
+  std::vector<TFrameId> frames = level->getFids();
+  std::set<TFrameId> destinations;
+  for (auto& frame : frames) {
+    const auto renamed = mapping.find(frame);
+    if (renamed != mapping.end()) frame = renamed->second;
+    if (!destinations.insert(frame).second)
+      throw Error("already_exists",
+                  "A destination collides with another drawing; include all "
+                  "moved drawings in the same mapping");
+  }
+  return frames;
+}
+
+void prepareRenumberExposures(ExposureScan& scan,
+                              const DrawingMapping& mapping) {
+  for (auto& exposure : scan.exposures) {
+    if (exposure.column->isLocked() ||
+        (exposure.object && exposure.object->isLocked()))
+      throw Error("locked",
+                  "An affected drawing exposure is in a locked column");
+    exposure.cell.m_frameId = mapping.at(exposure.cell.m_frameId);
+    if (!exposure.column->canSetCell(exposure.cell))
+      throw Error("incompatible_column",
+                  "An exposure cannot accept its renamed drawing");
+  }
+}
+
+void applyRenumber(Context& context, TXshSimpleLevel* level,
+                   const std::vector<TFrameId>& frames, ExposureScan& scan) {
+  std::vector<TImageP> images;
+  for (const auto& frame : level->getFids())
+    images.push_back(imageFor(level, frame));
+  context.markMutationStarted();
+  level->renumber(frames);
+  for (const auto& exposure : scan.exposures)
+    if (!exposure.column->setCell(exposure.row, exposure.cell))
+      throw Error("native_error",
+                  "A preflighted drawing exposure could not be renamed");
+  for (size_t index = 0; index < frames.size(); ++index)
+    if (imageFor(level, frames[index]).getPointer() !=
+        images[index].getPointer())
+      throw Error("native_error",
+                  "Native renumbering changed a drawing's image binding");
+  level->setDirtyFlag(true);
+}
+
+QJsonObject renumberDrawing(Context& context, Document& document,
+                            const QJsonObject& params) {
+  sharing(params);
+  auto* level        = simpleLevel(document, params);
+  const auto mapping = drawingMapping(level, params);
+  const auto frames  = renamedFrames(level, mapping);
+  ExposureScan scan{level, {}, false, 1000000, {}, {}};
+  QJsonArray resultMapping;
+  for (const auto& entry : mapping) {
+    resultMapping.append(
+        QJsonObject{{"drawing_id", frameJson(entry.first)},
+                    {"destination_drawing_id", frameJson(entry.second)}});
+    if (entry.first != entry.second) scan.frames.insert(entry.first);
+  }
+  if (!scan.frames.empty()) {
+    if (level->isReadOnly())
+      throw Error("locked", "The drawing level is read-only");
+    validateDrawingProfile(level);
+    requireAssetGrowth(*document.scene, 0);
+    scanExposures(document, scan);
+    prepareRenumberExposures(scan, mapping);
+    applyRenumber(context, level, frames, scan);
+  }
+  return {{"mapping", resultMapping},
+          {"drawings_renumbered", static_cast<int>(scan.frames.size())},
+          {"exposures_updated", static_cast<int>(scan.exposures.size())},
+          {"sharing", "all_exposures"}};
 }
 
 TVectorImageP vectorFor(TXshSimpleLevel* level, const TFrameId& frame) {
@@ -1162,6 +1274,24 @@ void drawingCatalog(QJsonArray& tools) {
       target(), {"document_id", "level_id", "drawing_id"}, true));
 }
 
+void renumberCatalog(QJsonArray& tools) {
+  const QJsonObject entry{
+      {"type", "object"},
+      {"additionalProperties", false},
+      {"properties",
+       QJsonObject{{"drawing_id", drawingIdentity()},
+                   {"destination_drawing_id", drawingIdentity()}}},
+      {"required", QJsonArray{"drawing_id", "destination_drawing_id"}}};
+  auto properties = target(false);
+  properties.insert("mapping", boundedArray(entry, 1, 4096));
+  properties.insert("sharing", choice({"all_exposures"}));
+  tools.append(operation(
+      "drawing.renumber",
+      "Rename drawings simultaneously, including swaps and cycles, and update "
+      "all held exposures; locked uses and final identity collisions reject",
+      properties, {"document_id", "level_id", "mapping", "sharing"}, true));
+}
+
 void vectorCatalog(QJsonArray& tools) {
   auto properties = target();
   properties.insert("offset", range(0, kMaxStrokes));
@@ -1450,6 +1580,7 @@ void requireAssetGrowth(ToonzScene& scene, qint64 additionalBytes,
 QJsonArray drawingOperations() {
   QJsonArray tools;
   drawingCatalog(tools);
+  renumberCatalog(tools);
   vectorCatalog(tools);
   paletteCatalog(tools);
   rasterCatalog(tools);
@@ -1481,6 +1612,7 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"drawing.inspect", inspectDrawing},
       {"drawing.clone", cloneDrawing},
       {"drawing.remove", removeDrawing},
+      {"drawing.renumber", renumberDrawing},
       {"vector.inspect", inspectVector},
       {"vector.edit", editVector},
       {"vector.fill", fillVector},
