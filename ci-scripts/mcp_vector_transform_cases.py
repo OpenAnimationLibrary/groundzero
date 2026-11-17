@@ -252,8 +252,8 @@ def vector_affine_preserves_paint_and_roundtrip(case: NativeAcceptance) -> None:
         case.assertIs(_transform(case, document, target, matrix)["changed"], True)
         case.assertNotEqual(case.revisions[document], before)
         samples = [_point(matrix, x, y) for x, y in samples]
-        _check_fills(case, document, target, samples, styles)
         _paint_probes(case, _preview(case, document), samples)
+        _check_fills(case, document, target, samples, styles)
     geometry = _geometry(case, document, target)
     pixels = _preview(case, document)
     case.assertEqual(_preview(case, document, 1), pixels)

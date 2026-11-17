@@ -26,6 +26,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QtEndian>
@@ -36,6 +37,7 @@
 #include <memory>
 #include <set>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
 namespace GroundzeroAutomation {
@@ -1830,42 +1832,90 @@ void preflightStrokeTransform(const TStroke& stroke, const TAffine& affine,
     transformedPoint(stroke.getControlPoint(index), affine, thicknessScale);
 }
 
+QString transformedEdge(const TEdge& edge, const TAffine& affine) {
+  const bool reflected = affine.det() < 0.0;
+  const double first   = reflected ? edge.m_w1 : edge.m_w0;
+  const double last    = reflected ? edge.m_w0 : edge.m_w1;
+  QJsonArray signature{edge.getStyle()};
+  if (edge.m_index >= 0) {
+    signature.append(edge.m_index);
+    signature.append(first);
+    signature.append(last);
+  } else {
+    preflightStrokeTransform(*edge.m_s, affine, 1.0);
+    signature.append("autoclose");
+    signature.append(edge.m_s->getChunkCount());
+    for (double parameter : {first, (first + last) * 0.5, last}) {
+      const TPointD point = affine * edge.m_s->getPoint(parameter);
+      signature.append(QJsonArray{point.x, point.y});
+    }
+  }
+  return QString::fromUtf8(
+      QJsonDocument(signature).toJson(QJsonDocument::Compact));
+}
+
 QJsonArray regionEdges(const TRegion& region, const TAffine& affine) {
-  QJsonArray edges;
+  QStringList edges;
   for (UINT index = 0; index < region.getEdgeCount(); ++index) {
     const TEdge* edge = region.getEdge(index);
     if (!edge || !edge->m_s)
       throw Error("unsupported_geometry", "A vector region has no native edge");
-    if (edge->m_index < 0) preflightStrokeTransform(*edge->m_s, affine, 1.0);
-    edges.append(
-        QJsonArray{edge->m_index, edge->m_w0, edge->m_w1, edge->getStyle()});
+    edges.append(transformedEdge(*edge, affine));
   }
-  return edges;
+  if (edges.isEmpty())
+    throw Error("unsupported_geometry",
+                "A vector region has no native boundary");
+  std::sort(edges.begin(), edges.end());
+  return QJsonArray::fromStringList(edges);
 }
 
 QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine) {
   if (vector->getRegionCount() > kMaxTransformEdges)
     throw Error("resource_limit", "Vector transform has too many regions");
-  std::vector<TRegion*> pending;
+  std::vector<std::pair<TRegion*, QString>> pending;
   for (UINT index = 0; index < vector->getRegionCount(); ++index)
-    pending.push_back(vector->getRegion(index));
-  QJsonArray result;
-  qint64 edges = 0;
+    pending.emplace_back(vector->getRegion(index), QString());
+  QStringList result;
+  qint64 edgeCount = 0;
   for (size_t index = 0; index < pending.size(); ++index) {
-    const auto* region = pending[index];
-    edges += region->getEdgeCount();
-    if (edges > kMaxTransformEdges ||
+    const auto* region = pending[index].first;
+    edgeCount += region->getEdgeCount();
+    if (edgeCount > kMaxTransformEdges ||
         pending.size() + region->getSubregionCount() >
             size_t(kMaxTransformEdges))
       throw Error("resource_limit",
                   "Vector transform is limited to 65536 region edges");
-    result.append(
-        QJsonObject{{"children", static_cast<int>(region->getSubregionCount())},
-                    {"edges", regionEdges(*region, affine)}});
+    const auto edges = regionEdges(*region, affine);
+    const QJsonObject record{
+        {"parent", pending[index].second},
+        {"style", region->getStyle()},
+        {"children", static_cast<int>(region->getSubregionCount())},
+        {"edges", edges}};
+    result.append(QString::fromUtf8(
+        QJsonDocument(record).toJson(QJsonDocument::Compact)));
     for (UINT child = 0; child < region->getSubregionCount(); ++child)
-      pending.push_back(region->getSubregion(child));
+      pending.emplace_back(region->getSubregion(child),
+                           edges.first().toString());
   }
-  return result;
+  std::sort(result.begin(), result.end());
+  return QJsonArray::fromStringList(result);
+}
+
+void rebuildReflectedRegions(const TVectorImageP& before,
+                             const TVectorImageP& after,
+                             const TAffine& affine) {
+  if (affine.det() >= 0.0) return;
+  std::vector<int> indices;
+  std::vector<std::unique_ptr<TStroke>> retained;
+  std::vector<TStroke*> previous;
+  for (UINT index = 0; index < before->getStrokeCount(); ++index) {
+    indices.push_back(static_cast<int>(index));
+    retained.emplace_back(std::make_unique<TStroke>(*before->getStroke(index)));
+    previous.push_back(retained.back().get());
+  }
+  // Native color transfer needs original strokes and the reversed winding.
+  // An empty previous-stroke list permits a whole-group shortcut that skips it.
+  if (!indices.empty()) after->notifyChangedStrokes(indices, previous, true);
 }
 
 bool verifyStrokeTransform(const TStroke& before, const TStroke& after,
@@ -1928,6 +1978,7 @@ QJsonObject transformVector(Context& context, Document& document,
   vector->findRegions();
   const QJsonArray topology = vectorTopology(vector, affine);
   vector->transform(affine, mode == "scale_geometric_mean");
+  rebuildReflectedRegions(original, vector, affine);
   if (vectorTopology(vector, TAffine()) != topology)
     throw Error("native_error", "Native transform changed painted topology");
   const bool changed =
