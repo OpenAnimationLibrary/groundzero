@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_dispatch.h"
 #include "automation_containment.h"
+#include "automation_shared_parse.h"
 
 #include "tenv.h"
 #include "texception.h"
@@ -41,6 +42,7 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_rig.h"
+#include "automation_shared.h"
 #include "automation_text.h"
 #include "automation_vector_opacity.h"
 #include "tests/automation_animation_test.h"
@@ -66,6 +68,9 @@ struct Options {
   QString workspace;
   QStringList inputRoots;
   QString mediaToolsDirectory;
+  QMap<QString, SharedRootGrant> sharedRoots;
+  QStringList sharedWrites;
+  QString parseHelper;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
 #endif
@@ -149,16 +154,83 @@ void addMediaTools(Options& options, const QString& path) {
   options.mediaToolsDirectory = directory;
 }
 
+void addSharedRoot(Options& options, const QString& value) {
+  const int separator = value.indexOf('=');
+  const QString role  = value.left(separator);
+  if (separator <= 0 || !sharedRootRoles().contains(role))
+    throw Error("invalid_argument",
+                "--shared-root requires ROLE=DIR with ROLE studio_palettes, "
+                "project_palettes or library.");
+  if (options.sharedRoots.contains(role))
+    throw Error("invalid_argument",
+                "Specify --shared-root at most once per role.");
+  const QString path = value.mid(separator + 1);
+  QString directory;
+  try {
+    directory = canonicalWorkerRoot(path);
+  } catch (const Error& error) {
+    throw Error("invalid_argument",
+                "Invalid --shared-root directory: " + error.message);
+  }
+  if (QDir::cleanPath(QDir::fromNativeSeparators(path)) != directory)
+    throw Error("invalid_argument",
+                "--shared-root must name its canonical directory without "
+                "symlink components.");
+  options.sharedRoots.insert(role, {directory, false});
+}
+
+void addSharedWrite(Options& options, const QString& role) {
+  if (!sharedRootRoles().contains(role) || options.sharedWrites.contains(role))
+    throw Error("invalid_argument",
+                "--shared-write names one shared root role at most once.");
+  options.sharedWrites.append(role);
+}
+
 void addOption(Options& options, const QString& key, const QString& value) {
   if (key == "--media-tools")
     addMediaTools(options, value);
+  else if (key == "--shared-root")
+    addSharedRoot(options, value);
+  else if (key == "--shared-write")
+    addSharedWrite(options, value);
+  else if (key == "--parse-helper")
+    options.parseHelper = value;
   else
     addWorkerRoot(options, key, value);
 }
 
 bool valueOption(const QString& key) {
   return key == "--workspace" || key == "--input-root" ||
-         key == "--media-tools";
+         key == "--media-tools" || key == "--shared-root" ||
+         key == "--shared-write" || key == "--parse-helper";
+}
+
+bool overlapping(const QString& first, const QString& second) {
+  const auto beneath = [](const QString& path, const QString& root) {
+    return path == root ||
+           path.startsWith(root.endsWith('/') ? root : root + '/');
+  };
+  return beneath(first, second) || beneath(second, first);
+}
+
+void validateSharedRoots(Options& options) {
+  for (const QString& role : options.sharedWrites) {
+    if (!options.sharedRoots.contains(role))
+      throw Error("invalid_argument",
+                  "--shared-write requires --shared-root for the same role.");
+    options.sharedRoots[role].writable = true;
+  }
+  const QStringList roles = options.sharedRoots.keys();
+  for (int index = 0; index < roles.size(); ++index) {
+    const QString path = options.sharedRoots.value(roles[index]).path;
+    if (overlapping(path, options.workspace))
+      throw Error("invalid_argument",
+                  "Shared roots must not overlap the worker workspace.");
+    for (int other = index + 1; other < roles.size(); ++other)
+      if (overlapping(path, options.sharedRoots.value(roles[other]).path))
+        throw Error("invalid_argument",
+                    "Shared roots must not overlap one another.");
+  }
 }
 
 Options parseOptions(const QStringList& arguments) {
@@ -174,12 +246,14 @@ Options parseOptions(const QStringList& arguments) {
     if (!valueOption(key) || index + 1 >= arguments.size())
       throw Error("invalid_argument",
                   "Worker accepts --workspace DIR, repeated --input-root DIR, "
-                  "and optional --media-tools DIR.");
+                  "optional --media-tools DIR, repeated --shared-root "
+                  "ROLE=DIR and repeated --shared-write ROLE.");
     addOption(options, key, arguments[++index]);
   }
   if (options.workspace.isEmpty())
     throw Error("invalid_argument",
                 "Automation worker requires --workspace DIR.");
+  validateSharedRoots(options);
   return options;
 }
 
@@ -374,6 +448,7 @@ int domainTestResult(Context& context) {
     runAutomationPathTests(context);
     runAutomationAudioTests(context);
     runAutomationRigTests(context);
+    runAutomationSharedTests(context);
     runAutomationProductionTests(context);
     runAutomationAssistanceTests();
     runAutomationMacroTests(context);
@@ -418,9 +493,14 @@ int executeDomainTests(QApplication& application, Context& context) {
 #endif
 
 int executeWorker(QApplication& application, QFile& output,
-                  const Options& options, bool helpersContained) {
+                  const Options& options, bool helpersContained,
+                  const QString& runtime) {
   Context context(options.workspace, options.inputRoots, helpersContained);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
+  context.sharedRoots         = options.sharedRoots;
+  context.runtimeDirectory    = runtime;
+  if (!options.parseHelper.isEmpty())
+    return runSharedParseHelper(context, options.parseHelper, output);
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
@@ -449,7 +529,9 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(workerArguments(argc, argv));
-    const bool helpersContained = establishAutomationContainment();
+    // A parse helper is a child of a worker and shares its containment.
+    const bool helpersContained =
+        options.parseHelper.isEmpty() && establishAutomationContainment();
 #ifndef _WIN32
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
       throw Error("io_error",
@@ -475,7 +557,8 @@ int runWorker(int argc, char* argv[]) {
     QCoreApplication::setApplicationName("GroundzeroAutomationWorker");
     const QByteArray executable = QFile::encodeName(QCoreApplication::applicationFilePath());
     initializeNative(runtime, executable.constData(), options);
-    return executeWorker(application, output, options, helpersContained);
+    return executeWorker(application, output, options, helpersContained,
+                         runtime);
   } catch (const Error& error) {
     std::cerr << "automation-worker: " << error.code.toStdString() << ": "
               << error.message.toStdString() << '\n';

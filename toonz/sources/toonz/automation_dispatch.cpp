@@ -6,6 +6,7 @@
 #include "automation_audio.h"
 #include "automation_hook.h"
 #include "automation_rig.h"
+#include "automation_shared.h"
 
 #include "texception.h"
 
@@ -231,7 +232,11 @@ QString toolsetDescription(const QString& toolset) {
        "WAV mixdown."},
       {"rigging",
        "Level hooks, object handles and pivots, additive offset layers, and "
-       "rig inspection and placement evaluation."}};
+       "rig inspection and placement evaluation."},
+      {"shared-library",
+       "Read-only discovery of granted shared roots: studio palettes, "
+       "Library templates and pose sets, with identities, revisions, "
+       "dependencies and thumbnails."}};
   const auto found = descriptions.constFind(toolset);
   if (found == descriptions.constEnd())
     throw Error("internal_error",
@@ -267,6 +272,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(audioOperations(), executeAudio, "audio");
   add(rigOperations(), executeRig, "rigging");
   add(hookOperations(), executeHook, "rigging");
+  add(sharedOperations(), executeShared, "shared-library");
   add(
       assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {

@@ -23,6 +23,8 @@ class Worker:
         log: Path,
         *,
         media_tools: Path | None = None,
+        shared_roots: dict[str, Path] | None = None,
+        shared_write: tuple[str, ...] = (),
     ) -> None:
         self.sequence = 0
         self.log_path = log
@@ -38,6 +40,10 @@ class Worker:
         ]
         if media_tools is not None:
             arguments.extend(["--media-tools", str(media_tools)])
+        for role, root in (shared_roots or {}).items():
+            arguments.extend(["--shared-root", f"{role}={root}"])
+        for role in shared_write:
+            arguments.extend(["--shared-write", role])
         self.process = subprocess.Popen(
             arguments,
             stdin=subprocess.PIPE,

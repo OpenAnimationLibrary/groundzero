@@ -274,6 +274,9 @@ QString domainToolset(const QString& name) {
       name.startsWith("offset_layer.") || name == "object.handles.set" ||
       name == "object.pivot.set")
     return "rigging";
+  if (name == "shared.roots" || name.startsWith("studio_palette.") ||
+      name.startsWith("library."))
+    return "shared-library";
   return "core";
 }
 

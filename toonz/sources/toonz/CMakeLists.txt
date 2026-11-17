@@ -211,6 +211,8 @@ set(HEADERS
     automation_neural.h
     automation_macro.h
     automation_text.h
+    automation_shared.h
+    automation_shared_parse.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -309,6 +311,10 @@ set(SOURCES
     automation_macro_validation.cpp
     automation_macro_persistence.cpp
     automation_text.cpp
+    automation_shared.cpp
+    automation_shared_parse.cpp
+    automation_studio_palette.cpp
+    automation_library.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp
@@ -1282,6 +1288,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_shared_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_vector_opacity_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_assistance_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_macro_test.cpp)

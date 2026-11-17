@@ -25,6 +25,7 @@ import mcp_drawing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
+import mcp_library_cases
 import mcp_macro_cases
 import mcp_media_cases
 import mcp_motion_path_cases
@@ -37,6 +38,7 @@ import mcp_render_cases
 import mcp_renumber_cases
 import mcp_rig_cases
 import mcp_scene_cases
+import mcp_studio_palette_cases
 import mcp_text_cases
 import mcp_vector_opacity_cases
 import mcp_vector_transform_cases
@@ -214,6 +216,18 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_vector_selection_and_rejection_purity(self) -> None:
         mcp_vector_opacity_cases.vector_selection_and_rejection_purity(self)
+
+    def test_shared_root_flags_are_explicit_and_read_only(self) -> None:
+        mcp_studio_palette_cases.shared_root_flags_are_explicit_and_read_only(self)
+
+    def test_studio_palettes_list_inspect_find_preserve_roots(self) -> None:
+        mcp_studio_palette_cases.studio_palettes_list_inspect_find_preserve_roots(self)
+
+    def test_library_items_report_identity_dependencies_and_thumbnails(self) -> None:
+        mcp_library_cases.library_items_report_identity_dependencies_and_thumbnails(self)
+
+    def test_shared_parser_failures_leave_worker_serving(self) -> None:
+        mcp_library_cases.shared_parser_failures_leave_worker_serving(self)
 
     def test_text_outline_round_trip_and_edit(self) -> None:
         mcp_text_cases.text_outline_round_trip_and_edit(self)
