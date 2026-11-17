@@ -1,4 +1,5 @@
 #include "automation_path.h"
+#include "automation_vector_opacity.h"
 #include "automation.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
@@ -256,6 +257,10 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
         QJsonObject{{"name", QString::fromStdWString(level->getName())},
                     {"type", level->getType()},
                     {"path", relative},
+                    {"stroke_opacity_sha256",
+                     level->getType() == PLI_XSHLEVEL
+                         ? QJsonValue(vectorLevelOpacityDigest(*level))
+                         : QJsonValue()},
                     {"palette", paletteManifest(*level)},
                     {"raster", rasterManifest(*level)},
                     {"drawings", frameManifest(*level)}});
@@ -434,6 +439,11 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
     throw Error("invalid_package",
                 "The reopened drawing IDs differ from their source.");
   validateDrawingProfile(level);
+  if (level->getType() == PLI_XSHLEVEL &&
+      vectorLevelOpacityDigest(*level) !=
+          entry.value("stroke_opacity_sha256").toString())
+    throw Error("invalid_package",
+                "Reopened stroke opacity differs from the source level.");
   if (paletteManifest(*level) != entry.value("palette"))
     throw Error("invalid_package",
                 "The reopened palette differs from the source palette.");

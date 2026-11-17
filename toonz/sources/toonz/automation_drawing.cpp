@@ -1,5 +1,7 @@
 #include "automation.h"
 #include "automation_drawing.h"
+#include "automation_vector_opacity.h"
+#include "tstrokeopacity.h"
 
 #include "tcolorstyles.h"
 #include "tgeometry.h"
@@ -2400,8 +2402,238 @@ QJsonObject moveVectorOrder(Context& context, Document& document,
   return editVectorGroups(context, document, params, GroupAction::Move);
 }
 
+QJsonObject opacityIdentity(Document& document, const QJsonObject& params) {
+  if (requiredString(params, "expected_revision") != document.revisionText())
+    throw Error("revision_conflict",
+                "Drawing indices expired; inspect the current revision.");
+  return {{"document_id", document.id},
+          {"level_id", requiredString(params, "level_id")},
+          {"drawing_id", frameJson(frameId(params))},
+          {"geometry_revision", document.revisionText()}};
+}
+
+std::vector<int> opacityIndices(const QJsonObject& params, int count) {
+  std::set<int> unique;
+  for (const auto& value : array(params, "stroke_indices", 1, 128)) {
+    const QJsonObject entry{{"index", value}};
+    const int index = integer(entry, "index", 0, count - 1);
+    if (!unique.insert(index).second) invalid("Stroke indices must be unique");
+  }
+  return {unique.begin(), unique.end()};
+}
+
+QJsonArray opacityIndexJson(const std::vector<int>& indices) {
+  QJsonArray result;
+  for (int index : indices) result.append(index);
+  return result;
+}
+
+TVectorImageP opacityImage(TXshSimpleLevel* level, const TFrameId& frame) {
+  validateFrameNumber(level, frame);
+  const auto image = vectorFor(level, frame);
+  for (UINT index = 0; index < image->getStrokeCount(); ++index)
+    validateNativeStroke(*image->getStroke(index), paletteFor(level));
+  validateVectorOpacity(image);
+  groupStructure(image);
+  return image;
+}
+
+QJsonObject nearestOpacityStroke(const TVectorImageP& image,
+                                 const QJsonObject& query) {
+  const TPointD point(number(query, "x", -kMaxCoordinate, kMaxCoordinate),
+                      number(query, "y", -kMaxCoordinate, kMaxCoordinate));
+  const double maximum = number(query, "max_distance", 0, kMaxCoordinate);
+  double bestDistance  = maximum * maximum;
+  QJsonObject result;
+  for (UINT index = 0; index < image->getStrokeCount(); ++index) {
+    double parameter = 0, distance = 0;
+    if (!image->getStroke(index)->getNearestW(point, parameter, distance,
+                                              false))
+      throw Error("unsupported_geometry",
+                  "Cannot locate native stroke centerline.");
+    if (distance > bestDistance ||
+        (!result.isEmpty() && distance == bestDistance))
+      continue;
+    bestDistance = distance;
+    result       = {{"stroke_index", static_cast<int>(index)},
+                    {"parameter", parameter},
+                    {"distance", std::sqrt(distance)}};
+  }
+  return result;
+}
+
+TRectD opacityQueryBounds(const QJsonObject& query) {
+  const double x0 = number(query, "x0", -kMaxCoordinate, kMaxCoordinate);
+  const double y0 = number(query, "y0", -kMaxCoordinate, kMaxCoordinate);
+  const double x1 = number(query, "x1", -kMaxCoordinate, kMaxCoordinate);
+  const double y1 = number(query, "y1", -kMaxCoordinate, kMaxCoordinate);
+  if (x1 < x0 || y1 < y0) invalid("Selection bounds must be ordered");
+  return TRectD(x0, y0, x1, y1);
+}
+
+std::vector<int> opacityBounds(const TVectorImageP& image,
+                               const QJsonObject& query) {
+  const QString relation = requiredString(query, "relation");
+  if (relation != "intersects" && relation != "contained")
+    invalid("Unknown bounds relation");
+  const auto box = opacityQueryBounds(query);
+  std::vector<int> result;
+  for (UINT index = 0; index < image->getStrokeCount(); ++index) {
+    const auto bounds = image->getStroke(index)->getCenterlineBBox();
+    if (relation == "contained" ? box.contains(bounds) : box.overlaps(bounds))
+      result.push_back(index);
+    if (result.size() > 128)
+      throw Error("resource_limit",
+                  "Selection exceeds 128 strokes; narrow the query.");
+  }
+  return result;
+}
+
+QJsonObject selectVector(Context&, Document& document,
+                         const QJsonObject& params) {
+  auto result = opacityIdentity(document, params);
+  if (requiredString(params, "coordinate_space") != "drawing_native")
+    invalid("Selection requires drawing_native coordinates");
+  const auto image =
+      opacityImage(simpleLevel(document, params), frameId(params));
+  const auto query   = params.value("query").toObject();
+  const QString mode = requiredString(query, "mode");
+  std::vector<int> indices;
+  QJsonValue nearest(QJsonValue::Null);
+  if (mode == "indices") {
+    indices = opacityIndices(query, image->getStrokeCount());
+  } else if (mode == "centerline_bounds") {
+    indices = opacityBounds(image, query);
+  } else if (mode == "nearest_centerline") {
+    const auto match = nearestOpacityStroke(image, query);
+    if (!match.isEmpty()) {
+      nearest = match;
+      indices.push_back(match.value("stroke_index").toInt());
+    }
+  } else
+    invalid("Unknown vector selection mode");
+  result.insert("coordinate_space", "drawing_native");
+  result.insert("stroke_indices", opacityIndexJson(indices));
+  result.insert("nearest", nearest);
+  return boundedGroupResult(result);
+}
+
+QJsonObject inspectVectorOpacity(Context&, Document& document,
+                                 const QJsonObject& params) {
+  auto result = opacityIdentity(document, params);
+  const auto image =
+      opacityImage(simpleLevel(document, params), frameId(params));
+  const int index =
+      integer(params, "stroke_index", 0, int(image->getStrokeCount()) - 1);
+  const auto& stroke  = *image->getStroke(index);
+  const auto& profile = stroke.getOpacityProfile();
+  const int offset    = integer(params, "offset", 0, profile.size());
+  const int limit     = integer(params, "limit", 1, 128);
+  const int end       = std::min(int(profile.size()), offset + limit);
+  QJsonArray knots;
+  for (int i = offset; i < end; ++i)
+    knots.append(
+        QJsonObject{{"position", profile[i].x}, {"opacity", profile[i].y}});
+  result.insert("stroke_index", index);
+  result.insert("opacity_per_mille", nativeOpacityPerMille(stroke));
+  result.insert("knot_count", int(profile.size()));
+  result.insert("knots", knots);
+  result.insert("next_offset", end < int(profile.size())
+                                   ? QJsonValue(end)
+                                   : QJsonValue(QJsonValue::Null));
+  return boundedGroupResult(result);
+}
+
+std::vector<TPointD> opacityProfile(const QJsonObject& params) {
+  std::vector<TPointD> knots;
+  for (const auto& value : array(params, "knots", 0, 4096)) {
+    const auto knot = value.toObject();
+    knots.emplace_back(number(knot, "position", 0, 1),
+                       number(knot, "opacity", 0, 1));
+  }
+  if (!StrokeOpacity::valid(knots))
+    invalid("Invalid native opacity envelope endpoints or ordering");
+  return knots;
+}
+
+bool equalOpacityProfile(const std::vector<TPointD>& a,
+                         const std::vector<TPointD>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t index = 0; index < a.size(); ++index)
+    if (a[index].x != b[index].x || a[index].y != b[index].y) return false;
+  return true;
+}
+
+bool applyOpacity(TStroke& stroke, const QJsonObject& params,
+                  const std::vector<TPointD>& knots, bool profile) {
+  if (profile) {
+    if (equalOpacityProfile(stroke.getOpacityProfile(), knots)) return false;
+    if (!stroke.setOpacityProfile(knots))
+      invalid("Native opacity envelope was rejected");
+  } else {
+    const int units = integer(params, "opacity_per_mille", 0, 1000);
+    if (nativeOpacityPerMille(stroke) == units) return false;
+    stroke.setOpacity(units / 1000.0);
+  }
+  return true;
+}
+
+TVectorImageP writableOpacityImage(TXshSimpleLevel* level,
+                                   const TFrameId& frame) {
+  if (level->isReadOnly() || level->isFrameReadOnly(frame))
+    throw Error("locked", "The opacity target drawing is read-only.");
+  paletteFor(level, true);
+  const auto original  = opacityImage(level, frame);
+  const auto structure = groupStructure(original);
+  if (structure.nested || structure.entered)
+    throw Error("unsupported_type",
+                "Opacity writes require flat groups at root context.");
+  return original;
+}
+
+QJsonObject writeVectorOpacity(Context& context, Document& document,
+                               const QJsonObject& params, bool profile) {
+  auto result = opacityIdentity(document, params);
+  sharing(params);
+  auto* level         = simpleLevel(document, params);
+  const auto frame    = frameId(params);
+  const auto original = writableOpacityImage(level, frame);
+  const auto indices  = opacityIndices(params, original->getStrokeCount());
+  const auto knots = profile ? opacityProfile(params) : std::vector<TPointD>();
+  auto candidate   = original->cloneWithGroupContext();
+  bool changed     = false;
+  for (int index : indices)
+    changed =
+        applyOpacity(*candidate->getStroke(index), params, knots, profile) ||
+        changed;
+  validateVectorOpacity(candidate);
+  requireAssetGrowth(*document.scene,
+                     automationImageBytes(candidate) -
+                         automationImageBytes(TImageP(original.getPointer())));
+  result.insert("changed", changed);
+  result.insert("sharing", "all_exposures");
+  result.insert("stroke_indices", opacityIndexJson(indices));
+  result.insert("undo_available", false);
+  if (changed)
+    result.insert("geometry_revision", QString::number(document.revision + 1));
+  result = boundedGroupResult(result);
+  if (changed) publish(context, level, frame, candidate);
+  return result;
+}
+
+QJsonObject setVectorOpacity(Context& context, Document& document,
+                             const QJsonObject& params) {
+  return writeVectorOpacity(context, document, params, false);
+}
+
+QJsonObject setVectorOpacityProfile(Context& context, Document& document,
+                                    const QJsonObject& params) {
+  return writeVectorOpacity(context, document, params, true);
+}
+
 void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
   const auto vector = vectorFor(level, frame);
+  validateVectorOpacity(vector);
   for (UINT index = 0; index < vector->getStrokeCount(); ++index)
     validateNativeStroke(*vector->getStroke(index), paletteFor(level));
 }
@@ -2493,8 +2725,10 @@ qint64 automationImageBytes(const TImageP& image) {
   const TVectorImageP vector = image;
   qint64 bytes               = AutomationDrawingOverheadBytes;
   for (UINT index = 0; index < vector->getStrokeCount(); ++index)
-    bytes +=
-        qint64(vector->getStroke(index)->getControlPointCount()) * 64 + 1024;
+    bytes += qint64(vector->getStroke(index)->getControlPointCount()) * 64 +
+             1024 +
+             qint64(vector->getStroke(index)->getOpacityProfile().size()) *
+                 sizeof(TPointD);
   return bytes;
 }
 
@@ -2515,6 +2749,7 @@ QJsonArray drawingOperations() {
   drawingCatalog(tools);
   renumberCatalog(tools);
   vectorCatalog(tools);
+  for (const auto& tool : vectorOpacityOperations()) tools.append(tool);
   vectorGroupCatalog(tools);
   paletteCatalog(tools);
   palettePageCatalog(tools);
@@ -2550,6 +2785,10 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"drawing.remove", removeDrawing},
       {"drawing.renumber", renumberDrawing},
       {"vector.inspect", inspectVector},
+      {"vector.select", selectVector},
+      {"vector.opacity.inspect", inspectVectorOpacity},
+      {"vector.opacity.set", setVectorOpacity},
+      {"vector.opacity.profile.set", setVectorOpacityProfile},
       {"vector.edit", editVector},
       {"vector.fill", fillVector},
       {"vector.transform", transformVector},
