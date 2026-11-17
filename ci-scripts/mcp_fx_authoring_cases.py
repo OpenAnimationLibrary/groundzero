@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +47,15 @@ NATIVE_PRESETS: dict[str, dict[str, Any]] = {
     "invertFx": {},
     "blendFx": {},
 }
+
+ORIGINAL_TYPES = (
+    "colorCardFx",
+    "STD_iwa_LinearGradientFx",
+    "STD_radialGradientFx",
+    "overFx",
+    "STD_blurFx",
+    "STD_glowFx",
+)
 
 
 def _close_worker(case: NativeAcceptance) -> None:
@@ -474,14 +484,20 @@ def _wired_effect(case: NativeAcceptance, document: str, kind: str, artwork: str
     return node["fx_id"]
 
 
-def fx_presets_cover_each_admitted_native_type(case: NativeAcceptance) -> None:
-    """Compare actual copied and reopened renders for every admitted native preset factory."""
+def presets_cover_native_types(case: NativeAcceptance, kinds: Sequence[str]) -> None:
+    """Compare actual copied and reopened renders for each listed native preset factory.
+
+    Each type takes four preview renders, so keep a call within the worker's 32-job limit.
+
+    Args:
+        case: A fresh native worker acceptance fixture.
+        kinds: Native FX types from NATIVE_PRESETS to cover.
+    """
     document, artwork = _artwork_fixture(case)
-    catalog = case.success("fx.catalog", {})
-    case.assertEqual({effect["type"] for effect in catalog["effects"]}, set(NATIVE_PRESETS))
     references = {}
     parameters = {}
-    for kind, values in NATIVE_PRESETS.items():
+    for kind in kinds:
+        values = NATIVE_PRESETS[kind]
         source = _wired_effect(case, document, kind, artwork)
         _output(case, document, source)
         baseline = _pixels(case, document, 6)
@@ -509,7 +525,7 @@ def fx_presets_cover_each_admitted_native_type(case: NativeAcceptance) -> None:
         _output(case, document, target)
         case.assertEqual(_pixels(case, document, 6), references[kind], kind)
     restored, names = _reopen(case, document)
-    for kind in NATIVE_PRESETS:
+    for kind in kinds:
         target = names["Target " + kind]
         actual = case.success(
             "fx.parameter.get", {"document_id": restored, "fx_id": target, "frame": 6}
@@ -518,3 +534,10 @@ def fx_presets_cover_each_admitted_native_type(case: NativeAcceptance) -> None:
         _output(case, restored, target)
         case.assertEqual(_pixels(case, restored, 6), references[kind], kind)
     _close_worker(case)
+
+
+def fx_presets_cover_each_admitted_native_type(case: NativeAcceptance) -> None:
+    """Require the full admitted catalog and replay presets for the original six factories."""
+    catalog = case.success("fx.catalog", {})
+    case.assertEqual({effect["type"] for effect in catalog["effects"]}, set(NATIVE_PRESETS))
+    presets_cover_native_types(case, ORIGINAL_TYPES)

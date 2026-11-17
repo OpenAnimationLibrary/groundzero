@@ -12,6 +12,7 @@ from mcp_fx_authoring_cases import (
     _reject_unchanged,
     _reopen,
     _scene,
+    presets_cover_native_types,
 )
 
 if TYPE_CHECKING:
@@ -107,3 +108,13 @@ def color_composite_keys_survive_copy_and_reopen(case: NativeAcceptance) -> None
     for frame, pixels in rendered.items():
         case.assertEqual(_pixels(case, restored, frame), pixels, frame)
     _close_worker(case)
+
+
+def color_presets_cover_native_types(case: NativeAcceptance) -> None:
+    """Replay presets, copies and reopened renders for the four color-adjustment FX."""
+    presets_cover_native_types(case, ("STD_brightContFx", "STD_hsvScaleFx", "multFx", "invertFx"))
+
+
+def composite_presets_cover_native_types(case: NativeAcceptance) -> None:
+    """Replay presets, copies and reopened renders for the four compositing FX."""
+    presets_cover_native_types(case, ("screenFx", "inFx", "outFx", "blendFx"))

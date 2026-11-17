@@ -126,6 +126,12 @@ class NativeAcceptance(unittest.TestCase):
     def test_color_composite_blend_endpoints_select_sources(self) -> None:
         mcp_color_composite_cases.color_composite_blend_endpoints_select_sources(self)
 
+    def test_color_presets_cover_native_types(self) -> None:
+        mcp_color_composite_cases.color_presets_cover_native_types(self)
+
+    def test_composite_presets_cover_native_types(self) -> None:
+        mcp_color_composite_cases.composite_presets_cover_native_types(self)
+
     def test_color_composite_keys_survive_copy_and_reopen(self) -> None:
         mcp_color_composite_cases.color_composite_keys_survive_copy_and_reopen(self)
 
