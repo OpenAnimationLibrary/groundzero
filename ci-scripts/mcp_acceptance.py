@@ -18,6 +18,7 @@ from typing import Any
 import mcp_animation_cases
 import mcp_artwork_cases
 import mcp_assistance_cases
+import mcp_color_composite_cases
 import mcp_curve_cases
 import mcp_drawing_cases
 import mcp_fx_authoring_cases
@@ -118,6 +119,15 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_fx_preset_capacity_keeps_exact_replay(self) -> None:
         mcp_fx_authoring_cases.fx_preset_capacity_keeps_exact_replay(self)
+
+    def test_color_composite_bounds_reject_before_mutation(self) -> None:
+        mcp_color_composite_cases.color_composite_bounds_reject_before_mutation(self)
+
+    def test_color_composite_blend_endpoints_select_sources(self) -> None:
+        mcp_color_composite_cases.color_composite_blend_endpoints_select_sources(self)
+
+    def test_color_composite_keys_survive_copy_and_reopen(self) -> None:
+        mcp_color_composite_cases.color_composite_keys_survive_copy_and_reopen(self)
 
     def test_macro_roundtrip_preserves_pixels_and_mapping(self) -> None:
         mcp_macro_cases.macro_roundtrip_preserves_pixels_and_mapping(self)

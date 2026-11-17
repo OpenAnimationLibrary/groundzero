@@ -37,6 +37,14 @@ NATIVE_PRESETS: dict[str, dict[str, Any]] = {
     "overFx": {},
     "STD_blurFx": {"value": 1},
     "STD_glowFx": {"value": 1, "brightness": 25, "fade": 100, "color": [40, 80, 160, 255]},
+    "STD_brightContFx": {"brightness": 40, "contrast": 30},
+    "STD_hsvScaleFx": {"hue": 90, "value_scale": 80},
+    "multFx": {"value": -64},
+    "screenFx": {},
+    "inFx": {},
+    "outFx": {},
+    "invertFx": {},
+    "blendFx": {},
 }
 
 
