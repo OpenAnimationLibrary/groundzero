@@ -364,6 +364,7 @@ int domainTestResult(Context& context) {
   try {
     runAutomationFxTests(context);
     runAutomationFxAuthoringTests(context);
+    runAutomationColorCompositeTests(context);
     runAutomationGroupTests(context);
     runAutomationAnimationTests();
     runAutomationPathTests(context);
