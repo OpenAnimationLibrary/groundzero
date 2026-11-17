@@ -75,6 +75,16 @@ palette styles. Its FX catalog admits six builtins: color card, linear and radia
 gradients, over, blur, and glow. Consult the running catalog for parameters and
 limits. There is no live editor connection or undo history in this profile.
 
+`cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
+current detached document. Supply its `document_id` and latest `expected_revision`
+on every page, with optional `offset` and `limit`. Check `traversal_complete` and
+`reasons`: paging an incomplete result cannot finish the omitted traversal or
+establish that omitted artwork is unused. Reads inspect at most 100,000 root-sheet
+cells and retain at most 4096 records; each response is limited to one MiB.
+Dependency reads inspect authorized file metadata without loading images or
+expanding sequences, sidecars, or nested sheets. Linked Library origins are outside
+this profile. These checks do not certify package or render compatibility.
+
 PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
 pixels per image. Vector drawings are limited to 4096 strokes and 32768 control
 points, with coordinates within ±32768 and radii up to 255 native units. Palettes
