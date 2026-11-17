@@ -103,6 +103,7 @@ def validate_phases(native: dict[str, Any]) -> None:
         "peg-reinsert",
         "fx-reinsert",
         "fx-suppressed-edit",
+        "fx-parameter-replace",
         "camera-size-edit",
         "excluded-artwork-edit",
         "scene-null",
@@ -117,6 +118,12 @@ def validate_phases(native: dict[str, Any]) -> None:
         "restart",
         "arm-stop-on-history",
         "shutdown",
+        "camera-lock",
+        "camera-unlock",
+        "curve-lock",
+        "curve-unlock",
+        "cycle-enable",
+        "cycle-disable",
     }
     if not expected.issubset(phases):
         raise AssertionError(f"Missing native journey phases: {sorted(expected - phases)}")

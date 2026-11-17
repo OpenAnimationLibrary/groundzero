@@ -301,6 +301,51 @@ async function staleHumanEdit(client, report) {
   assert.deepEqual(after, observed, "Rejected stale edit changed native state or history");
 }
 
+async function lockedTarget(client, report, kind) {
+  const snapshot = await inspect(client, report);
+  const target = stage(snapshot, "camera");
+  const before = (await phase("snapshot")).native;
+  const locked = (await phase(`${kind}-lock`)).native;
+  assert.equal(kind === "camera" ? locked.camera_locked : locked.camera_x.editor_locked, true);
+  sameHistory(before, locked);
+  await failure(client, target.tool, edit(snapshot, target, 6), "locked", report);
+  assert.deepEqual((await phase("snapshot")).native, locked);
+  assert.deepEqual((await phase(`${kind}-unlock`)).native, before);
+}
+
+async function unsupportedCycle(client, report) {
+  const snapshot = await inspect(client, report);
+  const target = stage(snapshot, "camera");
+  const before = (await phase("snapshot")).native;
+  const cycled = (await phase("cycle-enable")).native;
+  assert.equal(cycled.camera_x.cycle, true);
+  sameHistory(before, cycled);
+  const unsupported = await success(
+    client,
+    "live.inspect",
+    { scene_epoch: snapshot.scene_epoch },
+    report,
+  );
+  assert(unsupported.unsupported.length > 0);
+  assert.deepEqual(unsupported.editable_targets, []);
+  await failure(client, target.tool, edit(snapshot, target, 6), "unsupported_target", report);
+  assert.deepEqual((await phase("snapshot")).native, cycled);
+  assert.deepEqual((await phase("cycle-disable")).native, before);
+}
+
+async function restrictionsPreserveRedo(client, report) {
+  const applied = (await phase("snapshot")).native;
+  const undone = (await phase("human-undo")).native;
+  await lockedTarget(client, report, "camera");
+  await lockedTarget(client, report, "curve");
+  await unsupportedCycle(client, report);
+  assert.deepEqual((await phase("snapshot")).native, undone);
+  const redone = (await phase("human-redo")).native;
+  assert.deepEqual(redone.keyed_blur, applied.keyed_blur);
+  assert.equal(redone.history_count, applied.history_count);
+  assert.equal(redone.history_index, applied.history_index);
+}
+
 async function dependencyChanges(client, report) {
   let snapshot = await inspect(client, report);
   const camera = stage(snapshot, "camera");
@@ -427,6 +472,7 @@ async function journey(context, report, slots) {
   await stageJourney(first, second, report);
   await effectJourney(second, report, "Live default blur", 4, "blur");
   await effectJourney(second, report, "Live keyed blur", 8, "keyed_blur");
+  await restrictionsPreserveRedo(second, report);
   await staleHumanEdit(second, report);
   await dependencyChanges(second, report);
   await replacedParameter(second, report);
