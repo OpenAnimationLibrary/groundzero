@@ -152,6 +152,12 @@ void ColumnLevel::updateFrameRate(double newFrameRate) {
 namespace {
 //-----------------------------------------------------------------------------
 
+#ifdef BUILD_UI_PORT_TESTS
+int allocatedCells = 0;
+#endif
+
+//-----------------------------------------------------------------------------
+
 bool lessThan(const ColumnLevel *s1, const ColumnLevel *s2) {
   return s1->getVisibleStartFrame() < s2->getVisibleStartFrame();
 }
@@ -401,6 +407,9 @@ const TXshCell &TXshSoundColumn::getCell(int row) const {
 
   if (!l) return emptyCell;
   TXshSoundLevel *soundLevel = l->getSoundLevel();
+#ifdef BUILD_UI_PORT_TESTS
+  ++allocatedCells;
+#endif
   TXshCell *cell = new TXshCell(soundLevel, TFrameId(row - l->getStartFrame()));
   // The new cell adds a reference to the TXshSoundLevel;
   // since the cells of the TXshSoundColumn are not persistent structures
@@ -979,6 +988,19 @@ ColumnLevel *TXshSoundColumn::getColumnLevel(int index) {
 
 //-----------------------------------------------------------------------------
 
+const ColumnLevel* TXshSoundColumn::getClip(int index) const {
+  if (index < 0 || index >= m_levels.count()) return nullptr;
+  return m_levels.at(index);
+}
+
+//-----------------------------------------------------------------------------
+
+#ifdef BUILD_UI_PORT_TESTS
+int TXshSoundColumn::allocatedCellCount() { return allocatedCells; }
+#endif
+
+//-----------------------------------------------------------------------------
+
 int TXshSoundColumn::getColumnLevelIndex(ColumnLevel *columnLevel) const {
   return m_levels.indexOf(columnLevel);
 }
@@ -1161,6 +1183,22 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
     }
   }
 #endif
+  return getOfflineSoundTrack(fromFrame, toFrame, fps, format);
+}
+
+//-----------------------------------------------------------------------------
+
+TSoundTrackP TXshSoundColumn::getOfflineSoundTrack(int fromFrame, int toFrame,
+                                                   double fps,
+                                                   TSoundTrackFormat format) {
+  int levelsCount = m_levels.size();
+
+  if (levelsCount == 0) return 0;
+
+  if (fps == -1) fps = m_levels[0]->getSoundLevel()->getFrameRate();
+  if (fromFrame == -1) fromFrame = getFirstRow();
+  if (toFrame == -1) toFrame = getMaxFrame();
+
   // Create the soundTrack
   double samplePerFrame = format.m_sampleRate / fps;
 
@@ -1182,8 +1220,6 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
   // Blank the whole track
   overallSoundTrack->blank(0, lsamp);
 
-  if (levelsCount == 0) return overallSoundTrack;
-
   for (int i = 0; i < levelsCount; i++) {
     ColumnLevel *l             = m_levels.at(i);
     TXshSoundLevel *soundLevel = l->getSoundLevel();
@@ -1202,7 +1238,9 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
     // (pay attention to convert it before)
     TSoundTrackP s = soundLevel->getSoundTrack();
     if (!s) continue;
-    TSoundTrackP soundTrack = TSop::convert(s, format);
+    // A conversion to the same format is an exact copy: skip it
+    TSoundTrackP soundTrack =
+        s->getFormat() == format ? s : TSop::convert(s, format);
 
     int s0delta = 0;
     if (fromFrame > levelStartFrame) s0delta = fromFrame - levelStartFrame;
@@ -1228,6 +1266,22 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
 TSoundTrackP TXshSoundColumn::mixingTogether(
     const std::vector<TXshSoundColumn *> &vect, int fromFrame, int toFrame,
     double fps) {
+  return mixColumns(vect, fromFrame, toFrame, fps, false);
+}
+
+//-----------------------------------------------------------------------------
+
+TSoundTrackP TXshSoundColumn::mixingTogetherOffline(
+    const std::vector<TXshSoundColumn*>& vect, int fromFrame, int toFrame,
+    double fps) {
+  return mixColumns(vect, fromFrame, toFrame, fps, true);
+}
+
+//-----------------------------------------------------------------------------
+
+TSoundTrackP TXshSoundColumn::mixColumns(
+    const std::vector<TXshSoundColumn*>& vect, int fromFrame, int toFrame,
+    double fps, bool offline) {
   int offset       = 0xffff;
   long sampleCount = 0;
   std::vector<TSoundTrackP> tracks;
@@ -1250,9 +1304,10 @@ TSoundTrackP TXshSoundColumn::mixingTogether(
   TSoundTrackFormat format = soundLevel->getSoundTrack()->getFormat();
 
   // A column's sound over the range, scaled by its volume curve if animated
-  auto columnTrack = [&](TXshSoundColumn *column) {
+  auto columnTrack = [&](TXshSoundColumn* column) {
     TSoundTrackP track =
-        column->getOverallSoundTrack(fromFrame, toFrame, fps, format);
+        offline ? column->getOfflineSoundTrack(fromFrame, toFrame, fps, format)
+                : column->getOverallSoundTrack(fromFrame, toFrame, fps, format);
     if (track && column->m_volumeCurve->hasKeyframes())
       applyVolumeCurve(track, column->m_volumeCurve.getPointer(), fromFrame,
                        fps);
