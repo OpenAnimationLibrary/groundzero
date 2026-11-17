@@ -1163,6 +1163,15 @@ if(BUILD_UI_PORT_TESTS)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
         target_link_libraries(windows_ci_live_test PRIVATE Qt${QT_VERSION_MAJOR}::Core advapi32)
         add_dependencies(OpenToonz windows_ci_live_test)
+        add_executable(windows_ci_live_launcher
+            tests/windows_ci_live_launcher.cpp tests/windows_ci_live_broker.cpp)
+        target_include_directories(windows_ci_live_launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(windows_ci_live_launcher PROPERTIES
+            WIN32_EXECUTABLE FALSE
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(windows_ci_live_launcher PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core advapi32 bcrypt netapi32 userenv user32)
+        add_dependencies(OpenToonz windows_ci_live_launcher)
     endif()
     if(UNIX)
         add_executable(mcp_live_security_test
