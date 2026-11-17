@@ -98,15 +98,45 @@ and reusing an operation ID for different arguments always conflicts.
 
 The native profile supports detached scenes, PNG imports, exposures, camera and
 peg animation, vector strokes and fills, RGBA8 and Toonz raster pixels, and solid
-palette styles. Its FX catalog admits fourteen builtins: color card, linear and
-radial gradients, over, blur, glow, brightness/contrast, HSV adjustment, multiply,
-screen, inside/outside matte, RGB inversion, and cross-dissolve. Consult the running
-catalog for exact native type, port and parameter names. HSV percentage scales
-are limited to 0–400 and multiply offsets to −255–255; multiply truncates fractional
-offsets toward zero in its native integer kernel. The eight color/composite effects
-use native version 1 and scalar linear animation keys. These bounds also apply to
-presets, scene packages and render snapshots. There is no live editor connection
-or undo history in this profile.
+palette styles. Its FX catalog, profile `builtin-2d-v2`, admits 31 builtins: color
+card, linear and radial gradients, over, blur, glow, brightness/contrast, HSV
+adjustment, multiply, screen, inside/outside matte, RGB inversion and cross-dissolve,
+plus the finishing filters bloom, light wrap, backlit, body highlight, light spot,
+target spot, directional and local blur, posterize, solarize, sharpen, emboss,
+erode/dilate, matte choke, channel mixer, gamma and exposure. Consult the running
+catalog for exact native type, port and parameter names, ranges and versions. Many
+admitted ranges are narrower than the native ones: blur and glow radii are limited
+to 0–200, HSV percentage scales to 0–400 and multiply offsets to −255–255; multiply
+truncates fractional offsets toward zero in its native integer kernel. Parameters
+with native menu choices accept integers only, and a color without a native matte
+requires alpha 255. Every admitted effect uses its catalog `native_fx_version` and
+scalar linear animation keys. These bounds also apply to presets, macro members,
+scene packages and render snapshots, so a scene saved with a value outside them does
+not reopen. Each catalog entry also lists `extent_parameters`, `constraints`,
+`required_inputs`, `seed_parameters` and `replay_class`. There is no live editor
+connection or undo history in this profile.
+
+A linear gradient's start and end points must be equal or at least 0.001 apart at
+every frame, keys included. A violation fails with `PARAMETER_CONSTRAINT`, naming
+the constraint, effect, parameters and frame. Before a render starts,
+`render.preview` and `render.submit` scale each extent parameter by the largest
+render scale its effect can receive at each requested frame: the output size over
+the camera size, the camera placement and the placement of every column upstream.
+A job whose padding would pass the parameter's `max_px` (1024 pixels for most) fails
+with `fx_preflight_failed` and details `{reason, fx_id, parameter, frame, extent_px,
+max_px}`; erode/dilate also requires an unmirrored placement (`positive_determinant`).
+Render jobs report `fx_provenance`: the type, native version, replay class and seeds
+of every effect the output renders. `fx.graph` reports `REQUIRED_INPUT_MISSING` while
+backlit has no Light, light wrap no Background or local blur no Reference input.
+
+`fx.recipe.list` returns static recipes: light wrap, backlit rim light, exposure
+grade, cross dissolve and iris wipe. Each lists its required effect types and whether
+they are available, its inputs with defaults, its steps as ordinary tool calls, named
+controls and checks. An argument whose whole value is `${input.<name>}` or
+`${steps.<id>.<field>}` takes that input's or earlier result's JSON value. A recipe
+never runs on the worker: run its steps yourself with the usual `expected_revision`
+and `operation_id`, so a recipe that stops halfway leaves identifiable committed
+operations.
 
 `cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
 current detached document. Supply its `document_id` and latest `expected_revision`
