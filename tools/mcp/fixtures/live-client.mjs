@@ -468,10 +468,7 @@ async function destructiveSceneReplacement(client, report) {
 
 async function journey(context, report, slots) {
   assert.equal((await verifyLiveSecurity(context, phase)).status, "passed");
-  slots.push(await connect(context, "first"));
-  report.clients = slots.length;
-  slots.push(await connect(context, "second"));
-  report.clients = slots.length;
+  await connectPair(context, report, slots);
   report.concurrent_clients = 2;
   const [first, second] = slots;
   const capabilities = await success(first, "live.capabilities", {}, report);
@@ -500,6 +497,18 @@ async function journey(context, report, slots) {
   await close(second, report);
   const stoppedEdit = await stopDuringCommit(context, report, slots);
   await activeShutdown(context, report, slots, stoppedEdit);
+}
+
+async function connectPair(context, report, slots) {
+  const results = await Promise.allSettled([connect(context, "first"), connect(context, "second")]);
+  for (const result of results) {
+    if (result.status === "fulfilled") slots.push(result.value);
+  }
+  report.clients = slots.length;
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+  report.concurrent_connections_observed = true;
 }
 
 async function stopDuringCommit(context, report, slots) {
