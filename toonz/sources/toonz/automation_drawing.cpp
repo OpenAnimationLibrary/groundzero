@@ -2,10 +2,12 @@
 #include "automation_drawing.h"
 
 #include "tcolorstyles.h"
+#include "tgeometry.h"
 #include "timage_io.h"
 #include "timageinfo.h"
 #include "tpalette.h"
 #include "trasterimage.h"
+#include "tregion.h"
 #include "tsimplecolorstyles.h"
 #include "tstroke.h"
 #include "ttoonzimage.h"
@@ -39,15 +41,16 @@
 namespace GroundzeroAutomation {
 namespace {
 
-constexpr int kMaxPixels        = 16777216;
-constexpr int kMaxPatch         = 16384;
-constexpr int kMaxStrokes       = 4096;
-constexpr int kMaxPoints        = 1025;
-constexpr int kMaxStyles        = 4096;
-constexpr int kMaxPages         = 128;
-constexpr int kMaxVectorFrame   = 65535;
-constexpr double kMaxCoordinate = 32768.0;
-constexpr double kMaxThickness  = 255.0;
+constexpr int kMaxPixels         = 16777216;
+constexpr int kMaxPatch          = 16384;
+constexpr int kMaxStrokes        = 4096;
+constexpr int kMaxPoints         = 1025;
+constexpr int kMaxStyles         = 4096;
+constexpr int kMaxPages          = 128;
+constexpr int kMaxVectorFrame    = 65535;
+constexpr double kMaxCoordinate  = 32768.0;
+constexpr double kMaxThickness   = 255.0;
+constexpr int kMaxTransformEdges = 65536;
 
 [[noreturn]] void invalid(const QString& message) {
   throw Error("invalid_params", message);
@@ -1493,6 +1496,35 @@ void renumberCatalog(QJsonArray& tools) {
       properties, {"document_id", "level_id", "mapping", "sharing"}, true));
 }
 
+void vectorTransformCatalog(QJsonArray& tools) {
+  auto properties = target();
+  properties.insert("coordinate_space", choice({"drawing_native"}));
+  properties.insert("sharing", choice({"all_exposures"}));
+  properties.insert("thickness_mode",
+                    choice({"preserve", "scale_geometric_mean"}));
+  const QJsonObject coefficient{{"type", "number"},
+                                {"minimum", -kMaxCoordinate},
+                                {"maximum", kMaxCoordinate}};
+  QJsonObject fields;
+  const QJsonArray names{"a11", "a12", "a13", "a21", "a22", "a23"};
+  for (const auto& name : names) fields.insert(name.toString(), coefficient);
+  properties.insert("matrix", QJsonObject{{"type", "object"},
+                                          {"additionalProperties", false},
+                                          {"properties", fields},
+                                          {"required", names}});
+  tools.append(operation(
+      "vector.transform",
+      "Transform the whole drawing: x'=a11*x+a12*y+a13, "
+      "y'=a21*x+a22*y+a23. Require abs(det)>=0.001; preserve native radii "
+      "or scale them by sqrt(abs(det)). Retain stroke IDs and painted "
+      "topology; "
+      "admit at most 65536 region edges and native coordinate/radius bounds.",
+      properties,
+      {"document_id", "level_id", "drawing_id", "coordinate_space", "sharing",
+       "matrix", "thickness_mode"},
+      true));
+}
+
 void vectorCatalog(QJsonArray& tools) {
   auto properties = target();
   properties.insert("offset", range(0, kMaxStrokes));
@@ -1525,6 +1557,7 @@ void vectorCatalog(QJsonArray& tools) {
                 {"document_id", "level_id", "drawing_id", "coordinate_space",
                  "sharing", "x", "y", "style_id"},
                 true));
+  vectorTransformCatalog(tools);
 }
 
 void paletteCatalog(QJsonArray& tools) {
@@ -1764,6 +1797,147 @@ void validateNativeStroke(const TStroke& stroke, TPalette* palette) {
     validateNativePoint(stroke.getControlPoint(index));
 }
 
+TAffine vectorAffine(const QJsonObject& params) {
+  if (!params.value("matrix").isObject()) invalid("matrix must be an object");
+  const QJsonObject matrix = params.value("matrix").toObject();
+  keys(matrix, {"a11", "a12", "a13", "a21", "a22", "a23"});
+  const TAffine affine(number(matrix, "a11", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a12", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a13", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a21", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a22", -kMaxCoordinate, kMaxCoordinate),
+                       number(matrix, "a23", -kMaxCoordinate, kMaxCoordinate));
+  if (std::abs(affine.det()) < 0.001)
+    throw Error("unsupported_transform",
+                "Vector transforms require abs(determinant) >= 0.001");
+  return affine;
+}
+
+TThickPoint transformedPoint(const TThickPoint& point, const TAffine& affine,
+                             double thicknessScale) {
+  validateNativePoint(point);
+  const TThickPoint result(affine * TPointD(point.x, point.y),
+                           point.thick * thicknessScale);
+  validateNativePoint(result);
+  return result;
+}
+
+void preflightStrokeTransform(const TStroke& stroke, const TAffine& affine,
+                              double thicknessScale) {
+  for (int index = 0; index < stroke.getControlPointCount(); ++index)
+    transformedPoint(stroke.getControlPoint(index), affine, thicknessScale);
+}
+
+QJsonArray regionEdges(const TRegion& region, const TAffine& affine) {
+  QJsonArray edges;
+  for (UINT index = 0; index < region.getEdgeCount(); ++index) {
+    const TEdge* edge = region.getEdge(index);
+    if (!edge || !edge->m_s)
+      throw Error("unsupported_geometry", "A vector region has no native edge");
+    if (edge->m_index < 0) preflightStrokeTransform(*edge->m_s, affine, 1.0);
+    edges.append(
+        QJsonArray{edge->m_index, edge->m_w0, edge->m_w1, edge->getStyle()});
+  }
+  return edges;
+}
+
+QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine) {
+  if (vector->getRegionCount() > kMaxTransformEdges)
+    throw Error("resource_limit", "Vector transform has too many regions");
+  std::vector<TRegion*> pending;
+  for (UINT index = 0; index < vector->getRegionCount(); ++index)
+    pending.push_back(vector->getRegion(index));
+  QJsonArray result;
+  qint64 edges = 0;
+  for (size_t index = 0; index < pending.size(); ++index) {
+    const auto* region = pending[index];
+    edges += region->getEdgeCount();
+    if (edges > kMaxTransformEdges ||
+        pending.size() + region->getSubregionCount() >
+            size_t(kMaxTransformEdges))
+      throw Error("resource_limit",
+                  "Vector transform is limited to 65536 region edges");
+    result.append(
+        QJsonObject{{"children", static_cast<int>(region->getSubregionCount())},
+                    {"edges", regionEdges(*region, affine)}});
+    for (UINT child = 0; child < region->getSubregionCount(); ++child)
+      pending.push_back(region->getSubregion(child));
+  }
+  return result;
+}
+
+bool verifyStrokeTransform(const TStroke& before, const TStroke& after,
+                           const TAffine& affine, double thicknessScale) {
+  if (before.getId() != after.getId() ||
+      before.getStyle() != after.getStyle() ||
+      before.isSelfLoop() != after.isSelfLoop() ||
+      before.getControlPointCount() != after.getControlPointCount())
+    throw Error("native_error", "Native transform changed stroke identity");
+  bool changed = false;
+  for (int index = 0; index < before.getControlPointCount(); ++index) {
+    const auto original = before.getControlPoint(index);
+    const auto actual   = after.getControlPoint(index);
+    const auto expected = transformedPoint(original, affine, thicknessScale);
+    validateNativePoint(actual);
+    if (actual != expected)
+      throw Error("native_error", "Native transform did not apply the matrix");
+    changed |= actual != original;
+  }
+  return changed;
+}
+
+bool verifyVectorTransform(const TVectorImageP& before,
+                           const TVectorImageP& after, const TAffine& affine,
+                           double thicknessScale) {
+  if (before->getStrokeCount() != after->getStrokeCount())
+    throw Error("native_error", "Native transform changed the stroke count");
+  bool changed = false;
+  for (UINT index = 0; index < before->getStrokeCount(); ++index) {
+    if (before->getGroupDepth(index) != after->getGroupDepth(index))
+      throw Error("native_error", "Native transform changed a stroke group");
+    changed |=
+        verifyStrokeTransform(*before->getStroke(index),
+                              *after->getStroke(index), affine, thicknessScale);
+  }
+  return changed;
+}
+
+QJsonObject transformVector(Context& context, Document& document,
+                            const QJsonObject& params) {
+  sharing(params);
+  if (requiredString(params, "coordinate_space") != "drawing_native")
+    invalid("Vector transforms use drawing_native coordinates");
+  const QString mode = requiredString(params, "thickness_mode");
+  if (mode != "preserve" && mode != "scale_geometric_mean")
+    invalid("Unsupported vector thickness_mode");
+  const TAffine affine = vectorAffine(params);
+  const double thicknessScale =
+      mode == "preserve" ? 1.0 : std::sqrt(std::abs(affine.det()));
+  auto* level         = simpleLevel(document, params);
+  const auto frame    = frameId(params);
+  const auto original = vectorFor(level, frame);
+  for (UINT index = 0; index < original->getStrokeCount(); ++index) {
+    validateNativeStroke(*original->getStroke(index), paletteFor(level));
+    preflightStrokeTransform(*original->getStroke(index), affine,
+                             thicknessScale);
+  }
+  requireAssetGrowth(*document.scene, 0);
+  TVectorImageP vector(original->cloneImage());
+  vector->findRegions();
+  const QJsonArray topology = vectorTopology(vector, affine);
+  vector->transform(affine, mode == "scale_geometric_mean");
+  if (vectorTopology(vector, TAffine()) != topology)
+    throw Error("native_error", "Native transform changed painted topology");
+  const bool changed =
+      verifyVectorTransform(original, vector, affine, thicknessScale);
+  if (changed) publish(context, level, frame, vector);
+  return {{"stroke_count", static_cast<int>(vector->getStrokeCount())},
+          {"geometry_indices_invalidated", changed},
+          {"sharing", "all_exposures"},
+          {"thickness_mode", mode},
+          {"changed", changed}};
+}
+
 void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
   const auto vector = vectorFor(level, frame);
   for (UINT index = 0; index < vector->getStrokeCount(); ++index)
@@ -1915,6 +2089,7 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"vector.inspect", inspectVector},
       {"vector.edit", editVector},
       {"vector.fill", fillVector},
+      {"vector.transform", transformVector},
       {"palette.inspect", inspectPalette},
       {"palette.create_style", createStyle},
       {"palette.update_style", updateStyle},
