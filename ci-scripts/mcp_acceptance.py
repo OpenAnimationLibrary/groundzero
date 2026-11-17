@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import mcp_artwork_cases
 import mcp_drawing_cases
 import mcp_fx_cases
 import mcp_media_cases
@@ -60,6 +61,9 @@ class NativeAcceptance(unittest.TestCase):
     executable: Path
     output: Path
     media_tools: Path | None = None
+
+    def test_compound_artwork_edits_preserve_native_roundtrip(self) -> None:
+        mcp_artwork_cases.artwork_transform_renumber_palette_roundtrip(self)
 
     def test_vector_renumber_preserves_exposures_and_native_roundtrip(self) -> None:
         mcp_renumber_cases.check_renumber_roundtrip(self, "vector")
