@@ -59,6 +59,14 @@ require an `operation_id`; changes to an existing document also require its late
 `expected_revision`. Keep the original operation ID when checking a retry within
 the same worker. Receipts and document handles expire when that worker exits.
 
+Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
+budget. The first cancellation for each of at most 32 retained render jobs has
+separate reserved receipt capacity, capped at 16 KiB per result. That cancellation
+and its exact retry remain available when ordinary receipt capacity is exhausted.
+Further cancellation requests with new operation IDs use ordinary capacity;
+reuse the first ID to retrieve its receipt. Status queries remain available,
+and reusing an operation ID for different arguments always conflicts.
+
 The native profile supports detached scenes, PNG imports, exposures, camera and
 peg animation, vector strokes and fills, RGBA8 and Toonz raster pixels, and solid
 palette styles. Its FX catalog admits six builtins: color card, linear and radial

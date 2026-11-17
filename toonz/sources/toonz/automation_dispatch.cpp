@@ -14,6 +14,39 @@ namespace {
 
 constexpr qint64 maximumReceiptBytes = 64 * 1024 * 1024;
 constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
+constexpr int maximumControlReceipts = 32;
+constexpr qint64 maximumControlBytes = 16 * 1024;
+
+qint64 receiptSize(const QJsonObject& response) {
+  return QJsonDocument(response).toJson(QJsonDocument::Compact).size();
+}
+
+void checkResultSize(const QJsonObject& result, bool control) {
+  const qint64 limit = control ? maximumControlBytes : maximumResultBytes;
+  if (receiptSize({{"result", result}}) <= limit) return;
+  throw Error(
+      "response_too_large",
+      "The operation completed but its result exceeds the receipt limit.",
+      {{"operation_id", result.value("operation_id")},
+       {"outcome", "completed"},
+       {"document_id", result.value("document_id")},
+       {"revision", result.value("revision")},
+       {"job_id", result.value("job_id")}});
+}
+
+Error boundedControlError(const Error& error, const QString& operationId,
+                          const QString& controlJob) {
+  if (controlJob.isEmpty() ||
+      receiptSize({{"error", errorObject(error)}}) <= maximumControlBytes)
+    return error;
+  return Error(
+      "partially_applied",
+      "Cancellation began but its diagnostic exceeded the receipt limit.",
+      {{"operation_id", operationId},
+       {"job_id", controlJob},
+       {"outcome", "unknown"},
+       {"diagnostic_truncated", true}});
+}
 
 void reject(const QString& path, const QString& reason) {
   throw Error("invalid_params", path + ": " + reason);
@@ -284,37 +317,52 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   auto cached = m_receipts.constFind(operationId);
   if (cached != m_receipts.constEnd())
     return replayReceipt(cached.value(), fingerprint);
-  if (m_receipts.size() >= 2048 ||
-      m_receiptBytes > maximumReceiptBytes - maximumResultBytes)
-    throw Error("resource_limit",
-                "The worker receipt limit was reached; start a new worker.");
+  const QString jobId = params.value("job_id").toString();
+  const bool control =
+      method == "render.cancel" && !m_controlJobs.contains(jobId);
+  const QString controlJob = control ? jobId : QString();
+  checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
   m_context.resetMutationStarted();
   try {
     QJsonObject result = applyWrite(entry, method, params);
-    const qint64 resultBytes =
-        QJsonDocument(result).toJson(QJsonDocument::Compact).size();
-    if (resultBytes > maximumResultBytes)
-      throw Error("response_too_large",
-                  "The operation completed but its result exceeds 8 MiB.",
-                  {{"operation_id", operationId},
-                   {"outcome", "completed"},
-                   {"document_id", result.value("document_id")},
-                   {"revision", result.value("revision")}});
-    m_receipts.insert(operationId, {fingerprint, {{"result", result}}});
-    m_receiptBytes += resultBytes;
+    checkResultSize(result, control);
+    rememberReceipt(operationId, {fingerprint, {{"result", result}}},
+                    controlJob);
     return result;
   } catch (const Error& error) {
     if (m_context.mutationStarted()) {
-      m_receipts.insert(operationId,
-                        {fingerprint, {{"error", errorObject(error)}}});
-      m_receiptBytes += QJsonDocument(errorObject(error))
-                            .toJson(QJsonDocument::Compact)
-                            .size();
+      const Error recorded =
+          boundedControlError(error, operationId, controlJob);
+      rememberReceipt(operationId,
+                      {fingerprint, {{"error", errorObject(recorded)}}},
+                      controlJob);
+      throw recorded;
     }
     throw;
   }
+}
+
+void Dispatcher::checkReceiptCapacity(bool control) const {
+  if (control) {
+    if (m_controlJobs.size() < maximumControlReceipts) return;
+  } else if (m_receipts.size() - m_controlJobs.size() < 2048 &&
+             m_receiptBytes <= maximumReceiptBytes - maximumResultBytes) {
+    return;
+  }
+  throw Error("resource_limit",
+              "The worker receipt limit was reached; start a new worker.");
+}
+
+void Dispatcher::rememberReceipt(const QString& operationId,
+                                 const Receipt& receipt,
+                                 const QString& controlJob) {
+  m_receipts.insert(operationId, receipt);
+  if (controlJob.isEmpty())
+    m_receiptBytes += receiptSize(receipt.response);
+  else
+    m_controlJobs.insert(controlJob);
 }
 
 void Dispatcher::finishRevision(QJsonObject& result, const QString& documentId,

@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_dispatch.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
 
@@ -639,6 +640,7 @@ void runAutomationFxTests(Context& context) {
   testAdmission(context, document);
   context.removeDocument(document.id);
   testAssetBudget(context);
+  runAutomationDispatcherTests(context);
 }
 
 }  // namespace GroundzeroAutomation
