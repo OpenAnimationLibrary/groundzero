@@ -18,6 +18,9 @@ IDENTITY: dict[str, float] = {"a11": 1, "a12": 0, "a13": 0, "a21": 0, "a22": 1, 
 RED: Pixel = (210, 40, 60, 255)
 BLUE: Pixel = (40, 160, 220, 255)
 GREEN: Pixel = (40, 190, 80, 255)
+CAMERA_INCHES = 1.2
+PREVIEW_SIZE = 256
+PIXELS_PER_NATIVE_UNIT = PREVIEW_SIZE / (CAMERA_INCHES * 53.33333)
 
 
 def _style(case: NativeAcceptance, document: str, level: str, color: Pixel) -> int:
@@ -59,8 +62,8 @@ def _fixture(case: NativeAcceptance) -> tuple[str, dict[str, Any], list[int]]:
         name="Vector transforms",
         width_px=64,
         height_px=64,
-        width_in=1.2,
-        height_in=1.2,
+        width_in=CAMERA_INCHES,
+        height_in=CAMERA_INCHES,
         frame_rate=24,
     )["document_id"]
     level = case.mutate("level.create", document, name="Nested artwork", format="vector")
@@ -112,7 +115,9 @@ def _geometry(case: NativeAcceptance, document: str, target: dict[str, Any]) -> 
 
 
 def _preview(case: NativeAcceptance, document: str, frame: int = 0) -> list[Pixel]:
-    job = case.mutate("render.preview", document, frame=frame, width=64, height=64)
+    job = case.mutate(
+        "render.preview", document, frame=frame, width=PREVIEW_SIZE, height=PREVIEW_SIZE
+    )
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], "completed", status)
     case.assertIs(status["writers_closed"], True)
@@ -124,7 +129,7 @@ def _preview(case: NativeAcceptance, document: str, frame: int = 0) -> list[Pixe
     data = base64.b64decode(result["image"]["data"], validate=True)
     case.assertEqual(hashlib.sha256(data).hexdigest(), artifacts[0]["sha256"])
     width, height, pixels = decode_png(data)
-    case.assertEqual((width, height), (64, 64))
+    case.assertEqual((width, height), (PREVIEW_SIZE, PREVIEW_SIZE))
     return pixels
 
 
@@ -184,10 +189,13 @@ def _paint_probes(
     case: NativeAcceptance, pixels: list[Pixel], points: list[tuple[float, float]]
 ) -> None:
     for (x, y), color in zip(points, (RED, BLUE, GREEN, GREEN), strict=True):
-        # The 1.2-inch camera spans native 63.999996 units; samples stay inside flat regions.
-        index = round(32 - y) * 64 + round(32 + x)
+        # Stage::inch is 53.33333. Four pixels per native unit keep these
+        # geometric interior probes clear of radius-two ink antialiasing.
+        row = round(PREVIEW_SIZE / 2 - y * PIXELS_PER_NATIVE_UNIT)
+        column = round(PREVIEW_SIZE / 2 + x * PIXELS_PER_NATIVE_UNIT)
+        index = row * PREVIEW_SIZE + column
         case.assertEqual(pixels[index], color, (x, y))
-    case.assertEqual(pixels[2 * 64 + 2][3], 0)
+    case.assertEqual(pixels[2 * PREVIEW_SIZE + 2][3], 0)
 
 
 def _check_fills(
