@@ -1885,10 +1885,11 @@ QJsonArray vectorTopology(const TVectorImageP& vector, const TAffine& affine) {
             size_t(kMaxTransformEdges))
       throw Error("resource_limit",
                   "Vector transform is limited to 65536 region edges");
+    const int style = region->getStyle();
     const auto edges = regionEdges(*region, affine);
     const QJsonObject record{
         {"parent", pending[index].second},
-        {"style", region->getStyle()},
+        {"style", style},
         {"children", static_cast<int>(region->getSubregionCount())},
         {"edges", edges}};
     result.append(QString::fromUtf8(
