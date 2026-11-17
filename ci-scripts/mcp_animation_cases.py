@@ -139,7 +139,7 @@ def animation_channel_descriptors_and_fractional_sampling(
     request = case.write_params(document, {**target, "keys": [_simple(10, 90)]})
     no_op = case.success("animation.set_keys", request)
     case.assertEqual(no_op["revision"], revision)
-    case.assertFalse(no_op["effect"]["mutated"])
+    case.assertEqual(no_op["operation_id"], request["operation_id"])
     case.assertEqual(case.success("animation.set_keys", request), no_op)
     case.assertEqual(_inspect(case, document, target), inspected)
 
@@ -284,7 +284,7 @@ def rich_animation_retries_and_noops(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("animation.set_keys", request), first)
     no_op = case.mutate("animation.set_keys", document, **target, keys=_rich_keys())
     case.assertEqual(no_op["revision"], first["revision"])
-    case.assertFalse(no_op["effect"]["mutated"])
+    case.assertEqual(_inspect(case, document, target), before)
     conflicting = {**request, "keys": [{**_rich_keys()[1], "outgoing": {"frames": 1}}]}
     case.assertEqual(case.failure("animation.set_keys", conflicting)["code"], "operation_conflict")
     changed = case.mutate(
@@ -300,6 +300,11 @@ def rich_animation_retries_and_noops(case: NativeAcceptance) -> None:
     case.failure("animation.set_keys", stale)
     case.assertNotEqual(_inspect(case, document, target), before)
     case.assertEqual(_inspect(case, document, target)["keys"][1]["outgoing"], {"frames": 1})
+    endpoint = {**_rich_keys()[1], "incoming": {"kind": "none"}}
+    case.mutate("animation.set_keys", document, **target, keys=[endpoint, _simple(0, 0)])
+    case.assertEqual(_sample(case, document, target, [6, 15]), [60, 140])
+    case.mutate("animation.set_keys", document, **target, keys=_rich_keys()[:2][::-1])
+    case.assertEqual(_sample(case, document, target, [6, 15]), [51, 140])
 
 
 def rich_animation_delete_keys_obeys_control_kinds(case: NativeAcceptance) -> None:
