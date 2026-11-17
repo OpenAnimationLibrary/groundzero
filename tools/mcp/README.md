@@ -104,6 +104,18 @@ inside another group, and edits that would change painted boundaries. A move's
 Exact no-ops preserve the revision. These detached tools do not change editor
 selection or create native undo entries.
 
+`text.fonts` lists installed font families and styles on the worker host.
+`vector.text.create` creates one new drawing of editable native vector outlines,
+using the application's plain-text layout and converter. Supply an exact installed
+family/style, point size, native baseline and existing solid palette style. The
+operation does not overwrite drawings or add exposures. It rejects font fallback,
+missing or bitmap-only glyphs, and outlines whose native regions cannot be classified.
+Text is bounded to 1024 UTF-16 units and 32 lines, plus the drawing geometry limits.
+The result includes resolved font runs, bounds and a source recipe; saved PLI contains
+ordinary strokes, groups and style references, not a semantic text object. Keep the
+recipe separately for later regeneration. These detached tools have been qualified
+on macOS ARM64; installed fonts and accepted outlines can differ on other hosts.
+
 Palette pages can be inspected, created, renamed, reordered, and removed when
 empty. A palette admits up to 128 pages; page zero and transparent style zero
 stay first. Style moves preserve numeric IDs and artwork references. Style
