@@ -307,11 +307,20 @@ void permissionAndStop() {
               denied.immediate,
           "Inspection-mode rejection was not shared");
   SharedState edit(instance, "edit");
+  const auto active = edit.admit("client", write(5002), true);
+  require(edit.takeNext() == active.ticket,
+          "Stop fixture did not start its first request");
   const auto pending = edit.admit("client", write(5001), true);
   edit.revoke();
   require(edit.poll(pending.ticket).value("error").toObject().value("code") ==
               "gui_busy",
           "Stop did not reject unstarted work");
+  require(edit.poll(active.ticket).isEmpty(),
+          "Stop replaced an already-started outcome");
+  const QJsonObject outcome = completed(active.ticket);
+  edit.finish(active.ticket, outcome);
+  require(edit.poll(active.ticket) == outcome,
+          "Stop prevented finalizing the started outcome");
   require(!edit.takeNext(), "A revoked request reached GUI admission");
   expectError([&]() { edit.admit("client", read("live.status"), true); },
               "gui_busy");

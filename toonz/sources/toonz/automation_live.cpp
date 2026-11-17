@@ -86,6 +86,12 @@ public:
 
   void stop() noexcept {
     if (m_stopped) return;
+    if (m_active) {
+      m_stopRequested = true;
+      m_running       = false;
+      m_state->revoke();
+      return;
+    }
     m_stopped = true;
     m_running = false;
     if (m_statusTimer) m_statusTimer->stop();
@@ -253,8 +259,20 @@ private:
     if (m_stopped || !m_state) return;
     const auto ticket = m_state->takeNext();
     if (!ticket) return;
+    if (m_active) {
+      m_state->finish(
+          ticket, errorOutcome(Error("gui_busy",
+                                     "Another live operation is committing. "
+                                     "Reinspect before retrying.",
+                                     {{"operation_id", ticket->operationId}})));
+      return;
+    }
     resetMutationStarted(*m_scene);
     m_state->finish(ticket, bounded(ticket, executeNative(ticket)));
+    if (m_stopRequested) {
+      stop();
+      return;
+    }
     refreshStatus();
     QTimer::singleShot(0, this, [this]() { execute(); });
   }
@@ -273,6 +291,7 @@ private:
   bool m_stopped         = false;
   bool m_running         = false;
   bool m_active          = false;
+  bool m_stopRequested   = false;
 };
 
 Service::Service(Options options, BusyProbe busyProbe)
