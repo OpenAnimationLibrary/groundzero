@@ -1,16 +1,23 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as pause } from "node:timers/promises";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { isObject } from "#mcp/errors";
 import { WorkerConnection } from "#mcp/worker";
 
-const supervisors: ChildProcess[] = [];
+const supervisors: { child: ChildProcess; diagnostics: Buffer[]; expected: string }[] = [];
 const posix = test.skipIf(process.platform === "win32");
 
-function start(timeoutMs = 5_000): { child: ChildProcess; connection: WorkerConnection } {
+function start(
+  timeoutMs = 5_000,
+  expected = "",
+): { child: ChildProcess; connection: WorkerConnection } {
   const child = spawn(
     process.execPath,
     [
@@ -20,7 +27,9 @@ function start(timeoutMs = 5_000): { child: ChildProcess; connection: WorkerConn
     ],
     { detached: true, stdio: ["pipe", "pipe", "pipe", "ipc"] },
   );
-  supervisors.push(child);
+  const diagnostics: Buffer[] = [];
+  child.stderr?.on("data", (chunk: Buffer) => diagnostics.push(chunk));
+  supervisors.push({ child, diagnostics, expected });
   return { child, connection: new WorkerConnection(child, timeoutMs, true) };
 }
 
@@ -36,7 +45,8 @@ function listening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port });
     socket.once("connect", () => {
-      socket.destroy();
+      socket.end();
+      socket.resume();
       resolve(true);
     });
     socket.once("error", () => resolve(false));
@@ -44,11 +54,13 @@ function listening(port: number): Promise<boolean> {
 }
 
 afterEach(async () => {
-  for (const child of supervisors.splice(0)) {
-    if (child.exitCode !== null || child.signalCode !== null) continue;
-    const closed = once(child, "close");
-    child.kill("SIGTERM");
-    await closed;
+  for (const { child, diagnostics, expected } of supervisors.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = once(child, "close");
+      child.kill("SIGTERM");
+      await closed;
+    }
+    expect(Buffer.concat(diagnostics).toString()).toBe(expected);
   }
 });
 
@@ -125,7 +137,7 @@ posix("loss of the parent IPC channel still cleans the whole media group", async
 });
 
 posix("invalid private controls fail closed without exposing another operation", async () => {
-  const { child, connection } = start();
+  const { child, connection } = start(5_000, "Invalid private supervisor control message\n");
   const port = await descendantPort(connection);
   const closed = once(child, "close");
   child.send({ execute: "anything" });
@@ -144,4 +156,50 @@ test("the internal supervisor rejects launches without its private control chann
   await once(child, "close");
   expect(child.exitCode).toBe(1);
   expect(Buffer.concat(diagnostics).toString()).toContain("requires a private POSIX launch");
+});
+
+function shellWord(value: string): string {
+  return "'" + value.replaceAll("'", "'\\''") + "'";
+}
+
+async function requireDescendantExit(port: number, pid: number): Promise<void> {
+  const deadline = performance.now() + 5_000;
+  while (await listening(port)) {
+    if (performance.now() >= deadline) {
+      process.kill(pid, "SIGKILL");
+      throw new Error("The worker left its trusted descendant running after close");
+    }
+    await pause(25);
+  }
+}
+
+posix("contains descendants even when no media tools were granted", async () => {
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-no-media-")));
+  const executable = join(workspace, "native-fixture");
+  const fixture = fileURLToPath(new URL("../fixtures/process-tree.mjs", import.meta.url));
+  const errorLog = join(workspace, "fixture.stderr.log");
+  const script = `#!/bin/bash\nset -euo pipefail\nexec ${shellWord(process.execPath)} ${shellWord(fixture)} "$@" 2>${shellWord(errorLog)}\n`;
+  await writeFile(executable, script, { mode: 0o700 });
+  const launcher = (await import(
+    new URL("../dist/worker.js", import.meta.url).href
+  )) as typeof import("#mcp/worker");
+  const connection = launcher.launchWorker({ executable, workspace, inputRoots: [] });
+  let identity: { port: number; pid: number } | undefined;
+  try {
+    const value = await connection.request("ready");
+    if (!isObject(value) || typeof value["port"] !== "number" || typeof value["pid"] !== "number") {
+      throw new Error("Fixture did not identify its native descendant");
+    }
+    identity = { port: value["port"], pid: value["pid"] };
+    expect(value["anchor"]).not.toBe(process.pid);
+    expect(await listening(identity.port)).toBe(true);
+  } finally {
+    connection.close();
+    try {
+      if (identity) await requireDescendantExit(identity.port, identity.pid);
+      expect(await readFile(errorLog, "utf8")).toBe("");
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }
 });

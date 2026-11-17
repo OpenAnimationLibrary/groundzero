@@ -21,7 +21,11 @@ function worker() {
     createInterface({ input: process.stdin }).on("line", (line) => {
       const request = JSON.parse(line);
       if (request.method === "stall") return;
-      const response = JSON.stringify({ id: request.id, result: identity }) + "\n";
+      const response =
+        JSON.stringify({
+          id: request.id,
+          result: { ...identity, worker: process.pid, anchor: process.ppid },
+        }) + "\n";
       process.stdout.write(response, () => {
         if (request.method === "final") process.exit(0);
       });
