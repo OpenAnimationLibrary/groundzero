@@ -147,6 +147,8 @@ function launchArguments() {
     executable,
     "--workspace",
     values.workspace,
+    "--toolsets",
+    "all",
   ];
   for (const root of values["input-root"] ?? []) args.push("--input-root", root);
   if (values["media-tools"] !== undefined) args.push("--media-tools", values["media-tools"]);
