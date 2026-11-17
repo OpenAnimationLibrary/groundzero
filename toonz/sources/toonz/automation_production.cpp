@@ -4,6 +4,7 @@
 #include "tfilepath.h"
 #include "tfx.h"
 #include "tpalette.h"
+#include "tsystem.h"
 #include "toonz/fxdag.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
@@ -454,8 +455,23 @@ bool knownAlias(ToonzScene& scene, const TFilePath& path) {
   return true;
 }
 
+void validateAliasLayout(ToonzScene& scene, const TFilePath& path) {
+  std::wstring head;
+  TFilePath tail;
+  path.split(head, tail);
+  if (head.empty() || head.front() != L'+') return;
+  const auto project = scene.getProject();
+  TFilePath root     = project->getFolder(TProject::Scenes);
+  if (!root.isEmpty() && !root.isAbsolute())
+    root = project->getProjectFolder() + root;
+  if (TSystem::isUNC(scene.getScenePath()) && !TSystem::isUNC(root))
+    throw Error("path_denied",
+                "Dependency alias requires implicit network-share resolution.");
+}
+
 QString resolveDependency(Report& report, const TFilePath& path) {
   if (!knownAlias(*report.document.scene, path)) return QString();
+  validateAliasLayout(*report.document.scene, path);
   const auto actual = report.document.scene->decodeFilePath(path);
   if (!actual.isAbsolute()) return QString();
   if (actual.getQString().contains(QChar::Null))

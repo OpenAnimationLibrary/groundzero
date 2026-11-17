@@ -3,6 +3,7 @@
 #include "tfx.h"
 #include "tpalette.h"
 #include "tstream.h"
+#include "tsystem.h"
 #include "tvectorimage.h"
 #include "toonz/fxdag.h"
 #include "toonz/levelproperties.h"
@@ -299,6 +300,29 @@ void dependencyAuthority(Context& context) {
           "A foreign project alias borrowed the worker project's authority");
 }
 
+void inconsistentNetworkAlias(Context& context) {
+  Fixture fixture(context);
+  auto* level     = fixture.level(L"Network alias");
+  const auto path = context.project()->getFolder("drawings") + "observed.pli";
+  writeFile(path.getQString());
+  level->setPath(TFilePath("+drawings/observed.pli"), true);
+  auto item = rows(fixture.read("scene.dependencies")).first().toObject();
+  require(item.value("availability") == "present",
+          "Consistent private alias did not retain its authority");
+  const TFilePath scenePath("//native-layout-fixture/scenes/inspection.tnz");
+  require(TSystem::isUNC(scenePath),
+          "Fixture lost its native UNC path spelling");
+  fixture.document.scene->setScenePath(scenePath);
+  item = rows(fixture.read("scene.dependencies")).first().toObject();
+  require(item.value("availability") == "forbidden" &&
+              item.value("resolved_path").isNull() &&
+              item.value("size_bytes").isNull(),
+          "Inconsistent UNC alias reached native share resolution");
+  require(fixture.document.scene->getScenePath() == scenePath &&
+              fixture.document.revision == 7,
+          "Alias-layout refusal changed native scene state");
+}
+
 void linkedOriginsAndStaleReads(Context& context) {
   Fixture fixture(context);
   auto* level = fixture.level(L"Unadmitted linked origin");
@@ -410,11 +434,12 @@ void runAutomationProductionTests(Context& context) {
   levelPrefixLimit(context);
   unsupportedNativeContent(context);
   dependencyAuthority(context);
+  inconsistentNetworkAlias(context);
   linkedOriginsAndStaleReads(context);
   responseByteBoundary(context);
   require(context.mutationStarted() == mutation,
           "Read inspection changed the worker mutation marker");
-  std::cout << "PASS: native production inspection boundaries (8 groups)\n";
+  std::cout << "PASS: native production inspection boundaries (9 groups)\n";
 }
 
 }  // namespace GroundzeroAutomation
