@@ -274,6 +274,7 @@ set(HEADERS
 set(SOURCES
     automation.cpp
     automation_context.cpp
+    automation_error.cpp
     automation_dispatch.cpp
     automation_scene.cpp
     automation_fx.cpp

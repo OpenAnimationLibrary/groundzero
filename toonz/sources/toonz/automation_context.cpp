@@ -106,12 +106,6 @@ void createDirectory(const QString& path) {
 
 }  // namespace
 
-Error::Error(QString errorCode, QString errorMessage, QJsonObject errorDetails)
-    : std::runtime_error(errorMessage.toStdString())
-    , code(std::move(errorCode))
-    , message(std::move(errorMessage))
-    , details(std::move(errorDetails)) {}
-
 Document::Document(std::unique_ptr<ToonzScene> ownedScene)
     : id(opaqueId("document")), scene(std::move(ownedScene)) {}
 
