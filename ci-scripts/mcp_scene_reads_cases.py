@@ -39,7 +39,7 @@ def source_status(case: NativeAcceptance, document: str) -> dict[str, Any]:
 
 def job_status(case: NativeAcceptance, job: str) -> dict[str, Any]:
     """Poll one render job; the job tools are renamed by a later contract."""
-    return call(case, case.worker, "render.status", {"job_id": job})
+    return call(case, case.worker, "job.status", {"job_id": job})
 
 
 def wait_job(case: NativeAcceptance, job: str) -> dict[str, Any]:

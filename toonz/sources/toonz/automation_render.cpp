@@ -1520,9 +1520,9 @@ static QJsonObject jobOperation(const QString& name, const QString& description,
 static QJsonValue executeJob(Context& context, const QString& method,
                              const QJsonObject& params) {
   const auto job = renderState(context).job(requiredString(params, "job_id"));
-  if (method == "render.status") return job->describe();
-  if (method == "render.artifacts") return artifactList(context, *job);
-  if (method != "render.cancel")
+  if (method == "job.status") return job->describe();
+  if (method == "job.result") return artifactList(context, *job);
+  if (method != "job.cancel")
     throw Error("unknown_operation", "Unknown native render operation.");
   if (!job->terminal()) context.markMutationStarted();
   job->cancel();
@@ -1587,13 +1587,13 @@ QJsonArray renderOperations() {
                    "Start a bounded immutable PNG sequence or opaque MP4 job; "
                    "MP4 requires even dimensions and step 1.",
                    sequence, {"document_id", "start_frame", "end_frame"}),
-      operation("render.status",
+      operation("job.status",
                 "Inspect render progress and writer finalization.", job,
                 {"job_id"}),
-      jobOperation("render.cancel",
+      jobOperation("job.cancel",
                    "Request cancellation; poll status until terminal.", job,
                    {"job_id"}),
-      operation("render.artifacts",
+      operation("job.result",
                 "List verified artifacts after complete writer finalization.",
                 job, {"job_id"}),
       operation("artifact.read",

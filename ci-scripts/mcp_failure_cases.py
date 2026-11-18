@@ -25,15 +25,15 @@ SEQUENCE = {"start_frame": 0, "end_frame": 3, "width": 32, "height": 32}
 
 
 def _status(case: NativeAcceptance, job: str) -> dict[str, Any]:
-    return case.success("render.status", {"job_id": job})
+    return case.success("job.status", {"job_id": job})
 
 
 def _cancel(case: NativeAcceptance, job: str) -> dict[str, Any]:
-    return case.success("render.cancel", case.write_params(None, {"job_id": job}))
+    return case.success("job.cancel", case.write_params(None, {"job_id": job}))
 
 
 def _result(case: NativeAcceptance, job: str) -> dict[str, Any]:
-    return case.worker.call("render.artifacts", {"job_id": job})
+    return case.worker.call("job.result", {"job_id": job})
 
 
 def _descendants(pid: int) -> set[int]:
@@ -129,7 +129,7 @@ def render_cancel_leaves_no_output_and_no_process(case: NativeAcceptance) -> Non
     again = _cancel(case, done["job_id"])
     case.assertEqual(again["status"], "completed")
     case.assertEqual(
-        case.success("render.artifacts", {"job_id": done["job_id"]})["status"], "completed"
+        case.success("job.result", {"job_id": done["job_id"]})["status"], "completed"
     )
 
 
@@ -173,7 +173,7 @@ def render_cancel_racing_publication_leaves_nothing(case: NativeAcceptance) -> N
     frames = sorted((case.workspace / "renders" / job / "frames").glob("*.png"))
     case.assertEqual(len(frames), SEQUENCE["end_frame"] + 1)
     case.assertEqual(
-        case.failure("render.artifacts", {"job_id": job})["code"], "artifacts_unavailable"
+        case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable"
     )
     _cancel(case, job)
     _ends(case, job, "canceled")
@@ -234,11 +234,11 @@ def render_stray_callbacks_do_not_change_the_outcome(case: NativeAcceptance) -> 
     job = case.mutate("render.submit", document, **request)["job_id"]
     ended = _ends(case, job, "completed")
     case.assertEqual((ended["completed_frames"], ended["failed_frames"]), (4, 0))
-    result = case.success("render.artifacts", {"job_id": job})
+    result = case.success("job.result", {"job_id": job})
     case.assertEqual([item["frame"] for item in result["artifacts"]], [0, 2, 4, 6])
     time.sleep(0.5)
     case.assertEqual(_status(case, job), ended)
-    case.assertEqual(case.success("render.artifacts", {"job_id": job}), result)
+    case.assertEqual(case.success("job.result", {"job_id": job}), result)
     for artifact in result["artifacts"]:
         case.assertEqual(
             case.success("artifact.read", {"artifact_id": artifact["artifact_id"]})["frame"],
@@ -261,8 +261,8 @@ def render_worker_killed_mid_preview_then_new_worker(case: NativeAcceptance) -> 
     case.addCleanup(case.worker.close)
     case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
     case.assertFalse(left.exists())
-    case.assertEqual(case.failure("render.status", {"job_id": job})["code"], "unknown_job")
-    case.assertEqual(case.failure("render.artifacts", {"job_id": job})["code"], "unknown_job")
+    case.assertEqual(case.failure("job.status", {"job_id": job})["code"], "unknown_job")
+    case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "unknown_job")
     case.assertEqual(list(case.workspace.rglob("frame*.png")), [])
     fresh = _scene(case)
     png = case.preview(fresh)
@@ -285,7 +285,7 @@ def render_storage_budget_refuses_before_creating_anything(case: NativeAcceptanc
     case.assertIn("storage", error["message"])
     case.assertEqual([path.name for path in _renders(case)], before)
     for job in kept:
-        case.assertEqual(case.success("render.artifacts", {"job_id": job})["status"], "completed")
+        case.assertEqual(case.success("job.result", {"job_id": job})["status"], "completed")
 
 
 def render_unwritable_output_directory_is_refused_cleanly(case: NativeAcceptance) -> None:
@@ -352,12 +352,12 @@ def _submit_on_full_disk(case: NativeAcceptance, document: str, workspace: Path)
     job = response["result"]["job_id"]
     ended = case.wait_job(job)
     if ended["status"] == "completed":
-        case.assertEqual(case.success("render.artifacts", {"job_id": job})["status"], "completed")
+        case.assertEqual(case.success("job.result", {"job_id": job})["status"], "completed")
         return "completed"
     case.assertEqual(ended["status"], "failed", ended)
     case.assertTrue(ended["error"])
     case.assertEqual(
-        case.failure("render.artifacts", {"job_id": job})["code"], "artifacts_unavailable"
+        case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable"
     )
     case.assertFalse((workspace / "renders" / job).exists())
     case.assertEqual(set(workspace.rglob("frame*.png")), frames)
@@ -488,18 +488,18 @@ def read_only_render_cancel_and_host_loss_leave_nothing(case: NativeAcceptance) 
     scene = corpus(case)["A"]
     worker = case.worker
     document, job = _read_only_render(case, worker, scene)
-    call(case, worker, "render.cancel", {"job_id": job, "operation_id": _op(case)})
+    call(case, worker, "job.cancel", {"job_id": job, "operation_id": _op(case)})
     case.assertEqual(wait(case, worker, job)["status"], "canceled")
-    refuse(case, worker, "render.artifacts", {"job_id": job}, "artifacts_unavailable")
+    refuse(case, worker, "job.result", {"job_id": job}, "artifacts_unavailable")
     _nothing_on_disk(case)
     params = {"document_id": document, "expected_revision": "0", "start_frame": 0}
     params.update(end_frame=49, width=512, height=512, operation_id=_op(case))
     lost = call(case, worker, "render.submit", params)["job_id"]
     pid = next(pid for pid, owner in host_processes(worker) if owner == document)
     os.kill(pid, signal.SIGKILL)
-    details = refuse(case, worker, "render.status", {"job_id": lost}, "scene_host_failed")
+    details = refuse(case, worker, "job.status", {"job_id": lost}, "scene_host_failed")
     case.assertEqual(details["status"], "failed")
-    refuse(case, worker, "render.artifacts", {"job_id": lost}, "scene_host_failed")
+    refuse(case, worker, "job.result", {"job_id": lost}, "scene_host_failed")
     _nothing_on_disk(case)
     case.assertEqual(list(case.workspace.glob("runtime_*/scene-host-*")), [])
     discard = {"document_id": document, "expected_revision": "0", "operation_id": _op(case)}
@@ -546,7 +546,7 @@ def live_worker_and_host_files_survive_another_workers_start(case: NativeAccepta
     case.assertEqual(again.call("automation.capabilities", {})["result"]["protocol_version"], 3)
     case.assertTrue(hosts[0].is_dir())
     case.assertEqual(wait(case, case.worker, hosted)["status"], "completed")
-    artifacts = call(case, case.worker, "render.artifacts", {"job_id": hosted})["artifacts"]
+    artifacts = call(case, case.worker, "job.result", {"job_id": hosted})["artifacts"]
     image = call(case, case.worker, "artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
     case.assertEqual(image["frame"], 0)
 

@@ -887,6 +887,49 @@
     "toonz/sources/toonz/tests/automation_rig_test.cpp"
    ]
   },
+  "job.cancel": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
+    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
+   ]
+  },
+  "job.result": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "job.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_render_worker_killed_mid_preview_then_new_worker",
+    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
   "level.create": {
    "origin": "worker",
    "toolset": "core",
@@ -1457,34 +1500,6 @@
     "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission"
    ]
   },
-  "render.artifacts": {
-   "origin": "worker",
-   "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
-  },
-  "render.cancel": {
-   "origin": "worker",
-   "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
-   ]
-  },
   "render.capabilities": {
    "origin": "worker",
    "toolset": "core",
@@ -1519,21 +1534,6 @@
     "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
-  },
-  "render.status": {
-   "origin": "worker",
-   "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_render_worker_killed_mid_preview_then_new_worker",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
@@ -3465,8 +3465,8 @@
    "classification": "exposed",
    "tools": [
     "render.preview",
-    "render.status",
-    "render.artifacts",
+    "job.status",
+    "job.result",
     "artifact.read"
    ],
    "disposition": {
@@ -3480,21 +3480,21 @@
    "classification": "exposed",
    "tools": [
     "render.submit",
-    "render.status",
-    "render.artifacts"
+    "job.status",
+    "job.result"
    ],
    "disposition": {
     "kind": "implemented"
    }
   },
   {
-   "id": "render.cancel_job",
+   "id": "job.cancel_job",
    "domain": "Rendering and review",
    "outcome": "Request cancellation of a render job and poll it to a terminal state.",
    "classification": "exposed",
    "tools": [
-    "render.cancel",
-    "render.status"
+    "job.cancel",
+    "job.status"
    ],
    "disposition": {
     "kind": "implemented"

@@ -308,7 +308,7 @@ def finishing_render_deadline_stops_slow_job(case: NativeAcceptance) -> None:
     case.assertTrue(ended["writers_closed"])
     case.assertLess(ended["completed_frames"], ended["frame_count"])
     case.assertIn("deadline", ended["error"])
-    error = case.failure("render.artifacts", {"job_id": job["job_id"]})
+    error = case.failure("job.result", {"job_id": job["job_id"]})
     case.assertEqual(error["code"], "artifacts_unavailable")
     case.mutate("fx.enabled.set", document, fx_id=wrap, enabled=False)
     case.assertEqual(len(_pixels(case, document, 0)), 32 * 32)

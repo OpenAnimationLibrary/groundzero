@@ -521,8 +521,8 @@ missing drawings return `missing_drawing`, and a changed or closed linked source
 returns `stale_analysis`. An application writes at most 100,000 frames, and the
 result reports the range, runs and their digest.
 
-To inspect an image, start `render.preview`, poll `render.status` until completed,
-list `render.artifacts`, and pass an artifact ID to `artifact.read`. The final call
+To inspect an image, start `render.preview`, poll `job.status` until completed,
+list `job.result`, and pass an artifact ID to `artifact.read`. The final call
 returns MCP image content and source metadata. Inline PNG images are limited to
 4 MiB and 2048 pixels per dimension. Job failure and cancellation are reported
 explicitly; an artifact is available only after successful writer finalization.
@@ -531,7 +531,7 @@ explicitly; an artifact is available only after successful writer finalization.
 configured media tools and native movie writer are available. MP4 requires even
 dimensions up to 2048 pixels, `step: 1`, and at most 120 frames within the render
 storage budget. Its output has no audio or alpha; transparent areas use a black
-matte. `render.artifacts` returns a movie's `workspace_relative_path`, SHA-256,
+matte. `job.result` returns a movie's `workspace_relative_path`, SHA-256,
 size, dimensions, timing, and observed codec metadata after verification. Movie
 bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
 movie IDs with `unsupported_artifact_kind`.
@@ -579,7 +579,7 @@ reports `graphics` and the mp4 `encoder`, `encoder_available` and
 `muxer_default_video_codec`, lists no profile when graphics is unusable and lists
 `opaque8-mp4` only when the media tools are usable with an encoder.
 
-Call `render.cancel` to request job cancellation, then poll `render.status` until
+Call `job.cancel` to request job cancellation, then poll `job.status` until
 the job reaches a terminal status. Cancelling an MCP request can leave native work
 running. Treat an abandoned write as having an unknown outcome and inspect state
 before retrying; completed changes are retained.
@@ -714,23 +714,22 @@ the adapter and the live editor bridge add the rest.
   `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`,
   `fx.enabled.set`, `fx.graph`, `fx.macro.create`, `fx.macro.expand`, `fx.output.select`,
   `fx.parameter.get`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`,
-  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `level.create`, `level.import`,
-  `level.inspect`, `motion_path.create`, `motion_path.delete`, `motion_path.duplicate`,
-  `motion_path.inspect`, `motion_path.list`, `motion_path.rename`, `motion_path.update`,
-  `object.create`, `object.parent`, `object.path.attach`, `object.path.detach`,
-  `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
-  `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
-  `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
-  `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
-  `raster.read_pixels`, `render.artifacts`, `render.cancel`, `render.capabilities`,
-  `render.preflight`, `render.preview`, `render.status`, `render.submit`, `runtime.inspect`,
-  `scene.create`, `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
-  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
-  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`,
-  `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `job.cancel`, `job.result`, `job.status`,
+  `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
+  `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
+  `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
+  `object.path.detach`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
+  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
+  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
+  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
+  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
+  `render.preview`, `render.submit`, `runtime.inspect`, `scene.create`, `scene.dependencies`,
+  `scene.discard`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
+  `scene.package_info`, `scene.save_copy`, `scene.settings`, `scene.source_status`,
+  `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`, `vector.fill`,
+  `vector.group.create`, `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

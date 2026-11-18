@@ -455,7 +455,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
     return replayReceipt(cached.value(), fingerprint);
   const QString jobId = params.value("job_id").toString();
   const bool control =
-      method == "render.cancel" && !m_controlJobs.contains(jobId);
+      method == "job.cancel" && !m_controlJobs.contains(jobId);
   const QString controlJob = control ? jobId : QString();
   checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",

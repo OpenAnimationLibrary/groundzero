@@ -99,7 +99,7 @@ def _assert_key_render(case: NativeAcceptance, document: str) -> None:
     case.assertTrue(status["writers_closed"])
     case.assertEqual(status["completed_frames"], 3)
     case.assertEqual(status["failed_frames"], 0)
-    artifacts: list[dict[str, Any]] = case.success("render.artifacts", {"job_id": job["job_id"]})[
+    artifacts: list[dict[str, Any]] = case.success("job.result", {"job_id": job["job_id"]})[
         "artifacts"
     ]
     case.assertEqual([item["frame"] for item in artifacts], list(COLORS))

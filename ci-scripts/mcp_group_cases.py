@@ -121,7 +121,7 @@ def _preview(case: NativeAcceptance, document: str, frame: int = 0) -> list[Pixe
     state = case.wait_job(job["job_id"])
     case.assertEqual(state["status"], "completed", state)
     case.assertIs(state["writers_closed"], True)
-    artifact = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"][0]
+    artifact = case.success("job.result", {"job_id": job["job_id"]})["artifacts"][0]
     result = case.success("artifact.read", {"artifact_id": artifact["artifact_id"]})
     width, height, pixels = decode_png(base64.b64decode(result["image"]["data"], validate=True))
     case.assertEqual((width, height), (SIZE, SIZE))

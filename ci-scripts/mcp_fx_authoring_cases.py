@@ -117,7 +117,7 @@ def _pixels(case: NativeAcceptance, document: str, frame: int) -> list[Pixel]:
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], "completed", status)
     case.assertTrue(status["writers_closed"])
-    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     case.assertEqual(len(artifacts), 1)
     image = case.success("artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
     data = base64.b64decode(image["image"]["data"], validate=True)

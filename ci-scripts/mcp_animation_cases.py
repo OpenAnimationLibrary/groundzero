@@ -72,7 +72,7 @@ def _render(case: NativeAcceptance, document: str, frame: int) -> list[Pixel]:
     job = case.mutate("render.preview", document, frame=frame, width=32, height=32)
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], "completed", status)
-    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     case.assertEqual(len(artifacts), 1)
     artifact = case.success("artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
     width, height, pixels = decode_png(base64.b64decode(artifact["image"]["data"], validate=True))

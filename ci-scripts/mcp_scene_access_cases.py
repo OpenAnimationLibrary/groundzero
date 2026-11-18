@@ -315,7 +315,7 @@ def project_id(case: NativeAcceptance, worker: Worker, name: str) -> str:
 def wait(case: NativeAcceptance, worker: Worker, job: str) -> dict[str, Any]:
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        status = call(case, worker, "render.status", {"job_id": job})
+        status = call(case, worker, "job.status", {"job_id": job})
         if status["status"] in TERMINAL:
             return status
         time.sleep(0.05)
@@ -330,7 +330,7 @@ def preview(case: NativeAcceptance, worker: Worker, document: str, frame: int) -
     case.assertTrue(job["source_fingerprint"].startswith("source:"))
     status = wait(case, worker, job["job_id"])
     case.assertEqual(status["status"], "completed", status)
-    artifacts = call(case, worker, "render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = call(case, worker, "job.result", {"job_id": job["job_id"]})["artifacts"]
     image = call(case, worker, "artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
     case.assertEqual((image["width"], image["height"]), (32, 32))
     return image["image"]["data"].encode()
@@ -488,8 +488,8 @@ def _cancel(case: NativeAcceptance, worker: Worker, document: str, other: str) -
     )
     case.assertEqual(busy["job_id"], job)
     cancel = {"job_id": job, "operation_id": _op(case)}
-    first = call(case, worker, "render.cancel", cancel)
-    case.assertEqual(call(case, worker, "render.cancel", cancel), first)
+    first = call(case, worker, "job.cancel", cancel)
+    case.assertEqual(call(case, worker, "job.cancel", cancel), first)
     case.assertIn(wait(case, worker, job)["status"], {"canceled", "completed"})
 
 
@@ -811,7 +811,7 @@ def _source_change(case: NativeAcceptance, worker: Worker, scenes: dict[str, Pat
     status = wait(case, worker, job)
     case.assertEqual(status["status"], "failed", status)
     case.assertTrue(status["error"].startswith("source_changed"), status)
-    refuse(case, worker, "render.artifacts", {"job_id": job}, "artifacts_unavailable")
+    refuse(case, worker, "job.result", {"job_id": job}, "artifacts_unavailable")
     preview = {"document_id": document, "expected_revision": "0", "frame": 0}
     details = refuse(
         case, worker, "render.preview", {**preview, "operation_id": _op(case)}, "source_changed"
@@ -830,7 +830,7 @@ def _lost_host(case: NativeAcceptance, worker: Worker, scenes: dict[str, Path]) 
     job = call(case, worker, "render.submit", params)["job_id"]
     pid = next(pid for pid, owner in host_processes(worker) if owner == rendering)
     os.kill(pid, signal.SIGKILL)
-    details = refuse(case, worker, "render.status", {"job_id": job}, "scene_host_failed")
+    details = refuse(case, worker, "job.status", {"job_id": job}, "scene_host_failed")
     case.assertEqual((details["cause"], details["status"]), ("crashed", "failed"))
     details = refuse(case, worker, "scene.summary", {"document_id": rendering}, "scene_host_failed")
     case.assertEqual(details["cause"], "crashed")
@@ -842,7 +842,7 @@ def _lost_host(case: NativeAcceptance, worker: Worker, scenes: dict[str, Path]) 
     call(case, worker, "cast.list", {"document_id": other, "expected_revision": "0"})
     case.success("scene.summary", {"document_id": editable})
     discard(case, worker, rendering)
-    refuse(case, worker, "render.status", {"job_id": job}, "unknown_job")
+    refuse(case, worker, "job.status", {"job_id": job}, "unknown_job")
     discard(case, worker, other)
     case.assertEqual(host_processes(worker), [])
 

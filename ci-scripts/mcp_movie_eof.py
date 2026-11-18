@@ -108,12 +108,12 @@ def _await_encoder(case: NativeAcceptance, job_id: str) -> tuple[Path, dict[str,
     directory = case.workspace / "renders" / job_id
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
-        status = case.success("render.status", {"job_id": job_id})
+        status = case.success("job.status", {"job_id": job_id})
         case.assertNotIn(status["status"], {"completed", "canceled", "failed"}, status)
         markers = list(directory.glob("*.encoder-eof.json"))
         if markers:
             case.assertEqual(len(markers), 1)
-            return markers[0], case.success("render.status", {"job_id": job_id})
+            return markers[0], case.success("job.status", {"job_id": job_id})
         time.sleep(0.05)
     case.fail("The native encoder did not consume all frames and reach its EOF stall")
 
@@ -157,7 +157,7 @@ def movie_eof_interrupts_encoder_finalization(case: NativeAcceptance) -> None:
     case.assertEqual(status["status"], "finalizing", status)
     case.assertEqual(status["completed_frames"], 3, status)
     case.assertIs(status["writers_closed"], False)
-    denied = case.failure("render.artifacts", {"job_id": job["job_id"]})
+    denied = case.failure("job.result", {"job_id": job["job_id"]})
     case.assertEqual(denied["code"], "artifacts_unavailable")
     temporary = Path(str(marker).removesuffix(".encoder-eof.json"))
     case.assertGreater(temporary.stat().st_size, 0)

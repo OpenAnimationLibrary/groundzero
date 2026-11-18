@@ -19,7 +19,7 @@ def _retain_completed_jobs(case: NativeAcceptance, document: str) -> list[dict[s
         status = case.wait_job(job["job_id"])
         case.assertEqual(status["status"], "completed", status)
         case.assertIs(status["writers_closed"], True)
-        artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})
+        artifacts = case.success("job.result", {"job_id": job["job_id"]})
         case.assertEqual(len(artifacts["artifacts"]), 1)
         jobs.append({"status": status, "artifacts": artifacts})
     return jobs
@@ -43,17 +43,17 @@ def _fill_ordinary_receipts(
 
 
 def _cancel_once(case: NativeAcceptance, params: dict[str, Any], document: str) -> dict[str, Any]:
-    result = case.success("render.cancel", params)
+    result = case.success("job.cancel", params)
     case.assertEqual(result["job_id"], params["job_id"])
     case.assertEqual(result["operation_id"], params["operation_id"])
-    case.assertEqual(case.success("render.cancel", params), result)
+    case.assertEqual(case.success("job.cancel", params), result)
     changed = {**params, "job_id": "unknown-job-for-receipt-conflict"}
-    case.assertEqual(case.failure("render.cancel", changed)["code"], "operation_conflict")
+    case.assertEqual(case.failure("job.cancel", changed)["code"], "operation_conflict")
     other_method = case.write_params(document, {"width_px": 32})
     other_method["operation_id"] = params["operation_id"]
     case.assertEqual(case.failure("scene.settings", other_method)["code"], "operation_conflict")
     fresh = case.write_params(None, {"job_id": params["job_id"]})
-    case.assertEqual(case.failure("render.cancel", fresh)["code"], "resource_limit")
+    case.assertEqual(case.failure("job.cancel", fresh)["code"], "resource_limit")
     return result
 
 
@@ -81,7 +81,7 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
         "job_id": completed[0]["status"]["job_id"],
         "operation_id": "reserved-before-ordinary-capacity",
     }
-    early_result = case.success("render.cancel", early_cancel)
+    early_result = case.success("job.cancel", early_cancel)
     case.assertEqual(early_result["status"], "completed", early_result)
     completed[0]["cancel_params"] = early_cancel
     ordinary_params, ordinary_result = _fill_ordinary_receipts(case, document)
@@ -94,8 +94,8 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
     case.assertEqual(job["status"], "preparing", job)
     case.assertIs(job["writers_closed"], False)
     cancel = case.write_params(None, {"job_id": "unknown-job-before-cancellation"})
-    case.assertEqual(case.failure("render.cancel", cancel)["code"], "unknown_job")
-    pending = case.success("render.status", {"job_id": job["job_id"]})
+    case.assertEqual(case.failure("job.cancel", cancel)["code"], "unknown_job")
+    pending = case.success("job.status", {"job_id": job["job_id"]})
     case.assertIn(pending["status"], {"preparing", "running", "finalizing"}, pending)
     case.assertIs(pending["writers_closed"], False)
     cancel["job_id"] = job["job_id"]
@@ -104,8 +104,8 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
     terminal = case.wait_job(job["job_id"])
     case.assertEqual(terminal["status"], "canceled", terminal)
     case.assertIs(terminal["writers_closed"], True)
-    case.assertEqual(case.success("render.cancel", cancel), canceled)
-    denied = case.failure("render.artifacts", {"job_id": job["job_id"]})
+    case.assertEqual(case.success("job.cancel", cancel), canceled)
+    denied = case.failure("job.result", {"job_id": job["job_id"]})
     case.assertEqual(denied["code"], "artifacts_unavailable")
     for retained in completed:
         job_id = retained["status"]["job_id"]
@@ -113,19 +113,19 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
         result = _cancel_once(case, params, document)
         case.assertEqual(result["status"], "completed", result)
         case.assertIs(result["writers_closed"], True)
-        case.assertEqual(case.success("render.status", {"job_id": job_id}), retained["status"])
+        case.assertEqual(case.success("job.status", {"job_id": job_id}), retained["status"])
         case.assertEqual(
-            case.success("render.artifacts", {"job_id": job_id}), retained["artifacts"]
+            case.success("job.result", {"job_id": job_id}), retained["artifacts"]
         )
     exhausted = case.write_params(None, {"job_id": "unknown-job-after-reserve-full"})
-    case.assertEqual(case.failure("render.cancel", exhausted)["code"], "resource_limit")
+    case.assertEqual(case.failure("job.cancel", exhausted)["code"], "resource_limit")
     fresh = case.write_params(document, {"width_px": 64})
     case.assertEqual(case.failure("scene.settings", fresh)["code"], "resource_limit")
     case.assertEqual(case.success("scene.settings", ordinary_params), ordinary_result)
-    case.assertEqual(case.success("render.cancel", cancel), canceled)
-    case.assertEqual(case.success("render.cancel", early_cancel), early_result)
+    case.assertEqual(case.success("job.cancel", cancel), canceled)
+    case.assertEqual(case.success("job.cancel", early_cancel), early_result)
     ordinary_conflict = {"job_id": job["job_id"], "operation_id": ordinary_params["operation_id"]}
-    case.assertEqual(case.failure("render.cancel", ordinary_conflict)["code"], "operation_conflict")
+    case.assertEqual(case.failure("job.cancel", ordinary_conflict)["code"], "operation_conflict")
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
     case.assertEqual(len(case.success("automation.list_documents", {})["documents"]), 1)
     case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 3)

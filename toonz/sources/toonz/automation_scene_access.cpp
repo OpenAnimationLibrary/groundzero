@@ -1014,7 +1014,8 @@ void recordRoutes(Context& context, SceneHost& host, const QJsonValue& value) {
 
 QJsonValue forward(Context& context, SceneHost& host, const QString& method,
                    const QJsonObject& params) {
-  const bool render = method.startsWith("render.") || method == "artifact.read";
+  const bool render = method.startsWith("render.") || method.startsWith("job.") ||
+                      method == "artifact.read";
   const int deadline = method == "render.preview" || method == "render.submit"
                            ? SceneHostOpenDeadlineMs
                            : SceneHostReadDeadlineMs;
@@ -1050,7 +1051,7 @@ RenderCapacity renderCapacity(Context& context) {
     try {
       recordRoutes(
           context, host,
-          exchange(context, host, "render.status", {{"job_id", host.lastJob}},
+          exchange(context, host, "job.status", {{"job_id", host.lastJob}},
                    SceneHostReadDeadlineMs, "render"));
     } catch (const Error& error) {
       if (error.code != "scene_host_failed") throw;

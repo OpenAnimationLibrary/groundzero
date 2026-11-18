@@ -84,9 +84,9 @@ REQUIRED_TOOLS = {
     "camera.update",
     "render.preview",
     "render.submit",
-    "render.status",
-    "render.cancel",
-    "render.artifacts",
+    "job.status",
+    "job.cancel",
+    "job.result",
     "artifact.read",
 }
 SDK_CLIENT = "native-client.mjs"
@@ -940,7 +940,7 @@ class NativeAcceptance(unittest.TestCase):
         """Wait for an explicit terminal job state within a fixed CI deadline."""
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
-            result = self.success("render.status", {"job_id": job})
+            result = self.success("job.status", {"job_id": job})
             if result["status"] in {"completed", "failed", "canceled", "deadline_exceeded"}:
                 return result
             self.assertIn(
@@ -964,7 +964,7 @@ class NativeAcceptance(unittest.TestCase):
         self.assertEqual(self.revisions[document], revision)
         status = self.wait_job(job["job_id"])
         self.assertEqual(status["status"], "completed", status)
-        artifacts = self.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+        artifacts = self.success("job.result", {"job_id": job["job_id"]})["artifacts"]
         self.assertEqual(len(artifacts), 1, artifacts)
         artifact = artifacts[0]
         result = self.success("artifact.read", {"artifact_id": artifact["artifact_id"]})
@@ -1719,10 +1719,10 @@ class NativeAcceptance(unittest.TestCase):
         job = self.mutate(
             "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )
-        canceled = self.success("render.cancel", self.write_params(None, {"job_id": job["job_id"]}))
+        canceled = self.success("job.cancel", self.write_params(None, {"job_id": job["job_id"]}))
         self.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
         self.assertEqual(self.wait_job(job["job_id"])["status"], "canceled")
-        self.failure("render.artifacts", {"job_id": job["job_id"]})
+        self.failure("job.result", {"job_id": job["job_id"]})
         self.mutate(
             "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )

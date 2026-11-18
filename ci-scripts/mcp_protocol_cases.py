@@ -133,9 +133,9 @@ def _render(journey: Journey, document: str) -> None:
     status = job
     while status["status"] not in TERMINAL and time.monotonic() < deadline:
         time.sleep(0.05)
-        status = journey.worker.call("render.status", {"job_id": job["job_id"]})["result"]
+        status = journey.worker.call("job.status", {"job_id": job["job_id"]})["result"]
     journey.case.assertEqual(status["status"], "completed", status)
-    artifacts = journey.read("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = journey.read("job.result", {"job_id": job["job_id"]})["artifacts"]
     journey.read("artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
 
 
@@ -220,9 +220,9 @@ def mcp_cancellation_leaves_render_running(case: NativeAcceptance) -> None:
     _abandon(case, "scene.settings", case.write_params(document, {"width_px": 64}))
     summary = case.success("scene.summary", {"document_id": document})
     case.assertNotEqual(summary["revision"], revision)
-    status = case.success("render.status", {"job_id": job["job_id"]})
+    status = case.success("job.status", {"job_id": job["job_id"]})
     case.assertIn(status["status"], ACTIVE, status)
-    case.success("render.cancel", case.write_params(None, {"job_id": job["job_id"]}))
+    case.success("job.cancel", case.write_params(None, {"job_id": job["job_id"]}))
     case.assertEqual(case.wait_job(job["job_id"])["status"], "canceled")
 
 

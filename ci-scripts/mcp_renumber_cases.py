@@ -182,7 +182,7 @@ def _rendered_frames(test: NativeAcceptance, document: str) -> dict[int, list[Pi
     test.assertEqual(status["status"], "completed", status)
     test.assertTrue(status["writers_closed"])
     test.assertEqual(status["completed_frames"], 8)
-    artifacts = test.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = test.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     test.assertEqual(sorted(artifact["frame"] for artifact in artifacts), list(range(8)))
     rendered = {}
     for artifact in artifacts:

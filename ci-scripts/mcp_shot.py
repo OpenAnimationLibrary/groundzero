@@ -204,7 +204,7 @@ class Shot:
         """Wait for closed output writers and a successful terminal render state."""
         deadline = time.monotonic() + 360
         while time.monotonic() < deadline:
-            status = self.read("render.status", {"job_id": job})
+            status = self.read("job.status", {"job_id": job})
             if status["status"] in {"completed", "failed", "canceled"}:
                 require(status["status"] == "completed", f"Render failed: {status}")
                 require(
@@ -236,7 +236,7 @@ class Shot:
         revision = self.revisions[document]
         job = self.write("render.preview", document, frame=frame, width=size[0], height=size[1])
         self.wait(job["job_id"])
-        artifacts = self.read("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+        artifacts = self.read("job.result", {"job_id": job["job_id"]})["artifacts"]
         require(len(artifacts) == 1, "A preview must produce exactly one artifact")
         require(artifacts[0]["frame"] == frame, "Preview returned another frame's artifact")
         require(job["source_revision"] == revision, "Preview used an unexpected scene revision")
@@ -591,7 +591,7 @@ def render_sequence(shot: Shot, document: str, expected_frames: dict[int, str]) 
     )
     status = shot.wait(job["job_id"])
     require(status["completed_frames"] == FRAMES, "The render did not complete every shot frame")
-    artifacts = shot.read("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = shot.read("job.result", {"job_id": job["job_id"]})["artifacts"]
     require(
         [item["frame"] for item in artifacts] == list(range(FRAMES)),
         "Frame artifact coverage is incomplete",
@@ -701,7 +701,7 @@ def check_movie_artifact(shot: Shot, job: dict[str, Any]) -> tuple[Path, dict[st
     require(status["completed_frames"] == FRAMES, "The movie omitted shot frames")
     require(status["format"] == "mp4", "The movie job changed format")
     require(status["profile"] == "opaque8-mp4", "The movie job changed render profile")
-    result = shot.read("render.artifacts", {"job_id": job["job_id"]})
+    result = shot.read("job.result", {"job_id": job["job_id"]})
     require("image" not in result, "Movie delivery returned inline image content")
     require(len(result["artifacts"]) == 1, "The shot must produce one finalized MP4 artifact")
     item = result["artifacts"][0]

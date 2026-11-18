@@ -18,7 +18,7 @@ def _artifacts(case: NativeAcceptance, job: dict[str, Any]) -> list[dict[str, An
     case.assertIs(status["writers_closed"], True)
     case.assertEqual(status["completed_frames"], status["frame_count"])
     case.assertEqual(status["failed_frames"], 0)
-    return case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    return case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
 
 
 def _read(case: NativeAcceptance, artifact: dict[str, Any]) -> tuple[dict[str, Any], bytes]:

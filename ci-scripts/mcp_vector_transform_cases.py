@@ -121,7 +121,7 @@ def _preview(case: NativeAcceptance, document: str, frame: int = 0) -> list[Pixe
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], "completed", status)
     case.assertIs(status["writers_closed"], True)
-    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     case.assertEqual(len(artifacts), 1)
     result = case.success("artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
     case.assertEqual(result["frame"], frame)
