@@ -2,14 +2,22 @@
 import assert from "node:assert/strict";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
-const maxRequestBytes = 256 * 1024;
+const maxRequestBytes = 8 * 1024 * 1024;
 const maxResponseBytes = 9 * 1024 * 1024;
 const maxImageBytes = 4 * 1024 * 1024;
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const imageTools = new Set(["artifact.read", "library.thumbnail"]);
+const protocolVersion = "2026-07-28";
+const workerGrants = new Set([
+  "--workspace",
+  "--input-root",
+  "--media-tools",
+  "--shared-root",
+  "--shared-write",
+]);
 
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -27,7 +35,7 @@ function keys(value, expected) {
  *   The original request identity, advertised method name, and object arguments.
  */
 export function parseRequest(frame) {
-  assert(frame.length <= maxRequestBytes, "Fixture request exceeds 256 KiB");
+  assert(frame.length <= maxRequestBytes, "Fixture request exceeds 8 MiB");
   const request = JSON.parse(decoder.decode(frame));
   assert(object(request), "Fixture request must be an object");
   keys(request, ["id", "method", "params"]);
@@ -52,13 +60,13 @@ export async function* readFrames(input) {
     buffered = Buffer.concat([buffered, chunk]);
     let newline = buffered.indexOf(10);
     while (newline >= 0) {
-      assert(newline <= maxRequestBytes, "Fixture request exceeds 256 KiB");
+      assert(newline <= maxRequestBytes, "Fixture request exceeds 8 MiB");
       const frame = buffered.subarray(0, newline);
       buffered = buffered.subarray(newline + 1);
       yield frame;
       newline = buffered.indexOf(10);
     }
-    assert(buffered.length <= maxRequestBytes, "Fixture request exceeds 256 KiB");
+    assert(buffered.length <= maxRequestBytes, "Fixture request exceeds 8 MiB");
   }
   assert.equal(buffered.length, 0, "Fixture input ended during a request");
 }
@@ -102,7 +110,8 @@ function responseImages(response) {
  *   method: The advertised MCP tool called by the fixture.
  *   response: Its SDK-validated result with structured metadata and content.
  * Returns:
- *   A native-shaped test outcome, recovering images exclusively from ImageContent.
+ *   A native-shaped test outcome, recovering images exclusively from ImageContent
+ *   and only for the tools declared to return one.
  */
 export function bridgeResult(method, response) {
   const images = responseImages(response);
@@ -118,50 +127,32 @@ export function bridgeResult(method, response) {
     return { error: metadata.error };
   }
   assert(response.isError === undefined || response.isError === false, "Invalid MCP error flag");
-  if (method === "artifact.read") {
-    assert.equal(images.length, 1, "artifact.read must return one MCP ImageContent");
+  if (imageTools.has(method)) {
+    assert.equal(images.length, 1, `${method} must return one MCP ImageContent`);
     return { result: { ...metadata, image: images[0] } };
   }
-  assert.equal(images.length, 0, "Unexpected image from a non-artifact tool");
+  assert.equal(images.length, 0, "Unexpected image from a tool that declares none");
   return { result: metadata };
 }
 
-function launchArguments() {
-  const { values } = parseArgs({
-    options: {
-      "automation-worker": { type: "boolean" },
-      workspace: { type: "string" },
-      "input-root": { type: "string", multiple: true },
-      "media-tools": { type: "string" },
-      "shared-root": { type: "string", multiple: true },
-      "shared-write": { type: "string", multiple: true },
-    },
-    strict: true,
-    allowPositionals: false,
-  });
-  assert(values["automation-worker"], "This executable is only an acceptance-test fixture");
-  assert(values.workspace && isAbsolute(values.workspace), "Fixture workspace must be absolute");
-  const executable = process.env["GROUNDZERO_NATIVE_EXECUTABLE"];
+/** Turn the worker command line this fixture stands in for into the adapter's.
+ *
+ * Args:
+ *   argv: Worker arguments: --automation-worker, then filesystem grants.
+ *   executable: The absolute native executable the adapter launches.
+ *   cli: The adapter entry point.
+ * Returns:
+ *   Adapter arguments enabling every toolset, with the grants passed on unchanged so the
+ *   adapter alone validates them.
+ */
+export function adapterArguments(argv, executable, cli) {
+  const [mode, ...grants] = argv;
+  assert.equal(mode, "--automation-worker", "This executable is only an acceptance-test fixture");
+  for (const token of grants) {
+    assert(!token.startsWith("-") || workerGrants.has(token), `Not a worker grant: ${token}`);
+  }
   assert(executable && isAbsolute(executable), "GROUNDZERO_NATIVE_EXECUTABLE must be absolute");
-  const args = [
-    fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
-    "--executable",
-    executable,
-    "--workspace",
-    values.workspace,
-    "--toolsets",
-    "all",
-  ];
-  return [...args, ...grantArguments(values)];
-}
-
-function grantArguments(values) {
-  const args = [];
-  for (const root of values["input-root"] ?? []) args.push("--input-root", root);
-  if (values["media-tools"] !== undefined) args.push("--media-tools", values["media-tools"]);
-  for (const root of values["shared-root"] ?? []) args.push("--shared-root", root);
-  for (const role of values["shared-write"] ?? []) args.push("--shared-write", role);
-  return args;
+  return [cli, "--executable", executable, "--toolsets", "all", ...grants];
 }
 
 async function writeFrame(response) {
@@ -194,11 +185,32 @@ async function serve(client) {
   process.stderr.write(`groundzero-mcp-shot-client: ${calls} MCP calls; ${images} MCP images\n`);
 }
 
+async function connect(client) {
+  const args = adapterArguments(
+    process.argv.slice(2),
+    process.env["GROUNDZERO_NATIVE_EXECUTABLE"],
+    fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+  );
+  await client.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args,
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(([, value]) => value !== undefined),
+      ),
+      stderr: "inherit",
+    }),
+  );
+  assert.equal(client.getNegotiatedProtocolVersion(), protocolVersion, "Unexpected MCP protocol");
+}
+
 async function main() {
-  const args = launchArguments();
+  // Pinning would probe on a sibling process whose stderr the SDK discards, hiding why an
+  // adapter refused its launch. "auto" relaunches such an adapter as the session process, whose
+  // stderr is kept; connect() still requires the modern protocol version.
   const client = new Client(
     { name: "groundzero-shot-fixture", version: "1.0.0" },
-    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    { versionNegotiation: { mode: "auto" } },
   );
   let closing = false;
   let failure;
@@ -226,16 +238,7 @@ async function main() {
   process.once("SIGINT", interrupted);
   process.stdout.once("error", stop);
   try {
-    await client.connect(
-      new StdioClientTransport({
-        command: process.execPath,
-        args,
-        env: Object.fromEntries(
-          Object.entries(process.env).filter(([, value]) => value !== undefined),
-        ),
-        stderr: "inherit",
-      }),
-    );
+    await connect(client);
     await serve(client);
   } finally {
     await close();
