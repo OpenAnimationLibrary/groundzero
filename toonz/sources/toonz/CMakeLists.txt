@@ -1327,7 +1327,8 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE
         tests/mcp_live_generation_test.cpp tests/mcp_live_generation_test.h)
     target_sources(OpenToonz PRIVATE
-        tests/mcp_live_history_test.cpp tests/mcp_live_history_test.h)
+        tests/mcp_live_history_test.cpp tests/mcp_live_history_test.h
+        tests/mcp_live_lifecycle_test.cpp tests/mcp_live_lifecycle_test.h)
     target_sources(OpenToonz PRIVATE
         mcpliveintegrationtest.cpp mcpliveintegrationtest.h
         tests/mcp_live_security_fixture.cpp tests/mcp_live_security_fixture.h)

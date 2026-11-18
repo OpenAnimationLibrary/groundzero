@@ -657,6 +657,61 @@ async function modalBusy(context, phase) {
   }
 }
 
+const busyStates = [
+  ["nested-loop-open", "nested-loop-close", "nested_event_loop"],
+  ["gesture-begin", "gesture-end", "interactive_tool"],
+  ["save-begin", "save-end", "saving"],
+];
+
+// A mutation arriving while the GUI is in a nested loop, a drawing gesture or
+// a save is refused; its retry replays the refusal and a new edit applies once.
+async function busyRefusal(peer, phase, [open, close, reason]) {
+  const operation = cameraEdit(await inspectPeer(peer));
+  const before = (await phase(open)).native;
+  let rejected;
+  try {
+    rejected = await request(peer, "live.stage.set_key_value", operation);
+  } finally {
+    assert.deepEqual((await phase(close)).native, before, `${open} changed native state`);
+  }
+  assert.equal(rejected.error?.code, "gui_busy", `${open} admitted a mutation`);
+  assert(rejected.error.details.reasons.includes(reason), `${open} did not report ${reason}`);
+  const replayed = await request(peer, "live.stage.set_key_value", operation);
+  assert.deepEqual(replayed.error, rejected.error, `${open} retry was not the retained refusal`);
+  assert.deepEqual((await phase("snapshot")).native, before, `${open} retry changed state`);
+  const edit = cameraEdit(await inspectPeer(peer));
+  const applied = await request(peer, "live.stage.set_key_value", edit);
+  assert.equal(applied.result?.changed, true, `${open} blocked a later edit`);
+  const after = (await phase("snapshot")).native;
+  assert.equal(after.history_index, before.history_index + 1, `${open} edit not applied once`);
+  assert.deepEqual((await request(peer, "live.stage.set_key_value", edit)).result, applied.result);
+  assert.deepEqual((await phase("snapshot")).native, after, `${open} edit was applied twice`);
+  await phase("human-undo");
+}
+
+// Leaves an empty history, as the SDK journey expects, once the cached status
+// has observed the new scene epoch that a history reset starts.
+async function resetHistory(peer, phase) {
+  const previous = (await request(peer, "live.status")).result.scene_epoch;
+  await phase("history-reset");
+  for (let attempt = 0; attempt < 40; ++attempt) {
+    if ((await request(peer, "live.status")).result.scene_epoch !== previous) return;
+    await delay(50);
+  }
+  throw new Error("The live status did not observe the history reset");
+}
+
+async function busyStatesRefuse(context, phase) {
+  const peer = await authenticated(await descriptor(context.session));
+  try {
+    for (const state of busyStates) await busyRefusal(peer, phase, state);
+    await resetHistory(peer, phase);
+  } finally {
+    await peer.close();
+  }
+  return busyStates.length;
+}
+
 function queuedRequest(method, params) {
   return { id: randomUUID(), method, params };
 }
@@ -787,6 +842,7 @@ export async function verifyLiveSecurity(context, phase) {
   await connectionLimits(session);
   await inspectMode(context, phase);
   await modalBusy(context, phase);
+  report.busy_states_refused = await busyStatesRefuse(context, phase);
   await admissionDeadline(context, phase);
   await stopAndRenew(context, phase);
   report.status = "passed";

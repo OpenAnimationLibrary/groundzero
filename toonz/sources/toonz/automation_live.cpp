@@ -73,6 +73,7 @@ public:
           QMetaObject::invokeMethod(
               this, [this]() { stop(); }, Qt::QueuedConnection);
         });
+    m_thread.setObjectName("gz-live-bridge");
     m_transport->moveToThread(&m_thread);
     connect(&m_thread, &QThread::finished, m_transport, &QObject::deleteLater);
     m_thread.start();

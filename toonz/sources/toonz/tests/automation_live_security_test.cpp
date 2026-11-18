@@ -3,6 +3,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <csignal>
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -346,6 +348,74 @@ void transportAuthentication(const QString& directory) {
               hello.value("instance_id") == session.instanceId(),
           "The editor hello omitted its protocol, build or instance");
 }
+// Publishes a grant and waits to be killed, leaving the grant and socket of a
+// dead editor behind.
+int publishAndWait(int& argc, char* argv[]) {
+  QCoreApplication application(argc, argv);
+  SecuritySession publisher(QString::fromLocal8Bit(argv[2]), "edit");
+  publisher.listenDescriptor();
+  publisher.publish();
+  std::puts("published");
+  std::fflush(stdout);
+  for (;;) pause();
+}
+// A grant left by a dead editor whose PID now belongs to another process is
+// not honoured: the connector refuses without reaching anything or signalling
+// that process, and a new editor does not take over or remove the grant.
+void reusedProcessId(const QString& directory) {
+  const QString path = directory + "/dead.json";
+  QProcess editor;
+  editor.start(QCoreApplication::applicationFilePath(), {"--test-publish", path});
+  require(editor.waitForReadyRead(5000) &&
+              editor.readAllStandardOutput() == "published\n",
+          "The dead-editor fixture did not publish");
+  editor.kill();
+  require(editor.waitForFinished(3000), "The dead-editor fixture survived");
+  QProcess reused;
+  reused.start("/bin/sleep", {"30"});
+  require(reused.waitForStarted(3000), "Cannot start the reused-PID process");
+  QJsonObject grant = publishedGrant(path);
+  grant.insert("pid", double(reused.processId()));
+  {
+    QFile file(path);
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                file.write(rawFrame(grant)) > 0,
+            "Cannot point the dead grant at the reused PID");
+  }
+  QProcess connector;
+  connector.start(QCoreApplication::applicationFilePath(),
+                  {"--automation-live-connect", path});
+  connector.closeWriteChannel();
+  require(connector.waitForFinished(5000) && connector.exitCode() == 2,
+          "A dead editor's grant was not refused");
+  const QJsonObject refusal =
+      parseMessage(connector.readAllStandardOutput().mid(4), 4096)
+          .value("refusal")
+          .toObject();
+  require(refusal.value("code") == "live_unavailable",
+          "A dead editor's grant was refused for another reason");
+  require(reused.state() == QProcess::Running &&
+              ::kill(pid_t(reused.processId()), 0) == 0,
+          "The process holding the reused PID was signalled");
+  const QByteArray before = rawFrame(grant);
+  try {
+    SecuritySession successor(path, "edit");
+    successor.listenDescriptor();
+    successor.publish();
+    throw std::runtime_error("A new editor took over a dead editor's grant");
+  } catch (const Error& error) {
+    require(error.code == "live_security",
+            "A new editor refused the dead grant with another code");
+  }
+  require(rawFrame(publishedGrant(path)) == before &&
+              QFileInfo(grant.value("endpoint").toString()).exists(),
+          "A new editor changed or removed the dead editor's files");
+  reused.kill();
+  reused.waitForFinished(3000);
+  require(QFile::remove(path) &&
+              QFile::remove(grant.value("endpoint").toString()),
+          "Cannot remove the dead editor's files");
+}
 void replacementCleanup(SecuritySession& publisher, const QString& path) {
   const QString socket = publisher.endpoint();
   require(QFile::rename(path, path + ".owned"), "Cannot move owned grant");
@@ -397,6 +467,8 @@ void extendedAclAdmission(const QString& path) {
 #endif
 }  // namespace
 int main(int argc, char* argv[]) {
+  if (argc == 3 && QByteArray(argv[1]) == "--test-publish")
+    return publishAndWait(argc, argv);
   if (argc > 1) return runConnector(argc, argv);
   QCoreApplication application(argc, argv);
   try {
@@ -424,6 +496,7 @@ int main(int argc, char* argv[]) {
     protocolMismatchBeforeConnect(publisher, path, root);
     fileAdmission(publisher, path, root);
     transportAuthentication(root);
+    reusedProcessId(root);
 #ifdef Q_OS_MACOS
     extendedAclAdmission(path);
 #endif

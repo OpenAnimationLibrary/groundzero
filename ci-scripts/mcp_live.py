@@ -170,6 +170,12 @@ def validate_phases(native: dict[str, Any]) -> None:
         "curve-unlock",
         "cycle-enable",
         "cycle-disable",
+        "nested-loop-open",
+        "nested-loop-close",
+        "gesture-begin",
+        "gesture-end",
+        "save-begin",
+        "save-end",
     }
     if not expected.issubset(phases):
         raise AssertionError(f"Missing native journey phases: {sorted(expected - phases)}")

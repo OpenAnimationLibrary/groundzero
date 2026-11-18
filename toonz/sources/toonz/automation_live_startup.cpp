@@ -172,6 +172,7 @@ public:
     QObject::connect(&application, &QCoreApplication::aboutToQuit, label,
                      [this]() { stop(); });
     observer = new QTimer(label);
+    observer->setObjectName("automationLiveObserver");
     observer->setInterval(250);
     QObject::connect(observer, &QTimer::timeout, label, [this]() {
       if (!service.running()) {

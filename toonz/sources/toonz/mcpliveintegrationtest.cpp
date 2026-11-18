@@ -5,6 +5,7 @@
 #include <QCryptographicHash>
 #include <QDialog>
 #include <QDir>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -30,8 +31,10 @@
 #include "tdoubleparam.h"
 #include "tests/mcp_live_generation_test.h"
 #include "tests/mcp_live_history_test.h"
+#include "tests/mcp_live_lifecycle_test.h"
 #include "tests/mcp_live_security_fixture.h"
 #include "texception.h"
+#include "tools/toolhandle.h"
 #include "tfx.h"
 #include "toonz/doubleparamcmd.h"
 #include "toonz/fxdag.h"
@@ -168,6 +171,7 @@ class LiveFixture final : public QObject {
   std::function<void(int)> m_completed;
   std::unique_ptr<LiveUi> m_live;
   std::unique_ptr<QDialog> m_modal;
+  QPointer<QEventLoop> m_nested;
   QProcess m_client;
   QTimer m_deadline;
   QByteArray m_pending;
@@ -209,6 +213,8 @@ public:
       m_session = settings.value("session").toString();
       require(QFileInfo(m_session).isAbsolute(), "Live fixture grant path is not absolute");
       prepareMcpLivePrivateDirectory(QFileInfo(m_session).absolutePath());
+      runNativeLiveLifecycleTests(m_window,
+                                  QFileInfo(m_session).absolutePath());
       restart("edit");
       launch(settings);
     });
@@ -427,6 +433,36 @@ private:
         Qt::DirectConnection);
   }
 
+  // Runs a nested event loop, as a drag or a modal workflow does, after this
+  // phase is answered; the close phase is then handled inside it.
+  void openNestedLoop() {
+    require(!m_nested, "A nested event loop is already open");
+    QTimer::singleShot(0, this, [this]() {
+      QEventLoop loop;
+      m_nested = &loop;
+      loop.exec();
+    });
+  }
+
+  void closeNestedLoop() {
+    require(m_nested && m_nested->isRunning(), "No nested event loop is open");
+    m_nested->quit();
+  }
+
+  // The editor states a live mutation must wait out: a nested event loop, a
+  // drawing gesture holding the tool busy, and a save in progress.
+  std::map<QString, std::function<void()>> busyActions() {
+    auto* app = TApp::instance();
+    return {
+        {"nested-loop-open", [this]() { openNestedLoop(); }},
+        {"nested-loop-close", [this]() { closeNestedLoop(); }},
+        {"gesture-begin",
+         [app]() { app->getCurrentTool()->setToolBusy(true); }},
+        {"gesture-end", [app]() { app->getCurrentTool()->setToolBusy(false); }},
+        {"save-begin", [app]() { app->setSaveInProgress(true); }},
+        {"save-end", [app]() { app->setSaveInProgress(false); }}};
+  }
+
   std::map<QString, std::function<void()>> actions() {
     return {
         {"snapshot", []() {}},
@@ -474,7 +510,8 @@ private:
         "Unknown SDK fixture phase schema");
     require(m_phases.size() < 128, "Live fixture exceeded 128 native phases");
     const QString name = request.value("phase").toString();
-    const auto handlers = actions();
+    auto handlers      = actions();
+    handlers.merge(busyActions());
     const auto found = handlers.find(name);
     require(found != handlers.end(), "Unknown fixed native live phase");
     found->second();
