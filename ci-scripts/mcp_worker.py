@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from queue import Empty, Queue
@@ -102,6 +103,19 @@ class Worker:
             raise AssertionError(f"Worker returned an unrelated request id: {response!r}")
         return response
 
+    def _record_stalled_exit(self) -> None:
+        """Save a stack sample of a worker that did not exit, where the platform has one."""
+        sampler = shutil.which("sample")
+        if sampler is None:
+            return
+        report = self.log_path.with_suffix(".stalled-exit.txt")
+        subprocess.run(
+            [sampler, str(self.process.pid), "2", "-file", str(report)],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+
     def close(self) -> None:
         """Close the transport and reap the original native process."""
         if self.process.stdin is not None:
@@ -109,6 +123,7 @@ class Worker:
         try:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            self._record_stalled_exit()
             self.process.kill()
             self.process.wait(timeout=5)
         self.reader.join(timeout=5)
