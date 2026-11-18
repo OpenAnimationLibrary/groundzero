@@ -596,6 +596,18 @@ the session-file security and operating-system peer identity before authenticati
 Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
 `--shared-root`, and `--shared-write`.
 
+The editor and the connector must be the same build. The session file, the
+authentication and the editor's hello carry the bridge protocol
+(`groundzero-live-v2`) and a build identity: `application`, a `version` label,
+and `executable_sha256`, the SHA-256 of the running executable. The connector
+compares the session file before it connects, so a mismatched pair never sends
+the token. A mismatch fails attachment with `LIVE_INCOMPATIBLE`; its details
+name the `cause` (`protocol_mismatch` or `build_mismatch`) and the `connector`
+and `editor` identities. Start the editor and the adapter from one build. Any
+other failure before the hello is `LIVE_UNAVAILABLE` with the connector's refusal
+code as `cause`. `live.status` and `live.capabilities` also report `protocol`
+and `build`.
+
 Both permission modes advertise exactly `live.status`, `live.inspect`,
 `live.stage.set_key_value`, `live.fx.set_scalar_value`, `live.receipt`, and
 `live.capabilities`. Inspect mode rejects writes with `permission_denied`.
@@ -604,6 +616,16 @@ qualified native Blur scalar. A changed value creates one native undo entry;
 same-value edits preserve history. Use the returned schemas and editable-target
 fingerprints rather than detached revision fields. Fingerprints cover qualified
 target dependencies; pixels, palette content, and asset bytes are excluded.
+
+Fingerprints also follow the native undo history, so an edit prepared before an
+undo or redo is refused with `stale_target` even when the undo restored the
+earlier values. The refusal's details give a `reason` and the
+`current_fingerprint`: `content_changed` (the qualified metadata differs from
+what the fingerprint covered, also used for a fingerprint the editor did not
+issue), `history_changed` (the metadata is the same but the history moved), or
+`target_replaced` (the target's native parameter was replaced). Check the
+current value with `live.inspect`, then retry with `current_fingerprint` under a
+new operation UUID.
 
 The editor accepts two authenticated clients sharing handles and operation
 receipts. Each connection permits four pending requests, with 64 KiB requests
