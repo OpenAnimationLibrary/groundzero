@@ -908,7 +908,10 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
     return scenesPage(params, scan, params.value("project_id").toString(),
                       QJsonValue());
   }
-  scanScenes(scan, sceneSubfolder(context, root, params), root, 0);
+  const QString folder = sceneSubfolder(context, root, params);
+  scanScenes(scan, folder, root, 0);
+  if (QFileInfo(folder).canonicalFilePath() != folder)
+    throw Error("path_denied", "The folder changed while it was listed.");
   return scenesPage(params, scan, params.value("project_id").toString(), root);
 }
 

@@ -32,6 +32,7 @@ import mcp_file_cases
 import mcp_file_change_cases
 import mcp_file_inert_cases
 import mcp_file_launch_cases
+import mcp_file_project_cases
 import mcp_file_race_cases
 import mcp_file_shared_cases
 import mcp_finishing_cases
@@ -739,6 +740,13 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_instruction_like_text_is_returned_as_data_and_never_acted_on(self) -> None:
         mcp_file_inert_cases.instruction_like_text_is_returned_as_data_and_never_acted_on(self)
+
+    def test_project_reads_hold_the_file_boundary(self) -> None:
+        mcp_file_project_cases.project_reads_hold_the_file_boundary(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_project_scenes_refuse_a_folder_swapped_after_validation(self) -> None:
+        mcp_file_project_cases.project_scenes_refuse_a_folder_swapped_after_validation(self)
 
     def test_shared_roots_hold_the_file_boundary(self) -> None:
         mcp_file_shared_cases.shared_roots_hold_the_file_boundary(self)

@@ -385,6 +385,7 @@ SHARED_TOOLS = {
     "library.thumbnail": (),
 }
 HANDLE_TOOLS = {"artifact.read": ("artifact_id",)}
+PROJECT_TOOLS = {"project.scenes": ("folder",)}
 
 
 def path_parameters(schema: Any, prefix: str = "") -> list[str]:
@@ -400,27 +401,39 @@ def path_parameters(schema: Any, prefix: str = "") -> list[str]:
     return found
 
 
+def _tool_problem(tool: dict[str, Any]) -> str:
+    """Return what is wrong with one catalog tool's coverage, or an empty string."""
+    name = tool["name"]
+    found = tuple(path_parameters(tool["inputSchema"]))
+    if tool.get("toolset") == SHARED_TOOLSET:
+        if name in SHARED_TOOLS:
+            return ""
+        return (
+            f"{name} is a new shared-library tool: add it to SHARED_TOOLS in "
+            "ci-scripts/mcp_file_tools.py and give it cases in mcp_file_shared_cases.py"
+        )
+    if name in PROJECT_TOOLS:
+        if PROJECT_TOOLS[name] == found:
+            return ""
+        return (
+            f"{name} now takes path parameters {list(found)}: extend its cases in "
+            "ci-scripts/mcp_file_project_cases.py and PROJECT_TOOLS in mcp_file_tools.py"
+        )
+    covered = PATH_TOOLS[name].parameters if name in PATH_TOOLS else None
+    if found and covered != found and name not in SHARED_TOOLS:
+        return (
+            f"{name} takes path parameters {list(found)}: add or fix its PathTool entry in "
+            "ci-scripts/mcp_file_tools.py (mode, suffix, prepare, drive and place) so the "
+            "boundary matrix drives it"
+        )
+    return ""
+
+
 def unqualified_tools(tools: list[dict[str, Any]]) -> list[str]:
     """Return what is wrong between the catalog and the qualification table, as messages."""
-    problems: list[str] = []
+    problems = [message for tool in tools if (message := _tool_problem(tool))]
     names = {tool["name"] for tool in tools}
-    for tool in tools:
-        name = tool["name"]
-        found = tuple(path_parameters(tool["inputSchema"]))
-        covered = PATH_TOOLS[name].parameters if name in PATH_TOOLS else None
-        if tool.get("toolset") == SHARED_TOOLSET:
-            if name not in SHARED_TOOLS:
-                problems.append(
-                    f"{name} is a new shared-library tool: add it to SHARED_TOOLS in "
-                    "ci-scripts/mcp_file_tools.py and give it cases in mcp_file_shared_cases.py"
-                )
-        elif found and covered != found and name not in SHARED_TOOLS:
-            problems.append(
-                f"{name} takes path parameters {list(found)}: add or fix its PathTool entry in "
-                "ci-scripts/mcp_file_tools.py (mode, suffix, prepare, drive and place) so the "
-                "boundary matrix drives it"
-            )
-    for name in sorted(set(PATH_TOOLS) | set(SHARED_TOOLS) | set(HANDLE_TOOLS)):
-        if name not in names:
-            problems.append(f"{name} is qualified in mcp_file_tools.py but absent from the catalog")
+    qualified = set(PATH_TOOLS) | set(SHARED_TOOLS) | set(HANDLE_TOOLS) | set(PROJECT_TOOLS)
+    for name in sorted(qualified - names):
+        problems.append(f"{name} is qualified in mcp_file_tools.py but absent from the catalog")
     return problems

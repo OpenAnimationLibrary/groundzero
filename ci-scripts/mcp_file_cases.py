@@ -49,8 +49,8 @@ def file_tools_are_all_qualified(case: NativeAcceptance) -> None:
     problems = mcp_file_tools.unqualified_tools(tools)
     case.assertEqual(problems, [], "\n".join(problems))
     named = {tool["name"] for tool in tools if mcp_file_tools.path_parameters(tool["inputSchema"])}
-    covered = set(PATH_TOOLS) | set(mcp_file_tools.SHARED_TOOLS)
-    case.assertTrue(named - set(mcp_file_tools.SHARED_TOOLS) <= covered, named - covered)
+    covered = set(PATH_TOOLS) | set(mcp_file_tools.SHARED_TOOLS) | set(mcp_file_tools.PROJECT_TOOLS)
+    case.assertTrue(named <= covered, named - covered)
 
 
 class Observation:
