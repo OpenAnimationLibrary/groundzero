@@ -24,6 +24,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QMetaObject>
+#include <QSemaphore>
 #include <QSettings>
 #include <QThread>
 #include <QUuid>
@@ -63,7 +64,8 @@ DV_IMPORT_API void initColorFx();
 namespace GroundzeroAutomation {
 namespace {
 
-constexpr int maximumLineBytes = 8 * 1024 * 1024;
+constexpr int maximumLineBytes      = 8 * 1024 * 1024;
+constexpr int quitRetryMilliseconds = 50;
 
 struct Options {
   QString workspace;
@@ -349,6 +351,7 @@ public:
         m_consumer(std::move(consumer)),
         m_stop(std::move(stop)) {}
   int exitCode() const { return m_exitCode; }
+  void eventLoopReturned() { m_loopReturned.release(); }
 
 protected:
   void run() override {
@@ -381,8 +384,14 @@ protected:
   }
 
 private:
+  // The platform event loop can miss the single wake-up that quit() sends
+  // from a queued call and then sleep until an unrelated event arrives.
+  // Asking again until the loop has returned bounds that wait.
   void requestStop() {
     QMetaObject::invokeMethod(&m_application, m_stop, Qt::QueuedConnection);
+    while (!m_loopReturned.tryAcquire(1, quitRetryMilliseconds))
+      QMetaObject::invokeMethod(&m_application, &QCoreApplication::quit,
+                                Qt::QueuedConnection);
   }
 
   bool deliver(const QByteArray& line, bool tooLarge) {
@@ -399,6 +408,7 @@ private:
   QApplication& m_application;
   Consumer m_consumer;
   Stop m_stop;
+  QSemaphore m_loopReturned;
   int m_exitCode = 0;
 };
 
@@ -522,6 +532,7 @@ int executeWorker(QApplication& application, QFile& output,
       });
   reader.start();
   const int result = application.exec();
+  reader.eventLoopReturned();
   reader.wait();
   shutdownRender(context);
   TImageCache::instance()->clear(true);
