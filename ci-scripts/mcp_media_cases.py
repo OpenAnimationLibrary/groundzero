@@ -31,20 +31,7 @@ def _arguments(case: NativeAcceptance) -> list[str]:
 
 
 def _reject(case: NativeAcceptance, name: str, options: list[str]) -> None:
-    result = subprocess.run(
-        [*_arguments(case), *options],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        check=False,
-    )
-    diagnostics = result.stderr.decode("utf-8", errors="replace")
-    (case.directory / f"media-{name}.stderr.log").write_bytes(result.stderr)
-    case.assertEqual(result.returncode, 2, diagnostics)
-    case.assertEqual(result.stdout, b"", "Invalid startup grant must not start the protocol")
-    case.assertIn("automation-worker: invalid_argument:", diagnostics)
-    case.assertIn("--media-tools", diagnostics)
+    case.assertIn("--media-tools", case.launch_refused(options, f"media-{name}"))
 
 
 def media_directories_require_explicit_canonical_arguments(case: NativeAcceptance) -> None:

@@ -541,7 +541,7 @@ def _hook_edit_refusals(
     missing = [{"drawing_id": _drawing(9), "a": {"x": 0, "y": 0}}]
     _refused(case, "hook.set", document, "missing_drawing", **base, positions=missing)
     suffixed = [{"drawing_id": {"number": 1, "suffix": "a"}, "a": {"x": 0, "y": 0}}]
-    _refused(case, "hook.set", document, "invalid_params", **base, positions=suffixed)
+    _refused(case, "hook.set", document, case.schema_code(), **base, positions=suffixed)
     precise = [{"drawing_id": _drawing(1), "a": {"x": 0.123456789, "y": 0}}]
     strict = dict(base, max_coordinate_error_inch=0)
     _refused(case, "hook.set", document, "invalid_params", **strict, positions=precise)
@@ -731,7 +731,7 @@ def rig_parent_policy_and_refusals(case: NativeAcceptance) -> None:
     child = case.mutate("column.create", document, name="Child")["object_id"]
     peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
     params = {"object_id": child, "parent_id": column["object_id"]}
-    _refused(case, "object.parent", document, "invalid_params", **params)
+    _refused(case, "object.parent", document, case.schema_code(), **params)
     hook = {"kind": "hook", "hook_number": 1}
     _refused(
         case,

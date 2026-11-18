@@ -35,11 +35,9 @@ def cast_paging_preserves_native_state(case: NativeAcceptance) -> None:
     case.assertEqual(_read(case, document, "cast.list", offset=2)["items"], [])
     for method in TOOLS:
         params = {"document_id": document, "expected_revision": case.revisions[document]}
-        case.assertEqual(
-            case.failure(method, {**params, "unknown": True})["code"], "invalid_params"
-        )
-        case.assertEqual(case.failure(method, {**params, "limit": 0})["code"], "invalid_params")
-        case.assertEqual(case.failure(method, {"document_id": document})["code"], "invalid_params")
+        case.schema_failure(method, {**params, "unknown": True})
+        case.schema_failure(method, {**params, "limit": 0})
+        case.schema_failure(method, {"document_id": document})
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
     old_revision = case.revisions[document]
     case.mutate("scene.settings", document, width_px=64)

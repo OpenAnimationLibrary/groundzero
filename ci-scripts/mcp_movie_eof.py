@@ -53,7 +53,7 @@ def _start_worker(case: NativeAcceptance, media: Path) -> None:
 
 
 def _replace_encoder(case: NativeAcceptance, media: Path) -> None:
-    fixture = _binary(case.executable.parent, "mcp_ffprobe_fixture")
+    fixture = _binary(case.native_executable.parent, "mcp_ffprobe_fixture")
     case.assertTrue(fixture.is_file(), f"Missing compiled encoder fixture: {fixture}")
     encoder = _binary(media, "ffmpeg")
     encoder.chmod(encoder.stat().st_mode | stat.S_IWUSR)

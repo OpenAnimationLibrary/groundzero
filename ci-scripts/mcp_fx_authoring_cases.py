@@ -331,7 +331,7 @@ def fx_authoring_rejections_preserve_document(case: NativeAcceptance) -> None:
     document = _scene(case)
     card = case.mutate("fx.create", document, type="colorCardFx", frame_count=2)
     for name in ("", "x" * 257, "control\nname"):
-        code = "INVALID_PARAMS" if "\n" in name else "invalid_params"
+        code = "INVALID_PARAMS" if "\n" in name else case.schema_code()
         _reject_unchanged(case, document, "fx.rename", {"fx_id": card["fx_id"], "name": name}, code)
     structural = _graph(case, document)["current_output_fx_id"]
     _reject_unchanged(case, document, "fx.duplicate", {"fx_id": structural}, "UNSUPPORTED_FX")

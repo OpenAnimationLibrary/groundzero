@@ -300,11 +300,9 @@ def movie_options_reject_unsupported_values(case: NativeAcceptance) -> None:
     for override in ({"width": 319}, {"height": 239}, {"step": 2}):
         _reject_submit(case, document, {**_options(), **override}, "unsupported_render_settings")
     for override in ({"format": "webm"}, {"quality": 50}, {"scale": 50}, {"audio": True}):
-        _reject_submit(case, document, {**_options(), **override}, "invalid_params")
-    before = case.success("scene.summary", {"document_id": document})
+        _reject_submit(case, document, {**_options(), **override}, case.schema_code())
     params = case.write_params(document, {"frame": 0, "format": "mp4"})
-    case.assertEqual(case.failure("render.preview", params)["code"], "invalid_params")
-    case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
+    case.schema_failure("render.preview", params)
 
 
 def _unpublished(case: NativeAcceptance, job: dict[str, Any], expected: str) -> None:

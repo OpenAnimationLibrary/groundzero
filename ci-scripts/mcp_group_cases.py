@@ -357,8 +357,8 @@ def _bad_ranges(case: NativeAcceptance, document: str, target: dict[str, Any]) -
             "unsupported_grouping",
         ),
         ("vector.order.move", {"first_index": 0, "count": 2, "before_index": 4}, "invalid_params"),
-        ("vector.group.create", {"first_index": 0, "count": 0}, "invalid_params"),
-        ("vector.group.create", {"first_index": 0, "count": 4097}, "invalid_params"),
+        ("vector.group.create", {"first_index": 0, "count": 0}, case.schema_code()),
+        ("vector.group.create", {"first_index": 0, "count": 4097}, case.schema_code()),
         (
             "vector.group.create",
             {"first_index": 0, "count": 1, "drawing_id": {"number": 999, "suffix": ""}},
@@ -367,11 +367,11 @@ def _bad_ranges(case: NativeAcceptance, document: str, target: dict[str, Any]) -
         (
             "vector.group.create",
             {"first_index": 0, "count": 1, "sharing": "one_exposure"},
-            "invalid_params",
+            case.schema_code(),
         ),
         ("vector.group.create", {"first_index": 3, "count": 1}, "invalid_params"),
-        ("vector.group.create", {"first_index": 0.5, "count": 1}, "invalid_params"),
-        ("vector.group.create", {"first_index": 0, "count": 1, "extra": 1}, "invalid_params"),
+        ("vector.group.create", {"first_index": 0.5, "count": 1}, case.schema_code()),
+        ("vector.group.create", {"first_index": 0, "count": 1, "extra": 1}, case.schema_code()),
     )
     for method, params, code in cases:
         with case.subTest(method=method, params=params):

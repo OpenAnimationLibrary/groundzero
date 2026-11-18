@@ -39,5 +39,5 @@ def passive_inspection_preserves_state(case: NativeAcceptance) -> None:
         {"path": "/not-a-component-input"},
         {"operation_id": "not-a-write"},
     ):
-        case.assertEqual(case.failure("assistance.inspect", params)["code"], "invalid_params")
+        case.schema_failure("assistance.inspect", params)
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)

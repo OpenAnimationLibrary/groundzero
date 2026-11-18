@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -77,18 +76,6 @@ def refuse(
     return response["error"]["details"]
 
 
-def _launch_refused(case: NativeAcceptance, extra: list[str]) -> str:
-    result = subprocess.run(
-        [str(case.executable), "--automation-worker", "--workspace", str(case.workspace), *extra],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
-    case.assertEqual(result.returncode, 2, extra)
-    return result.stderr.decode("utf-8", errors="replace")
-
-
 def shared_root_flags_are_explicit_and_read_only(case: NativeAcceptance) -> None:
     """Refuse unsafe grants at launch; granted roots stay read-only unless named."""
     studio = case.directory / "studio"
@@ -110,9 +97,9 @@ def shared_root_flags_are_explicit_and_read_only(case: NativeAcceptance) -> None
         ["--shared-write", "library"],
         ["--shared-root", f"library={library}", "--shared-write", "elsewhere"],
     ]
-    for extra in refusals:
+    for index, extra in enumerate(refusals):
         with case.subTest(extra=extra):
-            case.assertIn("shared", _launch_refused(case, extra).lower())
+            case.assertIn("shared", case.launch_refused(extra, f"shared-root-{index}").lower())
     tools = {tool["name"]: tool for tool in case.success("automation.capabilities", {})["tools"]}
     case.assertTrue(SHARED_TOOLS.issubset(tools))
     for name in SHARED_TOOLS:
@@ -217,11 +204,6 @@ def studio_palettes_list_inspect_find_preserve_roots(case: NativeAcceptance) -> 
     case.assertEqual(found["completeness"]["status"], "complete")
     unique = call(case, worker, "studio_palette.find", {"palette_id": "frozen_1"})
     case.assertTrue(unique["unique"])
-    refuse(
-        case,
-        worker,
-        "studio_palette.list",
-        {"root": "studio_palettes", "folder": "../project"},
-        "invalid_path",
-    )
+    escape = {"root": "studio_palettes", "folder": "../project"}
+    case.schema_failure("studio_palette.list", escape, "invalid_path", worker)
     case.assertEqual((tree_digest(studio), tree_digest(project)), before)

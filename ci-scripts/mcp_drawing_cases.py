@@ -369,8 +369,9 @@ def check_lzo_roundtrip(test: NativeAcceptance) -> None:
     Args:
         test: The running acceptance case and exact shipped executable path.
     """
-    compressor = test.executable.with_name("lzocompress" + test.executable.suffix)
-    decompressor = test.executable.with_name("lzodecompress" + test.executable.suffix)
+    native = test.native_executable
+    compressor = native.with_name("lzocompress" + native.suffix)
+    decompressor = native.with_name("lzodecompress" + native.suffix)
     test.assertTrue(compressor.is_file(), "Native TLV compressor is missing")
     test.assertTrue(decompressor.is_file(), "Native TLV decompressor is missing")
     entropy = b"".join(hashlib.sha256(struct.pack("<I", index)).digest() for index in range(2048))
@@ -407,7 +408,7 @@ def _reject_vector_numbers(test: NativeAcceptance, document: str, target: dict[s
                 "drawing_id": {"number": 65536, "suffix": "a"},
                 "format": "vector",
             },
-            "invalid_params",
+            test.schema_code(),
         ),
         (
             "drawing.clone",
@@ -496,7 +497,7 @@ def _reject_palette_names(test: NativeAcceptance, document: str, level_id: str) 
                     },
                 ),
             )
-            test.assertEqual(error["code"], "invalid_params")
+            test.assertEqual(error["code"], test.schema_code())
             test.assertEqual(_palette(test, document, level_id), palette)
             test.assertEqual(
                 test.success("scene.summary", {"document_id": document})["revision"], revision

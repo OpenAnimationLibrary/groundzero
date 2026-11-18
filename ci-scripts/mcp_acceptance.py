@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import argparse
 import base64
+import functools
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +77,28 @@ REQUIRED_TOOLS = {
     "render.artifacts",
     "artifact.read",
 }
+SDK_CLIENT = "native-client.mjs"
+SCHEMA_REJECTION = "INVALID_ARGUMENTS"
+CaseMethod = Callable[["NativeAcceptance"], None]
+
+
+def worker_only(reason: str) -> Callable[[CaseMethod], CaseMethod]:
+    """Mark a case that qualifies the native worker process itself rather than its tools.
+
+    No MCP client can express such a case, so through the SDK client it is skipped and the
+    skip records the reason.
+    """
+
+    def mark(test: CaseMethod) -> CaseMethod:
+        @functools.wraps(test)
+        def run(case: NativeAcceptance) -> None:
+            if case.through_sdk:
+                case.skipTest(f"worker-only: {reason}")
+            test(case)
+
+        return run
+
+    return mark
 
 
 class NativeAcceptance(unittest.TestCase):
@@ -158,6 +183,7 @@ class NativeAcceptance(unittest.TestCase):
     def test_finishing_required_inputs_are_diagnosed(self) -> None:
         mcp_finishing_cases.finishing_required_inputs_are_diagnosed(self)
 
+    @worker_only("needs the --test-render-deadline-ms test hook, which the adapter never passes")
     def test_finishing_render_deadline_stops_slow_job(self) -> None:
         mcp_finishing_cases.finishing_render_deadline_stops_slow_job(self)
 
@@ -410,12 +436,17 @@ class NativeAcceptance(unittest.TestCase):
     def test_unicode_names_preserve_data_and_reject_unpaired_surrogates(self) -> None:
         mcp_worker_cases.unicode_names_preserve_data_and_reject_unpaired_surrogates(self)
 
+    @worker_only(
+        "launches the binary by relative path from other directories; the adapter never does"
+    )
     def test_private_bootstrap_ignores_launch_configuration(self) -> None:
         mcp_worker_cases.private_bootstrap_ignores_launch_configuration(self)
 
+    @worker_only("closes the worker's protocol output to check its own SIGPIPE handling")
     def test_closed_protocol_output_has_controlled_exit(self) -> None:
         mcp_worker_cases.closed_output_has_controlled_exit(self)
 
+    @worker_only("gives the worker a directory as protocol input to check its read-error exit")
     def test_unreadable_protocol_input_is_not_clean_eof(self) -> None:
         mcp_worker_cases.unreadable_input_is_not_clean_eof(self)
 
@@ -496,6 +527,97 @@ class NativeAcceptance(unittest.TestCase):
         self.assertTrue(error.get("message"), response)
         self.assertIsInstance(error.get("details"), dict)
         return error
+
+    @property
+    def through_sdk(self) -> bool:
+        """Whether each worker is the MCP SDK client fixture driving the adapter."""
+        return self.executable.name == SDK_CLIENT
+
+    @property
+    def native_executable(self) -> Path:
+        """The OpenToonz executable that serves every call, directly or behind the adapter."""
+        if not self.through_sdk:
+            return self.executable
+        return Path(os.environ["GROUNDZERO_NATIVE_EXECUTABLE"])
+
+    def schema_code(self, native_code: str = "invalid_params") -> str:
+        """Return the code for arguments outside a tool's advertised input schema.
+
+        The adapter validates every call against the advertised schema and never forwards a
+        violation, so through the SDK client the code is SCHEMA_REJECTION; the raw worker
+        reports the violation with its own native_code.
+        """
+        return SCHEMA_REJECTION if self.through_sdk else native_code
+
+    def schema_failure(
+        self,
+        method: str,
+        params: dict[str, Any],
+        native_code: str = "invalid_params",
+        worker: Worker | None = None,
+    ) -> dict[str, Any]:
+        """Require the schema rejection of the client in use and an unchanged document.
+
+        Args:
+            method: The tool to call.
+            params: Arguments that violate the tool's advertised input schema.
+            native_code: The code the raw worker reports for this violation.
+            worker: The worker to call instead of the case's own.
+        Returns:
+            The structured error.
+        """
+        worker = worker or self.worker
+        document = params.get("document_id")
+        tracked = isinstance(document, str) and document in self.revisions
+        before = self._summary(worker, document) if tracked else None
+        response = worker.call(method, params)
+        self.assertNotIn("result", response, f"{method} unexpectedly succeeded: {response}")
+        error = response["error"]
+        self.assertEqual(error["code"], self.schema_code(native_code), error)
+        self.assertTrue(error["message"], error)
+        self.assertIsInstance(error["details"], dict)
+        if self.through_sdk:
+            self.assertTrue(error["details"]["issues"], error)
+        if before is not None:
+            self.assertEqual(self._summary(worker, document), before)
+        return error
+
+    def _summary(self, worker: Worker, document: Any) -> dict[str, Any]:
+        response = worker.call("scene.summary", {"document_id": document})
+        self.assertNotIn("error", response, response)
+        return response["result"]
+
+    def launch_refused(self, grants: list[str], name: str) -> str:
+        """Require a launch with invalid grants to stop before the protocol starts.
+
+        The raw worker reports `automation-worker: invalid_argument` and exits 2. Through the
+        SDK client the adapter refuses the same grants itself and the client exits 1.
+
+        Args:
+            grants: Arguments after the workspace grant.
+            name: Distinct name for the retained diagnostics.
+        Returns:
+            The diagnostics, for checks on how the refusal names its argument.
+        """
+        workspace = ["--workspace", str(self.workspace)]
+        result = subprocess.run(
+            [str(self.executable), "--automation-worker", *workspace, *grants],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        (self.directory / f"{name}.stderr.log").write_bytes(result.stderr)
+        diagnostics = result.stderr.decode("utf-8", errors="replace")
+        code, marker = (
+            (1, "Groundzero MCP startup failed:")
+            if self.through_sdk
+            else (2, "automation-worker: invalid_argument:")
+        )
+        self.assertEqual(result.returncode, code, (grants, diagnostics))
+        self.assertEqual(result.stdout, b"", "A refused launch must not start the protocol")
+        self.assertIn(marker, diagnostics)
+        return diagnostics
 
     def write_params(self, document: str | None, params: dict[str, Any]) -> dict[str, Any]:
         """Attach the current revision and a unique mutation receipt identifier."""
@@ -611,6 +733,7 @@ class NativeAcceptance(unittest.TestCase):
                         self.assertIn("expected_revision", schema["required"])
                 self.failure(tool["name"], {"unrecognized_acceptance_argument": True})
 
+    @worker_only("runs the native domain tests, which only the worker's --test-domains flag starts")
     def test_native_domain_regressions(self) -> None:
         domain_workspace = self.directory / "domain-workspace"
         domain_workspace.mkdir()
@@ -935,6 +1058,7 @@ class NativeAcceptance(unittest.TestCase):
             },
         )
 
+    @worker_only("writes malformed and oversize frames to the worker's own NDJSON protocol")
     def test_protocol_rejects_malformed_and_oversize_requests(self) -> None:
         self.assertEqual(self.worker.exchange(b"{malformed json")["error"]["code"], "parse_error")
         invalid_utf8 = b'{"id":"invalid-\xff","method":"automation.capabilities","params":{}}'

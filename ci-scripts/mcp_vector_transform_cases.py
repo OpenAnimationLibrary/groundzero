@@ -358,12 +358,12 @@ def vector_transform_rejections_and_noops(case: NativeAcceptance) -> None:
             },
             "unsupported_geometry",
         ),
-        ({"matrix": {**IDENTITY, "a11": "1"}}, "invalid_params"),
-        ({"matrix": {"a11": 1}}, "invalid_params"),
-        ({"matrix": {**IDENTITY, "a13": 32769}}, "invalid_params"),
-        ({"sharing": "one_exposure"}, "invalid_params"),
-        ({"coordinate_space": "camera_pixels"}, "invalid_params"),
-        ({"thickness_mode": "maximum_axis"}, "invalid_params"),
+        ({"matrix": {**IDENTITY, "a11": "1"}}, case.schema_code()),
+        ({"matrix": {"a11": 1}}, case.schema_code()),
+        ({"matrix": {**IDENTITY, "a13": 32769}}, case.schema_code()),
+        ({"sharing": "one_exposure"}, case.schema_code()),
+        ({"coordinate_space": "camera_pixels"}, case.schema_code()),
+        ({"thickness_mode": "maximum_axis"}, case.schema_code()),
     )
     for overrides, code in invalid:
         _reject(case, document, target, overrides, code)
