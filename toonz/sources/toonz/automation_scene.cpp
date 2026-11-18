@@ -4,6 +4,7 @@
 #include "automation_path.h"
 #include "automation_drawing.h"
 #include "automation_rig.h"
+#include "automation_scene_host.h"
 
 #include "tdoubleparam.h"
 #include "toutputproperties.h"
@@ -153,15 +154,25 @@ QString levelFormat(int type) {
   return "unsupported";
 }
 
-QJsonObject describeLevel(Document& document, TXshLevel* level) {
-  std::vector<TFrameId> frames;
-  if (!level->getSoundLevel()) level->getFids(frames);
-  QJsonArray drawings;
-  for (const TFrameId& frame : frames) drawings.append(drawingId(frame));
-  return {{"level_id", document.idForLevel(level)},
-          {"name", QString::fromStdWString(level->getName())},
-          {"format", levelFormat(level->getType())},
-          {"drawings", drawings}};
+QJsonObject describeLevel(Document& document, TXshLevel* level,
+                          bool includeDrawings) {
+  QJsonObject result{{"level_id", document.idForLevel(level)},
+                     {"name", QString::fromStdWString(level->getName())},
+                     {"format", levelFormat(level->getType())}};
+  if (includeDrawings) {
+    std::vector<TFrameId> frames;
+    if (!level->getSoundLevel()) level->getFids(frames);
+    QJsonArray drawings;
+    for (const TFrameId& frame : frames) drawings.append(drawingId(frame));
+    result.insert("drawings", drawings);
+  }
+  if (document.readOnly) {
+    const LevelState state = document.readOnly->levels.value(level);
+    result.insert("kind", state.kind.isEmpty() ? "unknown" : state.kind);
+    result.insert("bit_depth",
+                  state.bitDepth ? QJsonValue(state.bitDepth) : QJsonValue());
+  }
+  return result;
 }
 
 QJsonObject describeObject(Document& document, TStageObject* object) {
@@ -188,13 +199,17 @@ QString columnKind(TXshColumn* column) {
 
 QJsonObject describeColumn(Document& document, TXshColumn* column) {
   const int index = columnIndex(document, column);
+  // A user scene can hold a column without a stage object; reading never
+  // creates one.
   TStageObject* object =
       tree(document)->getStageObject(TStageObjectId::ColumnId(index), false);
   return {{"column_id", document.idForColumn(column)},
           {"kind", columnKind(column)},
-          {"object_id", document.idForObject(object)},
+          {"object_id",
+           object ? QJsonValue(document.idForObject(object)) : QJsonValue()},
           {"position", index},
-          {"name", QString::fromStdString(object->getName())},
+          {"name", object ? QString::fromStdString(object->getName())
+                          : QString("Col%1").arg(index + 1)},
           {"visible", column->isPreviewVisible()},
           {"locked", column->isLocked()},
           {"opacity", column->getOpacity() / 255.0},
@@ -213,7 +228,7 @@ QJsonObject describeCamera(Document& document) {
           {"height_in", camera->getSize().ly}};
 }
 
-QJsonObject describeScene(Document& document) {
+QJsonObject describeScene(Document& document, bool includeDrawings = true) {
   QJsonArray columns, levels, objects;
   TXsheet* sheet = document.scene->getXsheet();
   for (int index = 0; index < sheet->getColumnCount(); ++index)
@@ -221,7 +236,8 @@ QJsonObject describeScene(Document& document) {
       columns.append(describeColumn(document, column));
   TLevelSet* cast = document.scene->getLevelSet();
   for (int index = 0; index < cast->getLevelCount(); ++index)
-    levels.append(describeLevel(document, cast->getLevel(index)));
+    levels.append(
+        describeLevel(document, cast->getLevel(index), includeDrawings));
   for (int index = 0; index < tree(document)->getStageObjectCount(); ++index)
     objects.append(
         describeObject(document, tree(document)->getStageObject(index)));
@@ -237,7 +253,11 @@ QJsonObject describeScene(Document& document) {
       {"columns", columns},
       {"levels", levels},
       {"objects", objects},
-      {"mode", "detached"}};
+      {"mode", "detached"},
+      {"access", document.readOnly ? "read_only" : "editable"},
+      {"source", document.readOnly
+                     ? QJsonValue(document.readOnly->summarySource())
+                     : QJsonValue()}};
 }
 
 struct Settings {
@@ -291,7 +311,8 @@ QJsonValue createScene(Context& context, const QJsonObject& params) {
 }
 
 QJsonValue sceneSummary(Context& context, const QJsonObject& params) {
-  return describeScene(getDocument(context, params));
+  return describeScene(getDocument(context, params),
+                       boolParam(params, "include_drawings", true));
 }
 
 QJsonValue updateSettings(Context& context, const QJsonObject& params) {
@@ -330,8 +351,11 @@ QJsonValue discardScene(Context& context, const QJsonObject& params) {
 
 QJsonValue inspectProject(Context& context, const QJsonObject&) {
   return QJsonObject{{"mode", "private_workspace"},
-                     {"documents", context.documents()},
-                     {"arbitrary_scene_open", false},
+                     {"documents", documentRows(context)},
+                     {"arbitrary_scene_open", true},
+                     {"read_only_documents",
+                      QJsonObject{{"open", readOnlyDocumentCount(context)},
+                                  {"max", ReadOnlyDocumentLimit}}},
                      {"live_gui_mutation", false}};
 }
 
@@ -382,7 +406,7 @@ QJsonValue createLevel(Context& context, const QJsonObject& params) {
     throw Error("native_error",
                 "Could not register the new level in the scene cast.");
   level.release();
-  return describeLevel(document, result);
+  return describeLevel(document, result, true);
 }
 
 void validatePngPrecision(const QString& path) {
@@ -470,13 +494,13 @@ QJsonValue importLevel(Context& context, const QJsonObject& params) {
     throw Error("native_error",
                 "Could not register the imported PNG in the scene cast.");
   level.release();
-  return describeLevel(document, result);
+  return describeLevel(document, result, true);
 }
 
 QJsonValue inspectLevel(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
-  return describeLevel(document,
-                       document.level(requiredString(params, "level_id")));
+  return describeLevel(
+      document, document.level(requiredString(params, "level_id")), true);
 }
 
 QJsonValue createColumn(Context& context, const QJsonObject& params) {
@@ -1100,8 +1124,11 @@ void addSceneOperations(QJsonArray& catalog) {
                 merge(settings, {{"name", textSchema()}}), {"name"}, true));
   catalog.append(
       operation("scene.summary",
-                "Inspect native scene, levels, columns and stage objects.",
-                documentSchema(), {"document_id"}));
+                "Inspect native scene, levels, columns and stage objects; "
+                "include_drawings false omits per-level drawing lists.",
+                merge(documentSchema(),
+                      {{"include_drawings", QJsonObject{{"type", "boolean"}}}}),
+                {"document_id"}));
   catalog.append(operation(
       "scene.settings", "Set explicit frame rate, pixels and physical inches.",
       merge(documentSchema(), settings), {"document_id"}, true));

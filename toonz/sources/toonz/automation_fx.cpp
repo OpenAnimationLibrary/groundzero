@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_fx.h"
+#include "automation_scene_host.h"
 #include "automation_fx_profile.h"
 #include "automation_macro.h"
 #include "tmacrofx.h"
@@ -341,16 +342,56 @@ QJsonObject describeFx(Document& document, TFx* fx) {
   return result;
 }
 
+// Read-only documents describe effects outside the profile without their
+// parameters or diagnostics.
+QJsonObject reducedFx(Document& document, TFx* fx) {
+  auto* wrapper = dynamic_cast<TZeraryColumnFx*>(fx);
+  TFx* native = wrapper && wrapper->getZeraryFx() ? wrapper->getZeraryFx() : fx;
+  QJsonObject result{
+      {"fx_id", document.idForFx(fx)},
+      {"type", QString::fromStdString(native->getFxType())},
+      {"name", QString::fromStdWString(native->getName())},
+      {"enabled", fx->getAttributes()->isEnabled() &&
+                      native->getAttributes()->isEnabled()},
+      {"ports", portsDescription(fx, &document)},
+      {"terminal", dag(document)->getTerminalFxs()->containsFx(fx)}};
+  if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
+    TXshColumn* owner = column->getXshColumn();
+    result["column_id"] =
+        owner ? QJsonValue(document.idForColumn(owner)) : QJsonValue();
+    result["column_index"]      = column->getColumnIndex();
+    result["generator_wrapper"] = wrapper != nullptr;
+  }
+  return result;
+}
+
+QJsonObject graphEntry(Document& document, TFx* fx) {
+  QJsonObject entry;
+  if (!document.readOnly) {
+    entry = describeFx(document, fx);
+  } else {
+    try {
+      entry =
+          fxAdmitted(fx) ? describeFx(document, fx) : reducedFx(document, fx);
+    } catch (const Error&) {
+      entry = reducedFx(document, fx);
+    }
+  }
+  entry.insert("admission", fxAdmission(document, fx));
+  return entry;
+}
+
 QJsonValue inspectGraph(Document& document) {
-  validateAutomationFxGraph(*document.scene);
+  if (!document.readOnly) validateAutomationFxGraph(*document.scene);
   QJsonArray effects;
   for (TFx* fx : graphMembers(document))
-    effects.append(describeFx(document, fx));
+    if (fx) effects.append(graphEntry(document, fx));
+  TFx* output = dag(document)->getCurrentOutputFx();
   return QJsonObject{
       {"effects", effects},
       {"xsheet_fx_id", document.idForFx(dag(document)->getXsheetFx())},
       {"current_output_fx_id",
-       document.idForFx(dag(document)->getCurrentOutputFx())}};
+       output ? QJsonValue(document.idForFx(output)) : QJsonValue()}};
 }
 
 void assignGrammar(TParam* param, TXsheet* sheet) {

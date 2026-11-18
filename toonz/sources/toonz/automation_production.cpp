@@ -1,5 +1,6 @@
 #include "automation_production.h"
 #include "automation_fx.h"
+#include "automation_scene_host.h"
 
 #include "tfilepath.h"
 #include "tfx.h"
@@ -48,10 +49,13 @@ QString boundedText(const QString& value, int maximum = 4096) {
   return value;
 }
 
-QJsonObject limits() {
-  return {{"levels", MaxLevels},          {"columns", MaxEntities},
-          {"fx_nodes", MaxEntities},      {"scanned_cells", MaxCells},
-          {"result_records", MaxRecords}, {"response_bytes", MaxResponse}};
+QJsonObject limits(int levels) {
+  return {{"levels", levels},
+          {"columns", MaxEntities},
+          {"fx_nodes", MaxEntities},
+          {"scanned_cells", MaxCells},
+          {"result_records", MaxRecords},
+          {"response_bytes", MaxResponse}};
 }
 
 QJsonArray exclusions() {
@@ -79,6 +83,9 @@ struct Report final {
 
   Report(Context& owner, Document& value, QString operation)
       : context(owner), document(value), method(std::move(operation)) {}
+
+  bool readOnly() const { return document.readOnly != nullptr; }
+  int levelLimit() const { return readOnly() ? LevelLimit : MaxLevels; }
 
   void incomplete(const QString& reason) {
     if (!reasons.contains(reason)) reasons.append(reason);
@@ -138,16 +145,17 @@ void unsupportedLevel(Report& report, TXshLevel* level) {
 
 void collectLevels(Report& report) {
   const auto* cast = report.document.scene->getLevelSet();
-  const int count  = std::min(cast->getLevelCount(), MaxLevels);
-  if (cast->getLevelCount() > MaxLevels) report.incomplete("level_limit");
+  const int count  = std::min(cast->getLevelCount(), report.levelLimit());
+  if (cast->getLevelCount() > report.levelLimit())
+    report.incomplete("level_limit");
   for (int index = 0; index < count; ++index) {
     TXshLevel* level = cast->getLevel(index);
     if (!level)
       throw Error("unsupported_level",
                   "The native cast contains an empty level.");
     const QString id = report.document.idForLevel(level);
-    if (level->getLibraryProvenance().relationship ==
-        TXshLevel::LibraryProvenance::Linked)
+    if (!report.readOnly() && level->getLibraryProvenance().relationship ==
+                                  TXshLevel::LibraryProvenance::Linked)
       throw Error("unsupported_level",
                   "Linked Library origins are outside the detached profile.",
                   {{"level_id", id}, {"document_id", report.document.id}});
@@ -213,6 +221,14 @@ void qualifyMacros(Report& report) {
   int members     = 0;
   auto candidates = collectMacroCandidates(report, members);
   if (candidates.isEmpty()) return;
+  if (report.readOnly()) {
+    QSet<TFx*> admitted;
+    for (TFx* macro : candidates)
+      if (fxAdmitted(macro)) admitted.insert(macro);
+    report.qualifiedMacros = std::move(admitted);
+    report.macroMembers    = members;
+    return;
+  }
   try {
     validateAutomationFxGraph(*report.document.scene);
   } catch (const Error&) {
@@ -244,6 +260,13 @@ void inspectFx(Report& report) {
       continue;
     report.incomplete("unsupported_fx");
     if (!report.validates()) continue;
+    // Read-only documents report external and file effects with their own
+    // codes; only other builtins are unsupportedFx here.
+    if (report.readOnly()) {
+      const QString kind =
+          fxAdmission(report.document, it.value()).value("class").toString();
+      if (kind != "builtin_other" && kind != "unknown") continue;
+    }
     auto row = issue("unsupportedFx",
                      "Effect is outside the detached inspection profile.");
     row.insert("fx_id", it.key());
@@ -302,18 +325,49 @@ QJsonValue drawingId(const TFrameId& frame) {
                      {"suffix", frame.getLetter()}};
 }
 
+QString castKind(Report& report, TXshLevel* level) {
+  if (report.readOnly()) {
+    const QString kind = report.document.readOnly->levels.value(level).kind;
+    return kind.isEmpty() ? "unknown" : kind;
+  }
+  if (level->getSoundLevel()) return "sound";
+  if (level->getChildLevel()) return "sub_xsheet";
+  if (level->getZeraryFxLevel()) return "generator";
+  switch (level->getType()) {
+  case PLI_XSHLEVEL:
+    return "vector";
+  case OVL_XSHLEVEL:
+    return "raster";
+  case TZP_XSHLEVEL:
+    return "toonz_raster";
+  default:
+    return "unknown";
+  }
+}
+
+QString loadStatus(Report& report, TXshLevel* level) {
+  if (!report.readOnly())
+    return level->getSimpleLevel() ? "loaded" : "not_applicable";
+  const QString status =
+      report.document.readOnly->levels.value(level).loadStatus;
+  return status.isEmpty() ? "not_applicable" : status;
+}
+
 QJsonObject castRow(Report& report, TXshLevel* level) {
   // A sound source has audio frames, not drawings.
   const int count        = level->getSoundLevel() ? 0 : level->getFrameCount();
   const QStringList tags = level->getCastTags();
-  if (count < 0 || count > MaxRecords || tags.size() > 32)
+  const int maximum      = report.readOnly() ? DrawingLimit : MaxRecords;
+  if (count < 0 || count > maximum || tags.size() > 32)
     throw Error("resource_limit",
                 "Native cast metadata exceeds the inspection limits.");
   for (const QString& tag : tags) boundedText(tag, 80);
   QJsonValue cover;
+  QString coverStatus = "none";
   if (level->hasCastCover()) {
-    cover = drawingId(level->getCastCover());
-    if (cover.isNull())
+    cover       = drawingId(level->getCastCover());
+    coverStatus = cover.isNull() ? "unsupported" : "ok";
+    if (cover.isNull() && !report.readOnly())
       throw Error("unsupported_level",
                   "Native cast cover is not a supported drawing ID.");
   }
@@ -329,7 +383,10 @@ QJsonObject castRow(Report& report, TXshLevel* level) {
           {"dirty", simple ? QJsonValue(simple->getProperties()->getDirtyFlag())
                            : QJsonValue()},
           {"source_expected_on_disk", level->sourceExpectedOnDisk()},
-          {"library", libraryMetadata(level)}};
+          {"library", libraryMetadata(level)},
+          {"kind", castKind(report, level)},
+          {"load_status", loadStatus(report, level)},
+          {"cover_status", coverStatus}};
 }
 
 void castInventory(Report& report) {
@@ -459,6 +516,9 @@ bool inspectColumn(Report& report, int index) {
 void usage(Report& report) {
   for (int index = 0; index < report.columnCount; ++index)
     if (!inspectColumn(report, index)) return;
+  if (report.validates())
+    for (const QJsonValue& row : readOnlyIssues(report.document))
+      if (!report.append(row.toObject())) return;
   if (!report.validates() || !report.reasons.isEmpty()) return;
   for (TXshLevel* level : report.levels) {
     if (report.used.contains(level)) continue;
@@ -480,7 +540,8 @@ QJsonObject dependencyRow(const QString& owner, const QString& id,
           {"path_kind", path.isEmpty() ? "empty" : "file"},
           {"authority", "unresolved"},
           {"availability", path.isEmpty() ? "unsaved" : "unresolved"},
-          {"size_bytes", QJsonValue()}};
+          {"size_bytes", QJsonValue()},
+          {"pinned", false}};
 }
 
 bool knownAlias(ToonzScene& scene, const TFilePath& path) {
@@ -587,6 +648,9 @@ QJsonObject observeDependency(Report& report, QJsonObject row,
     return row;
   }
   if (resolved.isEmpty()) return row;
+  if (report.readOnly())
+    row.insert("pinned",
+               report.document.readOnly->pinnedPaths.contains(resolved));
   row.insert("resolved_path", boundedText(resolved));
   row.insert("authority", dependencyAuthority(report.context, resolved));
   if (path.isLevelName()) {
@@ -664,7 +728,8 @@ QJsonObject page(Report& report, const QJsonObject& params) {
       {"scanned_cells", report.cells}};
   QJsonObject result{{"document_id", report.document.id},
                      {"source_revision", report.document.revisionText()},
-                     {"profile", "worker-generated-v1"},
+                     {"profile", report.readOnly() ? readOnlyProfileName()
+                                                   : "worker-generated-v1"},
                      {"scope", "root_sheet"},
                      {"offset", offset},
                      {"limit", limit},
@@ -675,7 +740,7 @@ QJsonObject page(Report& report, const QJsonObject& params) {
                      {"traversal_complete", report.reasons.isEmpty()},
                      {"reasons", report.reasons},
                      {"scanned", scanned},
-                     {"limits", limits()},
+                     {"limits", limits(report.levelLimit())},
                      {"excluded_checks", exclusions()}};
   // A native request ID has at most 128 UTF-16 code units; escaped controls are
   // the largest encoding.

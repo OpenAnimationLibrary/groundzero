@@ -526,8 +526,9 @@ QString admittedDirectory(Context& context, const QJsonObject& params) {
   const QString directory = QFileInfo(path).canonicalFilePath();
   if (!publishedPackages.count(directory))
     throw Error("unregistered_package",
-                "Open only a scene package published by this worker. Arbitrary "
-                "native scenes are unsupported.");
+                "Open only a scene package published by this worker; open "
+                "other native scenes with scene.open_read_only.",
+                {{"hint", "scene.open_read_only"}});
   return directory;
 }
 

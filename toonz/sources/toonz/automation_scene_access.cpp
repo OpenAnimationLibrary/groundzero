@@ -1,0 +1,972 @@
+#include "automation_scene_host.h"
+#include "automation_shared_parse.h"
+
+#include "toonz/toonzscene.h"
+#include "toonz/tproject.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QProcess>
+#include <QTemporaryDir>
+#include <QUuid>
+
+#include <algorithm>
+#include <map>
+
+namespace GroundzeroAutomation {
+
+struct SceneHost final {
+  QString documentId;
+  QString directory;
+  std::unique_ptr<QProcess> process;
+  QByteArray buffer;
+  QString lostCause;
+  QString lostPhase;
+  QString lastJob;
+  bool renderActive = false;
+
+  bool lost() const { return !lostCause.isEmpty(); }
+};
+
+struct ProjectEntry final {
+  QString file;
+  QString folder;
+  QString name;
+};
+
+struct SceneHostRegistry final {
+  std::map<QString, std::unique_ptr<SceneHost>> hosts;
+  QHash<QString, ProjectEntry> projects;
+  QHash<QString, QString> jobs;
+  QHash<QString, QString> artifacts;
+  quint64 requests = 0;
+
+  ~SceneHostRegistry();
+};
+
+namespace {
+
+constexpr int MaxScanDepth       = 4;
+constexpr int MaxScanEntries     = 20000;
+constexpr int MaxScanMs          = 10000;
+constexpr int MaxProjects        = 4096;
+constexpr qint64 MaxHashedBytes  = 64LL * 1024 * 1024;
+constexpr int MaxRegistered      = 65536;
+constexpr qint64 MaxHostLine     = 9LL * 1024 * 1024;
+constexpr int HostMemoryExit     = 125;
+constexpr int HostCloseGraceMs   = 2000;
+constexpr int MaxAlternates      = 8;
+constexpr int StandaloneNameSize = 256;
+
+const QStringList& projectSuffixes() {
+  static const QStringList suffixes = {"_otprj.xml", "_prj63ml.xml",
+                                       "_prj6.xml", "_prj.xml"};
+  return suffixes;
+}
+
+QString projectFormat(const QString& file) {
+  const QString name = QFileInfo(file).fileName();
+  if (name == "tahomaproject.xml") return "tahoma";
+  for (const QString& suffix : projectSuffixes())
+    if (name.endsWith(suffix)) return suffix.mid(1, suffix.size() - 5);
+  return QString();
+}
+
+SceneHostRegistry& registry(Context& context) {
+  if (!context.sceneHosts)
+    context.sceneHosts = std::make_shared<SceneHostRegistry>();
+  return *context.sceneHosts;
+}
+
+bool beneath(const QString& path, const QString& root) {
+  return path == root ||
+         path.startsWith(root.endsWith('/') ? root : root + '/');
+}
+
+QStringList readRoots(const Context& context) {
+  QStringList roots{context.workspace()};
+  roots.append(context.inputRoots());
+  return roots;
+}
+
+// ---------------------------------------------------------------- project.list
+
+struct ProjectRow final {
+  QString file;
+  QString folder;
+  QString name;
+  qint64 size = 0;
+  QString revision;
+  QString status;
+  QStringList alternates;
+};
+
+struct Scan final {
+  Context& context;
+  int maxDepth;
+  QElapsedTimer timer;
+  int entries   = 0;
+  qint64 links  = 0;
+  qint64 hashed = 0;
+  QStringList reasons;
+  QSet<QString> visited;
+  std::vector<ProjectRow> rows;
+
+  void incomplete(const QString& reason) {
+    if (!reasons.contains(reason)) reasons.append(reason);
+  }
+};
+
+// The workspace's private runtime, render outputs and worker projects.
+bool skippedDirectory(const Context& context, const QFileInfo& entry) {
+  if (QFileInfo(entry.absolutePath()).canonicalFilePath() !=
+      context.workspace())
+    return false;
+  const QString name = entry.fileName();
+  return name == "renders" || name.startsWith("runtime_") ||
+         (name.startsWith("project_") &&
+          QFileInfo(
+              QDir(entry.absoluteFilePath()).filePath("automation_otprj.xml"))
+              .isFile());
+}
+
+QStringList alternateFiles(const QString& folder, const QString& chosen) {
+  QStringList filters{"tahomaproject.xml"};
+  for (const QString& suffix : projectSuffixes()) filters.append("*" + suffix);
+  QStringList result;
+  const QStringList names = QDir(folder).entryList(
+      filters, QDir::Files | QDir::NoSymLinks, QDir::Name);
+  for (const QString& name : names) {
+    const QString path = QDir(folder).filePath(name);
+    if (path != chosen && result.size() < MaxAlternates) result.append(path);
+  }
+  return result;
+}
+
+void hashProject(Scan& scan, ProjectRow& row) {
+  if (row.size > ProjectFileLimitBytes) {
+    row.status = "too_large";
+    return;
+  }
+  if (scan.hashed + row.size > MaxHashedBytes) {
+    row.status = "not_hashed";
+    scan.incomplete("hash_budget");
+    return;
+  }
+  QFile file(row.file);
+  if (!file.open(QIODevice::ReadOnly)) {
+    row.status = "unreadable";
+    return;
+  }
+  const QByteArray bytes = file.read(ProjectFileLimitBytes + 1);
+  scan.hashed += bytes.size();
+  row.revision = fileRevision(bytes);
+  row.status   = "ok";
+}
+
+void detectProject(Scan& scan, const QString& folder) {
+  const TFilePath native =
+      TProjectManager::instance()->projectFolderToProjectPath(
+          TFilePath(folder.toStdWString()));
+  const QString file = native.getQString();
+  const QFileInfo info(file);
+  if (!info.exists()) return;
+  if (info.isSymLink()) {
+    ++scan.links;
+    scan.incomplete("skipped_links");
+    return;
+  }
+  if (!info.isFile() || projectFormat(file).isEmpty()) return;
+  if (int(scan.rows.size()) >= MaxProjects) {
+    scan.incomplete("entry_limit");
+    return;
+  }
+  ProjectRow row;
+  row.file       = file;
+  row.folder     = folder;
+  row.name       = QFileInfo(folder).fileName();
+  row.size       = info.size();
+  row.alternates = alternateFiles(folder, file);
+  if (row.name.isEmpty()) row.name = info.completeBaseName();
+  hashProject(scan, row);
+  scan.rows.push_back(row);
+}
+
+bool scanBudget(Scan& scan) {
+  if (scan.timer.elapsed() > MaxScanMs) {
+    scan.incomplete("time_limit");
+    return false;
+  }
+  if (scan.entries > MaxScanEntries) {
+    scan.incomplete("entry_limit");
+    return false;
+  }
+  return true;
+}
+
+void scanFolder(Scan& scan, const QString& folder, int depth) {
+  if (!scanBudget(scan) || scan.visited.contains(folder)) return;
+  scan.visited.insert(folder);
+  detectProject(scan, folder);
+  const QDir directory(folder);
+  if (!directory.isReadable()) {
+    scan.incomplete("unreadable");
+    return;
+  }
+  const QFileInfoList entries = directory.entryInfoList(
+      QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+      QDir::Name);
+  for (const QFileInfo& entry : entries) {
+    ++scan.entries;
+    if (!scanBudget(scan)) return;
+    if (entry.fileName().startsWith('.')) continue;
+    if (entry.isSymLink()) {
+      ++scan.links;
+      scan.incomplete("skipped_links");
+      continue;
+    }
+    if (!entry.isDir() || skippedDirectory(scan.context, entry)) continue;
+    if (depth + 1 > scan.maxDepth) {
+      scan.incomplete("depth_limit");
+      continue;
+    }
+    scanFolder(scan, entry.absoluteFilePath(), depth + 1);
+  }
+}
+
+QJsonObject projectRowJson(const ProjectRow& row, bool duplicate) {
+  return {{"project_id", projectIdForFile(row.file)},
+          {"name", row.name.left(StandaloneNameSize)},
+          {"folder", row.folder},
+          {"project_file", row.file},
+          {"format", projectFormat(row.file)},
+          {"size_bytes", double(row.size)},
+          {"file_revision",
+           row.revision.isEmpty() ? QJsonValue() : QJsonValue(row.revision)},
+          {"status", row.status},
+          {"alternates", QJsonArray::fromStringList(row.alternates)},
+          {"duplicate_name", duplicate}};
+}
+
+QJsonArray projectRows(const std::vector<ProjectRow>& rows) {
+  QHash<QString, int> names;
+  for (const ProjectRow& row : rows) ++names[row.name];
+  QJsonArray result;
+  for (const ProjectRow& row : rows)
+    result.append(projectRowJson(row, names.value(row.name) > 1));
+  return result;
+}
+
+QStringList scanFolders(Context& context, const QJsonObject& params) {
+  if (!params.contains("folder")) {
+    QStringList folders;
+    for (const QString& root : readRoots(context))
+      if (QFileInfo(root).isDir()) folders.append(root);
+    return folders;
+  }
+  const QString folder =
+      context.resolvePath(requiredString(params, "folder"), false);
+  const QFileInfo info(folder);
+  if (!info.exists())
+    throw Error("not_found", "The folder does not exist.", {{"path", folder}});
+  if (!info.isDir())
+    throw Error("invalid_path", "The folder is not a directory.",
+                {{"path", folder}});
+  return {folder};
+}
+
+QJsonArray rootRows(const Context& context) {
+  QJsonArray roots;
+  bool workspace = true;
+  for (const QString& root : readRoots(context)) {
+    roots.append(QJsonObject{{"path", root},
+                             {"kind", workspace ? "workspace" : "input_root"},
+                             {"available", QFileInfo(root).isDir()}});
+    workspace = false;
+  }
+  return roots;
+}
+
+void registerProjects(Context& context, const QJsonArray& page) {
+  auto& projects = registry(context).projects;
+  for (const QJsonValue& value : page) {
+    const QJsonObject row = value.toObject();
+    const QString id      = row.value("project_id").toString();
+    if (!projects.contains(id) && projects.size() >= MaxRegistered)
+      throw Error("resource_limit",
+                  "This worker has registered its project limit; start a new "
+                  "worker.");
+    projects.insert(
+        id, {row.value("project_file").toString(),
+             row.value("folder").toString(), row.value("name").toString()});
+  }
+}
+
+QJsonObject standaloneDescription() {
+  return {{"project_id", "standalone"},
+          {"description",
+           "No project: +alias paths use the native empty-project rule, "
+           "$scenefolder resolves next to the scene and other project "
+           "folders stay unresolved."}};
+}
+
+QJsonValue listProjects(Context& context, const QJsonObject& params) {
+  const int depth  = integerParam(params, "depth", 1, MaxScanDepth, 4);
+  const int offset = integerParam(params, "offset", 0, MaxProjects, 0);
+  const int limit  = integerParam(params, "limit", 1, 64, 32);
+  Scan scan{context, depth};
+  scan.timer.start();
+  for (const QString& folder : scanFolders(context, params))
+    scanFolder(scan, folder, 0);
+  std::sort(
+      scan.rows.begin(), scan.rows.end(),
+      [](const ProjectRow& a, const ProjectRow& b) { return a.file < b.file; });
+  const QJsonArray rows = projectRows(scan.rows);
+  const QString revision =
+      "listing:" +
+      fileRevision(QJsonDocument(rows).toJson(QJsonDocument::Compact)).mid(7);
+  if (params.contains("expected_listing_revision") &&
+      params.value("expected_listing_revision").toString() != revision)
+    throw Error("revision_conflict", "The project listing changed.",
+                {{"scope", "listing"}, {"listing_revision", revision}});
+  if (offset > rows.size())
+    throw Error("invalid_params", "offset exceeds the discovered projects.");
+  const int end = std::min(offset + limit, int(rows.size()));
+  QJsonArray page;
+  for (int index = offset; index < end; ++index) page.append(rows.at(index));
+  registerProjects(context, page);
+  return QJsonObject{
+      {"roots", rootRows(context)},
+      {"projects", page},
+      {"standalone", standaloneDescription()},
+      {"listing_revision", revision},
+      {"offset", offset},
+      {"limit", limit},
+      {"discovered", int(rows.size())},
+      {"next_offset", end < rows.size() ? QJsonValue(end) : QJsonValue()},
+      {"scan",
+       QJsonObject{{"complete", scan.reasons.isEmpty()},
+                   {"reasons", QJsonArray::fromStringList(scan.reasons)},
+                   {"entries_visited", scan.entries},
+                   {"skipped_links", double(scan.links)}}}};
+}
+
+// ------------------------------------------------------------- host processes
+
+[[noreturn]] void hostFailed(SceneHost& host, const QString& documentId) {
+  throw Error("scene_host_failed",
+              "The document's scene host ended; discard the document.",
+              {{"document_id", documentId},
+               {"cause", host.lostCause},
+               {"phase", host.lostPhase}});
+}
+
+void stopProcess(SceneHost& host) {
+  if (!host.process) return;
+  if (host.process->state() != QProcess::NotRunning) {
+    host.process->kill();
+    host.process->waitForFinished(3000);
+  }
+}
+
+void markLost(SceneHost& host, const QString& cause, const QString& phase) {
+  stopProcess(host);
+  host.lostCause = cause;
+  host.lostPhase = phase;
+}
+
+QString exitCause(const QProcess& process) {
+  if (process.exitStatus() == QProcess::NormalExit &&
+      process.exitCode() == HostMemoryExit)
+    return "memory";
+  return "crashed";
+}
+
+QString breach(SceneHost& host, const QElapsedTimer& timer, int deadline) {
+  QProcess& process = *host.process;
+  if (process.state() == QProcess::NotRunning) return exitCause(process);
+  if (host.buffer.size() > MaxHostLine) return "crashed";
+  if (timer.elapsed() > deadline) return "timeout";
+  if (processMemoryBytes(process.processId()) > SceneHostMemoryBytes)
+    return "memory";
+  return QString();
+}
+
+QJsonObject readReply(SceneHost& host, const QString& phase, int deadline) {
+  QElapsedTimer timer;
+  timer.start();
+  while (!host.buffer.contains('\n')) {
+    host.process->waitForReadyRead(20);
+    host.buffer += host.process->readAllStandardOutput();
+    if (host.buffer.contains('\n')) break;
+    const QString cause = breach(host, timer, deadline);
+    if (cause.isEmpty()) continue;
+    markLost(host, cause, phase);
+    hostFailed(host, host.documentId);
+  }
+  const int end         = host.buffer.indexOf('\n');
+  const QByteArray line = host.buffer.left(end);
+  host.buffer.remove(0, end + 1);
+  QJsonParseError parse;
+  const QJsonDocument reply = QJsonDocument::fromJson(line, &parse);
+  if (parse.error != QJsonParseError::NoError || !reply.isObject()) {
+    markLost(host, "crashed", phase);
+    hostFailed(host, host.documentId);
+  }
+  return reply.object();
+}
+
+QJsonValue exchange(Context& context, SceneHost& host, const QString& method,
+                    const QJsonObject& params, int deadline,
+                    const QString& phase) {
+  if (host.lost()) hostFailed(host, host.documentId);
+  if (host.process->state() == QProcess::NotRunning) {
+    markLost(host, exitCause(*host.process),
+             host.renderActive ? "render" : phase);
+    hostFailed(host, host.documentId);
+  }
+  const QString id = "host-" + QString::number(++registry(context).requests);
+  QByteArray line =
+      QJsonDocument(
+          QJsonObject{{"id", id}, {"method", method}, {"params", params}})
+          .toJson(QJsonDocument::Compact);
+  line.append('\n');
+  if (host.process->write(line) != line.size()) {
+    markLost(host, "crashed", phase);
+    hostFailed(host, host.documentId);
+  }
+  const QJsonObject reply = readReply(host, phase, deadline);
+  if (reply.contains("error")) {
+    const QJsonObject error = reply.value("error").toObject();
+    throw Error(error.value("code").toString(),
+                error.value("message").toString(),
+                error.value("details").toObject());
+  }
+  return reply.value("result");
+}
+
+QStringList hostArguments(const Context& context, const QString& directory,
+                          const QString& documentId) {
+  QStringList arguments{"--automation-worker", "--workspace", directory,
+                        "--scene-host", documentId};
+  for (const QString& root : readRoots(context))
+    arguments << "--input-root" << root;
+#ifdef BUILD_UI_PORT_TESTS
+  if (!context.childFault.isEmpty())
+    arguments << "--test-child-fault" << context.childFault;
+#endif
+  return arguments;
+}
+
+std::unique_ptr<SceneHost> startHost(Context& context,
+                                     const QString& documentId,
+                                     const QByteArray& sceneBytes) {
+  auto host        = std::make_unique<SceneHost>();
+  host->documentId = documentId;
+  QTemporaryDir directory(
+      QDir(context.runtimeDirectory).filePath("scene-host-XXXXXX"));
+  directory.setAutoRemove(false);
+  host->directory = directory.path();
+  QFile copy(QDir(host->directory).filePath("scene.tnz"));
+  if (!directory.isValid() || !copy.open(QIODevice::WriteOnly) ||
+      copy.write(sceneBytes) != sceneBytes.size() || !copy.flush())
+    throw Error("io_error", "Cannot write the private scene copy.");
+  copy.close();
+  host->process    = std::make_unique<QProcess>();
+  auto environment = QProcessEnvironment::systemEnvironment();
+  environment.remove("GROUNDZERO_AUTOMATION_CONTROL_FD");
+  host->process->setProcessEnvironment(environment);
+  host->process->setWorkingDirectory(host->directory);
+  host->process->setProcessChannelMode(QProcess::SeparateChannels);
+  host->process->setStandardErrorFile(QProcess::nullDevice());
+  host->process->setProgram(QCoreApplication::applicationFilePath());
+  host->process->setArguments(
+      hostArguments(context, host->directory, documentId));
+  host->process->start();
+  if (!host->process->waitForStarted(SceneHostOpenDeadlineMs))
+    host->lostCause = "crashed";
+  return host;
+}
+
+void removeHost(SceneHost& host) {
+  if (host.process && host.process->state() != QProcess::NotRunning) {
+    host.process->closeWriteChannel();
+    if (!host.process->waitForFinished(HostCloseGraceMs)) stopProcess(host);
+  }
+  if (!host.directory.isEmpty()) QDir(host.directory).removeRecursively();
+}
+
+// ---------------------------------------------------------
+// scene.open_read_only
+
+QString admittedScene(Context& context, const QJsonObject& params) {
+  const QString path =
+      context.resolvePath(requiredString(params, "path"), false);
+  const QFileInfo info(path);
+  if (!info.exists() && !info.isSymLink())
+    throw Error("not_found", "The scene file does not exist.",
+                {{"path", path}});
+  if (info.isSymLink())
+    throw Error("path_denied", "Symbolic links are not allowed.");
+  if (!info.isFile() || info.suffix().toLower() != "tnz")
+    throw Error("unsupported_type", "Open a regular .tnz scene file.",
+                {{"path", path}});
+  if (info.size() > SceneFileLimitBytes)
+    throw Error(
+        "scene_limit", "The scene file exceeds 64 MiB.",
+        {{"limit", "scene_file_bytes"}, {"value", double(info.size())}});
+  return path;
+}
+
+ProjectEntry selectedProject(Context& context, const QString& projectId) {
+  if (projectId == "standalone") return {};
+  const auto found = registry(context).projects.constFind(projectId);
+  if (found == registry(context).projects.constEnd())
+    throw Error("not_found",
+                "Unknown project_id; call project.list for this worker.",
+                {{"project_id", projectId}, {"hint", "project.list"}});
+  return found.value();
+}
+
+void requireCapacity(Context& context) {
+  if (readOnlyDocumentCount(context) >= ReadOnlyDocumentLimit)
+    throw Error("resource_limit",
+                "Discard a read-only document before opening another "
+                "(limit: 4).",
+                {{"limit", "read_only_documents"}});
+  if (context.documents().size() >= 32)
+    throw Error("resource_limit",
+                "Close a document before opening another (limit: 32).",
+                {{"limit", "documents"}});
+}
+
+QString containingRoot(const Context& context, const QString& path) {
+  QString result;
+  for (const QString& root : readRoots(context))
+    if (beneath(path, root) &&
+        (result.isEmpty() || root.size() < result.size()))
+      result = root;
+  return result;
+}
+
+QString findScenesXml(const QString& scene, const QString& root) {
+  QString folder = QFileInfo(scene).absolutePath();
+  for (;;) {
+    const QString candidate = QDir(folder).filePath("scenes.xml");
+    const QFileInfo info(candidate);
+    if (info.exists() || info.isSymLink()) return candidate;
+    if (folder == root || !beneath(folder, root)) return QString();
+    const QString parent = QFileInfo(folder).absolutePath();
+    if (parent == folder) return QString();
+    folder = parent;
+  }
+}
+
+QByteArray readSource(const QString& path, qint64 limit, const QString& code) {
+  QFile file(path);
+  if (!QFileInfo(path).isFile() || QFileInfo(path).isSymLink())
+    throw Error(code, "A source file is missing.",
+                {{"cause", "missing"}, {"path", path}});
+  if (QFileInfo(path).size() > limit)
+    throw Error(code, "A source file exceeds its size limit.",
+                {{"cause", "too_large"}, {"path", path}});
+  if (!file.open(QIODevice::ReadOnly))
+    throw Error("io_error", "A source file cannot be read.", {{"path", path}});
+  const QByteArray bytes = file.read(limit + 1);
+  if (bytes.size() > limit)
+    throw Error(code, "A source file exceeds its size limit.",
+                {{"cause", "too_large"}, {"path", path}});
+  return bytes;
+}
+
+QString scenesXmlRevision(const QString& path) {
+  const QFileInfo info(path);
+  if (path.isEmpty() || info.isSymLink() || !info.isFile() ||
+      info.size() > ScenesXmlLimitBytes)
+    return QString();
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return QString();
+  return fileRevision(file.read(ScenesXmlLimitBytes + 1));
+}
+
+void rememberNativeProject(Context& context, const QJsonObject& source) {
+  const QString id   = source.value("native_project_id").toString();
+  const QString file = source.value("native_project_file").toString();
+  if (id.isEmpty() || file.isEmpty() || id != projectIdForFile(file)) return;
+  auto& projects = registry(context).projects;
+  if (projects.contains(id) || projects.size() >= MaxRegistered) return;
+  const QString folder = QFileInfo(file).absolutePath();
+  projects.insert(id, {file, folder, QFileInfo(folder).fileName()});
+}
+
+QJsonObject loadParams(Context& context, const QString& scene,
+                       const ProjectEntry& project, const QJsonObject& params,
+                       const QByteArray& sceneBytes) {
+  const QString scenesXml =
+      findScenesXml(scene, containingRoot(context, scene));
+  QJsonObject load{
+      {"scene_path", scene},
+      {"scene_revision", fileRevision(sceneBytes)},
+      {"project_id", params.value("project_id")},
+      {"binding", params.contains("project_binding")
+                      ? params.value("project_binding")
+                      : QJsonValue("must_match_native")},
+      {"scenes_xml", scenesXml},
+      {"scenes_xml_revision", scenesXmlRevision(scenesXml)},
+      {"worker_workspace", context.workspace()},
+      {"read_roots", QJsonArray::fromStringList(readRoots(context))},
+      {"project_file", project.file},
+      {"project_revision", QString()}};
+  if (!project.file.isEmpty())
+    load.insert("project_revision",
+                fileRevision(readSource(project.file, ProjectFileLimitBytes,
+                                        "invalid_project")));
+  return load;
+}
+
+QJsonObject openHost(Context& context, SceneHost& host, QJsonObject load) {
+  load.insert("scene_copy", QDir(host.directory).filePath("scene.tnz"));
+  try {
+    if (host.lost()) hostFailed(host, host.documentId);
+    return exchange(context, host, "scene_host.load", load,
+                    SceneHostOpenDeadlineMs, "read")
+        .toObject();
+  } catch (const Error& error) {
+    removeHost(host);
+    if (error.code == "project_mismatch")
+      rememberNativeProject(context, error.details);
+    if (error.code != "scene_host_failed") throw;
+    throw Error("invalid_scene",
+                "The scene host failed while opening the scene.",
+                {{"cause", error.details.value("cause")}});
+  }
+}
+
+QJsonValue openReadOnly(Context& context, const QJsonObject& params) {
+  const QString scene        = admittedScene(context, params);
+  const QString projectId    = requiredString(params, "project_id");
+  const ProjectEntry project = selectedProject(context, projectId);
+  requireCapacity(context);
+  const QByteArray sceneBytes =
+      readSource(scene, SceneFileLimitBytes, "scene_limit");
+  const QJsonObject load =
+      loadParams(context, scene, project, params, sceneBytes);
+  const QString documentId =
+      "document_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+  context.markFailureRecorded();
+  QElapsedTimer timer;
+  timer.start();
+  auto host          = startHost(context, documentId, sceneBytes);
+  QJsonObject result = openHost(context, *host, load);
+  QJsonObject report = result.value("load").toObject();
+  report.insert("elapsed_ms",
+                std::min<qint64>(timer.elapsed(), SceneHostOpenDeadlineMs));
+  result.insert("load", report);
+  rememberNativeProject(context, result);
+  result.remove("native_project_id");
+  result.remove("native_project_file");
+  context.markMutationStarted();
+  context.addReadOnlyDocument(std::make_unique<ToonzScene>(), documentId,
+                              std::make_shared<ReadOnlyScene>());
+  registry(context).hosts.emplace(documentId, std::move(host));
+  return result;
+}
+
+// ------------------------------------------------------------------ routing
+
+const QSet<QString>& forwardedTools() {
+  static const QSet<QString> tools = {
+      "scene.summary",  "camera.inspect",     "level.inspect",  "cast.list",
+      "cast.usage",     "scene.dependencies", "scene.validate", "fx.graph",
+      "render.preview", "render.submit"};
+  return tools;
+}
+
+const QSet<QString>& sliceTwoTools() {
+  static const QSet<QString> tools = {
+      "column.cells",     "drawing.inspect",        "palette.inspect",
+      "palette.pages",    "fx.parameter.get",       "animation.channels",
+      "animation.keys",   "animation.sample",       "vector.inspect",
+      "vector.structure", "vector.opacity.inspect", "raster.read_pixels"};
+  return tools;
+}
+
+[[noreturn]] void refuseReadOnly(const QString& method,
+                                 const QJsonObject& descriptor) {
+  const bool write = !descriptor.value("annotations")
+                          .toObject()
+                          .value("readOnlyHint")
+                          .toBool();
+  if (write)
+    throw Error("read_only_document",
+                "The document is read-only; this tool changes a document.",
+                {{"reason", "mutation"}, {"tool", method}});
+  const QString toolset = descriptor.value("toolset").toString();
+  QJsonValue slice;
+  if (sliceTwoTools().contains(method)) slice = 2;
+  if (toolset == "rigging" || toolset == "audio" || toolset == "storyboard")
+    slice = 3;
+  throw Error(
+      "read_only_document",
+      "This tool is not yet qualified on read-only documents.",
+      {{"reason", "not_qualified"}, {"tool", method}, {"slice", slice}});
+}
+
+SceneHost* hostForDocument(Context& context, const QString& documentId) {
+  if (!context.sceneHosts) return nullptr;
+  const auto found = context.sceneHosts->hosts.find(documentId);
+  return found == context.sceneHosts->hosts.end() ? nullptr
+                                                  : found->second.get();
+}
+
+void forgetRoutes(Context& context, const QString& documentId) {
+  auto& state = registry(context);
+  for (auto it = state.jobs.begin(); it != state.jobs.end();)
+    it = it.value() == documentId ? state.jobs.erase(it) : std::next(it);
+  for (auto it = state.artifacts.begin(); it != state.artifacts.end();)
+    it = it.value() == documentId ? state.artifacts.erase(it) : std::next(it);
+}
+
+QJsonValue discardReadOnly(Context& context, SceneHost& host) {
+  const QString id = host.documentId;
+  try {
+    if (!host.lost())
+      exchange(context, host, "scene_host.close", {}, SceneHostReadDeadlineMs,
+               "read");
+  } catch (const Error& error) {
+    if (error.code != "scene_host_failed") throw;
+  }
+  context.markMutationStarted();
+  removeHost(host);
+  forgetRoutes(context, id);
+  context.removeDocument(id);
+  registry(context).hosts.erase(id);
+  return QJsonObject{{"document_id", id}, {"discarded", true}};
+}
+
+bool terminalStatus(const QString& status) {
+  return status == "completed" || status == "failed" || status == "canceled" ||
+         status == "deadline_exceeded";
+}
+
+void recordRoutes(Context& context, SceneHost& host, const QJsonValue& value) {
+  const QJsonObject result = value.toObject();
+  const QString job        = result.value("job_id").toString();
+  if (!job.isEmpty()) {
+    registry(context).jobs.insert(job, host.documentId);
+    if (job == host.lastJob || !host.renderActive) {
+      host.lastJob      = job;
+      host.renderActive = !terminalStatus(result.value("status").toString());
+    }
+  }
+  for (const QJsonValue& artifact : result.value("artifacts").toArray())
+    registry(context).artifacts.insert(
+        artifact.toObject().value("artifact_id").toString(), host.documentId);
+}
+
+QJsonValue forward(Context& context, SceneHost& host, const QString& method,
+                   const QJsonObject& params) {
+  const bool render = method.startsWith("render.") || method == "artifact.read";
+  const int deadline = method == "render.preview" || method == "render.submit"
+                           ? SceneHostOpenDeadlineMs
+                           : SceneHostReadDeadlineMs;
+  try {
+    const QJsonValue result = exchange(context, host, method, params, deadline,
+                                       render ? "render" : "read");
+    recordRoutes(context, host, result);
+    return result;
+  } catch (Error& error) {
+    // A lost host's jobs report as failed.
+    if (error.code == "scene_host_failed" && params.contains("job_id")) {
+      error.details.insert("job_id", params.value("job_id"));
+      error.details.insert("status", "failed");
+    }
+    throw;
+  }
+}
+
+// One active render job and 32 retained jobs per worker, hosts included.
+void requireRenderCapacity(Context& context) {
+  QString active = activeRenderJob(context);
+  int retained   = renderJobCount(context);
+  if (context.sceneHosts) {
+    retained += context.sceneHosts->jobs.size();
+    for (auto& entry : context.sceneHosts->hosts) {
+      SceneHost& host = *entry.second;
+      if (!active.isEmpty() || !host.renderActive || host.lost()) continue;
+      try {
+        recordRoutes(
+            context, host,
+            exchange(context, host, "render.status", {{"job_id", host.lastJob}},
+                     SceneHostReadDeadlineMs, "render"));
+      } catch (const Error& error) {
+        if (error.code != "scene_host_failed") throw;
+      }
+      if (host.renderActive && !host.lost()) active = host.lastJob;
+    }
+  }
+  if (!active.isEmpty())
+    throw Error("render_busy",
+                "Wait for the active render job to finish or cancel it.",
+                {{"job_id", active}});
+  if (retained >= 32)
+    throw Error("render_limit",
+                "This worker has reached its render job limit.");
+}
+
+SceneHost* hostForRequest(Context& context, const QJsonObject& params) {
+  if (!context.sceneHosts) return nullptr;
+  const auto& state = *context.sceneHosts;
+  QString documentId;
+  if (params.value("job_id").isString())
+    documentId = state.jobs.value(params.value("job_id").toString());
+  if (documentId.isEmpty() && params.value("artifact_id").isString())
+    documentId = state.artifacts.value(params.value("artifact_id").toString());
+  return documentId.isEmpty() ? nullptr : hostForDocument(context, documentId);
+}
+
+}  // namespace
+
+SceneHostRegistry::~SceneHostRegistry() {
+  for (auto& entry : hosts)
+    if (entry.second->process &&
+        entry.second->process->state() != QProcess::NotRunning)
+      entry.second->process->closeWriteChannel();
+  for (auto& entry : hosts) removeHost(*entry.second);
+}
+
+void refuseReadOnlyEarly(Context& context, const QString& method,
+                         const QJsonObject& params,
+                         const QJsonObject& descriptor) {
+  if (!params.value("document_id").isString() || method == "scene.discard" ||
+      forwardedTools().contains(method))
+    return;
+  const QString documentId = params.value("document_id").toString();
+  try {
+    if (!context.document(documentId).readOnly) return;
+  } catch (const Error&) {
+    return;
+  }
+  refuseReadOnly(method, descriptor);
+}
+
+bool routeToSceneHost(Context& context, const QString& method,
+                      const QJsonObject& params, const QJsonObject& descriptor,
+                      QJsonValue& result) {
+  const QString documentId = params.value("document_id").toString();
+  Document* document       = nullptr;
+  if (!documentId.isEmpty()) {
+    document = &context.document(documentId);
+    if (!document->readOnly) document = nullptr;
+  }
+  if (!context.sceneHostDocument.isEmpty()) {
+    if (document && !forwardedTools().contains(method))
+      refuseReadOnly(method, descriptor);
+    return false;
+  }
+  if (context.sceneHosts &&
+      (method == "render.preview" || method == "render.submit" ||
+       method == "assistance.neural.preview"))
+    requireRenderCapacity(context);
+  if (document) {
+    SceneHost* host = hostForDocument(context, documentId);
+    if (!host) throw Error("internal_error", "The document has no scene host.");
+    if (method == "scene.discard") {
+      result = discardReadOnly(context, *host);
+      return true;
+    }
+    if (!forwardedTools().contains(method)) refuseReadOnly(method, descriptor);
+    result = forward(context, *host, method, params);
+    return true;
+  }
+  SceneHost* host = hostForRequest(context, params);
+  if (!host) return false;
+  result = forward(context, *host, method, params);
+  return true;
+}
+
+int readOnlyDocumentCount(Context& context) {
+  return context.sceneHosts ? int(context.sceneHosts->hosts.size()) : 0;
+}
+
+QJsonArray documentRows(Context& context) {
+  QJsonArray rows;
+  for (const QJsonValue& value : context.documents()) {
+    QJsonObject row = value.toObject();
+    SceneHost* host =
+        hostForDocument(context, row.value("document_id").toString());
+    row.insert("host_state", !host          ? QJsonValue()
+                             : host->lost() ? QJsonValue("lost")
+                                            : QJsonValue("ready"));
+    rows.append(row);
+  }
+  return rows;
+}
+
+QJsonObject readOnlyCapabilities(Context&) {
+  return {{"available", true},
+          {"max_documents", ReadOnlyDocumentLimit},
+          {"host_memory_bytes", double(SceneHostMemoryBytes)},
+          {"open_deadline_ms", SceneHostOpenDeadlineMs},
+          {"read_deadline_ms", SceneHostReadDeadlineMs},
+          {"profile", readOnlyProfileName()}};
+}
+
+void closeSceneHosts(Context& context) { context.sceneHosts.reset(); }
+
+QJsonArray sceneAccessOperations() {
+  const auto text = [](int maximum) {
+    return QJsonObject{
+        {"type", "string"}, {"minLength", 1}, {"maxLength", maximum}};
+  };
+  const auto integer = [](int minimum, int maximum) {
+    return QJsonObject{
+        {"type", "integer"}, {"minimum", minimum}, {"maximum", maximum}};
+  };
+  QJsonObject list = operation(
+      "project.list",
+      "List the read roots and the native projects found under them (project "
+      "files are identified, hashed and never parsed). Use a project_id, or "
+      "standalone, to open a scene with scene.open_read_only.",
+      {{"folder", text(4096)},
+       {"depth", integer(1, MaxScanDepth)},
+       {"offset", integer(0, MaxProjects)},
+       {"limit", integer(1, 64)},
+       {"expected_listing_revision", text(80)}},
+      {});
+  QJsonObject open = operation(
+      "scene.open_read_only",
+      "Open a native .tnz scene from a read root as a read-only document, "
+      "loaded and rendered only inside its own scene host process. Requires "
+      "an explicit project_id (from project.list) or standalone; the scene's "
+      "own scenes.xml binding must match unless project_binding is override. "
+      "Nothing on disk changes.",
+      {{"path", text(4096)},
+       {"project_id", text(64)},
+       {"project_binding",
+        QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray{"must_match_native", "override"}}}},
+       {"operation_id", text(128)}},
+      {"path", "project_id", "operation_id"}, true);
+  open.insert("mutates_document", false);
+  open.insert("annotations", QJsonObject{{"readOnlyHint", false},
+                                         {"destructiveHint", false},
+                                         {"idempotentHint", true}});
+  return {list, open};
+}
+
+QJsonValue executeSceneAccess(Context& context, const QString& method,
+                              const QJsonObject& params) {
+  if (!context.sceneHostDocument.isEmpty())
+    throw Error("method_not_found",
+                "A scene host does not open other documents.");
+  if (method == "project.list") return listProjects(context, params);
+  if (method == "scene.open_read_only") return openReadOnly(context, params);
+  throw Error("method_not_found", "Unknown scene access operation.");
+}
+
+}  // namespace GroundzeroAutomation

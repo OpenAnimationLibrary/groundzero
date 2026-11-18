@@ -3,6 +3,7 @@
 #include "automation_fx.h"
 #include "automation_media.h"
 #include "automation_neural.h"
+#include "automation_scene_host.h"
 #include "stdfx/neuralstyleworker.h"
 #include "toonz/fxdag.h"
 #include "toonz/tcolumnfxset.h"
@@ -285,6 +286,10 @@ public:
   Request request;
   QJsonObject assistance;
   QJsonArray provenance;
+  QString snapshotInputs = "qualified-collected-native-scene";
+  QString sourceFingerprint;
+  // Runs before artifacts publish; a nonempty diagnostic fails the job.
+  std::function<QString()> publicationCheck;
   bool deadlineExceeded = false;
   std::shared_ptr<const NeuralStyle::WorkerExecution> neuralExecution;
   std::unique_ptr<ToonzScene> snapshot;
@@ -331,7 +336,11 @@ public:
         {"color_space_gamma", 2.2},
         {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
         {"error", error},
-        {"fx_provenance", provenance}};
+        {"fx_provenance", provenance},
+        {"snapshot_inputs", snapshotInputs},
+        {"source_fingerprint", sourceFingerprint.isEmpty()
+                                   ? QJsonValue()
+                                   : QJsonValue(sourceFingerprint)}};
     if (!assistance.isEmpty()) result.insert("assistance", assistance);
     return result;
   }
@@ -604,10 +613,14 @@ public:
       checkNeuralPublication();
       artifacts.push_back(std::move(artifact));
       nextVerification += request.step;
-      if (nextVerification <= request.end)
+      if (nextVerification <= request.end) {
         scheduleVerification();
-      else
-        status = JobStatus::Completed;
+        return;
+      }
+      const QString diagnostic =
+          publicationCheck ? publicationCheck() : QString();
+      if (!diagnostic.isEmpty()) return fail(diagnostic);
+      status = JobStatus::Completed;
     } catch (const Error& exception) {
       fail(exception.message);
     } catch (const std::exception& exception) {
@@ -748,17 +761,47 @@ static void validateWriter(const Context& context, Format format) {
     throw Error("render_unavailable", "The native PNG writer is unavailable.");
 }
 
+static void admitReadOnly(Document& document, const Request& request) {
+  if (request.format == Format::Mp4)
+    throw Error("render_unavailable", "Read-only documents render PNG only.");
+  const std::vector<ContentRow> blockers = renderBlockers(document);
+  if (!blockers.empty()) {
+    QJsonArray rows;
+    for (const ContentRow& row : blockers)
+      if (rows.size() < BlockerRowLimit) rows.append(row.blockerRow());
+    throw Error("render_blocked",
+                "The scene contains content the read-only render profile "
+                "does not run.",
+                {{"blockers", rows}, {"blocker_count", int(blockers.size())}});
+  }
+  requireUnchangedSources(document.readOnly->pins);
+}
+
+static void linkReadOnlySources(RenderJob& job, Document& document) {
+  job.snapshotInputs                = linkedSnapshotInputs();
+  job.sourceFingerprint             = document.readOnly->fingerprint;
+  const std::vector<SourcePin> pins = document.readOnly->pins;
+  job.publicationCheck              = [pins]() {
+    const QStringList changed = changedSourcePins(pins);
+    if (changed.isEmpty()) return QString();
+    return "source_changed: " + QString::number(changed.size()) +
+           " pinned source file(s) changed during the render, including " +
+           changed.first();
+  };
+}
+
 static QJsonValue submit(Context& context, const QJsonObject& params,
                          bool preview) {
   Document& document = context.document(requiredString(params, "document_id"));
   const Request request = readRequest(params, *document.scene, preview);
   RenderState& state    = renderState(context);
   state.admit(request);
+  if (document.readOnly) admitReadOnly(document, request);
   validateWriter(context, request.format);
   if (Preferences::instance()->isSceneNumberingEnabled())
     throw Error("unsupported_render_settings",
                 "Disable scene numbering before automated rendering.");
-  validateAutomationFxGraph(*document.scene);
+  if (!document.readOnly) validateAutomationFxGraph(*document.scene);
   const QJsonArray provenance =
       preflightAutomationRender(document, request.width, request.height,
                                 request.start, request.end, request.step);
@@ -777,8 +820,13 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
       !QDir().mkpath(job->directory + "/frames"))
     throw Error("render_output_failed",
                 "A new private render output directory could not be created.");
-  job->snapshot =
-      createRenderSnapshot(context, document, job->directory + "/snapshot");
+  if (document.readOnly) {
+    linkReadOnlySources(*job, document);
+    job->snapshot = loadReadOnlySnapshot(context, document);
+  } else {
+    job->snapshot =
+        createRenderSnapshot(context, document, job->directory + "/snapshot");
+  }
   configureSnapshot(*job);
   state.jobs.emplace(job->id, job);
   job->scheduleDeadline(context.renderDeadlineMs);
@@ -942,6 +990,7 @@ static QJsonObject renderCapabilities(const Context& context) {
           {"storage_budget_bytes", double(kWorkspaceBytes)},
           {"frame_origin", 0},
           {"snapshot_inputs", "qualified-collected-native-scene"},
+          {"read_only_snapshot_inputs", linkedSnapshotInputs()},
           {"graphics_backend", "requires-native-compatible-OpenGL"},
           {"graphics_backend_verified", false},
           {"job_lifetime", "worker-session"}};
@@ -1037,6 +1086,17 @@ void requestRenderCancellation(Context& context) {
   Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
   if (!context.renderState) return;
   for (const auto& entry : context.renderState->jobs) entry.second->cancel();
+}
+
+int renderJobCount(Context& context) {
+  return context.renderState ? int(context.renderState->jobs.size()) : 0;
+}
+
+QString activeRenderJob(Context& context) {
+  if (!context.renderState) return QString();
+  for (const auto& entry : context.renderState->jobs)
+    if (!entry.second->terminal()) return entry.first;
+  return QString();
 }
 
 void shutdownRender(Context& context) {

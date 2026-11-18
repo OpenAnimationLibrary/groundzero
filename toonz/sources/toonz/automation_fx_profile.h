@@ -34,6 +34,10 @@ void validateAutomationFxNumber(const QJsonValue& value,
 // Validates the native type, version, every parameter default and key, and
 // the cross-parameter constraints. Throws the first violation as an Error.
 void validateAutomationFxProfile(TFx* fx);
+// For a stored effect of an admitted type at its profile version, lists the
+// parameters (and constraints) outside their authoring ranges and returns
+// true; returns false when the type or version is not admitted.
+bool automationFxProfileViolations(TFx* fx, QStringList& violations);
 
 // Per-type profile facts for fx.catalog, fx.graph and render preflight.
 QJsonObject automationFxProfileDescription(const QString& type);

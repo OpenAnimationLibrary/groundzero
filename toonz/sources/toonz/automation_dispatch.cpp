@@ -6,6 +6,7 @@
 #include "automation_audio.h"
 #include "automation_hook.h"
 #include "automation_rig.h"
+#include "automation_scene_host.h"
 #include "automation_shared.h"
 #include "automation_storyboard.h"
 #include "automation_lipsync.h"
@@ -295,6 +296,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
       "automation.list_documents",
       "List detached documents and their current revisions.", {}, {}));
   add(sceneOperations(), executeScene, "core");
+  add(sceneAccessOperations(), executeSceneAccess, "core");
   add(fxOperations(), executeFx, "core");
   add(fxRecipeOperations(), executeFx, "fx-finishing");
   add(drawingOperations(), executeDrawing, "core");
@@ -387,14 +389,19 @@ QJsonValue Dispatcher::execute(const QString& method,
           {"tools", m_catalog},
           {"toolsets", toolsetCatalog()},
           {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
-          {"isolation", "private_process"}};
-    return QJsonObject{{"documents", m_context.documents()}};
+          {"isolation", "private_process"},
+          {"read_only_scenes", readOnlyCapabilities(m_context)}};
+    return QJsonObject{{"documents", documentRows(m_context)}};
   }
+  if (!m_context.sceneHostDocument.isEmpty() &&
+      method.startsWith("scene_host."))
+    return callHandler(executeSceneHost, m_context, method, params);
   auto found = m_entries.constFind(method);
   if (found == m_entries.constEnd())
     throw Error("method_not_found",
                 "The requested operation is not available.");
   const Entry& entry  = found.value();
+  refuseReadOnlyEarly(m_context, method, params, entry.descriptor);
   const bool readOnly = entry.descriptor.value("annotations")
                             .toObject()
                             .value("readOnlyHint")
@@ -402,6 +409,14 @@ QJsonValue Dispatcher::execute(const QString& method,
   if (!readOnly) return executeWrite(entry, method, params);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
+  return invoke(entry, method, params);
+}
+
+QJsonValue Dispatcher::invoke(const Entry& entry, const QString& method,
+                              const QJsonObject& params) {
+  QJsonValue routed;
+  if (routeToSceneHost(m_context, method, params, entry.descriptor, routed))
+    return routed;
   return callHandler(entry.handler, m_context, method, params);
 }
 
@@ -448,7 +463,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
                     controlJob);
     return result;
   } catch (const Error& error) {
-    if (m_context.mutationStarted()) {
+    if (m_context.mutationStarted() || m_context.failureRecorded()) {
       const Error recorded =
           boundedControlError(error, operationId, controlJob);
       rememberReceipt(operationId,
@@ -514,8 +529,7 @@ QJsonObject Dispatcher::applyWrite(const Entry& entry, const QString& method,
   const bool mutatesDocument =
       entry.descriptor.value("mutates_document").toBool(true);
   try {
-    QJsonObject result =
-        asObject(callHandler(entry.handler, m_context, method, params));
+    QJsonObject result     = asObject(invoke(entry, method, params));
     const QString resultId = documentId.isEmpty()
                                  ? result.value("document_id").toString()
                                  : documentId;

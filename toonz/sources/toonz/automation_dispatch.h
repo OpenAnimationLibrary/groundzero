@@ -37,6 +37,8 @@ private:
                             const QByteArray& fingerprint) const;
   quint64 checkRevision(const QJsonObject& params) const;
   QJsonValue execute(const QString& method, const QJsonObject& params);
+  QJsonValue invoke(const Entry& entry, const QString& method,
+                    const QJsonObject& params);
   QJsonObject executeWrite(const Entry& entry, const QString& method,
                            const QJsonObject& params);
   QJsonObject applyWrite(const Entry& entry, const QString& method,

@@ -119,6 +119,12 @@ Document::Document(std::unique_ptr<ToonzScene> ownedScene)
   initializeAutomationPaths(*this);
 }
 
+Document::Document(std::unique_ptr<ToonzScene> ownedScene, QString documentId,
+                   std::shared_ptr<ReadOnlyScene> source)
+    : id(std::move(documentId))
+    , scene(std::move(ownedScene))
+    , readOnly(std::move(source)) {}
+
 Document::~Document() = default;
 
 QString Document::revisionText() const { return QString::number(revision); }
@@ -234,6 +240,23 @@ Document& Context::addDocument(std::unique_ptr<ToonzScene> scene) {
   return *inserted.first->second;
 }
 
+Document& Context::addReadOnlyDocument(std::unique_ptr<ToonzScene> scene,
+                                       const QString& id,
+                                       std::shared_ptr<ReadOnlyScene> source) {
+  if (!scene || !source)
+    throw Error("invalid_document", "Cannot register an empty scene.");
+  if (m_documents.size() >= 32)
+    throw Error("resource_limit",
+                "Close a document before creating another (limit: 32).",
+                {{"limit", "documents"}});
+  if (m_documents.count(id))
+    throw Error("internal_error", "The read-only document id is in use.");
+  auto document =
+      std::make_unique<Document>(std::move(scene), id, std::move(source));
+  auto inserted = m_documents.emplace(id, std::move(document));
+  return *inserted.first->second;
+}
+
 void Context::removeDocument(const QString& id) {
   if (m_documents.erase(id) == 0)
     throw Error("document_not_found",
@@ -243,16 +266,24 @@ void Context::removeDocument(const QString& id) {
 QJsonArray Context::documents() const {
   QJsonArray result;
   for (const auto& entry : m_documents)
-    result.append(QJsonObject{{"document_id", entry.first},
-                              {"revision", entry.second->revisionText()}});
+    result.append(QJsonObject{
+        {"document_id", entry.first},
+        {"revision", entry.second->revisionText()},
+        {"access", entry.second->readOnly ? "read_only" : "editable"}});
   return result;
 }
 
 std::shared_ptr<TProject> Context::project() const { return m_project; }
 QString Context::workspace() const { return m_workspace; }
+QStringList Context::inputRoots() const { return m_inputRoots; }
 void Context::markMutationStarted() { m_mutationStarted = true; }
-void Context::resetMutationStarted() { m_mutationStarted = false; }
+void Context::resetMutationStarted() {
+  m_mutationStarted = false;
+  m_failureRecorded = false;
+}
 bool Context::mutationStarted() const { return m_mutationStarted; }
+void Context::markFailureRecorded() { m_failureRecorded = true; }
+bool Context::failureRecorded() const { return m_failureRecorded; }
 bool Context::helpersContained() const { return m_helpersContained; }
 
 QString Context::resolvePath(const QString& path, bool write) const {

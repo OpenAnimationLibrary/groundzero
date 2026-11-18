@@ -23,7 +23,9 @@ class TXshLevel;
 
 namespace GroundzeroAutomation {
 
+struct ReadOnlyScene;
 struct RenderState;
+struct SceneHostRegistry;
 
 class Error final : public std::runtime_error {
 public:
@@ -44,6 +46,9 @@ const QStringList& sharedRootRoles();
 
 struct Document final {
   explicit Document(std::unique_ptr<ToonzScene> ownedScene);
+  // A read-only document under an id its worker chose; no profile setup.
+  Document(std::unique_ptr<ToonzScene> ownedScene, QString documentId,
+           std::shared_ptr<ReadOnlyScene> source);
   ~Document();
   Document(const Document&)            = delete;
   Document& operator=(const Document&) = delete;
@@ -60,6 +65,8 @@ struct Document final {
   // Verified file metadata of sound sources, keyed by their cast level.
   QHash<TXshLevel*, QJsonObject> soundSources;
   QHash<QString, TDoubleParamP> offsetLayers;
+  // Set only for read-only documents opened from user scenes.
+  std::shared_ptr<ReadOnlyScene> readOnly;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);
@@ -81,14 +88,22 @@ public:
 
   Document& document(const QString& id);
   Document& addDocument(std::unique_ptr<ToonzScene> scene);
+  // Register a read-only document that keeps its own project binding.
+  Document& addReadOnlyDocument(std::unique_ptr<ToonzScene> scene,
+                                const QString& id,
+                                std::shared_ptr<ReadOnlyScene> source);
   void removeDocument(const QString& id);
   QJsonArray documents() const;
   std::shared_ptr<TProject> project() const;
   QString workspace() const;
   QString resolvePath(const QString& path, bool write) const;
+  QStringList inputRoots() const;
   void markMutationStarted();
   void resetMutationStarted();
   bool mutationStarted() const;
+  // A failure after this mark is kept in the operation receipt as it is.
+  void markFailureRecorded();
+  bool failureRecorded() const;
   bool helpersContained() const;
   std::shared_ptr<RenderState> renderState;
   // Set once from validated startup configuration; empty disables media tools.
@@ -100,6 +115,10 @@ public:
   QMap<QString, SharedRootGrant> sharedRoots;
   // The private per-process runtime directory inside the workspace.
   QString runtimeDirectory;
+  // The read-only document a scene host process owns; empty in a worker.
+  QString sceneHostDocument;
+  // The worker's scene host processes, keyed by read-only document.
+  std::shared_ptr<SceneHostRegistry> sceneHosts;
 #ifdef BUILD_UI_PORT_TESTS
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
@@ -111,6 +130,7 @@ private:
   std::shared_ptr<TProject> m_project;
   std::map<QString, std::unique_ptr<Document>> m_documents;
   bool m_mutationStarted = false;
+  bool m_failureRecorded = false;
   const bool m_helpersContained;
 };
 
@@ -141,6 +161,10 @@ QJsonValue executePersistence(Context& context, const QString& method,
                               const QJsonObject& params);
 // Request cancellation on the application thread without waiting for callbacks.
 void requestRenderCancellation(Context& context);
+// The id of a render job that has not reached a terminal state, or empty.
+QString activeRenderJob(Context& context);
+// The render jobs this process retains.
+int renderJobCount(Context& context);
 void shutdownRender(Context& context);
 std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
                                                  Document& document,

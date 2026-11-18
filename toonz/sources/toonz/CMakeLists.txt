@@ -215,6 +215,7 @@ set(HEADERS
     automation_text.h
     automation_shared.h
     automation_shared_parse.h
+    automation_scene_host.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -322,6 +323,10 @@ set(SOURCES
     automation_shared_parse.cpp
     automation_studio_palette.cpp
     automation_library.cpp
+    automation_scene_source.cpp
+    automation_scene_access.cpp
+    automation_scene_host.cpp
+    automation_scene_content.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp

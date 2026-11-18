@@ -2,6 +2,7 @@
 #include "automation_dispatch.h"
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
+#include "automation_scene_host.h"
 #include "automation_shared_parse.h"
 
 #include "tenv.h"
@@ -81,6 +82,7 @@ struct Options {
   QMap<QString, SharedRootGrant> sharedRoots;
   QStringList sharedWrites;
   QString parseHelper;
+  QString sceneHost;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
@@ -207,6 +209,8 @@ void addOption(Options& options, const QString& key, const QString& value) {
     addSharedWrite(options, value);
   else if (key == "--parse-helper")
     options.parseHelper = value;
+  else if (key == "--scene-host")
+    options.sceneHost = value;
   else
     addWorkerRoot(options, key, value);
 }
@@ -214,7 +218,8 @@ void addOption(Options& options, const QString& key, const QString& value) {
 bool valueOption(const QString& key) {
   return key == "--workspace" || key == "--input-root" ||
          key == "--media-tools" || key == "--shared-root" ||
-         key == "--shared-write" || key == "--parse-helper";
+         key == "--shared-write" || key == "--parse-helper" ||
+         key == "--scene-host";
 }
 
 bool overlapping(const QString& first, const QString& second) {
@@ -273,6 +278,10 @@ Options parseOptions(const QStringList& arguments) {
   if (options.workspace.isEmpty())
     throw Error("invalid_argument",
                 "Automation worker requires --workspace DIR.");
+  if (!options.sceneHost.isEmpty() && (!options.mediaToolsDirectory.isEmpty() ||
+                                       !options.sharedRoots.isEmpty()))
+    throw Error("invalid_argument",
+                "A scene host never receives media tools or shared roots.");
   validateSharedRoots(options);
   return options;
 }
@@ -559,6 +568,10 @@ int executeWorker(QApplication& application, QFile& output,
   context.runtimeDirectory    = runtime;
   if (!options.parseHelper.isEmpty())
     return runSharedParseHelper(context, options.parseHelper, output);
+  if (!options.sceneHost.isEmpty()) {
+    context.sceneHostDocument = options.sceneHost;
+    startSceneHostWatchdog();
+  }
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
@@ -588,9 +601,11 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(workerArguments(argc, argv));
-    // A parse helper is a child of a worker and shares its containment.
-    const bool helpersContained =
-        options.parseHelper.isEmpty() && establishAutomationContainment();
+    // Parse helpers and scene hosts are children of a worker and share its
+    // containment.
+    const bool helpersContained = options.parseHelper.isEmpty() &&
+                                  options.sceneHost.isEmpty() &&
+                                  establishAutomationContainment();
 #ifndef _WIN32
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR)
       throw Error("io_error",

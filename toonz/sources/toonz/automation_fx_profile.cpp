@@ -437,6 +437,34 @@ void validateAutomationFxProfile(TFx* fx) {
     if (std::string(constraint) == kSeparation) requireGradientSeparation(fx);
 }
 
+bool automationFxProfileViolations(TFx* fx, QStringList& violations) {
+  const TypeProfile* profile = findProfile(fx->getFxType());
+  if (!profile || fx->getFxVersion() != profile->version) return false;
+  TParamContainer* params = fx->getParams();
+  for (int index = 0; index < params->getParamCount(); ++index) {
+    const TParamVar* entry = params->getParamVar(index);
+    if (entry->isObsolete()) continue;
+    const QJsonObject schema =
+        automationFxParameterSchema(fx, entry->getParam(), entry->getName());
+    try {
+      if (schema.isEmpty())
+        throw Error("UNSUPPORTED_PARAMETER", "Parameter outside the profile.");
+      validateStored(entry->getParam(), schema);
+    } catch (const Error&) {
+      if (violations.size() < 16)
+        violations.append(QString::fromStdString(entry->getName()).left(128));
+    }
+  }
+  try {
+    for (const char* constraint : profile->constraints)
+      if (std::string(constraint) == kSeparation) requireGradientSeparation(fx);
+  } catch (const Error&) {
+    if (violations.size() < 16)
+      violations.append("constraint:" + QString(kSeparation));
+  }
+  return true;
+}
+
 QJsonObject automationFxProfileDescription(const QString& type) {
   const TypeProfile* profile = findProfile(type.toStdString());
   if (!profile)
