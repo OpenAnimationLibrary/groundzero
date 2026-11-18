@@ -164,6 +164,17 @@ private:
   DECLARE_CLASS_CODE
 
 public:
+  //! Rows a scene file may give cells: [0, maxRowCount). The xsheet viewer
+  //! places row r at r * 20 pixels * zoom percent (up to 100) in an int,
+  //! which overflows past row 1073741, so the editor can't show or edit later
+  //! rows. One million rows is 11.5 hours at 24 fps.
+  static const int maxRowCount = 1000000;
+  //! Columns a scene file may name: [0, maxColumnCount). The editor has no
+  //! column limit, but reading a column id creates a stage object (about
+  //! 7 KB) for it and for every column before it. 10000 columns are 70 MB,
+  //! and an xsheet 740000 pixels wide.
+  static const int maxColumnCount = 10000;
+
   TXsheet();
   ~TXsheet();
 

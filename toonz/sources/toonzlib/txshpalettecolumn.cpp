@@ -57,6 +57,7 @@ void TXshPaletteColumn::loadData(TIStream &is) {
           TPersist *p = 0;
           int row = 1, rowCount = 1, drawing = 1, increment = 0;
           is >> row >> rowCount >> p >> drawing >> increment;
+          checkLoadedRows(row, rowCount);
           TXshLevel *xshLevel = dynamic_cast<TXshLevel *>(p);
           if (xshLevel) {
             for (int i = 0; i < rowCount; i++) {

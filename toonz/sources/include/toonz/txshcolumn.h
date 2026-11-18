@@ -468,6 +468,12 @@ last row with not empty cell of same level.
   int getCellMark(int frame) const;
   QMap<int, int> getCellMarks() const;
   void clearCellMarks();
+
+protected:
+  //! Throws TException unless rows [row, row + rowCount) are within
+  //! [0, TXsheet::maxRowCount). The column loaders call it before they set
+  //! cells.
+  static void checkLoadedRows(int row, int rowCount);
 };
 
 #endif
