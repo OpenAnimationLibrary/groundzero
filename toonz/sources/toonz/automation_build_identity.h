@@ -4,13 +4,20 @@
 
 namespace GroundzeroAutomation {
 
-/// Identify the running main executable once per process.
+/// Identify the running build once per process.
 /// Returns:
-///   {application, version, executable_sha256}; the hash is the compared value
-///   and covers the executable holding every automation and bridge source.
+///   {application, version, executable_sha256}. The compared value,
+///   executable_sha256, is the SHA-256 of a manifest listing the SHA-256 of the
+///   main executable and of each library this project builds that is present
+///   beside it, in name order. Third-party and system libraries are not part of
+///   it.
 /// Raises:
-///   Error: connector_io when the executable cannot be read.
+///   Error: connector_io when one of those files cannot be read.
 QJsonObject buildIdentity();
+
+/// Start computing the build identity on another thread, so a later
+/// buildIdentity() call on the GUI thread does not wait for the whole read.
+void prefetchBuildIdentity();
 
 /// Check one value against the build identity schema.
 /// Args:

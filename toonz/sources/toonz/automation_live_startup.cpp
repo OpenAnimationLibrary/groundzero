@@ -1,5 +1,7 @@
 #include "automation_live_startup.h"
 
+#include "automation_build_identity.h"
+
 #include "iocommand.h"
 #include "tapp.h"
 #include "tools/toolhandle.h"
@@ -155,6 +157,7 @@ class LiveUi::Impl final {
 public:
   Impl(QApplication& application, QMainWindow& window, Options options)
       : mode(options.mode), service(std::move(options), currentBusyReasons) {
+    prefetchBuildIdentity();
     label = new QLabel(&window);
     label->setObjectName("automationLiveStatus");
     label->setAccessibleName(QObject::tr("Live automation status"));

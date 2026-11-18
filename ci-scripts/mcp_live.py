@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import traceback
@@ -57,8 +58,56 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+# The libraries this project builds and ships beside its executable, as the native
+# build identity (automation_build_identity.cpp) lists them.
+PROJECT_LIBRARIES = (
+    "colorfx",
+    "image",
+    "sound",
+    "tfarm",
+    "tnzbase",
+    "tnzcore",
+    "tnzext",
+    "tnzstdfx",
+    "tnztools",
+    "toonzlib",
+    "toonzqt",
+)
+
+
+def library_file_name(name: str) -> str:
+    """Return one project library's file name on this platform.
+
+    Args:
+        name: The library's name without prefix or suffix.
+
+    Returns:
+        The file name the build gives it.
+    """
+    if os.name == "nt":
+        return f"{name}.dll"
+    return f"lib{name}.dylib" if sys.platform == "darwin" else f"lib{name}.so"
+
+
+def build_digest(executable: Path) -> str:
+    """Compute the build identity's executable_sha256 as the native side does.
+
+    Args:
+        executable: The application's main executable.
+
+    Returns:
+        The SHA-256 of the manifest of the executable and each project library beside it.
+    """
+    manifest = f"executable\t{file_sha256(executable)}\n"
+    for name in sorted(library_file_name(name) for name in PROJECT_LIBRARIES):
+        path = executable.parent / name
+        if path.is_file():
+            manifest += f"{name}\t{file_sha256(path)}\n"
+    return hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+
+
 def validate_build(fixture: Path, sdk: dict[str, Any], executable: Path) -> str:
-    """Require the hello and live.capabilities to name the executable this run started.
+    """Require the hello and live.capabilities to name the build this run started.
 
     Args:
         fixture: The retained evidence directory from the completed app process.
@@ -66,16 +115,16 @@ def validate_build(fixture: Path, sdk: dict[str, Any], executable: Path) -> str:
         executable: The native application the runner launched.
 
     Returns:
-        The executable's SHA-256 that both handshake records carried.
+        The build identity's executable_sha256 that both handshake records carried.
     """
-    expected = file_sha256(executable)
+    expected = build_digest(executable)
     security = json.loads((fixture / "security-boundaries.json").read_text(encoding="utf-8"))
     for label, build in (
         ("connector hello", security.get("hello_build")),
         ("live.capabilities", sdk.get("capabilities_build")),
     ):
         if not isinstance(build, dict) or build.get("executable_sha256") != expected:
-            raise AssertionError(f"The {label} build is not the launched executable's SHA-256")
+            raise AssertionError(f"The {label} build is not the launched build's identity")
     return expected
 
 
