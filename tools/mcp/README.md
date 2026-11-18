@@ -88,6 +88,26 @@ require an `operation_id`; changes to an existing document also require its late
 `expected_revision`. Keep the original operation ID when checking a retry within
 the same worker. Receipts and document handles expire when that worker exits.
 
+Each listed tool declares what it does. `_meta["groundzero/effects"]` gives its
+class (`read`, `document_write`, `document_lifecycle`, `job_start`, `job_control`
+or `session`), its effect on documents, the files it reads or writes, the jobs and
+helper processes it starts, whether it can change or remove existing state
+(`overwrites`), and the grants it needs. Writes keep no undo history, never claim
+a rollback, replay their receipt on retry, keep the revision on an exact no-op,
+and report `partially_applied` when they fail after a change began.
+`_meta["groundzero/errors"]` lists the error codes the tool can return, the
+adapter's own codes included. The annotations follow from the effects:
+`readOnlyHint` for reads, `destructiveHint` for writes that can overwrite,
+`idempotentHint` always, and `openWorldHint: false` because no tool reaches a
+network or an outside service. `automation.capabilities`,
+`automation.list_documents` and the three toolset tools also publish an
+`outputSchema`: their structured content or the error envelope
+`{error: {code, message, details}}` that every error result carries, with
+messages of at most 2,048 characters. A result outside its tool's output schema
+is never forwarded: the call returns `INVALID_RESULT` with the tool, `outcome`
+(`applied` for a write whose change happened, `none` for a read), the
+`operation_id` and at most 16 issues; inspect state before retrying a write.
+
 Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
 budget. The first cancellation for each of at most 32 retained render jobs has
 separate reserved receipt capacity, capped at 16 KiB per result. That cancellation
