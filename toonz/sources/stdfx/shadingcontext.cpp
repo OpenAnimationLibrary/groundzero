@@ -118,10 +118,14 @@ ShadingContext::ShadingContext(QOffscreenSurface *surface) : m_imp(new Imp) {
   m_imp->m_context->makeCurrent(m_imp->m_surface);
 
   makeCurrent();
-  if (GLEW_VERSION_3_2) {
-    glewExperimental = GL_TRUE;
+  // Without OpenGL (Qt's offscreen platform on macOS) no context is current
+  // and GLEW's first glGetString would dereference the missing one.
+  if (QOpenGLContext::currentContext() == m_imp->m_context.get()) {
+    if (GLEW_VERSION_3_2) {
+      glewExperimental = GL_TRUE;
+    }
+    glewInit();
   }
-  glewInit();
   doneCurrent();
 }
 

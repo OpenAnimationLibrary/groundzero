@@ -43,7 +43,7 @@ async function session() {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
     if (method === "automation.capabilities") {
       return {
-        protocol_version: 2,
+        protocol_version: 3,
         tools: [{ ...tool, mutates_document: true, toolset: "core" }],
         toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
       };
@@ -105,11 +105,11 @@ test("keeps native failures visible as tool errors", async () => {
 const core = (names: string[]) => [{ name: "core", description: "Core tools", tools: names }];
 
 test.each([
-  { protocol_version: 1, tools: [tool], toolsets: core([tool.name]) },
-  { protocol_version: 2, tools: [tool, tool], toolsets: core([tool.name]) },
-  { protocol_version: 2, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
+  { protocol_version: 2, tools: [tool], toolsets: core([tool.name]) },
+  { protocol_version: 3, tools: [tool, tool], toolsets: core([tool.name]) },
+  { protocol_version: 3, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
   {
-    protocol_version: 2,
+    protocol_version: 3,
     tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, name: `tool.${i}` })),
     toolsets: core(Array.from({ length: 1025 }, (_, i) => `tool.${i}`)),
   },
@@ -122,7 +122,7 @@ test("compiles and rejects invalid native schemas before accepting tool calls", 
     ...tool,
     inputSchema: { type: "object", properties: { name: { type: "not-a-schema-type" } } },
   };
-  const catalog = { protocol_version: 2, tools: [invalid], toolsets: core([tool.name]) };
+  const catalog = { protocol_version: 3, tools: [invalid], toolsets: core([tool.name]) };
   await expectUnusableCatalog(catalog, /^INVALID_CATALOG$/u);
 });
 

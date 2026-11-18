@@ -52,7 +52,7 @@ function respond(id, result) {
 const handlers = {
   "automation.capabilities": (id) =>
     respond(id, {
-      protocol_version: 2,
+      protocol_version: 3,
       tools,
       toolsets: [{ name: "core", description: "Probe tools", tools: tools.map((t) => t.name) }],
     }),

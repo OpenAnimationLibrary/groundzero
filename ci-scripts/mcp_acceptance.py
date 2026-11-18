@@ -52,6 +52,7 @@ import mcp_render_cases
 import mcp_renumber_cases
 import mcp_revision_cases
 import mcp_rig_cases
+import mcp_runtime_cases
 import mcp_scene_access_cases
 import mcp_scene_cases
 import mcp_scene_reads_cases
@@ -493,6 +494,36 @@ class NativeAcceptance(unittest.TestCase):
     def test_media_tools_on_path_do_not_enable_movies(self) -> None:
         mcp_media_cases.media_tools_on_path_do_not_enable_movies(self)
 
+    def test_runtime_states_distinguish_layers(self) -> None:
+        mcp_runtime_cases.runtime_states_distinguish_layers(self)
+
+    def test_runtime_media_identity(self) -> None:
+        mcp_runtime_cases.runtime_media_identity(self)
+
+    def test_runtime_formats_native_vs_admitted(self) -> None:
+        mcp_runtime_cases.runtime_formats_native_vs_admitted(self)
+
+    def test_runtime_reports_private_stuff_and_plugin_policy(self) -> None:
+        mcp_runtime_cases.runtime_reports_private_stuff_and_plugin_policy(self)
+
+    def test_runtime_media_without_encoder_is_not_usable(self) -> None:
+        mcp_runtime_cases.runtime_media_without_encoder_is_not_usable(self)
+
+    def test_render_preflight_reports_every_failure(self) -> None:
+        mcp_runtime_cases.render_preflight_reports_every_failure(self)
+
+    def test_mp4_refused_without_encoder(self) -> None:
+        mcp_runtime_cases.mp4_refused_without_encoder(self)
+
+    def test_runtime_unavailable_backends_are_not_advertised(self) -> None:
+        mcp_runtime_cases.runtime_unavailable_backends_are_not_advertised(self)
+
+    def test_preview_reports_effective_output(self) -> None:
+        mcp_runtime_cases.preview_reports_effective_output(self)
+
+    def test_media_tools_replaced_after_launch_are_refused(self) -> None:
+        mcp_runtime_cases.media_tools_replaced_after_launch_are_refused(self)
+
     def test_movie_snapshot_metadata_and_pixels(self) -> None:
         mcp_movie_cases.movie_snapshot_metadata_and_pixels(self)
 
@@ -687,6 +718,10 @@ class NativeAcceptance(unittest.TestCase):
     @worker_only("needs --test-render-fault fail-after-final-frame, which the adapter never passes")
     def test_render_failure_after_final_frame_publishes_nothing(self) -> None:
         mcp_failure_cases.render_failure_after_final_frame_publishes_nothing(self)
+
+    @worker_only("needs --test-render-fault gl-context-failure, which the adapter never passes")
+    def test_render_without_worker_gl_marks_graphics_failed(self) -> None:
+        mcp_failure_cases.render_without_worker_gl_marks_graphics_failed(self)
 
     @worker_only("needs --test-render-fault encoder-failure, which the adapter never passes")
     def test_render_encoder_failure_publishes_nothing(self) -> None:
@@ -981,7 +1016,7 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_capabilities_are_strict_and_implemented(self) -> None:
         capabilities = self.success("automation.capabilities", {})
-        self.assertEqual(capabilities["protocol_version"], 2)
+        self.assertEqual(capabilities["protocol_version"], 3)
         tools = capabilities["tools"]
         names = [tool["name"] for tool in tools]
         self.assertEqual(len(names), len(set(names)), "Duplicate advertised tool names")
@@ -1341,7 +1376,7 @@ class NativeAcceptance(unittest.TestCase):
         missing_id = self.worker.exchange(b'{"method":"automation.capabilities","params":{}}')
         self.assertIn("error", missing_id)
         self.assertIsNone(missing_id["id"])
-        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 2)
+        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 3)
         self.assertIn(
             "error",
             self.worker.exchange(
@@ -1446,7 +1481,7 @@ class NativeAcceptance(unittest.TestCase):
             ),
         )
         self.assertEqual(self.success("scene.summary", {"document_id": document}), before)
-        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 2)
+        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 3)
 
     def test_exposures_animation_and_document_isolation(self) -> None:
         document, level, column = self.populated_scene()

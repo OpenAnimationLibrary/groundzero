@@ -98,6 +98,18 @@ void muteAutomationSound(ToonzScene& scene);
 //   object when the scene has no sound.
 QJsonObject writeAutomationSounds(ToonzScene& scene, const QString& directory);
 
+// List the sound sources whose private copy a render snapshot could not read.
+//
+// A snapshot copies every sound source of the scene, exposed or not, after
+// verifying it against its decoded track.
+//
+// Args:
+//   scene: Admitted scene.
+// Returns:
+//   One {kind: "sound", name, code} row per missing, unreadable or changed
+//   source, at most 64.
+QJsonArray missingAutomationSounds(ToonzScene& scene);
+
 // Decode and compare a reopened package's sound with its manifest.
 //
 // Throws:

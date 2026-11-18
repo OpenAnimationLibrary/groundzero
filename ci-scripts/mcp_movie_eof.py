@@ -139,9 +139,9 @@ def movie_eof_interrupts_encoder_finalization(case: NativeAcceptance) -> None:
     """
     case.assertEqual(os.environ.get("OTDEV_FFMPEG_NO_PIPE", "0"), "0")
     media = _private_media(case)
+    _replace_encoder(case, media)
     _start_worker(case, media)
     document, _level, _column = case.populated_scene()
-    _replace_encoder(case, media)
     job = case.mutate(
         "render.submit", document, format="mp4", start_frame=0, end_frame=2, width=32, height=32
     )

@@ -48,8 +48,8 @@ const MAX_CATALOG_TOOLS = 1024;
 
 async function discover(worker: NativeApi, requested: string[]): Promise<ToolsetState> {
   const result = await worker.request("automation.capabilities");
-  if (!isObject(result) || result["protocol_version"] !== 2) {
-    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 2");
+  if (!isObject(result) || result["protocol_version"] !== 3) {
+    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 3");
   }
   const tools = await catalog(result["tools"]);
   return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
@@ -208,7 +208,7 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
       result =
         state?.isToolsetTool(name) === true
           ? toolResult(await toolsetCall(state, server, name, args))
-          : nativeToolResult(await worker.request(name, args), live);
+          : nativeToolResult(sessionResult(state, name, await worker.request(name, args)), live);
     } catch (error) {
       result = errorResult(error);
     }
@@ -220,6 +220,10 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
     }
   });
   return server;
+}
+
+function sessionResult(state: ToolsetState | undefined, name: string, value: unknown): unknown {
+  return state !== undefined && name === "runtime.inspect" ? state.sessionRuntime(value) : value;
 }
 
 type Validator = ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;

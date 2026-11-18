@@ -149,6 +149,40 @@ export class ToolsetState {
     return [...this.tools.filter((tool) => this.isEnabled(tool.name)), ...TOOLSET_TOOLS];
   }
 
+  /** Report this session's toolset states in a runtime.inspect result.
+   *
+   * The worker serves every toolset; only the adapter knows which ones this session exposes.
+   * A toolset is configured, and usable, when it is enabled here.
+   *
+   * Args:
+   *   result: The native runtime.inspect result.
+   * Returns:
+   *   The result with each toolset state's configured, usable and reasons set for this session.
+   */
+  sessionRuntime(result: unknown): unknown {
+    if (!isObject(result) || !Array.isArray(result["toolsets"])) return result;
+    const toolsets = result["toolsets"].map((entry: unknown) => {
+      if (!isObject(entry) || typeof entry["name"] !== "string" || !isObject(entry["state"])) {
+        return entry;
+      }
+      const enabled = this.enabled.has(entry["name"]);
+      const state = entry["state"];
+      const reasons = Array.isArray(state["reasons"])
+        ? state["reasons"].filter((reason) => reason !== "toolset_disabled")
+        : [];
+      return {
+        ...entry,
+        state: {
+          ...state,
+          configured: enabled,
+          usable: state["usable"] === true && enabled,
+          reasons: enabled ? reasons : [...reasons, "toolset_disabled"],
+        },
+      };
+    });
+    return { ...result, toolsets };
+  }
+
   isToolsetTool(name: string): boolean {
     return TOOLSET_TOOL_NAMES.has(name);
   }
