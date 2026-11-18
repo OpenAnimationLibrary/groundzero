@@ -38,6 +38,7 @@ import mcp_movie_cases
 import mcp_movie_eof
 import mcp_palette_cases
 import mcp_production_cases
+import mcp_protocol_cases
 import mcp_receipt_cases
 import mcp_recipe_cases
 import mcp_render_cases
@@ -494,6 +495,15 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_eof_cancels_render_without_forced_kill(self) -> None:
         mcp_render_cases.eof_cancels_without_forced_kill(self)
+
+    def test_client_results_match_native_serializer(self) -> None:
+        mcp_protocol_cases.client_results_match_native_serializer(self)
+
+    def test_mcp_cancellation_leaves_render_running(self) -> None:
+        mcp_protocol_cases.mcp_cancellation_leaves_render_running(self)
+
+    def test_document_ids_do_not_alias_after_close_and_reopen(self) -> None:
+        mcp_protocol_cases.document_ids_do_not_alias_after_close_and_reopen(self)
 
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
