@@ -2510,6 +2510,64 @@
     "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
    }
   },
+  "drawing.analysis.submit": {
+   "group": "drawing",
+   "kind": "file",
+   "fixture": "vec",
+   "domain": "Drawings, vector art and palettes",
+   "class": "job",
+   "changes": "starts a bounded analysis job over the drawings of a level; the job reads the document and never edits it",
+   "bumps": "none; the job reads the document at its revision and never edits it",
+   "reads": [
+    {
+     "tool": "vector.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "limit": 8
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "check": "roles"
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "check": "regions",
+      "style_ids": [
+       1
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
   "drawing.clone": {
    "group": "drawing",
    "kind": "document",

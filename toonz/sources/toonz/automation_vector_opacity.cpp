@@ -168,8 +168,71 @@ constexpr char Schemas[] = R"json(
                 "x1",
                 "y1"
               ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "lasso"
+                  ]
+                },
+                "relation": {
+                  "type": "string",
+                  "enum": [
+                    "intersects",
+                    "contained"
+                  ]
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -32768,
+                        "maximum": 32768
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -32768,
+                        "maximum": 32768
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  },
+                  "minItems": 3,
+                  "maxItems": 256
+                }
+              },
+              "required": [
+                "mode",
+                "relation",
+                "points"
+              ]
             }
           ]
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "line_art",
+              "colour_art",
+              "underlay",
+              "overlay"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 4
         }
       },
       "required": [
@@ -314,6 +377,11 @@ constexpr char Schemas[] = R"json(
           "minItems": 1,
           "maxItems": 128
         },
+        "selection_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "opacity_per_mille": {
           "type": "integer",
           "minimum": 0,
@@ -327,8 +395,19 @@ constexpr char Schemas[] = R"json(
         "expected_revision",
         "operation_id",
         "sharing",
-        "stroke_indices",
         "opacity_per_mille"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "stroke_indices"
+          ]
+        },
+        {
+          "required": [
+            "selection_id"
+          ]
+        }
       ]
     }
   },
@@ -395,6 +474,11 @@ constexpr char Schemas[] = R"json(
           "minItems": 1,
           "maxItems": 128
         },
+        "selection_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "knots": {
           "type": "array",
           "items": {
@@ -428,8 +512,19 @@ constexpr char Schemas[] = R"json(
         "expected_revision",
         "operation_id",
         "sharing",
-        "stroke_indices",
         "knots"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "stroke_indices"
+          ]
+        },
+        {
+          "required": [
+            "selection_id"
+          ]
+        }
       ]
     }
   }
@@ -504,13 +599,14 @@ QString vectorLevelOpacityDigest(TXshSimpleLevel& level) {
 QJsonArray vectorOpacityOperations() {
   QJsonArray result;
   const QStringList descriptions{
-      "Select bounded revision-bound stroke indices using explicit indices or "
-      "native geometry.",
+      "Select bounded revision-bound stroke indices using explicit indices, "
+      "centerline geometry or a lasso, optionally limited to art roles, and "
+      "return a selection_id handle bound to the revision.",
       "Inspect native per-mille stroke opacity and a bounded envelope page.",
       "Set native per-mille ink opacity while preserving stroke envelopes and "
-      "region paint.",
+      "region paint; targets stroke_indices or a selection_id.",
       "Replace native ink opacity envelopes while preserving scalar opacity "
-      "and region paint."};
+      "and region paint; targets stroke_indices or a selection_id."};
   const auto definitions = QJsonDocument::fromJson(Schemas).array();
   for (int index = 0; index < definitions.size(); ++index) {
     const auto definition = definitions[index].toObject();
