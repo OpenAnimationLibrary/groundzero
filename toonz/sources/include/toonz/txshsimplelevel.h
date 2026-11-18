@@ -277,6 +277,23 @@ public:
   void load() override;
   void load(const std::vector<TFrameId> &fIds);
 
+  //! What the last load() could not do: a partially loaded file, which is
+  //! loaded as far as it goes, or an image the level cannot hold, which leaves
+  //! the level without frames. load() never opens a dialog; it records the
+  //! report here and passes it to the handler, if one is installed.
+  struct LoadReport {
+    QString m_title, m_message;
+    bool m_failed = false;  //!< The level has no frames because of this
+    bool isEmpty() const { return m_message.isEmpty(); }
+  };
+  const LoadReport& getLoadReport() const { return m_loadReport; }
+
+  //! Receives each load report as it is made. The editor installs one that
+  //! shows the message; headless programs install none and read the report.
+  using LoadReportHandler = void (*)(const QString& title,
+                                     const QString& message);
+  static void setLoadReportHandler(LoadReportHandler handler);
+
   //! Saves the level to disk, with the same path deduction from load()
   void save() override;
 
@@ -369,6 +386,7 @@ protected:
   // Specialized retained-source levels use the same one-shot loading range
   // contract as TXshSimpleLevel::load().
   void setIsSubsequence(bool value) { m_isSubsequence = value; }
+  void reportLoad(const QString& title, const QString& message, bool failed);
 
 public Q_SLOTS:
   void onPaletteChanged();  //!< Invoked when some colorstyle has been changed
@@ -406,6 +424,7 @@ private:
   std::string m_idBase;
   std::wstring m_editableRangeUserInfo;
 
+  LoadReport m_loadReport;
   bool m_isSubsequence;
   bool m_16BitChannelLevel;
   bool m_floatChannelLevel;

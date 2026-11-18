@@ -1079,6 +1079,15 @@ if(BUILD_RELIABILITY_TESTS)
     endif()
     add_test(NAME malformed_scene COMMAND malformed_scene_test)
     set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300)
+
+    # Loading a level reports what it cannot load through the level and an
+    # installed handler instead of opening a dialog. The timeout ends a run
+    # that waits on a dialog.
+    add_executable(level_load_report_test toonzlib/tests/level_load_report_test.cpp)
+    target_link_libraries(level_load_report_test PRIVATE
+        toonzlib image tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME level_load_report COMMAND level_load_report_test)
+    set_tests_properties(level_load_report PROPERTIES TIMEOUT 30)
 endif()
 add_subdirectory(toonzfarm/tfarm)
 add_subdirectory(glb)
