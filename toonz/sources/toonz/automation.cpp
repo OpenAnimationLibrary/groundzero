@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_dispatch.h"
+#include "automation_activity.h"
 #include "automation_files.h"
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
@@ -627,6 +628,7 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(workerArguments(argc, argv));
+    preventAppNap();
     // Parse helpers and scene hosts are children of a worker and share its
     // containment.
     const bool helpersContained = options.parseHelper.isEmpty() &&
