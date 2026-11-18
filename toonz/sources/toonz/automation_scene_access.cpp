@@ -1,3 +1,4 @@
+#include "automation_files.h"
 #include "automation_scene_host.h"
 #include "automation_shared_parse.h"
 
@@ -167,9 +168,15 @@ void hashProject(Scan& scan, ProjectRow& row) {
     scan.incomplete("hash_budget");
     return;
   }
-  QFile file(row.file);
-  if (!file.open(QIODevice::ReadOnly)) {
+  QFile file;
+  try {
+    if (openApprovedFile(file, row.file) != OpenResult::Opened) {
+      row.status = "unreadable";
+      return;
+    }
+  } catch (const Error&) {
     row.status = "unreadable";
+    scan.incomplete("skipped_links");
     return;
   }
   const QByteArray bytes = file.read(ProjectFileLimitBytes + 1);
@@ -330,8 +337,11 @@ QJsonValue listProjects(Context& context, const QJsonObject& params) {
   const int limit  = integerParam(params, "limit", 1, 64, 32);
   Scan scan{context, depth};
   scan.timer.start();
-  for (const QString& folder : scanFolders(context, params))
-    scanFolder(scan, folder, 0);
+  const QStringList folders = scanFolders(context, params);
+  for (const QString& folder : folders) scanFolder(scan, folder, 0);
+  for (const QString& folder : folders)
+    if (QFileInfo(folder).canonicalFilePath() != folder)
+      throw Error("path_denied", "The folder changed while it was listed.");
   std::sort(
       scan.rows.begin(), scan.rows.end(),
       [](const ProjectRow& a, const ProjectRow& b) { return a.file < b.file; });

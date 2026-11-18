@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mcp_file_tools import PATH_TOOLS, PathTool
+from mcp_file_tools import PATH_TOOLS, READ_ONLY_REFUSED, PathTool
 from mcp_file_trace import tree_state
 from mcp_worker import Worker
 
@@ -40,7 +40,9 @@ def _swap_was_applied(case: NativeAcceptance, swap: Path) -> None:
 
 def _expect_refusal(case: NativeAcceptance, tool: PathTool, response: dict[str, Any]) -> None:
     case.assertIn("error", response, f"{tool.name} followed a swapped path: {response}")
-    allowed = {"path_denied"} | (INPUT_REFUSALS if tool.mode == "read" else set())
+    allowed = {"path_denied"} | (
+        INPUT_REFUSALS | READ_ONLY_REFUSED if tool.mode == "read" else set()
+    )
     case.assertIn(response["error"]["code"], allowed, response)
 
 
@@ -74,7 +76,10 @@ def _race(case: NativeAcceptance, tool: PathTool, parent: bool, stage: str) -> N
     state = tool.prepare(case)
     if tool.mode == "read":
         tool.place(case, state, holder / name)
-        (outside / name).write_bytes(b"not a valid input\n")
+        if tool.suffix:
+            (outside / name).write_bytes(b"not a valid input\n")
+        else:
+            tool.place(case, state, outside / name)
     elif not parent:
         tool.place(case, state, outside / name)
     before = tree_state([outside])
@@ -110,7 +115,7 @@ def swapped_paths_cannot_redirect_a_pinned_directory(case: NativeAcceptance) -> 
         case: A fresh native-worker acceptance fixture.
     """
     for tool in PATH_TOOLS.values():
-        if tool.mode == "published":
+        if tool.mode == "published" or not tool.pinned:
             continue
         for parent in (True, False):
             with case.subTest(tool=tool.name, swapped="directory" if parent else "file"):

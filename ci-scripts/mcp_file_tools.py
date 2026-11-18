@@ -7,14 +7,17 @@ an entry in PATH_TOOLS, and every entry must name a tool that still exists.
 from __future__ import annotations
 
 import re
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_audio_model import tone, wav_file
+from mcp_library_cases import _package_scene
 from mcp_lipsync_cases import Cue, tsv_file
 from mcp_png import write_fixture
+from mcp_scene_access_cases import project_xml
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -47,6 +50,7 @@ class PathTool:
     prepare: Callable[[NativeAcceptance], State]
     drive: Callable[[NativeAcceptance, State, str], dict[str, Any]]
     place: Callable[[NativeAcceptance, State, Path], None]
+    pinned: bool = True
 
 
 def invoke(
@@ -83,6 +87,36 @@ def _file(_case: NativeAcceptance, _state: State, path: Path) -> None:
 def _directory(_case: NativeAcceptance, _state: State, path: Path) -> None:
     path.mkdir()
     (path / "existing.txt").write_bytes(b"existing destination\n")
+
+
+def _project_folder(_case: NativeAcceptance, _state: State, path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "tahomaproject.xml").write_text(project_xml({}))
+
+
+def _list_projects(case: NativeAcceptance, _state: State, path: str) -> dict[str, Any]:
+    return case.worker.call("project.list", {"folder": path})
+
+
+def _packaged(case: NativeAcceptance) -> State:
+    existing = case.workspace / "rig-package"
+    return {"package": existing if existing.is_dir() else _package_scene(case)}
+
+
+def _scene_file(_case: NativeAcceptance, state: State, path: Path) -> None:
+    package: Path = state["package"]
+    shutil.copyfile(package / "scene.tnz", path)
+    if not (path.parent / "assets").exists():
+        shutil.copytree(package / "assets", path.parent / "assets")
+
+
+def _open_read_only(case: NativeAcceptance, _state: State, path: str) -> dict[str, Any]:
+    response = invoke(case, "scene.open_read_only", None, path=path, project_id="standalone")
+    result = response.get("result")
+    if isinstance(result, dict):
+        case.revisions[result["document_id"]] = result["revision"]
+        invoke(case, "scene.discard", result["document_id"])
+    return response
 
 
 def _document(case: NativeAcceptance) -> State:
@@ -208,6 +242,7 @@ def _package_info(case: NativeAcceptance, _state: State, path: str) -> dict[str,
     return case.worker.call("scene.package_info", {"path": path})
 
 
+READ_ONLY_REFUSED = frozenset({"not_found", "invalid_path", "invalid_scene", "unsupported_type"})
 INPUT_MISSING = frozenset({"invalid_asset", "io_error", "asset_unavailable", "invalid_params"})
 OUTPUT_FAILED = frozenset(
     {"io_error", "missing_parent", "package_write_failed", "PRESET_WRITE_FAILED"}
@@ -244,6 +279,28 @@ PATH_TOOLS: dict[str, PathTool] = {
             _document,
             _lipsync_import,
             _timing,
+        ),
+        PathTool(
+            "project.list",
+            ("folder",),
+            "read",
+            "",
+            READ_ONLY_REFUSED,
+            _document,
+            _list_projects,
+            _project_folder,
+            pinned=False,
+        ),
+        PathTool(
+            "scene.open_read_only",
+            ("path",),
+            "read",
+            ".tnz",
+            READ_ONLY_REFUSED,
+            _packaged,
+            _open_read_only,
+            _scene_file,
+            pinned=False,
         ),
         PathTool(
             "raster.export_png",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import time
 from collections.abc import Iterable
@@ -75,10 +76,8 @@ def files_mentioning(marker: bytes, roots: Iterable[Path]) -> list[Path]:
         for current, _directories, files in os.walk(root, followlinks=False):
             for name in files:
                 path = Path(current) / name
-                if path.is_symlink():
-                    continue
                 try:
-                    if marker in path.read_bytes():
+                    if stat.S_ISREG(path.lstat().st_mode) and marker in path.read_bytes():
                         hits.append(path)
                 except OSError:
                     continue
