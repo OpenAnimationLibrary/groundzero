@@ -1,8 +1,9 @@
 """Qualify that the live build identity covers the executable and this project's libraries.
 
-The connector compares a session file's build identity with its own before it connects. A
-session file carrying the identity this runner computes is refused only for its missing
-endpoint (live_security), which shows the native and runner digests agree. A copied
+The connector compares a session file's build identity with its own before it connects. The
+runner reads the application's build manifest and recomputes its digest over the files it
+names. A session file carrying that digest is refused only for its missing endpoint
+(live_security), which shows the connector computes the same digest. A copied
 application with one byte of a project library changed is refused as build_mismatch; one
 with an extra library beside the executable that the project does not build is not.
 """
@@ -23,22 +24,21 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from mcp_live import PROJECT_LIBRARIES, build_digest, library_file_name
+from mcp_live import build_manifest, verified_build_digest
 from run_harness_tests import annotation
 
-LIBRARY_SUFFIX = {"darwin": ".dylib", "win32": ".dll"}.get(sys.platform, ".so")
 
-
-def beside(executable: Path) -> set[str]:
-    """Return the library file names beside an executable.
+def application_root(executable: Path) -> Path:
+    """Return the folder a copy of the application must include.
 
     Args:
         executable: The application's main executable.
 
     Returns:
-        Every file name there with this platform's library suffix.
+        The macOS bundle that contains it, or else its directory.
     """
-    return {path.name for path in executable.parent.iterdir() if path.suffix == LIBRARY_SUFFIX}
+    contents = executable.parent.parent
+    return contents.parent if contents.name == "Contents" else executable.parent
 
 
 def copy_application(executable: Path, root: Path) -> Path:
@@ -51,8 +51,7 @@ def copy_application(executable: Path, root: Path) -> Path:
     Returns:
         The copied main executable.
     """
-    contents = executable.parent.parent
-    bundle = contents.parent if contents.name == "Contents" else executable.parent
+    bundle = application_root(executable)
     target = root / bundle.name
     shutil.copytree(bundle, target, symlinks=True)
     return target / executable.relative_to(bundle)
@@ -86,14 +85,14 @@ def grant(directory: Path, digest: str) -> Path:
 
     Args:
         directory: A private directory for the session file.
-        digest: The executable_sha256 the session file claims.
+        digest: The build_digest the session file claims.
 
     Returns:
         The session file.
     """
     session = {
         "protocol": "groundzero-live-v2",
-        "build": {"application": "groundzero", "version": "1.8", "executable_sha256": digest},
+        "build": {"application": "groundzero", "version": "1.8", "build_digest": digest},
         "instance_id": str(uuid.uuid4()),
         "endpoint": str(directory / "absent"),
         "pid": os.getpid(),
@@ -137,6 +136,38 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def copied_library(executable: Path, copy: Path, library: dict[str, Any]) -> Path:
+    """Return where a library of the application lies in a copy of it.
+
+    Args:
+        executable: The original main executable.
+        copy: The copy's main executable.
+        library: A manifest entry of the original application.
+
+    Returns:
+        The same file inside the copy.
+    """
+    root = application_root(executable)
+    relative = Path(library["path"]).resolve().relative_to(root.resolve())
+    return application_root(copy) / relative
+
+
+def copy_digest(executable: Path, copy: Path) -> str:
+    """Verify a copy's build digest and that it covers the copy's own files.
+
+    Args:
+        executable: The original main executable.
+        copy: The copy's main executable.
+
+    Returns:
+        The copy's verified build_digest.
+    """
+    root = application_root(copy).resolve()
+    for entry in build_manifest(copy)["files"]:
+        require(Path(entry["path"]).resolve().is_relative_to(root), "A copy used outside files")
+    return verified_build_digest(copy)
+
+
 def qualify(executable: Path, scratch: Path) -> dict[str, Any]:
     """Run the three identity cases against copies of the application.
 
@@ -147,24 +178,34 @@ def qualify(executable: Path, scratch: Path) -> dict[str, Any]:
     Returns:
         The digests and refusals observed.
     """
-    expected = {library_file_name(name) for name in PROJECT_LIBRARIES}
-    require(
-        beside(executable) == expected, f"Libraries beside the executable: {beside(executable)}"
-    )
-    digest = build_digest(executable)
+    libraries = build_manifest(executable)["files"][1:]
+    require(bool(libraries), "The build manifest names no project library")
+    digest = verified_build_digest(executable)
     session = grant(scratch, digest)
-    report: dict[str, Any] = {"digest": digest, "original": refusal(executable, session)}
+    report: dict[str, Any] = {
+        "digest": digest,
+        "libraries": [entry["name"] for entry in libraries],
+        "original": refusal(executable, session),
+    }
     require(report["original"]["code"] == "live_security", "The native identity differs")
     changed = copy_application(executable, scratch / "changed")
-    change_one_byte(changed.parent / library_file_name("toonzlib"))
-    report["project_library"] = {"digest": build_digest(changed), **refusal(changed, session)}
+    change_one_byte(copied_library(executable, changed, libraries[-1]))
+    report["project_library"] = {
+        "changed": libraries[-1]["name"],
+        "digest": copy_digest(executable, changed),
+        **refusal(changed, session),
+    }
     require(report["project_library"]["digest"] != digest, "A library change kept the digest")
     require(report["project_library"]["code"] == "build_mismatch", "A changed build connected")
     extra = copy_application(executable, scratch / "extra")
-    foreign = extra.parent / f"libthirdparty{LIBRARY_SUFFIX}"
-    shutil.copyfile(extra.parent / library_file_name("tnzext"), foreign)
+    source = copied_library(executable, extra, libraries[0])
+    foreign = source.with_name(f"libthirdparty{source.suffix}")
+    shutil.copyfile(source, foreign)
     change_one_byte(foreign)
-    report["third_party_library"] = {"digest": build_digest(extra), **refusal(extra, session)}
+    report["third_party_library"] = {
+        "digest": copy_digest(executable, extra),
+        **refusal(extra, session),
+    }
     require(report["third_party_library"]["digest"] == digest, "A foreign library counted")
     require(report["third_party_library"]["code"] == "live_security", "A foreign library counted")
     return report

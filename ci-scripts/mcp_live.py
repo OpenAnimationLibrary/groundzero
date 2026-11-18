@@ -8,7 +8,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import traceback
@@ -58,52 +57,45 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-# The libraries this project builds and ships beside its executable, as the native
-# build identity (automation_build_identity.cpp) lists them.
-PROJECT_LIBRARIES = (
-    "colorfx",
-    "image",
-    "sound",
-    "tfarm",
-    "tnzbase",
-    "tnzcore",
-    "tnzext",
-    "tnzstdfx",
-    "tnztools",
-    "toonzlib",
-    "toonzqt",
-)
-
-
-def library_file_name(name: str) -> str:
-    """Return one project library's file name on this platform.
-
-    Args:
-        name: The library's name without prefix or suffix.
-
-    Returns:
-        The file name the build gives it.
-    """
-    if os.name == "nt":
-        return f"{name}.dll"
-    return f"lib{name}.dylib" if sys.platform == "darwin" else f"lib{name}.so"
-
-
-def build_digest(executable: Path) -> str:
-    """Compute the build identity's executable_sha256 as the native side does.
+def build_manifest(executable: Path) -> dict[str, Any]:
+    """Ask the application for the files its build identity covers.
 
     Args:
         executable: The application's main executable.
 
     Returns:
-        The SHA-256 of the manifest of the executable and each project library beside it.
+        The manifest: build_digest and the covered files with their paths.
     """
-    manifest = f"executable\t{file_sha256(executable)}\n"
-    for name in sorted(library_file_name(name) for name in PROJECT_LIBRARIES):
-        path = executable.parent / name
-        if path.is_file():
-            manifest += f"{name}\t{file_sha256(path)}\n"
-    return hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+    result = subprocess.run(
+        [str(executable), "--automation-build-manifest"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+        check=True,
+    )
+    return json.loads(result.stdout.decode("utf-8"))
+
+
+def verified_build_digest(executable: Path) -> str:
+    """Return the application's build_digest after recomputing it over the files it names.
+
+    Args:
+        executable: The application's main executable.
+
+    Returns:
+        The build_digest, equal to this runner's SHA-256 of the manifest lines.
+    """
+    manifest = build_manifest(executable)
+    files = manifest["files"]
+    if not files or files[0]["name"] != "executable":
+        raise AssertionError("The build manifest does not start with the executable")
+    if Path(files[0]["path"]).resolve() != executable.resolve():
+        raise AssertionError("The build manifest names another executable")
+    lines = "".join(f"{entry['name']}\t{file_sha256(Path(entry['path']))}\n" for entry in files)
+    digest = hashlib.sha256(lines.encode("utf-8")).hexdigest()
+    if digest != manifest["build_digest"]:
+        raise AssertionError("The build manifest's digest does not match its files")
+    return digest
 
 
 def validate_build(fixture: Path, sdk: dict[str, Any], executable: Path) -> str:
@@ -115,15 +107,15 @@ def validate_build(fixture: Path, sdk: dict[str, Any], executable: Path) -> str:
         executable: The native application the runner launched.
 
     Returns:
-        The build identity's executable_sha256 that both handshake records carried.
+        The build identity's build_digest that both handshake records carried.
     """
-    expected = build_digest(executable)
+    expected = verified_build_digest(executable)
     security = json.loads((fixture / "security-boundaries.json").read_text(encoding="utf-8"))
     for label, build in (
         ("connector hello", security.get("hello_build")),
         ("live.capabilities", sdk.get("capabilities_build")),
     ):
-        if not isinstance(build, dict) or build.get("executable_sha256") != expected:
+        if not isinstance(build, dict) or build.get("build_digest") != expected:
             raise AssertionError(f"The {label} build is not the launched build's identity")
     return expected
 
@@ -140,7 +132,7 @@ def validate_evidence(fixture: Path, report: dict[str, Any], executable: Path) -
     native = json.loads((fixture / "native.json").read_text(encoding="utf-8"))
     if sdk.get("status") != "passed" or native.get("status") != "passed":
         raise AssertionError("Live SDK and independent native observations must both pass")
-    report["executable_sha256"] = validate_build(fixture, sdk, executable)
+    report["build_digest"] = validate_build(fixture, sdk, executable)
     validate_clients(sdk)
     validate_phases(native)
     if native.get("sdk_exit_code") != 0 or native.get("sdk_exit_status") != "normal":

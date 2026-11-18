@@ -599,17 +599,19 @@ Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
 The editor and the connector must be the same build. The session file, the
 authentication and the editor's hello carry the bridge protocol
 (`groundzero-live-v2`) and a build identity: `application`, a `version` label,
-and `executable_sha256`, which identifies the native code that runs. It is the
+and `build_digest`, which identifies the native code that runs. It is the
 SHA-256 of a manifest with one line per file, `<name>\t<sha256>\n`: first
 `executable` and the SHA-256 of the main executable, then, in name order, each
-library this project builds that is present beside the executable (`colorfx`,
-`image`, `sound`, `tfarm`, `tnzbase`, `tnzcore`, `tnzext`, `tnzstdfx`,
-`tnztools`, `toonzlib`, `toonzqt`, as `lib<name>.dylib`, `lib<name>.so` or
-`<name>.dll`). Third-party and system libraries and anything outside the
-executable's directory are not part of it. The editor computes it on a background
-thread when live automation is configured; the connector computes it before it
-reads the session file, about 0.4 s for the 61 MB macOS build. The connector
-compares the session file before it connects, so a mismatched pair never sends
+library this project builds (`colorfx`, `image`, `sound`, `tfarm`, `tnzbase`,
+`tnzcore`, `tnzext`, `tnzstdfx`, `tnztools`, `toonzlib`, `toonzqt`), read from
+where the dynamic loader loaded it. A project library that is not loaded is an
+error. Third-party and system libraries are not part of it. `Groundzero
+--automation-build-manifest` prints the manifest as one JSON line,
+`{"build_digest", "files": [{"name", "path", "sha256"}]}`, so a runner can
+recompute the digest over the same files. The editor computes the identity on a
+background thread when live automation is configured; the connector computes it
+before it reads the session file, about 0.4 s for the 61 MB macOS build. The
+connector compares the session file before it connects, so a mismatched pair never sends
 the token. A mismatch fails attachment with `LIVE_INCOMPATIBLE`; its details
 name the `cause` (`protocol_mismatch` or `build_mismatch`) and the `connector`
 and `editor` identities. Start the editor and the adapter from one build. Any

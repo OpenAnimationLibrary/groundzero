@@ -66,7 +66,7 @@ test("accepts a versioned hello", async () => {
   const { connection } = connector();
   await expect(connection.ready).resolves.toMatchObject({
     protocol: "groundzero-live-v2",
-    build: { application: "groundzero", version: "1.8", executable_sha256: "c".repeat(64) },
+    build: { application: "groundzero", version: "1.8", build_digest: "c".repeat(64) },
   });
 });
 

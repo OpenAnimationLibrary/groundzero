@@ -47,7 +47,7 @@ const STALE_TARGET_REASONS = new Set<unknown>([
 export interface LiveBuild {
   application: "groundzero";
   version: string;
-  executable_sha256: string;
+  build_digest: string;
 }
 
 export interface LiveHello {
@@ -140,9 +140,9 @@ function liveCatalog(tools: unknown, limits: unknown) {
 
 function liveBuild(value: unknown): LiveBuild {
   if (!isObject(value)) throw new Error("Live build identity must be an object");
-  exactFields(value, ["application", "version", "executable_sha256"]);
+  exactFields(value, ["application", "version", "build_digest"]);
   const version = value["version"];
-  const digest = value["executable_sha256"];
+  const digest = value["build_digest"];
   if (
     value["application"] !== "groundzero" ||
     typeof version !== "string" ||
@@ -153,7 +153,7 @@ function liveBuild(value: unknown): LiveBuild {
   ) {
     throw new Error("Invalid live build identity");
   }
-  return { application: "groundzero", version, executable_sha256: digest };
+  return { application: "groundzero", version, build_digest: digest };
 }
 
 function peerIdentity(value: unknown, nullableBuild: boolean): unknown {

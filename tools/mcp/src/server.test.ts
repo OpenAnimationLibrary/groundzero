@@ -24,7 +24,7 @@ const closers: (() => Promise<void>)[] = [];
 const liveBuild = {
   application: "groundzero" as const,
   version: "1.8",
-  executable_sha256: "c".repeat(64),
+  build_digest: "c".repeat(64),
 };
 
 async function connected(server: ReturnType<typeof createServer>): Promise<Client> {

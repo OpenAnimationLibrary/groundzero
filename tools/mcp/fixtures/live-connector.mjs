@@ -11,7 +11,7 @@ const methods = [
   "live.receipt",
   "live.capabilities",
 ];
-const build = { application: "groundzero", version: "1.8", executable_sha256: "c".repeat(64) };
+const build = { application: "groundzero", version: "1.8", build_digest: "c".repeat(64) };
 const identity = { protocol: "groundzero-live-v2", build };
 const hello = {
   protocol: "groundzero-live-v2",
@@ -54,7 +54,7 @@ const helloChanges = {
   "wrong-limits": () => (hello.limits.pending_per_client = 16),
   "unversioned-hello": () => delete hello.protocol,
   "previous-hello": () => (hello.protocol = "groundzero-live-v1"),
-  "invalid-build": () => (hello.build = { ...build, executable_sha256: "short" }),
+  "invalid-build": () => (hello.build = { ...build, build_digest: "short" }),
 };
 
 function initial() {

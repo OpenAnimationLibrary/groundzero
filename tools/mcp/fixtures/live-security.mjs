@@ -133,12 +133,8 @@ async function descriptor(path) {
     "token",
   ]);
   assert.equal(value.protocol, protocol);
-  assert.deepEqual(Object.keys(value.build).sort(), [
-    "application",
-    "executable_sha256",
-    "version",
-  ]);
-  assert.match(value.build.executable_sha256, /^[0-9a-f]{64}$/);
+  assert.deepEqual(Object.keys(value.build).sort(), ["application", "build_digest", "version"]);
+  assert.match(value.build.build_digest, /^[0-9a-f]{64}$/);
   assert.match(value.token, /^[0-9a-f]{64}$/);
   return value;
 }
@@ -233,7 +229,7 @@ async function authenticationFailures(session) {
       frame({
         ...valid,
         token: badToken,
-        build: { ...valid.build, executable_sha256: "f".repeat(64) },
+        build: { ...valid.build, build_digest: "f".repeat(64) },
       }),
     ],
     ["unknown authentication field", frame({ ...valid, unexpected: true })],
@@ -504,7 +500,7 @@ async function posixFiles(context, session) {
 }
 
 async function foreignBuild(context, session, path) {
-  const build = { ...session.build, executable_sha256: "e".repeat(64) };
+  const build = { ...session.build, build_digest: "e".repeat(64) };
   await writeFile(path, JSON.stringify({ ...session, build }), { mode: 0o600 });
   const refusal = await rejectedFile(
     context.executable,

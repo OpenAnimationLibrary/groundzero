@@ -1208,7 +1208,7 @@ if(BUILD_UI_PORT_TESTS)
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_protocol_test.cpp)
     target_compile_definitions(mcp_live_protocol_test PRIVATE
-        AUTOMATION_LIVE_PROTOCOL_STANDALONE)
+        AUTOMATION_LIVE_PROTOCOL_STANDALONE AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
     target_include_directories(mcp_live_protocol_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(mcp_live_protocol_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
@@ -1222,7 +1222,7 @@ if(BUILD_UI_PORT_TESTS)
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_race_test.cpp)
     target_compile_definitions(mcp_live_race_test PRIVATE
-        AUTOMATION_LIVE_RACE_STANDALONE)
+        AUTOMATION_LIVE_RACE_STANDALONE AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
     target_include_directories(mcp_live_race_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(mcp_live_race_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
@@ -1271,6 +1271,8 @@ if(BUILD_UI_PORT_TESTS)
             automation_live_connector.cpp automation_live_state.cpp
             automation_live_transport.cpp tests/automation_live_security_test.cpp)
         target_include_directories(mcp_live_security_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_compile_definitions(mcp_live_security_test PRIVATE
+            AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
         set_target_properties(mcp_live_security_test PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
         target_link_libraries(mcp_live_security_test PRIVATE

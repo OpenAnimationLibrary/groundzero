@@ -65,8 +65,8 @@ void requireDescriptor(const QJsonObject& object) {
     if (!object.value(key).isString())
       throw Error("live_security", "The live grant requires string fields.");
   requireProcessId(object.value("pid"));
-  if (object.value("build").toObject().value("executable_sha256") !=
-      buildIdentity().value("executable_sha256"))
+  if (object.value("build").toObject().value("build_digest") !=
+      buildIdentity().value("build_digest"))
     throw Error("build_mismatch",
                 "The editor is another build. Start the editor and the "
                 "adapter from one build.",

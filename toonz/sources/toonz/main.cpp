@@ -4,6 +4,7 @@
 #include "crashhandler.h"
 #include "automation.h"
 #include "automation_live_startup.h"
+#include "automation_build_identity.h"
 #include "automation_live_security.h"
 #include "autosaverecovery.h"
 #include "mainwindow.h"
@@ -317,6 +318,9 @@ static void startLiveUi(GroundzeroAutomation::Live::LiveUi& owner) {
 int main(int argc, char *argv[]) {
   if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-live-connect")
     return GroundzeroAutomation::Live::runConnector(argc, argv);
+  if (argc == 2 &&
+      QString::fromLocal8Bit(argv[1]) == "--automation-build-manifest")
+    return GroundzeroAutomation::printBuildManifest(argc, argv);
   if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-worker")
     return GroundzeroAutomation::runWorker(argc, argv);
   GroundzeroAutomation::Live::Options liveOptions;

@@ -383,8 +383,8 @@ void buildIdentitySchema() {
        {std::pair<QString, QJsonValue>{"application", "other"},
         {"version", ""},
         {"version", QString(65, '1')},
-        {"executable_sha256", QString(63, 'a')},
-        {"executable_sha256", QString(64, 'A')},
+        {"build_digest", QString(63, 'a')},
+        {"build_digest", QString(64, 'A')},
         {"extra", 1}}) {
     QJsonObject changed = identity;
     changed.insert(change.first, change.second);
@@ -402,7 +402,7 @@ void authenticationVersionChecks() {
           "A matching handshake was refused");
   QJsonObject foreignBuild = valid;
   QJsonObject build        = buildIdentity();
-  build.insert("executable_sha256", QString(64, 'f'));
+  build.insert("build_digest", QString(64, 'f'));
   foreignBuild.insert("build", build);
   QJsonObject previous = valid;
   previous.insert("protocol", "groundzero-live-v1");

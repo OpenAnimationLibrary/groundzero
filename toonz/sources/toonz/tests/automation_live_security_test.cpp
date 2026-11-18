@@ -144,7 +144,7 @@ void helloMismatch(SecuritySession& publisher, const QString& path,
           "Cannot adopt accepted descriptor");
   const auto auth   = parseMessage(readFrame(peer), maximumRequestBytes);
   QJsonObject build = buildIdentity();
-  build.insert("executable_sha256", QString(64, 'd'));
+  build.insert("build_digest", QString(64, 'd'));
   const QJsonValue protocol =
       field == "protocol" ? QJsonValue("groundzero-live-v1") : liveProtocol;
   sendFrame(peer, {{"protocol", protocol},
@@ -228,7 +228,7 @@ void buildMismatchBeforeConnect(SecuritySession& publisher, const QString& path,
                                 const QString& directory) {
   QJsonObject grant = publishedGrant(path);
   QJsonObject build = grant.value("build").toObject();
-  build.insert("executable_sha256", QString(64, 'a'));
+  build.insert("build_digest", QString(64, 'a'));
   grant.insert("build", build);
   const QString variant = privateGrant(directory, "foreign-build.json", grant);
   const QJsonObject details =
@@ -373,7 +373,7 @@ void transportAuthentication(const QString& directory) {
   const SecuritySession& session = *host.security;
   QJsonObject foreignBuild       = authentication(session);
   QJsonObject build              = buildIdentity();
-  build.insert("executable_sha256", QString(64, 'b'));
+  build.insert("build_digest", QString(64, 'b'));
   foreignBuild.insert("build", build);
   requireMismatch(authenticate(session, foreignBuild), "build_mismatch");
   QJsonObject previous = authentication(session);
