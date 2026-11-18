@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import mcp_analysis_cases
 import mcp_failure_cases
 from mcp_scene_access_cases import (
     DEADLINE,
@@ -31,6 +33,19 @@ def _openmp_registration(pid: int) -> Path:
     return Path(f"/tmp/__KMP_REGISTERED_LIB_{pid}")
 
 
+def _held(marker: Path) -> bool:
+    """Whether a process holds the claim marker's POSIX advisory lock."""
+    import fcntl
+
+    with marker.open("rb") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+
+
 def _claims(workspace: Path) -> list[Path]:
     """Claim markers outside the private runtime directories, which keep theirs by design."""
     return [
@@ -42,7 +57,7 @@ def _claims(workspace: Path) -> list[Path]:
 
 def end_of_input_during_a_render_cleans_up(case: NativeAcceptance) -> None:
     """Input ending mid-render cancels it, removes its output and exits in time; a finished
-    job keeps its output and loses its claim marker."""
+    job keeps its output and a claim marker no process holds, for a later worker to sweep."""
     document = mcp_failure_cases._scene(case, 120)
     done = case.wait_job(case.mutate("render.preview", document, frame=0)["job_id"])
     case.assertEqual(done["status"], "completed")
@@ -56,7 +71,10 @@ def end_of_input_during_a_render_cleans_up(case: NativeAcceptance) -> None:
     renders = case.workspace / "renders"
     case.assertEqual(sorted(path.name for path in renders.iterdir()), [done["job_id"]])
     case.assertFalse((renders / running).exists())
-    case.assertEqual(_claims(case.workspace), [])
+    marker = renders / done["job_id"] / ".owner.lock"
+    case.assertEqual(_claims(case.workspace), [marker])
+    if os.name != "nt":
+        case.assertFalse(_held(marker), "the exited worker's claim is still held")
 
 
 def end_of_input_during_a_request_is_bounded(case: NativeAcceptance) -> None:
@@ -221,3 +239,17 @@ def graphics_probe_timeout_is_not_a_verdict(case: NativeAcceptance) -> None:
     case.assertEqual(graphics["probe"]["result"], "crashed", graphics)
     case.assertEqual(graphics["state"]["verified"], "failed", graphics)
     case.assertEqual(_preflight(case, crashed)["probes_run"], [], "A failed probe was retried")
+
+
+def end_of_input_during_an_analysis_job_is_bounded(case: NativeAcceptance) -> None:
+    """Input ending while an analysis job runs in application-thread slices still exits in
+    time and cleanly; meanwhile polls answered off that thread see the job's progress."""
+    document, level = mcp_analysis_cases._heavy_level(case, drawings=200)
+    job = mcp_analysis_cases._submit(case, document, level, check="regions")["job_id"]
+    running = mcp_analysis_cases._wait_running(case, job)
+    case.assertEqual(running["lane"], "analysis")
+    case.assertFalse(running["terminal"], f"no progress was published before the end: {running}")
+    elapsed, code = close_and_time(case, case.worker)
+    case.assertEqual(code, 0)
+    case.assertLess(elapsed, DEADLINE + SLACK)
+    case.assertFalse(_openmp_registration(case.worker.process.pid).exists())

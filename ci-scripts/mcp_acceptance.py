@@ -745,6 +745,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_library_unreadable_dependency_is_refused_not_hidden(self) -> None:
         mcp_library_limit_cases.library_unreadable_dependency_is_refused_not_hidden(self)
 
+    def test_end_of_input_during_an_analysis_job_is_bounded(self) -> None:
+        mcp_shutdown_cases.end_of_input_during_an_analysis_job_is_bounded(self)
+
     def test_end_of_input_during_a_render_cleans_up(self) -> None:
         mcp_shutdown_cases.end_of_input_during_a_render_cleans_up(self)
 
