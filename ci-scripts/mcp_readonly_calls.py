@@ -572,6 +572,57 @@ def _ro_source_status(_f: Fixture, document: str) -> list[Call]:
     ]
 
 
+def _runtime(_f: Fixture) -> list[Call]:
+    return [
+        Call("cached", {}),
+        Call("graphics probe", {"probes": ["graphics"]}),
+        Call("media probe without media tools", {"probes": ["media"]}),
+        Call("both probes", {"probes": ["graphics", "media"]}),
+        Call("no probe named", {"probes": []}, SCHEMA),
+        Call("unknown probe", {"probes": ["disk"]}, SCHEMA),
+    ]
+
+
+def _preflight_request(**extra: Any) -> dict[str, Any]:
+    return {"kind": "preview", "frame": 0, **extra}
+
+
+def _preflight(f: Fixture) -> list[Call]:
+    sequence: dict[str, Any] = {"kind": "sequence", "start_frame": 0, "end_frame": 2}
+    failing: dict[str, Any] = {**sequence, "start_frame": 5, "end_frame": 1, "format": "mp4"}
+    return [
+        Call("preview", _pinned(f, **_preflight_request())),
+        Call("sequence", _pinned(f, None, **sequence)),
+        Call("every check failing", _pinned(f, None, **failing, width=33, height=32)),
+        Call("reopened", _pinned(f, f.reopened, **_preflight_request())),
+        Call("without content", _pinned(f, f.bare, **_preflight_request())),
+        Call("stale", _stale(f, **_preflight_request()), "stale_revision"),
+        Call(
+            "preview with a range",
+            _pinned(f, **_preflight_request(start_frame=0)),
+            "invalid_params",
+        ),
+        Call(
+            "unknown",
+            {"document_id": _missing("document"), "expected_revision": "0", **_preflight_request()},
+            "document_not_found",
+        ),
+    ]
+
+
+def _ro_preflight(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    sequence = {"kind": "sequence", "start_frame": 0, "end_frame": 1}
+    return [
+        Call("preview", {**pinned, **_preflight_request()}),
+        Call("sequence", {**pinned, **sequence}),
+        Call("mp4", {**pinned, **sequence, "format": "mp4"}),
+        Call(
+            "stale", {**pinned, **_preflight_request(), "expected_revision": "1"}, "stale_revision"
+        ),
+    ]
+
+
 READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "scene.summary": _ro_summary,
     "camera.inspect": _ro_document,
@@ -595,6 +646,7 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "vector.structure": _ro_vectors,
     "vector.opacity.inspect": _ro_opacity,
     "raster.read_pixels": _ro_pixels,
+    "render.preflight": _ro_preflight,
 }
 ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
 
@@ -627,6 +679,8 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "palette.pages": _pages,
     "raster.read_pixels": _pixels,
     "render.capabilities": _no_arguments,
+    "render.preflight": _preflight,
+    "runtime.inspect": _runtime,
     "render.status": _job,
     "render.artifacts": _job,
     "artifact.read": _artifact,
