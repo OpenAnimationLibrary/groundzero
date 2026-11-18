@@ -554,3 +554,112 @@ test("preserves Unicode operation ID boundaries and retry receipts", async () =>
     }
   }
 }, 30_000);
+
+async function rigJourney(client: Client): Promise<void> {
+  const scene = await call(client, "scene.create", { name: "Rig", operation_id: "rig-scene" });
+  const document = scene["document_id"];
+  const peg = await call(client, "object.create", {
+    document_id: document,
+    expected_revision: scene["revision"],
+    operation_id: "rig-peg",
+    name: "Peg",
+    kind: "pegbar",
+  });
+  const layerArgs = {
+    document_id: document,
+    expected_revision: peg["revision"],
+    operation_id: "rig-layer",
+    object_id: peg["object_id"],
+    name: "Breath",
+  };
+  const created = await call(client, "offset_layer.create", layerArgs);
+  expect(await call(client, "offset_layer.create", layerArgs)).toEqual(created);
+  const layer = created["layer"];
+  if (!isObject(layer)) throw new Error("offset_layer.create returned no layer record");
+  const keyed = await call(client, "animation.set_keys", {
+    document_id: document,
+    expected_revision: created["revision"],
+    operation_id: "rig-scale",
+    object_id: peg["object_id"],
+    layer_id: layer["layer_id"],
+    channel: "scale",
+    unit: "scalar",
+    keys: [{ frame: 0, value: 0.5, interpolation: "constant" }],
+  });
+  expect(keyed["value_space"]).toBe("offset_layer_curve");
+  const evaluated = await call(client, "rig.evaluate", {
+    document_id: document,
+    expected_revision: keyed["revision"],
+    object_ids: [peg["object_id"]],
+    frames: [0],
+  });
+  expect(evaluated["samples"]).toMatchObject([
+    {
+      frame: 0,
+      placement: { a11: 1.5, a22: 1.5, dx_inch: 0, dy_inch: 0 },
+      channels: expect.arrayContaining([
+        { channel: "scale", unit: "scalar", base: 1, offset: 0.5, effective: 1.5 },
+      ]),
+    },
+  ]);
+  const base = { document_id: document, expected_revision: keyed["revision"] };
+  for (const [name, args, code] of [
+    ["offset_layer.create", { ...layerArgs, ...base, operation_id: "rig-again" }, "name_conflict"],
+    ["rig.evaluate", { ...base, object_ids: [peg["object_id"]], frames: [0, 0] }, "invalid_params"],
+    ["rig.evaluate", { ...base, object_ids: [], frames: [0] }, "INVALID_ARGUMENTS"],
+  ] as const) {
+    const rejected = await client.callTool({ name, arguments: args });
+    expect(rejected.isError).toBe(true);
+    expect(rejected.structuredContent).toMatchObject({ error: { code } });
+  }
+  const summary = await call(client, "scene.summary", { document_id: document });
+  expect(summary["revision"]).toBe(keyed["revision"]);
+}
+
+test("drives a rig journey in the rigging toolset through actual MCP stdio", async () => {
+  const executable = process.env["GROUNDZERO_EXECUTABLE"];
+  if (!executable) throw new Error("test:native requires GROUNDZERO_EXECUTABLE");
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-mcp-rig-")));
+  const client = new Client(
+    { name: "groundzero-rig-test", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+          "--executable",
+          executable,
+          "--workspace",
+          workspace,
+          "--toolsets",
+          "rigging",
+        ],
+        env: environment(),
+        stderr: "inherit",
+      }),
+    );
+    const catalog = await client.listTools();
+    const evaluate = catalog.tools.find((tool) => tool.name === "rig.evaluate");
+    expect(evaluate?.inputSchema).toMatchObject({
+      required: ["document_id", "expected_revision", "object_ids", "frames"],
+      additionalProperties: false,
+      properties: { object_ids: { minItems: 1, maxItems: 64 }, frames: { maxItems: 64 } },
+    });
+    expect(evaluate?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+    const parent = catalog.tools.find((tool) => tool.name === "object.parent");
+    expect(parent?.inputSchema).toMatchObject({
+      required: expect.arrayContaining(["placement_policy"]),
+      properties: { placement_policy: { const: "preserve_local" } },
+    });
+    await rigJourney(client);
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }
+}, 30_000);
