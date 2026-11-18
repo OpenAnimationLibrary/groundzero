@@ -1489,8 +1489,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
     "ci-scripts/mcp_acceptance.py::test_mp4_refused_without_encoder",
+    "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
     "ci-scripts/mcp_acceptance.py::test_runtime_media_identity",
-    "ci-scripts/mcp_acceptance.py::test_runtime_unavailable_backends_are_not_advertised",
     "tools/mcp/src/native.test.ts"
    ]
   },
@@ -1583,9 +1583,9 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
     "ci-scripts/mcp_acceptance.py::test_runtime_formats_native_vs_admitted",
-    "ci-scripts/mcp_acceptance.py::test_runtime_media_identity",
-    "ci-scripts/mcp_acceptance.py::test_runtime_media_without_encoder_is_not_usable"
+    "ci-scripts/mcp_acceptance.py::test_runtime_media_identity"
    ]
   },
   "scene.create": {

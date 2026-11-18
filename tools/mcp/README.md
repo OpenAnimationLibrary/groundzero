@@ -536,8 +536,8 @@ bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
 movie IDs with `unsupported_artifact_kind`.
 
 `runtime.inspect` reports what this worker can actually run: its build and
-platform (operating system and version, running and build CPU architecture, Qt
-versions), graphics readiness, the granted media tools, native and admitted
+platform (operating system and version, the machine's and the build's CPU
+architecture, whether the process runs translated, Qt versions), graphics readiness, the granted media tools, native and admitted
 formats, the built-in-only plugin policy, the private empty stuff folder, fonts and
 toolsets. Each capability has `compiled`, `installed`, `configured`, `loaded`,
 `verified` and `usable` states, an `activation` that names what enables it

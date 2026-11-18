@@ -398,6 +398,17 @@ public:
     onFrameFailed(request.end + 7, stray);
   }
 
+  // Test hook: what the native renderer reports when this process cannot
+  // make the offscreen GL context its frames need.
+  void injectGlContextFailure() {
+    status = JobStatus::Running;
+    TException missing(L"OpenGL is not available: no offscreen context");
+    for (int frame = request.start; frame <= request.end; frame += request.step)
+      onFrameFailed(frame, missing);
+    onSequenceFinished(outputPath(), MovieRenderer::CompletionStatus::Failed,
+                       L"OpenGL is not available: no offscreen context");
+  }
+
   void settled() {
 #ifdef BUILD_UI_PORT_TESTS
     if (fault != "stray-callbacks") return;
@@ -575,6 +586,7 @@ public:
                 [self = shared_from_this()]() { self->launch(); }))
       return;
     if (fault == "stray-callbacks") injectStrayCallbacks(false);
+    if (fault == "gl-context-failure") return injectGlContextFailure();
 #endif
     status = JobStatus::Running;
     renderer->start();

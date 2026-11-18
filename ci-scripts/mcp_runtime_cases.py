@@ -324,7 +324,10 @@ def render_preflight_reports_every_failure(case: NativeAcceptance) -> None:
     case.assertEqual(error["code"], "invalid_params")
     case.assertEqual(error["details"]["reason"], "end_before_start")
     case.assertEqual(error["details"]["check"], "frame_range")
+    case.assertFalse((case.workspace / "renders").exists())
+    paths = set(case.workspace.rglob("*"))
     ready = _preflight(case, document, kind="sequence", start_frame=0, end_frame=2)
+    case.assertEqual(set(case.workspace.rglob("*")), paths, "A preflight wrote files")
     case.assertEqual(
         (ready["ready"], ready["first_failure"], ready["probes_run"]), (True, None, [])
     )

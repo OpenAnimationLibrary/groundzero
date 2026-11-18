@@ -140,7 +140,8 @@ public:
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
-  // fail-after-final-frame, encoder-failure or stray-callbacks.
+  // fail-after-final-frame, encoder-failure, stray-callbacks or
+  // gl-context-failure.
   QString renderFault;
   // Test-only file-writing fault: publish makes the final rename fail.
   QString writeFault;

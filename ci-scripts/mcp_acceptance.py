@@ -700,6 +700,10 @@ class NativeAcceptance(unittest.TestCase):
     def test_render_failure_after_final_frame_publishes_nothing(self) -> None:
         mcp_failure_cases.render_failure_after_final_frame_publishes_nothing(self)
 
+    @worker_only("needs --test-render-fault gl-context-failure, which the adapter never passes")
+    def test_render_without_worker_gl_marks_graphics_failed(self) -> None:
+        mcp_failure_cases.render_without_worker_gl_marks_graphics_failed(self)
+
     @worker_only("needs --test-render-fault encoder-failure, which the adapter never passes")
     def test_render_encoder_failure_publishes_nothing(self) -> None:
         mcp_failure_cases.render_encoder_failure_publishes_nothing(self)
