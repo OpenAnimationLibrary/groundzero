@@ -188,7 +188,27 @@ def render_failure_after_final_frame_publishes_nothing(case: NativeAcceptance) -
     ended = _ends(case, job, "failed", "final frame")
     case.assertEqual(ended["completed_frames"], SEQUENCE["end_frame"] + 1)
     _assert_nothing_published(case, job)
-    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 2)
+    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 3)
+
+
+def render_without_worker_gl_marks_graphics_failed(case: NativeAcceptance) -> None:
+    """The helper's GL probe passes but the worker's render context fails: the job fails,
+    publishes nothing, the cached probe is marked failed and later renders are refused."""
+    _fault_worker(case, "gl", "--test-render-fault", "gl-context-failure")
+    document = _scene(case)
+    job = case.mutate("render.submit", document, **SEQUENCE)["job_id"]
+    _ends(case, job, "failed", "OpenGL is not available")
+    _assert_nothing_published(case, job)
+    graphics = case.success("runtime.inspect", {})["graphics"]
+    case.assertEqual(graphics["probe"]["result"], "context_ready", graphics)
+    case.assertEqual(graphics["state"]["verified"], "failed", graphics)
+    case.assertIs(graphics["state"]["usable"], False)
+    case.assertIn("render_failed_without_gl", graphics["state"]["reasons"])
+    case.assertEqual(case.success("render.capabilities", {})["profiles"], [])
+    refused = case.failure("render.preview", case.write_params(document, {"frame": 0}))
+    case.assertEqual(refused["code"], "render_unavailable")
+    case.assertEqual(refused["details"]["cause"], "gl_unavailable")
+    case.assertEqual(_renders(case), [])
 
 
 def render_encoder_failure_publishes_nothing(case: NativeAcceptance) -> None:
@@ -510,7 +530,7 @@ def live_worker_and_host_files_survive_another_workers_start(case: NativeAccepta
     before = _directories(case)
     case.assertTrue(any(path.name.startswith("job_") for path in before))
     other = _second_worker(case, "bystander")
-    case.assertEqual(other.call("automation.capabilities", {})["result"]["protocol_version"], 2)
+    case.assertEqual(other.call("automation.capabilities", {})["result"]["protocol_version"], 3)
     case.assertLessEqual(before, _directories(case))
     ended = case.wait_job(editable["job_id"])
     case.assertEqual(ended["status"], "completed", ended)
@@ -523,7 +543,7 @@ def live_worker_and_host_files_survive_another_workers_start(case: NativeAccepta
     hosts = list(case.workspace.glob("runtime_*/scene-host-*"))
     case.assertEqual(len(hosts), 1)
     again = _second_worker(case, "second-bystander")
-    case.assertEqual(again.call("automation.capabilities", {})["result"]["protocol_version"], 2)
+    case.assertEqual(again.call("automation.capabilities", {})["result"]["protocol_version"], 3)
     case.assertTrue(hosts[0].is_dir())
     case.assertEqual(wait(case, case.worker, hosted)["status"], "completed")
     artifacts = call(case, case.worker, "render.artifacts", {"job_id": hosted})["artifacts"]
