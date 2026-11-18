@@ -1,4 +1,6 @@
 #include "automation_ownership.h"
+#include "automation.h"
+#include "automation_files.h"
 
 #include <QDir>
 #include <QFile>
@@ -118,7 +120,10 @@ int OwnershipClaim::removeAbandoned(const QString& parent,
   for (const QFileInfo& entry :
        root.entryInfoList(filters, QDir::Dirs | QDir::NoDotAndDotDot)) {
     if (entry.isSymLink() || !abandoned(entry.absoluteFilePath())) continue;
-    if (QDir(entry.absoluteFilePath()).removeRecursively()) ++removed;
+    try {
+      if (removeApprovedTree(entry.absoluteFilePath())) ++removed;
+    } catch (const Error&) {
+    }
   }
   return removed;
 }

@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from mcp_audio_cases import Clip, _column, _import, _place
 from mcp_audio_cases import _scene as _audio_scene
 from mcp_audio_model import tone, wav_file
+from mcp_file_publish_cases import staging_left
+from mcp_macro_cases import _chain, _macro
 from mcp_scene_access_cases import _op, corpus, host_processes, open_scene, project_id, wait
 from mcp_studio_palette_cases import call, refuse
 from mcp_worker import Worker
@@ -410,7 +412,8 @@ def render_disk_full_fails_cleanly_and_recovers(case: NativeAcceptance) -> None:
 
 
 def _staging(case: NativeAcceptance) -> list[Path]:
-    return [*case.workspace.rglob(".mcp-package-*"), *case.workspace.rglob(".mcp-audio-*")]
+    """The staging and scratch folders the code really creates, in worker runtime folders."""
+    return staging_left(case.workspace)
 
 
 def package_write_refusals_leave_nothing_behind(case: NativeAcceptance) -> None:
@@ -650,3 +653,52 @@ def private_files_end_with_their_document_and_worker(case: NativeAcceptance) -> 
     case.assertEqual(list(case.workspace.rglob("sounds/*")), [])
     case.assertEqual(list(case.workspace.glob("project_*")), [])
     case.assertEqual(list(case.workspace.glob("sounds")) + list(case.workspace.glob("levels")), [])
+
+
+def crash_during_save_verification_leaves_nothing(case: NativeAcceptance) -> None:
+    """A worker killed while verifying a macro scene on save leaves nothing a successor keeps."""
+    workspace = _fault_worker(case, "verify", "--test-write-fault", "macro_verify_crash")
+    document, _artwork, blur, glow = _chain(case)
+    _macro(case, document, [glow, blur])
+    request = case.write_params(document, {"directory": str(workspace / "package")})
+    with case.assertRaises(RuntimeError):
+        case.worker.call("scene.save_copy", request)
+    case.worker.process.wait(timeout=30)
+    left = list(workspace.rglob("macro-verify-*"))
+    case.assertTrue(left, "the crash never reached the verification step")
+    case.assertFalse((workspace / "package").exists())
+    successor = _second_worker(case, "successor")
+    case.assertEqual(successor.call("automation.list_documents", {})["result"]["documents"], [])
+    case.assertEqual(list(workspace.rglob("macro-verify-*")), [])
+    case.assertEqual(_staging(case), [])
+    case.assertEqual([path for path in workspace.iterdir() if path.name.startswith(".")], [])
+
+
+def finished_render_folder_is_swept_once_its_worker_is_gone(case: NativeAcceptance) -> None:
+    """A finished job's folder stays while its worker lives and goes when a later worker starts."""
+    if os.name == "nt":
+        case.skipTest("The fixture reads POSIX process tables")
+    case.success("automation.list_documents", {})
+    alive = _native_pids(case.workspace)
+    victim = _second_worker(case, "victim")
+    primary, case.worker = case.worker, victim
+    document = _scene(case, 4)
+    job = case.mutate("render.submit", document, **SEQUENCE)["job_id"]
+    case.assertEqual(case.wait_job(job)["status"], "completed")
+    result = case.success("job.result", {"job_id": job})
+    case.assertEqual(result["job"]["status"], "completed")
+    artifact = result["artifacts"][0]["artifact_id"]
+    case.assertEqual(case.success("artifact.read", {"artifact_id": artifact})["frame"], 0)
+    case.worker = primary
+    folders = list(case.workspace.glob("renders/job_*"))
+    case.assertEqual(len(folders), 1)
+    bystander = _second_worker(case, "bystander")
+    case.assertEqual(bystander.call("automation.list_documents", {})["result"]["documents"], [])
+    case.assertTrue(folders[0].is_dir(), "a live worker's finished job was swept")
+    bystander.close()
+    victim.process.kill()
+    victim.process.wait(timeout=10)
+    _wait_dead(case, _native_pids(case.workspace) - alive - {primary.process.pid})
+    successor = _second_worker(case, "successor")
+    case.assertEqual(successor.call("automation.list_documents", {})["result"]["documents"], [])
+    case.assertEqual(list(case.workspace.glob("renders/job_*")), [])

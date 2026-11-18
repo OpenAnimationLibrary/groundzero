@@ -1038,15 +1038,13 @@ QJsonValue mixdown(Context& context, const QJsonObject& params) {
   const MixPlan plan       = planMix(document);
   const MixRequest request = readMixRequest(context, document, params, plan);
   const TSoundTrackP mix   = computeMix(plan, request);
-  QTemporaryDir staging(context.runtimeDirectory + "/mixdown-XXXXXX");
+  PrivateDirectory staging(context.runtimeDirectory + "/mixdown-XXXXXX");
   if (!staging.isValid())
     throw Error("io_error", "Cannot create private mixdown staging storage.");
   const QString staged   = staging.filePath("mix.wav");
   const QByteArray bytes = stageMix(mix, staged);
-  context.markMutationStarted();
-  if (context.writeFaultArmed("publish") ||
-      !publishApproved(staged, request.output))
-    throw Error("io_error", "Cannot publish the verified mixdown file.");
+  publishStaged(context, staged, request.output, "io_error",
+                "Cannot publish the verified mixdown file.");
   ++mixdownArtifacts.files;
   mixdownArtifacts.bytes += bytes.size();
   return mixResult(plan, request, mix, bytes);

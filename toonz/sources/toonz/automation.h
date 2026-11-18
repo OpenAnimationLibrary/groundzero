@@ -27,6 +27,7 @@ struct ReadOnlyScene;
 class JobRegistry;
 struct SceneHostRegistry;
 struct RuntimeState;
+struct SelectionRegistry;
 
 class Error final : public std::runtime_error {
 public:
@@ -68,6 +69,8 @@ struct Document final {
   QHash<QString, TDoubleParamP> offsetLayers;
   // Set only for read-only documents opened from user scenes.
   std::shared_ptr<ReadOnlyScene> readOnly;
+  // Selection handles issued for this document's drawings.
+  std::shared_ptr<SelectionRegistry> selections;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);
@@ -102,6 +105,12 @@ public:
   QJsonArray documents() const;
   std::shared_ptr<TProject> project() const;
   QString workspace() const;
+  // Where short-lived scratch folders go: the worker's private runtime
+  // directory, which a later worker sweeps if this one dies. A context without
+  // a worker (a unit test) uses its workspace.
+  QString scratchDirectory() const {
+    return runtimeDirectory.isEmpty() ? workspace() : runtimeDirectory;
+  }
   // A named directory of worker-private files, such as levels or sounds.
   QString privateDirectory(const QString& name) const;
   QString resolvePath(const QString& path, bool write) const;
@@ -149,7 +158,9 @@ public:
 #endif
   }
 #ifdef BUILD_UI_PORT_TESTS
-  // Test-only fault (crash, hang or memory) injected into child processes.
+  // Test-only fault injected into child processes: crash, hang, memory,
+  // read-hang, or busy-host (a scene host's render keeps its application
+  // thread busy for eight seconds after it starts).
   QString childFault;
   // Test-only: the --test-path-swap arguments, handed on to scene hosts.
   QStringList pathSwap;

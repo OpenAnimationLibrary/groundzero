@@ -373,7 +373,8 @@ Geometry canonicalGeometry(Context& context, const Points& original,
                            double maximumError) {
   if (!std::isfinite(maximumError) || maximumError < 0 || maximumError > 1)
     invalid("max_coordinate_error_inch must be between 0 and 1.");
-  QTemporaryDir directory(context.workspace() + "/path-canonical-XXXXXX");
+  QTemporaryDir directory(context.scratchDirectory() +
+                          "/path-canonical-XXXXXX");
   if (!directory.isValid())
     throw Error("io_error", "Cannot create private path preparation storage.");
   TStageObjectSplineP source(new TStageObjectSpline());

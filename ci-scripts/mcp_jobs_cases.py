@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -10,6 +11,9 @@ from typing import TYPE_CHECKING, Any
 from mcp_failure_cases import _fault_worker, _scene
 from mcp_live import verified_build_digest
 from mcp_movie_cases import _fixture, _media_directory, _options, _start_configured_worker
+from mcp_scene_access_cases import _op, corpus, open_scene, wait
+from mcp_studio_palette_cases import call
+from mcp_worker import Worker
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -282,3 +286,66 @@ def movie_cancel_while_encoding_is_forced(case: NativeAcceptance) -> None:
     ended = case.wait_job(job)
     case.assertEqual(ended["status"], "canceled", ended)
     case.assertEqual(ended["termination"], {"mode": "forced", "forced_processes": ["encoder"]})
+
+
+# A scene host's application thread stays busy this long after its render starts
+# (BusyHostMs in automation_render.cpp); every poll during it must answer within POLL_BOUND_S.
+BUSY_HOST_S = 8
+POLL_BOUND_S = 2.0
+
+
+def _busy_host_worker(case: NativeAcceptance) -> Worker:
+    """Start a worker whose scene hosts keep their thread busy while they render.
+
+    The fault travels in the environment so a worker the adapter starts gets it too.
+    """
+    os.environ["GROUNDZERO_TEST_CHILD_FAULT"] = "busy-host"
+    try:
+        worker = Worker(
+            case.executable, case.workspace, case.inputs, case.directory / "busy-host.stderr.log"
+        )
+        worker.call("automation.capabilities", {})
+    finally:
+        del os.environ["GROUNDZERO_TEST_CHILD_FAULT"]
+    case.addCleanup(worker.close)
+    return worker
+
+
+def _timed(case: NativeAcceptance, worker: Worker, method: str, params: dict[str, Any]) -> Any:
+    start = time.monotonic()
+    result = call(case, worker, method, params)
+    elapsed = time.monotonic() - start
+    case.assertLess(elapsed, POLL_BOUND_S, f"{method} took {elapsed:.1f} s on a busy host")
+    return result
+
+
+def busy_host_answers_polls_and_cancel(case: NativeAcceptance) -> None:
+    """A scene host whose thread is busy rendering answers job.status, job.list and
+    job.cancel at once, and the cancelled job ends canceled once the host is free."""
+    worker = _busy_host_worker(case)
+    document = open_scene(case, worker, corpus(case)["B"], "standalone")["document_id"]
+    params = {"document_id": document, "expected_revision": "0", "frame": 0, "width": 32}
+    params.update(height=32, operation_id=_op(case))
+    job = call(case, worker, "render.preview", params)["job_id"]
+    submitted = time.monotonic()
+    while time.monotonic() - submitted < 2:
+        status = _timed(case, worker, "job.status", {"job_id": job})
+        case.assertFalse(status["terminal"], status)
+        time.sleep(0.1)
+    listed = _timed(case, worker, "job.list", {"document_id": document})
+    case.assertEqual([row["job_id"] for row in listed["jobs"]], [job])
+    canceled = _timed(case, worker, "job.cancel", {"job_id": job, "operation_id": _op(case)})
+    case.assertEqual(canceled["status"], "cancellation_requested", canceled)
+    case.assertIs(canceled["cancellation"]["requested"], True)
+    status = _timed(case, worker, "job.status", {"job_id": job})
+    case.assertEqual(status["status"], "cancellation_requested", status)
+    case.assertEqual(status["cancellation"], canceled["cancellation"])
+    ended = wait(case, worker, job)
+    case.assertEqual(ended["status"], "canceled", ended)
+    case.assertIs(ended["cancellation"]["effective"], True)
+    case.assertEqual(
+        ended["cancellation"]["requested_ms"], canceled["cancellation"]["requested_ms"]
+    )
+    case.assertIs(ended["writers_closed"], True)
+    # The polls above ran while the host was busy: the job could only end after it was free.
+    case.assertGreater(time.monotonic() - submitted, BUSY_HOST_S - 1)

@@ -1,5 +1,9 @@
 #include "automation_vector_opacity.h"
 #include "automation_drawing.h"
+#include "automation_drawing_analysis.h"
+#include "automation_drawing_inspection.h"
+#include "tools/artlayer.h"
+#include "tregion.h"
 #include "timage_io.h"
 #include "tlevel.h"
 #include "tlevel_io.h"
@@ -326,6 +330,315 @@ void roundTrip(Context& context, Document& document, QJsonObject params) {
   require(cleared->getStroke(0)->getOpacity() == .327,
           "Profile clear changed scalar");
 }
+struct Segment final {
+  double x0, x1, y, thickness;
+  int style;
+};
+
+TVectorImageP drawingOf(const std::vector<Segment>& segments) {
+  TVectorImageP image = new TVectorImage();
+  for (const Segment& segment : segments) {
+    const double middle = (segment.x0 + segment.x1) / 2;
+    auto* stroke        = new TStroke(
+        std::vector<TThickPoint>{{segment.x0, segment.y, segment.thickness},
+                                 {middle, segment.y, segment.thickness},
+                                 {segment.x1, segment.y, segment.thickness}});
+    stroke->setStyle(segment.style);
+    image->addStroke(stroke);
+  }
+  return image;
+}
+
+QJsonObject drawingTarget(Document& document, const QString& levelId,
+                          const TVectorImageP& image, int number) {
+  auto* level = document.level(levelId)->getSimpleLevel();
+  image->setPalette(level->getPalette());
+  level->setFrame(TFrameId(number), TImageP(image.getPointer()));
+  return {{"document_id", document.id},
+          {"level_id", levelId},
+          {"drawing_id", QJsonObject{{"number", number}, {"suffix", ""}}},
+          {"expected_revision", document.revisionText()},
+          {"coordinate_space", "drawing_native"}};
+}
+
+void rolesMatchArtLayer(Context& context, Document& document,
+                        const QString& level) {
+  struct Fixture {
+    const char* name;
+    std::vector<Segment> strokes;
+    std::vector<int> roles;
+  };
+  using ArtLayer::COLOUR_ART;
+  using ArtLayer::LINE_ART;
+  using ArtLayer::OVERLAY;
+  using ArtLayer::UNDERLAY;
+  const std::vector<Fixture> fixtures{
+      {"no colour art",
+       {{0, 10, 0, 2, 1}, {0, 10, 5, 2, 1}},
+       {LINE_ART, LINE_ART}},
+      {"colour block below",
+       {{0, 10, 0, 0, 1}, {0, 10, 5, 0, 1}, {0, 10, 9, 2, 1}},
+       {COLOUR_ART, COLOUR_ART, LINE_ART}},
+      {"layered",
+       {{0, 10, 0, 2, 1},
+        {0, 10, 5, 0, 1},
+        {0, 10, 9, 2, 1},
+        {0, 10, 12, 0, 1},
+        {0, 10, 15, 2, 1}},
+       {UNDERLAY, COLOUR_ART, LINE_ART, COLOUR_ART, OVERLAY}}};
+  int number = 20;
+  for (const Fixture& fixture : fixtures) {
+    const auto image = drawingOf(fixture.strokes);
+    const auto roles = drawingRoles(*image);
+    require(roles.byStroke == fixture.roles, fixture.name);
+    int native[ArtLayer::RoleCount];
+    ArtLayer::countRoles(*image, native);
+    for (int role = 0; role < ArtLayer::RoleCount; ++role)
+      require(roles.counts[role] == native[role], "Role count left ArtLayer");
+    auto params = drawingTarget(document, level, image, number++);
+    const auto page =
+        executeDrawing(context, "vector.inspect", params).toObject();
+    const auto strokes = page.value("strokes").toArray();
+    for (int index = 0; index < strokes.size(); ++index)
+      require(strokes[index].toObject().value("role").toString() ==
+                  roleName(fixture.roles[index]),
+              "vector.inspect role differs from the art-layer rule");
+    const auto summary = page.value("summary").toObject();
+    require(summary.value("regions") == "not_computed",
+            "Regions were computed");
+    require(summary.value("roles").toObject() == roleCountsJson(roles),
+            "Summary role counts changed");
+    require(image->getRegionCount() == 0, "Inspection built regions");
+  }
+}
+
+void summaryNamesUndefinedStyles(Context& context, Document& document,
+                                 const QString& level) {
+  const auto image = drawingOf({{0, 10, 0, 2, 1}, {0, 10, 5, 2, 900}});
+  auto params      = drawingTarget(document, level, image, 30);
+  const auto page =
+      executeDrawing(context, "vector.inspect", params).toObject();
+  const auto usage =
+      page.value("summary").toObject().value("style_usage").toArray();
+  require(usage.size() == 2 && usage[0].toObject().value("defined").toBool() &&
+              !usage[1].toObject().value("defined").toBool() &&
+              usage[1].toObject().value("style_id").toInt() == 900,
+          "An undefined style was reported as defined");
+  require(strokeStyleUsage(*image).at(900) == 1, "Style usage miscounted");
+  params.insert("expected_revision", "999");
+  try {
+    executeDrawing(context, "vector.inspect", params);
+  } catch (const Error& error) {
+    require(error.code == "stale_revision" &&
+                error.details.value("revision") == document.revisionText(),
+            "Stale inspection reported the wrong error");
+    return;
+  }
+  throw std::runtime_error("A stale inspection succeeded");
+}
+
+TStroke* editorLasso(const std::vector<TPointD>& polygon) {
+  std::vector<TThickPoint> points;
+  for (size_t index = 0; index < polygon.size(); ++index) {
+    const TPointD a = polygon[index];
+    const TPointD b = polygon[(index + 1) % polygon.size()];
+    points.push_back(TThickPoint(a.x, a.y, 0));
+    points.push_back(TThickPoint((a.x + b.x) / 2, (a.y + b.y) / 2, 0));
+  }
+  points.push_back(TThickPoint(polygon[0].x, polygon[0].y, 0));
+  auto* stroke = new TStroke(points);
+  stroke->setSelfLoop(true);
+  return stroke;
+}
+
+// VectorSelectionTool::selectRegionVectorImage on a detached lasso image.
+std::vector<int> editorSelection(const TVectorImageP& image,
+                                 const std::vector<TPointD>& polygon,
+                                 bool includeIntersect) {
+  std::unique_ptr<TStroke> lasso(editorLasso(polygon));
+  TVectorImage selectImg;
+  selectImg.addStroke(new TStroke(*lasso));
+  selectImg.findRegions();
+  std::vector<int> selected;
+  for (UINT s = 0; s < image->getStrokeCount(); ++s) {
+    TStroke* current = image->getStroke(s);
+    bool hit         = false;
+    for (UINT r = 0; r < selectImg.getRegionCount(); ++r)
+      hit = selectImg.getRegion(r)->contains(*current, true) || hit;
+    if (includeIntersect) {
+      std::vector<DoublePair> crossings;
+      intersect(lasso.get(), current, crossings, false);
+      hit = !crossings.empty() || hit;
+    }
+    if (hit) selected.push_back(int(s));
+  }
+  return selected;
+}
+
+void lassoMatchesEditor(Context& context, Document& document,
+                        const QString& level) {
+  std::vector<Segment> segments;
+  unsigned seed   = 12345;
+  const auto next = [&seed](double span) {
+    seed = seed * 1103515245u + 12345u;
+    return (seed >> 8 & 0xffff) / 65535.0 * span;
+  };
+  for (int index = 0; index < 60; ++index) {
+    const double x = next(160) - 80, y = next(160) - 80;
+    segments.push_back({x, x + 4 + next(40), y, next(6), 1});
+  }
+  const auto image  = drawingOf(segments);
+  const auto params = drawingTarget(document, level, image, 40);
+  const std::vector<std::vector<TPointD>> lassos{
+      {{-50, -50}, {60, -40}, {50, 55}, {-45, 40}},
+      {{-70, -70}, {70, -70}, {70, 70}, {0, 0}, {-70, 70}},
+      {{0, -60}, {60, 0}, {0, 60}, {-60, 0}}};
+  for (const auto& polygon : lassos) {
+    for (const bool intersects : {false, true}) {
+      auto request = params;
+      QJsonArray points;
+      for (const TPointD& point : polygon)
+        points.append(QJsonObject{{"x", point.x}, {"y", point.y}});
+      request.insert(
+          "query",
+          QJsonObject{{"mode", "lasso"},
+                      {"relation", intersects ? "intersects" : "contained"},
+                      {"points", points}});
+      const auto got =
+          executeDrawing(context, "vector.select", request).toObject();
+      std::vector<int> found;
+      for (const auto& index : got.value("stroke_indices").toArray())
+        found.push_back(index.toInt());
+      require(found == editorSelection(image, polygon, intersects),
+              "Lasso selection differs from the editor routine");
+      require(!found.empty() || !intersects,
+              "The lasso fixture selected nothing");
+    }
+  }
+  require(image->getRegionCount() == 0, "Lasso built regions on the document");
+}
+
+void lassoRefusals(Context& context, Document& document, const QString& level) {
+  const auto image  = drawingOf({{0, 10, 0, 2, 1}});
+  const auto params = drawingTarget(document, level, image, 41);
+  const std::pair<std::vector<TPointD>, const char*> cases[]{
+      {{{0, 0}, {100, 100}, {100, 0}, {0, 100}}, "self_intersecting"},
+      {{{0, 0}, {50, 50}, {100, 100}}, "degenerate"},
+      {{{0, 0}, {0, 0}, {10, 10}, {0, 10}}, "degenerate"},
+      {{{0, 0}, {10, 0}, {10, 10}, {5, -5}}, "self_intersecting"}};
+  for (const auto& [polygon, reason] : cases) {
+    QJsonArray points;
+    for (const TPointD& point : polygon)
+      points.append(QJsonObject{{"x", point.x}, {"y", point.y}});
+    auto request = params;
+    request.insert("query", QJsonObject{{"mode", "lasso"},
+                                        {"relation", "contained"},
+                                        {"points", points}});
+    try {
+      executeDrawing(context, "vector.select", request);
+    } catch (const Error& error) {
+      require(error.code == "invalid_params" &&
+                  error.details.value("reason").toString() == reason,
+              reason);
+      continue;
+    }
+    throw std::runtime_error(std::string("Lasso accepted: ") + reason);
+  }
+}
+
+void boundsUseCenterlines(Context& context, Document& document,
+                          const QString& level) {
+  const auto image = drawingOf({{20, 40, 40, 20, 1}});
+  auto params      = drawingTarget(document, level, image, 44);
+  params.insert("query", QJsonObject{{"mode", "centerline_bounds"},
+                                     {"relation", "contained"},
+                                     {"x0", -50},
+                                     {"y0", -50},
+                                     {"x1", 100},
+                                     {"y1", 50}});
+  const auto result =
+      executeDrawing(context, "vector.select", params).toObject();
+  require(result.value("stroke_indices").toArray() == QJsonArray{0},
+          "Centerline bounds used the thick box");
+  require(
+      result.value("rule").toObject().value("geometry") == "centerline_bbox",
+      "The bounds rule is not reported");
+  params.insert(
+      "query",
+      QJsonObject{{"mode", "lasso"},
+                  {"relation", "contained"},
+                  {"points", QJsonArray{QJsonObject{{"x", -50}, {"y", -50}},
+                                        QJsonObject{{"x", 100}, {"y", -50}},
+                                        QJsonObject{{"x", 100}, {"y", 50}},
+                                        QJsonObject{{"x", -50}, {"y", 50}}}}});
+  require(executeDrawing(context, "vector.select", params)
+              .toObject()
+              .value("stroke_indices")
+              .toArray()
+              .isEmpty(),
+          "A lasso contained a stroke whose thick box leaves it");
+}
+
+void handleLifetime(Context& context, Document& document,
+                    const QString& level) {
+  const auto image = drawingOf({{0, 10, 0, 2, 1}, {0, 10, 5, 2, 1}});
+  auto params      = drawingTarget(document, level, image, 42);
+  params.insert("query", QJsonObject{{"mode", "indices"},
+                                     {"stroke_indices", QJsonArray{1}}});
+  const auto first =
+      executeDrawing(context, "vector.select", params).toObject();
+  const QString id          = first.value("selection_id").toString();
+  const QJsonObject drawing = params.value("drawing_id").toObject();
+  const QString levelId     = params.value("level_id").toString();
+  require(
+      resolveSelection(document, id, levelId, drawing) == std::vector<int>{1},
+      "A fresh handle did not resolve");
+  const auto expectCode = [&](const QString& handle, const QString& code,
+                              const QString& reason) {
+    try {
+      resolveSelection(document, handle, levelId, drawing);
+    } catch (const Error& error) {
+      require(error.code == code &&
+                  error.details.value("reason").toString() == reason,
+              qPrintable("Wrong handle error: " + error.code));
+      return;
+    }
+    throw std::runtime_error("A refused handle resolved");
+  };
+  expectCode("selection_unknown", "unknown_selection", "");
+  for (int index = 0; index < SelectionsPerDocument; ++index)
+    executeDrawing(context, "vector.select", params);
+  expectCode(id, "stale_selection", "evicted");
+  const auto fresh =
+      executeDrawing(context, "vector.select", params).toObject();
+  const QString current = fresh.value("selection_id").toString();
+  QJsonObject elsewhere = drawing;
+  elsewhere.insert("number", 43);
+  try {
+    resolveSelection(document, current, levelId, elsewhere);
+    throw std::runtime_error("A handle resolved for another drawing");
+  } catch (const Error& error) {
+    require(error.code == "stale_selection", "Wrong error for another drawing");
+  }
+  ++document.revision;
+  expectCode(current, "stale_selection", "revision_changed");
+}
+
+void inspectionAndSelection(Context& context, Document& document) {
+  const auto level = executeScene(context, "level.create",
+                                  {{"document_id", document.id},
+                                   {"name", "Inspection"},
+                                   {"format", "vector"}})
+                         .toObject()
+                         .value("level_id")
+                         .toString();
+  rolesMatchArtLayer(context, document, level);
+  summaryNamesUndefinedStyles(context, document, level);
+  lassoMatchesEditor(context, document, level);
+  lassoRefusals(context, document, level);
+  boundsUseCenterlines(context, document, level);
+  handleLifetime(context, document, level);
+}
 }  // namespace
 
 void runAutomationVectorOpacityTests(Context& context) {
@@ -339,5 +652,9 @@ void runAutomationVectorOpacityTests(Context& context) {
   aggregateBudgetPurity(context, document, params);
   roundTrip(context, document, params);
   context.removeDocument(document.id);
+  auto& inspected = context.addDocument(std::make_unique<ToonzScene>());
+  inspectionAndSelection(context, inspected);
+  context.removeDocument(inspected.id);
+  runAutomationDrawingAnalysisTests(context);
 }
 }  // namespace GroundzeroAutomation

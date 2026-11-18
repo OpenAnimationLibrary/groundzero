@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import mcp_analysis_cases
 import mcp_animation_cases
 import mcp_artwork_cases
 import mcp_assistance_cases
@@ -33,6 +34,7 @@ import mcp_file_change_cases
 import mcp_file_inert_cases
 import mcp_file_launch_cases
 import mcp_file_project_cases
+import mcp_file_publish_cases
 import mcp_file_race_cases
 import mcp_file_shared_cases
 import mcp_finishing_cases
@@ -331,6 +333,33 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_vector_selection_and_rejection_purity(self) -> None:
         mcp_vector_opacity_cases.vector_selection_and_rejection_purity(self)
+
+    def test_drawing_analysis_job(self) -> None:
+        mcp_analysis_cases.drawing_analysis_job(self)
+
+    def test_drawing_analysis_retention_and_replay(self) -> None:
+        mcp_analysis_cases.drawing_analysis_retention_and_replay(self)
+
+    def test_drawing_analysis_toonz_raster(self) -> None:
+        mcp_analysis_cases.drawing_analysis_toonz_raster(self)
+
+    def test_drawing_analysis_lost_worker(self) -> None:
+        mcp_analysis_cases.drawing_analysis_lost_worker(self)
+
+    def test_vector_roles_and_style_summary(self) -> None:
+        mcp_vector_opacity_cases.vector_roles_and_style_summary(self)
+
+    def test_vector_roles_without_layering(self) -> None:
+        mcp_vector_opacity_cases.vector_roles_without_layering(self)
+
+    def test_vector_lasso_and_selection_handles(self) -> None:
+        mcp_vector_opacity_cases.vector_lasso_and_selection_handles(self)
+
+    def test_vector_selection_is_bounded(self) -> None:
+        mcp_vector_opacity_cases.vector_selection_is_bounded(self)
+
+    def test_opacity_set_accepts_selection_handle(self) -> None:
+        mcp_vector_opacity_cases.opacity_set_accepts_selection_handle(self)
 
     def test_shared_root_flags_are_explicit_and_read_only(self) -> None:
         mcp_studio_palette_cases.shared_root_flags_are_explicit_and_read_only(self)
@@ -789,6 +818,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_job_stalled_cancellation_stays_non_terminal(self) -> None:
         mcp_jobs_cases.stalled_cancellation_stays_non_terminal(self)
 
+    def test_job_busy_host_answers_polls_and_cancel(self) -> None:
+        mcp_jobs_cases.busy_host_answers_polls_and_cancel(self)
+
     def test_job_movie_cancel_while_encoding_is_forced(self) -> None:
         mcp_jobs_cases.movie_cancel_while_encoding_is_forced(self)
 
@@ -855,6 +887,22 @@ class NativeAcceptance(unittest.TestCase):
     @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
     def test_project_scenes_refuse_a_folder_swapped_after_validation(self) -> None:
         mcp_file_project_cases.project_scenes_refuse_a_folder_swapped_after_validation(self)
+
+    @worker_only("needs the --test-publish-fault test hook, which the adapter never passes")
+    def test_publication_never_replaces_and_refuses_without_an_atomic_primitive(self) -> None:
+        mcp_file_publish_cases.publication_never_replaces_and_refuses_without_an_atomic_primitive(
+            self
+        )
+
+    def test_publication_on_other_file_systems_is_atomic_or_refused(self) -> None:
+        mcp_file_publish_cases.publication_on_other_file_systems_is_atomic_or_refused(self)
+
+    @worker_only("needs --test-write-fault macro_verify_crash, which the adapter never passes")
+    def test_crash_during_save_verification_leaves_nothing(self) -> None:
+        mcp_failure_cases.crash_during_save_verification_leaves_nothing(self)
+
+    def test_finished_render_folder_is_swept_once_its_worker_is_gone(self) -> None:
+        mcp_failure_cases.finished_render_folder_is_swept_once_its_worker_is_gone(self)
 
     @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
     def test_project_listings_stay_in_the_folder_they_pinned(self) -> None:

@@ -420,10 +420,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_finished_render_folder_is_swept_once_its_worker_is_gone",
     "ci-scripts/mcp_acceptance.py::test_dead_workers_directories_are_swept_and_live_ones_are_not",
     "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip"
+    "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted"
    ]
   },
   "camera.inspect": {
@@ -540,15 +540,27 @@
     "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
    ]
   },
+  "drawing.analysis.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_retention_and_replay",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_toonz_raster",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
   "drawing.clone": {
    "origin": "worker",
    "toolset": "core",
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_drawings_respect_native_format_number_limits",
-    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_retention_and_replay",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
    ]
   },
@@ -898,7 +910,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
+    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp"
    ]
   },
   "job.list": {
@@ -907,9 +919,10 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_job_list_filters_and_paging",
-    "ci-scripts/mcp_acceptance.py::test_job_states_and_refused_second_submit",
-    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
-    "ci-scripts/mcp_acceptance.py::test_read_only_render_cancel_and_host_loss_leave_nothing"
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_retention_and_replay",
+    "ci-scripts/mcp_acceptance.py::test_job_busy_host_answers_polls_and_cancel",
+    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp"
    ]
   },
   "job.result": {
@@ -917,10 +930,11 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
+    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "ci-scripts/mcp_shot.py"
    ]
@@ -935,7 +949,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp",
     "ci-scripts/mcp_shot.py"
    ]
   },
@@ -950,7 +964,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1319,8 +1333,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
     "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1469,10 +1483,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_publication_on_other_file_systems_is_atomic_or_refused",
     "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
     "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1496,8 +1510,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_toonz_raster",
     "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1700,9 +1714,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_publication_on_other_file_systems_is_atomic_or_refused",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
     "ci-scripts/mcp_acceptance.py::test_package_publish_failure_reports_what_is_on_disk",
-    "ci-scripts/mcp_acceptance.py::test_package_write_refusals_leave_nothing_behind",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_audio_test.cpp",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
@@ -1947,7 +1961,8 @@
     "ci-scripts/mcp_acceptance.py::test_vector_edits_validate_the_whole_batch",
     "ci-scripts/mcp_acceptance.py::test_unknown_style_rejects_the_whole_vector_batch",
     "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer"
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
+    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
    ]
   },
   "vector.opacity.inspect": {
@@ -1967,6 +1982,7 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
+    "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
     "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
@@ -1977,8 +1993,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
+    "ci-scripts/mcp_acceptance.py::test_vector_lasso_and_selection_handles",
     "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
-    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
    ]
@@ -2000,8 +2018,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_lasso_and_selection_handles",
     "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
-    "ci-scripts/mcp_acceptance.py::test_oversized_vector_selection_is_refused",
+    "ci-scripts/mcp_acceptance.py::test_vector_selection_is_bounded",
+    "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
     "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
    ]
   },
@@ -3034,12 +3054,26 @@
   {
    "id": "vector.inspect_and_select",
    "domain": "Vector drawing",
-   "outcome": "Read strokes and their control points, query them by geometry and read their order and groups.",
+   "outcome": "Read strokes, their control points, art roles and style usage, select them by geometry, lasso or role into a revision-bound handle, and read their order and groups.",
    "classification": "exposed",
    "tools": [
     "vector.inspect",
     "vector.select",
     "vector.structure"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.analysis_job",
+   "domain": "Vector drawing",
+   "outcome": "Count style usage, regions and art roles over a level as a bounded, cancellable job and read its rows.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.analysis.submit",
+    "job.status",
+    "job.result"
    ],
    "disposition": {
     "kind": "implemented"

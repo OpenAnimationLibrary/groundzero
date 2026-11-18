@@ -40,15 +40,34 @@ public:
   QString documentId() const override { return "document_test"; }
   bool terminal() const override { return m_terminal; }
   qint64 reservedBytes() const override { return m_bytes; }
-  QJsonObject record() const override { return {{"job_id", m_id}}; }
-  void cancel() override { m_terminal = true; }
+  QJsonObject record() const override {
+    return {
+        {"job_id", m_id},
+        {"status", m_terminal ? "completed" : "running"},
+        {"terminal", m_terminal},
+        {"cancellation",
+         QJsonObject{{"requested", m_cancelMs >= 0},
+                     {"requested_ms",
+                      m_cancelMs >= 0 ? QJsonValue(m_cancelMs) : QJsonValue()},
+                     {"effective", QJsonValue()}}}};
+  }
+  void cancel() override {
+    if (m_cancelMs < 0) m_cancelMs = m_interruptMs >= 0 ? m_interruptMs : 1;
+  }
+  void interrupt(qint64 requestedMs) override {
+    if (m_interruptMs < 0) m_interruptMs = requestedMs;
+  }
   QJsonValue result(Context&, const QJsonObject&) override { return {}; }
+  qint64 interruptMs() const { return m_interruptMs; }
+  qint64 cancelMs() const { return m_cancelMs; }
 
 private:
   QString m_id;
   JobLane m_lane;
   bool m_terminal;
   qint64 m_bytes;
+  qint64 m_interruptMs = -1;
+  qint64 m_cancelMs    = -1;
 };
 
 void identifiers() {
@@ -201,6 +220,47 @@ void cancellationAndTermination(Context& context) {
 
 }  // namespace
 
+QString statusOf(const QJsonValue& record) {
+  return record.toObject().value("status").toString();
+}
+
+bool requested(const QJsonValue& record) {
+  return record.toObject()
+      .value("cancellation")
+      .toObject()
+      .value("requested")
+      .toBool();
+}
+
+void publishedPolls() {
+  JobRegistry registry(instance, 0);
+  const auto job =
+      std::make_shared<FakeJob>(registry.newJobId(), JobLane::Render, false);
+  registry.add(job);
+  require(registry.answerPoll(job->id(), false).isNull(),
+          "A poll was answered before the job's record was published");
+  registry.publish();
+  require(statusOf(registry.answerPoll(job->id(), false)) == "running",
+          "A published record was not answered off the application thread");
+  require(registry.answerPoll("job_12345678_unknown", true).isNull(),
+          "A cancellation of an unpublished job was answered off-thread");
+  const QJsonValue canceled = registry.answerPoll(job->id(), true);
+  require(statusOf(canceled) == "cancellation_requested" &&
+              requested(canceled) && job->interruptMs() >= 0,
+          "An off-thread cancellation did not interrupt the job at once");
+  registry.publish();
+  require(statusOf(registry.answerPoll(job->id(), false)) ==
+                  "cancellation_requested" &&
+              job->cancelMs() < 0,
+          "Publishing before the queued cancel ran lost the request");
+  QCoreApplication::processEvents();
+  require(job->cancelMs() == job->interruptMs(),
+          "The queued cancel did not record the off-thread request time");
+  registry.publish();
+  require(requested(registry.answerPoll(job->id(), false)),
+          "The job's own record did not replace the request view");
+}
+
 // Ends one event-loop turn after it is canceled, as a job whose writers
 // close asynchronously does; a stubborn one never ends.
 class ClosingJob final : public Job {
@@ -215,13 +275,19 @@ public:
   QJsonObject record() const override { return {{"job_id", m_id}}; }
   void cancel() override {
     canceled = true;
+    if (cancelMs < 0) cancelMs = interruptMs >= 0 ? interruptMs : 1000;
     if (m_stubborn) return;
     const auto terminal = m_terminal;
     QTimer::singleShot(30, QCoreApplication::instance(),
                        [terminal]() { *terminal = true; });
   }
+  void interrupt(qint64 requestedMs) override {
+    if (interruptMs < 0) interruptMs = requestedMs;
+  }
   QJsonValue result(Context&, const QJsonObject&) override { return {}; }
-  bool canceled = false;
+  bool canceled      = false;
+  qint64 interruptMs = -1;
+  qint64 cancelMs    = -1;
 
 private:
   QString m_id;
@@ -242,9 +308,15 @@ void shutdownSettlement(Context& context) {
   registry.add(analysis);
   registry.add(
       std::make_shared<FakeJob>(registry.newJobId(), JobLane::Render, true));
+  registry.publish();
+  require(!registry.answerPoll(render->id(), true).isNull() &&
+              render->interruptMs >= 0,
+          "A poll cancellation did not interrupt the job");
   require(settleJobs(context, 5000) && render->canceled && analysis->canceled &&
               render->terminal() && analysis->terminal(),
           "Shutdown did not end the jobs of both lanes through the registry");
+  require(render->cancelMs == render->interruptMs,
+          "A poll cancellation and the shutdown recorded two cancellations");
   auto stubborn = std::make_shared<ClosingJob>(registry.newJobId(),
                                                JobLane::Analysis, true);
   registry.add(stubborn);
@@ -263,6 +335,7 @@ void runAutomationJobsTests(Context& context) {
       {"retention", retention},
       {"unknown ids", unknownIds},
       {"order", order},
+      {"published polls", publishedPolls},
       {"cancellation and termination",
        [&context]() { cancellationAndTermination(context); }},
       {"shutdown settlement", [&context]() { shutdownSettlement(context); }}};

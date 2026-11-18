@@ -516,15 +516,34 @@ BY_MODE: dict[str, list[Scenario]] = {
 }
 
 
-def attach_volume(case: NativeAcceptance) -> tuple[Path | None, str]:
-    """Mount a small disk image for the case; return its mount point or why it cannot be had."""
+def attach_volume(
+    case: NativeAcceptance, file_system: str = "APFS", name: str = "volume"
+) -> tuple[Path | None, str]:
+    """Mount a small disk image for the case; return its mount point or why it cannot be had.
+
+    Args:
+        case: The fixture whose directory holds the image.
+        file_system: The hdiutil file system name, such as APFS, HFS+, ExFAT or MS-DOS.
+        name: The image and mount folder name, unique per image within the case.
+    """
     if shutil.which("hdiutil") is None:
         return None, "disk images need hdiutil, which only macOS provides"
-    image = case.directory / "volume.dmg"
-    mount = case.directory / "volume"
+    image = case.directory / f"{name}.dmg"
+    mount = case.directory / name
     mount.mkdir()
+    size = "8m" if file_system == "APFS" else "32m"
     created = subprocess.run(
-        ["hdiutil", "create", "-size", "8m", "-fs", "APFS", "-volname", "gzqvolume", str(image)],
+        [
+            "hdiutil",
+            "create",
+            "-size",
+            size,
+            "-fs",
+            file_system,
+            "-volname",
+            "gzqvolume",
+            str(image),
+        ],
         capture_output=True,
         text=True,
         check=False,

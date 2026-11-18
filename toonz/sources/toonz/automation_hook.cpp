@@ -351,7 +351,8 @@ bool sameKeys(const HookKeys& left, const HookKeys& right) {
 }
 
 HookKeys canonicalKeys(Context& context, const HookKeys& keys) {
-  QTemporaryDir directory(context.workspace() + "/hook-canonical-XXXXXX");
+  QTemporaryDir directory(context.scratchDirectory() +
+                          "/hook-canonical-XXXXXX");
   if (!directory.isValid())
     throw Error("io_error", "Cannot create private hook preparation storage.");
   const HookKeys first  = roundTrip(keys, directory.filePath("first.xml"));
