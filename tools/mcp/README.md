@@ -564,6 +564,32 @@ document was discarded) or `not_issued`. An exact retry of a job-starting call
 returns the same job; a new worker knows no earlier job or document, so a retry
 there returns `document_not_found` and starts nothing.
 
+`vector.inspect` returns each stroke's art `role` (`line_art`, `colour_art`, `underlay`
+or `overlay`, derived with the editor's rule: a stroke whose control points all have
+thickness 0 is Colour Art, and Line Art below the first or above the last Colour Art
+stroke is Underlay or Overlay only when Line Art lies between them), `zero_thickness`,
+`opacity_per_mille` and `opacity_knots`, and a `summary` of the whole drawing on every
+page: `style_usage` (strokes per style, `defined` false for a style the palette lacks),
+`roles`, `colour_range` and `regions: "not_computed"`; it never builds regions. An optional
+`expected_revision` that is stale returns `stale_revision`. `vector.select` adds a `lasso`
+query (3 to 256 points; the closed polygon is refused with `invalid_params` and
+`details.reason` `self_intersecting` or `degenerate`), a `roles` filter and a
+`selection_id` handle with the `rule` applied; `contained` follows the editor's freehand
+selection, so it compares each stroke's thick bounding box. A handle is valid until the
+document's revision changes or 256 newer selections exist (`stale_selection` with
+`details.reason` `revision_changed`, `evicted` or `other_drawing`; `unknown_selection`
+for an id this document never issued). `vector.opacity.set` and
+`vector.opacity.profile.set` take `selection_id` instead of `stroke_indices`, never both.
+`drawing.analysis.submit` starts a `drawing_analysis` job on the analysis lane: `check`
+`style_usage` (strokes, regions and, on Toonz raster levels, ink and paint pixels per
+style), `regions` or `roles`. The record's `analysis` reports the `estimate`, the running
+`cost`, the `budget` and `complete` with its `reasons`; `job.result` pages the rows (up
+to 256 per page, 65,536 per job) with `next_offset` null on the last page. Regions are
+built on detached clones, one drawing per slice, so the document is never touched. A write
+to the document ends the job `failed` with `revision_changed`; `job.cancel` ends it
+`canceled` with the rows gathered so far. A second analysis while one runs is refused with
+`analysis_busy`. Read-only documents refuse `drawing.analysis.submit`.
+
 `render.submit` accepts `format: "png"` (the default) or `format: "mp4"` when the
 configured media tools and native movie writer are available. MP4 requires even
 dimensions up to 2048 pixels, `step: 1`, and at most 120 frames within the render
@@ -752,33 +778,33 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (111):
+- `core` toolset (112):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
   `automation.list_documents`, `camera.inspect`, `camera.update`, `cast.list`, `cast.usage`,
   `column.cells`, `column.create`, `column.delete`, `column.expose`, `column.update`,
-  `drawing.clone`, `drawing.create`, `drawing.inspect`, `drawing.remove`, `drawing.renumber`,
-  `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`,
-  `fx.enabled.set`, `fx.graph`, `fx.macro.create`, `fx.macro.expand`, `fx.output.select`,
-  `fx.parameter.get`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`,
-  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`,
-  `job.status`, `level.create`, `level.import`, `level.inspect`, `motion_path.create`,
-  `motion_path.delete`, `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`,
-  `motion_path.rename`, `motion_path.update`, `object.create`, `object.parent`,
-  `object.path.attach`, `object.path.detach`, `palette.clone_style`, `palette.create_style`,
-  `palette.inspect`, `palette.page.create`, `palette.page.move`, `palette.page.remove`,
-  `palette.page.rename`, `palette.pages`, `palette.rename_style`, `palette.style.move`,
-  `palette.update_style`, `project.inspect`, `project.list`, `project.scenes`,
-  `raster.export_png`, `raster.import_png`, `raster.patch`, `raster.read_pixels`,
-  `render.capabilities`, `render.preflight`, `render.preview`, `render.submit`,
-  `runtime.inspect`, `scene.create`, `scene.dependencies`, `scene.discard`, `scene.inventory`,
-  `scene.open`, `scene.open_read_only`, `scene.package_info`, `scene.save_copy`,
-  `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
-  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `drawing.analysis.submit`, `drawing.clone`, `drawing.create`, `drawing.inspect`,
+  `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`,
+  `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`, `fx.macro.create`,
+  `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`, `fx.parameter.set`,
+  `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`, `fx.terminal.set`,
+  `job.cancel`, `job.list`, `job.result`, `job.status`, `level.create`, `level.import`,
+  `level.inspect`, `motion_path.create`, `motion_path.delete`, `motion_path.duplicate`,
+  `motion_path.inspect`, `motion_path.list`, `motion_path.rename`, `motion_path.update`,
+  `object.create`, `object.parent`, `object.path.attach`, `object.path.detach`,
+  `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
+  `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
+  `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
+  `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
+  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
+  `render.submit`, `runtime.inspect`, `scene.create`, `scene.dependencies`, `scene.discard`,
+  `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
+  `scene.save_copy`, `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`,
+  `text.fonts`, `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
+  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
+  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
+  `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

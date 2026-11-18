@@ -80,11 +80,13 @@ def sample(schema: dict[str, Any]) -> Any:
         return schema["const"]
     if "enum" in schema:
         return schema["enum"][0]
-    if "oneOf" in schema:
+    if "oneOf" in schema and "type" not in schema:
         return sample(schema["oneOf"][0])
     kind = schema.get("type")
     if kind == "object":
-        return {name: sample(schema["properties"][name]) for name in schema.get("required", [])}
+        names = [*schema.get("required", []), *schema.get("oneOf", [{}])[0].get("required", [])]
+        properties = schema.get("properties", {})
+        return {name: sample(properties[name]) for name in names if name in properties}
     if kind == "array":
         return [sample(schema["items"]) for _ in range(schema.get("minItems", 0))]
     if kind == "string":
@@ -247,8 +249,11 @@ def _drawings(f: Fixture) -> list[Call]:
 
 
 def _vector(f: Fixture) -> list[Call]:
+    current = f.revision(f.document)
     return [
         Call("vector", _drawing(f, "arm_level", limit=8)),
+        Call("current revision", _drawing(f, "arm_level", limit=8, expected_revision=current)),
+        Call("stale revision", _drawing(f, "arm_level", expected_revision="0"), "stale_revision"),
         Call("raster", _drawing(f, "rgba_level"), "unsupported_type"),
     ]
 
@@ -256,9 +261,22 @@ def _vector(f: Fixture) -> list[Call]:
 def _select(f: Fixture) -> list[Call]:
     query = {"mode": "nearest_centerline", "x": 8, "y": -5, "max_distance": 100}
     params = _drawing(f, "arm_level", coordinate_space="drawing_native", query=query)
+    current = {**params, "expected_revision": f.revision(f.document)}
+    square = [{"x": -500, "y": -500}, {"x": 500, "y": -500}, {"x": 500, "y": 500}]
+    lasso = {"mode": "lasso", "relation": "intersects", "points": square}
+    crossed = [{"x": 0, "y": 0}, {"x": 9, "y": 9}, {"x": 9, "y": 0}, {"x": 0, "y": 9}]
     return [
-        Call("nearest", {**params, "expected_revision": f.revision(f.document)}),
+        Call("nearest", current),
+        Call("lasso", {**current, "query": lasso}),
+        Call("roles", {**current, "query": lasso, "roles": ["line_art", "overlay"]}),
         Call("stale", {**params, "expected_revision": "0"}, "revision_conflict"),
+        Call(
+            "self intersecting",
+            {**current, "query": {**lasso, "points": crossed}},
+            "invalid_params",
+            "self_intersecting",
+        ),
+        Call("empty roles", {**current, "roles": []}, SCHEMA),
     ]
 
 
@@ -517,6 +535,11 @@ def _ro_vectors(f: Fixture, document: str) -> list[Call]:
     return _ro_per_level("vector.inspect", f, document)
 
 
+def _ro_inspect(f: Fixture, document: str) -> list[Call]:
+    pinned = _ro_per_level("vector.inspect", f, document, expected_revision="0")
+    return [*_ro_vectors(f, document), *pinned]
+
+
 def _ro_opacity(f: Fixture, document: str) -> list[Call]:
     extra = {"expected_revision": "0", "stroke_index": 0, "offset": 0, "limit": 8}
     return _ro_per_level("vector.opacity.inspect", f, document, **extra)
@@ -655,7 +678,7 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "animation.channels": _ro_channels,
     "animation.keys": _ro_keys,
     "animation.sample": _ro_samples,
-    "vector.inspect": _ro_vectors,
+    "vector.inspect": _ro_inspect,
     "vector.structure": _ro_vectors,
     "vector.opacity.inspect": _ro_opacity,
     "raster.read_pixels": _ro_pixels,
