@@ -7,6 +7,7 @@
 #include "tfilepath_io.h"
 #include "tsioutils.h"
 #include <math.h>
+#include <string.h>
 
 #define DEFAULT_OFFSET 0
 #define DEFAULT_BLOCKSIZE 0
@@ -236,7 +237,7 @@ TUINT32 convertToLong(UCHAR *buffer) {
     flipLong(buffer + 2);
   }
 
-  mantissa = *((TUINT32 *)(buffer + 2));
+  memcpy(&mantissa, buffer + 2, sizeof(mantissa));
   exp      = 30 - *(buffer + 1);
   while (exp--) {
     last = mantissa;
@@ -271,7 +272,7 @@ void storeFloat(unsigned char *buffer, TUINT32 value) {
     value <<= 1;
   }
 
-  *((TUINT32 *)(buffer + 2)) = value;
+  memcpy(buffer + 2, &value, sizeof(value));
 
   buffer[0] = 0x40;
 

@@ -1043,6 +1043,12 @@ if(BUILD_RELIABILITY_TESTS)
     add_executable(soundsample_conversion_test sound/tests/soundsample_conversion_test.cpp)
     target_link_libraries(soundsample_conversion_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME soundsample_conversion COMMAND soundsample_conversion_test)
+    add_executable(aiff_reader_test sound/tests/aiff_reader_test.cpp
+        sound/aiff/tsio_aiff.cpp sound/tsioutils.cpp)
+    target_include_directories(aiff_reader_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sound)
+    target_link_libraries(aiff_reader_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME aiff_reader COMMAND aiff_reader_test)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
     target_include_directories(timagecache_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/common/tsystem)
