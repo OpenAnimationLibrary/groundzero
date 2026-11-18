@@ -40,8 +40,8 @@ import mcp_render_cases
 import mcp_renumber_cases
 import mcp_rig_cases
 import mcp_scene_cases
-import mcp_studio_palette_cases
 import mcp_storyboard_cases
+import mcp_studio_palette_cases
 import mcp_text_cases
 import mcp_vector_opacity_cases
 import mcp_vector_transform_cases
@@ -252,6 +252,7 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_rig_parent_policy_and_refusals(self) -> None:
         mcp_rig_cases.rig_parent_policy_and_refusals(self)
+
     def test_storyboard_panels_spans_and_thumbnails(self) -> None:
         mcp_storyboard_cases.storyboard_panels_spans_and_thumbnails(self)
 
