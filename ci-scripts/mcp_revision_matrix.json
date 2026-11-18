@@ -2,7 +2,7 @@
  "schema_version": 1,
  "notes": {
   "rule": [
-   "The dispatcher advances a document's revision by exactly one when a write handler reports that it began changing native state and the tool is not declared mutates_document false (automation_dispatch.cpp:488-517). A write that changes nothing returns the current revision. A write that fails after state changed is reported as partially_applied and still advances the revision. A write that fails before any change leaves the revision alone.",
+   "The dispatcher advances a document's revision by exactly one when a write handler reports that it began changing native state and the tool declares effects.document writes, creates or discards (advancesRevision in automation_effects.cpp). A write that changes nothing returns the current revision. A write that fails after state changed is reported as partially_applied and still advances the revision. A write that fails before any change leaves the revision alone.",
    "Every write carries expected_revision, so a stale call fails with revision_conflict before the handler runs (automation_dispatch.cpp:475-486). An exact retry with the same operation_id returns the stored outcome without running the handler again, even after later writes (automation_dispatch.cpp:386-415).",
    "The revision is reported by the handler, not computed from content, so the table below checks it against reads: a successful call must advance it by one and change a read, and a call that changes no read must not advance it."
   ],
@@ -28,7 +28,7 @@
    {
     "class": "save state",
     "examples": "scene.save_copy and the files that fx.preset.save, raster.export_png and audio.mixdown publish.",
-    "bumps": "no; declared mutates_document false. The detached profile has no dirty flag, and the live fingerprint removes the scene dirty flag.",
+    "bumps": "no; declared with effects.document reads. The detached profile has no dirty flag, and the live fingerprint removes the scene dirty flag.",
     "reference": "automation_live_scene.cpp:703"
    },
    {

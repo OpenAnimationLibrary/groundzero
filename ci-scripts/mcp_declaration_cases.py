@@ -9,7 +9,6 @@ from mcp_worker import SchemaViolation, check_schema, require_declared_error
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
-WORKER_TOOLS = ("automation.capabilities", "automation.list_documents")
 DESCRIPTOR_FIELDS = {
     "name",
     "description",
@@ -92,10 +91,8 @@ def _schema_keys(schema: Any) -> set[str]:
 
 
 def _check_output_schema(case: NativeAcceptance, tool: dict[str, Any]) -> None:
-    schema = tool.get("outputSchema")
-    if schema is None:
-        case.assertNotIn(tool["name"], WORKER_TOOLS)
-        return
+    case.assertIn("outputSchema", tool, f"{tool['name']} publishes no outputSchema")
+    schema = tool["outputSchema"]
     case.assertEqual(set(schema), {"type", "oneOf"})
     case.assertEqual(schema["type"], "object")
     success, envelope = schema["oneOf"]
