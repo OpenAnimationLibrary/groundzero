@@ -655,8 +655,11 @@ void validateAutomationScene(ToonzScene& scene) {
 
 std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
                                                  Document& document,
-                                                 const QString& directory) {
+                                                 const QString& directory,
+                                                 QString* manifestSha256) {
   const Package package = publishPackage(context, document, directory);
+  if (manifestSha256)
+    *manifestSha256 = QString::fromLatin1(package.manifestHash);
   return reopenPackage(context, directory, package);
 }
 

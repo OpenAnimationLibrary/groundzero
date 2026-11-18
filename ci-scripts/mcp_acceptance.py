@@ -32,6 +32,7 @@ import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
+import mcp_jobs_cases
 import mcp_library_cases
 import mcp_library_limit_cases
 import mcp_limit_cases
@@ -87,6 +88,7 @@ REQUIRED_TOOLS = {
     "job.status",
     "job.cancel",
     "job.result",
+    "job.list",
     "artifact.read",
 }
 SDK_CLIENT = "native-client.mjs"
@@ -730,6 +732,32 @@ class NativeAcceptance(unittest.TestCase):
     @worker_only("needs --test-render-fault stray-callbacks, which the adapter never passes")
     def test_render_stray_callbacks_do_not_change_the_outcome(self) -> None:
         mcp_failure_cases.render_stray_callbacks_do_not_change_the_outcome(self)
+
+    @worker_only("needs --test-render-fault hold-launch")
+    def test_job_states_and_refused_second_submit(self) -> None:
+        mcp_jobs_cases.job_states_and_refused_second_submit(self)
+
+    def test_job_record_identity_inputs_limits(self) -> None:
+        mcp_jobs_cases.job_record_identity_inputs_limits(self)
+
+    def test_job_submit_retry_returns_same_job(self) -> None:
+        mcp_jobs_cases.submit_retry_returns_same_job(self)
+
+    def test_job_repeated_status_and_cancel(self) -> None:
+        mcp_jobs_cases.repeated_status_and_cancel(self)
+
+    def test_job_stale_ids(self) -> None:
+        mcp_jobs_cases.stale_job_ids(self)
+
+    def test_job_list_filters_and_paging(self) -> None:
+        mcp_jobs_cases.job_list_filters_and_paging(self)
+
+    @worker_only("needs --test-render-fault hold-writers")
+    def test_job_stalled_cancellation_stays_non_terminal(self) -> None:
+        mcp_jobs_cases.stalled_cancellation_stays_non_terminal(self)
+
+    def test_job_movie_cancel_while_encoding_is_forced(self) -> None:
+        mcp_jobs_cases.movie_cancel_while_encoding_is_forced(self)
 
     @worker_only("kills the worker process and needs --test-render-fault hold-publication")
     def test_render_worker_killed_mid_preview_then_new_worker(self) -> None:

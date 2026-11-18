@@ -1,4 +1,5 @@
 #include "automation_scene_host.h"
+#include "automation_jobs.h"
 #include "automation_shared_parse.h"
 
 #include "toonz/toonzscene.h"
@@ -52,6 +53,8 @@ struct SceneHostRegistry final {
   std::map<QString, std::unique_ptr<SceneHost>> hosts;
   QHash<QString, ProjectEntry> projects;
   QHash<QString, QString> jobs;
+  // The last record each host reported for its jobs.
+  QHash<QString, QJsonObject> records;
   QHash<QString, QString> artifacts;
   quint64 requests = 0;
 
@@ -463,8 +466,11 @@ QJsonValue exchange(Context& context, SceneHost& host, const QString& method,
 
 QStringList hostArguments(const Context& context, const QString& directory,
                           const QString& documentId) {
-  QStringList arguments{"--automation-worker", "--workspace", directory,
-                        "--scene-host", documentId};
+  const JobRegistry& jobs = *context.jobs;
+  QStringList arguments{
+      "--automation-worker", "--workspace",    directory,
+      "--scene-host",        documentId,       "--worker-instance",
+      jobs.instance(),       "--worker-epoch", QString::number(jobs.epochMs())};
   for (const QString& root : readRoots(context))
     arguments << "--input-root" << root;
 #ifdef BUILD_UI_PORT_TESTS
@@ -967,10 +973,21 @@ SceneHost* hostForDocument(Context& context, const QString& documentId) {
                                                   : found->second.get();
 }
 
+// The discarded document's jobs expire with its host; their ids keep
+// answering unknown_job with reason expired.
 void forgetRoutes(Context& context, const QString& documentId) {
   auto& state = registry(context);
-  for (auto it = state.jobs.begin(); it != state.jobs.end();)
-    it = it.value() == documentId ? state.jobs.erase(it) : std::next(it);
+  QStringList expired;
+  for (auto it = state.jobs.begin(); it != state.jobs.end();) {
+    if (it.value() != documentId) {
+      ++it;
+      continue;
+    }
+    expired.append(it.key());
+    state.records.remove(it.key());
+    it = state.jobs.erase(it);
+  }
+  jobRegistry(context).expire(expired);
   for (auto it = state.artifacts.begin(); it != state.artifacts.end();)
     it = it.value() == documentId ? state.artifacts.erase(it) : std::next(it);
 }
@@ -997,9 +1014,42 @@ bool terminalStatus(const QString& status) {
          status == "deadline_exceeded";
 }
 
+// The job record in a job tool's result: the result itself, or under "job".
+QJsonObject jobRecordIn(const QJsonObject& result) {
+  const QJsonObject nested = result.value("job").toObject();
+  const QJsonObject record = nested.isEmpty() ? result : nested;
+  return record.contains("kind") && record.contains("job_id") ? record
+                                                              : QJsonObject();
+}
+
+// A host that ended cannot finish its jobs: the last record of each one that
+// was still running reads failed, stopped by force with the host.
+QJsonObject lostJobRecord(Context& context, QJsonObject record) {
+  if (record.value("terminal").toBool()) return record;
+  record.insert("status", "failed");
+  record.insert("terminal", true);
+  record.insert("failure",
+                QJsonObject{{"code", "scene_host_failed"},
+                            {"phase", "executor"},
+                            {"message", "The document's scene host ended."}});
+  record.insert("termination",
+                QJsonObject{{"mode", "forced"},
+                            {"forced_processes", QJsonArray{"scene_host"}}});
+  QJsonObject timing = record.value("timing").toObject();
+  timing.insert("ended_ms", double(jobRegistry(context).elapsedMs()));
+  record.insert("timing", timing);
+  return record;
+}
+
 void recordRoutes(Context& context, SceneHost& host, const QJsonValue& value) {
   const QJsonObject result = value.toObject();
-  const QString job        = result.value("job_id").toString();
+  const QJsonObject record = jobRecordIn(result);
+  const QString job =
+      result.value("job_id").toString(record.value("job_id").toString());
+  if (!record.isEmpty()) {
+    registry(context).records.insert(job, record);
+    jobRegistry(context).note(job);
+  }
   if (!job.isEmpty()) {
     registry(context).jobs.insert(job, host.documentId);
     if (job == host.lastJob || !host.renderActive) {
@@ -1014,8 +1064,8 @@ void recordRoutes(Context& context, SceneHost& host, const QJsonValue& value) {
 
 QJsonValue forward(Context& context, SceneHost& host, const QString& method,
                    const QJsonObject& params) {
-  const bool render = method.startsWith("render.") || method.startsWith("job.") ||
-                      method == "artifact.read";
+  const bool render  = method.startsWith("render.") ||
+                       method.startsWith("job.") || method == "artifact.read";
   const int deadline = method == "render.preview" || method == "render.submit"
                            ? SceneHostOpenDeadlineMs
                            : SceneHostReadDeadlineMs;
@@ -1026,8 +1076,14 @@ QJsonValue forward(Context& context, SceneHost& host, const QString& method,
     return result;
   } catch (Error& error) {
     // A lost host's jobs report as failed.
-    if (error.code == "scene_host_failed" && params.contains("job_id")) {
-      error.details.insert("job_id", params.value("job_id"));
+    const QString job = params.value("job_id").toString();
+    const auto known  = registry(context).records.constFind(job);
+    if (error.code == "scene_host_failed" &&
+        (method == "job.status" || method == "job.cancel") &&
+        known != registry(context).records.constEnd())
+      return lostJobRecord(context, known.value());
+    if (error.code == "scene_host_failed" && !job.isEmpty()) {
+      error.details.insert("job_id", job);
       error.details.insert("status", "failed");
     }
     throw;
@@ -1136,7 +1192,7 @@ void refuseReadOnlyEarly(Context& context, const QString& method,
                          const QJsonObject& params,
                          const QJsonObject& descriptor) {
   if (!params.value("document_id").isString() || method == "scene.discard" ||
-      forwardedTools().contains(method))
+      method == "job.list" || forwardedTools().contains(method))
     return;
   const QString documentId = params.value("document_id").toString();
   try {
@@ -1147,9 +1203,27 @@ void refuseReadOnlyEarly(Context& context, const QString& method,
   refuseReadOnly(method, descriptor);
 }
 
+QJsonObject hostJobRecord(Context& context, const QString& id) {
+  if (!context.sceneHosts) return {};
+  auto& state              = *context.sceneHosts;
+  const QString documentId = state.jobs.value(id);
+  SceneHost* host =
+      documentId.isEmpty() ? nullptr : hostForDocument(context, documentId);
+  if (!host) return {};
+  try {
+    if (!host->lost())
+      return forward(context, *host, "job.status", {{"job_id", id}}).toObject();
+  } catch (const Error& error) {
+    if (error.code != "scene_host_failed") throw;
+  }
+  return lostJobRecord(context, state.records.value(id));
+}
+
 bool routeToSceneHost(Context& context, const QString& method,
                       const QJsonObject& params, const QJsonObject& descriptor,
                       QJsonValue& result) {
+  // job.list filters by document; it reads the jobs of every host itself.
+  if (method == "job.list") return false;
   const QString documentId = params.value("document_id").toString();
   Document* document       = nullptr;
   if (!documentId.isEmpty()) {

@@ -93,8 +93,9 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
     case.assertEqual(case.operations, ORDINARY_RECEIPTS)
     case.assertEqual(job["status"], "preparing", job)
     case.assertIs(job["writers_closed"], False)
+    # Only retained jobs have reserved cancellations; this one needs ordinary capacity.
     cancel = case.write_params(None, {"job_id": "unknown-job-before-cancellation"})
-    case.assertEqual(case.failure("job.cancel", cancel)["code"], "unknown_job")
+    case.assertEqual(case.failure("job.cancel", cancel)["code"], "resource_limit")
     pending = case.success("job.status", {"job_id": job["job_id"]})
     case.assertIn(pending["status"], {"preparing", "running", "finalizing"}, pending)
     case.assertIs(pending["writers_closed"], False)
@@ -113,10 +114,16 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
         result = _cancel_once(case, params, document)
         case.assertEqual(result["status"], "completed", result)
         case.assertIs(result["writers_closed"], True)
-        case.assertEqual(case.success("job.status", {"job_id": job_id}), retained["status"])
+        status = case.success("job.status", {"job_id": job_id})
+        case.assertEqual(status["cancellation"]["requested"], True)
+        case.assertEqual(status["cancellation"]["effective"], False)
+        unchanged = {key for key in status if key != "cancellation"}
         case.assertEqual(
-            case.success("job.result", {"job_id": job_id}), retained["artifacts"]
+            {key: status[key] for key in unchanged},
+            {key: retained["status"][key] for key in unchanged},
         )
+        result = case.success("job.result", {"job_id": job_id})
+        case.assertEqual(result["artifacts"], retained["artifacts"]["artifacts"])
     exhausted = case.write_params(None, {"job_id": "unknown-job-after-reserve-full"})
     case.assertEqual(case.failure("job.cancel", exhausted)["code"], "resource_limit")
     fresh = case.write_params(document, {"width_px": 64})

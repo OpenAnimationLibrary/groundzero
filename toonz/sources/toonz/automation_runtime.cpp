@@ -1,7 +1,7 @@
 #include "automation_runtime.h"
+#include "automation_jobs.h"
 #include "automation_shared_parse.h"
 
-#include "tenv.h"
 #include "tiio.h"
 #include "tlevel_io.h"
 #include "tsound_io.h"
@@ -23,7 +23,6 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSysInfo>
-#include <QUuid>
 
 #include <algorithm>
 #include <cstdlib>
@@ -571,25 +570,6 @@ QString boundedText(const QString& value, int limit) {
   return text.isEmpty() ? QString("unknown") : text;
 }
 
-QString executableDigest() {
-  static const QString digest =
-      hashFile(QCoreApplication::applicationFilePath());
-  return digest;
-}
-
-QJsonObject workerIdentity() {
-  static const QString instance =
-      QUuid::createUuid().toString(QUuid::WithoutBraces);
-  return {{"instance_id", instance},
-          {"build",
-           QJsonObject{
-               {"application", "groundzero"},
-               {"version",
-                boundedText(
-                    QString::fromStdString(TEnv::getApplicationVersion()), 64)},
-               {"executable_sha256", executableDigest()}}}};
-}
-
 QStringList requestedProbes(const QJsonObject& params) {
   QStringList probes;
   for (const QJsonValue& value : params.value("probes").toArray())
@@ -602,7 +582,7 @@ QJsonValue inspect(Context& context, const QJsonObject& params) {
   if (probes.contains("graphics")) ensureGraphicsProbe(context, true);
   if (probes.contains("media")) ensureMediaProbe(context, true);
   const QJsonObject result{
-      {"worker", workerIdentity()},
+      {"worker", workerIdentity(context)},
       {"platform", runtimePlatform()},
       {"graphics", graphicsReport(context)},
       {"media", mediaReport(context)},

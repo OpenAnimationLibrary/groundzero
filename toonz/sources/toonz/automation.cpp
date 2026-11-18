@@ -1,4 +1,6 @@
 #include "automation.h"
+#include "automation_build_identity.h"
+#include "automation_jobs.h"
 #include "automation_dispatch.h"
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
@@ -85,6 +87,9 @@ struct Options {
   QStringList sharedWrites;
   QString parseHelper;
   QString sceneHost;
+  // A scene host's worker instance and monotonic start time.
+  QString workerInstance;
+  QString workerEpoch;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
@@ -215,6 +220,10 @@ void addOption(Options& options, const QString& key, const QString& value) {
     options.parseHelper = value;
   else if (key == "--scene-host")
     options.sceneHost = value;
+  else if (key == "--worker-instance")
+    options.workerInstance = value;
+  else if (key == "--worker-epoch")
+    options.workerEpoch = value;
   else
     addWorkerRoot(options, key, value);
 }
@@ -223,7 +232,8 @@ bool valueOption(const QString& key) {
   return key == "--workspace" || key == "--input-root" ||
          key == "--media-tools" || key == "--shared-root" ||
          key == "--shared-write" || key == "--parse-helper" ||
-         key == "--scene-host";
+         key == "--scene-host" || key == "--worker-instance" ||
+         key == "--worker-epoch";
 }
 
 bool overlapping(const QString& first, const QString& second) {
@@ -252,6 +262,21 @@ void validateSharedRoots(Options& options) {
         throw Error("invalid_argument",
                     "Shared roots must not overlap one another.");
   }
+}
+
+// Only a scene host takes its worker's instance and clock, and needs both.
+void validateWorkerInstance(const Options& options) {
+  const bool given =
+      !options.workerInstance.isEmpty() || !options.workerEpoch.isEmpty();
+  if (!given && options.sceneHost.isEmpty()) return;
+  bool number = false;
+  options.workerEpoch.toLongLong(&number);
+  const QUuid instance(options.workerInstance);
+  if (options.sceneHost.isEmpty() || !number || instance.isNull() ||
+      instance.toString(QUuid::WithoutBraces) != options.workerInstance)
+    throw Error("invalid_argument",
+                "A scene host takes its worker's --worker-instance UUID and "
+                "--worker-epoch milliseconds; a worker takes neither.");
 }
 
 Options parseOptions(const QStringList& arguments) {
@@ -294,6 +319,7 @@ Options parseOptions(const QStringList& arguments) {
                                        !options.sharedRoots.isEmpty()))
     throw Error("invalid_argument",
                 "A scene host never receives media tools or shared roots.");
+  validateWorkerInstance(options);
   validateSharedRoots(options);
   return options;
 }
@@ -530,6 +556,7 @@ int domainTestResult(Context& context) {
     runAutomationMediaProcessTests(context);
     runAutomationSceneHostTests(context);
     runAutomationRuntimeTests(context);
+    runAutomationJobsTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "
@@ -586,12 +613,16 @@ int executeWorker(QApplication& application, QFile& output,
     return runSharedParseHelper(context, options.parseHelper, output);
   if (!options.sceneHost.isEmpty()) {
     context.sceneHostDocument = options.sceneHost;
+    context.workerInstance    = options.workerInstance;
+    context.workerEpochMs     = options.workerEpoch.toLongLong();
     startSceneHostWatchdog();
   }
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
   sweepAbandonedRenders(context);
+  jobRegistry(context);
+  prefetchBuildIdentity();
   Dispatcher dispatcher(context);
   InputThread reader(
       application,

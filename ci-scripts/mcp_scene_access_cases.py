@@ -50,6 +50,8 @@ FORWARDED = {
     "vector.opacity.inspect",
     "raster.read_pixels",
 }
+# Tools the worker answers for a read-only document itself, from its job registry.
+ANSWERED_BY_WORKER = {"job.list"}
 CHILD_ID = 2000
 TIFF_ID = 2100
 
@@ -326,8 +328,8 @@ def preview(case: NativeAcceptance, worker: Worker, document: str, frame: int) -
     params = {"document_id": document, "expected_revision": "0", "frame": frame, "width": 32}
     params.update(height=32, operation_id=_op(case))
     job = call(case, worker, "render.preview", params)
-    case.assertEqual(job["snapshot_inputs"], "linked-source-stat-pinned")
-    case.assertTrue(job["source_fingerprint"].startswith("source:"))
+    case.assertIsNone(job["inputs"]["snapshot_manifest_sha256"])
+    case.assertTrue(job["inputs"]["source_fingerprint"].startswith("source:"))
     status = wait(case, worker, job["job_id"])
     case.assertEqual(status["status"], "completed", status)
     artifacts = call(case, worker, "job.result", {"job_id": job["job_id"]})["artifacts"]
@@ -726,7 +728,10 @@ def read_only_documents_refuse_every_other_tool(case: NativeAcceptance) -> None:
     tools = call(case, worker, "automation.capabilities", {})["tools"]
     refused = 0
     for tool in tools:
-        if "document_id" not in tool["inputSchema"]["properties"] or tool["name"] in FORWARDED:
+        name = tool["name"]
+        if "document_id" not in tool["inputSchema"]["properties"]:
+            continue
+        if name in FORWARDED or name in ANSWERED_BY_WORKER:
             continue
         details = refuse(
             case, worker, tool["name"], _tool_params(tool, document), "read_only_document"
@@ -810,7 +815,8 @@ def _source_change(case: NativeAcceptance, worker: Worker, scenes: dict[str, Pat
     level.write_bytes(level.read_bytes() + b"\0")
     status = wait(case, worker, job)
     case.assertEqual(status["status"], "failed", status)
-    case.assertTrue(status["error"].startswith("source_changed"), status)
+    case.assertEqual(status["failure"]["code"], "source_changed", status)
+    case.assertEqual(status["failure"]["phase"], "verify", status)
     refuse(case, worker, "job.result", {"job_id": job}, "artifacts_unavailable")
     preview = {"document_id": document, "expected_revision": "0", "frame": 0}
     details = refuse(
@@ -830,8 +836,8 @@ def _lost_host(case: NativeAcceptance, worker: Worker, scenes: dict[str, Path]) 
     job = call(case, worker, "render.submit", params)["job_id"]
     pid = next(pid for pid, owner in host_processes(worker) if owner == rendering)
     os.kill(pid, signal.SIGKILL)
-    details = refuse(case, worker, "job.status", {"job_id": job}, "scene_host_failed")
-    case.assertEqual((details["cause"], details["status"]), ("crashed", "failed"))
+    record = call(case, worker, "job.status", {"job_id": job})
+    case.assertEqual((record["status"], record["failure"]["code"]), ("failed", "scene_host_failed"))
     details = refuse(case, worker, "scene.summary", {"document_id": rendering}, "scene_host_failed")
     case.assertEqual(details["cause"], "crashed")
     states = {
@@ -842,7 +848,8 @@ def _lost_host(case: NativeAcceptance, worker: Worker, scenes: dict[str, Path]) 
     call(case, worker, "cast.list", {"document_id": other, "expected_revision": "0"})
     case.success("scene.summary", {"document_id": editable})
     discard(case, worker, rendering)
-    refuse(case, worker, "job.status", {"job_id": job}, "unknown_job")
+    expired = refuse(case, worker, "job.status", {"job_id": job}, "unknown_job")
+    case.assertEqual(expired["reason"], "expired")
     discard(case, worker, other)
     case.assertEqual(host_processes(worker), [])
 

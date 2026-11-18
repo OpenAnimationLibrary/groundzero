@@ -21,6 +21,8 @@ class MovieVerification {
 public:
   virtual ~MovieVerification() = default;
   virtual void cancel()        = 0;
+  // Whether the probe was killed before it exited by itself.
+  virtual bool forcedExit() const = 0;
 };
 
 using MovieVerificationCompletion =

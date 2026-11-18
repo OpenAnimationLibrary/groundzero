@@ -5,6 +5,7 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_hook.h"
+#include "automation_jobs.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 #include "automation_shared.h"
@@ -28,7 +29,8 @@ namespace {
 
 constexpr qint64 maximumReceiptBytes = 64 * 1024 * 1024;
 constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
-constexpr int maximumControlReceipts = 32;
+// One reserved first cancellation per retained job: two lanes of 32.
+constexpr int maximumControlReceipts = 2 * JobsPerLane;
 constexpr qint64 maximumControlBytes = 16 * 1024;
 
 qint64 receiptSize(const QJsonObject& response) {
@@ -304,6 +306,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(drawingOperations(), executeDrawing, "core");
   add(renderOperations(), executeRender, "core");
   add(runtimeOperations(), executeRuntime, "core");
+  add(jobOperations(), executeJobs, "core");
   add(persistenceOperations(), executePersistence, "core");
   add(productionOperations(), executeProduction, "core");
   add(textOperations(), executeText, "core");
@@ -389,6 +392,7 @@ QJsonValue Dispatcher::execute(const QString& method,
     if (method == "automation.capabilities")
       return QJsonObject{
           {"protocol_version", 3},
+          {"worker", workerIdentity(m_context)},
           {"workspace", m_context.workspace()},
           {"tools", m_catalog},
           {"toolsets", toolsetCatalog()},
@@ -454,8 +458,11 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   if (cached != m_receipts.constEnd())
     return replayReceipt(cached.value(), fingerprint);
   const QString jobId = params.value("job_id").toString();
-  const bool control =
-      method == "job.cancel" && !m_controlJobs.contains(jobId);
+  // The reserve holds one first cancellation per retained job; any other
+  // cancellation uses ordinary receipt capacity.
+  const bool control       = method == "job.cancel" &&
+                             !m_controlJobs.contains(jobId) &&
+                             jobRegistry(m_context).retains(jobId);
   const QString controlJob = control ? jobId : QString();
   checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",

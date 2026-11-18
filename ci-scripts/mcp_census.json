@@ -893,12 +893,23 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_job_repeated_status_and_cancel",
+    "ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
+   ]
+  },
+  "job.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_list_filters_and_paging",
+    "ci-scripts/mcp_acceptance.py::test_job_states_and_refused_second_submit",
+    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
+    "ci-scripts/mcp_acceptance.py::test_read_only_render_cancel_and_host_loss_leave_nothing"
    ]
   },
   "job.result": {
@@ -920,10 +931,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_movie_cancel_while_encoding_is_forced",
+    "ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal",
     "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_render_worker_killed_mid_preview_then_new_worker",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -1529,10 +1540,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -3495,6 +3506,20 @@
    "tools": [
     "job.cancel",
     "job.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "job.list_jobs",
+   "domain": "Rendering and review",
+   "outcome": "List the worker's retained jobs newest first, filtered by document, kind and state, and read a finished job's result.",
+   "classification": "exposed",
+   "tools": [
+    "job.list",
+    "job.status",
+    "job.result"
    ],
    "disposition": {
     "kind": "implemented"

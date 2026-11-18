@@ -24,7 +24,7 @@ class TXshLevel;
 namespace GroundzeroAutomation {
 
 struct ReadOnlyScene;
-struct RenderState;
+class JobRegistry;
 struct SceneHostRegistry;
 struct RuntimeState;
 
@@ -108,11 +108,16 @@ public:
   void markFailureRecorded();
   bool failureRecorded() const;
   bool helpersContained() const;
-  std::shared_ptr<RenderState> renderState;
   // Probe results cached for the worker's life; created on first use.
   std::shared_ptr<RuntimeState> runtimeState;
   // Set once by the dispatcher: the toolset names of its catalog.
   QStringList toolsets;
+  // Every job this process runs, created on first use.
+  std::shared_ptr<JobRegistry> jobs;
+  // The worker instance that owns this process's jobs and its monotonic start
+  // time; a scene host receives both from its worker.
+  QString workerInstance;
+  qint64 workerEpochMs = 0;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
   // Wall-clock budget of one render job; past it the job ends as
@@ -140,7 +145,7 @@ public:
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
-  // fail-after-final-frame, encoder-failure, stray-callbacks or
+  // hold-writers, fail-after-final-frame, encoder-failure, stray-callbacks or
   // gl-context-failure.
   QString renderFault;
   // Test-only file-writing fault: publish makes the final rename fail.
@@ -192,9 +197,11 @@ void shutdownRender(Context& context);
 // Removes the unfinished job output of workers that exited without finishing
 // it. Completed output and output of a live worker stay.
 void sweepAbandonedRenders(Context& context);
-std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
-                                                 Document& document,
-                                                 const QString& directory);
+// Publish and reopen a private snapshot package; `manifestSha256`, when given,
+// receives the package manifest's SHA-256.
+std::unique_ptr<ToonzScene> createRenderSnapshot(
+    Context& context, Document& document, const QString& directory,
+    QString* manifestSha256 = nullptr);
 void validateAutomationScene(ToonzScene& scene);
 
 #ifdef BUILD_UI_PORT_TESTS

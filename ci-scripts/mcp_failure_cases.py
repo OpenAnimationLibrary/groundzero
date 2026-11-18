@@ -104,7 +104,8 @@ def _ends(case: NativeAcceptance, job: str, status: str, text: str = "") -> dict
     ended = case.wait_job(job)
     case.assertEqual(ended["status"], status, ended)
     case.assertIs(ended["writers_closed"], True)
-    case.assertIn(text, ended["error"])
+    failure = ended["failure"]
+    case.assertIn(text, failure["message"] if failure else "")
     return ended
 
 
@@ -129,7 +130,7 @@ def render_cancel_leaves_no_output_and_no_process(case: NativeAcceptance) -> Non
     again = _cancel(case, done["job_id"])
     case.assertEqual(again["status"], "completed")
     case.assertEqual(
-        case.success("job.result", {"job_id": done["job_id"]})["status"], "completed"
+        case.success("job.result", {"job_id": done["job_id"]})["job"]["status"], "completed"
     )
 
 
@@ -172,9 +173,7 @@ def render_cancel_racing_publication_leaves_nothing(case: NativeAcceptance) -> N
     job = _held(case, document, "finalizing", closed=True)
     frames = sorted((case.workspace / "renders" / job / "frames").glob("*.png"))
     case.assertEqual(len(frames), SEQUENCE["end_frame"] + 1)
-    case.assertEqual(
-        case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable"
-    )
+    case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable")
     _cancel(case, job)
     _ends(case, job, "canceled")
     _assert_nothing_published(case, job)
@@ -186,6 +185,8 @@ def render_failure_after_final_frame_publishes_nothing(case: NativeAcceptance) -
     document = _scene(case)
     job = case.mutate("render.submit", document, **SEQUENCE)["job_id"]
     ended = _ends(case, job, "failed", "final frame")
+    case.assertEqual(ended["failure"]["code"], "render_failed")
+    case.assertEqual(ended["failure"]["phase"], "render")
     case.assertEqual(ended["completed_frames"], SEQUENCE["end_frame"] + 1)
     _assert_nothing_published(case, job)
     case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 3)
@@ -197,7 +198,9 @@ def render_without_worker_gl_marks_graphics_failed(case: NativeAcceptance) -> No
     _fault_worker(case, "gl", "--test-render-fault", "gl-context-failure")
     document = _scene(case)
     job = case.mutate("render.submit", document, **SEQUENCE)["job_id"]
-    _ends(case, job, "failed", "OpenGL is not available")
+    ended = _ends(case, job, "failed", "OpenGL is not available")
+    failure = ended["failure"]
+    case.assertEqual((failure["code"], failure["phase"]), ("gl_unavailable", "render"))
     _assert_nothing_published(case, job)
     graphics = case.success("runtime.inspect", {})["graphics"]
     case.assertEqual(graphics["probe"]["result"], "context_ready", graphics)
@@ -220,7 +223,10 @@ def render_encoder_failure_publishes_nothing(case: NativeAcceptance) -> None:
     baseline = _descendants(case.worker.process.pid)
     movie = {"format": "mp4", **SEQUENCE}
     job = case.mutate("render.submit", document, **movie)["job_id"]
-    _ends(case, job, "failed", "encoder")
+    ended = _ends(case, job, "failed", "encoder")
+    case.assertEqual(
+        (ended["failure"]["code"], ended["failure"]["phase"]), ("writer_failed", "encode")
+    )
     _assert_nothing_published(case, job)
     case.assertEqual(list(case.workspace.rglob("*.mp4")), [])
     _settle_processes(case, baseline)
@@ -261,7 +267,8 @@ def render_worker_killed_mid_preview_then_new_worker(case: NativeAcceptance) -> 
     case.addCleanup(case.worker.close)
     case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
     case.assertFalse(left.exists())
-    case.assertEqual(case.failure("job.status", {"job_id": job})["code"], "unknown_job")
+    stale = case.failure("job.status", {"job_id": job})
+    case.assertEqual((stale["code"], stale["details"]["reason"]), ("unknown_job", "other_worker"))
     case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "unknown_job")
     case.assertEqual(list(case.workspace.rglob("frame*.png")), [])
     fresh = _scene(case)
@@ -285,7 +292,7 @@ def render_storage_budget_refuses_before_creating_anything(case: NativeAcceptanc
     case.assertIn("storage", error["message"])
     case.assertEqual([path.name for path in _renders(case)], before)
     for job in kept:
-        case.assertEqual(case.success("job.result", {"job_id": job})["status"], "completed")
+        case.assertEqual(case.success("job.result", {"job_id": job})["job"]["status"], "completed")
 
 
 def render_unwritable_output_directory_is_refused_cleanly(case: NativeAcceptance) -> None:
@@ -352,13 +359,11 @@ def _submit_on_full_disk(case: NativeAcceptance, document: str, workspace: Path)
     job = response["result"]["job_id"]
     ended = case.wait_job(job)
     if ended["status"] == "completed":
-        case.assertEqual(case.success("job.result", {"job_id": job})["status"], "completed")
+        case.assertEqual(case.success("job.result", {"job_id": job})["job"]["status"], "completed")
         return "completed"
     case.assertEqual(ended["status"], "failed", ended)
-    case.assertTrue(ended["error"])
-    case.assertEqual(
-        case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable"
-    )
+    case.assertTrue(ended["failure"]["message"])
+    case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable")
     case.assertFalse((workspace / "renders" / job).exists())
     case.assertEqual(set(workspace.rglob("frame*.png")), frames)
     return "failed"
@@ -497,8 +502,15 @@ def read_only_render_cancel_and_host_loss_leave_nothing(case: NativeAcceptance) 
     lost = call(case, worker, "render.submit", params)["job_id"]
     pid = next(pid for pid, owner in host_processes(worker) if owner == document)
     os.kill(pid, signal.SIGKILL)
-    details = refuse(case, worker, "job.status", {"job_id": lost}, "scene_host_failed")
-    case.assertEqual(details["status"], "failed")
+    record = call(case, worker, "job.status", {"job_id": lost})
+    case.assertEqual((record["status"], record["terminal"]), ("failed", True), record)
+    case.assertEqual(
+        record["failure"], {**record["failure"], "code": "scene_host_failed", "phase": "executor"}
+    )
+    case.assertEqual(record["termination"], {"mode": "forced", "forced_processes": ["scene_host"]})
+    case.assertEqual(record["executor"], "scene_host")
+    listed = call(case, worker, "job.list", {"document_id": document, "state": "terminal"})
+    case.assertIn(lost, [row["job_id"] for row in listed["jobs"]])
     refuse(case, worker, "job.result", {"job_id": lost}, "scene_host_failed")
     _nothing_on_disk(case)
     case.assertEqual(list(case.workspace.glob("runtime_*/scene-host-*")), [])

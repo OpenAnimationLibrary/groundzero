@@ -13,19 +13,19 @@ outcome is automated, and a tool with a listed test is not a platform qualificat
 
 | Measure | Count |
 |---|---|
-| Outcomes inventoried and classified | 144 |
-| Outcomes implemented by at least one tool | 84 |
-| Implemented outcomes whose every tool has a listed test | 84 |
-| Tools in the catalog, adapter and live bridge | 152 |
+| Outcomes inventoried and classified | 145 |
+| Outcomes implemented by at least one tool | 85 |
+| Implemented outcomes whose every tool has a listed test | 85 |
+| Tools in the catalog, adapter and live bridge | 153 |
 | Tools without a listed test | 0 |
 
-Platform qualification: macOS only so far (84 tested outcomes); not recorded for Linux, Windows.
+Platform qualification: macOS only so far (85 tested outcomes); not recorded for Linux, Windows.
 
 ## Outcomes by classification
 
 | Classification | Outcomes |
 |---|---|
-| Exposed | 74 |
+| Exposed | 75 |
 | Compositional | 3 |
 | Optional | 11 |
 | Not exposed | 48 |
@@ -37,7 +37,7 @@ Platform qualification: macOS only so far (84 tested outcomes); not recorded for
 | Origin | Toolset | Tools | Writing tools | Without a listed test |
 |---|---|---|---|---|
 | Native worker | `audio` | 8 | 7 | 0 |
-| Native worker | `core` | 110 | 70 | 0 |
+| Native worker | `core` | 111 | 70 | 0 |
 | Native worker | `fx-finishing` | 1 | 0 | 0 |
 | Native worker | `lipsync` | 3 | 2 | 0 |
 | Native worker | `rigging` | 10 | 7 | 0 |
@@ -215,6 +215,7 @@ Platform qualification: macOS only so far (84 tested outcomes); not recorded for
 | `render.preview_frame` | Render one frame from an immutable snapshot, poll the job and read the image. | Exposed | `render.preview`, `job.status`, `job.result`, `artifact.read` | implemented |
 | `render.png_sequence` | Render a bounded PNG sequence as a job that is verified before it is published. | Exposed | `render.submit`, `job.status`, `job.result` | implemented |
 | `job.cancel_job` | Request cancellation of a render job and poll it to a terminal state. | Exposed | `job.cancel`, `job.status` | implemented |
+| `job.list_jobs` | List the worker's retained jobs newest first, filtered by document, kind and state, and read a finished job's result. | Exposed | `job.list`, `job.status`, `job.result` | implemented |
 | `render.mp4_movie` | Render an opaque MP4 movie with verified metadata. | Optional | `render.submit` | implemented; requires ffmpeg and ffprobe granted at launch |
 | `assistance.neural_preview` | Render a Neural Style preview of a frame from a captured reference. | Optional | `assistance.neural.preview`, `assistance.inspect` | implemented; requires the installed Neural Style runtime and models |
 | `render.contact_sheets_and_compare` | Compare before and after renders and produce contact sheets. | Not exposed | none | planned, W3 |
@@ -381,9 +382,10 @@ often. A test that only sets up a scene still counts.
 | `hook.delete` | rigging | writes | `ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging` |
 | `hook.inspect` | rigging | reads | `ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens`<br>`ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits`<br>`ci-scripts/mcp_acceptance.py::test_rig_pass_hook_matches_render`<br>`toonz/sources/toonz/tests/automation_rig_test.cpp` |
 | `hook.set` | rigging | writes | `ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits`<br>`ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes`<br>`ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens`<br>`ci-scripts/mcp_acceptance.py::test_rig_parent_policy_and_refusals`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging`<br>`toonz/sources/toonz/tests/automation_rig_test.cpp` |
-| `job.cancel` | core | writes | `ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation`<br>`ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources`<br>`ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded`<br>`ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_render`<br>`toonz/sources/toonz/tests/automation_dispatch_test.cpp`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp` |
+| `job.cancel` | core | writes | `ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation`<br>`ci-scripts/mcp_acceptance.py::test_job_repeated_status_and_cancel`<br>`ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal`<br>`ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_render`<br>`toonz/sources/toonz/tests/automation_dispatch_test.cpp`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp` |
+| `job.list` | core | reads | `ci-scripts/mcp_acceptance.py::test_job_list_filters_and_paging`<br>`ci-scripts/mcp_acceptance.py::test_job_states_and_refused_second_submit`<br>`ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job`<br>`ci-scripts/mcp_acceptance.py::test_read_only_render_cancel_and_host_loss_leave_nothing` |
 | `job.result` | core | reads | `ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation`<br>`ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process`<br>`ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera`<br>`ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
-| `job.status` | core | reads | `ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts`<br>`ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation`<br>`ci-scripts/mcp_acceptance.py::test_render_worker_killed_mid_preview_then_new_worker`<br>`ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running`<br>`toonz/sources/toonz/tests/automation_dispatch_test.cpp`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
+| `job.status` | core | reads | `ci-scripts/mcp_acceptance.py::test_job_movie_cancel_while_encoding_is_forced`<br>`ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal`<br>`ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts`<br>`ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation`<br>`toonz/sources/toonz/tests/automation_dispatch_test.cpp`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
 | `level.create` | core | writes | `ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations`<br>`ci-scripts/mcp_acceptance.py::test_cast_paging_preserves_native_state`<br>`ci-scripts/mcp_acceptance.py::test_level_capacity_rejection_preserves_scene`<br>`ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_scene`<br>`toonz/sources/toonz/tests/automation_rig_test.cpp`<br>`toonz/sources/toonz/tests/automation_dispatch_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
 | `level.import` | core | writes | `ci-scripts/mcp_acceptance.py::test_png_import_dimension_bounds_preserve_scene`<br>`ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission`<br>`ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders`<br>`ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_scene` |
 | `level.inspect` | core | reads | `ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser`<br>`ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure` |
@@ -435,7 +437,7 @@ often. A test that only sets up a scene still counts.
 | `raster.read_pixels` | core | reads | `ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera`<br>`ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix`<br>`ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection`<br>`ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission` |
 | `render.capabilities` | core | reads | `ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer`<br>`ci-scripts/mcp_acceptance.py::test_mp4_refused_without_encoder`<br>`ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed`<br>`ci-scripts/mcp_acceptance.py::test_runtime_media_identity`<br>`tools/mcp/src/native.test.ts` |
 | `render.preflight` | core | reads | `ci-scripts/mcp_acceptance.py::test_render_preflight_reports_every_failure`<br>`ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused`<br>`ci-scripts/mcp_acceptance.py::test_preview_reports_effective_output`<br>`ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources`<br>`toonz/sources/toonz/tests/automation_runtime_test.cpp` |
-| `render.preview` | core | writes | `ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources`<br>`ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads`<br>`ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged`<br>`ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_render`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
+| `render.preview` | core | writes | `ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job`<br>`ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources`<br>`ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads`<br>`ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_render`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
 | `render.submit` | core | writes | `ci-scripts/mcp_acceptance.py::test_exact_render_retry_returns_the_same_job`<br>`ci-scripts/mcp_acceptance.py::test_finishing_preflight_bounds_render_extent`<br>`ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running`<br>`ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded`<br>`ci-scripts/mcp_acceptance.py::test_revision_matrix_render`<br>`toonz/sources/toonz/tests/automation_dispatch_test.cpp`<br>`toonz/sources/toonz/tests/automation_fx_preflight_test.cpp`<br>`tools/mcp/src/native.test.ts`<br>`ci-scripts/mcp_shot.py` |
 | `rig.evaluate` | rigging | reads | `ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer`<br>`ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens`<br>`ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens`<br>`ci-scripts/mcp_acceptance.py::test_rig_pass_hook_matches_render`<br>`toonz/sources/toonz/tests/automation_rig_test.cpp`<br>`tools/mcp/src/native.test.ts` |
 | `rig.inspect` | rigging | reads | `ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer`<br>`ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations`<br>`ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens`<br>`ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes`<br>`toonz/sources/toonz/tests/automation_rig_test.cpp` |

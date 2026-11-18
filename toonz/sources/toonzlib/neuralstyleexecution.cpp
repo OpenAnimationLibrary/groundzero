@@ -173,6 +173,8 @@ bool WorkerExecution::verify(QString& error) const {
 
 void WorkerExecution::helperStarting() const { ++m_helpers; }
 void WorkerExecution::helperClosed() const { --m_helpers; }
+void WorkerExecution::helperKilled() const { m_killed = true; }
+bool WorkerExecution::helperWasKilled() const { return m_killed.load(); }
 bool WorkerExecution::helpersClosed() const { return m_helpers.load() == 0; }
 std::unique_lock<std::timed_mutex> WorkerExecution::lockCompute(
     const int* cancel) const {

@@ -89,8 +89,8 @@ require an `operation_id`; changes to an existing document also require its late
 the same worker. Receipts and document handles expire when that worker exits.
 
 Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
-budget. The first cancellation for each of at most 32 retained render jobs has
-separate reserved receipt capacity, capped at 16 KiB per result. That cancellation
+budget. The first cancellation for each retained job, at most 64, has separate
+reserved receipt capacity, capped at 16 KiB per result. That cancellation
 and its exact retry remain available when ordinary receipt capacity is exhausted.
 Further cancellation requests with new operation IDs use ordinary capacity;
 reuse the first ID to retrieve its receipt. Status queries remain available,
@@ -522,10 +522,43 @@ returns `stale_analysis`. An application writes at most 100,000 frames, and the
 result reports the range, runs and their digest.
 
 To inspect an image, start `render.preview`, poll `job.status` until completed,
-list `job.result`, and pass an artifact ID to `artifact.read`. The final call
+read `job.result`, and pass an artifact ID to `artifact.read`. The final call
 returns MCP image content and source metadata. Inline PNG images are limited to
 4 MiB and 2048 pixels per dimension. Job failure and cancellation are reported
 explicitly; an artifact is available only after successful writer finalization.
+
+Every job tool works on any job kind. `render.preview`, `render.submit` and
+`assistance.neural.preview` return the job record; `job.status` returns it again,
+`job.list` lists the worker's retained jobs newest first (filter by `document_id`,
+`kind` and `state` `active`, `terminal` or `any`; `offset` and `limit` up to 64),
+`job.cancel` requests cancellation, and `job.result` returns `{job, artifacts}` for a
+completed render job. A record carries `job_id`, `kind`, `lane` (`render` or
+`analysis`), `executor` (`worker` or `scene_host`), `status` and `terminal`, the
+owning `worker` (`instance_id` and build identity), `plugin_policy`
+(`builtin_only`), `limits`, `inputs` (the request as admitted, the snapshot
+package's manifest SHA-256, and a read-only document's source fingerprint),
+`progress`, `cancellation` (`requested`, `requested_ms`, `effective`),
+`termination` (`mode` and `forced_processes`), `failure` (`null` or `{code, phase,
+message}`), `stalled`, `timing` in milliseconds since the worker started, and
+`outputs`, plus the render settings and the `effective` output that `render.preflight`
+reports. Statuses are `preparing`, `running`,
+`cancellation_requested` and `finalizing`, then terminal `completed`, `failed`,
+`canceled` or `deadline_exceeded`. A stopped job's termination `mode` is `forced`
+when its encoder, movie probe, Neural helper or scene host was killed, and
+`forced_processes` names which; otherwise it is `cooperative`. A job whose writers
+are still open 30 seconds after a stop request reports `stalled: true` and stays
+non-terminal while native work may still run; `job.status` and `job.cancel` keep
+answering, and a new worker is the recovery. When a read-only document's scene host
+ends, its running jobs read `failed` with failure `code` `scene_host_failed` and a
+forced `scene_host`. A render that finds no usable OpenGL context in the worker fails
+with failure `code` `gl_unavailable`. Each lane runs one job at a time: a second
+render while one runs is refused with `render_busy` and creates nothing, and a
+worker retains at most 32 jobs per lane (`render_limit` for renders). A job id
+names the worker that issued it; an id a worker does not hold is refused with
+`unknown_job` and `details.reason` `other_worker`, `expired` (its read-only
+document was discarded) or `not_issued`. An exact retry of a job-starting call
+returns the same job; a new worker knows no earlier job or document, so a retry
+there returns `document_not_found` and starts nothing.
 
 `render.submit` accepts `format: "png"` (the default) or `format: "mp4"` when the
 configured media tools and native movie writer are available. MP4 requires even
@@ -536,8 +569,8 @@ size, dimensions, timing, and observed codec metadata after verification. Movie
 bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
 movie IDs with `unsupported_artifact_kind`.
 
-`runtime.inspect` reports what this worker can actually run: its build and
-platform (operating system and version, the machine's and the build's CPU
+`runtime.inspect` reports what this worker can actually run: its identity (the
+`instance_id` and build that job records carry) and platform (operating system and version, the machine's and the build's CPU
 architecture, whether the process runs translated, Qt versions), graphics readiness, the granted media tools, native and admitted
 formats, the built-in-only plugin policy, the private empty stuff folder, fonts and
 toolsets. Each capability has `compiled`, `installed`, `configured`, `loaded`,
@@ -580,9 +613,20 @@ reports `graphics` and the mp4 `encoder`, `encoder_available` and
 `opaque8-mp4` only when the media tools are usable with an encoder.
 
 Call `job.cancel` to request job cancellation, then poll `job.status` until
-the job reaches a terminal status. Cancelling an MCP request can leave native work
-running. Treat an abandoned write as having an unknown outcome and inspect state
-before retrying; completed changes are retained.
+the job reaches a terminal status. Cancelling an MCP request never cancels native
+work: the call is abandoned, and a job it started keeps running and appears in
+`job.list` with `origin_request_cancelled: true`, so it can be found and cancelled
+with `job.cancel`. Treat an abandoned write as having an unknown outcome and inspect
+state before retrying; completed changes are retained.
+
+The adapter records each job it sees, at most 256 per session, evicting the oldest
+finished one first. After the worker is lost, `job.status` and `job.list` answer
+from that record: jobs last seen running read `unknown`, terminal, with
+`worker_loss` `{cause, adapter_killed_worker, exit_code, signal}` (cause
+`worker_exit`, `request_timeout`, `client_disconnect` or `protocol_failure`) and,
+when the adapter killed the worker, a forced `worker` termination; `job.list` rows
+say `observed_by: "adapter_ledger"`. Finished jobs keep their status. Every other
+tool returns `WORKER_UNAVAILABLE`.
 
 The worker allows at most 16 pending calls, 256 KiB per request, and 8 MiB per
 response. MCP responses are limited to 9 MiB including envelope headroom. Metadata above
@@ -704,7 +748,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (110):
+- `core` toolset (111):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -714,22 +758,23 @@ the adapter and the live editor bridge add the rest.
   `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`,
   `fx.enabled.set`, `fx.graph`, `fx.macro.create`, `fx.macro.expand`, `fx.output.select`,
   `fx.parameter.get`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`,
-  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `job.cancel`, `job.result`, `job.status`,
-  `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
-  `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
-  `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
-  `object.path.detach`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
-  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
-  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
-  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
-  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
-  `render.preview`, `render.submit`, `runtime.inspect`, `scene.create`, `scene.dependencies`,
-  `scene.discard`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
-  `scene.package_info`, `scene.save_copy`, `scene.settings`, `scene.source_status`,
-  `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`, `vector.fill`,
-  `vector.group.create`, `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
-  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
-  `vector.structure`, `vector.text.create`, `vector.transform`
+  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`,
+  `job.status`, `level.create`, `level.import`, `level.inspect`, `motion_path.create`,
+  `motion_path.delete`, `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`,
+  `motion_path.rename`, `motion_path.update`, `object.create`, `object.parent`,
+  `object.path.attach`, `object.path.detach`, `palette.clone_style`, `palette.create_style`,
+  `palette.inspect`, `palette.page.create`, `palette.page.move`, `palette.page.remove`,
+  `palette.page.rename`, `palette.pages`, `palette.rename_style`, `palette.style.move`,
+  `palette.update_style`, `project.inspect`, `project.list`, `project.scenes`,
+  `raster.export_png`, `raster.import_png`, `raster.patch`, `raster.read_pixels`,
+  `render.capabilities`, `render.preflight`, `render.preview`, `render.submit`,
+  `runtime.inspect`, `scene.create`, `scene.dependencies`, `scene.discard`, `scene.inventory`,
+  `scene.open`, `scene.open_read_only`, `scene.package_info`, `scene.save_copy`,
+  `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
+  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
+  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
+  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
+  `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

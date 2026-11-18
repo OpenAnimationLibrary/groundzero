@@ -11,6 +11,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_live import verified_build_digest
 from mcp_worker import Worker
 
 if TYPE_CHECKING:
@@ -124,10 +125,10 @@ def _require_worker_identity(case: NativeAcceptance, report: dict[str, Any]) -> 
     case.assertEqual(len(worker["instance_id"]), 36)
     build = worker["build"]
     case.assertEqual(build["application"], "groundzero")
-    digest = hashlib.sha256(case.native_executable.read_bytes()).hexdigest()
-    case.assertEqual(build["executable_sha256"], digest)
-    platform = case.success("automation.capabilities", {})["platform"]
-    case.assertEqual(report["platform"], platform)
+    case.assertEqual(build["build_digest"], verified_build_digest(case.native_executable))
+    capabilities = case.success("automation.capabilities", {})
+    case.assertEqual(worker, capabilities["worker"])
+    case.assertEqual(report["platform"], capabilities["platform"])
 
 
 def _require_toolsets(case: NativeAcceptance, report: dict[str, Any]) -> None:
