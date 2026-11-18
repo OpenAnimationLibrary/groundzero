@@ -77,7 +77,7 @@ adapter at startup. During a session:
 - A session exposes at most 256 native tools. A request that would exceed this
   returns `TOOLSET_LIMIT` and leaves the enabled toolsets unchanged.
 
-The adapter requires native automation protocol version 2. An older or newer
+The adapter requires native automation protocol version 3. An older or newer
 worker is refused with `INCOMPATIBLE_WORKER`.
 
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
@@ -531,6 +531,49 @@ matte. `render.artifacts` returns a movie's `workspace_relative_path`, SHA-256,
 size, dimensions, timing, and observed codec metadata after verification. Movie
 bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
 movie IDs with `unsupported_artifact_kind`.
+
+`runtime.inspect` reports what this worker can actually run: its build and
+platform (operating system and version, running and build CPU architecture, Qt
+versions), graphics readiness, the granted media tools, native and admitted
+formats, the built-in-only plugin policy, the private empty stuff folder, fonts and
+toolsets. Each capability has `compiled`, `installed`, `configured`, `loaded`,
+`verified` and `usable` states, an `activation` that names what enables it
+(`--media-tools` for MP4, `toolsets.enable` for a disabled toolset) and short
+`reasons`. Without `probes` it starts no process and never-run probes report
+`verified: "not_run"`. `probes: ["graphics"]` runs a helper process that builds the
+offscreen OpenGL context renders use, clears and reads back a framebuffer, and
+reports `GL_VENDOR`, `GL_RENDERER`, `GL_VERSION` and a `renderer_class`;
+`probes: ["media"]` hashes the granted `ffmpeg` and `ffprobe`, reads their version
+lines, the mp4 muxer's default video codec and whether an encoder for it is
+listed. Only the files in the `--media-tools` directory ever run; `PATH` is never
+searched. Probe results are cached for the worker's life. Native format lists are
+not admissions: `formats.admitted` names what each tool accepts.
+
+Every render requires usable graphics. `render.preflight` takes the arguments of
+`render.preview` (`kind: "preview"`, `frame`) or `render.submit`
+(`kind: "sequence"`, `start_frame`, `end_frame`, `step`, `format`), plus
+`expected_revision`, and runs all 15 checks the job tools apply, in order:
+`frame_range`, `dimensions`, `scene_numbering`, `fx_graph`, `fx_extent`,
+`graphics`, `writer`, `media_tools`, `encoder`, `dependencies`, `storage`, `lane`,
+`retention`, `render_admission` and `source_pins`. Every check runs and reports
+its status, code and details, so one call lists every problem; `effective`
+describes the output (size, preview fit scale, frames, rate, profile, 8-bit
+nonlinear color with gamma 2.2, alpha, no audio, camera resolution, size and DPI,
+and a full-camera crop). `render.preview`, `render.submit` and
+`assistance.neural.preview` refuse with the first failing check's code and
+`details.check` before any job, directory or snapshot exists; an `end_frame`
+before `start_frame` is `invalid_params` with `details.reason:
+"end_before_start"`. Unavailable graphics, writer, media tools and encoder are
+`render_unavailable` with `details.cause` `gl_unavailable`,
+`png_writer_unavailable`, `mp4_writer_unregistered`,
+`media_tools_not_configured`, `media_tools_changed` or `codec_unavailable`. A
+granted media tool replaced after its first probe refuses MP4 with
+`media_tools_changed`. A sound source whose private copy is missing or changed
+fails `dependencies` with `missing_dependency`. Job records carry the same
+`effective` object. `render.capabilities` runs the graphics and media probes once,
+reports `graphics` and the mp4 `encoder`, `encoder_available` and
+`muxer_default_video_codec`, lists no profile when graphics is unusable and lists
+`opaque8-mp4` only when the media tools are usable with an encoder.
 
 Call `render.cancel` to request job cancellation, then poll `render.status` until
 the job reaches a terminal status. Cancelling an MCP request can leave native work
