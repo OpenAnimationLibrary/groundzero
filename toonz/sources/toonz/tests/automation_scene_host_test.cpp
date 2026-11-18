@@ -108,6 +108,25 @@ void checkPins(const QString& root) {
       "A removed pin is source_changed");
 }
 
+// A file whose folder cannot be searched is unreadable, not missing.
+void checkUnreadablePin(const QString& root) {
+#ifndef _WIN32
+  const QString folder = root + "/closed";
+  write(folder + "/level.png", "pixels");
+  QFile::setPermissions(folder, QFileDevice::Permissions());
+  const SourcePin pin = statSourcePin(folder + "/level.png");
+  QFile::setPermissions(folder, QFileDevice::ReadOwner |
+                                    QFileDevice::WriteOwner |
+                                    QFileDevice::ExeOwner);
+  require(!pin.exists && pin.unreadable,
+          "A pin behind a closed folder is unreadable");
+  require(!statSourcePin(root + "/absent.png").unreadable,
+          "A missing pin is not unreadable");
+#else
+  Q_UNUSED(root);
+#endif
+}
+
 void checkPinLimit(const QString& root) {
   ReadOnlyScene source;
   for (int index = 0; index < PinnedFileLimit; ++index)
@@ -419,6 +438,7 @@ void runAutomationSceneHostTests(Context& context) {
       "scene-host-test-" + QUuid::createUuid().toString(QUuid::WithoutBraces),
       true);
   checkPins(root);
+  checkUnreadablePin(root);
   checkPinLimit(root);
   checkDiscovery(dispatcher, root);
   checkBinding(context, root);
