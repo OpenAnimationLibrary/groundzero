@@ -221,7 +221,6 @@ QJsonObject neuralPreviewOperation() {
   schema.insert("required", QJsonArray{"document_id", "expected_revision",
                                        "operation_id", "frame", "reference"});
   descriptor.insert("inputSchema", schema);
-  descriptor.insert("mutates_document", false);
   return descriptor;
 }
 

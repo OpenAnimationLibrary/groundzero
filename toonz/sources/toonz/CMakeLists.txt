@@ -207,6 +207,7 @@ set(HEADERS
     automation_lipsync.h
     automation_vector_opacity.h
     automation_dispatch.h
+    automation_effects.h
     automation_containment.h
     automation_ownership.h
     automation_production.h
@@ -296,6 +297,7 @@ set(SOURCES
     automation_ownership.cpp
     automation_error.cpp
     automation_dispatch.cpp
+    automation_effects.cpp
     automation_animation.cpp
     automation_path.cpp
     automation_audio.cpp

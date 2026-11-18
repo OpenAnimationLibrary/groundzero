@@ -56,6 +56,9 @@ private:
 };
 
 QJsonObject errorObject(const Error& error);
+// Throw invalid_result when a result, without its image, is outside the
+// success shape of the tool's outputSchema. Test builds check every result.
+void checkResult(const QJsonObject& descriptor, const QJsonValue& result);
 #ifdef BUILD_UI_PORT_TESTS
 void runAutomationDispatcherTests(Context& context);
 #endif

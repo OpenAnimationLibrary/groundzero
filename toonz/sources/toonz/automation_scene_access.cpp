@@ -1210,7 +1210,7 @@ QJsonArray sceneAccessOperations() {
        {"limit", integer(1, 64)},
        {"expected_listing_revision", text(80)}},
       {});
-  QJsonObject open = operation(
+  const QJsonObject open = operation(
       "scene.open_read_only",
       "Open a native .tnz scene from a read root as a read-only document, "
       "loaded and rendered only inside its own scene host process. Requires "
@@ -1224,17 +1224,13 @@ QJsonArray sceneAccessOperations() {
                     {"enum", QJsonArray{"must_match_native", "override"}}}},
        {"operation_id", text(128)}},
       {"path", "project_id", "operation_id"}, true);
-  open.insert("mutates_document", false);
-  QJsonObject status = operation(
+  const QJsonObject status = operation(
       "scene.source_status",
       "Re-check every file pinned when a read-only document was opened and "
       "report whether the source on disk changed.",
       {{"document_id", text(128)}, {"expected_revision", text(80)}},
       {"document_id", "expected_revision"});
-  open.insert("annotations", QJsonObject{{"readOnlyHint", false},
-                                         {"destructiveHint", false},
-                                         {"idempotentHint", true}});
-  QJsonObject scenes = operation(
+  const QJsonObject scenes = operation(
       "project.scenes",
       "List .tnz scene files and folders under a project's scenes folder, "
       "paged. Nothing is parsed.",
