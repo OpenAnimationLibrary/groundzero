@@ -16,11 +16,13 @@ void require(bool condition, const std::string &message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-void addPoint(TTrack &track, bool final) {
-  const double x = 3.0 * track.size();
-  track.push_back(TTrackPoint(TPointD(x, 0.5 * x), 0.2 + 0.01 * track.size(), TPointD(),
-                              track.size(), track.size(), 0.0, final),
-                  true);
+// The input manager builds the track as the tools do. Constructing a TTrack
+// here would default-construct key history holders, which tnztools does not
+// export on Windows.
+void addPoint(TInputManager &manager, int index, bool final) {
+  const double x = 3.0 * index;
+  manager.trackEvent(0, 0, TPointD(x, 0.5 * x), 0.2 + 0.01 * index, TPointD(), true, false,
+                     final, 1000 + index);
 }
 
 void requireCopy(const TTrack &original, const TTrackList &outTracks,
@@ -47,11 +49,15 @@ void requireCopy(const TTrack &original, const TTrackList &outTracks,
 // Grows one stroke in batches, as mouse events do, and checks the copy after
 // each batch: the first batch creates the sub-track, later ones extend it.
 void checkModifier(TInputModifier &modifier, const std::string &name) {
-  TTrackP track = new TTrack();
+  TInputManager manager;
   const int batches[] = {1, 3, 5};
+  int index = 0;
   for (int batch = 0; batch < 3; ++batch) {
-    for (int k = 0; k < batches[batch]; ++k)
-      addPoint(*track, batch == 2 && k == batches[batch] - 1);
+    for (int k = 0; k < batches[batch]; ++k, ++index)
+      addPoint(manager, index, batch == 2 && k == batches[batch] - 1);
+    require(manager.getInputTracks().size() == 1, name + ": expected one input track");
+    const TTrackP track = manager.getInputTracks().front();
+    require(track->size() == index, name + ": input track lost points");
     TTrackList outTracks;
     modifier.modifyTrack(*track, outTracks);
     requireCopy(*track, outTracks, name + " batch " + std::to_string(batch + 1));
