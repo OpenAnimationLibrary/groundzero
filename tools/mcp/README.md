@@ -367,6 +367,30 @@ color. Notes need a newer reader: `older_reader_compatible` is false whenever an
 panel has notes. Packages record a digest of the panels and `scene.open` compares
 it.
 
+The `lipsync` toolset applies mouth timing to a drawing column. `lipsync.import`
+reads a Papagayo `.dat` file (`MohoSwitch1` header, `<frame> <shape>` lines with
+1-based, strictly increasing frames, Preston Blair shapes with `other` as `etc`) or
+a Rhubarb TSV or JSON file (seconds with at most six decimals, shapes A–F, or A–H
+and X for `rhubarb_extended`). Parsing is strict: any other line, a decreasing
+time, a gap between JSON cues or an unknown shape returns `invalid_asset` with the
+line. A DAT import needs its `frame_rate`; Rhubarb imports must not give one. Files
+are limited to 1 MiB and 20,000 cues, and a worker keeps 64 immutable analyses.
+`source_link` binds an analysis to a sound source's PCM digest; `lipsync.inspect`
+pages its cues.
+
+`lipsync.apply` replaces the cells of one unlocked level column with drawings of a
+vector, Toonz raster or RGBA level, mapped per shape. `expected_frame_rate` must
+equal the scene rate, and a DAT applies only at its own rate (`timing_conflict`).
+DAT frame `f` lands on `start_frame + f - 1`. A Rhubarb cue at `t` microseconds
+lands on `start_frame + floor(t * fps / 1e6)`, computed exactly from the decimal
+rate the scene file stores, such as 23.976. Each cue runs until the next one; the
+last runs to its end time, for one frame without one, or to `hold_until_frame`.
+Cues that collapse to no frame are dropped and listed. Unmapped shapes return
+`invalid_params` with `unmapped_shapes` unless `use_drawing` names a fallback,
+missing drawings return `missing_drawing`, and a changed or closed linked source
+returns `stale_analysis`. An application writes at most 100,000 frames, and the
+result reports the range, runs and their digest.
+
 To inspect an image, start `render.preview`, poll `render.status` until completed,
 list `render.artifacts`, and pass an artifact ID to `artifact.read`. The final call
 returns MCP image content and source metadata. Inline PNG images are limited to
