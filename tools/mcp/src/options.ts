@@ -135,6 +135,15 @@ function overlapping(first: string, second: string): boolean {
   return within(first, second) || within(second, first);
 }
 
+async function granted(flag: string, check: Promise<string>): Promise<string> {
+  try {
+    return await check;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid ${flag} directory: ${reason}`, { cause: error });
+  }
+}
+
 async function sharedRootGrants(values: LaunchArguments): Promise<Map<string, string>> {
   const roots = new Map<string, string>();
   for (const grant of values["shared-root"] ?? []) {
@@ -147,7 +156,7 @@ async function sharedRootGrants(values: LaunchArguments): Promise<Map<string, st
       );
     }
     if (roots.has(role)) throw new Error(`Specify --shared-root ${role} at most once`);
-    roots.set(role, await directory(grant.slice(separator + 1)));
+    roots.set(role, await granted(`--shared-root ${role}`, directory(grant.slice(separator + 1))));
   }
   return roots;
 }
@@ -164,7 +173,7 @@ async function sharedRoots(
   const paths = [workspace, ...roots.values()];
   for (const [index, path] of paths.entries()) {
     if (paths.slice(index + 1).some((other) => overlapping(path, other))) {
-      throw new Error("Shared roots must not overlap the workspace or one another");
+      throw new Error("--shared-root must not overlap the workspace or another shared root");
     }
   }
   if (roots.size === 0) return undefined;
@@ -176,8 +185,10 @@ async function detachedOptions(
   values: LaunchArguments,
 ): Promise<DetachedOptions> {
   if (!values.workspace) throw new Error("--workspace must be an absolute directory");
-  const workspace = await directory(values.workspace);
-  const inputRoots = await Promise.all((values["input-root"] ?? []).map(directory));
+  const workspace = await granted("--workspace", directory(values.workspace));
+  const inputRoots = await Promise.all(
+    (values["input-root"] ?? []).map((root) => granted("--input-root", directory(root))),
+  );
   const options: DetachedOptions = {
     executable,
     workspace,
@@ -185,7 +196,10 @@ async function detachedOptions(
     toolsets: toolsetNames(values.toolsets),
   };
   if (values["media-tools"] !== undefined) {
-    options.mediaToolsDirectory = await mediaDirectory(values["media-tools"]);
+    options.mediaToolsDirectory = await granted(
+      "--media-tools",
+      mediaDirectory(values["media-tools"]),
+    );
   }
   const shared = await sharedRoots(values, workspace);
   if (shared !== undefined) options.sharedRoots = shared;

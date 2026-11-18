@@ -63,14 +63,17 @@ test("accepts a fixed canonical media pair without adding filesystem read grants
 test("rejects relative, missing, and incomplete media tool directories", async () => {
   const path = await workspace();
   const args = ["--executable", process.execPath, "--workspace", path, "--media-tools"];
-  await expect(parseOptions([...args, "relative"])).rejects.toThrow("absolute");
-  await expect(parseOptions([...args, ""])).rejects.toThrow("absolute");
-  await expect(parseOptions([...args, join(path, "missing")])).rejects.toThrow();
-  await expect(parseOptions([...args, path])).rejects.toThrow();
+  const invalid = "Invalid --media-tools directory: ";
+  await expect(parseOptions([...args, "relative"])).rejects.toThrow(
+    `${invalid}Directory must be absolute`,
+  );
+  await expect(parseOptions([...args, ""])).rejects.toThrow(`${invalid}Directory must be absolute`);
+  await expect(parseOptions([...args, join(path, "missing")])).rejects.toThrow(invalid);
+  await expect(parseOptions([...args, path])).rejects.toThrow(invalid);
   const tool = mediaTool(path, "ffmpeg");
   await writeFile(tool, "fixture", { mode: 0o700 });
   files.push(tool);
-  await expect(parseOptions([...args, path])).rejects.toThrow();
+  await expect(parseOptions([...args, path])).rejects.toThrow(invalid);
   await expect(parseOptions([...args, path, "--media-tools", path])).rejects.toThrow(
     "at most once",
   );
@@ -83,12 +86,14 @@ test("rejects symlink media directories and symlink executables", async () => {
   const alias = join(path, "alias");
   await symlink(path, alias, "dir");
   links.push(alias);
-  await expect(parseOptions([...args, alias])).rejects.toThrow("symlink");
+  await expect(parseOptions([...args, alias])).rejects.toThrow(/--media-tools .*symlink/);
   const linked = await workspace();
   const tool = mediaTool(linked, "ffmpeg");
   await symlink(mediaTool(path, "ffmpeg"), tool, "file");
   links.push(tool);
-  await expect(parseOptions([...args, linked])).rejects.toThrow("canonical regular");
+  await expect(parseOptions([...args, linked])).rejects.toThrow(
+    /--media-tools .*canonical regular/,
+  );
 });
 
 test.skipIf(process.platform === "win32")("rejects non-executable media tools", async () => {
@@ -97,7 +102,7 @@ test.skipIf(process.platform === "win32")("rejects non-executable media tools", 
   await chmod(mediaTool(path, "ffprobe"), 0o600);
   await expect(
     parseOptions(["--executable", process.execPath, "--workspace", path, "--media-tools", path]),
-  ).rejects.toThrow();
+  ).rejects.toThrow("Invalid --media-tools directory");
 });
 
 test("requires explicit executable and workspace grants", async () => {
@@ -131,15 +136,23 @@ test("rejects symlink grants and unknown CLI options", async () => {
   await symlink(path, link, "dir");
   links.push(link);
   const args = ["--executable", process.execPath, "--workspace", link];
-  await expect(parseOptions(args)).rejects.toThrow("symlink");
+  await expect(parseOptions(args)).rejects.toThrow(/Invalid --workspace directory: .*symlink/);
   await expect(parseOptions([...args, "--allow-everything"])).rejects.toThrow();
 });
 
 test("rejects absent directories and relative roots", async () => {
   const path = await workspace();
   const args = ["--executable", process.execPath, "--workspace", path];
-  await expect(parseOptions([...args, "--input-root", join(path, "missing")])).rejects.toThrow();
-  await expect(parseOptions([...args, "--input-root", "relative"])).rejects.toThrow("absolute");
+  const invalid = "Invalid --input-root directory: ";
+  await expect(parseOptions([...args, "--input-root", join(path, "missing")])).rejects.toThrow(
+    invalid,
+  );
+  await expect(parseOptions([...args, "--input-root", "relative"])).rejects.toThrow(
+    `${invalid}Directory must be absolute`,
+  );
+  await expect(
+    parseOptions(["--executable", process.execPath, "--workspace", "relative"]),
+  ).rejects.toThrow("Invalid --workspace directory: Directory must be absolute");
 });
 
 test("selects the trusted non-GUI connector without reading a session grant", async () => {
@@ -274,7 +287,8 @@ test("rejects unsafe, overlapping and ambiguous shared root grants", async () =>
   const cases: [string[], string][] = [
     [["--shared-root", studio], "ROLE=ABSOLUTE_DIR"],
     [["--shared-root", `elsewhere=${studio}`], "ROLE=ABSOLUTE_DIR"],
-    [["--shared-root", "library=relative"], "absolute"],
+    [["--shared-root", "library=relative"], "Invalid --shared-root library directory"],
+    [["--shared-root", `library=${join(path, "missing")}`], "Invalid --shared-root library"],
     [["--shared-root", `library=${alias}`], "symlink"],
     [["--shared-root", `library=${studio}`, "--shared-root", `library=${studio}`], "at most once"],
     [["--shared-root", `library=${inside}`], "overlap"],
