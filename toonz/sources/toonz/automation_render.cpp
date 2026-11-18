@@ -1061,7 +1061,8 @@ private:
   }
 
   void fxExtent(Check& check) {
-    if (!passed("fx_graph")) return check.skip("not_run", "fx_graph_failed");
+    if (!passed("fx_graph") && !m_document.readOnly)
+      return check.skip("not_run", "fx_graph_failed");
     if (!m_plan.framesValid() || !m_plan.sizeValid())
       return check.skip("not_run", "request_invalid");
     const Request& request = m_plan.request;
