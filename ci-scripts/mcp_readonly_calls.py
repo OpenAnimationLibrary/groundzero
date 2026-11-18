@@ -8,6 +8,7 @@ harness adds itself.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -44,6 +45,52 @@ class Call:
     refusal: str | None = None
     reason: str | None = None
     hint: str = ""
+
+
+def _string(schema: dict[str, Any]) -> str:
+    pattern = schema.get("pattern", ".*")
+    for candidate in ("x", "0", ""):
+        if len(candidate) >= schema.get("minLength", 0) and re.fullmatch(pattern, candidate):
+            return candidate
+    raise ValueError(f"No sample string for {schema}")
+
+
+def _number(schema: dict[str, Any]) -> float:
+    if "exclusiveMinimum" in schema:
+        return schema.get("maximum", 1)
+    return schema.get("minimum", 0)
+
+
+def sample(schema: dict[str, Any]) -> Any:
+    """Return the smallest simple value that satisfies a tool's input schema."""
+    if "const" in schema:
+        return schema["const"]
+    if "enum" in schema:
+        return schema["enum"][0]
+    if "oneOf" in schema:
+        return sample(schema["oneOf"][0])
+    kind = schema.get("type")
+    if kind == "object":
+        return {name: sample(schema["properties"][name]) for name in schema.get("required", [])}
+    if kind == "array":
+        return [sample(schema["items"]) for _ in range(schema.get("minItems", 0))]
+    if kind == "string":
+        return _string(schema)
+    if kind in {"integer", "number"}:
+        return _number(schema)
+    return False if kind == "boolean" else 0
+
+
+def minimal_arguments(tool: dict[str, Any], document: str) -> dict[str, Any]:
+    """Return arguments that satisfy a tool's schema, aimed at one document."""
+    arguments = sample(tool["inputSchema"])
+    arguments.update(document_id=document)
+    properties = tool["inputSchema"]["properties"]
+    if "expected_revision" in properties:
+        arguments["expected_revision"] = "0"
+    if "operation_id" in properties:
+        arguments["operation_id"] = f"refused-{tool['name']}"
+    return arguments
 
 
 def _missing(kind: str) -> str:

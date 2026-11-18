@@ -18,11 +18,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import mcp_readonly_fixture
-from mcp_readonly_calls import READ_CALLS, READ_ONLY_CALLS, ROUTED_WRITES, SCHEMA, Call
+from mcp_readonly_calls import (
+    READ_CALLS,
+    READ_ONLY_CALLS,
+    ROUTED_WRITES,
+    SCHEMA,
+    Call,
+    minimal_arguments,
+)
 from mcp_readonly_fixture import USER_LEVEL_NAMES
 from mcp_readonly_state import counts, read_state
 from mcp_readonly_tree import Cache, Tree, compare, snapshot, snapshot_named
-from mcp_scene_access_cases import _tool_params
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -339,7 +345,9 @@ def _refusals_on_read_only(catalog: Sequence[dict[str, Any]], document: str) -> 
             else f"{name} reads: add it to READ_ONLY_CALLS in mcp_readonly_calls.py"
         )
         reason = "mutation" if write else "not_qualified"
-        call = Call("refused", _tool_params(tool, document), "read_only_document", reason, hint)
+        call = Call(
+            "refused", minimal_arguments(tool, document), "read_only_document", reason, hint
+        )
         pairs.append((name, call))
     return pairs
 
