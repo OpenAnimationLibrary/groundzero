@@ -13,6 +13,7 @@ SCENE_HOST_SOURCES = (
     "toonz/sources/toonz/automation_scene_host.cpp",
     "toonz/sources/toonz/automation_scene_content.cpp",
     "toonz/sources/toonz/automation_scene_source.cpp",
+    "toonz/sources/toonz/automation_scene_inventory.cpp",
 )
 # Native calls a scene host must never make: they bind or load through the
 # editor's project roots, discard load errors, write files, or create stage
@@ -30,18 +31,22 @@ SCENE_HOST_DENYLIST = {
 
 
 def scene_host_violations(root: Path) -> list[tuple[str, int, str]]:
-    """Find denylisted native calls in the scene host sources, ignoring comments."""
+    """Find denylisted native calls in the scene host sources, ignoring comments.
+
+    Comments are dropped line by line, then each pattern is searched across the
+    whole file, so a call split over several lines is still found.
+    """
     found = []
     for name in SCENE_HOST_SOURCES:
         path = root / name
         if not path.is_file():
             found.append((name, 0, "the scene host source is missing"))
             continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            code = line.split("//", 1)[0]
-            for pattern, call in SCENE_HOST_DENYLIST.items():
-                if re.search(pattern, code):
-                    found.append((name, number, call))
+        lines = path.read_text(encoding="utf-8").splitlines()
+        code = "\n".join(line.split("//", 1)[0] for line in lines)
+        for pattern, call in SCENE_HOST_DENYLIST.items():
+            for match in re.finditer(pattern, code):
+                found.append((name, code.count("\n", 0, match.start()) + 1, call))
     return found
 
 
