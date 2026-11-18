@@ -495,6 +495,15 @@ def _ro_pinned(_f: Fixture, document: str) -> list[Call]:
     ]
 
 
+def _ro_preflight(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0", "kind": "preview"}
+    preview = {**pinned, "frame": 0, "width": 16, "height": 16}
+    return [
+        Call("preview", preview, EITHER),
+        Call("stale", {**preview, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
 def _ro_summary_of(f: Fixture, document: str) -> dict[str, Any]:
     return f.case.success("scene.summary", {"document_id": document})
 
@@ -599,6 +608,7 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "scene.dependencies": _ro_pinned,
     "scene.validate": _ro_pinned,
     "fx.graph": _ro_document,
+    "render.preflight": _ro_preflight,
     "scene.inventory": _inventory,
     "scene.source_status": _ro_source_status,
     "column.cells": _ro_cells,

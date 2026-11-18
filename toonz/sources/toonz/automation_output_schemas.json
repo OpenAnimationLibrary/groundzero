@@ -19751,11 +19751,54 @@
                               "minimum": -1.7976931348623157e+308,
                               "type": "number"
                             },
-                            "maxItems": 1048576,
-                            "minItems": 0,
+                            "maxItems": 4,
+                            "minItems": 4,
                             "type": "array"
                           },
                           "keys": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "color": {
+                                  "items": {
+                                    "maximum": 1.7976931348623157e+308,
+                                    "minimum": -1.7976931348623157e+308,
+                                    "type": "number"
+                                  },
+                                  "maxItems": 4,
+                                  "minItems": 4,
+                                  "type": "array"
+                                },
+                                "frame": {
+                                  "maximum": 1.7976931348623157e+308,
+                                  "minimum": -1.7976931348623157e+308,
+                                  "type": "number"
+                                },
+                                "name": {
+                                  "maxLength": 65536,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "space": {
+                                  "maximum": 1.7976931348623157e+308,
+                                  "minimum": -1.7976931348623157e+308,
+                                  "type": "number"
+                                },
+                                "timing": {
+                                  "maximum": 1.7976931348623157e+308,
+                                  "minimum": -1.7976931348623157e+308,
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "color",
+                                "frame",
+                                "timing",
+                                "space"
+                              ],
+                              "type": "object"
+                            },
                             "maxItems": 1048576,
                             "minItems": 0,
                             "type": "array"
@@ -19767,9 +19810,9 @@
                           }
                         },
                         "required": [
+                          "name",
                           "color",
-                          "keys",
-                          "name"
+                          "keys"
                         ],
                         "type": "object"
                       },
@@ -19779,8 +19822,8 @@
                     }
                   },
                   "required": [
-                    "pages",
-                    "styles"
+                    "styles",
+                    "pages"
                   ],
                   "type": "object"
                 }
@@ -19793,14 +19836,62 @@
             },
             "raster": {
               "additionalProperties": false,
-              "properties": {},
+              "properties": {
+                "effective_dpi_x": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "effective_dpi_y": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frame_dpi_x": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frame_dpi_y": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "height": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "image_dpi_x": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "image_dpi_y": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "width": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                }
+              },
               "required": [],
               "type": "object"
             },
             "stroke_opacity_sha256": {
-              "maxLength": 65536,
-              "minLength": 0,
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              ]
             },
             "type": {
               "maximum": 1.7976931348623157e+308,
