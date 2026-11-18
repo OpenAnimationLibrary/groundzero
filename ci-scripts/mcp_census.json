@@ -199,7 +199,7 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
     "ci-scripts/mcp_acceptance.py::test_rich_animation_rejections_preserve_scene",
     "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys"
    ]
@@ -697,10 +697,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_inventory_tells_instances_from_definitions",
     "ci-scripts/mcp_acceptance.py::test_fx_color_keys_survive_render_and_reopen",
     "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
     "ci-scripts/mcp_acceptance.py::test_generator_render_preserves_straight_alpha",
-    "ci-scripts/mcp_acceptance.py::test_glow_without_light_preserves_source_pixels",
     "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
     "toonz/sources/toonz/tests/automation_macro_test.cpp",
     "ci-scripts/mcp_shot.py"
@@ -1333,8 +1333,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip"
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip"
    ]
   },
   "palette.rename_style": {
@@ -1380,7 +1380,7 @@
     "ci-scripts/mcp_acceptance.py::test_project_inspect_reports_the_private_workspace",
     "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
     "ci-scripts/mcp_acceptance.py::test_project_inspect_refuses_arguments",
-    "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits"
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes"
    ]
   },
   "project.list": {
@@ -1393,6 +1393,14 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
     "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp"
+   ]
+  },
+  "project.scenes": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes"
    ]
   },
   "raster.export_png": {
@@ -1572,6 +1580,7 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_dependencies_list_every_file_read",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
     "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
@@ -1592,6 +1601,15 @@
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "scene.inventory": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_inventory_tells_instances_from_definitions",
+    "ci-scripts/mcp_acceptance.py::test_read_only_inventory_bounds_its_rows"
    ]
   },
   "scene.open": {
@@ -1660,6 +1678,14 @@
     "toonz/sources/toonz/tests/automation_audio_test.cpp"
    ]
   },
+  "scene.source_status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_reports_each_change"
+   ]
+  },
   "scene.summary": {
    "origin": "worker",
    "toolset": "core",
@@ -1682,8 +1708,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes",
     "ci-scripts/mcp_acceptance.py::test_scene_cell_limit_suppresses_unused_claims",
-    "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
     "toonz/sources/toonz/tests/automation_production_test.cpp",
     "tools/mcp/src/native.test.ts"
    ]
@@ -1874,6 +1900,7 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
     "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
     "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
     "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
@@ -1928,10 +1955,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
     "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
     "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_vector_groups_reject_partial_boundaries",
-    "ci-scripts/mcp_acceptance.py::test_vector_order_preserves_groups_and_stacking",
     "toonz/sources/toonz/tests/automation_group_test.cpp"
    ]
   },
@@ -2235,6 +2262,42 @@
    "classification": "exposed",
    "tools": [
     "scene.open_read_only"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.inventory_nested_sheets",
+   "domain": "Projects and scenes",
+   "outcome": "Page through the sheets, columns and stage objects of a scene, nested sub-sheets included, telling each instance path from the shared sub-sheet definition.",
+   "classification": "exposed",
+   "tools": [
+    "scene.inventory"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.read_only_source_status",
+   "domain": "Projects and scenes",
+   "outcome": "Report whether any file a read-only document pinned when it was opened is now missing, unreadable, replaced or modified on disk.",
+   "classification": "exposed",
+   "tools": [
+    "scene.source_status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "project.list_scenes",
+   "domain": "Projects and scenes",
+   "outcome": "List the scene files and folders under a granted project's scenes folder, paged, without parsing any of them.",
+   "classification": "exposed",
+   "tools": [
+    "project.scenes"
    ],
    "disposition": {
     "kind": "implemented"

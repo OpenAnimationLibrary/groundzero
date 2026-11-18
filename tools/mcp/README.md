@@ -624,7 +624,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (105):
+- `core` toolset (108):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -641,15 +641,15 @@ the adapter and the live editor bridge add the rest.
   `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
   `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
   `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
-  `project.list`, `raster.export_png`, `raster.import_png`, `raster.patch`,
+  `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.artifacts`, `render.cancel`, `render.capabilities`,
   `render.preview`, `render.status`, `render.submit`, `scene.create`, `scene.dependencies`,
-  `scene.discard`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
-  `scene.save_copy`, `scene.settings`, `scene.summary`, `scene.validate`, `text.fonts`,
-  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `scene.discard`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
+  `scene.package_info`, `scene.save_copy`, `scene.settings`, `scene.source_status`,
+  `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`, `vector.fill`,
+  `vector.group.create`, `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
