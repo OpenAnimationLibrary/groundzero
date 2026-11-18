@@ -534,16 +534,24 @@ QJsonArray toolsetsReport(const Context& context) {
   return result;
 }
 
-QString runningArchitecture() {
+// Whether this process runs under binary translation (Rosetta).
+bool translatedProcess() {
 #ifdef __APPLE__
   int translated = 0;
   size_t size    = sizeof(translated);
-  if (sysctlbyname("sysctl.proc_translated", &translated, &size, nullptr, 0) ==
-          0 &&
-      translated == 1)
-    return "arm64";
+  return sysctlbyname("sysctl.proc_translated", &translated, &size, nullptr,
+                      0) == 0 &&
+         translated == 1;
+#else
+  return false;
 #endif
-  return QSysInfo::currentCpuArchitecture();
+}
+
+// The machine's native architecture; a translated process's uname reports
+// the emulated one.
+QString runningArchitecture() {
+  return translatedProcess() ? QString("arm64")
+                             : QSysInfo::currentCpuArchitecture();
 }
 
 QString operatingSystem() {
@@ -654,6 +662,7 @@ QJsonObject runtimePlatform() {
       {"os", operatingSystem()},
       {"os_version", boundedText(QSysInfo::productVersion(), 64)},
       {"cpu_architecture", boundedText(runningArchitecture(), 32)},
+      {"translated", translatedProcess()},
       {"build_cpu_architecture",
        boundedText(QSysInfo::buildCpuArchitecture(), 32)},
       {"qt_runtime_version", boundedText(QString::fromLatin1(qVersion()), 32)},

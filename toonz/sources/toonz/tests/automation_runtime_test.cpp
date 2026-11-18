@@ -248,7 +248,8 @@ void platformReport() {
             "A platform field is empty");
 #if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64)
   require(platform.value("cpu_architecture") == "arm64" &&
-              platform.value("build_cpu_architecture") == "arm64",
+              platform.value("build_cpu_architecture") == "arm64" &&
+              platform.value("translated") == false,
           "An arm64 build on Apple silicon misreports its architecture");
 #endif
 }
