@@ -113,7 +113,9 @@ void TDoubleKeyframe::loadData(TIStream &is) {
   };
 
   std::string tagName;
-  if (!is.matchTag(tagName)) return;
+  // The caller reads keyframes until the end tag: anything else here (text)
+  // would be read again forever
+  if (!is.matchTag(tagName)) throw TException("expected a keyframe tag");
   const bool seExpr = tagName == "SeExpr1" || tagName == "SeExprShape1";
   std::map<std::string, TDoubleKeyframe::Type>::iterator it =
       typeCodes.find(tagName);

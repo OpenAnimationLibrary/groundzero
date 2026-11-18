@@ -1536,7 +1536,7 @@ void TRop::ropmin(const TRasterP &rup, const TRasterP &rdown,
 
       FOR_EACH_PIXEL_64_END_LOOP
     } else {
-      FOR_EACH_PIXEL_32_BEGIN_LOOP
+      FOR_EACH_PIXEL_64_BEGIN_LOOP
       if (upPix->m >= 65535) {
         outPix->r = upPix->r < downPix->r ? upPix->r : downPix->r;
         outPix->g = upPix->g < downPix->g ? upPix->g : downPix->g;
@@ -1544,18 +1544,18 @@ void TRop::ropmin(const TRasterP &rup, const TRasterP &rdown,
         outPix->m = upPix->m < downPix->m ? upPix->m : downPix->m;
 
       } else if (upPix->m) {
-        TPixel32 tmp;
+        TPixel64 tmp;
         tmp.r = upPix->r < downPix->r ? upPix->r : downPix->r;
         tmp.g = upPix->g < downPix->g ? upPix->g : downPix->g;
         tmp.b = upPix->b < downPix->b ? upPix->b : downPix->b;
-        // tmp.m = upPix->m < downPix->m ? upPix->m : downPix->m;
-        outPix->r = upPix->m * (tmp.r - downPix->r) / 65535.0 + downPix->r;
-        outPix->g = upPix->m * (tmp.g - downPix->g) / 65535.0 + downPix->g;
-        outPix->b = upPix->m * (tmp.b - downPix->b) / 65535.0 + downPix->b;
-        outPix->m = upPix->m * (tmp.m - downPix->m) / 65535.0 + downPix->m;
+        const double opacity = upPix->m;
+        outPix->r = opacity * (tmp.r - downPix->r) / 65535.0 + downPix->r;
+        outPix->g = opacity * (tmp.g - downPix->g) / 65535.0 + downPix->g;
+        outPix->b = opacity * (tmp.b - downPix->b) / 65535.0 + downPix->b;
+        outPix->m = opacity * (tmp.m - downPix->m) / 65535.0 + downPix->m;
       } else
         *outPix = *downPix;
-      FOR_EACH_PIXEL_32_END_LOOP
+      FOR_EACH_PIXEL_64_END_LOOP
     }
     return;
   }

@@ -126,7 +126,13 @@ struct Api {
 struct Environment {
   Api &api;
   LiteRtEnvironment value = nullptr;
-  explicit Environment(Api &api) : api(api) { check(api.LiteRtCreateEnvironment(0, nullptr, &value)); }
+  explicit Environment(Api &api) : api(api) {
+    LiteRtEnvOption accelerators{};
+    accelerators.tag = kLiteRtEnvOptionTagAutoRegisterAccelerators;
+    accelerators.value.type = kLiteRtAnyTypeInt;
+    accelerators.value.int_value = kLiteRtHwAcceleratorCpu;
+    check(api.LiteRtCreateEnvironment(1, &accelerators, &value));
+  }
   ~Environment() { if (value) api.LiteRtDestroyEnvironment(value); }
 };
 

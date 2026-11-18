@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
+# Apple's linker searches every archive on the command line, so a static
+# library never needs to be repeated; with CMP0156 (CMake 3.29+) CMake stops
+# repeating them. Without it the pinned OpenEXR archive appears twice on
+# the FX library's link line (Homebrew's opencv_imgcodecs names
+# OpenEXR::OpenEXR as a dependency) and ld warns about the duplicate.
+if(APPLE AND POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
 
 set(CMAKE_BUILD_TYPE_INIT Release)
 
@@ -1020,9 +1028,18 @@ if(BUILD_RELIABILITY_TESTS)
     add_executable(rasterallocation_test tnzcore/tests/rasterallocation_test.cpp)
     target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterallocation COMMAND rasterallocation_test)
+    add_executable(rasterrelease_test tnzcore/tests/rasterrelease_test.cpp)
+    target_link_libraries(rasterrelease_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME rasterrelease COMMAND rasterrelease_test)
+    add_executable(ropmin_test tnzcore/tests/ropmin_test.cpp)
+    target_link_libraries(ropmin_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME ropmin COMMAND ropmin_test)
     add_executable(spectrum_test tnzcore/tests/spectrum_test.cpp)
     target_link_libraries(spectrum_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME spectrum COMMAND spectrum_test)
+    add_executable(swap24_test sound/tests/swap24_test.cpp sound/tsioutils.cpp)
+    target_link_libraries(swap24_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME swap24 COMMAND swap24_test)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
     target_include_directories(timagecache_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/common/tsystem)
@@ -1054,6 +1071,18 @@ if(BUILD_RELIABILITY_TESTS)
 endif()
 add_subdirectory(tnzext)
 add_subdirectory(toonzlib)
+if(BUILD_RELIABILITY_TESTS)
+    # Damaged scene files: rejected with a TException in bounded time, memory
+    # and stack (see the test for the cases)
+    add_executable(malformed_scene_test toonzlib/tests/malformed_scene_test.cpp)
+    target_link_libraries(malformed_scene_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    if(WIN32)
+        target_link_libraries(malformed_scene_test PRIVATE Psapi)
+    endif()
+    add_test(NAME malformed_scene COMMAND malformed_scene_test)
+    set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300)
+endif()
 add_subdirectory(toonzfarm/tfarm)
 add_subdirectory(glb)
 add_subdirectory(stdfx)
@@ -1062,6 +1091,16 @@ add_subdirectory(colorfx)
 add_subdirectory(image)
 add_subdirectory(toonzqt)
 add_subdirectory(tnztools)
+if(BUILD_RELIABILITY_TESTS)
+    # Declared outside tnztools' directory so it does not inherit its DLL
+    # export definitions on Windows.
+    add_executable(rasterpaste_test tnztools/tests/rasterpaste_test.cpp)
+    target_link_libraries(rasterpaste_test PRIVATE tnztools toonzqt toonzlib tnzext tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
+    add_test(NAME rasterpaste COMMAND rasterpaste_test)
+    set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)
 

@@ -178,8 +178,13 @@ TStageObject *TStageObjectTree::getStageObject(const TStageObjectId &id,
     TStageObject *pegbar = new TStageObject(this, id);
     if (id.isColumn()) {
       int index = id.getIndex();
-      // mi assicuro che esistano tutte le colonne con indici inferiori
-      if (index > 0) getStageObject(TStageObjectId::ColumnId(index - 1));
+      // Make sure every lower column exists, creating the missing ones lowest
+      // first: one nested call per missing column could overflow the stack
+      int first = index;
+      while (first > 0 && !pegbars.count(TStageObjectId::ColumnId(first - 1)))
+        --first;
+      for (int i = first; i < index; ++i)
+        getStageObject(TStageObjectId::ColumnId(i));
       // assegno il parent (per una colonna dev'essere la table)
       TStageObjectId parentId = TStageObjectId::TableId;
       pegbar->setParent(parentId);

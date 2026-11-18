@@ -93,7 +93,6 @@ set(MOC_HEADERS
     psdsettingspopup.h
     reframepopup.h
     renumberpopup.h
-    reslist.h
     ruler.h
     savepresetpopup.h
     scanpopup.h

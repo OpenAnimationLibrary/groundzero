@@ -39,6 +39,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QProcess>
 #include <QPushButton>
 #include <QPointer>
@@ -49,6 +50,7 @@
 #include <QWindow>
 #include <cmath>
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <functional>
 #include <memory>
@@ -569,6 +571,122 @@ void normalizationAndLocks() {
   require(TUndoManager::manager()->undo(), "single-frame keyboard edit has no undo");
   requireNear(f.a->keyframeIndexToFrame(1), 10);
 }
+
+using GroupSnapshot = std::array<TDoubleParamP, 2>;
+
+GroupSnapshot snapshotGroup(const Fixture& fixture) {
+  return {new TDoubleParam(*fixture.a), new TDoubleParam(*fixture.b)};
+}
+
+void requireGroupSnapshot(const Fixture& fixture,
+                          const GroupSnapshot& expected) {
+  require(
+      Ops::matchesSnapshot(fixture.a.getPointer(), expected[0].getPointer()) &&
+          Ops::matchesSnapshot(fixture.b.getPointer(),
+                               expected[1].getPointer()),
+      "group drag history did not restore both complete curves");
+}
+
+void dragGroupGadget(FunctionPanel* graph, FunctionPanel::Handle expected,
+                     double from, double to) {
+  QImage image(graph->size(), QImage::Format_ARGB32_Premultiplied);
+  image.fill(Qt::transparent);
+  graph->render(&image);
+  const int x = qRound(graph->frameToX(from));
+  QPoint start(-1, -1);
+  for (int y = 0; y < 100; ++y) {
+    FunctionPanel::Handle handle = FunctionPanel::None;
+    if (graph->findClosestGadget(QPoint(x, y), handle, 1) >= 0 &&
+        handle == expected) {
+      start = QPoint(x, y);
+      break;
+    }
+  }
+  require(start.x() >= 0,
+          "painted graph did not expose the requested group gadget");
+  const QPoint finish(qRound(graph->frameToX(to)), start.y());
+  QMouseEvent press(QEvent::MouseButtonPress, start, Qt::LeftButton,
+                    Qt::LeftButton, Qt::NoModifier);
+  QMouseEvent move(QEvent::MouseMove, finish, Qt::NoButton, Qt::LeftButton,
+                   Qt::NoModifier);
+  QMouseEvent release(QEvent::MouseButtonRelease, finish, Qt::LeftButton,
+                      Qt::NoButton, Qt::NoModifier);
+  QApplication::sendEvent(graph, &press);
+  QApplication::sendEvent(graph, &move);
+  QApplication::sendEvent(graph, &release);
+}
+
+void requireGroupHistory(const Fixture& fixture, const GroupSnapshot& before,
+                         int index) {
+  auto* undo = TUndoManager::manager();
+  require(undo->getCurrentHistoryIndex() == index + 1,
+          "group drag did not produce exactly one history entry");
+  const auto after = snapshotGroup(fixture);
+  require(undo->undo(), "group drag has no undo");
+  requireGroupSnapshot(fixture, before);
+  require(undo->redo(), "group drag has no redo");
+  requireGroupSnapshot(fixture, after);
+  require(undo->undo(), "group drag could not return to the initial fixture");
+  requireGroupSnapshot(fixture, before);
+}
+
+void groupedGraphDrag(TDoubleKeyframe::Type type) {
+  Fixture fixture;
+  const std::array<TDoubleParamP, 2> curves{fixture.a, fixture.b};
+  for (int channel = 0; channel < 2; ++channel) {
+    curves[channel]->clearKeyframes();
+    for (int key = 0; key < 3; ++key) {
+      TDoubleKeyframe frame(key * 10, key * 40 + channel * 10);
+      frame.m_type          = type;
+      frame.m_linkedHandles = false;
+      frame.m_speedIn =
+          TPointD(-2, type == TDoubleKeyframe::SpeedInOut ? -3 : 0);
+      frame.m_speedOut =
+          TPointD(2, type == TDoubleKeyframe::SpeedInOut ? 4 : 0);
+      curves[channel]->setKeyframe(frame);
+    }
+  }
+  fixture.tree->channels().front()->setIsCurrent(true);
+  fixture.graph->setViewTransform(QTransform(20, 0, 0, -1, 100, 300));
+  fixture.graph->setSnap(1, false);
+  const auto before = snapshotGroup(fixture);
+  const int index   = TUndoManager::manager()->getCurrentHistoryIndex();
+  dragGroupGadget(fixture.graph, FunctionPanel::GroupPoint, 10, 12);
+  for (const auto& curve : curves) {
+    require(curve->getKeyframeCount() == 3,
+            "group point drag changed the key count");
+    requireNear(curve->keyframeIndexToFrame(0), 0);
+    requireNear(curve->keyframeIndexToFrame(1), 12);
+    requireNear(curve->keyframeIndexToFrame(2), 20);
+  }
+  requireNear(fixture.a->getKeyframe(1).m_value, 40);
+  requireNear(fixture.b->getKeyframe(1).m_value, 50);
+  requireGroupHistory(fixture, before, index);
+
+  dragGroupGadget(fixture.graph, FunctionPanel::GroupOut, 12, 13);
+  for (int channel = 0; channel < 2; ++channel) {
+    const auto frame = curves[channel]->getKeyframe(1);
+    requireNear(frame.m_frame, 10);
+    requireNear(frame.m_speedOut.x, 3);
+    requireNear(frame.m_speedOut.y,
+                before[channel]->getKeyframe(1).m_speedOut.y);
+    require(frame.m_speedIn == before[channel]->getKeyframe(1).m_speedIn,
+            "group outgoing drag modified the unlinked incoming handle");
+  }
+  requireGroupHistory(fixture, before, index);
+
+  dragGroupGadget(fixture.graph, FunctionPanel::GroupIn, 8, 7);
+  for (int channel = 0; channel < 2; ++channel) {
+    const auto frame = curves[channel]->getKeyframe(1);
+    requireNear(frame.m_frame, 10);
+    requireNear(frame.m_speedIn.x, -3);
+    requireNear(frame.m_speedIn.y, before[channel]->getKeyframe(1).m_speedIn.y);
+    require(frame.m_speedOut == before[channel]->getKeyframe(1).m_speedOut,
+            "group incoming drag modified the unlinked outgoing handle");
+  }
+  requireGroupHistory(fixture, before, index);
+}
+
 void nativeBatchDialog() {
   Fixture f; auto *selection = f.viewer.getSelection();
   selection->select(f.a.getPointer(), 1); selection->select(f.a.getPointer(), 2);
@@ -1087,6 +1205,8 @@ int main(int argc, char **argv) {
     checkpoint("command action lifetime begins"); commandActionLifetime();
     checkpoint("pending shortcut lifetime begins"); pendingShortcutLifetime();
     checkpoint("normalization/locks begin"); normalizationAndLocks();
+    checkpoint("grouped speed handles begin"); groupedGraphDrag(TDoubleKeyframe::SpeedInOut);
+    checkpoint("grouped ease handles begin"); groupedGraphDrag(TDoubleKeyframe::EaseInOut);
     checkpoint("batch editing begins"); nativeBatchDialog();
     checkpoint("same-owner key drift begins"); sameOwnerKeyDrift();
     checkpoint("segment observer lifetime begins"); segmentObserverLifetime();

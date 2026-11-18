@@ -400,9 +400,9 @@ void MoveHandleDragTool::drag(QMouseEvent *e) {
     if (m_segmentWidth > 0)
       m_setter.setEaseOut(100.0 * handlePos.x / m_segmentWidth);
     break;
-  case 100:
-  case 101:
-  case 102:
+  case FunctionPanel::GroupPoint:
+  case FunctionPanel::GroupOut:
+  case FunctionPanel::GroupIn:
     break;
   default:
     assert(0);
@@ -457,26 +457,8 @@ void MoveGroupHandleDragTool::click(QMouseEvent *e) {
 //-----------------------------------------------------------------------------
 
 void MoveGroupHandleDragTool::drag(QMouseEvent *e) {
-  //  if(!m_curve) return;
   QPoint pos = e->pos();
   QPointF posF(pos);
-
-  /*
-if(m_nSpeed != QPointF(0,0))
-{
-QPointF delta = posF-p0;
-posF -= m_nSpeed*(delta.x()*m_nSpeed.x()+delta.y()*m_nSpeed.y());
-if(  m_handle == FunctionPanel::SpeedIn && posF.x()>p0.x()
-|| m_handle == FunctionPanel::SpeedOut && posF.x()<p0.x())
-posF = p0;
-}
-else
-{
-if(  m_handle == FunctionPanel::SpeedIn && posF.x()>p0.x()
-|| m_handle == FunctionPanel::SpeedOut && posF.x()<p0.x())
-posF.setX(p0.x());
-}
-*/
 
   double frame = m_panel->xToFrame(posF.x());
 
@@ -484,8 +466,7 @@ posF.setX(p0.x());
     TDoubleKeyframe kf     = m_setters[i].first;
     KeyframeSetter *setter = m_setters[i].second;
 
-    if (m_handle == 101)  // why the magic numbers... use enums!
-    {
+    if (m_handle == FunctionPanel::GroupOut) {
       kf.m_speedOut.x = frame - kf.m_frame;
 
       switch (kf.m_type) {
@@ -498,8 +479,7 @@ posF.setX(p0.x());
       default:
         assert(false);
       }
-    } else if (m_handle == 102)  // aagghhrrr
-    {
+    } else if (m_handle == FunctionPanel::GroupIn) {
       kf.m_speedIn.x = frame - kf.m_frame;
 
       switch (kf.m_prevType) {
@@ -515,36 +495,6 @@ posF.setX(p0.x());
     }
   }
 
-  /*
-switch(m_handle)
-{
-
-
-case FunctionPanel::SpeedIn:
-if(m_keyframe.m_type != TDoubleKeyframe::SpeedInOut)
-{
-
-}
-m_setter.setSpeedIn(handlePos);
-break;
-case FunctionPanel::SpeedOut:m_setter.setSpeedOut(handlePos); break;
-case FunctionPanel::EaseIn:m_setter.setEaseIn(handlePos.x); break;
-case FunctionPanel::EaseOut:m_setter.setEaseOut(handlePos.x); break;
-case FunctionPanel::EaseInPercentage:
-if(m_segmentWidth>0)
-m_setter.setEaseIn(100.0*handlePos.x/m_segmentWidth);
-break;
-case FunctionPanel::EaseOutPercentage:
-if(m_segmentWidth>0)
-m_setter.setEaseOut(100.0*handlePos.x/m_segmentWidth);
-break;
-case 100:
-case 101:
-case 102:
-break;
-default:assert(0);
-}
-*/
   m_panel->update();
 }
 

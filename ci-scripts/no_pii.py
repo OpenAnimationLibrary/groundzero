@@ -9,7 +9,8 @@ Two modes:
                               a description becomes its plain claude.ai/code)
   no_pii.py hook              Claude Code PreToolUse hook: read the tool call as
                               JSON on stdin, exit 2 (block) when a publishing
-                              command would carry a hit
+                              command would carry a hit, or when it holds a git
+                              commit whose repository or changes it cannot read
 
 What counts as a hit:
   - Claude Code session links (claude.ai/code/session_...) and session ids
@@ -52,8 +53,7 @@ def find_hits(text):
 def clean(text):
     text = re.sub(r"(claude\.ai/code)/session_[A-Za-z0-9_-]+", r"\1", text, flags=re.I)
     return "".join(
-        line for line in text.splitlines(True)
-        if not re.match(r"\s*Claude-Session:", line, re.I)
+        line for line in text.splitlines(True) if not re.match(r"\s*Claude-Session:", line, re.I)
     )
 
 
@@ -77,17 +77,31 @@ def scan_main(paths):
 
 # -- hook ---------------------------------------------------------------------
 
+# One shell word: quoted parts, escaped characters and plain characters
+WORD = r"""(?:"[^"]*"|'[^']*'|\\.|[^\s;&|()<>'"\\])+"""
+# "git" and the -C <path> or -c <name>=<value> options before its subcommand
+GIT = rf"\bgit((?:\s+-[Cc]\s+{WORD})*)\s+"
+GIT_OPTION = re.compile(rf"-([Cc])\s+({WORD})")
 # Commands that put text somewhere other people can read it.
 PUBLISHING = re.compile(
-    r"\bgit\s+(?:-C\s+\S+\s+)?(?:commit|tag|notes|merge|revert|cherry-pick|am)\b|"
+    GIT + r"(?:commit|tag|notes|merge|revert|cherry-pick|am)\b|"
     r"\bgh\s+(?:pr|issue|release|gist|api|discussion)\b"
 )
-GIT_COMMIT = re.compile(r"\bgit\s+(?:-C\s+(\S+)\s+)?commit\b")
+GIT_COMMIT = re.compile(GIT + r"commit\b")
 # Commands that change the index: the hook runs before the whole command line,
 # so with "git add -A && git commit" the index does not hold the commit yet
-GIT_STAGE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(?:add|stage|rm|mv)\b")
+GIT_STAGE = re.compile(GIT + r"(?:add|stage|rm|mv)\b")
+# A cd that starts a command: at the start of a line, or after ; & | or (
+CD = re.compile(rf"(?:^|[;&|(])[ \t]*cd(?:[ \t]+({WORD}))?[ \t]*(?=$|[;&|)])", re.M)
+# Words whose value the shell decides: variables, substitutions, globs, "cd -"
+SHELL_EXPANDED = re.compile(r"[$`*?]|^-$")
 UNTRACKED_SIZE_LIMIT = 4 * 1024 * 1024
 FILE_FLAGS = {"-F", "--file", "--body-file", "--input", "--notes-file"}
+LITERAL_PATH_HINT = "name the repository directly, for example: git -C /path/to/repo commit ..."
+
+
+class CommitTargetError(Exception):
+    """The repository a git commit works in, or its changes, cannot be read."""
 
 
 def referenced_files(tokens, cwd):
@@ -110,37 +124,71 @@ def referenced_files(tokens, cwd):
     return list(dict.fromkeys(files))
 
 
+def literal_path(word, base, how):
+    """The path a shell word names, relative to base, if the shell would not expand it."""
+    try:
+        parts = shlex.split(word)
+    except ValueError:
+        parts = []
+    if len(parts) != 1 or SHELL_EXPANDED.search(parts[0]):
+        raise CommitTargetError(f"{how} {word} is not a literal path")
+    return os.path.normpath(os.path.join(base, os.path.expanduser(parts[0])))
+
+
+def commit_repo(command, commit, cwd):
+    """Directory a git commit match works in: the cds before it, then its -C options."""
+    directory = cwd
+    for cd in CD.finditer(command, 0, commit.start()):
+        directory = literal_path(cd.group(1) or "~", directory, "cd")
+    for flag, word in GIT_OPTION.findall(commit.group(1)):
+        if flag == "C":
+            directory = literal_path(word, directory, "git -C")
+    if not os.path.isdir(directory):
+        raise CommitTargetError(f"{directory} is not a directory")
+    return directory
+
+
+def git_output(repo, args):
+    """Standard output of a git command in repo; CommitTargetError if it fails."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo, *args], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise CommitTargetError(f"git {args[0]} in {repo} failed: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit status {result.returncode}"
+        raise CommitTargetError(f"git {args[0]} in {repo} failed: {detail}")
+    return result.stdout
+
+
 def staged_additions(command, cwd):
-    """Lines a git commit in this command would add."""
-    m = GIT_COMMIT.search(command)
-    repo = os.path.join(cwd, m.group(1)) if m and m.group(1) else cwd
-    cd = re.search(r"(?:^|[;&|]\s*)cd\s+(\S+)", command)
-    if cd and not (m and m.group(1)):
-        repo = os.path.join(cwd, os.path.expanduser(cd.group(1).strip("'\"")))
+    """Lines the git commits in this command would add.
+
+    Raises CommitTargetError when the repository of a commit cannot be resolved
+    or its changes cannot be read, so that nothing passes unscanned.
+    """
     commit_all = re.search(r"\bcommit\b[^;&|]*\s(?:-a\b|--all\b|-[A-Za-z]*a[A-Za-z]*\b)", command)
     stages = GIT_STAGE.search(command)
-    args = ["git", "-C", repo, "diff", "--no-color", "-U0"]
     # Staging in the same command can bring any change in: scan all of them
-    args += ["HEAD"] if commit_all or stages else ["--cached"]
-    try:
-        out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    added = [
-        line[1:] for line in out.splitlines() if line.startswith("+") and not line.startswith("+++")
-    ]
-    if stages:
-        added += untracked_contents(repo)
+    diff = ["diff", "--no-color", "-U0", "HEAD" if commit_all or stages else "--cached"]
+    repos = dict.fromkeys(commit_repo(command, m, cwd) for m in GIT_COMMIT.finditer(command))
+    added = []
+    for repo in repos:
+        out = git_output(repo, diff)
+        added += [
+            line[1:]
+            for line in out.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        if stages:
+            added += untracked_contents(repo)
     return "\n".join(added)
 
 
 def untracked_contents(repo):
     """Contents of the untracked files that "git add" could stage."""
-    args = ["git", "-C", repo, "ls-files", "-z", "--others", "--exclude-standard"]
-    try:
-        out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
+    out = git_output(repo, ["ls-files", "-z", "--others", "--exclude-standard"])
     contents = []
     for name in filter(None, out.split("\0")):
         path = os.path.join(repo, name)
@@ -174,8 +222,16 @@ def hook_main():
     for path in referenced_files(tokens, cwd):
         hits += [(path, what, value) for what, value in find_hits(read(path))]
     if GIT_COMMIT.search(command):
-        hits += [("staged changes", what, value)
-                 for what, value in find_hits(staged_additions(command, cwd))]
+        try:
+            staged = staged_additions(command, cwd)
+        except CommitTargetError as error:
+            sys.stderr.write(
+                "Blocked: cannot read the changes this git commit would publish: "
+                f"{error}.\nThe hook follows git -C and cd only with literal paths: "
+                f"{LITERAL_PATH_HINT}\n"
+            )
+            return 2
+        hits += [("staged changes", what, value) for what, value in find_hits(staged)]
 
     if not hits:
         return 0

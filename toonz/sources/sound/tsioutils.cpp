@@ -29,8 +29,7 @@ void swapAndCopy24Bits(const void *srcBuffer, void *dstBuffer,
                               TINT32 sampleCount) {
   const UCHAR *srcData = (const UCHAR *)srcBuffer;
   UCHAR *dstData       = (UCHAR *)dstBuffer;
-  if (sampleCount <= 0) return;
-  while (--sampleCount) {
+  for (TINT32 i = 0; i < sampleCount; ++i) {
     dstData[0] = srcData[2];
     dstData[1] = srcData[1];
     dstData[2] = srcData[0];

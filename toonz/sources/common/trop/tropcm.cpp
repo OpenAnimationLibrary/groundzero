@@ -1119,18 +1119,14 @@ _RASTER *TRop::convertRaster50to46(const TRasterP &inRas,
 /*------------------------------------------------------------------------*/
 
 void TRop::releaseRaster46(_RASTER *&r, bool doReleaseBuffer) {
-  // Buffer release no more supported. These are now intended as smart
-  // pointers to rasters - they release themselves on their own.
-  assert(!doReleaseBuffer);
+  if (doReleaseBuffer)
+    throw TRopException(
+        "TRop::releaseRaster46 requires doReleaseBuffer=false; "
+        "the raster buffer is borrowed");
 
   if (r->type == RAS_CM32) {
     delete[] r->cmap.buffer;
-    // delete [] r->cmap.penbuffer;
-    // delete [] r->cmap.colbuffer;
   }
-
-  if (doReleaseBuffer && r->native_buffer == r->buffer)
-    delete r->buffer;  // Should not happen
 
   // Unlock if locked, and remove the cache reference
   if (r->buffer) unlockRaster(r);
