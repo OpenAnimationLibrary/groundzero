@@ -199,6 +199,7 @@ set(HEADERS
     automation.h
     automation_animation.h
     automation_build_identity.h
+    automation_jobs.h
     automation_fx_profile.h
     automation_path.h
     automation_audio.h
@@ -338,6 +339,7 @@ set(SOURCES
     automation_scene_content.cpp
     automation_scene_inventory.cpp
     automation_build_identity.cpp
+    automation_jobs.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp
@@ -1309,6 +1311,7 @@ if(BUILD_UI_PORT_TESTS)
         VERBATIM)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_jobs_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)

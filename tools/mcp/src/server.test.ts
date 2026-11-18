@@ -177,8 +177,8 @@ test("names every failing path of a nonconforming result", async () => {
   request.mockResolvedValueOnce({ name: 4, revision: 7, stray: "x" } as never);
   const args = { name: "Shot", operation_id: "rename-10", expected_revision: "epoch:6" };
   const result = await client.callTool({ name: tool.name, arguments: args });
-  const details = (result.structuredContent as { error: { details: { issues: string[] } } })
-    .error.details;
+  const details = (result.structuredContent as { error: { details: { issues: string[] } } }).error
+    .details;
   expect(details.issues).toEqual(["(result)", "name", "revision"]);
 });
 

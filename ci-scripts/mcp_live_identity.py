@@ -5,7 +5,8 @@ runner reads the application's build manifest and recomputes its digest over the
 names. A session file carrying that digest is refused only for its missing endpoint
 (live_security), which shows the connector computes the same digest. A copied
 application with one byte of a project library changed is refused as build_mismatch; one
-with an extra library beside the executable that the project does not build is not.
+with an extra library beside the executable that the project does not build is not. On
+macOS, a copy that loads a project library under another name refuses to identify its build.
 """
 
 from __future__ import annotations
@@ -168,6 +169,54 @@ def copy_digest(executable: Path, copy: Path) -> str:
     return verified_build_digest(copy)
 
 
+def load_renamed(executable: Path, library: str, renamed: str) -> None:
+    """Make a copied macOS application load one project library under another name.
+
+    Args:
+        executable: The copy's main executable.
+        library: The library's file name, loaded only by the main executable.
+        renamed: The file name the copy loads it from instead.
+    """
+    folder = executable.parent
+    (folder / library).rename(folder / renamed)
+    tool = ["install_name_tool"]
+    subprocess.run([*tool, "-id", f"@executable_path/{renamed}", str(folder / renamed)], check=True)
+    old, new = f"@executable_path/{library}", f"@executable_path/{renamed}"
+    subprocess.run([*tool, "-change", old, new, str(executable)], check=True, capture_output=True)
+    for path in (folder / renamed, executable):
+        subprocess.run(["codesign", "-f", "-s", "-", str(path)], check=True, capture_output=True)
+
+
+def missing_library(executable: Path, scratch: Path, session: Path) -> dict[str, Any]:
+    """Require a build whose project library loaded under another name to refuse to identify.
+
+    Args:
+        executable: The original main executable.
+        scratch: A private directory for the copy.
+        session: A session file the connector reads.
+
+    Returns:
+        The manifest mode's exit code and diagnostic and the connector's refusal.
+    """
+    copy = copy_application(executable, scratch / "missing")
+    load_renamed(copy, "libtfarm.dylib", "libtfrm.dylib")
+    manifest = subprocess.run(
+        [str(copy), "--automation-build-manifest"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+    )
+    report = {
+        "manifest_exit": manifest.returncode,
+        "manifest_stderr": manifest.stderr.decode("utf-8", errors="replace").strip(),
+        **refusal(copy, session),
+    }
+    require(manifest.returncode == 1 and not manifest.stdout, "A missing library was identified")
+    require("not loaded" in report["manifest_stderr"], "The missing library was not reported")
+    require(report["code"] == "connector_io", "A connector without its library connected")
+    return report
+
+
 def qualify(executable: Path, scratch: Path) -> dict[str, Any]:
     """Run the three identity cases against copies of the application.
 
@@ -208,6 +257,8 @@ def qualify(executable: Path, scratch: Path) -> dict[str, Any]:
     }
     require(report["third_party_library"]["digest"] == digest, "A foreign library counted")
     require(report["third_party_library"]["code"] == "live_security", "A foreign library counted")
+    if sys.platform == "darwin":
+        report["missing_project_library"] = missing_library(executable, scratch, session)
     return report
 
 

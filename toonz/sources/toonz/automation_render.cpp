@@ -2,6 +2,7 @@
 #include "automation_audio.h"
 #include "automation_files.h"
 #include "automation_fx.h"
+#include "automation_jobs.h"
 #include "automation_media.h"
 #include "automation_neural.h"
 #include "automation_ownership.h"
@@ -25,6 +26,7 @@
 #include "tproperty.h"
 #include "tiio.h"
 #include "texception.h"
+#include "tnzimage.h"
 
 #include <QCoreApplication>
 #include <QBuffer>
@@ -39,7 +41,6 @@
 #include <QJsonArray>
 #include <QThread>
 #include <QTimer>
-#include <QUuid>
 
 #include <algorithm>
 #include <atomic>
@@ -55,14 +56,9 @@ namespace RenderDetail {
 constexpr int kMaxFrames         = 120;
 constexpr int kMaxDimension      = 2048;
 constexpr int kPreviewDimension  = 1024;
-constexpr int kMaxJobs           = 32;
 constexpr qint64 kInlineBytes    = 4 * 1024 * 1024;
 constexpr qint64 kFrameBytes     = 20 * 1024 * 1024;
 constexpr qint64 kWorkspaceBytes = 128 * 1024 * 1024;
-
-static QString newId(const QString& prefix) {
-  return prefix + QUuid::createUuid().toString(QUuid::WithoutBraces);
-}
 
 static QJsonObject stringSchema() {
   return {{"type", "string"}, {"minLength", 1}};
@@ -251,7 +247,7 @@ static QByteArray readOutput(const QString& path, qint64 limit) {
 }
 
 static Artifact verifyOutput(const QString& path, int frame,
-                             const Request& request) {
+                             const Request& request, const QString& id) {
   const QByteArray data = readOutput(path, kFrameBytes);
   QBuffer buffer;
   buffer.setData(data);
@@ -267,7 +263,7 @@ static Artifact verifyOutput(const QString& path, int frame,
     throw Error("invalid_artifact",
                 "The rendered PNG cannot be decoded as an alpha image.");
   Artifact artifact;
-  artifact.id     = newId("artifact_");
+  artifact.id     = id;
   artifact.path   = path;
   artifact.frame  = frame;
   artifact.width  = decoded.width();
@@ -311,22 +307,45 @@ static QString statusText(JobStatus status) {
   throw Error("internal_error", "Unknown render job state.");
 }
 
-class RenderJob final : public MovieRenderer::Listener,
+// The contract's failure codes; any other native code is reported as one of
+// these with the native message kept.
+static QString failureCode(const QString& code, const QString& fallback) {
+  static const QStringList codes{"render_failed",
+                                 "writer_failed",
+                                 "verification_failed",
+                                 "render_limit",
+                                 "neural_execution_changed",
+                                 "revision_changed",
+                                 "source_changed",
+                                 "scene_host_failed",
+                                 "gl_unavailable",
+                                 "native_error"};
+  return codes.contains(code) ? code : fallback;
+}
+
+// The native renderer's message when this process has no offscreen GL
+// context for its frames.
+static bool glUnavailable(const QString& message) {
+  return message.contains("OpenGL is not available");
+}
+
+#ifdef BUILD_UI_PORT_TESTS
+constexpr unsigned long BusyHostMs = 8000;
+#endif
+
+class RenderJob final : public Job,
+                        public MovieRenderer::Listener,
                         public std::enable_shared_from_this<RenderJob> {
 public:
-  QString id;
-  QString documentId;
-  QString revision;
+  JobCommon common;
   QString directory;
   QString workspace;
   QString mediaToolsDirectory;
-  QString error;
+  QString frameError;
   Request request;
   QJsonObject assistance;
   QJsonObject effective;
   QJsonArray provenance;
-  QString snapshotInputs = "qualified-collected-native-scene";
-  QString sourceFingerprint;
   // Runs before artifacts publish; a nonempty diagnostic fails the job.
   std::function<QString()> publicationCheck;
   // The owning worker context, which outlives every job it retains.
@@ -349,13 +368,62 @@ public:
   double frameRate     = 0;
   // Held while the job's output is unfinished, so a later worker can tell
   // abandoned output from a live worker's.
-  OwnershipClaim ownership;
+  OwnershipClaim ownership{true};
   QString fault;
+  // Forced encoder exits counted before this job; one render runs at a time,
+  // so later ones are this job's.
+  int encoderExitsBefore = ffmpegForcedExits();
+  qint64 stopRequestedMs = -1;
+  bool stopping          = false;
+  // When a poll answered off the application thread asked the job to stop.
+  std::atomic<qint64> interruptMs{-1};
 
-  bool terminal() const {
+  QString id() const override { return common.id; }
+  JobLane lane() const override { return JobLane::Render; }
+  QString documentId() const override { return common.documentId; }
+  qint64 reservedBytes() const override { return request.reserveBytes(); }
+  QJsonValue result(Context& owner, const QJsonObject&) override;
+
+  bool terminal() const override {
     return status == JobStatus::Completed || status == JobStatus::Failed ||
            status == JobStatus::Canceled ||
            status == JobStatus::DeadlineExceeded;
+  }
+
+  qint64 now() const { return jobRegistry(*context).elapsedMs(); }
+
+  // Test hook: writers that stay open after a stop request until well past the
+  // cancel grace period.
+  bool holdingWriters() {
+#ifdef BUILD_UI_PORT_TESTS
+    if (fault != "hold-writers" ||
+        (cancellation && now() - stopRequestedMs > CancelGraceMs + 5000))
+      return false;
+    QTimer::singleShot(10, QCoreApplication::instance(),
+                       [self = shared_from_this()]() { self->buildFrame(); });
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  void forced(const QString& process) {
+    if (!common.forced.contains(process)) common.forced.append(process);
+  }
+
+  // Records the end time and every child process killed on the way there.
+  void ended() {
+    common.endedMs = now();
+    if (ffmpegForcedExits() > encoderExitsBefore) forced("encoder");
+    if (neuralExecution && neuralExecution->helperWasKilled())
+      forced("neural_helper");
+  }
+
+  // Writers still open this long after a stop request mean native work does
+  // not stop; the job stays non-terminal and a new worker is the recovery.
+  bool stalledNow() const {
+    return status == JobStatus::Canceling && !writersClosed &&
+           stopRequestedMs >= 0 && now() - stopRequestedMs > CancelGraceMs;
   }
 
   bool requested(int frame) const {
@@ -370,11 +438,14 @@ public:
                   "claimed.");
   }
 
-  // Ends the job's claim on its directory; output that never completed is
-  // removed, so a canceled or failed job leaves no partial files behind.
+  // Output that never completed is removed, so a canceled or failed job leaves
+  // no partial files behind. A completed job keeps its claim, and so its
+  // output, until the worker ends; the marker then stays unheld and a later
+  // worker's sweep removes the folder.
   void releaseOutput(bool keep) {
+    if (keep) return;
     ownership.release();
-    if (!keep) QDir(directory).removeRecursively();
+    QDir(directory).removeRecursively();
   }
 
   bool holding(const char* point, std::function<void()> resume) {
@@ -419,12 +490,23 @@ public:
 #endif
   }
 
-  QJsonObject describe() const {
-    QJsonObject result{
-        {"job_id", id},
-        {"document_id", documentId},
-        {"source_revision", revision},
-        {"status", statusText(status)},
+  QJsonObject record() const override {
+    const QJsonObject limits{
+        {"deadline_ms", context->renderDeadlineMs},
+        {"storage_reserved_bytes", double(request.reserveBytes())},
+        {"cancel_grace_ms", CancelGraceMs}};
+    const QJsonObject progress{{"unit", "frames"},
+                               {"done", int(completed.size())},
+                               {"total", request.count()}};
+    const QJsonObject outputs{
+        {"directory", QDir(workspace).relativeFilePath(directory)},
+        {"artifact_count", int(artifacts.size())},
+        {"result_rows", 0}};
+    JobCommon current  = common;
+    current.stalled    = stalledNow();
+    QJsonObject result = commonRecord(*context, current, statusText(status),
+                                      terminal(), limits, progress, outputs);
+    const QJsonObject fields{
         {"frame_count", request.count()},
         {"completed_frames", int(completed.size())},
         {"failed_frames", int(failed.size())},
@@ -441,13 +523,10 @@ public:
         {"color_space", "nonlinear"},
         {"color_space_gamma", 2.2},
         {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
-        {"error", error},
-        {"effective", effective},
         {"fx_provenance", provenance},
-        {"snapshot_inputs", snapshotInputs},
-        {"source_fingerprint", sourceFingerprint.isEmpty()
-                                   ? QJsonValue()
-                                   : QJsonValue(sourceFingerprint)}};
+        {"effective", effective}};
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
+      result.insert(it.key(), it.value());
     if (!assistance.isEmpty()) result.insert("assistance", assistance);
     return result;
   }
@@ -467,10 +546,12 @@ public:
     snapshot.reset();
   }
 
-  void fail(const QString& message) {
-    error = message.left(2048);
+  void fail(const QString& code, const QString& phase, const QString& message) {
+    common.failure = QJsonObject{
+        {"code", code}, {"phase", phase}, {"message", message.left(2048)}};
     artifacts.clear();
     status = JobStatus::Failed;
+    ended();
     releaseNativeState();
     releaseOutput(false);
     settled();
@@ -482,12 +563,14 @@ public:
     artifacts.clear();
     status =
         deadlineExceeded ? JobStatus::DeadlineExceeded : JobStatus::Canceled;
+    ended();
     releaseOutput(false);
     settled();
   }
 
   void complete() {
     status = JobStatus::Completed;
+    ended();
     releaseOutput(true);
     settled();
   }
@@ -496,16 +579,13 @@ public:
   // unless it already ended or the caller canceled it first.
   void scheduleDeadline(int milliseconds) {
     const auto self = shared_from_this();
-    QTimer::singleShot(
-        milliseconds, QCoreApplication::instance(), [self, milliseconds]() {
-          if (self->terminal() || self->cancellation) return;
-          self->deadlineExceeded = true;
-          self->error            = QString(
-                                       "The render job exceeded its %1 second "
-                                       "deadline.")
-                                       .arg(milliseconds / 1000.0);
-          self->cancel();
-        });
+    QTimer::singleShot(milliseconds, QCoreApplication::instance(),
+                       [self, milliseconds]() {
+                         Q_UNUSED(milliseconds);
+                         if (self->terminal() || self->cancellation) return;
+                         self->deadlineExceeded = true;
+                         self->requestStop();
+                       });
   }
 
   void expireNeural() {
@@ -523,7 +603,7 @@ public:
   void observeNeuralDeadline() {
     if (!neuralExecution || terminal()) return;
     if (neuralExecution->expired()) {
-      cancel();
+      requestStop();
       return;
     }
     const auto self = shared_from_this();
@@ -539,6 +619,7 @@ public:
 
   void buildFrame() {
     expireNeural();
+    if (holdingWriters()) return;
 #ifdef BUILD_UI_PORT_TESTS
     if (holding("hold-launch",
                 [self = shared_from_this()]() { self->buildFrame(); }))
@@ -568,16 +649,19 @@ public:
       }
     } catch (const Error& exception) {
       writersClosed = true;
-      fail(exception.message);
+      fail(failureCode(exception.code, "render_failed"), "prepare",
+           exception.message);
     } catch (const TException& exception) {
       writersClosed = true;
-      fail(QString::fromStdWString(exception.getMessage()));
+      fail("native_error", "prepare",
+           QString::fromStdWString(exception.getMessage()));
     } catch (const std::exception& exception) {
       writersClosed = true;
-      fail(QString::fromUtf8(exception.what()));
+      fail("native_error", "prepare", QString::fromUtf8(exception.what()));
     } catch (...) {
       writersClosed = true;
-      fail("The native frame graph could not be prepared.");
+      fail("native_error", "prepare",
+           "The native frame graph could not be prepared.");
     }
   }
 
@@ -589,14 +673,41 @@ public:
     if (fault == "stray-callbacks") injectStrayCallbacks(false);
     if (fault == "gl-context-failure") return injectGlContextFailure();
 #endif
-    status = JobStatus::Running;
+    status           = JobStatus::Running;
+    common.startedMs = now();
     renderer->start();
+#ifdef BUILD_UI_PORT_TESTS
+    // Test hook: a scene host whose application thread stays busy while its
+    // render runs, as a long decode or frame build keeps it.
+    if (fault == "busy-host") QThread::msleep(BusyHostMs);
+#endif
   }
 
-  void cancel() {
-    if (terminal()) return;
-    if (cancellation.exchange(true)) return;
-    status = JobStatus::Canceling;
+  // A caller's request; a finished job records it and is unchanged.
+  void cancel() override {
+    if (!common.cancelRequested) {
+      const qint64 asked     = interruptMs.load();
+      common.cancelRequested = true;
+      common.cancelMs        = asked >= 0 ? asked : now();
+    }
+    requestStop();
+  }
+
+  // Render threads read `cancellation` and stop at their next frame;
+  // requestStop() completes the request on the application thread.
+  void interrupt(qint64 requestedMs) override {
+    qint64 unset = -1;
+    interruptMs.compare_exchange_strong(unset, requestedMs);
+    cancellation = true;
+  }
+
+  void requestStop() {
+    if (terminal() || stopping) return;
+    stopping           = true;
+    cancellation       = true;
+    const qint64 asked = interruptMs.load();
+    stopRequestedMs    = asked >= 0 ? asked : now();
+    status             = JobStatus::Canceling;
     if (verification) verification->cancel();
     cancelUntilClosed();
   }
@@ -632,8 +743,8 @@ public:
                          if (self->terminal() || !self->requested(frame))
                            return;
                          self->failed.insert(frame);
-                         self->error = message;
-                         if (message.contains("OpenGL is not available"))
+                         self->frameError = message;
+                         if (glUnavailable(message))
                            markGraphicsFailedInWorker(*self->context);
                        });
     return !cancellation;
@@ -666,21 +777,34 @@ public:
     }
 #ifdef BUILD_UI_PORT_TESTS
     if (fault == "encoder-failure") {
-      fail("The encoder failed while finalizing the output (injected).");
+      fail("writer_failed", "encode",
+           "The encoder failed while finalizing the output (injected).");
       return;
     }
 #endif
     if (result == MovieRenderer::CompletionStatus::Failed) {
-      fail(diagnostic.isEmpty() ? "Native rendering failed." : diagnostic);
+      const QString message =
+          diagnostic.isEmpty() ? "Native rendering failed." : diagnostic;
+      if (glUnavailable(diagnostic) || glUnavailable(frameError))
+        fail("gl_unavailable", "render", message);
+      else if (request.format == Format::Mp4)
+        fail("writer_failed", "encode", message);
+      else
+        fail("render_failed", "render", message);
       return;
     }
     if (int(completed.size()) != request.count() || !failed.empty()) {
-      fail("Rendering ended without completing every requested frame.");
+      fail(glUnavailable(frameError) ? "gl_unavailable" : "render_failed",
+           "render",
+           frameError.isEmpty()
+               ? "Rendering ended without completing every requested frame."
+               : frameError);
       return;
     }
 #ifdef BUILD_UI_PORT_TESTS
     if (fault == "fail-after-final-frame") {
-      fail("The job failed right after its final frame (injected).");
+      fail("render_failed", "render",
+           "The job failed right after its final frame (injected).");
       return;
     }
 #endif
@@ -723,24 +847,26 @@ public:
   }
 
   void movieVerified(QJsonObject metadata, const QString& failure) {
+    if (verification && verification->forcedExit()) forced("probe");
     verification.reset();
     if (cancellation) {
       stop();
       return;
     }
-    if (!failure.isEmpty()) return fail(failure);
+    if (!failure.isEmpty())
+      return fail("verification_failed", "verify", failure);
     Artifact artifact;
     artifact.format = Format::Mp4;
-    artifact.id     = newId("artifact_");
+    artifact.id     = jobRegistry(*context).newArtifactId();
     artifact.path   = QString::fromStdWString(outputPath().getWideString());
     artifact.lastModified = QFileInfo(artifact.path).lastModified();
     artifact.bytes        = qint64(metadata.value("size_bytes").toDouble());
     artifact.sha256       = metadata.value("sha256").toString();
     metadata.insert("workspace_relative_path",
                     QDir(workspace).relativeFilePath(artifact.path));
-    metadata.insert("job_id", id);
-    metadata.insert("document_id", documentId);
-    metadata.insert("source_revision", revision);
+    metadata.insert("job_id", common.id);
+    metadata.insert("document_id", common.documentId);
+    metadata.insert("source_revision", common.revision);
     metadata.insert("source_frame_rate", frameRate);
     metadata.insert("start_frame", request.start);
     metadata.insert("end_frame", request.end);
@@ -766,9 +892,9 @@ public:
     try {
       const TFilePath path =
           outputPath().withFrame(TFrameId(nextVerification + 1));
-      Artifact artifact =
-          verifyOutput(QString::fromStdWString(path.getWideString()),
-                       nextVerification, request);
+      Artifact artifact = verifyOutput(
+          QString::fromStdWString(path.getWideString()), nextVerification,
+          request, jobRegistry(*context).newArtifactId());
       bytes += artifact.bytes;
       if (bytes > request.reserveBytes())
         throw Error("render_limit",
@@ -782,14 +908,18 @@ public:
       }
       const QString diagnostic =
           publicationCheck ? publicationCheck() : QString();
-      if (!diagnostic.isEmpty()) return fail(diagnostic);
+      if (!diagnostic.isEmpty())
+        return fail("source_changed", "verify", diagnostic);
       complete();
     } catch (const Error& exception) {
-      fail(exception.message);
+      fail(failureCode(exception.code, "verification_failed"), "verify",
+           exception.message);
     } catch (const std::exception& exception) {
-      fail(QString::fromUtf8(exception.what()));
+      fail("verification_failed", "verify",
+           QString::fromUtf8(exception.what()));
     } catch (...) {
-      fail("The rendered PNG could not be verified.");
+      fail("verification_failed", "verify",
+           "The rendered PNG could not be verified.");
     }
   }
 };
@@ -862,41 +992,6 @@ static void configureSnapshot(RenderJob& job) {
   job.renderer->addListener(&job);
   job.nativeCancel = job.renderer->getCancelCallback();
   job.nextFrame    = job.request.start;
-}
-
-}  // namespace RenderDetail
-
-struct RenderState final {
-  std::map<QString, std::shared_ptr<RenderDetail::RenderJob>> jobs;
-
-  std::shared_ptr<RenderDetail::RenderJob> job(const QString& id) const {
-    const auto found = jobs.find(id);
-    if (found == jobs.end())
-      throw Error("unknown_job",
-                  "The render job is unknown or belongs to an expired worker.");
-    return found->second;
-  }
-
-  bool idle() const {
-    for (const auto& entry : jobs)
-      if (!entry.second->terminal()) return false;
-    return true;
-  }
-
-  qint64 reservedBytes() const {
-    qint64 reserved = 0;
-    for (const auto& entry : jobs)
-      reserved += entry.second->request.reserveBytes();
-    return reserved;
-  }
-};
-
-namespace RenderDetail {
-
-static RenderState& renderState(Context& context) {
-  if (!context.renderState)
-    context.renderState = std::make_shared<RenderState>();
-  return *context.renderState;
 }
 
 // Every check render.preflight reports, in the order render jobs apply them.
@@ -1168,7 +1263,8 @@ private:
     if (!m_plan.framesValid() || !m_plan.sizeValid())
       return check.skip("not_run", "request_invalid");
     const qint64 reserved =
-        renderState(m_context).reservedBytes() + m_plan.request.reserveBytes();
+        jobRegistry(m_context).reservedBytes(JobLane::Render) +
+        m_plan.request.reserveBytes();
     if (reserved > kWorkspaceBytes)
       check.fail("render_limit",
                  "This worker has reached its render output storage limit.",
@@ -1177,16 +1273,18 @@ private:
   }
 
   void lane(Check& check) {
-    if (!renderState(m_context).idle())
+    const QString active = jobRegistry(m_context).active(JobLane::Render);
+    if (!active.isEmpty())
       check.fail("render_busy",
-                 "Wait for the active render job to finish or cancel it.");
+                 "Wait for the active render job to finish or cancel it.",
+                 {{"job_id", active}});
   }
 
   void retention(Check& check) {
-    if (int(renderState(m_context).jobs.size()) >= kMaxJobs)
+    if (jobRegistry(m_context).retained(JobLane::Render) >= JobsPerLane)
       check.fail("render_limit",
                  "This worker has reached its render job limit.",
-                 {{"max_retained_jobs", kMaxJobs}});
+                 {{"max_retained_jobs", JobsPerLane}});
   }
 
   static bool dependencyReason(const ContentRow& row) {
@@ -1236,24 +1334,52 @@ private:
   QStringList m_probes;
 };
 
+static QString kindText(Kind kind) {
+  return kind == Kind::Preview ? "render_preview" : "render_sequence";
+}
+
+// The request as admitted: the caller's arguments with every default filled.
+static QJsonObject admittedRequest(const QJsonObject& params,
+                                   const Plan& plan) {
+  const Request& request = plan.request;
+  QJsonObject result     = params;
+  result.remove("operation_id");
+  result.remove("expected_revision");
+  result.insert("width", request.width);
+  result.insert("height", request.height);
+  if (plan.kind == Kind::Preview) {
+    result.insert("frame", request.start);
+    return result;
+  }
+  result.insert("start_frame", request.start);
+  result.insert("end_frame", request.end);
+  result.insert("step", request.step);
+  result.insert("format", formatText(request.format));
+  return result;
+}
+
 static std::shared_ptr<RenderJob> newJob(Context& context, Document& document,
-                                         const Plan& plan) {
-  auto job        = std::make_shared<RenderJob>();
-  job->id         = newId("job_");
-  job->documentId = document.id;
-  job->revision   = document.revisionText();
-  job->request    = plan.request;
-  job->effective  = effectiveOutput(plan);
-  job->context    = &context;
-  job->workspace  = context.workspace();
-  job->directory =
-      context.resolvePath(context.workspace() + "/renders/" + job->id, true);
+                                         const Plan& plan, const QString& kind,
+                                         const QJsonObject& params) {
+  JobRegistry& registry   = jobRegistry(context);
+  auto job                = std::make_shared<RenderJob>();
+  job->context            = &context;
+  job->common.id          = registry.newJobId();
+  job->common.kind        = kind;
+  job->common.documentId  = document.id;
+  job->common.revision    = document.revisionText();
+  job->common.submittedMs = registry.elapsedMs();
+  job->common.request     = admittedRequest(params, plan);
+  job->request            = plan.request;
+  job->effective          = effectiveOutput(plan);
+  job->workspace          = context.workspace();
+  job->directory          = context.resolvePath(
+      context.workspace() + "/renders/" + job->common.id, true);
   return job;
 }
 
 static void linkReadOnlySources(RenderJob& job, Document& document) {
-  job.snapshotInputs                = linkedSnapshotInputs();
-  job.sourceFingerprint             = document.readOnly->fingerprint;
+  job.common.sourceFingerprint      = document.readOnly->fingerprint;
   const std::vector<SourcePin> pins = document.readOnly->pins;
   job.publicationCheck              = [pins]() {
     const QStringList changed = changedSourcePins(pins);
@@ -1272,13 +1398,14 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   RenderChecks checks(context, document, plan);
   checks.run(CheckIds, true);
   checks.requireReady();
-  auto job                 = newJob(context, document, plan);
+  auto job = newJob(context, document, plan, kindText(plan.kind), params);
   job->provenance          = checks.provenance;
   job->mediaToolsDirectory = context.mediaToolsDirectory;
-  RenderState& state       = renderState(context);
   context.markMutationStarted();
 #ifdef BUILD_UI_PORT_TESTS
   job->fault = context.renderFault;
+  if (!context.sceneHostDocument.isEmpty() && context.childFault == "busy-host")
+    job->fault = context.childFault;
 #endif
   try {
     if (QFileInfo::exists(job->directory) ||
@@ -1292,7 +1419,8 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
       job->snapshot = loadReadOnlySnapshot(context, document);
     } else {
       job->snapshot =
-          createRenderSnapshot(context, document, job->directory + "/snapshot");
+          createRenderSnapshot(context, document, job->directory + "/snapshot",
+                               &job->common.snapshotManifest);
     }
     configureSnapshot(*job);
   } catch (...) {
@@ -1300,10 +1428,10 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
     if (!QFileInfo::exists(job->directory)) context.resetMutationStarted();
     throw;
   }
-  state.jobs.emplace(job->id, job);
+  jobRegistry(context).add(job);
   job->scheduleDeadline(context.renderDeadlineMs);
   job->scheduleBuild();
-  return job->describe();
+  return job->record();
 }
 
 static void requirePreflightFields(const QJsonObject& params,
@@ -1375,7 +1503,6 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
   RenderChecks checks(context, document, plan);
   checks.run({"graphics", "writer", "lane", "retention", "storage"}, true);
   checks.requireReady();
-  auto& state = renderState(context);
   if (Preferences::instance()->isSceneNumberingEnabled())
     throw Error("unsupported_render_settings", "Disable scene numbering before automated rendering.");
   validateAutomationScene(*document.scene);
@@ -1384,7 +1511,7 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
       plan.request.end, 1);
   checkNeuralDeadline(deadline);
   const NeuralPreview preview = prepareNeuralPreview(context, document, params, deadline);
-  auto job        = newJob(context, document, plan);
+  auto job        = newJob(context, document, plan, "neural_preview", params);
   job->provenance = provenance;
   checkNeuralDeadline(deadline);
   context.markMutationStarted();
@@ -1395,7 +1522,8 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
                   "Cannot create a private Neural preview output directory.");
     job->claimOutput();
     job->snapshot =
-        createRenderSnapshot(context, document, job->directory + "/snapshot");
+        createRenderSnapshot(context, document, job->directory + "/snapshot",
+                             &job->common.snapshotManifest);
     checkNeuralDeadline(deadline);
     attachNeuralPreview(*job, preview);
     configureSnapshot(*job);
@@ -1405,10 +1533,10 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
     if (!QFileInfo::exists(job->directory)) context.resetMutationStarted();
     throw;
   }
-  state.jobs.emplace(job->id, job);
+  jobRegistry(context).add(job);
   job->observeNeuralDeadline();
   job->scheduleBuild();
-  return job->describe();
+  return job->record();
 }
 
 static void validateMovieArtifact(Context& context, const Artifact& artifact) {
@@ -1432,9 +1560,11 @@ static QJsonValue artifactList(Context& context, const RenderJob& job) {
     validateMovieArtifact(context, artifact);
     artifacts.append(artifact.metadata());
   }
-  QJsonObject result = job.describe();
-  result.insert("artifacts", artifacts);
-  return result;
+  return QJsonObject{{"job", job.record()}, {"artifacts", artifacts}};
+}
+
+QJsonValue RenderJob::result(Context& owner, const QJsonObject&) {
+  return artifactList(owner, *this);
 }
 
 static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
@@ -1453,9 +1583,9 @@ static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
     throw Error("invalid_artifact",
                 "The artifact was modified after finalization.");
   QJsonObject result = artifact.metadata();
-  result.insert("job_id", job.id);
-  result.insert("document_id", job.documentId);
-  result.insert("source_revision", job.revision);
+  result.insert("job_id", job.common.id);
+  result.insert("document_id", job.common.documentId);
+  result.insert("source_revision", job.common.revision);
   result.insert("image",
                 QJsonObject{{"mimeType", "image/png"},
                             {"data", QString::fromLatin1(data.toBase64())}});
@@ -1463,14 +1593,18 @@ static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
 }
 
 static QJsonValue artifactRead(Context& context, const QString& id) {
-  for (const auto& entry : renderState(context).jobs) {
-    const RenderJob& job = *entry.second;
-    if (job.status != JobStatus::Completed) continue;
-    for (const Artifact& artifact : job.artifacts)
-      if (artifact.id == id) return readImageArtifact(context, job, artifact);
+  JobRegistry& registry = jobRegistry(context);
+  for (const auto& entry : registry.jobs()) {
+    const auto* job = dynamic_cast<const RenderJob*>(entry.get());
+    if (!job || job->status != JobStatus::Completed) continue;
+    for (const Artifact& artifact : job->artifacts)
+      if (artifact.id == id) return readImageArtifact(context, *job, artifact);
   }
-  throw Error("unknown_artifact",
-              "The artifact is unknown or belongs to an expired worker.");
+  const bool ours =
+      id.startsWith("artifact_" + registry.instance().left(8) + "_");
+  throw Error("unknown_artifact", "This worker has no artifact with this id.",
+              {{"reason", ours ? "not_issued" : "other_worker"},
+               {"worker_instance_id", registry.instance()}});
 }
 
 static QJsonObject renderCapabilities(Context& context) {
@@ -1501,7 +1635,7 @@ static QJsonObject renderCapabilities(Context& context) {
           {"max_dimension", kMaxDimension},
           {"max_preview_dimension", kPreviewDimension},
           {"max_active_jobs", 1},
-          {"max_retained_jobs", kMaxJobs},
+          {"max_retained_jobs", JobsPerLane},
           {"inline_image_bytes", double(kInlineBytes)},
           {"storage_budget_bytes", double(kWorkspaceBytes)},
           {"frame_origin", 0},
@@ -1515,18 +1649,6 @@ static QJsonObject jobOperation(const QString& name, const QString& description,
   return operation(name, description, properties, required, true);
 }
 
-static QJsonValue executeJob(Context& context, const QString& method,
-                             const QJsonObject& params) {
-  const auto job = renderState(context).job(requiredString(params, "job_id"));
-  if (method == "render.status") return job->describe();
-  if (method == "render.artifacts") return artifactList(context, *job);
-  if (method != "render.cancel")
-    throw Error("unknown_operation", "Unknown native render operation.");
-  if (!job->terminal()) context.markMutationStarted();
-  job->cancel();
-  return job->describe();
-}
-
 }  // namespace RenderDetail
 
 QJsonArray renderOperations() {
@@ -1534,7 +1656,6 @@ QJsonArray renderOperations() {
   using RenderDetail::jobOperation;
   using RenderDetail::stringSchema;
   const QJsonObject document{{"document_id", stringSchema()}};
-  const QJsonObject job{{"job_id", stringSchema()}};
   QJsonObject preview = document;
   preview.insert("frame", integerSchema(0, 1000000));
   preview.insert("width", integerSchema(1, RenderDetail::kPreviewDimension));
@@ -1585,15 +1706,6 @@ QJsonArray renderOperations() {
                    "Start a bounded immutable PNG sequence or opaque MP4 job; "
                    "MP4 requires even dimensions and step 1.",
                    sequence, {"document_id", "start_frame", "end_frame"}),
-      operation("render.status",
-                "Inspect render progress and writer finalization.", job,
-                {"job_id"}),
-      jobOperation("render.cancel",
-                   "Request cancellation; poll status until terminal.", job,
-                   {"job_id"}),
-      operation("render.artifacts",
-                "List verified artifacts after complete writer finalization.",
-                job, {"job_id"}),
       operation("artifact.read",
                 "Read an owned PNG artifact as a bounded inline image.",
                 {{"artifact_id", stringSchema()}}, {"artifact_id"})};
@@ -1616,38 +1728,40 @@ QJsonValue executeRender(Context& context, const QString& method,
   if (method == "artifact.read")
     return RenderDetail::artifactRead(context,
                                       requiredString(params, "artifact_id"));
-  return RenderDetail::executeJob(context, method, params);
+  throw Error("unknown_operation", "Unknown native render operation.");
 }
 
 void requestRenderCancellation(Context& context) {
   Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
-  if (!context.renderState) return;
-  for (const auto& entry : context.renderState->jobs) entry.second->cancel();
+  if (!context.jobs) return;
+  for (const auto& job : context.jobs->jobs())
+    if (auto* render = dynamic_cast<RenderDetail::RenderJob*>(job.get()))
+      render->requestStop();
 }
 
 int renderJobCount(Context& context) {
-  return context.renderState ? int(context.renderState->jobs.size()) : 0;
+  return context.jobs ? context.jobs->retained(JobLane::Render) : 0;
 }
 
 QString activeRenderJob(Context& context) {
-  if (!context.renderState) return QString();
-  for (const auto& entry : context.renderState->jobs)
-    if (!entry.second->terminal()) return entry.first;
-  return QString();
+  return context.jobs ? context.jobs->active(JobLane::Render) : QString();
 }
 
 void sweepAbandonedRenders(Context& context) {
   OwnershipClaim::removeAbandoned(context.workspace() + "/renders", {"job_*"});
 }
 
+static bool rendersIdle(const Context& context) {
+  return !context.jobs || context.jobs->active(JobLane::Render).isEmpty();
+}
+
 void shutdownRender(Context& context) {
   requestRenderCancellation(context);
-  if (!context.renderState) return;
-  if (context.renderState->idle()) return;
+  if (rendersIdle(context)) return;
   QEventLoop drain;
   QTimer poll;
   QObject::connect(&poll, &QTimer::timeout, &drain, [&context, &drain]() {
-    if (context.renderState->idle()) drain.quit();
+    if (rendersIdle(context)) drain.quit();
   });
   poll.start(10);
   drain.exec(QEventLoop::ExcludeUserInputEvents);

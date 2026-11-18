@@ -118,6 +118,7 @@ class Verification final : public MovieVerification,
   qint64 m_hashed   = 0;
   bool m_secondHash = false;
   bool m_done       = false;
+  bool m_forced     = false;
 
 public:
   Verification(MovieVerificationConfig config,
@@ -155,6 +156,7 @@ public:
   }
 
   void cancel() override { abort("Movie verification canceled."); }
+  bool forcedExit() const override { return m_forced; }
 
 private:
   bool validFile() const {
@@ -263,12 +265,15 @@ private:
     finish({});
   }
 
+  // The first reason stands: a cancel that arrives while the timed-out probe
+  // is being killed does not turn the timeout into a cancellation.
   void abort(const QString& error) {
-    if (m_done) return;
+    if (m_done || !m_failure.isEmpty()) return;
     m_failure = error;
-    if (m_process.state() != QProcess::NotRunning)
+    if (m_process.state() != QProcess::NotRunning) {
+      m_forced = true;
       m_process.kill();
-    else
+    } else
       finish(error);
   }
 

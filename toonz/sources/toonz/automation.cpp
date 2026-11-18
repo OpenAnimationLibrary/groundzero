@@ -1,4 +1,6 @@
 #include "automation.h"
+#include "automation_build_identity.h"
+#include "automation_jobs.h"
 #include "automation_dispatch.h"
 #include "automation_files.h"
 #include "automation_containment.h"
@@ -22,6 +24,7 @@
 #include "toonz/studiopalette.h"
 #include "toonz/toonzfolders.h"
 
+#include <QAbstractEventDispatcher>
 #include <QApplication>
 #include <QDir>
 #include <QFile>
@@ -29,6 +32,8 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QMetaObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QSemaphore>
 #include <QSettings>
 #include <QThread>
@@ -86,6 +91,9 @@ struct Options {
   QStringList sharedWrites;
   QString parseHelper;
   QString sceneHost;
+  // A scene host's worker instance and monotonic start time.
+  QString workerInstance;
+  QString workerEpoch;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
@@ -93,6 +101,7 @@ struct Options {
   QString renderFault;
   QString writeFault;
   QStringList pathSwap;
+  QStringList publishFaults;
 #endif
 };
 
@@ -217,6 +226,10 @@ void addOption(Options& options, const QString& key, const QString& value) {
     options.parseHelper = value;
   else if (key == "--scene-host")
     options.sceneHost = value;
+  else if (key == "--worker-instance")
+    options.workerInstance = value;
+  else if (key == "--worker-epoch")
+    options.workerEpoch = value;
   else
     addWorkerRoot(options, key, value);
 }
@@ -225,7 +238,8 @@ bool valueOption(const QString& key) {
   return key == "--workspace" || key == "--input-root" ||
          key == "--media-tools" || key == "--shared-root" ||
          key == "--shared-write" || key == "--parse-helper" ||
-         key == "--scene-host";
+         key == "--scene-host" || key == "--worker-instance" ||
+         key == "--worker-epoch";
 }
 
 bool overlapping(const QString& first, const QString& second) {
@@ -256,6 +270,21 @@ void validateSharedRoots(Options& options) {
   }
 }
 
+// Only a scene host takes its worker's instance and clock, and needs both.
+void validateWorkerInstance(const Options& options) {
+  const bool given =
+      !options.workerInstance.isEmpty() || !options.workerEpoch.isEmpty();
+  if (!given && options.sceneHost.isEmpty()) return;
+  bool number = false;
+  options.workerEpoch.toLongLong(&number);
+  const QUuid instance(options.workerInstance);
+  if (options.sceneHost.isEmpty() || !number || instance.isNull() ||
+      instance.toString(QUuid::WithoutBraces) != options.workerInstance)
+    throw Error("invalid_argument",
+                "A scene host takes its worker's --worker-instance UUID and "
+                "--worker-epoch milliseconds; a worker takes neither.");
+}
+
 Options parseOptions(const QStringList& arguments) {
   Options options;
   for (int index = 2; index < arguments.size(); ++index) {
@@ -281,6 +310,10 @@ Options parseOptions(const QStringList& arguments) {
       options.writeFault = arguments[++index];
       continue;
     }
+    if (key == "--test-publish-fault" && index + 1 < arguments.size()) {
+      options.publishFaults = arguments[++index].split(',');
+      continue;
+    }
     if (key == "--test-path-swap" && index + 3 < arguments.size()) {
       options.pathSwap = arguments.mid(index + 1, 3);
       index += 3;
@@ -301,6 +334,7 @@ Options parseOptions(const QStringList& arguments) {
                                        !options.sharedRoots.isEmpty()))
     throw Error("invalid_argument",
                 "A scene host never receives media tools or shared roots.");
+  validateWorkerInstance(options);
   validateSharedRoots(options);
   return options;
 }
@@ -391,10 +425,15 @@ class InputThread final : public QThread {
 public:
   using Consumer = std::function<bool(const QByteArray&, bool)>;
   using Stop = std::function<void()>;
-  InputThread(QApplication& application, Consumer consumer, Stop stop)
-      : m_application(application),
-        m_consumer(std::move(consumer)),
-        m_stop(std::move(stop)) {}
+  // Answers a line on this thread and returns true, or returns false to
+  // deliver it to the application thread.
+  using Direct = std::function<bool(const QByteArray&)>;
+  InputThread(QApplication& application, Consumer consumer, Stop stop,
+              Direct direct)
+      : m_application(application)
+      , m_consumer(std::move(consumer))
+      , m_stop(std::move(stop))
+      , m_direct(std::move(direct)) {}
   int exitCode() const { return m_exitCode; }
   void eventLoopReturned() { m_loopReturned.release(); }
 
@@ -404,6 +443,10 @@ protected:
     int next = 0;
     while ((next = std::fgetc(stdin)) != EOF) {
       if (next == '\n') {
+        if (m_direct(line)) {
+          line.clear();
+          continue;
+        }
         if (!deliver(line, false)) {
           requestStop();
           return;
@@ -453,6 +496,7 @@ private:
   QApplication& m_application;
   Consumer m_consumer;
   Stop m_stop;
+  Direct m_direct;
   QSemaphore m_loopReturned;
   int m_exitCode = 0;
 };
@@ -474,6 +518,35 @@ QJsonObject processLine(Dispatcher& dispatcher, const QByteArray& line,
   } catch (const Error& error) {
     return {{"id", QJsonValue::Null}, {"error", errorObject(error)}};
   }
+}
+
+// A job poll this process can answer from published records: job.status, and
+// job.cancel in a scene host, whose worker already holds the receipt. Every
+// other request, and any request this cannot parse exactly, goes to the
+// dispatcher.
+QJsonObject publishedPoll(JobRegistry& jobs, const QByteArray& line,
+                          bool host) {
+  const QJsonDocument document = QJsonDocument::fromJson(line);
+  if (!document.isObject()) return {};
+  const QJsonObject request = document.object();
+  const QString method      = request.value("method").toString();
+  const QJsonObject params  = request.value("params").toObject();
+  const bool cancel         = method == "job.cancel" && host;
+  QStringList keys          = params.keys();
+  keys.removeOne("job_id");
+  if (cancel) keys.removeOne("operation_id");
+  if ((method != "job.status" && !cancel) || !keys.isEmpty() ||
+      !params.value("job_id").isString())
+    return {};
+  try {
+    Live::rejectDuplicateKeys(line);
+  } catch (const Error&) {
+    return {};
+  }
+  const QJsonValue record =
+      jobs.answerPoll(params.value("job_id").toString(), cancel);
+  if (record.isNull()) return {};
+  return {{"id", request.value("id")}, {"result", record}};
 }
 
 bool writeResponse(QFile& output, QJsonObject response) {
@@ -538,6 +611,7 @@ int domainTestResult(Context& context) {
     runAutomationMediaProcessTests(context);
     runAutomationSceneHostTests(context);
     runAutomationRuntimeTests(context);
+    runAutomationJobsTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "
@@ -585,10 +659,16 @@ int executeWorker(QApplication& application, QFile& output,
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)
     context.renderDeadlineMs = options.testRenderDeadlineMs;
-  context.childFault = options.childFault;
+  // An MCP client's worker is started by the adapter, which passes no test
+  // flags; its tests set the child fault in the environment instead.
+  context.childFault = options.childFault.isEmpty()
+                           ? qEnvironmentVariable("GROUNDZERO_TEST_CHILD_FAULT")
+                           : options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
   context.pathSwap    = options.pathSwap;
+  armPublishFaults(options.publishFaults);
+  setMacroVerifyCrash(options.writeFault == "macro_verify_crash");
   if (!options.pathSwap.isEmpty())
     armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif
@@ -598,23 +678,45 @@ int executeWorker(QApplication& application, QFile& output,
     return runSharedParseHelper(context, options.parseHelper, output);
   if (!options.sceneHost.isEmpty()) {
     context.sceneHostDocument = options.sceneHost;
+    context.workerInstance    = options.workerInstance;
+    context.workerEpochMs     = options.workerEpoch.toLongLong();
     startSceneHostWatchdog();
   }
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
   sweepAbandonedRenders(context);
+  JobRegistry& jobs = jobRegistry(context);
+  prefetchBuildIdentity();
   Dispatcher dispatcher(context);
+  const bool host = !context.sceneHostDocument.isEmpty();
+  QMutex outputLock;
+  // A poll answer is as fresh as the last request this process answered or
+  // the last time its application thread went idle, whichever is later.
+  QObject::connect(QAbstractEventDispatcher::instance(),
+                   &QAbstractEventDispatcher::aboutToBlock, &application,
+                   [&jobs]() { jobs.publish(); });
   InputThread reader(
       application,
-      [&dispatcher, &output](const QByteArray& line, bool tooLarge) {
-        return writeResponse(output, processLine(dispatcher, line, tooLarge));
+      [&dispatcher, &output, &outputLock, &jobs](const QByteArray& line,
+                                                 bool tooLarge) {
+        const QJsonObject response = processLine(dispatcher, line, tooLarge);
+        jobs.publish();
+        QMutexLocker lock(&outputLock);
+        return writeResponse(output, response);
       },
       [&application, &context]() {
         // A native writer can be inside a nested event loop. Set its abort
         // token before quit unwinds that loop into a blocking writer join.
         requestRenderCancellation(context);
         application.quit();
+      },
+      [&jobs, &output, &outputLock, host](const QByteArray& line) {
+        const QJsonObject response = publishedPoll(jobs, line, host);
+        if (response.isEmpty()) return false;
+        QMutexLocker lock(&outputLock);
+        writeResponse(output, response);
+        return true;
       });
   reader.start();
   const int result = application.exec();

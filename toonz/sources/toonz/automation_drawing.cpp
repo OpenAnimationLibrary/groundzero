@@ -1374,9 +1374,7 @@ QJsonObject exportPng(Context& context, Document& document,
     TImageWriterP writer(TFilePath(temporaryPath.toStdWString()));
     writer->save(image);
   }
-  context.markMutationStarted();
-  if (!publishApproved(temporaryPath, path))
-    throw Error("io_error",
+  publishStaged(context, temporaryPath, path, "io_error",
                 "Cannot publish PNG output; destination may already exist");
   return {{"path", path},
           {"format", "png"},

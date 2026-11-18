@@ -40,6 +40,12 @@ constexpr qint64 FirstFramePixelLimit   = 268435456;
 constexpr int UnsupportedRowLimit       = 256;
 constexpr int BlockerRowLimit           = 64;
 constexpr int ChangedPathLimit          = 64;
+// Pinned regular files up to this size are content-digested at open while
+// the scene's digested total stays within the budget; the rest are checked
+// by metadata only (probe P-9).
+constexpr qint64 PinDigestFileBytes  = 64LL * 1024 * 1024;
+constexpr qint64 PinDigestTotalBytes = 512LL * 1024 * 1024;
+constexpr int MetadataOnlyPathLimit  = 64;
 
 QString readOnlyProfileName();
 QString linkedSnapshotInputs();
@@ -49,15 +55,19 @@ QString fileRevision(const QByteArray& bytes);
 // "project_" + the first 32 hex digits of SHA-256 over the canonical path.
 QString projectIdForFile(const QString& canonicalProjectFile);
 
-// One stat-pinned source file.
+// One pinned source file: its stat and, within the digest bounds, a SHA-256
+// of its content.
 struct SourcePin final {
   QString path;
   qint64 size    = -1;
   qint64 mtimeNs = 0;
   quint64 fileId = 0;
   bool exists    = false;
+  bool regular   = false;
   // The stat failed for a reason other than a missing file.
   bool unreadable = false;
+  // Empty: the file is checked by metadata only.
+  QByteArray digest;
 
   bool operator==(const SourcePin& other) const;
   bool operator!=(const SourcePin& other) const { return !(*this == other); }
@@ -65,13 +75,18 @@ struct SourcePin final {
 
 // Stat a file without reading it; a missing file gives exists == false.
 SourcePin statSourcePin(const QString& path);
+// SHA-256 of a regular file read whole at the stated size; empty when the
+// file cannot be read whole at that size.
+QByteArray contentDigest(const QString& path, qint64 size);
+// The file as it is now, digested when the pin was and the stat still matches.
+SourcePin currentSourcePin(const SourcePin& pinned);
 struct ReadOnlyScene;
 // Pin a file once; throws scene_limit past PinnedFileLimit pins.
 void addSourcePin(ReadOnlyScene& source, const QString& path);
 // "source:" + SHA-256 over the revisions and the sorted pins.
 QString sourceFingerprint(const QStringList& revisions,
                           const std::vector<SourcePin>& pins);
-// The pinned paths whose current stat differs, in pin order.
+// The pinned paths whose current stat or digest differs, in pin order.
 QStringList changedSourcePins(const std::vector<SourcePin>& pins);
 // Throws source_changed when any pin differs from the file on disk.
 void requireUnchangedSources(const std::vector<SourcePin>& pins);
@@ -124,6 +139,7 @@ struct ReadOnlyScene final {
   std::shared_ptr<TProject> project;
   std::vector<SourcePin> pins;
   QSet<QString> pinnedPaths;
+  qint64 digestedBytes = 0;
   std::vector<ContentRow> rows;
   QHash<TXshLevel*, LevelState> levels;
 

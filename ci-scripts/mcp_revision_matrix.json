@@ -5039,7 +5039,7 @@
    ],
    "effect": {
     "read": {
-     "tool": "render.status",
+     "tool": "job.status",
      "args": {
       "job_id": "$job"
      },
@@ -5047,7 +5047,7 @@
     }
    },
    "settle": {
-    "tool": "render.status",
+    "tool": "job.status",
     "args": {
      "job_id": "$job"
     }
@@ -5090,7 +5090,7 @@
    ],
    "effect": {
     "read": {
-     "tool": "render.status",
+     "tool": "job.status",
      "args": {
       "job_id": "$job"
      },
@@ -5098,13 +5098,13 @@
     }
    },
    "settle": {
-    "tool": "render.status",
+    "tool": "job.status",
     "args": {
      "job_id": "$job"
     }
    }
   },
-  "render.cancel": {
+  "job.cancel": {
    "group": "render",
    "kind": "file",
    "fixture": "long_job",
@@ -5132,7 +5132,7 @@
    ],
    "effect": {
     "read": {
-     "tool": "render.status",
+     "tool": "job.status",
      "args": {
       "job_id": "$job"
      },
@@ -5140,7 +5140,7 @@
     }
    },
    "settle": {
-    "tool": "render.status",
+    "tool": "job.status",
     "args": {
      "job_id": "$job"
     }

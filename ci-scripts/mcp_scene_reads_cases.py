@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
 DRAWING = {"number": 1, "suffix": ""}
+# The scene host's content digest bounds (PinDigestFileBytes, PinDigestTotalBytes).
+DIGEST_FILE_BYTES = 64 * 1024 * 1024
+DIGEST_TOTAL_BYTES = 512 * 1024 * 1024
+TICK_NS = 1_700_000_000 * 1_000_000_000
 
 
 # ---------------------------------------------------------------- helpers
@@ -39,7 +43,7 @@ def source_status(case: NativeAcceptance, document: str) -> dict[str, Any]:
 
 def job_status(case: NativeAcceptance, job: str) -> dict[str, Any]:
     """Poll one render job; the job tools are renamed by a later contract."""
-    return call(case, case.worker, "render.status", {"job_id": job})
+    return call(case, case.worker, "job.status", {"job_id": job})
 
 
 def wait_job(case: NativeAcceptance, job: str) -> dict[str, Any]:
@@ -249,6 +253,95 @@ def read_only_source_status_reports_each_change(case: NativeAcceptance) -> None:
         "unsupported_target",
     )
     access.discard(case, case.worker, document)
+
+
+def _rewrite_in_place(path: Path, offset: int) -> None:
+    """Flip one byte without changing size or identity, then put back the whole-second time a
+    file system with a coarse clock would show."""
+    with path.open("r+b") as stream:
+        stream.seek(offset)
+        byte = stream.read(1)
+        stream.seek(offset)
+        stream.write(bytes([byte[0] ^ 0xFF]))
+    os.utime(path, ns=(TICK_NS, TICK_NS))
+
+
+def _metadata_only(status: dict[str, Any]) -> set[str]:
+    return {Path(path).name for path in status["verification"]["metadata_only_paths"]}
+
+
+def read_only_source_status_checks_content_within_bounds(case: NativeAcceptance) -> None:
+    """An equal-size rewrite in place within one clock tick is a change for a digested file;
+    a file above the per-file bound is reported as checked by metadata only."""
+    scenes = access.corpus(case)
+    assets = scenes["B"].parent / "assets"
+    small, large = assets / "level-0.pli", assets / "level-2.0001.png"
+    os.truncate(large, DIGEST_FILE_BYTES + 1)
+    for path in (small, large):
+        os.utime(path, ns=(TICK_NS, TICK_NS))
+    opened = access.open_scene(case, case.worker, scenes["B"], "standalone")
+    document = opened["document_id"]
+    before = source_status(case, document)
+    scope = before["verification"]
+    case.assertEqual(scope["content_checked_files"], opened["source"]["content_pinned_file_count"])
+    case.assertEqual(
+        scope["content_checked_files"] + scope["metadata_only_files"], before["checked_files"]
+    )
+    case.assertIn(large.name, _metadata_only(before))
+    case.assertNotIn(small.name, _metadata_only(before))
+    _rewrite_in_place(small, small.stat().st_size // 2)
+    _rewrite_in_place(large, DIGEST_FILE_BYTES)
+    after = source_status(case, document)
+    changes = {Path(row["path"]).name: row["change"] for row in after["changed"]}
+    case.assertEqual(changes, {small.name: "modified"})
+    case.assertNotEqual(after["current_fingerprint"], before["fingerprint_at_open"])
+    case.assertIn(large.name, _metadata_only(after))
+    summary = read(case, "scene.summary", document)
+    ink = next(level["level_id"] for level in summary["levels"] if level["name"] == "Ink")
+    decode = {"document_id": document, "level_id": ink, "drawing_id": DRAWING}
+    refuse(case, case.worker, "vector.inspect", decode, "source_changed")
+    preview = {"document_id": document, "expected_revision": "0", "frame": 0, "width": 32}
+    preview.update(height=32, operation_id=access._op(case))
+    refuse(case, case.worker, "render.preview", preview, "source_changed")
+    access.discard(case, case.worker, document)
+
+
+def _budget_scene(case: NativeAcceptance, count: int) -> Path:
+    """The base package plus count PNG levels, each one frame padded to the per-file bound."""
+    base = access.base_package(case)
+    folder = case.inputs / "budget"
+    shutil.copytree(base / "assets", folder / "assets")
+    png = (base / "assets" / "level-2.0001.png").read_bytes()
+    levels = ""
+    for index in range(count):
+        frame = folder / "big" / f"b{index}" / f"b{index}.0001.png"
+        frame.parent.mkdir(parents=True)
+        frame.write_bytes(png)
+        os.truncate(frame, DIGEST_FILE_BYTES)
+        levels += (
+            f"<level id='{6000 + index}'>\nBig{index} \n"
+            '<info dpix="120.000000" dpiy="120.000000"/>\n'
+            f'<path> "$scenefolder/big/b{index}/b{index}..png" </path>\n</level>\n'
+        )
+    anchor = "</levels>\n    <folder"
+    text = (base / "scene.tnz").read_text().replace(anchor, levels + anchor, 1)
+    (folder / "shot.tnz").write_text(text)
+    return folder / "shot.tnz"
+
+
+def read_only_content_digests_hold_their_deadlines(case: NativeAcceptance) -> None:
+    """At the digest budget, open and source_status finish inside their deadlines, and the
+    files past the budget are checked by metadata only."""
+    count = DIGEST_TOTAL_BYTES // DIGEST_FILE_BYTES + 1
+    opened = access.open_scene(case, case.worker, _budget_scene(case, count), "standalone")
+    case.assertLess(opened["load"]["elapsed_ms"], 60000)
+    status = source_status(case, opened["document_id"])
+    case.assertEqual(status["state"], "unchanged")
+    case.assertLess(status["elapsed_ms"], 30000)
+    skipped = {name for name in _metadata_only(status) if name.startswith("b")}
+    case.assertIn(f"b{count - 1}.0001.png", skipped)
+    case.assertIn(len(skipped), {1, 2}, skipped)
+    access.discard(case, case.worker, opened["document_id"])
 
 
 # ---------------------------------------------------------------- projects

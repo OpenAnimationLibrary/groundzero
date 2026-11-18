@@ -640,6 +640,9 @@ QJsonObject sourceReport(ReadOnlyScene& source, ToonzScene& scene) {
   for (const std::string& tag : unrecognized)
     if (tags.size() < 32) tags.append(QString::fromStdString(tag).left(128));
   const auto version = scene.getVersionNumber();
+  int digested       = 0;
+  for (const SourcePin& pin : source.pins)
+    if (!pin.digest.isEmpty()) ++digested;
   return {{"scene_path", source.scenePath},
           {"scene_file_revision", source.sceneRevision},
           {"size_bytes", double(QFileInfo(source.sceneCopy).size())},
@@ -648,7 +651,8 @@ QJsonObject sourceReport(ReadOnlyScene& source, ToonzScene& scene) {
           {"unrecognized_scene_tags", tags},
           {"unrecognized_tag_count", int(unrecognized.size())},
           {"source_fingerprint", source.fingerprint},
-          {"pinned_file_count", int(source.pins.size())}};
+          {"pinned_file_count", int(source.pins.size())},
+          {"content_pinned_file_count", digested}};
 }
 
 QJsonObject contentReport(const ReadOnlyScene& source) {

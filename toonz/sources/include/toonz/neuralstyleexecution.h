@@ -33,6 +33,9 @@ public:
   bool verify(QString& error) const;
   void helperStarting() const;
   void helperClosed() const;
+  // A helper of this execution was killed before it exited by itself.
+  void helperKilled() const;
+  bool helperWasKilled() const;
   bool helpersClosed() const;
   std::unique_lock<std::timed_mutex> lockCompute(
       const int* cancel = nullptr) const;
@@ -40,6 +43,7 @@ public:
 
 private:
   mutable std::atomic_int m_helpers{0};
+  mutable std::atomic_bool m_killed{false};
   mutable std::timed_mutex m_compute;
 };
 

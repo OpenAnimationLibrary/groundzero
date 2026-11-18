@@ -6,6 +6,7 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_hook.h"
+#include "automation_jobs.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 #include "automation_shared.h"
@@ -21,6 +22,7 @@
 #include <QRegularExpression>
 #include <QScopedValueRollback>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -29,7 +31,8 @@ namespace {
 
 constexpr qint64 maximumReceiptBytes = 64 * 1024 * 1024;
 constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
-constexpr int maximumControlReceipts = 32;
+// One reserved first cancellation per retained job: two lanes of 32.
+constexpr int maximumControlReceipts = 2 * JobsPerLane;
 constexpr qint64 maximumControlBytes = 16 * 1024;
 // The error envelope of every outputSchema bounds messages to 2048 characters.
 constexpr int maximumErrorMessage = 2048;
@@ -377,6 +380,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(drawingOperations(), executeDrawing, "core");
   add(renderOperations(), executeRender, "core");
   add(runtimeOperations(), executeRuntime, "core");
+  add(jobOperations(), executeJobs, "core");
   add(persistenceOperations(), executePersistence, "core");
   add(productionOperations(), executeProduction, "core");
   add(textOperations(), executeText, "core");
@@ -465,6 +469,7 @@ QJsonValue Dispatcher::execute(const QString& method,
     if (method == "automation.capabilities")
       return QJsonObject{
           {"protocol_version", 3},
+          {"worker", workerIdentity(m_context)},
           {"workspace", m_context.workspace()},
           {"tools", m_catalog},
           {"toolsets", toolsetCatalog()},
@@ -534,8 +539,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   if (cached != m_receipts.constEnd())
     return replayReceipt(cached.value(), fingerprint);
   const QString jobId = params.value("job_id").toString();
-  const bool control =
-      method == "render.cancel" && !m_controlJobs.contains(jobId);
+  const bool control = method == "job.cancel" && !m_controlJobs.contains(jobId);
   const QString controlJob = control ? jobId : QString();
   checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
@@ -564,8 +568,12 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
 }
 
 void Dispatcher::checkReceiptCapacity(bool control) const {
+  // The reserve holds one first cancellation per retained job; an unknown id's
+  // cancellation is refused without a receipt and takes no slot.
   if (control) {
-    if (m_controlJobs.size() < maximumControlReceipts) return;
+    const int retained = jobRegistry(m_context).retainedCount();
+    if (m_controlJobs.size() < std::min(retained, maximumControlReceipts))
+      return;
   } else if (m_receipts.size() - m_controlJobs.size() < 2048 &&
              m_receiptBytes <= maximumReceiptBytes - maximumResultBytes) {
     return;

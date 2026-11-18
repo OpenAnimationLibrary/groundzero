@@ -7,9 +7,11 @@
 #include <QSet>
 #include <QTemporaryDir>
 
+#include <atomic>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -136,6 +138,93 @@ void checkSwaps(const QString& root) {
 #endif
 }
 
+QByteArray contents(const QString& path) {
+  QFile file(path);
+  return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+// Watches a destination name while it is published: every look must find it
+// absent or complete, never partly written.
+class Observer final {
+public:
+  Observer(const QString& path, qint64 whole) : m_path(path), m_whole(whole) {
+    m_thread = std::thread([this] {
+      while (!m_stop) {
+        const qint64 size =
+            QFileInfo(m_path).exists() ? QFileInfo(m_path).size() : -1;
+        if (size >= 0 && size != m_whole) m_partial = true;
+      }
+    });
+  }
+  ~Observer() { finish(); }
+  bool sawPartial() {
+    finish();
+    return m_partial;
+  }
+
+private:
+  void finish() {
+    m_stop = true;
+    if (m_thread.joinable()) m_thread.join();
+  }
+  QString m_path;
+  qint64 m_whole;
+  std::atomic<bool> m_stop{false};
+  std::atomic<bool> m_partial{false};
+  std::thread m_thread;
+};
+
+void checkPublicationPrimitives(const QString& root) {
+  QTemporaryDir temporary(root + "/files-XXXXXX");
+  const QString base = sandbox(temporary, "publish");
+  const QByteArray big(8 * 1024 * 1024, 'x');
+  const auto stage = [&](const QString& name) {
+    write(base + "/" + name, big);
+    return base + "/" + name;
+  };
+  for (const QStringList& faults :
+       {QStringList{}, QStringList{"exclusive_rename_refused"}}) {
+    armPublishFaults(faults);
+    const QString destination = base + "/out-" + QString::number(faults.size());
+    Observer observer(destination, big.size());
+    require(publishApproved(stage("a-" + QString::number(faults.size())),
+                            destination) == PublishResult::Published,
+            "A free name is published whichever primitive is available");
+    require(!observer.sawPartial(),
+            "A destination is never visible partly written");
+    require(contents(destination) == big, "The published file is complete");
+  }
+  armPublishFaults({"racing_destination"});
+  require(
+      publishApproved(stage("b"), base + "/raced") == PublishResult::Exists &&
+          contents(base + "/raced") == "other party\n",
+      "A destination created at the last moment is never replaced");
+  armPublishFaults({"racing_destination", "exclusive_rename_refused"});
+  require(publishApproved(stage("c"), base + "/raced-link") ==
+                  PublishResult::Exists &&
+              contents(base + "/raced-link") == "other party\n",
+          "The hard-link primitive never replaces a destination either");
+  armPublishFaults({"exclusive_rename_refused", "hard_link_refused"});
+  require(publishApproved(stage("d"), base + "/refused") ==
+                  PublishResult::Unsupported &&
+              !QFileInfo(base + "/refused").exists(),
+          "Without an atomic primitive the publication is refused");
+  QDir().mkpath(base + "/folder-staged");
+  armPublishFaults({"exclusive_rename_refused"});
+  require(publishApproved(base + "/folder-staged", base + "/folder") ==
+                  PublishResult::Unsupported &&
+              !QFileInfo(base + "/folder").exists(),
+          "A folder has no atomic fallback and is refused");
+  armPublishFaults({"racing_destination"});
+  require(publishApproved(base + "/folder-staged", base + "/folder-raced") ==
+                  PublishResult::Exists &&
+              QDir(base + "/folder-raced")
+                  .entryList(QDir::NoDotAndDotDot)
+                  .isEmpty(),
+          "A folder created at the last moment is never replaced");
+  armPublishFaults({});
+}
+
 void checkHardLinks(const QString& root) {
   QTemporaryDir temporary(root + "/files-XXXXXX");
   const QString base    = sandbox(temporary, "hard");
@@ -145,13 +234,15 @@ void checkHardLinks(const QString& root) {
                  QFile::encodeName(base + "/dest.txt").constData()) == 0,
           "Cannot hard link a fixture");
   write(base + "/staged.txt", "replacement");
-  require(!publishApproved(base + "/staged.txt", base + "/dest.txt"),
+  require(publishApproved(base + "/staged.txt", base + "/dest.txt") ==
+              PublishResult::Exists,
           "A publication never replaces an existing name");
   QFile target(outside + "/target.txt");
   require(target.open(QIODevice::ReadOnly) &&
               target.readAll() == "outside original",
           "A hard link must not let a publication change the file behind it");
-  require(publishApproved(base + "/staged.txt", base + "/fresh.txt") &&
+  require(publishApproved(base + "/staged.txt", base + "/fresh.txt") ==
+                  PublishResult::Published &&
               QFile(base + "/fresh.txt").exists(),
           "A publication to a free name succeeds");
 }
@@ -166,6 +257,7 @@ void runAutomationFilesTests(Context& context) {
   checkLinks(root);
   checkSwaps(root);
   checkHardLinks(root);
+  checkPublicationPrimitives(root);
 #endif
   std::cerr << "automation-files-test: PASS\n";
 }

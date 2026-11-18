@@ -11,6 +11,7 @@
 #include "toonz/txsheet.h"
 #include "toonz/txshleveltypes.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -19,6 +20,10 @@
 
 #include <iostream>
 #include <stdexcept>
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 namespace GroundzeroAutomation {
 namespace {
@@ -124,6 +129,56 @@ void checkUnreadablePin(const QString& root) {
           "A missing pin is not unreadable");
 #else
   Q_UNUSED(root);
+#endif
+}
+
+// Writes the same number of bytes in place and puts back a whole-second
+// modification time, as a file system with a coarse clock would show it.
+void rewriteInPlace(const QString& path, const QByteArray& bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadWrite) &&
+              file.write(bytes) == bytes.size() && file.flush(),
+          "Cannot rewrite a pinned fixture in place");
+  const QDateTime tick = QDateTime::fromSecsSinceEpoch(1700000000);
+  require(file.setFileTime(tick, QFileDevice::FileModificationTime),
+          "Cannot set a pinned fixture's modification time");
+}
+
+// Within the digest bounds an equal-size rewrite in the same clock tick is a
+// changed pin; above them, and past the scene's budget, it is metadata only.
+void checkContentPins(const QString& root) {
+  const QString small = root + "/digest/small.bin";
+  const QString large = root + "/digest/large.bin";
+  const QString late  = root + "/digest/late.bin";
+  write(small, "aaaa");
+  write(late, "cccc");
+  write(large, {});
+  QFile sparse(large);
+  require(sparse.resize(PinDigestFileBytes + 1),
+          "Cannot size the large pin fixture");
+  for (const QString& path : {small, large, late}) rewriteInPlace(path, "aaaa");
+  ReadOnlyScene source;
+  addSourcePin(source, small);
+  addSourcePin(source, large);
+  source.digestedBytes = PinDigestTotalBytes - 3;
+  addSourcePin(source, late);
+  require(!source.pins[0].digest.isEmpty() && source.pins[1].digest.isEmpty() &&
+              source.pins[2].digest.isEmpty(),
+          "Only files within the per-file bound and the budget are digested");
+  for (const QString& path : {small, large, late}) rewriteInPlace(path, "bbbb");
+  SourcePin stat = source.pins[0];
+  stat.digest.clear();
+  require(statSourcePin(small) == stat,
+          "The rewrite keeps size, time and identity");
+  require(changedSourcePins(source.pins) == QStringList{small},
+          "An equal-size rewrite in one tick changes only the digested pin");
+#ifndef _WIN32
+  const QString fifo = root + "/digest/fifo";
+  require(mkfifo(QFile::encodeName(fifo).constData(), 0600) == 0,
+          "Cannot create a pipe fixture");
+  addSourcePin(source, fifo);
+  require(source.pins.back().exists && source.pins.back().digest.isEmpty(),
+          "A pipe is pinned by metadata without being opened");
 #endif
 }
 
@@ -439,6 +494,7 @@ void runAutomationSceneHostTests(Context& context) {
       true);
   checkPins(root);
   checkUnreadablePin(root);
+  checkContentPins(root);
   checkPinLimit(root);
   checkDiscovery(dispatcher, root);
   checkBinding(context, root);
