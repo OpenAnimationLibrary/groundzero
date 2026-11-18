@@ -510,7 +510,7 @@ Package publishPackage(Context& context, Document& document,
   if (!QFileInfo(target.absolutePath()).isWritable())
     throw Error("package_write_failed",
                 "The package parent directory is not writable.");
-  QTemporaryDir staging(context.runtimeDirectory + "/package-XXXXXX");
+  PrivateDirectory staging(context.runtimeDirectory + "/package-XXXXXX");
   if (!staging.isValid())
     throw Error("package_write_failed",
                 "Cannot create a private package staging directory.");

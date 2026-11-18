@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QString>
+#include <QTemporaryDir>
 #include <QStringList>
 #include <QVector>
 
@@ -99,6 +100,42 @@ private:
   qint64 m_size       = 0;
   qint64 m_modifiedMs = 0;
   bool m_writable     = false;
+};
+
+// Remove a folder and everything under it, entry by entry through descriptors
+// pinned to each level, never following a link. Companion files that a file
+// system creates and removes with their owner (the "._" files macOS keeps on
+// FAT and exFAT) vanish while the folder is being emptied, so each folder is
+// listed again until it is empty. A missing folder counts as removed. Returns
+// false when something could not be removed.
+//
+// Throws:
+//   Error: path_denied when a component of the path was redirected.
+bool removeApprovedTree(const QString& directory);
+
+// A private folder made from a QTemporaryDir template and removed with
+// removeApprovedTree, unless kept, so a refusal leaves nothing on any file
+// system.
+class PrivateDirectory final {
+public:
+  explicit PrivateDirectory(const QString& pattern) : m_directory(pattern) {
+    m_directory.setAutoRemove(false);
+  }
+  PrivateDirectory(const PrivateDirectory&)            = delete;
+  PrivateDirectory& operator=(const PrivateDirectory&) = delete;
+  ~PrivateDirectory();
+
+  bool isValid() const { return m_directory.isValid(); }
+  QString path() const { return m_directory.path(); }
+  QString filePath(const QString& name) const {
+    return m_directory.filePath(name);
+  }
+  // False keeps the folder, as after its contents were published elsewhere.
+  void setAutoRemove(bool remove) { m_remove = remove; }
+
+private:
+  QTemporaryDir m_directory;
+  bool m_remove = true;
 };
 
 enum class ListResult { Listed, Failed, TooMany };

@@ -693,14 +693,14 @@ QJsonValue savePreset(Context& context, Document& document,
   requireEditable(fx);
   TFx* native             = parameterFx(fx);
   const QString directory = newPresetDirectory(context, params);
-  QTemporaryDir staging(context.runtimeDirectory + "/preset-XXXXXX");
+  PrivateDirectory staging(context.runtimeDirectory + "/preset-XXXXXX");
   if (!staging.isValid())
     throw Error("PRESET_WRITE_FAILED",
                 "Cannot create a private preset staging directory.");
   const QByteArray bytes =
       saveNativePreset(native, staging.path() + "/effect.preset");
-  QTemporaryDir verification(context.scratchDirectory() +
-                             "/preset-check-XXXXXX");
+  PrivateDirectory verification(context.scratchDirectory() +
+                                "/preset-check-XXXXXX");
   if (!verification.isValid())
     throw Error("PRESET_WRITE_FAILED",
                 "Cannot create a private preset verification directory.");
@@ -776,7 +776,7 @@ QJsonValue applyPreset(Context& context, Document& document,
   requireColumnEditable(document, fx);
   TFx* native            = parameterFx(fx);
   const QByteArray bytes = admittedPreset(context, native, params);
-  QTemporaryDir staging(context.scratchDirectory() + "/preset-apply-XXXXXX");
+  PrivateDirectory staging(context.scratchDirectory() + "/preset-apply-XXXXXX");
   if (!staging.isValid())
     throw Error("PRESET_WRITE_FAILED",
                 "Cannot create a private preset verification directory.");

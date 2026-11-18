@@ -1038,7 +1038,7 @@ QJsonValue mixdown(Context& context, const QJsonObject& params) {
   const MixPlan plan       = planMix(document);
   const MixRequest request = readMixRequest(context, document, params, plan);
   const TSoundTrackP mix   = computeMix(plan, request);
-  QTemporaryDir staging(context.runtimeDirectory + "/mixdown-XXXXXX");
+  PrivateDirectory staging(context.runtimeDirectory + "/mixdown-XXXXXX");
   if (!staging.isValid())
     throw Error("io_error", "Cannot create private mixdown staging storage.");
   const QString staged   = staging.filePath("mix.wav");

@@ -190,6 +190,49 @@ PublishResult exclusivePublish(const QString& staged, int directory,
                 : linkPublish(from, directory, name);
 }
 
+// Empties the folder behind a pinned descriptor, however many passes the
+// companion files take to disappear.
+bool emptyFolder(int directory, int depth) {
+  if (depth > 64) return false;
+  for (int pass = 0; pass < 4; ++pass) {
+    const int reader = fcntl(directory, F_DUPFD_CLOEXEC, 0);
+    DIR* stream      = reader < 0 ? nullptr : fdopendir(reader);
+    if (!stream) {
+      if (reader >= 0) ::close(reader);
+      return false;
+    }
+    QVector<QByteArray> names;
+    while (const dirent* item = readdir(stream)) {
+      const QByteArray name = item->d_name;
+      if (name != "." && name != "..") names.append(name);
+    }
+    closedir(stream);
+    if (names.isEmpty()) return true;
+    for (const QByteArray& name : names) {
+      struct stat status{};
+      if (fstatat(directory, name.constData(), &status, AT_SYMLINK_NOFOLLOW) !=
+          0)
+        continue;
+      if (S_ISDIR(status.st_mode)) {
+        const int inner =
+            ::openat(directory, name.constData(),
+                     O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (inner < 0) return false;
+        const bool emptied = emptyFolder(inner, depth + 1);
+        ::close(inner);
+        if (!emptied ||
+            (unlinkat(directory, name.constData(), AT_REMOVEDIR) != 0 &&
+             errno != ENOENT))
+          return false;
+      } else if (unlinkat(directory, name.constData(), 0) != 0 &&
+                 errno != ENOENT) {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
 EntryInfo::Kind entryKind(mode_t mode) {
   if (S_ISLNK(mode)) return EntryInfo::Kind::Link;
   if (S_ISDIR(mode)) return EntryInfo::Kind::Directory;
@@ -420,6 +463,22 @@ PublishResult publishApproved(const QString& staged, const QString& path) {
              : PublishResult::Failed;
 }
 
+bool removeApprovedTree(const QString& directory) {
+  const QString clean = QDir::cleanPath(directory);
+  QVector<EntryInfo> entries;
+  const ListResult listed = listApprovedDirectory(clean, entries);
+  if (listed == ListResult::Failed) return !QFileInfo::exists(clean);
+  bool removed = true;
+  for (const EntryInfo& entry : entries) {
+    const QString path = entry.absoluteFilePath();
+    if (entry.isDir())
+      removed = removeApprovedTree(path) && removed;
+    else
+      removed = (QFile::remove(path) || QDir().rmdir(path)) && removed;
+  }
+  return QDir().rmdir(clean) && removed;
+}
+
 ListResult listApprovedDirectory(const QString& directory,
                                  QVector<EntryInfo>& entries, int maximum) {
   const QString clean = QDir::cleanPath(directory);
@@ -500,6 +559,24 @@ PublishResult publishApproved(const QString& staged, const QString& path) {
   return result;
 }
 
+bool removeApprovedTree(const QString& directory) {
+  const QString clean = QDir::cleanPath(directory);
+  const QFileInfo target(clean);
+  const int parent = pinDirectory(target.absolutePath());
+  if (parent < 0) return !QFileInfo::exists(clean);
+  const QByteArray name = QFile::encodeName(target.fileName());
+  const int inner = ::openat(parent, name.constData(),
+                             O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  bool removed    = inner < 0 && errno == ENOENT;
+  if (inner >= 0) {
+    removed = emptyFolder(inner, 0);
+    ::close(inner);
+    removed = removed && unlinkat(parent, name.constData(), AT_REMOVEDIR) == 0;
+  }
+  ::close(parent);
+  return removed;
+}
+
 ListResult listApprovedDirectory(const QString& directory,
                                  QVector<EntryInfo>& entries, int maximum) {
   const QString clean = QDir::cleanPath(directory);
@@ -514,6 +591,10 @@ ListResult listApprovedDirectory(const QString& directory,
 }
 
 #endif
+
+PrivateDirectory::~PrivateDirectory() {
+  if (m_remove && m_directory.isValid()) removeApprovedTree(m_directory.path());
+}
 
 void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage) {
