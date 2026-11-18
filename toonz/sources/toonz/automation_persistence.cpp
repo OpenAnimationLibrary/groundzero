@@ -7,6 +7,7 @@
 #include "automation_drawing.h"
 #include "automation_fx.h"
 #include "automation_macro.h"
+#include "automation_storyboard.h"
 
 #include "timage.h"
 #include "tcolorstyles.h"
@@ -347,6 +348,8 @@ Package writePackage(Document& document, const QString& directory) {
                               {"levels", levels}};
   for (auto entry = sounds.begin(); entry != sounds.end(); ++entry)
     package.manifest.insert(entry.key(), entry.value());
+  const QString tags = automationTagsDigest(*document.scene);
+  if (!tags.isEmpty()) package.manifest.insert("tags_sha256", tags);
   package.manifest.insert("files", fileManifest(directory));
   const QByteArray bytes =
       QJsonDocument(package.manifest).toJson(QJsonDocument::Indented);
@@ -480,6 +483,10 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
                 "The reopened scene differs from the published scene.");
   for (const QJsonValue& entry : entries) reopenLevel(*scene, entry.toObject());
   reopenAutomationSounds(*scene, package.manifest);
+  if (automationTagsDigest(*scene) !=
+      package.manifest.value("tags_sha256").toString())
+    throw Error("invalid_package",
+                "Reopened storyboard panels differ from the published scene.");
   validateAutomationScene(*scene);
   indexAutomationMacroMembers(*scene);
   if (automationMacroFingerprint(*scene, context.workspace()) != package.macroFingerprint)
@@ -618,6 +625,7 @@ void validateAutomationScene(ToonzScene& scene) {
   validateAutomationFxGraph(scene);
   validateAutomationPaths(scene);
   validateAutomationRig(scene);
+  validateAutomationStoryboard(scene);
   TLevelSet* levels = scene.getLevelSet();
   if (levels->getLevelCount() > MaxLevels)
     throw Error("scene_limit", "The scene exceeds 256 levels.");
