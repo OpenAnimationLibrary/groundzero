@@ -382,8 +382,10 @@ void stopProcess(SceneHost& host) {
   }
 }
 
+// A lost host can publish nothing, so what it left on disk goes with it.
 void markLost(SceneHost& host, const QString& cause, const QString& phase) {
   stopProcess(host);
+  if (!host.directory.isEmpty()) QDir(host.directory).removeRecursively();
   host.lostCause = cause;
   host.lostPhase = phase;
 }

@@ -3,6 +3,7 @@
 #include "automation_fx.h"
 #include "automation_media.h"
 #include "automation_neural.h"
+#include "automation_ownership.h"
 #include "automation_scene_host.h"
 #include "stdfx/neuralstyleworker.h"
 #include "toonz/fxdag.h"
@@ -34,7 +35,6 @@
 #include <QImage>
 #include <QImageReader>
 #include <QJsonArray>
-#include <QLockFile>
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
@@ -309,7 +309,7 @@ public:
   double frameRate     = 0;
   // Held while the job's output is unfinished, so a later worker can tell
   // abandoned output from a live worker's.
-  std::unique_ptr<QLockFile> ownership;
+  OwnershipClaim ownership;
   QString fault;
 
   bool terminal() const {
@@ -324,9 +324,7 @@ public:
   }
 
   void claimOutput() {
-    ownership.reset(new QLockFile(directory + "/.owner.lock"));
-    ownership->setStaleLockTime(0);
-    if (!ownership->tryLock(0))
+    if (!ownership.acquire(directory))
       throw Error("render_output_failed",
                   "A new private render output directory could not be "
                   "claimed.");
@@ -335,8 +333,7 @@ public:
   // Ends the job's claim on its directory; output that never completed is
   // removed, so a canceled or failed job leaves no partial files behind.
   void releaseOutput(bool keep) {
-    if (ownership) ownership->unlock();
-    ownership.reset();
+    ownership.release();
     if (!keep) QDir(directory).removeRecursively();
   }
 
@@ -539,12 +536,6 @@ public:
       return;
     if (fault == "stray-callbacks") injectStrayCallbacks(false);
 #endif
-    if (cancellation) {
-      writersClosed = true;
-      releaseNativeState();
-      stop();
-      return;
-    }
     status = JobStatus::Running;
     renderer->start();
   }
@@ -1238,17 +1229,7 @@ QString activeRenderJob(Context& context) {
 }
 
 void sweepAbandonedRenders(Context& context) {
-  const QDir renders(context.workspace() + "/renders");
-  for (const QFileInfo& entry :
-       renders.entryInfoList({"job_*"}, QDir::Dirs | QDir::NoDotAndDotDot)) {
-    const QString lock = entry.absoluteFilePath() + "/.owner.lock";
-    if (!QFileInfo::exists(lock)) continue;
-    QLockFile owner(lock);
-    owner.setStaleLockTime(0);
-    if (!owner.tryLock(0)) continue;
-    owner.unlock();
-    QDir(entry.absoluteFilePath()).removeRecursively();
-  }
+  OwnershipClaim::removeAbandoned(context.workspace() + "/renders", {"job_*"});
 }
 
 void shutdownRender(Context& context) {

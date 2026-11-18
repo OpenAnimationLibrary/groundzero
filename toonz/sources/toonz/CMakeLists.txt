@@ -208,6 +208,7 @@ set(HEADERS
     automation_vector_opacity.h
     automation_dispatch.h
     automation_containment.h
+    automation_ownership.h
     automation_production.h
     automation_assistance.h
     automation_neural.h
@@ -292,6 +293,7 @@ set(SOURCES
     automation.cpp
     automation_context.cpp
     automation_containment.cpp
+    automation_ownership.cpp
     automation_error.cpp
     automation_dispatch.cpp
     automation_animation.cpp

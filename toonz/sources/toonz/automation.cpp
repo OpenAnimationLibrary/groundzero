@@ -2,6 +2,7 @@
 #include "automation_dispatch.h"
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
+#include "automation_ownership.h"
 #include "automation_scene_host.h"
 #include "automation_shared_parse.h"
 
@@ -630,6 +631,14 @@ int runWorker(int argc, char* argv[]) {
                      QFileDevice::AutoCloseHandle))
       throw Error("io_error", "Could not open the worker protocol stream.");
     const QString runtime = createRuntimeDirectory(options.workspace);
+    // Held until the process ends and left marked afterwards, so a later
+    // worker can tell this directory from one that is still in use.
+    static OwnershipClaim runtimeClaim(true);
+    if (!runtimeClaim.acquire(runtime))
+      throw Error("io_error",
+                  "Could not claim the private worker runtime directory.");
+    if (options.parseHelper.isEmpty() && options.sceneHost.isEmpty())
+      OwnershipClaim::removeAbandoned(options.workspace, {"runtime_*"});
     if (!QDir::setCurrent(runtime))
       throw Error("io_error", "Could not enter the private worker runtime directory.");
     int applicationArgc   = 1;
