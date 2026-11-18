@@ -995,6 +995,7 @@
    "toolset": "live",
    "writes": false,
    "tests": [
+    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
     "tools/mcp/src/server.test.ts",
     "ci-scripts/mcp_live.py"
    ]
@@ -1036,7 +1037,7 @@
    "tests": [
     "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
     "toonz/sources/toonz/tests/automation_live_race_test.cpp",
-    "tools/mcp/src/server.test.ts",
+    "tools/mcp/src/live.test.ts",
     "ci-scripts/mcp_live.py"
    ]
   },

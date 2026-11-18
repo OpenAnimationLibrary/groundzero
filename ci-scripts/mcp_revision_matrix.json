@@ -47,10 +47,10 @@
   "live_undo": {
    "question": "What does a stale edit see when live undo returns content to an earlier fingerprint?",
    "current": [
-    "The live fingerprint hashes the qualified metadata of the scene, the target and the undo history's change generation (automation_live_scene.cpp:703-724). Undo, redo and every new history entry advance that generation (tundo.cpp:295-480), so the fingerprint after an edit and its undo differs from the one before the edit, although the content is the same.",
-    "An edit that carries the earlier fingerprint is refused with stale_target and the message 'Target dependencies changed; inspect before editing' (automation_live_scene.cpp:857). Nothing changes and no undo entry is added.",
-    "A history change also clears the observed state and advances the observation serial (automation_live_scene.cpp:330-340). A history reset or a scene switch starts a new scene epoch, and an edit with the old epoch is refused with scene_changed (automation_live_scene.cpp:370-381).",
-    "The error does not say that history changed, and no test covers undo against a held fingerprint: the native live tests never mention stale_target.",
+    "The live fingerprint hashes the qualified metadata of the scene, the target and the undo history's change generation (automation_live_scene.cpp, snapshot and fingerprint). Undo, redo and every new history entry advance that generation (tundo.cpp), so the fingerprint after an edit and its undo differs from the one before the edit, although the content is the same.",
+    "An edit that carries an earlier fingerprint is refused with stale_target (automation_live_scene.cpp, requireFresh). Nothing changes and no undo entry is added. The error's details give a reason and the current_fingerprint: content_changed when the qualified metadata differs from what the fingerprint covered (also for a fingerprint the editor did not issue), history_changed when the metadata is the same but the history moved, and target_replaced when the target's native parameter was replaced. The editor keeps a bounded record of the fingerprints it issued to tell these apart.",
+    "A history change also clears the observed state and advances the observation serial (automation_live_scene.cpp, observeHistory). A history reset or a scene switch starts a new scene epoch, and an edit with the old epoch is refused with scene_changed (automation_live_scene.cpp, requireEpoch).",
+    "Native tests in the live fixture (tests/mcp_live_history_test.cpp) cover an edit prepared before an undo and before a redo, the reasons for each, a retry with the reported current fingerprint, a replaced target and a fingerprint the editor never issued.",
     "The detached worker has no undo, so its revision only moves forward."
    ],
    "options": [
@@ -70,7 +70,7 @@
      "cost": "Needs a live contract amendment and tests."
     }
    ],
-   "decision": "Keep the history-bound fingerprint and add the reason and the current fingerprint to stale_target. A revision that returned to an earlier value would let an agent act on a state it never saw, and the extra detail removes the cost of re-inspecting. The change belongs to the live protocol work and is not made here; native tests for undo, redo and a stale edit should come with it."
+   "decision": "Keep the history-bound fingerprint and add the reason and the current fingerprint to stale_target. A revision that returned to an earlier value would let an agent act on a state it never saw, and the extra detail removes the cost of re-inspecting. Implemented with the live protocol v2 handshake; the native tests for undo, redo and a stale edit are in tests/mcp_live_history_test.cpp."
   }
  },
  "fixtures": {
