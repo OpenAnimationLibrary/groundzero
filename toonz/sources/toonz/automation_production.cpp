@@ -85,6 +85,7 @@ struct Report final {
   int columnCount = 0;
   int cells       = 0;
   int macroMembers = 0;
+  int recordLimit  = MaxRecords;
 
   Report(Context& owner, Document& value, QString operation)
       : context(owner), document(value), method(std::move(operation)) {}
@@ -97,7 +98,7 @@ struct Report final {
   }
 
   bool append(const QJsonObject& row) {
-    if (rows.size() == MaxRecords) {
+    if (rows.size() == recordLimit) {
       incomplete("record_limit");
       return false;
     }
@@ -820,15 +821,20 @@ bool fxDependency(Report& report, const QString& id, SceneFxResource* fx) {
   return report.append(row);
 }
 
-void dependencies(Report& report) {
-  for (TXshLevel* level : report.levels)
-    if (!levelDependencies(report, level)) return;
+// The rows owned by the scene rather than one level.
+void sceneDependencies(Report& report) {
   if (!rasterPaletteDependency(report)) return;
   for (auto it = report.effects.constBegin(); it != report.effects.constEnd();
        ++it) {
     auto* resource = dynamic_cast<SceneFxResource*>(parameterFx(it.value()));
     if (resource && !fxDependency(report, it.key(), resource)) return;
   }
+}
+
+void dependencies(Report& report) {
+  for (TXshLevel* level : report.levels)
+    if (!levelDependencies(report, level)) return;
+  sceneDependencies(report);
 }
 
 QJsonObject page(Report& report, const QJsonObject& params) {
@@ -888,6 +894,55 @@ QJsonObject inputProperties() {
 }
 
 }  // namespace
+
+struct DependencyWalk::Imp final {
+  Report report;
+  std::size_t next = 0;
+  bool scene       = false;
+
+  Imp(Context& context, Document& document)
+      : report(context, document, "scene.dependencies") {}
+};
+
+DependencyWalk::DependencyWalk(Context& context, Document& document,
+                               int rowLimit)
+    : m_imp(std::make_unique<Imp>(context, document)) {
+  Report& report     = m_imp->report;
+  report.recordLimit = rowLimit;
+  collectLevels(report);
+  collectGraph(report);
+  qualifyMacros(report);
+  inspectFx(report);
+}
+
+DependencyWalk::~DependencyWalk() = default;
+
+bool DependencyWalk::step() {
+  Report& report = m_imp->report;
+  if (report.reasons.contains("record_limit")) return false;
+  if (m_imp->next < report.levels.size()) {
+    levelDependencies(report, report.levels[m_imp->next++]);
+    return true;
+  }
+  if (!m_imp->scene) {
+    m_imp->scene = true;
+    sceneDependencies(report);
+  }
+  return false;
+}
+
+int DependencyWalk::levels() const { return int(m_imp->report.levels.size()); }
+
+int DependencyWalk::levelsDone() const { return int(m_imp->next); }
+
+const QJsonArray& DependencyWalk::rows() const { return m_imp->report.rows; }
+
+QStringList DependencyWalk::reasons() const {
+  QStringList reasons;
+  for (const QJsonValue& reason : m_imp->report.reasons)
+    reasons.append(reason.toString());
+  return reasons;
+}
 
 QJsonArray productionOperations() {
   QJsonArray result;

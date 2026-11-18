@@ -63,6 +63,7 @@ import mcp_rig_cases
 import mcp_runtime_cases
 import mcp_scene_access_cases
 import mcp_scene_cases
+import mcp_scene_check_cases
 import mcp_scene_reads_cases
 import mcp_storyboard_cases
 import mcp_studio_palette_cases
@@ -96,6 +97,7 @@ REQUIRED_TOOLS = {
     "job.cancel",
     "job.result",
     "job.list",
+    "scene.check.submit",
     "artifact.read",
 }
 SDK_CLIENT = "native-client.mjs"
@@ -765,6 +767,24 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_job_busy_host_answers_polls_and_cancel(self) -> None:
         mcp_jobs_cases.busy_host_answers_polls_and_cancel(self)
+
+    def test_scene_check_unused_styles_job(self) -> None:
+        mcp_scene_check_cases.unused_styles_job(self)
+
+    def test_scene_check_cancel_write_and_busy(self) -> None:
+        mcp_scene_check_cases.scan_cancel_write_and_busy(self)
+
+    def test_scene_check_inventory_cancel_keeps_partial_rows(self) -> None:
+        mcp_scene_check_cases.inventory_cancel_keeps_partial_rows(self)
+
+    def test_scene_check_retention_refuses_the_33rd_check(self) -> None:
+        mcp_scene_check_cases.retention_refuses_the_33rd_check(self)
+
+    def test_scene_check_analysis_job_after_worker_loss(self) -> None:
+        mcp_scene_check_cases.analysis_job_after_worker_loss(self)
+
+    def test_scene_check_read_only_runs_in_the_host(self) -> None:
+        mcp_scene_check_cases.read_only_checks_run_in_the_host(self)
 
     def test_job_movie_cancel_while_encoding_is_forced(self) -> None:
         mcp_jobs_cases.movie_cancel_while_encoding_is_forced(self)

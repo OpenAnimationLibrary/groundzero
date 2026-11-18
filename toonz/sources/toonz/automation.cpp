@@ -6,6 +6,7 @@
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
 #include "automation_ownership.h"
+#include "automation_scene_check.h"
 #include "automation_scene_host.h"
 #include "automation_runtime.h"
 #include "automation_shared_parse.h"
@@ -607,6 +608,7 @@ int domainTestResult(Context& context) {
     runAutomationSceneHostTests(context);
     runAutomationRuntimeTests(context);
     runAutomationJobsTests(context);
+    runAutomationSceneCheckTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "

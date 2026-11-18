@@ -964,6 +964,7 @@ const QSet<QString>& forwardedTools() {
                                       "render.submit",
                                       "render.preflight",
                                       "scene.inventory",
+                                      "scene.check.submit",
                                       "scene.source_status",
                                       "column.cells",
                                       "drawing.inspect",
@@ -1057,10 +1058,11 @@ bool terminalStatus(const QString& status) {
 }
 
 // The job record in a job tool's result: the result itself, or under "job".
+// An analysis job's result page names the job but is not its record.
 QJsonObject jobRecordIn(const QJsonObject& result) {
   const QJsonObject nested = result.value("job").toObject();
   const QJsonObject record = nested.isEmpty() ? result : nested;
-  return record.contains("kind") && record.contains("job_id") ? record
+  return record.contains("lane") && record.contains("job_id") ? record
                                                               : QJsonObject();
 }
 
@@ -1094,7 +1096,9 @@ void recordRoutes(Context& context, SceneHost& host, const QJsonValue& value) {
   }
   if (!job.isEmpty()) {
     registry(context).jobs.insert(job, host.documentId);
-    if (job == host.lastJob || !host.renderActive) {
+    const bool render = registry(context).records.value(job).value("lane") ==
+                        laneText(JobLane::Render);
+    if (render && (job == host.lastJob || !host.renderActive)) {
       host.lastJob      = job;
       host.renderActive = !terminalStatus(result.value("status").toString());
     }
@@ -1141,7 +1145,8 @@ struct RenderCapacity final {
 RenderCapacity renderCapacity(Context& context) {
   RenderCapacity capacity{activeRenderJob(context), renderJobCount(context)};
   if (!context.sceneHosts) return capacity;
-  capacity.retained += context.sceneHosts->jobs.size();
+  for (const QJsonObject& record : context.sceneHosts->records)
+    if (record.value("lane") == laneText(JobLane::Render)) ++capacity.retained;
   for (auto& entry : context.sceneHosts->hosts) {
     SceneHost& host = *entry.second;
     if (!capacity.active.isEmpty() || !host.renderActive || host.lost())
@@ -1261,6 +1266,29 @@ QJsonObject hostJobRecord(Context& context, const QString& id) {
   return lostJobRecord(context, state.records.value(id));
 }
 
+// One active analysis job and 32 retained per worker, hosts included. A host
+// job last seen running is asked again, which its host answers at once.
+void requireAnalysisCapacity(Context& context) {
+  QString active;
+  int retained = 0;
+  if (context.sceneHosts) {
+    const QString analysis = laneText(JobLane::Analysis);
+    QStringList running;
+    for (auto it = context.sceneHosts->records.constBegin();
+         it != context.sceneHosts->records.constEnd(); ++it) {
+      if (it.value().value("lane") != analysis) continue;
+      ++retained;
+      if (!it.value().value("terminal").toBool()) running.append(it.key());
+    }
+    for (const QString& job : running) {
+      if (!active.isEmpty()) break;
+      const QJsonObject record = hostJobRecord(context, job);
+      if (!record.isEmpty() && !record.value("terminal").toBool()) active = job;
+    }
+  }
+  jobRegistry(context).admitAnalysis(active, retained);
+}
+
 bool routeToSceneHost(Context& context, const QString& method,
                       const QJsonObject& params, const QJsonObject& descriptor,
                       QJsonValue& result) {
@@ -1288,6 +1316,8 @@ bool routeToSceneHost(Context& context, const QString& method,
       (method == "render.preview" || method == "render.submit" ||
        method == "assistance.neural.preview"))
     requireRenderCapacity(context);
+  if (context.sceneHosts && document && method == "scene.check.submit")
+    requireAnalysisCapacity(context);
   if (document) {
     SceneHost* host = hostForDocument(context, documentId);
     if (!host) throw Error("internal_error", "The document has no scene host.");

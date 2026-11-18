@@ -150,8 +150,9 @@ public:
   }
 #ifdef BUILD_UI_PORT_TESTS
   // Test-only fault injected into child processes: crash, hang, memory,
-  // read-hang, or busy-host (a scene host's render keeps its application
-  // thread busy for eight seconds after it starts).
+  // read-hang, busy-host (a scene host's render keeps its application
+  // thread busy for eight seconds after it starts), or slow-scan (a scene
+  // check sleeps 25 ms after each drawing or cast level).
   QString childFault;
   // Test-only: the --test-path-swap arguments, handed on to scene hosts.
   QStringList pathSwap;
