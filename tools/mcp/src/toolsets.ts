@@ -67,7 +67,14 @@ const LOAD_ERRORS = [
   "RESULT_TOO_LARGE",
 ];
 
-function toolsetTool(name: string, description: string, changes: boolean, errors: string[]): Tool {
+interface ToolsetToolSpec {
+  name: string;
+  description: string;
+  changes: boolean;
+  errors: string[];
+}
+
+function toolsetTool({ name, description, changes, errors }: ToolsetToolSpec): Tool {
   return {
     name,
     description,
@@ -90,24 +97,27 @@ function toolsetTool(name: string, description: string, changes: boolean, errors
 
 /** Adapter-owned tools that switch which native toolsets this session exposes. */
 export const TOOLSET_TOOLS: Tool[] = [
-  toolsetTool(
-    "toolsets.list",
-    "List the native toolsets, what each covers, how many tools it has and whether it is enabled.",
-    false,
-    [],
-  ),
-  toolsetTool(
-    "toolsets.enable",
-    "Expose the tools of the named toolsets in this session. The tool list then changes.",
-    true,
-    ["UNKNOWN_TOOLSET", "TOOLSET_LIMIT"],
-  ),
-  toolsetTool(
-    "toolsets.disable",
-    "Hide the tools of the named toolsets in this session. The core toolset stays enabled.",
-    true,
-    ["UNKNOWN_TOOLSET", "TOOLSET_REQUIRED"],
-  ),
+  toolsetTool({
+    name: "toolsets.list",
+    description:
+      "List the native toolsets, what each covers, how many tools it has and whether it is enabled.",
+    changes: false,
+    errors: [],
+  }),
+  toolsetTool({
+    name: "toolsets.enable",
+    description:
+      "Expose the tools of the named toolsets in this session. The tool list then changes.",
+    changes: true,
+    errors: ["UNKNOWN_TOOLSET", "TOOLSET_LIMIT"],
+  }),
+  toolsetTool({
+    name: "toolsets.disable",
+    description:
+      "Hide the tools of the named toolsets in this session. The core toolset stays enabled.",
+    changes: true,
+    errors: ["UNKNOWN_TOOLSET", "TOOLSET_REQUIRED"],
+  }),
 ];
 
 const TOOLSET_TOOL_NAMES = new Set(TOOLSET_TOOLS.map((tool) => tool.name));
