@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import mcp_analysis_cases
 import mcp_animation_cases
 import mcp_artwork_cases
 import mcp_assistance_cases
@@ -330,6 +331,33 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_vector_selection_and_rejection_purity(self) -> None:
         mcp_vector_opacity_cases.vector_selection_and_rejection_purity(self)
+
+    def test_drawing_analysis_job(self) -> None:
+        mcp_analysis_cases.drawing_analysis_job(self)
+
+    def test_drawing_analysis_retention_and_replay(self) -> None:
+        mcp_analysis_cases.drawing_analysis_retention_and_replay(self)
+
+    def test_drawing_analysis_toonz_raster(self) -> None:
+        mcp_analysis_cases.drawing_analysis_toonz_raster(self)
+
+    def test_drawing_analysis_lost_worker(self) -> None:
+        mcp_analysis_cases.drawing_analysis_lost_worker(self)
+
+    def test_vector_roles_and_style_summary(self) -> None:
+        mcp_vector_opacity_cases.vector_roles_and_style_summary(self)
+
+    def test_vector_roles_without_layering(self) -> None:
+        mcp_vector_opacity_cases.vector_roles_without_layering(self)
+
+    def test_vector_lasso_and_selection_handles(self) -> None:
+        mcp_vector_opacity_cases.vector_lasso_and_selection_handles(self)
+
+    def test_vector_selection_is_bounded(self) -> None:
+        mcp_vector_opacity_cases.vector_selection_is_bounded(self)
+
+    def test_opacity_set_accepts_selection_handle(self) -> None:
+        mcp_vector_opacity_cases.opacity_set_accepts_selection_handle(self)
 
     def test_shared_root_flags_are_explicit_and_read_only(self) -> None:
         mcp_studio_palette_cases.shared_root_flags_are_explicit_and_read_only(self)
