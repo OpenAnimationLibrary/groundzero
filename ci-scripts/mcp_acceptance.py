@@ -53,6 +53,7 @@ import mcp_revision_cases
 import mcp_rig_cases
 import mcp_scene_access_cases
 import mcp_scene_cases
+import mcp_scene_reads_cases
 import mcp_storyboard_cases
 import mcp_studio_palette_cases
 import mcp_text_cases
@@ -353,6 +354,28 @@ class NativeAcceptance(unittest.TestCase):
     )
     def test_read_only_documents_refuse_every_other_tool(self) -> None:
         mcp_scene_access_cases.read_only_documents_refuse_every_other_tool(self)
+
+    def test_read_only_inventory_tells_instances_from_definitions(self) -> None:
+        mcp_scene_reads_cases.read_only_inventory_tells_instances_from_definitions(self)
+
+    def test_read_only_inventory_bounds_its_rows(self) -> None:
+        mcp_scene_reads_cases.read_only_inventory_bounds_its_rows(self)
+
+    def test_read_only_source_status_reports_each_change(self) -> None:
+        mcp_scene_reads_cases.read_only_source_status_reports_each_change(self)
+
+    def test_read_only_projects_inspect_and_list_scenes(self) -> None:
+        mcp_scene_reads_cases.read_only_projects_inspect_and_list_scenes(self)
+
+    def test_read_only_dependencies_list_every_file_read(self) -> None:
+        mcp_scene_reads_cases.read_only_dependencies_list_every_file_read(self)
+
+    def test_read_only_documents_answer_the_slice_two_reads(self) -> None:
+        mcp_scene_reads_cases.read_only_documents_answer_the_slice_two_reads(self)
+
+    @worker_only("needs the --test-child-fault test hook, which the adapter never passes")
+    def test_read_only_reads_end_at_the_read_deadline(self) -> None:
+        mcp_scene_reads_cases.read_only_reads_end_at_the_read_deadline(self)
 
     def test_read_only_damaged_scenes_are_refused(self) -> None:
         mcp_scene_access_cases.read_only_damaged_scenes_are_refused(self)
