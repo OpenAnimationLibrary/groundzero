@@ -162,6 +162,10 @@ TThread::RunnableP taskFor(const std::vector<TThread::RunnableP> &before,
 }
 
 void expireSceneRetirements(TSceneHandle *handle) {
+  // A timer that already timed out has its DeferredDelete queued at this loop
+  // level. Qt withholds such an event from the nested loop below, and a second
+  // deleteLater() on the same object is dropped, so deliver it here first.
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
   const auto timers = handle->findChildren<QTimer *>(
       "sceneRetirement", Qt::FindDirectChildrenOnly);
   int pending = timers.size();
