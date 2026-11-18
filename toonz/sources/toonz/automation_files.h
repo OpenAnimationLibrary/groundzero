@@ -2,9 +2,14 @@
 
 #include <QDateTime>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 class QFile;
+
+namespace GroundzeroAutomation {
+class Context;
+}
 
 namespace GroundzeroAutomation {
 
@@ -28,15 +33,30 @@ enum class OpenResult { Opened, NotRegular, Failed };
 //   Error: path_denied when a component of the path was redirected.
 OpenResult openApprovedFile(QFile& file, const QString& path);
 
+enum class PublishResult { Published, Exists, Unsupported, Failed };
+
 // Move a staged file or directory to the approved, not yet existing path.
 //
 // The destination directory is pinned as for openApprovedFile and nothing is
-// replaced. Returns false when the destination exists, is on another volume or
-// cannot be written.
+// ever replaced. The move is one atomic create-if-absent step: an exclusive
+// rename where the platform has one (macOS, Linux), otherwise, for a single
+// file, a hard link of the finished file followed by dropping the staged name.
+// A destination that appears at any moment yields Exists. Where neither
+// primitive is available on the destination's file system (and always for a
+// folder without an exclusive rename) the result is Unsupported and nothing
+// is written; there is no check-then-rename fallback. Failed covers every other
+// reason: another volume, no permission, no space.
 //
 // Throws:
 //   Error: path_denied when a component of the path was redirected.
-bool publishApproved(const QString& staged, const QString& path);
+PublishResult publishApproved(const QString& staged, const QString& path);
+
+// Record the publication as started and publish, or throw: failureCode when
+// the destination exists or the move fails, publication_unsupported (with the
+// mutation mark taken back, since nothing was written) when the file system
+// has no atomic way to create the name.
+void publishStaged(Context& context, const QString& staged, const QString& path,
+                   const QString& failureCode, const QString& failureMessage);
 
 // One entry of a pinned directory, described without following links. A
 // symbolic link, a junction or any other reparse point is a link: it is
@@ -101,6 +121,10 @@ ListResult listApprovedDirectory(const QString& directory,
 void armPathSwap(const QString& path, const QString& target,
                  const QString& stage);
 void firePathSwap(const QString& stage, const QString& path);
+// Test-only publication faults, any of: exclusive_rename_refused (the kernel
+// refuses the exclusive rename), hard_link_refused, racing_destination (another
+// party creates the destination right before the move).
+void armPublishFaults(const QStringList& faults);
 // Native domain test of this module.
 class Context;
 void runAutomationFilesTests(Context& context);

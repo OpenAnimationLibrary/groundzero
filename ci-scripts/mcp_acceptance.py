@@ -33,6 +33,7 @@ import mcp_file_change_cases
 import mcp_file_inert_cases
 import mcp_file_launch_cases
 import mcp_file_project_cases
+import mcp_file_publish_cases
 import mcp_file_race_cases
 import mcp_file_shared_cases
 import mcp_finishing_cases
@@ -801,6 +802,22 @@ class NativeAcceptance(unittest.TestCase):
     @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
     def test_project_scenes_refuse_a_folder_swapped_after_validation(self) -> None:
         mcp_file_project_cases.project_scenes_refuse_a_folder_swapped_after_validation(self)
+
+    @worker_only("needs the --test-publish-fault test hook, which the adapter never passes")
+    def test_publication_never_replaces_and_refuses_without_an_atomic_primitive(self) -> None:
+        mcp_file_publish_cases.publication_never_replaces_and_refuses_without_an_atomic_primitive(
+            self
+        )
+
+    def test_publication_on_other_file_systems_is_atomic_or_refused(self) -> None:
+        mcp_file_publish_cases.publication_on_other_file_systems_is_atomic_or_refused(self)
+
+    @worker_only("needs --test-write-fault macro_verify_crash, which the adapter never passes")
+    def test_crash_during_save_verification_leaves_nothing(self) -> None:
+        mcp_failure_cases.crash_during_save_verification_leaves_nothing(self)
+
+    def test_finished_render_folder_is_swept_once_its_worker_is_gone(self) -> None:
+        mcp_failure_cases.finished_render_folder_is_swept_once_its_worker_is_gone(self)
 
     @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
     def test_project_listings_stay_in_the_folder_they_pinned(self) -> None:

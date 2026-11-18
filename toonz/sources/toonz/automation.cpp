@@ -93,6 +93,7 @@ struct Options {
   QString renderFault;
   QString writeFault;
   QStringList pathSwap;
+  QStringList publishFaults;
 #endif
 };
 
@@ -279,6 +280,10 @@ Options parseOptions(const QStringList& arguments) {
     }
     if (key == "--test-write-fault" && index + 1 < arguments.size()) {
       options.writeFault = arguments[++index];
+      continue;
+    }
+    if (key == "--test-publish-fault" && index + 1 < arguments.size()) {
+      options.publishFaults = arguments[++index].split(',');
       continue;
     }
     if (key == "--test-path-swap" && index + 3 < arguments.size()) {
@@ -589,6 +594,8 @@ int executeWorker(QApplication& application, QFile& output,
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
   context.pathSwap    = options.pathSwap;
+  armPublishFaults(options.publishFaults);
+  setMacroVerifyCrash(options.writeFault == "macro_verify_crash");
   if (!options.pathSwap.isEmpty())
     armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif

@@ -349,7 +349,7 @@ public:
   double frameRate     = 0;
   // Held while the job's output is unfinished, so a later worker can tell
   // abandoned output from a live worker's.
-  OwnershipClaim ownership;
+  OwnershipClaim ownership{true};
   QString fault;
 
   bool terminal() const {
@@ -370,11 +370,14 @@ public:
                   "claimed.");
   }
 
-  // Ends the job's claim on its directory; output that never completed is
-  // removed, so a canceled or failed job leaves no partial files behind.
+  // Output that never completed is removed, so a canceled or failed job leaves
+  // no partial files behind. A completed job keeps its claim, and so its
+  // output, until the worker ends; the marker then stays unheld and a later
+  // worker's sweep removes the folder.
   void releaseOutput(bool keep) {
+    if (keep) return;
     ownership.release();
-    if (!keep) QDir(directory).removeRecursively();
+    QDir(directory).removeRecursively();
   }
 
   bool holding(const char* point, std::function<void()> resume) {

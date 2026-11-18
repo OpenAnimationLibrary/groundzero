@@ -1,4 +1,5 @@
 #include "automation.h"
+#include <cstdlib>
 #include "automation_fx.h"
 #include "automation_macro.h"
 
@@ -112,17 +113,27 @@ std::vector<TMacroFx*> macroNodes(FxDag* graph) {
 }
 }  // namespace
 
+#ifdef BUILD_UI_PORT_TESTS
+namespace {
+bool macroVerifyCrash = false;
+}
+void setMacroVerifyCrash(bool armed) { macroVerifyCrash = armed; }
+#endif
+
 QByteArray automationMacroFingerprint(ToonzScene& scene,
                                       const QString& scratchRoot) {
   auto* graph      = scene.getXsheet()->getFxDag();
   const auto nodes = macroNodes(graph);
   if (nodes.empty()) return {};
   validateAutomationFxGraph(scene);
-  QTemporaryDir scratch(scratchRoot + "/.mcp-macro-verify-XXXXXX");
+  QTemporaryDir scratch(scratchRoot + "/macro-verify-XXXXXX");
   if (!scratch.isValid())
     throw Error(
         "io_error",
         "Cannot create a private macro roundtrip verification directory.");
+#ifdef BUILD_UI_PORT_TESTS
+  if (macroVerifyCrash) std::_Exit(137);
+#endif
   qint64 bytes = 0;
   QJsonObject macros;
   for (auto* macro : nodes)

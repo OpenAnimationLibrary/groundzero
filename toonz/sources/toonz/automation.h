@@ -102,6 +102,12 @@ public:
   QJsonArray documents() const;
   std::shared_ptr<TProject> project() const;
   QString workspace() const;
+  // Where short-lived scratch folders go: the worker's private runtime
+  // directory, which a later worker sweeps if this one dies. A context without
+  // a worker (a unit test) uses its workspace.
+  QString scratchDirectory() const {
+    return runtimeDirectory.isEmpty() ? workspace() : runtimeDirectory;
+  }
   // A named directory of worker-private files, such as levels or sounds.
   QString privateDirectory(const QString& name) const;
   QString resolvePath(const QString& path, bool write) const;
