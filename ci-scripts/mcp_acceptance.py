@@ -51,6 +51,7 @@ import mcp_render_cases
 import mcp_renumber_cases
 import mcp_revision_cases
 import mcp_rig_cases
+import mcp_runtime_cases
 import mcp_scene_access_cases
 import mcp_scene_cases
 import mcp_scene_reads_cases
@@ -473,6 +474,21 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_media_tools_on_path_do_not_enable_movies(self) -> None:
         mcp_media_cases.media_tools_on_path_do_not_enable_movies(self)
+
+    def test_runtime_states_distinguish_layers(self) -> None:
+        mcp_runtime_cases.runtime_states_distinguish_layers(self)
+
+    def test_runtime_media_identity(self) -> None:
+        mcp_runtime_cases.runtime_media_identity(self)
+
+    def test_runtime_formats_native_vs_admitted(self) -> None:
+        mcp_runtime_cases.runtime_formats_native_vs_admitted(self)
+
+    def test_runtime_reports_private_stuff_and_plugin_policy(self) -> None:
+        mcp_runtime_cases.runtime_reports_private_stuff_and_plugin_policy(self)
+
+    def test_runtime_media_without_encoder_is_not_usable(self) -> None:
+        mcp_runtime_cases.runtime_media_without_encoder_is_not_usable(self)
 
     def test_movie_snapshot_metadata_and_pixels(self) -> None:
         mcp_movie_cases.movie_snapshot_metadata_and_pixels(self)
