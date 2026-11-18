@@ -9,6 +9,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -902,12 +903,14 @@ def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
     open, never the worker."""
     scenes = corpus(case)
     _orphan_exits(case, scenes["B"])
+    idle: list[Worker] = []
     for fault, cause, bound in (
         ("crash", "crashed", 30),
         ("memory", "memory", 30),
         ("hang", "timeout", 75),
     ):
         worker = fault_worker(case, fault)
+        idle.append(worker)
         started = time.monotonic()
         params = {"path": str(scenes["B"]), "project_id": "standalone", "operation_id": fault}
         response = _slow_call(worker, "scene.open_read_only", params, bound + 15)
@@ -920,6 +923,25 @@ def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
         case.assertEqual(host_processes(worker), [])
         call(case, worker, "project.list", {"limit": 1})
         case.assertEqual(call(case, worker, "automation.list_documents", {})["documents"], [])
+    _require_awake(case, idle[:2])
+
+
+def _thread_priorities(pid: int) -> set[int]:
+    listing = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout
+    return {int(value) for value in re.findall(r"\s(\d+)T\s", listing)}
+
+
+def _require_awake(case: NativeAcceptance, workers: list[Worker]) -> None:
+    """Workers idle through the hang case's minute must not be napped.
+
+    App Nap puts every thread of an idle windowless application at priority 4, after which a
+    loaded machine delivers its end of input and its quit request seconds late.
+    """
+    if sys.platform != "darwin":
+        return
+    for worker in workers:
+        priorities = _thread_priorities(worker.process.pid)
+        case.assertGreater(max(priorities, default=0), 4, f"napped worker: {priorities}")
 
 
 def read_only_damaged_scenes_are_refused(case: NativeAcceptance) -> None:
