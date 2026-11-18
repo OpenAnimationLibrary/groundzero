@@ -165,6 +165,7 @@ def inventory_cancel_keeps_partial_rows(case: NativeAcceptance) -> None:
     case.assertEqual(canceled["status"], "canceled", canceled)
     result = _rows(case, job)
     case.assertEqual((result["complete"], result["reasons"]), (False, ["canceled"]))
+    case.assertGreater(result["total_rows"], 0)
     case.assertLess(result["total_rows"], 24)
     for row in result["rows"]:
         case.assertEqual((row["row_kind"], row["sheet_path"]), ("dependency", []))
