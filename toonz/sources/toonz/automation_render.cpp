@@ -246,7 +246,8 @@ enum class JobStatus {
   Finalizing,
   Completed,
   Failed,
-  Canceled
+  Canceled,
+  DeadlineExceeded
 };
 
 static QString statusText(JobStatus status) {
@@ -265,6 +266,8 @@ static QString statusText(JobStatus status) {
     return "failed";
   case JobStatus::Canceled:
     return "canceled";
+  case JobStatus::DeadlineExceeded:
+    return "deadline_exceeded";
   }
   throw Error("internal_error", "Unknown render job state.");
 }
@@ -282,6 +285,7 @@ public:
   Request request;
   QJsonObject assistance;
   QJsonArray provenance;
+  bool deadlineExceeded = false;
   std::shared_ptr<const NeuralStyle::WorkerExecution> neuralExecution;
   std::unique_ptr<ToonzScene> snapshot;
   std::unique_ptr<MovieRenderer> renderer;
@@ -300,7 +304,8 @@ public:
 
   bool terminal() const {
     return status == JobStatus::Completed || status == JobStatus::Failed ||
-           status == JobStatus::Canceled;
+           status == JobStatus::Canceled ||
+           status == JobStatus::DeadlineExceeded;
   }
 
   QJsonObject describe() const {
@@ -353,6 +358,28 @@ public:
     releaseNativeState();
   }
 
+  // The terminal state of a job stopped before it published artifacts.
+  void stop() {
+    status =
+        deadlineExceeded ? JobStatus::DeadlineExceeded : JobStatus::Canceled;
+  }
+
+  // Stops the job as cancellation does when its wall-clock budget runs out,
+  // unless it already ended or the caller canceled it first.
+  void scheduleDeadline(int milliseconds) {
+    const auto self = shared_from_this();
+    QTimer::singleShot(
+        milliseconds, QCoreApplication::instance(), [self, milliseconds]() {
+          if (self->terminal() || self->cancellation) return;
+          self->deadlineExceeded = true;
+          self->error            = QString(
+                                       "The render job exceeded its %1 second "
+                                       "deadline.")
+                                       .arg(milliseconds / 1000.0);
+          self->cancel();
+        });
+  }
+
   void expireNeural() {
     if (neuralExecution && neuralExecution->expired()) cancellation = true;
   }
@@ -386,7 +413,7 @@ public:
     expireNeural();
     if (cancellation) {
       writersClosed = true;
-      status        = JobStatus::Canceled;
+      stop();
       releaseNativeState();
       return;
     }
@@ -486,7 +513,7 @@ public:
     // snapshot scene; artifact verification only needs the closed output files.
     releaseNativeState();
     if (cancellation || result == MovieRenderer::CompletionStatus::Canceled) {
-      status = JobStatus::Canceled;
+      stop();
       return;
     }
     if (result == MovieRenderer::CompletionStatus::Failed) {
@@ -525,7 +552,7 @@ public:
   void movieVerified(QJsonObject metadata, const QString& failure) {
     verification.reset();
     if (cancellation) {
-      status = JobStatus::Canceled;
+      stop();
       return;
     }
     if (!failure.isEmpty()) return fail(failure);
@@ -561,7 +588,7 @@ public:
     expireNeural();
     if (cancellation) {
       artifacts.clear();
-      status = JobStatus::Canceled;
+      stop();
       return;
     }
     try {
@@ -754,6 +781,7 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
       createRenderSnapshot(context, document, job->directory + "/snapshot");
   configureSnapshot(*job);
   state.jobs.emplace(job->id, job);
+  job->scheduleDeadline(context.renderDeadlineMs);
   job->scheduleBuild();
   return job->describe();
 }

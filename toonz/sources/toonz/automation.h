@@ -93,6 +93,9 @@ public:
   std::shared_ptr<RenderState> renderState;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
+  // Wall-clock budget of one render job; past it the job ends as
+  // deadline_exceeded with no artifacts.
+  int renderDeadlineMs = 600000;
   // Set once from validated startup configuration, keyed by shared root role.
   QMap<QString, SharedRootGrant> sharedRoots;
   // The private per-process runtime directory inside the workspace.

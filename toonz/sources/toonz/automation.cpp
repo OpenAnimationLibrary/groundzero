@@ -77,6 +77,7 @@ struct Options {
   QString parseHelper;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
+  int testRenderDeadlineMs = 0;
 #endif
 };
 
@@ -244,6 +245,10 @@ Options parseOptions(const QStringList& arguments) {
 #ifdef BUILD_UI_PORT_TESTS
     if (key == "--test-domains") {
       options.testDomains = true;
+      continue;
+    }
+    if (key == "--test-render-deadline-ms" && index + 1 < arguments.size()) {
+      options.testRenderDeadlineMs = arguments[++index].toInt();
       continue;
     }
 #endif
@@ -513,6 +518,10 @@ int executeWorker(QApplication& application, QFile& output,
                   const QString& runtime) {
   Context context(options.workspace, options.inputRoots, helpersContained);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
+#ifdef BUILD_UI_PORT_TESTS
+  if (options.testRenderDeadlineMs > 0)
+    context.renderDeadlineMs = options.testRenderDeadlineMs;
+#endif
   context.sharedRoots         = options.sharedRoots;
   context.runtimeDirectory    = runtime;
   if (!options.parseHelper.isEmpty())
