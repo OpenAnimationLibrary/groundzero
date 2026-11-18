@@ -24,6 +24,7 @@
 #include "toonz/studiopalette.h"
 #include "toonz/toonzfolders.h"
 
+#include <QAbstractEventDispatcher>
 #include <QApplication>
 #include <QDir>
 #include <QFile>
@@ -31,6 +32,8 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QMetaObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QSemaphore>
 #include <QSettings>
 #include <QThread>
@@ -417,10 +420,15 @@ class InputThread final : public QThread {
 public:
   using Consumer = std::function<bool(const QByteArray&, bool)>;
   using Stop = std::function<void()>;
-  InputThread(QApplication& application, Consumer consumer, Stop stop)
-      : m_application(application),
-        m_consumer(std::move(consumer)),
-        m_stop(std::move(stop)) {}
+  // Answers a line on this thread and returns true, or returns false to
+  // deliver it to the application thread.
+  using Direct = std::function<bool(const QByteArray&)>;
+  InputThread(QApplication& application, Consumer consumer, Stop stop,
+              Direct direct)
+      : m_application(application)
+      , m_consumer(std::move(consumer))
+      , m_stop(std::move(stop))
+      , m_direct(std::move(direct)) {}
   int exitCode() const { return m_exitCode; }
   void eventLoopReturned() { m_loopReturned.release(); }
 
@@ -430,6 +438,10 @@ protected:
     int next = 0;
     while ((next = std::fgetc(stdin)) != EOF) {
       if (next == '\n') {
+        if (m_direct(line)) {
+          line.clear();
+          continue;
+        }
         if (!deliver(line, false)) {
           requestStop();
           return;
@@ -479,6 +491,7 @@ private:
   QApplication& m_application;
   Consumer m_consumer;
   Stop m_stop;
+  Direct m_direct;
   QSemaphore m_loopReturned;
   int m_exitCode = 0;
 };
@@ -500,6 +513,35 @@ QJsonObject processLine(Dispatcher& dispatcher, const QByteArray& line,
   } catch (const Error& error) {
     return {{"id", QJsonValue::Null}, {"error", errorObject(error)}};
   }
+}
+
+// A job poll this process can answer from published records: job.status, and
+// job.cancel in a scene host, whose worker already holds the receipt. Every
+// other request, and any request this cannot parse exactly, goes to the
+// dispatcher.
+QJsonObject publishedPoll(JobRegistry& jobs, const QByteArray& line,
+                          bool host) {
+  const QJsonDocument document = QJsonDocument::fromJson(line);
+  if (!document.isObject()) return {};
+  const QJsonObject request = document.object();
+  const QString method      = request.value("method").toString();
+  const QJsonObject params  = request.value("params").toObject();
+  const bool cancel         = method == "job.cancel" && host;
+  QStringList keys          = params.keys();
+  keys.removeOne("job_id");
+  if (cancel) keys.removeOne("operation_id");
+  if ((method != "job.status" && !cancel) || !keys.isEmpty() ||
+      !params.value("job_id").isString())
+    return {};
+  try {
+    Live::rejectDuplicateKeys(line);
+  } catch (const Error&) {
+    return {};
+  }
+  const QJsonValue record =
+      jobs.answerPoll(params.value("job_id").toString(), cancel);
+  if (record.isNull()) return {};
+  return {{"id", request.value("id")}, {"result", record}};
 }
 
 bool writeResponse(QFile& output, QJsonObject response) {
@@ -612,7 +654,11 @@ int executeWorker(QApplication& application, QFile& output,
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)
     context.renderDeadlineMs = options.testRenderDeadlineMs;
-  context.childFault = options.childFault;
+  // An MCP client's worker is started by the adapter, which passes no test
+  // flags; its tests set the child fault in the environment instead.
+  context.childFault = options.childFault.isEmpty()
+                           ? qEnvironmentVariable("GROUNDZERO_TEST_CHILD_FAULT")
+                           : options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
   context.pathSwap    = options.pathSwap;
@@ -633,19 +679,37 @@ int executeWorker(QApplication& application, QFile& output,
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
   sweepAbandonedRenders(context);
-  jobRegistry(context);
+  JobRegistry& jobs = jobRegistry(context);
   prefetchBuildIdentity();
   Dispatcher dispatcher(context);
+  const bool host = !context.sceneHostDocument.isEmpty();
+  QMutex outputLock;
+  // A poll answer is as fresh as the last request this process answered or
+  // the last time its application thread went idle, whichever is later.
+  QObject::connect(QAbstractEventDispatcher::instance(),
+                   &QAbstractEventDispatcher::aboutToBlock, &application,
+                   [&jobs]() { jobs.publish(); });
   InputThread reader(
       application,
-      [&dispatcher, &output](const QByteArray& line, bool tooLarge) {
-        return writeResponse(output, processLine(dispatcher, line, tooLarge));
+      [&dispatcher, &output, &outputLock, &jobs](const QByteArray& line,
+                                                 bool tooLarge) {
+        const QJsonObject response = processLine(dispatcher, line, tooLarge);
+        jobs.publish();
+        QMutexLocker lock(&outputLock);
+        return writeResponse(output, response);
       },
       [&application, &context]() {
         // A native writer can be inside a nested event loop. Set its abort
         // token before quit unwinds that loop into a blocking writer join.
         requestRenderCancellation(context);
         application.quit();
+      },
+      [&jobs, &output, &outputLock, host](const QByteArray& line) {
+        const QJsonObject response = publishedPoll(jobs, line, host);
+        if (response.isEmpty()) return false;
+        QMutexLocker lock(&outputLock);
+        writeResponse(output, response);
+        return true;
       });
   reader.start();
   const int result = application.exec();

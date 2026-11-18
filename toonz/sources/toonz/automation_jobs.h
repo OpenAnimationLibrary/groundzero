@@ -3,6 +3,8 @@
 #include "automation.h"
 
 #include <QElapsedTimer>
+#include <QHash>
+#include <QMutex>
 
 #include <deque>
 #include <memory>
@@ -19,7 +21,8 @@ constexpr int ExpiredJobIds    = 256;
 constexpr int CancelGraceMs    = 30000;
 constexpr int JobIdMaximumSize = 80;
 
-// One job of any kind. Every method runs on the application thread.
+// One job of any kind. Every method except interrupt() runs on the
+// application thread.
 class Job {
 public:
   virtual ~Job()                       = default;
@@ -32,6 +35,10 @@ public:
   virtual QJsonObject record() const = 0;
   // Ask the job to stop; a finished job records the request and is unchanged.
   virtual void cancel() = 0;
+  // Ask the job's native work to stop at once, from any thread. The request is
+  // recorded as made at `requestedMs` when cancel() runs on the application
+  // thread.
+  virtual void interrupt(qint64 requestedMs) = 0;
   // job.result for this job's kind.
   virtual QJsonValue result(Context& context, const QJsonObject& params) = 0;
 };
@@ -71,12 +78,33 @@ public:
   int retained(JobLane lane) const;
   qint64 reservedBytes(JobLane lane) const;
 
+  // Polls are answered off the application thread from published copies of
+  // the records, so a busy application thread never delays them. Application
+  // thread: refresh the copies of jobs whose record can still change: running
+  // jobs, and finished ones published running or marked by unsettle().
+  void publish();
+  // A finished job's record changed (a late cancellation).
+  void unsettle(const QString& id);
+  // Any thread: job.status, or job.cancel when `cancel`, answered from the
+  // published record; null when this process published no record for `id`.
+  // A cancellation interrupts the job and queues cancel() for the application
+  // thread; until it runs, published copies show the request.
+  QJsonValue answerPoll(const QString& id, bool cancel);
+
 private:
+  struct Published final {
+    QJsonObject record;
+    std::weak_ptr<Job> job;
+    qint64 interruptMs = -1;
+    bool changed       = false;
+  };
   QString m_instance;
   qint64 m_epochMs;
   std::vector<std::shared_ptr<Job>> m_jobs;
   QStringList m_order;
   std::deque<QString> m_expired;
+  QMutex m_publishedLock;
+  QHash<QString, Published> m_published;
 };
 
 // The process's job registry: the worker's instance, or for a scene host the
