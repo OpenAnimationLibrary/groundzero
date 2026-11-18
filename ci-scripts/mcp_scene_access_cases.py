@@ -34,6 +34,20 @@ FORWARDED = {
     "render.preview",
     "render.submit",
     "scene.discard",
+    "scene.inventory",
+    "scene.source_status",
+    "column.cells",
+    "drawing.inspect",
+    "palette.inspect",
+    "palette.pages",
+    "fx.parameter.get",
+    "animation.channels",
+    "animation.keys",
+    "animation.sample",
+    "vector.inspect",
+    "vector.structure",
+    "vector.opacity.inspect",
+    "raster.read_pixels",
 }
 CHILD_ID = 2000
 TIFF_ID = 2100
