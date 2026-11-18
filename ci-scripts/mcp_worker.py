@@ -261,7 +261,7 @@ class Worker:
         """Read the tool descriptors once per executable from a private worker."""
         if self.executable not in Worker.declarations:
             with tempfile.TemporaryDirectory(prefix="declarations-") as directory:
-                root = Path(directory)
+                root = Path(directory).resolve(strict=True)
                 (root / "workspace").mkdir()
                 (root / "inputs").mkdir()
                 probe = Worker(self.executable, root / "workspace", root / "inputs", root / "log")
