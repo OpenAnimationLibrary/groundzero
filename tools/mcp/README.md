@@ -424,6 +424,16 @@ A lost response can have an unknown outcome:
 inspect saved workspace state before starting another worker and replaying edits.
 Diagnostics go to stderr; stdout is reserved for MCP. No network listener is used.
 
+Each MCP connection gets one native worker, started when the client first lists or
+calls tools rather than during protocol negotiation. If it cannot start, that call
+and every later one that needs it fail with `WORKER_UNAVAILABLE`, and the reason is
+written to stderr. An input line that is not JSON is answered with JSON-RPC error
+`-32700` and an invalid request with `-32600`, both with a null `id` unless the
+request carries a valid one; invalid notifications and responses get no reply. A
+line over 10 MiB closes the connection without a reply. The adapter declares no
+tasks capability, so a tool call carrying a `task` field is processed normally and
+the field is ignored.
+
 On POSIX systems, every adapter-launched worker uses a private process-group
 supervisor. The native worker verifies its parent socket credentials and a bounded
 startup handshake. A separate native guardian terminates its current group when
