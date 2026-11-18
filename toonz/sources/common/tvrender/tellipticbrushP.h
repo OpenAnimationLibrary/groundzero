@@ -37,6 +37,9 @@ void buildEnvelopeVector(const TThickPoint &p, const TThickPoint &d, bool left,
 void buildEnvelopeVectors(const TThickPoint &p, const TThickPoint &d,
                           TPointD &resL, TPointD &resR);
 
+//! The most steps buildAngularSubdivision returns.
+const int maxAngularSteps = 1 << 16;
+
 /*!
   Builds the angle that supports a *quality* discretization of the circle
   with maximal error < m_pixSize.
@@ -63,7 +66,17 @@ It's easy to see that maxAngle just has to be not multiplied by 2.
   double cosMaxAngle = 1.0 - err / radius;
   if (!(cosMaxAngle > -1.0)) cosMaxAngle = -1.0;
   double maxAngle = acos(cosMaxAngle);  //* 2.0;
-  nAngles         = tceil(fabs(angle) / maxAngle);
+
+  // For a radius so large that the step angle is 0 (or too small to count),
+  // the count is limited: the callers store about twice as many outline points,
+  // and past this many steps the circle is smoother than any pixel can show.
+  const double steps = fabs(angle) / maxAngle;
+  if (steps != steps)
+    nAngles = 0;  // no angle to cover and no step angle
+  else if (steps > maxAngularSteps)
+    nAngles = maxAngularSteps;
+  else
+    nAngles = tceil(steps);
 }
 
 TRectD computeBBox(const TStroke &stroke);

@@ -6,7 +6,9 @@
 
 #include "tellipticbrushP.h"
 
+#include <cfloat>
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 
@@ -66,12 +68,37 @@ void thinStrokesGetAtLeastOneStep() {
           "a zero radius with a zero error needs one step");
 }
 
+void hugeRadiiHaveABoundedStepCount() {
+  const int cap        = tellipticbrush::maxAngularSteps;
+  const double radii[] = {1e9, 1e12, 1e300, DBL_MAX,
+                          std::numeric_limits<double>::infinity()};
+  for (double radius : radii) {
+    require(stepsFor(radius, kPi, 0.5) == cap,
+            "a huge radius is limited to the largest step count");
+    require(stepsFor(radius, -2 * kPi, 0.5) == cap,
+            "the limit applies to either direction");
+    require(stepsFor(radius, 0.0, 0.5) == 0,
+            "a huge radius with no angle needs no step");
+    require(stepsFor(radius, kPi, 0.0) == cap,
+            "a huge radius with a zero error is limited");
+  }
+  // The largest radius that is not limited keeps the exact count.
+  require(stepsFor(1e6, kPi, 0.5) == referenceSteps(1e6, kPi, 0.5),
+          "a large radius below the limit keeps the formula's count");
+  require(referenceSteps(1e6, kPi, 0.5) < cap,
+          "the radius above is below the limit");
+  require(stepsFor(std::nan(""), kPi, 0.5) == 1,
+          "a radius that is not a number takes half-turn steps");
+  require(stepsFor(-5.0, kPi, 0.5) == 0, "a negative radius gives no step");
+}
+
 }  // namespace
 
 int main() {
   try {
     ordinaryRadiiKeepTheirStepCount();
     thinStrokesGetAtLeastOneStep();
+    hugeRadiiHaveABoundedStepCount();
   } catch (const std::exception& error) {
     std::cerr << "angularsubdivision: FAILED: " << error.what() << '\n';
     return 1;
