@@ -4,6 +4,8 @@
 // sample rate is an 80-bit extended number that the code used to read and
 // write through a 32-bit pointer at an odd 2-byte offset, and the sample data
 // is read from the SSND chunk at the offset the file gives, which may be odd.
+// Files whose header contradicts their data must be refused with a TException,
+// without reading past the data the file has.
 
 #include "tcommon.h"
 #include "tfilepath.h"
@@ -17,6 +19,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 
 #include <cstdint>
 #include <cstdio>
@@ -102,6 +105,7 @@ Bytes form(const std::vector<Bytes>& chunks) {
 }
 
 TFilePath writeFile(const QDir& dir, const char* name, const Bytes& bytes) {
+  QFile::remove(dir.filePath(name));
   TFilePath path(dir.filePath(name).toStdWString());
   Tofstream os(path, std::ios::binary);
   os.write(reinterpret_cast<const char*>(bytes.data()),
@@ -254,16 +258,143 @@ void writtenFilesKeepTheirSampleRate() {
   }
 }
 
+// A chunk whose declared length is not the length of its body.
+Bytes liedChunk(const char* tag, uint32_t declared, const Bytes& body) {
+  Bytes c;
+  putTag(c, tag);
+  put32(c, declared);
+  c.insert(c.end(), body.begin(), body.end());
+  return c;
+}
+
+Bytes body16(int frames) {
+  Bytes b;
+  for (int i = 0; i < frames; ++i) put16(b, unsigned(i * 3));
+  return b;
+}
+
+Bytes ssndBody(uint32_t offset, const Bytes& samples) {
+  Bytes b;
+  put32(b, offset);
+  put32(b, 0);
+  b.insert(b.end(), samples.begin(), samples.end());
+  return b;
+}
+
+Bytes commBody(int channels, uint32_t frames, int bits, uint32_t rate) {
+  Bytes c = commChunk(channels, frames, bits, rate);
+  return Bytes(c.begin() + 8, c.end());
+}
+
+struct MalformedFile {
+  const char* name;
+  Bytes bytes;
+};
+
+std::vector<MalformedFile> malformedFiles() {
+  const Bytes sixteenBytes = body16(8);  // 8 mono 16-bit frames
+  const Bytes comm8        = commChunk(1, 8, 16, 44100);
+  std::vector<MalformedFile> files;
+  files.push_back(
+      {"frames-beyond-data",
+       form({commChunk(1, 100000, 16, 44100), ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back(
+      {"one-frame-beyond-data",
+       form({commChunk(1, 9, 16, 44100), ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back(
+      {"offset-beyond-data", form({comm8, ssndChunk(sixteenBytes, 64, 0)})});
+  files.push_back({"offset-and-frames-beyond-data",
+                   form({comm8, ssndChunk(sixteenBytes, 4, 0)})});
+  files.push_back({"ssnd-shorter-than-its-header",
+                   form({comm8, liedChunk("SSND", 4, Bytes(4, 0))})});
+  files.push_back({"ssnd-negative-length",
+                   form({comm8, liedChunk("SSND", 0xFFFFFFF8u,
+                                          ssndBody(0, sixteenBytes))})});
+  files.push_back({"ssnd-length-past-end-of-file",
+                   form({comm8, liedChunk("SSND", 0x10000000u,
+                                          ssndBody(0, sixteenBytes))})});
+  files.push_back({"comm-too-short", form({liedChunk("COMM", 10, Bytes(10, 0)),
+                                           ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back(
+      {"comm-cut-by-end-of-file", form({liedChunk("COMM", 18, Bytes(10, 0))})});
+  files.push_back({"zero-channels", form({commChunk(0, 8, 16, 44100),
+                                          ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back({"three-channels", form({commChunk(3, 8, 16, 44100),
+                                           ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back({"zero-sample-size", form({commChunk(1, 8, 0, 44100),
+                                             ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back(
+      {"unsupported-sample-size",
+       form({commChunk(1, 8, 12, 44100), ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back(
+      {"frame-count-above-int", form({commChunk(2, 0xFFFFFFFFu, 16, 44100),
+                                      ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back({"frame-bytes-overflow-32-bits",
+                   form({commChunk(2, 0x40000001u, 16, 44100),
+                         ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back({"negative-chunk-length",
+                   form({liedChunk("ANNO", 0xFFFFFFF0u, Bytes(4, 0)), comm8,
+                         ssndChunk(sixteenBytes, 0, 0)})});
+  files.push_back(
+      {"header-cut-by-end-of-file", Bytes{'F', 'O', 'R', 'M', 0, 0}});
+  return files;
+}
+
+// Sound data kept even when the header allows more or other chunks follow.
+void unusualButValidFilesAreRead() {
+  QDir dir(QDir::tempPath());
+  const Bytes data               = body16(8);
+  const std::vector<Bytes> files = {
+      // Extra bytes after the frames, and the data ends exactly at the offset.
+      form({commChunk(1, 4, 16, 44100), ssndChunk(data, 0, 0)}),
+      form({commChunk(1, 8, 16, 44100), ssndChunk(data, 0, 0)}),
+      form({commChunk(1, 4, 16, 44100), ssndChunk(data, 8, 8)}),
+      // A chunk that is cut by the end of the file after the sound data.
+      form({commChunk(1, 8, 16, 44100), ssndChunk(data, 0, 0),
+            liedChunk("ANNO", 1000, Bytes(3, 0))}),
+  };
+  for (const Bytes& bytes : files) {
+    const TFilePath path = writeFile(dir, "aiff_reader_valid.aiff", bytes);
+    TSoundTrackP track   = readFile(path);
+    require(track, "a file with unusual but consistent sizes is read");
+    TSystem::deleteFile(path);
+  }
+}
+
+void malformedFilesAreRefused(const std::string& only) {
+  QDir dir(QDir::tempPath());
+  for (const MalformedFile& file : malformedFiles()) {
+    if (!only.empty() && only != file.name) continue;
+    const TFilePath path = writeFile(dir, "aiff_reader_bad.aiff", file.bytes);
+    bool refused         = false;
+    try {
+      TSoundTrackP track = readFile(path);
+    } catch (const TException&) {
+      refused = true;
+    }
+    TSystem::deleteFile(path);
+    require(refused, std::string("the file '") + file.name +
+                         "' is refused with a TException");
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   QCoreApplication app(argc, argv);
   try {
+    if (argc > 1) {
+      malformedFilesAreRefused(argv[1]);
+      std::cout << "aiff_reader: " << argv[1] << " refused\n";
+      return 0;
+    }
     sampleRatesAreReadFromTheExtendedNumber();
     everyOffsetOfTheSampleDataIsRead();
     chunksAtOddFileOffsetsAreRead();
     eightAndTwentyFourBitSamplesAreRead();
     writtenFilesKeepTheirSampleRate();
+    unusualButValidFilesAreRead();
+    malformedFilesAreRefused("");
   } catch (const std::exception& error) {
     std::cerr << "aiff_reader: FAILED: " << error.what() << '\n';
     return 1;
