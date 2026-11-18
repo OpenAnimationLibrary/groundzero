@@ -27,6 +27,7 @@ import mcp_color_composite_cases
 import mcp_curve_cases
 import mcp_drawing_cases
 import mcp_edit_limit_cases
+import mcp_failure_cases
 import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
@@ -625,6 +626,57 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_library_unreadable_dependency_is_refused_not_hidden(self) -> None:
         mcp_library_limit_cases.library_unreadable_dependency_is_refused_not_hidden(self)
+
+    def test_render_cancel_leaves_no_output_and_no_process(self) -> None:
+        mcp_failure_cases.render_cancel_leaves_no_output_and_no_process(self)
+
+    @worker_only("needs --test-render-fault hold-launch, which the adapter never passes")
+    def test_render_cancel_before_launch_leaves_nothing(self) -> None:
+        mcp_failure_cases.render_cancel_before_launch_leaves_nothing(self)
+
+    @worker_only("needs --test-render-fault hold-dispatch, which the adapter never passes")
+    def test_render_cancel_racing_dispatch_leaves_nothing(self) -> None:
+        mcp_failure_cases.render_cancel_racing_dispatch_leaves_nothing(self)
+
+    @worker_only("needs --test-render-fault hold-publication, which the adapter never passes")
+    def test_render_cancel_racing_publication_leaves_nothing(self) -> None:
+        mcp_failure_cases.render_cancel_racing_publication_leaves_nothing(self)
+
+    @worker_only("needs --test-render-fault fail-after-final-frame, which the adapter never passes")
+    def test_render_failure_after_final_frame_publishes_nothing(self) -> None:
+        mcp_failure_cases.render_failure_after_final_frame_publishes_nothing(self)
+
+    @worker_only("needs --test-render-fault encoder-failure, which the adapter never passes")
+    def test_render_encoder_failure_publishes_nothing(self) -> None:
+        mcp_failure_cases.render_encoder_failure_publishes_nothing(self)
+
+    @worker_only("needs --test-render-fault stray-callbacks, which the adapter never passes")
+    def test_render_stray_callbacks_do_not_change_the_outcome(self) -> None:
+        mcp_failure_cases.render_stray_callbacks_do_not_change_the_outcome(self)
+
+    @worker_only("kills the worker process and needs --test-render-fault hold-publication")
+    def test_render_worker_killed_mid_preview_then_new_worker(self) -> None:
+        mcp_failure_cases.render_worker_killed_mid_preview_then_new_worker(self)
+
+    def test_render_storage_budget_refuses_before_creating_anything(self) -> None:
+        mcp_failure_cases.render_storage_budget_refuses_before_creating_anything(self)
+
+    def test_render_unwritable_output_directory_is_refused_cleanly(self) -> None:
+        mcp_failure_cases.render_unwritable_output_directory_is_refused_cleanly(self)
+
+    def test_render_disk_full_fails_cleanly_and_recovers(self) -> None:
+        mcp_failure_cases.render_disk_full_fails_cleanly_and_recovers(self)
+
+    def test_package_write_refusals_leave_nothing_behind(self) -> None:
+        mcp_failure_cases.package_write_refusals_leave_nothing_behind(self)
+
+    @worker_only("needs --test-write-fault publish, which the adapter never passes")
+    def test_package_publish_failure_reports_what_is_on_disk(self) -> None:
+        mcp_failure_cases.package_publish_failure_reports_what_is_on_disk(self)
+
+    @worker_only("needs --test-write-fault publish, which the adapter never passes")
+    def test_mixdown_publish_failure_reports_what_is_on_disk(self) -> None:
+        mcp_failure_cases.mixdown_publish_failure_reports_what_is_on_disk(self)
 
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
