@@ -288,10 +288,19 @@ public:
   const TTrack* root() const;
   int level() const;
 
-  inline int clampIndex(int index) const
-    { return std::min(std::max(index, 0), size() - 1); }
-  inline double clampIndexFloat(double index) const
-    { return std::min(std::max(index, 0.0), (double)(size() - 1)); }
+  // Compare by value. MSVC 19.52 miscompiles the nested std::min(std::max())
+  // form once it is inlined into the sub-track copy loops of the input
+  // modifiers: it reads the clamped index through a stale stack value.
+  inline int clampIndex(int index) const {
+    const int low = index < 0 ? 0 : index;
+    const int last = size() - 1;
+    return last < low ? last : low;
+  }
+  inline double clampIndexFloat(double index) const {
+    const double low = index < 0.0 ? 0.0 : index;
+    const double last = (double)(size() - 1);
+    return last < low ? last : low;
+  }
   inline int floorIndexNoClamp(double index) const
     { return (int)floor(index + TConsts::epsilon); }
   inline int floorIndex(double index) const
