@@ -357,18 +357,54 @@ goes, and on Windows the worker holds it in a job object that closes with the wo
 
 A read-only document's revision is always `"0"`. `scene.summary` (with optional
 `include_drawings: false`), `camera.inspect`, `level.inspect`, `cast.list`,
-`cast.usage`, `scene.dependencies`, `scene.validate`, `fx.graph`, `render.preview`
-and `render.submit` run in its host; the job and artifact tools follow the job.
+`cast.usage`, `scene.dependencies`, `scene.validate`, `fx.graph`, `scene.inventory`,
+`scene.source_status`, `column.cells`, `drawing.inspect`, `palette.inspect`,
+`palette.pages`, `fx.parameter.get`, `animation.channels`, `animation.keys`,
+`animation.sample`, `vector.inspect`, `vector.structure`, `vector.opacity.inspect`,
+`raster.read_pixels`, `render.preview` and `render.submit` run in its host; the job and
+artifact tools follow the job. Reads that decode drawings first re-check that level's
+pinned files and return `source_changed` if one changed.
 Production reads report `profile: "native-read-only-v1"`; cast rows add `kind`,
 `load_status` and `cover_status`, dependency rows add `pinned`, and `scene.validate`
 adds `unsupportedColumn`, `externalCodeFx`, `fileResourceFx`, `missingDependency`,
-`forbiddenDependency`, `levelLoadFailed`, `unrecognizedSceneData` and
-`authoringRangeExceeded` (info). `fx.graph` gives every effect an `admission`:
+`forbiddenDependency`, `levelLoadFailed`, `unrecognizedSceneData`, and the info
+advisories `authoringRangeExceeded`, `frameRateMismatch` and `resolutionMismatch`
+(the scene's frame rate or camera differs from its project's scene defaults).
+`scene.dependencies` also lists sound files (`sound`), hook files (`hook_sidecar`),
+texture images (`texture`; shipped library textures are `unsupported`), the project's
+raster drawing palette (`raster_drawing_palette`) and FX file resources
+(`fx_file_resource`). `fx.graph` gives every effect an `admission`:
 `class`, whether it renders, and the authoring ranges a builtin effect exceeds;
-effects outside `builtin-2d-v2` are described without parameters. Every other tool
-returns `read_only_document` before it reaches the host: `details.reason` is
-`mutation` for writes, including `scene.save_copy`, and `not_qualified` for reads
-not yet available, with `details.slice`.
+effects outside `builtin-2d-v2` are described without parameters; `sheet_path`
+describes a sub-xsheet instance. Every other tool returns `read_only_document` before
+it reaches the host: `details.reason` is `mutation` for writes, including
+`scene.save_copy`, and `not_qualified` for reads not yet available, with
+`details.slice`.
+
+`scene.inventory` pages through a document's `sheets`, `columns` or `stage_objects`,
+128 rows a page and at most 65,536 rows a section (`reasons: ["row_limit"]` past
+that). Every row carries `sheet_path`, the instance path of `{column_id, level_id}`
+steps from the top sheet; a sub-xsheet exposed twice is two sheet rows with one
+`level_id` and `instance_count: 2`. With `sheet_path` the columns and stage objects of
+that instance are listed, and the sheets below it. Names repeated within a sheet are
+`duplicate_name`. Child-sheet column handles name inventory rows; column tools accept
+top-sheet columns only. It works on editable documents too and never creates objects.
+`scene.source_status` re-stats every file pinned at open and reports each change as
+`modified`, `replaced` (a new file in its place), `missing` or `unreadable`, with
+`state: "missing"` when the scene file itself is gone; editable documents return
+`unsupported_target`. On volumes with coarse timestamps (HFS+: one second, exFAT: ten
+milliseconds) a same-size rewrite in place within one tick is not detected.
+
+`project.inspect` with a `project_id` from `project.list` parses that project file in
+a parse helper (10 seconds, 1 GiB) and returns its format, version, file-path rules,
+scene defaults, alternates and folders with `authority` (`workspace`, `input_root`,
+`outside_roots` with no path, `unresolved`, or `scene_dependent`); the file is hashed
+before and after. `project.scenes` lists the folders and `.tnz` files under the
+project's scenes folder, or a `folder` inside it, at most depth 8, 20,000 entries and
+10 seconds, 128 a page, with a `listing:` revision. A scenes folder that is
+scene-dependent, outside the roots or missing gives `scenes_folder: null` and an empty
+page with `reasons: ["unreadable"]`. `standalone` has no project file and returns
+`invalid_params` from both.
 
 Read-only renders produce PNG only (MP4 returns `render_unavailable`). A render is
 refused with `render_blocked`, listing at most 64 `blockers`, when the scene holds an
