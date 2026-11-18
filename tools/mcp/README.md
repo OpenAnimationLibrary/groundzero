@@ -338,16 +338,22 @@ The host loads each level itself and records why one did not load: `missing`,
 reader error or a first frame over 16,384 pixels per axis or 268,435,456 pixels),
 `creator_forbidden`, or `not_applicable` for formats this profile does not load
 (PSD, movies, EXR, SVG and mesh levels). A scene is refused with `scene_limit` past
-16 nested sub-xsheets, 1024 sheets, 10,000 columns per sheet, 4096 levels,
-1,000,000 drawings, 4096 effect nodes per sheet or 16,384 per scene, 16,384 stage
-objects per sheet or 65,536 files read; `invalid_scene` with `details.cause:
-"rejected"` carries the native parser's message. A scene whose file names an
-effect id this build does not know is refused by the native loader. A host that
+16 nested sub-xsheets, 1024 sheets, 9999 columns per sheet, 4096 levels,
+1,000,000 drawings, 4096 effects per sheet or 16,384 per scene (column FX are bounded
+by the column limit instead), 16,384 stage objects per sheet or 65,536 files read;
+`invalid_scene` with `details.cause: "rejected"` carries the native parser's message,
+for example for a cell past row 999,999 or an effect id this build does not know.
+Scene loading has one known performance limit: the native reader lists a sequence
+level's whole folder for every such level, so thousands of sequence levels sharing
+one folder load in quadratic time (about 4000 of them pass the 60 second open
+deadline, while the same levels in folders of their own open in seconds). A host that
 crashes, takes more than 60 seconds to open or 30 seconds to answer a read, or
 exceeds 2 GiB of memory is stopped: an open returns `invalid_scene` with
 `details.cause` `crashed`, `timeout` or `memory`; afterwards the document stays
 listed with `host_state: "lost"` and every call on it returns `scene_host_failed`
 until `scene.discard` removes it. The worker and its other documents keep serving.
+A host ends with its worker: on macOS and Linux it exits when its parent process
+goes, and on Windows the worker holds it in a job object that closes with the worker.
 
 A read-only document's revision is always `"0"`. `scene.summary` (with optional
 `include_drawings: false`), `camera.inspect`, `level.inspect`, `cast.list`,
