@@ -10,13 +10,9 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { fakeNativeExecutable } from "./fake-native.mjs";
 
-const {
-  adapterArguments,
-  bridgeResult,
-  cancelledCall,
-  parseRequest,
-  readFrames,
-} = await import(new URL("native-client.mjs", import.meta.url).href);
+const { adapterArguments, bridgeResult, cancelledCall, parseRequest, readFrames } = await import(
+  new URL("native-client.mjs", import.meta.url).href
+);
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=";
 const image = { type: "image", mimeType: "image/png", data: png };
@@ -167,7 +163,15 @@ test("passes worker grants to the adapter unchanged so it validates them alone",
     "/inputs",
   ];
   expect(adapterArguments(["--automation-worker", ...grants], "/bin/OpenToonz", "/cli.js")).toEqual(
-    ["/cli.js", "--executable", "/bin/OpenToonz", "--toolsets", "all", "--strict-results", ...grants],
+    [
+      "/cli.js",
+      "--executable",
+      "/bin/OpenToonz",
+      "--toolsets",
+      "all",
+      "--strict-results",
+      ...grants,
+    ],
   );
 });
 
