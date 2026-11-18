@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -12,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from mcp_audio_cases import Clip, _column, _import, _place
 from mcp_audio_cases import _scene as _audio_scene
 from mcp_audio_model import tone, wav_file
+from mcp_scene_access_cases import _op, corpus, host_processes, open_scene, project_id, wait
+from mcp_studio_palette_cases import call, refuse
 from mcp_worker import Worker
 
 if TYPE_CHECKING:
@@ -438,3 +441,151 @@ def mixdown_publish_failure_reports_what_is_on_disk(case: NativeAcceptance) -> N
     case.assertFalse(output.exists())
     case.assertEqual(_staging(case), [])
     case.assertEqual(case.failure("audio.mixdown", request), error)
+
+
+def _read_only_render(case: NativeAcceptance, worker: Worker, scene: Path) -> tuple[str, str]:
+    show = project_id(case, worker, "ShowA")
+    document = open_scene(case, worker, scene, show)["document_id"]
+    params = {"document_id": document, "expected_revision": "0", "start_frame": 0}
+    params.update(end_frame=49, width=512, height=512, operation_id=_op(case))
+    return document, call(case, worker, "render.submit", params)["job_id"]
+
+
+def _nothing_on_disk(case: NativeAcceptance) -> None:
+    case.assertEqual(list(case.workspace.rglob("renders/job_*")), [])
+    case.assertEqual(list(case.workspace.rglob("frame*.png")), [])
+
+
+def read_only_render_cancel_and_host_loss_leave_nothing(case: NativeAcceptance) -> None:
+    """A scene host's canceled or lost render ends terminal, leaves no file or process."""
+    scene = corpus(case)["A"]
+    worker = case.worker
+    document, job = _read_only_render(case, worker, scene)
+    call(case, worker, "render.cancel", {"job_id": job, "operation_id": _op(case)})
+    case.assertEqual(wait(case, worker, job)["status"], "canceled")
+    refuse(case, worker, "render.artifacts", {"job_id": job}, "artifacts_unavailable")
+    _nothing_on_disk(case)
+    params = {"document_id": document, "expected_revision": "0", "start_frame": 0}
+    params.update(end_frame=49, width=512, height=512, operation_id=_op(case))
+    lost = call(case, worker, "render.submit", params)["job_id"]
+    pid = next(pid for pid, owner in host_processes(worker) if owner == document)
+    os.kill(pid, signal.SIGKILL)
+    details = refuse(case, worker, "render.status", {"job_id": lost}, "scene_host_failed")
+    case.assertEqual(details["status"], "failed")
+    refuse(case, worker, "render.artifacts", {"job_id": lost}, "scene_host_failed")
+    _nothing_on_disk(case)
+    case.assertEqual(list(case.workspace.glob("runtime_*/scene-host-*")), [])
+    discard = {"document_id": document, "expected_revision": "0", "operation_id": _op(case)}
+    case.assertTrue(call(case, worker, "scene.discard", discard)["discarded"])
+    case.assertEqual(host_processes(worker), [])
+
+
+def _directories(case: NativeAcceptance) -> set[Path]:
+    runtimes = set(case.workspace.glob("runtime_*"))
+    return runtimes | set(case.workspace.rglob("renders/job_*"))
+
+
+def _second_worker(case: NativeAcceptance, name: str) -> Worker:
+    worker = Worker(
+        case.executable, case.workspace, case.inputs, case.directory / f"{name}.stderr.log"
+    )
+    case.addCleanup(worker.close)
+    return worker
+
+
+def live_worker_and_host_files_survive_another_workers_start(case: NativeAcceptance) -> None:
+    """A second worker on the same workspace leaves a live worker's and host's files alone."""
+    scene = corpus(case)["A"]
+    document = _scene(case, 120)
+    editable = case.mutate(
+        "render.submit", document, start_frame=0, end_frame=119, width=256, height=256
+    )
+    before = _directories(case)
+    case.assertTrue(any(path.name.startswith("job_") for path in before))
+    other = _second_worker(case, "bystander")
+    case.assertEqual(other.call("automation.capabilities", {})["result"]["protocol_version"], 2)
+    case.assertLessEqual(before, _directories(case))
+    ended = case.wait_job(editable["job_id"])
+    case.assertEqual(ended["status"], "completed", ended)
+    other.close()
+    show = project_id(case, case.worker, "ShowA")
+    opened = open_scene(case, case.worker, scene, show)["document_id"]
+    params = {"document_id": opened, "expected_revision": "0", "start_frame": 0}
+    params.update(end_frame=119, width=512, height=512, operation_id=_op(case))
+    hosted = call(case, case.worker, "render.submit", params)["job_id"]
+    hosts = list(case.workspace.glob("runtime_*/scene-host-*"))
+    case.assertEqual(len(hosts), 1)
+    again = _second_worker(case, "second-bystander")
+    case.assertEqual(again.call("automation.capabilities", {})["result"]["protocol_version"], 2)
+    case.assertTrue(hosts[0].is_dir())
+    case.assertEqual(wait(case, case.worker, hosted)["status"], "completed")
+    artifacts = call(case, case.worker, "render.artifacts", {"job_id": hosted})["artifacts"]
+    image = call(case, case.worker, "artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
+    case.assertEqual(image["frame"], 0)
+
+
+def _native_pids(path: Path) -> set[int]:
+    listing = subprocess.run(
+        ["ps", "-ax", "-o", "pid=,command="], capture_output=True, text=True, check=True
+    ).stdout
+    found = set()
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if f"--workspace {path}" in command and int(pid) != os.getpid():
+            found.add(int(pid))
+    return found
+
+
+def _wait_dead(case: NativeAcceptance, pids: set[int]) -> None:
+    deadline = time.monotonic() + 30
+    while pids & _native_pids(case.workspace) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    case.assertEqual(pids & _native_pids(case.workspace), set())
+
+
+def dead_workers_directories_are_swept_and_live_ones_are_not(case: NativeAcceptance) -> None:
+    """Sweep runtime and job directories whose owner is gone, even if its pid is reused."""
+    if os.name == "nt":
+        case.skipTest("The fixture holds a POSIX advisory lock")
+    import fcntl
+
+    scene = corpus(case)["A"]
+    mine = set(case.workspace.glob("runtime_*"))
+    alive = _native_pids(case.workspace)
+    victim = _second_worker(case, "victim")
+    show = project_id(case, victim, "ShowA")
+    opened = open_scene(case, victim, scene, show)["document_id"]
+    params = {"document_id": opened, "expected_revision": "0", "start_frame": 0}
+    params.update(end_frame=119, width=512, height=512, operation_id=_op(case))
+    call(case, victim, "render.submit", params)
+    victims = set(case.workspace.glob("runtime_*")) - mine
+    case.assertEqual(len(victims), 1)
+    case.assertTrue(any(case.workspace.glob("runtime_*/scene-host-*")))
+    case.assertTrue(any(case.workspace.rglob("renders/job_*")))
+    held = case.workspace / "runtime_fixture-held"
+    reused = case.workspace / "runtime_fixture-reused"
+    plain = case.workspace / "runtime_fixture-unmarked"
+    for directory in (held, reused, plain):
+        directory.mkdir()
+    (held / ".owner.lock").write_text("held")
+    (reused / ".owner.lock").write_text(str(os.getpid()))
+    holder = (held / ".owner.lock").open("r+")
+    case.addCleanup(holder.close)
+    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    bystander = _second_worker(case, "sweeper")
+    case.assertEqual(bystander.call("automation.list_documents", {})["result"]["documents"], [])
+    case.assertTrue(victims <= set(case.workspace.glob("runtime_*")))
+    case.assertTrue(mine <= set(case.workspace.glob("runtime_*")))
+    case.assertTrue(held.is_dir() and plain.is_dir())
+    case.assertFalse(reused.exists())
+    bystander.close()
+    victim.process.kill()
+    victim.process.wait(timeout=10)
+    _wait_dead(case, _native_pids(case.workspace) - alive)
+    successor = _second_worker(case, "successor")
+    case.assertEqual(successor.call("automation.list_documents", {})["result"]["documents"], [])
+    case.assertEqual(victims & set(case.workspace.glob("runtime_*")), set())
+    case.assertEqual(list(case.workspace.glob("runtime_*/scene-host-*")), [])
+    case.assertEqual(list(case.workspace.rglob("renders/job_*")), [])
+    case.assertTrue(mine <= set(case.workspace.glob("runtime_*")))
+    case.assertTrue(held.is_dir() and plain.is_dir())

@@ -201,7 +201,7 @@ def private_bootstrap_ignores_launch_configuration(test: NativeAcceptance) -> No
         test.assertEqual(responses[1]["result"]["name"], "Private bootstrap")
         test.assertFalse(synthetic_root.exists())
     runtimes = list(test.workspace.glob("runtime_*"))
-    test.assertGreaterEqual(len(runtimes), 3)
+    test.assertGreaterEqual(len(runtimes), 2)
     for runtime in runtimes:
         test.assertTrue((runtime / "portablestuff").is_dir())
     _reject_relative_roots(test, launch, set(runtimes))

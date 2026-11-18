@@ -678,6 +678,15 @@ class NativeAcceptance(unittest.TestCase):
     def test_mixdown_publish_failure_reports_what_is_on_disk(self) -> None:
         mcp_failure_cases.mixdown_publish_failure_reports_what_is_on_disk(self)
 
+    def test_read_only_render_cancel_and_host_loss_leave_nothing(self) -> None:
+        mcp_failure_cases.read_only_render_cancel_and_host_loss_leave_nothing(self)
+
+    def test_live_worker_and_host_files_survive_another_workers_start(self) -> None:
+        mcp_failure_cases.live_worker_and_host_files_survive_another_workers_start(self)
+
+    def test_dead_workers_directories_are_swept_and_live_ones_are_not(self) -> None:
+        mcp_failure_cases.dead_workers_directories_are_swept_and_live_ones_are_not(self)
+
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
         self.workspace = self.directory / "workspace"
