@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <thread>
 
@@ -29,6 +30,19 @@ void announceDeadline() {
 #endif
 }
 
+// The OpenMP runtime, which the process loads through OpenCV's OpenBLAS,
+// registers every process in this file to detect a second copy of itself and
+// removes it in its library destructor; ending without destructors would
+// leave it behind in the shared temporary directory.
+void removeOpenMpRegistration() {
+#ifndef _WIN32
+  char path[64];
+  std::snprintf(path, sizeof path, "/tmp/__KMP_REGISTERED_LIB_%d",
+                int(::getpid()));
+  (void)::unlink(path);
+#endif
+}
+
 }  // namespace
 
 void armShutdownDeadline() {
@@ -40,6 +54,7 @@ void armShutdownDeadline() {
     std::this_thread::sleep_for(std::chrono::milliseconds(ShutdownDeadlineMs));
     // Low-level write: a stuck thread may hold the stdio locks.
     announceDeadline();
+    removeOpenMpRegistration();
     std::_Exit(ShutdownDeadlineExitCode);
   }).detach();
 }
