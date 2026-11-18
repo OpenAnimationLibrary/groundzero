@@ -8807,49 +8807,7 @@
         "type": "integer"
       },
       "recognizer": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "executable_sha256": {
-                "maxLength": 64,
-                "minLength": 64,
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              "name": {
-                "const": "rhubarb"
-              },
-              "recognizer": {
-                "enum": [
-                  "pocketsphinx",
-                  "phonetic"
-                ],
-                "type": "string"
-              },
-              "shape_set": {
-                "enum": [
-                  "rhubarb_basic",
-                  "rhubarb_extended"
-                ],
-                "type": "string"
-              },
-              "version": {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "recognizer",
-              "shape_set"
-            ],
-            "type": "object"
-          },
-          {
-            "type": "null"
-          }
-        ]
+        "type": "null"
       },
       "shape_set": {
         "enum": [
