@@ -350,6 +350,23 @@ an empty sound column that is locked or muted, and a last sound column whose cli
 span a single frame, since native scene files drop them. Trailing empty columns
 are not saved. Renders mute sound columns, so movies stay video-only.
 
+The `storyboard` toolset edits storyboard panels, which are the root sheet's
+navigation tags. A panel starts at `panel_frame` and runs to the frame before the
+next panel; the last runs to the scene's last frame or its own frame, whichever is
+later. `storyboard.panels` lists each panel's span, caption, notes, color, and the
+drawing it shows: the topmost visible level column's drawing at the panel frame.
+Render that frame with `render.preview` for a thumbnail. `storyboard.panel.create`
+adds a panel; a frame that already starts one returns `already_exists`.
+`storyboard.panel.update` changes the caption, notes or color, or moves where the
+panel starts with `new_panel_frame`; cells and timing do not move.
+`storyboard.panel.delete` removes the boundary only. A document admits 4096
+panels, 256-character captions and 4096-character notes. Captions cannot contain
+control characters; notes can contain line feeds but no other control characters.
+Panel colors are stored per panel and do not change the editor's default tag
+color. Notes need a newer reader: `older_reader_compatible` is false whenever any
+panel has notes. Packages record a digest of the panels and `scene.open` compares
+it.
+
 To inspect an image, start `render.preview`, poll `render.status` until completed,
 list `render.artifacts`, and pass an artifact ID to `artifact.read`. The final call
 returns MCP image content and source metadata. Inline PNG images are limited to
