@@ -373,6 +373,12 @@ class NativeAcceptance(unittest.TestCase):
     def test_read_only_source_status_reports_each_change(self) -> None:
         mcp_scene_reads_cases.read_only_source_status_reports_each_change(self)
 
+    def test_read_only_source_status_checks_content_within_bounds(self) -> None:
+        mcp_scene_reads_cases.read_only_source_status_checks_content_within_bounds(self)
+
+    def test_read_only_content_digests_hold_their_deadlines(self) -> None:
+        mcp_scene_reads_cases.read_only_content_digests_hold_their_deadlines(self)
+
     def test_read_only_projects_inspect_and_list_scenes(self) -> None:
         mcp_scene_reads_cases.read_only_projects_inspect_and_list_scenes(self)
 

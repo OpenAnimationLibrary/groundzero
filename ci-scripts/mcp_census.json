@@ -1719,7 +1719,9 @@
    "toolset": "core",
    "writes": false,
    "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_reports_each_change"
+    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_reports_each_change",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_digests_hold_their_deadlines",
+    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_checks_content_within_bounds"
    ]
   },
   "scene.summary": {
