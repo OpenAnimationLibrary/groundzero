@@ -172,7 +172,8 @@ void closeJob(Context& context, Dispatcher& dispatcher,
   require(before.value("status") == "cancellation_requested" ||
               before.value("status") == "canceled",
           "The tested operation did not request native cancellation");
-  shutdownRender(context);
+  require(shutdownRender(context, 60000),
+          "Native writers did not close after cancellation");
   const QJsonObject status =
       result(dispatcher, "render.status", {{"job_id", job.value("job_id")}});
   require(status.value("status") == "canceled", "Native render did not cancel");

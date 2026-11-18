@@ -8,6 +8,7 @@
 #include "automation_scene_host.h"
 #include "automation_runtime.h"
 #include "automation_shared_parse.h"
+#include "automation_shutdown.h"
 
 #include "tenv.h"
 #include "texception.h"
@@ -24,6 +25,7 @@
 #include "toonz/toonzfolders.h"
 
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -35,6 +37,8 @@
 #include <QThread>
 #include <QUuid>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <clocale>
 #include <csignal>
@@ -78,6 +82,8 @@ namespace {
 
 constexpr int maximumLineBytes      = 8 * 1024 * 1024;
 constexpr int quitRetryMilliseconds = 50;
+// Lines read ahead of the request being answered.
+constexpr int pendingLineLimit = 64;
 
 struct Options {
   QString workspace;
@@ -388,10 +394,15 @@ void initializeNative(const QString& runtime, const char* executable,
       TFilePath(QDir(runtime).filePath("cache").toStdWString()));
 }
 
+// Reads protocol lines and hands them to the application thread in order.
+//
+// Lines are queued rather than handed over one at a time, so the end of input
+// is seen while a request still runs: from then on the shutdown deadline
+// bounds that request and the teardown after it.
 class InputThread final : public QThread {
 public:
   using Consumer = std::function<bool(const QByteArray&, bool)>;
-  using Stop = std::function<void()>;
+  using Stop     = std::function<void()>;
   InputThread(QApplication& application, Consumer consumer, Stop stop)
       : m_application(application),
         m_consumer(std::move(consumer)),
@@ -405,16 +416,13 @@ protected:
     int next = 0;
     while ((next = std::fgetc(stdin)) != EOF) {
       if (next == '\n') {
-        if (!deliver(line, false)) {
-          requestStop();
-          return;
-        }
+        submit(line, false);
         line.clear();
       } else {
         line.append(static_cast<char>(next));
         if (line.size() > maximumLineBytes) {
           m_exitCode = 2;
-          deliver({}, true);
+          submit({}, true);
           requestStop();
           return;
         }
@@ -424,38 +432,46 @@ protected:
       m_exitCode = 2;
       std::cerr << "automation-worker: protocol input failed\n";
     } else if (!line.isEmpty()) {
-      deliver(line, false);
+      submit(line, false);
     }
     requestStop();
   }
 
 private:
+  void submit(const QByteArray& line, bool tooLarge) {
+    m_pending.acquire();
+    QMetaObject::invokeMethod(
+        &m_application,
+        [this, line, tooLarge]() {
+          const bool keepReading = m_consumer(line, tooLarge);
+          m_pending.release();
+          if (keepReading || m_outputFailed.exchange(true)) return;
+          // The client can no longer receive answers: stop as at end of input.
+          m_exitCode = 2;
+          armShutdownDeadline();
+          m_stop();
+        },
+        Qt::QueuedConnection);
+  }
+
   // The platform event loop can miss the single wake-up that quit() sends
   // from a queued call and then sleep until an unrelated event arrives.
   // Asking again until the loop has returned bounds that wait.
   void requestStop() {
+    armShutdownDeadline();
     QMetaObject::invokeMethod(&m_application, m_stop, Qt::QueuedConnection);
     while (!m_loopReturned.tryAcquire(1, quitRetryMilliseconds))
       QMetaObject::invokeMethod(&m_application, &QCoreApplication::quit,
                                 Qt::QueuedConnection);
   }
 
-  bool deliver(const QByteArray& line, bool tooLarge) {
-    bool keepReading = false;
-    QMetaObject::invokeMethod(
-        &m_application,
-        [this, line, tooLarge, &keepReading]() {
-          keepReading = m_consumer(line, tooLarge);
-        },
-        Qt::BlockingQueuedConnection);
-    if (!keepReading) m_exitCode = 2;
-    return keepReading;
-  }
   QApplication& m_application;
   Consumer m_consumer;
   Stop m_stop;
   QSemaphore m_loopReturned;
-  int m_exitCode = 0;
+  QSemaphore m_pending{pendingLineLimit};
+  std::atomic<bool> m_outputFailed{false};
+  std::atomic<int> m_exitCode{0};
 };
 
 QJsonObject processLine(Dispatcher& dispatcher, const QByteArray& line,
@@ -576,6 +592,26 @@ int executeDomainTests(QApplication& application, Context& context) {
 }
 #endif
 
+// What a worker must finish before its process ends, in order, within the
+// shutdown deadline armed when its input ended:
+// 1. render jobs canceled and their writers closed, so unfinished output is
+//    removed and finished output is kept (the job claims are then released,
+//    which keeps a later worker's sweep away from finished jobs);
+// 2. scene hosts ended, together, and their private copies removed;
+// 3. the image cache's files removed.
+// Locks need no step: the system drops them when the process ends.
+void tearDownWorker(Context& context) {
+#ifdef BUILD_UI_PORT_TESTS
+  if (context.renderFault == "teardown-hang")
+    for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
+#endif
+  if (shutdownRender(context,
+                     std::min(RenderShutdownBudgetMs, shutdownRemainingMs())))
+    context.renderState.reset();
+  closeSceneHosts(context);
+  TImageCache::instance()->clear(true);
+}
+
 int executeWorker(QApplication& application, QFile& output,
                   const Options& options, bool helpersContained,
                   const QString& runtime) {
@@ -617,10 +653,12 @@ int executeWorker(QApplication& application, QFile& output,
   reader.start();
   const int result = application.exec();
   reader.eventLoopReturned();
-  reader.wait();
-  shutdownRender(context);
-  TImageCache::instance()->clear(true);
-  return result != 0 ? result : reader.exitCode();
+  const int code = result != 0 ? result : reader.exitCode();
+  tearDownWorker(context);
+  // A client that stopped reading answers may still hold the input open; the
+  // reader then never returns, and destroying it would abort the process.
+  if (!reader.wait(std::max(1, shutdownRemainingMs()))) std::_Exit(code);
+  return code;
 }
 
 }  // namespace
@@ -628,7 +666,7 @@ int executeWorker(QApplication& application, QFile& output,
 int runWorker(int argc, char* argv[]) {
   try {
     const Options options = parseOptions(workerArguments(argc, argv));
-    preventAppNap();
+    prepareHeadlessProcess();
     // Parse helpers and scene hosts are children of a worker and share its
     // containment.
     const bool helpersContained = options.parseHelper.isEmpty() &&

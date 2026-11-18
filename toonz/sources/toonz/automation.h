@@ -140,8 +140,8 @@ public:
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
-  // fail-after-final-frame, encoder-failure, stray-callbacks or
-  // gl-context-failure.
+  // fail-after-final-frame, encoder-failure, stray-callbacks,
+  // gl-context-failure or teardown-hang (worker teardown never finishes).
   QString renderFault;
   // Test-only file-writing fault: publish makes the final rename fail.
   QString writeFault;
@@ -188,7 +188,9 @@ void requestRenderCancellation(Context& context);
 QString activeRenderJob(Context& context);
 // The render jobs this process retains.
 int renderJobCount(Context& context);
-void shutdownRender(Context& context);
+// Cancel every render job and wait up to budgetMs for their writers to close;
+// true when every job has ended.
+bool shutdownRender(Context& context, int budgetMs);
 // Removes the unfinished job output of workers that exited without finishing
 // it. Completed output and output of a live worker stay.
 void sweepAbandonedRenders(Context& context);

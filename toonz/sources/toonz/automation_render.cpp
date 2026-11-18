@@ -31,6 +31,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
@@ -1643,17 +1644,22 @@ void sweepAbandonedRenders(Context& context) {
   OwnershipClaim::removeAbandoned(context.workspace() + "/renders", {"job_*"});
 }
 
-void shutdownRender(Context& context) {
+bool shutdownRender(Context& context, int budgetMs) {
   requestRenderCancellation(context);
-  if (!context.renderState) return;
-  if (context.renderState->idle()) return;
+  if (!context.renderState || context.renderState->idle()) return true;
+  QElapsedTimer elapsed;
+  elapsed.start();
   QEventLoop drain;
   QTimer poll;
-  QObject::connect(&poll, &QTimer::timeout, &drain, [&context, &drain]() {
-    if (context.renderState->idle()) drain.quit();
-  });
+  QObject::connect(
+      &poll, &QTimer::timeout, &drain,
+      [&context, &drain, &elapsed, budgetMs]() {
+        if (context.renderState->idle() || elapsed.elapsed() >= budgetMs)
+          drain.quit();
+      });
   poll.start(10);
   drain.exec(QEventLoop::ExcludeUserInputEvents);
+  return context.renderState->idle();
 }
 
 }  // namespace GroundzeroAutomation
