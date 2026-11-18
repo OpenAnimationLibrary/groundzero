@@ -9,7 +9,6 @@ import shutil
 import signal
 import struct
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -923,25 +922,30 @@ def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
         case.assertEqual(host_processes(worker), [])
         call(case, worker, "project.list", {"limit": 1})
         case.assertEqual(call(case, worker, "automation.list_documents", {})["documents"], [])
-    _require_awake(case, idle[:2])
+    _idle_workers_exit_within_the_deadline(case, idle[:2])
 
 
-def _thread_priorities(pid: int) -> set[int]:
-    listing = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout
-    return {int(value) for value in re.findall(r"\s(\d+)T\s", listing)}
+DEADLINE = 3.0
+# Scheduling slack on a loaded machine, on top of the worker's own deadline.
+SLACK = 1.0
+DEADLINE_EXIT = 3
 
 
-def _require_awake(case: NativeAcceptance, workers: list[Worker]) -> None:
-    """Workers idle through the hang case's minute must not be napped.
+def close_and_time(case: NativeAcceptance, worker: Worker) -> tuple[float, int]:
+    """Close a worker's input and return how long it took to exit, and its exit code."""
+    assert worker.process.stdin is not None
+    worker.process.stdin.close()
+    started = time.monotonic()
+    code = worker.process.wait(timeout=DEADLINE + 10)
+    return time.monotonic() - started, code
 
-    App Nap puts every thread of an idle windowless application at priority 4, after which a
-    loaded machine delivers its end of input and its quit request seconds late.
-    """
-    if sys.platform != "darwin":
-        return
+
+def _idle_workers_exit_within_the_deadline(case: NativeAcceptance, workers: list[Worker]) -> None:
+    """Workers left idle past macOS's nap threshold still exit within the deadline."""
     for worker in workers:
-        priorities = _thread_priorities(worker.process.pid)
-        case.assertGreater(max(priorities, default=0), 4, f"napped worker: {priorities}")
+        elapsed, code = close_and_time(case, worker)
+        case.assertEqual(code, 0)
+        case.assertLess(elapsed, DEADLINE + SLACK)
 
 
 def read_only_damaged_scenes_are_refused(case: NativeAcceptance) -> None:
