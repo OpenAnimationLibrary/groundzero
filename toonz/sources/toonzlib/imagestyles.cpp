@@ -829,11 +829,18 @@ bool TTextureStyle::loadTextureRaster() {
   TFilePath path;
   if (m_texturePath.getParentDir() != TFilePath())  // It's a custom texture
   {
-    assert(m_currentScene);
-    path = m_currentScene->decodeFilePath(m_texturePath);
-    if (path.isLevelName()) {
-      TLevelReader lr(path);
-      path = path.withFrame(lr.loadInfo()->begin()->first);
+    // A palette read with no scene (a studio palette) can't decode the
+    // project folders of the path: the texture is missing until there is one
+    if (m_currentScene) {
+      path = m_currentScene->decodeFilePath(m_texturePath);
+      if (path.isLevelName()) {
+        TLevelReader lr(path);
+        TLevelP info = lr.loadInfo();
+        // A sequence with no frames (no files) has no image to load
+        path = info && info->getFrameCount() > 0
+                   ? path.withFrame(info->begin()->first)
+                   : TFilePath();
+      }
     }
   } else  // is a library texture
   {
@@ -842,7 +849,7 @@ bool TTextureStyle::loadTextureRaster() {
 
   TRasterP aux;
 
-  if (!TImageReader::load(path, aux)) {
+  if (path.isEmpty() || !TImageReader::load(path, aux)) {
     m_texture = TRaster32P(128, 128);
     m_texture->clear();
     m_texturePathLoaded = TFilePath();
@@ -863,17 +870,22 @@ TRaster32P TTextureStyle::loadTextureRasterWithFrame(int frame) const {
   TFilePath path;
   if (m_texturePath.getParentDir() != TFilePath())  // It's a custom texture
   {
-    assert(m_currentScene);
-    path = m_currentScene->decodeFilePath(m_texturePath);
-    if (path.isLevelName()) {
-      TLevelReader lr(path);
-      TLevelP info        = lr.loadInfo();
-      TLevel::Iterator it = info->begin();
-      // frame = frame % (lr.loadInfo()->getFrameCount());
-      std::advance(it, frame % (info->getFrameCount()));
+    // No scene: see loadTextureRaster()
+    if (m_currentScene) {
+      path = m_currentScene->decodeFilePath(m_texturePath);
+      if (path.isLevelName()) {
+        TLevelReader lr(path);
+        TLevelP info = lr.loadInfo();
+        if (info && info->getFrameCount() > 0) {
+          TLevel::Iterator it = info->begin();
+          // frame = frame % (lr.loadInfo()->getFrameCount());
+          std::advance(it, frame % (info->getFrameCount()));
 
-      //
-      path = path.withFrame(it->first);
+          //
+          path = path.withFrame(it->first);
+        } else  // No frames: see loadTextureRaster()
+          path = TFilePath();
+      }
     }
   } else  // is a library texture
   {
@@ -882,7 +894,7 @@ TRaster32P TTextureStyle::loadTextureRasterWithFrame(int frame) const {
 
   TRasterP aux;
 
-  if (!TImageReader::load(path, aux)) {
+  if (path.isEmpty() || !TImageReader::load(path, aux)) {
     aux = TRaster32P(128, 128);
     aux->clear();
   }

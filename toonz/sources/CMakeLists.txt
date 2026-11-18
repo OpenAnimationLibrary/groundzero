@@ -1052,6 +1052,13 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(executor_submission_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME executor_submission COMMAND executor_submission_test)
     set_tests_properties(executor_submission PROPERTIES TIMEOUT 60)
+    # Damaged palette files and texture styles read without a scene. The
+    # texture style is in toonzlib.
+    add_executable(malformed_palette_test toonzlib/tests/malformed_palette_test.cpp)
+    target_link_libraries(malformed_palette_test PRIVATE
+        toonzlib image tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME malformed_palette COMMAND malformed_palette_test)
+    set_tests_properties(malformed_palette PROPERTIES TIMEOUT 120)
 endif()
 if(BUILD_TGL_BATCH_TESTS)
     add_subdirectory(common/tgl/tests tglbatchtests)
@@ -1080,6 +1087,14 @@ if(BUILD_RELIABILITY_TESTS)
     add_test(NAME malformed_scene COMMAND malformed_scene_test)
     set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300)
 
+    # A sub-xsheet saved without an <output> entry loads with a default output
+    # node and builds its FX tree instead of crashing
+    add_executable(subxsheet_output_test toonzlib/tests/subxsheet_output_test.cpp)
+    target_link_libraries(subxsheet_output_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME subxsheet_output COMMAND subxsheet_output_test)
+    set_tests_properties(subxsheet_output PROPERTIES TIMEOUT 60)
+
     # Loading a level reports what it cannot load through the level and an
     # installed handler instead of opening a dialog. The timeout ends a run
     # that waits on a dialog.
@@ -1106,6 +1121,12 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
     add_test(NAME rasterpaste COMMAND rasterpaste_test)
     set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    # Runs the input modifiers' sub-track copy as compiled into tnztools
+    add_executable(inputmodifier_test tnztools/tests/inputmodifier_test.cpp)
+    target_link_libraries(inputmodifier_test PRIVATE tnztools tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME inputmodifier COMMAND inputmodifier_test)
+    set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60)
 endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)
