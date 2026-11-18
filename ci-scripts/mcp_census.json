@@ -1720,6 +1720,7 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
     "ci-scripts/mcp_acceptance.py::test_shared_root_flags_are_explicit_and_read_only",
     "toonz/sources/toonz/tests/automation_shared_test.cpp",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp"

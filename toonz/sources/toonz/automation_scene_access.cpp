@@ -625,14 +625,15 @@ QString findScenesXml(const QString& scene, const QString& root) {
 }
 
 QByteArray readSource(const QString& path, qint64 limit, const QString& code) {
-  QFile file(path);
-  if (!QFileInfo(path).isFile() || QFileInfo(path).isSymLink())
+  QFile file;
+  const OpenResult opened = openApprovedFile(file, path);
+  if (opened == OpenResult::NotRegular || !QFileInfo(path).isFile())
     throw Error(code, "A source file is missing.",
                 {{"cause", "missing"}, {"path", path}});
-  if (QFileInfo(path).size() > limit)
+  if (file.size() > limit)
     throw Error(code, "A source file exceeds its size limit.",
                 {{"cause", "too_large"}, {"path", path}});
-  if (!file.open(QIODevice::ReadOnly))
+  if (opened != OpenResult::Opened)
     throw Error("io_error", "A source file cannot be read.", {{"path", path}});
   const QByteArray bytes = file.read(limit + 1);
   if (bytes.size() > limit)
@@ -646,8 +647,8 @@ QString scenesXmlRevision(const QString& path) {
   if (path.isEmpty() || info.isSymLink() || !info.isFile() ||
       info.size() > ScenesXmlLimitBytes)
     return QString();
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) return QString();
+  QFile file;
+  if (openApprovedFile(file, path) != OpenResult::Opened) return QString();
   return fileRevision(file.read(ScenesXmlLimitBytes + 1));
 }
 

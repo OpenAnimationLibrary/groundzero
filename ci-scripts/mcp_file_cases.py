@@ -14,7 +14,7 @@ from mcp_file_matrix import (
     BY_MODE,
     COMMON,
     DENY,
-    PIPE_RELEASE_SECONDS,
+    PIPE_BLOCK_LIMIT,
     VOLUME,
     Layout,
     Scenario,
@@ -118,7 +118,7 @@ def _run_scenario(
     response = layout.tool.drive(case, state, path)
     if label.startswith("named pipe"):
         elapsed = time.monotonic() - began
-        case.assertLess(elapsed, PIPE_RELEASE_SECONDS, f"{layout.tool.name} blocked on a pipe")
+        case.assertLess(elapsed, PIPE_BLOCK_LIMIT, f"{layout.tool.name} blocked on a pipe")
     admitted = _check_outcome(case, layout.tool, scenario, response, path)
     if not admitted:
         quiet, detail = before.unchanged()

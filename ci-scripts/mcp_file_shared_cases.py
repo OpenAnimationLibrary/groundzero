@@ -204,7 +204,7 @@ def _run(case: NativeAcceptance, worker: Worker, roots: Roots, probe: Probe) -> 
     before = Observation(case, watched)
     began = time.monotonic()
     response = worker.call(probe.method, probe.params)
-    case.assertLess(time.monotonic() - began, WORST_SECONDS, f"{probe.label} blocked")
+    case.assertLess(time.monotonic() - began, WORST_SECONDS // 2, f"{probe.label} blocked")
     error = response.get("error")
     if not probe.codes:
         case.assertIsNone(error, f"{probe.label}: {error}")

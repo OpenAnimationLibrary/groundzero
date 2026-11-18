@@ -46,52 +46,66 @@ def _expect_refusal(case: NativeAcceptance, tool: PathTool, response: dict[str, 
     case.assertIn(response["error"]["code"], allowed, response)
 
 
+def _expect_nothing_replaced(
+    case: NativeAcceptance, tool: PathTool, holder: Path, response: dict[str, Any]
+) -> None:
+    """An output whose name was taken after it was approved fails; it never replaces the link."""
+    case.assertIn("error", response, f"{tool.name} replaced what appeared at its destination")
+    case.assertTrue((holder / f"item{tool.suffix}").is_symlink())
+
+
 def _expect_pinned(
-    case: NativeAcceptance, tool: PathTool, parent: bool, holder: Path, response: dict[str, Any]
+    case: NativeAcceptance, tool: PathTool, kind: str, holder: Path, response: dict[str, Any]
 ) -> None:
     """A swap after the directory was pinned cannot redirect: work finishes where it began."""
-    if tool.mode == "read" and not parent:
+    if kind == "file" and tool.mode == "read":
         case.assertEqual(response.get("error", {}).get("code"), "path_denied", response)
-    elif tool.mode == "read":
-        case.assertNotIn("error", response, f"{tool.name} lost the pinned folder: {response}")
-    elif parent:
-        case.assertNotIn("error", response, f"{tool.name} lost the pinned folder: {response}")
+        return
+    if kind == "file":
+        _expect_nothing_replaced(case, tool, holder, response)
+        return
+    case.assertNotIn("error", response, f"{tool.name} lost the pinned folder: {response}")
+    if tool.mode == "write":
         moved = Path(str(holder) + ".swapped")
-        case.assertTrue(any(moved.iterdir()), f"{tool.name} published nothing in {moved}")
-    elif "result" in response:
-        case.assertFalse((holder / f"item{tool.suffix}").is_symlink())
+        relative = Path("inner") / f"item{tool.suffix}" if kind == "ancestor" else None
+        found = (moved / relative).exists() if relative else any(moved.iterdir())
+        case.assertTrue(found, f"{tool.name} published nothing under {moved}")
 
 
-def _race(case: NativeAcceptance, tool: PathTool, parent: bool, stage: str) -> None:
-    """Race one tool: the swapped component is the holding directory or the final name."""
+def _race(case: NativeAcceptance, tool: PathTool, kind: str, stage: str) -> None:
+    """Race one tool; kind is the swapped component: the folder, an ancestor or the file."""
     marker = f"race-{uuid.uuid4().hex[:8]}"
     root = case.inputs if tool.mode == "read" else case.workspace
     holder = root / marker
     outside = case.directory / f"outside-{marker}"
-    outside.mkdir()
-    holder.mkdir()
+    where, far = (holder / "inner", outside / "inner") if kind == "ancestor" else (holder, outside)
+    for folder in (where, far):
+        folder.mkdir(parents=True)
     name = f"item{tool.suffix}"
-    swap, destination = (holder, outside) if parent else (holder / name, outside / name)
+    swap, destination = (holder / name, outside / name) if kind == "file" else (holder, outside)
     _hooked_worker(case, swap, destination, stage)
     state = tool.prepare(case)
     if tool.mode == "read":
-        tool.place(case, state, holder / name)
-        if tool.suffix:
-            (outside / name).write_bytes(b"not a valid input\n")
+        tool.place(case, state, where / name)
+        if stage == "pinned" and tool.suffix:
+            (far / name).write_bytes(b"not a valid input\n")
         else:
-            tool.place(case, state, outside / name)
-    elif not parent:
+            tool.place(case, state, far / name)
+    elif kind == "file":
         tool.place(case, state, outside / name)
     before = tree_state([outside])
-    response = tool.drive(case, state, str(holder / name))
+    response = tool.drive(case, state, str(where / name))
     _swap_was_applied(case, swap)
     case.assertEqual(tree_state([outside]), before, f"{tool.name} reached through the swap")
-    if stage == "validated" and (tool.mode == "read" or parent):
+    if stage == "validated" and (tool.mode == "read" or kind != "file"):
         _expect_refusal(case, tool, response)
     elif stage == "pinned":
-        _expect_pinned(case, tool, parent, holder, response)
-    elif "result" in response:
-        case.assertFalse((holder / name).is_symlink(), "a link stayed at the destination")
+        _expect_pinned(case, tool, kind, holder, response)
+    else:
+        _expect_nothing_replaced(case, tool, holder, response)
+
+
+KINDS = ("directory", "ancestor", "file")
 
 
 def swapped_paths_are_refused_after_validation(case: NativeAcceptance) -> None:
@@ -103,9 +117,9 @@ def swapped_paths_are_refused_after_validation(case: NativeAcceptance) -> None:
     for tool in PATH_TOOLS.values():
         if tool.mode == "published":
             continue
-        for parent in (True, False):
-            with case.subTest(tool=tool.name, swapped="directory" if parent else "file"):
-                _race(case, tool, parent, "validated")
+        for kind in KINDS:
+            with case.subTest(tool=tool.name, swapped=kind):
+                _race(case, tool, kind, "validated")
 
 
 def swapped_paths_cannot_redirect_a_pinned_directory(case: NativeAcceptance) -> None:
@@ -117,6 +131,6 @@ def swapped_paths_cannot_redirect_a_pinned_directory(case: NativeAcceptance) -> 
     for tool in PATH_TOOLS.values():
         if tool.mode == "published" or not tool.pinned:
             continue
-        for parent in (True, False):
-            with case.subTest(tool=tool.name, swapped="directory" if parent else "file"):
-                _race(case, tool, parent, "pinned")
+        for kind in KINDS:
+            with case.subTest(tool=tool.name, swapped=kind):
+                _race(case, tool, kind, "pinned")

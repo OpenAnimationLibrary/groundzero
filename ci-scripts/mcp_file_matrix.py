@@ -26,6 +26,7 @@ NO_PARENT = frozenset({"missing_parent", "MISSING_PARENT"})
 ADMIT, DENY, ALIAS = "admit", "deny", "alias"
 NAME_BYTES = 255
 PIPE_RELEASE_SECONDS = 8
+PIPE_BLOCK_LIMIT = 4
 
 
 @dataclass
@@ -459,7 +460,7 @@ COMMON: list[Scenario] = [
     ("home shortcut", user_home, DENY, _unusable),
     ("NUL byte", nul_byte, DENY, _traversal),
     ("name at the 255-byte limit", name_at_limit, ADMIT, _denied),
-    ("name one byte over the limit", name_over_limit, DENY, _unusable),
+    ("name one byte over the limit", name_over_limit, DENY, _traversal),
     ("path over the system limit", path_over_limit, DENY, _unusable),
     ("sixty folders deep", path_deep, ADMIT, _denied),
     ("newline in the name", newline_name, ADMIT, _denied),
@@ -468,8 +469,8 @@ COMMON: list[Scenario] = [
     ("delete character in the name", delete_name, ADMIT, _denied),
     ("bidirectional override in the name", bidi_name, ADMIT, _denied),
     ("unreadable folder", locked_directory, DENY, _unusable),
-    ("case alias of an existing name", case_alias, ALIAS, _aliased),
-    ("decomposed spelling of a composed name", nfd_alias, ALIAS, _aliased),
+    ("case alias of an existing name", case_alias, DENY, _denied),
+    ("decomposed spelling of a composed name", nfd_alias, DENY, _denied),
     ("composed spelling of a decomposed name", nfc_alias_of_decomposed, ALIAS, _aliased),
     ("trailing slash", trailing_slash, ADMIT, _denied),
     ("doubled slash", double_slash, ADMIT, _denied),
