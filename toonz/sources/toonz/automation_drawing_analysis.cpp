@@ -309,8 +309,12 @@ private:
   };
   std::optional<RasterScan> m_raster;
 
+  // Each slice is a posted event, so the event loop does not go idle while
+  // the job runs; publishing here keeps polls answered elsewhere current.
   void tick() {
-    if (step()) schedule();
+    const bool more = step();
+    jobRegistry(*context).publish();
+    if (more) schedule();
   }
   bool guardedStep();
   void requireRevision() const;
