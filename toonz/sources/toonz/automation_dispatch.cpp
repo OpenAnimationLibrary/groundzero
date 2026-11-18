@@ -21,6 +21,7 @@
 #include <QRegularExpression>
 #include <QScopedValueRollback>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -458,11 +459,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   if (cached != m_receipts.constEnd())
     return replayReceipt(cached.value(), fingerprint);
   const QString jobId = params.value("job_id").toString();
-  // The reserve holds one first cancellation per retained job; any other
-  // cancellation uses ordinary receipt capacity.
-  const bool control       = method == "job.cancel" &&
-                             !m_controlJobs.contains(jobId) &&
-                             jobRegistry(m_context).retains(jobId);
+  const bool control = method == "job.cancel" && !m_controlJobs.contains(jobId);
   const QString controlJob = control ? jobId : QString();
   checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
@@ -488,8 +485,12 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
 }
 
 void Dispatcher::checkReceiptCapacity(bool control) const {
+  // The reserve holds one first cancellation per retained job; an unknown id's
+  // cancellation is refused without a receipt and takes no slot.
   if (control) {
-    if (m_controlJobs.size() < maximumControlReceipts) return;
+    const int retained = jobRegistry(m_context).retainedCount();
+    if (m_controlJobs.size() < std::min(retained, maximumControlReceipts))
+      return;
   } else if (m_receipts.size() - m_controlJobs.size() < 2048 &&
              m_receiptBytes <= maximumReceiptBytes - maximumResultBytes) {
     return;

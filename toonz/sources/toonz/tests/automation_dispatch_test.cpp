@@ -1,5 +1,6 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
+#include "automation_jobs.h"
 
 #include <QJsonDocument>
 
@@ -197,7 +198,7 @@ QString bytePressure(Context& context, Dispatcher& dispatcher) {
 
 QJsonValue escapedCancellation(Context& context, const QString& method,
                                const QJsonObject& params) {
-  QJsonObject response = executeRender(context, method, params).toObject();
+  QJsonObject response = executeJobs(context, method, params).toObject();
   response.insert("error", QString(2048, QChar(1)));
   return response;
 }
@@ -219,13 +220,13 @@ void terminalPressure(Dispatcher& dispatcher, const QString& jobId) {
 
 QJsonValue oversizedCancellation(Context& context, const QString& method,
                                  const QJsonObject& params) {
-  executeRender(context, method, params);
+  executeJobs(context, method, params);
   throw Error("native_error", QString(32 * 1024, QChar(1)));
 }
 
 QJsonValue oversizedResult(Context& context, const QString& method,
                            const QJsonObject& params) {
-  QJsonObject response = executeRender(context, method, params).toObject();
+  QJsonObject response = executeJobs(context, method, params).toObject();
   response.insert("error", QString(32 * 1024, QChar(1)));
   return response;
 }

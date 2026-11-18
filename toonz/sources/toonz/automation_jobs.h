@@ -57,8 +57,8 @@ public:
   void note(const QString& id);
   // Every listed job id, newest first.
   QStringList newestFirst() const;
-  // Whether the id names a retained job of this worker or one of its hosts.
-  bool retains(const QString& id) const { return m_order.contains(id); }
+  // Retained jobs of this worker and its hosts.
+  int retainedCount() const { return m_order.size(); }
   qint64 epochMs() const { return m_epochMs; }
   std::shared_ptr<Job> find(const QString& id) const;
   // The job, or unknown_job saying why the id is not a retained job here.

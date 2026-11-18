@@ -93,9 +93,8 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
     case.assertEqual(case.operations, ORDINARY_RECEIPTS)
     case.assertEqual(job["status"], "preparing", job)
     case.assertIs(job["writers_closed"], False)
-    # Only retained jobs have reserved cancellations; this one needs ordinary capacity.
     cancel = case.write_params(None, {"job_id": "unknown-job-before-cancellation"})
-    case.assertEqual(case.failure("job.cancel", cancel)["code"], "resource_limit")
+    case.assertEqual(case.failure("job.cancel", cancel)["code"], "unknown_job")
     pending = case.success("job.status", {"job_id": job["job_id"]})
     case.assertIn(pending["status"], {"preparing", "running", "finalizing"}, pending)
     case.assertIs(pending["writers_closed"], False)
