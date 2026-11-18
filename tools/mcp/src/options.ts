@@ -74,7 +74,7 @@ function launchArguments(args: string[]) {
     allowPositionals: false,
     tokens: true,
   });
-  for (const name of ["media-tools", "live-session", "toolsets"]) {
+  for (const name of ["executable", "workspace", "media-tools", "live-session", "toolsets"]) {
     if (tokens.filter((token) => token.kind === "option" && token.name === name).length > 1) {
       throw new Error(`Specify --${name} at most once`);
     }
