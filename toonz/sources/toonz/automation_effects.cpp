@@ -638,6 +638,17 @@ QJsonObject descriptorSchema() {
       required);
 }
 
+QJsonObject readOnlyScenesSchema() {
+  const QJsonObject count{
+      {"type", "integer"}, {"minimum", 0}, {"maximum", 9007199254740991.0}};
+  return strictObject({{"available", QJsonObject{{"type", "boolean"}}},
+                       {"max_documents", count},
+                       {"host_memory_bytes", count},
+                       {"open_deadline_ms", count},
+                       {"read_deadline_ms", count},
+                       {"profile", stringSchema(1, 64)}});
+}
+
 }  // namespace
 
 QJsonObject capabilitiesResultSchema() {
@@ -652,13 +663,18 @@ QJsonObject capabilitiesResultSchema() {
        {"toolsets", arraySchema(toolset, 1, 64)},
        {"media_tools_configured", QJsonObject{{"type", "boolean"}}},
        {"isolation",
-        QJsonObject{{"type", "string"}, {"const", "private_process"}}}});
+        QJsonObject{{"type", "string"}, {"const", "private_process"}}},
+       {"read_only_scenes", readOnlyScenesSchema()}});
 }
 
 QJsonObject documentListResultSchema() {
-  const QJsonObject document =
-      strictObject({{"document_id", stringSchema(1, 128)},
-                    {"revision", stringSchema(1, 80)}});
+  const QJsonObject document = strictObject(
+      {{"document_id", stringSchema(1, 128)},
+       {"revision", stringSchema(1, 80)},
+       {"access", enumSchema({"editable", "read_only"})},
+       {"host_state",
+        QJsonObject{{"oneOf", QJsonArray{enumSchema({"ready", "lost"}),
+                                         QJsonObject{{"type", "null"}}}}}}});
   return strictObject({{"documents", arraySchema(document, 0, 256)}});
 }
 
