@@ -1,6 +1,7 @@
 #include "automation_audio.h"
 #include "automation.h"
 #include "automation_drawing.h"
+#include "automation_files.h"
 #include "automation_path.h"
 
 #include "tdoubleparam.h"
@@ -318,8 +319,11 @@ QByteArray readSoundFile(const QString& path) {
     throw Error("invalid_asset", "The audio source is not a regular file.");
   if (info.size() > AutomationAudioFileBytes)
     throw Error("resource_limit", "Audio source files are limited to 160 MiB.");
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
+  QFile file;
+  const OpenResult opened = openApprovedFile(file, path);
+  if (opened == OpenResult::NotRegular)
+    throw Error("invalid_asset", "The audio source is not a regular file.");
+  if (opened != OpenResult::Opened)
     throw Error("io_error", "Cannot open the audio source file.");
   const QByteArray bytes = file.read(AutomationAudioFileBytes + 1);
   if (file.error() != QFileDevice::NoError || bytes.size() != info.size())
@@ -919,6 +923,8 @@ QString mixOutputPath(Context& context, const QJsonObject& params) {
         "Choose a new output path; existing files are not overwritten.");
   if (!QDir(target.absolutePath()).exists())
     throw Error("missing_parent", "Create the output directory first.");
+  if (!QFileInfo(target.absolutePath()).isWritable())
+    throw Error("io_error", "The output directory is not writable.");
   return path;
 }
 
@@ -1031,15 +1037,14 @@ QJsonValue mixdown(Context& context, const QJsonObject& params) {
   const MixPlan plan       = planMix(document);
   const MixRequest request = readMixRequest(context, document, params, plan);
   const TSoundTrackP mix   = computeMix(plan, request);
-  QTemporaryDir staging(QFileInfo(request.output).absolutePath() +
-                        "/.mcp-audio-XXXXXX");
+  QTemporaryDir staging(context.runtimeDirectory + "/mixdown-XXXXXX");
   if (!staging.isValid())
     throw Error("io_error", "Cannot create private mixdown staging storage.");
   const QString staged   = staging.filePath("mix.wav");
   const QByteArray bytes = stageMix(mix, staged);
   context.markMutationStarted();
-  if (QFileInfo::exists(request.output) || context.writeFaultArmed("publish") ||
-      !QFile::rename(staged, request.output))
+  if (context.writeFaultArmed("publish") ||
+      !publishApproved(staged, request.output))
     throw Error("io_error", "Cannot publish the verified mixdown file.");
   ++mixdownArtifacts.files;
   mixdownArtifacts.bytes += bytes.size();

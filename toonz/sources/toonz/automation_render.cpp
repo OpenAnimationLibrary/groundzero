@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_audio.h"
+#include "automation_files.h"
 #include "automation_fx.h"
 #include "automation_media.h"
 #include "automation_neural.h"
@@ -203,8 +204,8 @@ static void validateOutputFile(const QFileInfo& info, const QString& path,
 static QByteArray readOutput(const QString& path, qint64 limit) {
   QFileInfo info(path);
   validateOutputFile(info, path, limit);
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
+  QFile file;
+  if (openApprovedFile(file, path) != OpenResult::Opened)
     throw Error("artifact_read_failed", "The rendered file cannot be opened.");
   const QByteArray data = file.read(limit + 1);
   if (file.error() != QFileDevice::NoError || data.size() != info.size())
