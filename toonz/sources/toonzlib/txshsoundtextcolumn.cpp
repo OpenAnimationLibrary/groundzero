@@ -88,10 +88,14 @@ void TXshSoundTextColumn::loadData(TIStream &is) {
           QStringList rows = qs.split('-');
 
           if (rows.size() == 1) {
+            checkLoadedRows(rows[0].toInt(), 1);
             setCell(rows[0].toInt(), cell);
           } else if (rows.size() == 2) {
-            for (int r = rows[0].toInt(); r <= rows[1].toInt(); r++)
-              setCell(r, cell);
+            const int r0 = rows[0].toInt(), r1 = rows[1].toInt();
+            // Each end on its own: r1 - r0 + 1 may not fit an int
+            checkLoadedRows(r0, 1);
+            checkLoadedRows(r1, 1);
+            for (int r = r0; r <= r1; r++) setCell(r, cell);
           }
         } else {
           throw TException("TXshLevelColumn, unknown tag(2): " + tagName);

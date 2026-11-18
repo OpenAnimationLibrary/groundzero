@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <fstream>
 #include <set>
+#include <stdexcept>
 
 using namespace std;
 
@@ -193,22 +194,51 @@ TStageObjectParams *TStageObjectParams::clone() {
 // Utility Functions
 //---------------------------------------------------------------------------
 
+namespace {
+
+// std::stoi of the number in an id, failing with a TException when it is not
+// a number or does not fit an int
+int toIdNumber(const string& id, const string& number) {
+  try {
+    return std::stoi(number);
+  } catch (const std::logic_error&) {
+    throw TException("bad stage object id: " + id);
+  }
+}
+
+// The index of a "Col<n>", "Peg<n>" or "Camera<n>" id, where n counts from
+// 1. An index the id can't hold would overwrite its type bits.
+int toStageObjectIndex(const string& id, const string& number, int maxIndex) {
+  const int n = toIdNumber(id, number);
+  if (n < 1 || n - 1 > maxIndex) throw TException("bad stage object id: " + id);
+  return n - 1;
+}
+
+}  // namespace
+
 TStageObjectId toStageObjectId(string s) {
+  // Reading a column id creates the stage objects of all columns up to it
+  const int maxColumnIndex = TXsheet::maxColumnCount - 1;
   if (s == "None")
     return TStageObjectId::NoneId;
   else if (s == "Table")
     return TStageObjectId::TableId;
   else if (isInt(s)) {
     TStageObjectId id;
-    id.setCode(std::stoi(s));
+    id.setCode(toIdNumber(s, s));
+    if (id.isColumn() && id.getIndex() > maxColumnIndex)
+      throw TException("bad stage object id: " + s);
     return id;
   } else if (s.length() > 3) {
     if (s.substr(0, 3) == "Col")
-      return TStageObjectId::ColumnId(std::stoi(s.substr(3)) - 1);
+      return TStageObjectId::ColumnId(
+          toStageObjectIndex(s, s.substr(3), maxColumnIndex));
     else if (s.substr(0, 3) == "Peg")
-      return TStageObjectId::PegbarId(std::stoi(s.substr(3)) - 1);
+      return TStageObjectId::PegbarId(
+          toStageObjectIndex(s, s.substr(3), StageObjectMaxIndex));
     else if (s.length() > 6 && s.substr(0, 6) == "Camera")
-      return TStageObjectId::CameraId(std::stoi(s.substr(6)) - 1);
+      return TStageObjectId::CameraId(
+          toStageObjectIndex(s, s.substr(6), StageObjectMaxIndex));
   }
   return TStageObjectId::NoneId;
 }
@@ -2332,9 +2362,12 @@ void TStageObject::loadData(TIStream &is) {
       if (m_camera) m_camera->setRes(res);
     }
     //***** camera parameters toonz 6.1 ******** november 2009
-    else if (tagName == "camera")
+    else if (tagName == "camera") {
+      // Only a camera id has a TCamera to load them into
+      if (!m_camera)
+        throw TException("camera settings in stage object " + m_id.toString());
       m_camera->loadData(is);
-    else if (tagName == "groupIds") {
+    } else if (tagName == "groupIds") {
       int groupId;
       while (!is.eos()) {
         is >> groupId;

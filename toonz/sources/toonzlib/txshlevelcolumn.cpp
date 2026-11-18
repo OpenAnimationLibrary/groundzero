@@ -223,6 +223,7 @@ void TXshLevelColumn::loadData(TIStream &is) {
           int row = 1, rowCount = 1, increment = 0;
           TFilePath path;
           is >> row >> rowCount >> p >> str >> increment;
+          checkLoadedRows(row, rowCount);
 
           TFrameId fid = qstringToFrameId(QString::fromStdString(str));
           assert((fid.getLetter().isEmpty() && rowCount >= 0) ||

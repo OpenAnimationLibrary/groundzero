@@ -19,6 +19,7 @@
 #include "toonz/txshleveltypes.h"
 
 #include <QMap>
+#include "texception.h"
 #include "tstream.h"
 
 namespace {
@@ -453,6 +454,14 @@ void TXshCellColumn::saveCellMarks(TOStream &os) {
     ++j;
   }
   os.closeChild();
+}
+
+void TXshCellColumn::checkLoadedRows(int row, int rowCount) {
+  const int maxRowCount = TXsheet::maxRowCount;
+  if (row < 0 || row >= maxRowCount || rowCount > maxRowCount - row)
+    throw TException("a run of " + std::to_string(rowCount) + " cells at row " +
+                     std::to_string(row) + " is outside the xsheet rows 0 to " +
+                     std::to_string(maxRowCount - 1));
 }
 
 bool TXshCellColumn::loadCellMarks(std::string tagName, TIStream &is) {

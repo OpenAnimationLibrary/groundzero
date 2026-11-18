@@ -6,6 +6,8 @@
 #include "tpixelutils.h"
 #include "tutil.h"
 
+#include <cmath>
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TCOLOR_EXPORTS
@@ -116,7 +118,7 @@ updateTable(sampleCount);
     assert(!m_keys.empty());
     int m = m_samples.size();
     assert(m > 1);
-    if (s <= 0)
+    if (std::isnan(s) || s <= 0)
       return m_samples.front().second;
     else if (s >= 1)
       return m_samples.back().second;
@@ -135,7 +137,7 @@ updateTable(sampleCount);
     assert(!m_keys.empty());
     int m = m_samples.size();
     assert(m > 1);
-    if (s <= 0)
+    if (std::isnan(s) || s <= 0)
       return m_samples.front().first;
     else if (s >= 1)
       return m_samples.back().first;
