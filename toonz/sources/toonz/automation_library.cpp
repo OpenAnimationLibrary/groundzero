@@ -79,7 +79,8 @@ bool parseSidecar(const QByteArray& bytes, Sidecar& sidecar) {
   QXmlStreamReader xml(bytes);
   QHash<QString, QString> values;
   if (!sidecarText(xml, values)) return false;
-  static const QRegularExpression digits("^[0-9]{1,10}$");
+  static const QRegularExpression digits(
+      QRegularExpression::anchoredPattern("[0-9]{1,10}"));
   const QString revision = values.value("revision").trimmed();
   sidecar.id             = values.value("id").trimmed();
   sidecar.kind           = values.value("kind").trimmed();
@@ -659,7 +660,8 @@ QJsonObject nameSchema() {
   return {{"type", "string"},
           {"minLength", 1},
           {"maxLength", 120},
-          {"pattern", "^" + sharedSegmentPattern() + "$"}};
+          {"pattern", "^" + sharedSegmentPattern() + "$"},
+          {"x-error-code", "invalid_path"}};
 }
 
 }  // namespace

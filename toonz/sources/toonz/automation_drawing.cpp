@@ -109,7 +109,9 @@ TFrameId frameId(const QJsonObject& params, const QString& key = "drawing_id") {
   const int frame   = integer(value, "number", 1, 999999);
   const auto suffix = value.value("suffix");
   if (!suffix.isString() ||
-      !QRegularExpression("^[a-z]{0,8}$").match(suffix.toString()).hasMatch())
+      !QRegularExpression(QRegularExpression::anchoredPattern("[a-z]{0,8}"))
+           .match(suffix.toString())
+           .hasMatch())
     invalid(
         "Drawing suffix must contain zero to eight lowercase ASCII letters");
   return TFrameId(frame, suffix.toString());
@@ -2656,7 +2658,9 @@ void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
 
 void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
   if (frame.getNumber() < 1 || frame.getNumber() > 999999 ||
-      !QRegularExpression("^[a-z]{0,8}$").match(frame.getLetter()).hasMatch())
+      !QRegularExpression(QRegularExpression::anchoredPattern("[a-z]{0,8}"))
+           .match(frame.getLetter())
+           .hasMatch())
     throw Error("unsupported_drawing_id",
                 "Persistence requires drawing numbers 1..999999 and lowercase "
                 "ASCII suffixes");

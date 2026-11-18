@@ -46,7 +46,8 @@ void requireIdentity(const QString& id, const QByteArray& token) {
   const QUuid uuid(id);
   if (uuid.isNull() || uuid.toString(QUuid::WithoutBraces) != id)
     throw Error("live_security", "The live instance identifier is invalid.");
-  const QRegularExpression hex("^[0-9a-f]{64}$");
+  const QRegularExpression hex(
+      QRegularExpression::anchoredPattern("[0-9a-f]{64}"));
   if (!hex.match(QString::fromLatin1(token)).hasMatch())
     throw Error("live_security", "The live grant token encoding is invalid.");
 }

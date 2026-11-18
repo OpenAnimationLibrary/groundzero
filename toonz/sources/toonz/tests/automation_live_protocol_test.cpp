@@ -123,6 +123,24 @@ void workerDuplicateKeys() {
   for (const QByteArray& input : distinct) rejectDuplicateKeys(input);
 }
 
+void liveIdentifiersAreWholeString() {
+  const QJsonObject valid = write(3).value("params").toObject();
+  const QString method    = "live.stage.set_key_value";
+  validateParams(method, valid);
+  for (const QString& field :
+       {QString("instance_id"), QString("scene_epoch"), QString("operation_id"),
+        QString("expected_fingerprint")}) {
+    const QString original = valid.value(field).toString();
+    for (const QString& broken :
+         {original + "\n", original + "\r\n", "\n" + original,
+          original.left(original.size() - 1) + "\n"}) {
+      QJsonObject params = valid;
+      params.insert(field, broken);
+      expectError([&]() { validateParams(method, params); }, "invalid_params");
+    }
+  }
+}
+
 void parserBounds() {
   const QByteArray maximum =
       "{\"x\":\"" + QByteArray(maximumRequestBytes - 8, 'x') + "\"}";
@@ -362,6 +380,7 @@ void runAutomationLiveProtocolTests() {
   const std::pair<const char*, void (*)()> cases[]{
       {"parser failures", parserFailures},
       {"worker duplicate keys", workerDuplicateKeys},
+      {"live identifiers", liveIdentifiersAreWholeString},
       {"parser bounds", parserBounds},
       {"stage schemas", schemas},
       {"FX schemas", fxSchemas},

@@ -497,7 +497,8 @@ TFrameId newFrame(TXshSimpleLevel* level, const QJsonObject& params) {
   const auto drawing = params.value("drawing_id").toObject();
   const int number   = integerParam(drawing, "number", 1, 65535, 1);
   const auto suffix  = drawing.value("suffix").toString();
-  const QRegularExpression pattern(QStringLiteral("^[a-z]{0,8}$"));
+  const QRegularExpression pattern(
+      QRegularExpression::anchoredPattern(QStringLiteral("[a-z]{0,8}")));
   require(pattern.match(suffix).hasMatch(), "invalid_params",
           "Text drawing suffix is invalid.");
   const TFrameId frame(number, suffix);

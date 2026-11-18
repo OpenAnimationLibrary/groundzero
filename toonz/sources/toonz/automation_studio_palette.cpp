@@ -23,7 +23,8 @@ constexpr int FindMatches         = 16;
 constexpr int StylePage           = 128;
 
 const QRegularExpression& paletteIdGrammar() {
-  static const QRegularExpression grammar("^[0-9A-Za-z_]{1,64}$");
+  static const QRegularExpression grammar(
+      QRegularExpression::anchoredPattern("[0-9A-Za-z_]{1,64}"));
   return grammar;
 }
 
@@ -282,8 +283,8 @@ QString boundedText(const QJsonObject& object, const QString& key, int minimum,
 }
 
 QJsonValue styleLink(const QJsonObject& style, const QString& paletteId) {
-  static const QRegularExpression grammar(
-      "^([+-])([0-9A-Za-z_]{1,64})-([0-9]{1,4})$");
+  static const QRegularExpression grammar(QRegularExpression::anchoredPattern(
+      "([+-])([0-9A-Za-z_]{1,64})-([0-9]{1,4})"));
   const QString global = boundedText(style, "global_name", 0, 256);
   if (global.isEmpty()) return QJsonValue();
   const QString origin = boundedText(style, "original_name", 0, 128);
@@ -526,7 +527,8 @@ QJsonObject folderSchema() {
   return {{"type", "string"},
           {"minLength", 0},
           {"maxLength", 1024},
-          {"pattern", "^(?:" + segment + "(?:/" + segment + "){0,15})?$"}};
+          {"pattern", "^(?:" + segment + "(?:/" + segment + "){0,15})?$"},
+          {"x-error-code", "invalid_path"}};
 }
 
 QJsonObject palettePathSchema() {
@@ -534,7 +536,8 @@ QJsonObject palettePathSchema() {
   return {{"type", "string"},
           {"minLength", 5},
           {"maxLength", 1024},
-          {"pattern", "^(?:" + segment + "/){0,15}" + segment + "\\.tpl$"}};
+          {"pattern", "^(?:" + segment + "/){0,15}" + segment + "\\.tpl$"},
+          {"x-error-code", "invalid_path"}};
 }
 
 }  // namespace

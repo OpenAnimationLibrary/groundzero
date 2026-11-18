@@ -197,7 +197,8 @@ void checkString(const QString& value, const QJsonObject& schema) {
   if (value.isEmpty() || value.size() > schema.value("maxLength").toInt())
     invalid("A string exceeds its live schema bounds.");
   if (schema.contains("pattern") &&
-      !QRegularExpression(schema.value("pattern").toString())
+      !QRegularExpression(QRegularExpression::anchoredPattern(
+                              schema.value("pattern").toString()))
            .match(value)
            .hasMatch())
     invalid("A live identity or fingerprint has an invalid encoding.");

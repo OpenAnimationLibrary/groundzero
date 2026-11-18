@@ -25,8 +25,8 @@ void validateHello(const QJsonObject& message) {
   for (auto it = message.constBegin(); it != message.constEnd(); ++it)
     if (!fields.contains(it.key()) || !it.value().isString())
       throw Error("authentication_failed", "Invalid live handshake.");
-  const QRegularExpression uuid(
-      "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+  const QRegularExpression uuid(QRegularExpression::anchoredPattern(
+      "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
   if (!uuid.match(message.value("client_id").toString()).hasMatch())
     throw Error("authentication_failed", "Invalid live client identity.");
 }

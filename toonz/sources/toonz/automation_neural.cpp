@@ -108,7 +108,9 @@ TRaster32P referenceRaster(Document& document, const QJsonObject& reference) {
   const int number   = integerParam(drawing, "number", 1, 999999, -1);
   const auto suffix  = drawing.value("suffix");
   if (!suffix.isString() ||
-      !QRegularExpression("^[a-z]{0,8}$").match(suffix.toString()).hasMatch())
+      !QRegularExpression(QRegularExpression::anchoredPattern("[a-z]{0,8}"))
+           .match(suffix.toString())
+           .hasMatch())
     throw Error("invalid_params",
                 "Drawing suffix must contain up to eight lowercase letters.");
   auto* level =

@@ -308,7 +308,8 @@ class PosixFiles final : public PrivateFiles {
 
   void verifySocket(const QString& endpoint) const override {
     const QFileInfo file(endpoint);
-    const QRegularExpression name("^gz-live-[0-9a-f]{32}\\.sock$");
+    const QRegularExpression name(
+        QRegularExpression::anchoredPattern("gz-live-[0-9a-f]{32}\\.sock"));
     if (file.path() != m_directory || !name.match(file.fileName()).hasMatch())
       denied("The live endpoint is outside the private grant directory.");
     struct stat info{};

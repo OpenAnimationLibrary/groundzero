@@ -1,4 +1,5 @@
 #include "automation_dispatch.h"
+#include "automation_drawing.h"
 
 #include <QJsonDocument>
 
@@ -283,6 +284,80 @@ QString domainToolset(const QString& name) {
   return "core";
 }
 
+bool patternHandlerRan = false;
+
+QJsonValue patternHandler(Context&, const QString&, const QJsonObject&) {
+  patternHandlerRan = true;
+  return QJsonObject{};
+}
+
+QJsonArray patternOperations() {
+  return {operation(
+      "fixture.pattern", "Private pattern boundary",
+      {{"suffix", QJsonObject{{"type", "string"}, {"pattern", "^[a-z]{0,8}$"}}},
+       {"revision",
+        QJsonObject{{"type", "string"}, {"pattern", "^(0|[1-9][0-9]*)$"}}}},
+      {"suffix"}, false)};
+}
+
+void patternBoundaries(Dispatcher& dispatcher) {
+  for (const QString& suffix : {QString(), QString("a"), QString("abcdefgh")}) {
+    patternHandlerRan = false;
+    result(dispatcher, "fixture.pattern", {{"suffix", suffix}});
+    require(patternHandlerRan, "A matching string did not reach its handler");
+  }
+  const QStringList invalid{"a\n", "a\r", "a\r\n",     "\na",
+                            "\n",  "A",   "abcdefghi", "a b"};
+  for (const QString& suffix : invalid) {
+    patternHandlerRan = false;
+    const auto response =
+        call(dispatcher, "fixture.pattern", {{"suffix", suffix}});
+    require(
+        response.value("error").toObject().value("code") == "invalid_params",
+        "A pattern violation was not an invalid_params refusal");
+    require(!patternHandlerRan, "A pattern violation reached its handler");
+  }
+  for (const QString& revision :
+       {QString("0\n"), QString("01"), QString("1\r\n")}) {
+    patternHandlerRan = false;
+    rejected(dispatcher, "fixture.pattern",
+             {{"suffix", ""}, {"revision", revision}}, "invalid_params");
+    require(!patternHandlerRan, "A revision violation reached its handler");
+  }
+  result(dispatcher, "fixture.pattern", {{"suffix", ""}, {"revision", "10"}});
+}
+
+void drawingSuffixHandlerIsWholeString(Context& context) {
+  Dispatcher dispatcher(context);
+  const auto document = result(dispatcher, "scene.create",
+                               {{"operation_id", "pattern-scene"},
+                                {"name", "Pattern"},
+                                {"width_px", 32},
+                                {"height_px", 32}});
+  const QString id    = document.value("document_id").toString();
+  const auto level = result(dispatcher, "level.create",
+                            {{"operation_id", "pattern-level"},
+                             {"document_id", id},
+                             {"expected_revision", document.value("revision")},
+                             {"name", "Pattern"},
+                             {"format", "vector"}});
+  for (const QString& suffix :
+       {QString("a\n"), QString("\na"), QString("a\r\n")}) {
+    const QJsonObject params{
+        {"document_id", id},
+        {"level_id", level.value("level_id")},
+        {"drawing_id", QJsonObject{{"number", 1}, {"suffix", suffix}}}};
+    bool refused = false;
+    try {
+      executeDrawing(context, "drawing.inspect", params);
+    } catch (const Error& error) {
+      refused = error.code == "invalid_params";
+    }
+    require(refused, "A drawing handler accepted a suffix with a line break");
+  }
+  context.removeDocument(id);
+}
+
 void toolsetCatalog(Context& context) {
   Dispatcher dispatcher(context);
   const QJsonObject capabilities =
@@ -316,6 +391,12 @@ void toolsetCatalog(Context& context) {
 
 void runAutomationDispatcherTests(Context& context) {
   toolsetCatalog(context);
+  {
+    Dispatcher dispatcher(context);
+    dispatcher.add(patternOperations(), patternHandler, "core");
+    patternBoundaries(dispatcher);
+  }
+  drawingSuffixHandlerIsWholeString(context);
   {
     Dispatcher dispatcher(context);
     bool refused = false;

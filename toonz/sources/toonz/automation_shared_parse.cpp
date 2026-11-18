@@ -198,8 +198,8 @@ QJsonObject poseSummary(const TFilePath& path, int thumbnail) {
 }
 
 QJsonObject summarize(Context& context, const QString& kind) {
-  static const QRegularExpression shape(
-      "^(studio_palette|template|pose_set|pose_thumbnail:([0-9]{1,4}))$");
+  static const QRegularExpression shape(QRegularExpression::anchoredPattern(
+      "(studio_palette|template|pose_set|pose_thumbnail:([0-9]{1,4}))"));
   const auto match = shape.match(kind);
   if (!match.hasMatch()) throw Error("rejected", "Unknown parse kind.");
   const TFilePath path(QDir(context.workspace())

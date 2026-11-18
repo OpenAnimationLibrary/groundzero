@@ -13,7 +13,9 @@
 #include "texception.h"
 
 #include <QCryptographicHash>
+#include <QHash>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QScopedValueRollback>
 
 #include <cmath>
@@ -153,6 +155,21 @@ int unicodeLength(const QString& value, const QString& path) {
   return size;
 }
 
+// The dispatcher validates on one thread, so the cache needs no lock.
+const QRegularExpression& wholeStringPattern(const QString& pattern) {
+  static QHash<QString, QRegularExpression> compiled;
+  auto found = compiled.find(pattern);
+  if (found == compiled.end()) {
+    const QRegularExpression expression(
+        QRegularExpression::anchoredPattern(pattern));
+    if (!expression.isValid())
+      throw Error("internal_error",
+                  "A published schema pattern is not a valid expression.");
+    found = compiled.insert(pattern, expression);
+  }
+  return found.value();
+}
+
 void validateString(const QString& value, const QJsonObject& schema,
                     const QString& path) {
   const int size = unicodeLength(value, path);
@@ -160,6 +177,12 @@ void validateString(const QString& value, const QJsonObject& schema,
     reject(path, "String is too short.");
   if (schema.contains("maxLength") && size > schema.value("maxLength").toInt())
     reject(path, "String is too long.");
+  if (schema.contains("pattern") &&
+      !wholeStringPattern(schema.value("pattern").toString())
+           .match(value)
+           .hasMatch())
+    throw Error(schema.value("x-error-code").toString("invalid_params"),
+                path + ": String does not match its published pattern.");
 }
 
 void validateNumber(double value, const QJsonObject& schema,

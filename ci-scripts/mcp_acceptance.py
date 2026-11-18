@@ -520,6 +520,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_duplicate_keys_are_refused_before_dispatch(self) -> None:
         mcp_limit_cases.duplicate_keys_are_refused_before_dispatch(self)
 
+    def test_published_patterns_are_enforced_with_whole_string_semantics(self) -> None:
+        mcp_limit_cases.published_patterns_are_enforced_with_whole_string_semantics(self)
+
     def test_non_lowercase_drawing_suffixes_are_refused(self) -> None:
         mcp_limit_cases.non_lowercase_drawing_suffixes_are_refused(self)
 

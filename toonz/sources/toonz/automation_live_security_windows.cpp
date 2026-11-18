@@ -302,7 +302,8 @@ QByteArray readBytes(HANDLE file, int size) {
 
 void requirePipeName(const QString& endpoint) {
   const QString prefix = "\\\\.\\pipe\\groundzero-live-";
-  const QRegularExpression random("^[0-9a-f]{32}$");
+  const QRegularExpression random(
+      QRegularExpression::anchoredPattern("[0-9a-f]{32}"));
   if (!endpoint.startsWith(prefix) ||
       !random.match(endpoint.mid(prefix.size())).hasMatch())
     denied("The live endpoint is not a qualified local named pipe.");

@@ -108,7 +108,8 @@ QString prestonShape(const QString& name, int line) {
 }
 
 std::vector<Cue> parseDat(const QByteArray& bytes) {
-  static const QRegularExpression key("^([1-9][0-9]{0,6})[ \\t]+([A-Za-z]+)$");
+  static const QRegularExpression key(QRegularExpression::anchoredPattern(
+      "([1-9][0-9]{0,6})[ \\t]+([A-Za-z]+)"));
   std::vector<Cue> cues;
   bool header      = false;
   const auto lines = textLines(bytes);
@@ -138,8 +139,8 @@ qint64 decimalMicroseconds(const QString& seconds, const QString& fraction) {
 }
 
 std::vector<Cue> parseTsv(const QByteArray& bytes, const QStringList& shapes) {
-  static const QRegularExpression cue(
-      "^(0|[1-9][0-9]{0,3})(?:\\.([0-9]{1,6}))?\\t([A-HX])$");
+  static const QRegularExpression cue(QRegularExpression::anchoredPattern(
+      "(0|[1-9][0-9]{0,3})(?:\\.([0-9]{1,6}))?\\t([A-HX])"));
   std::vector<Cue> cues;
   const auto lines = textLines(bytes);
   for (int index = 0; index < lines.size(); ++index) {
@@ -398,7 +399,8 @@ Rate exactRate(double fps) {
   double parsed = 0;
   check >> parsed;
   const QString decimal = QString::fromStdString(text.str());
-  static const QRegularExpression form("^([0-9]+)(?:\\.([0-9]+))?$");
+  static const QRegularExpression form(
+      QRegularExpression::anchoredPattern("([0-9]+)(?:\\.([0-9]+))?"));
   const auto match = form.match(decimal);
   if (parsed != fps || !match.hasMatch())
     throw Error("timing_conflict",
@@ -477,7 +479,8 @@ Plan planSpans(const Analysis& analysis, const Timing& timing) {
 
 TFrameId readDrawing(const QJsonObject& value) {
   const QString suffix = value.value("suffix").toString();
-  static const QRegularExpression letters("^[a-z]{0,8}$");
+  static const QRegularExpression letters(
+      QRegularExpression::anchoredPattern("[a-z]{0,8}"));
   if (!letters.match(suffix).hasMatch())
     invalid("drawing_id suffix must contain up to eight lowercase letters.");
   return TFrameId(value.value("number").toInt(), suffix);

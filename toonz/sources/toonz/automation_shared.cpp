@@ -305,7 +305,8 @@ QString foldedName(const QString& name) {
 }
 
 bool validRevisionText(const QString& value, const QString& prefix) {
-  static const QRegularExpression digest("^[a-z0-9]+:[0-9a-f]{64}$");
+  static const QRegularExpression digest(
+      QRegularExpression::anchoredPattern("[a-z0-9]+:[0-9a-f]{64}"));
   return value.startsWith(prefix + ':') && digest.match(value).hasMatch();
 }
 

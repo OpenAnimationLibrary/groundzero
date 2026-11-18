@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -160,7 +161,8 @@ def non_lowercase_drawing_suffixes_are_refused(case: NativeAcceptance) -> None:
         drawing_id={"number": 1, "suffix": "a"},
     )
     before = case.success("scene.summary", {"document_id": document})
-    suffixes = ("A", "aB", "\u00e9", "\uff41", "a1", "a-", "a b", " a", "a\x00", "\u202ea")
+    suffixes = ("a\n", "a\r", "a\r\n", "\na", "\n", "ab\n")
+    suffixes += ("A", "aB", "\u00e9", "\uff41", "a1", "a-", "a b", " a", "a\x00", "\u202ea")
     suffixes += ("abcdefghi", "a" * 100)
     for suffix in suffixes:
         drawing = {"number": 1, "suffix": suffix}
@@ -179,7 +181,7 @@ def non_lowercase_drawing_suffixes_are_refused(case: NativeAcceptance) -> None:
                 {**target, "column_id": column["column_id"], "start_frame": 0, "length": 1},
             ),
         )
-        case.assertEqual(error["code"], "invalid_argument", label)
+        case.assertEqual(error["code"], "invalid_params", label)
         case.assertEqual(case.success("scene.summary", {"document_id": document}), before, label)
 
 
@@ -248,3 +250,112 @@ def hidden_fx_parameters_are_neither_listed_nor_writable(case: NativeAcceptance)
             error = case.failure(method, case.write_params(document, params))
             case.assertEqual(error["code"], "UNKNOWN_PARAMETER", f"{method} {name}")
     case.assertEqual(case.revisions[document], revision)
+
+
+Route = tuple[tuple[str, Any], ...]
+VALID_STRINGS = (
+    ("^listing:", "listing:" + "0" * 64),
+    ("^sha256:", "sha256:" + "0" * 64),
+    ("^(0|[1-9]", "1"),
+    ("^[0-9]+$", "1"),
+)
+
+
+def _valid_string(schema: dict[str, Any]) -> str:
+    pattern = schema.get("pattern", "")
+    for prefix, example in VALID_STRINGS:
+        if pattern.startswith(prefix):
+            return example
+    return "x" * max(1, schema.get("minLength", 1))
+
+
+def _fill(schema: dict[str, Any]) -> Any:
+    """Build the smallest instance of a schema that the dispatcher admits."""
+    if "oneOf" in schema:
+        alternative = _fill(schema["oneOf"][0])
+        if isinstance(alternative, dict):
+            own = {key: value for key, value in schema.items() if key != "oneOf"}
+            return {**_fill({"type": "object", **own}), **alternative}
+        return alternative
+    if "enum" in schema:
+        return schema["enum"][0]
+    kind = schema.get("type")
+    if kind == "object":
+        properties = schema.get("properties", {})
+        return {key: _fill(properties.get(key, {})) for key in schema.get("required", [])}
+    if kind == "array":
+        return [_fill(schema["items"]) for _ in range(schema.get("minItems", 0))]
+    if kind == "string":
+        return _valid_string(schema)
+    if kind == "boolean":
+        return False
+    return schema.get("minimum", 0)
+
+
+def _pattern_sites(schema: Any, route: Route = ()) -> list[tuple[Route, dict[str, Any]]]:
+    sites: list[tuple[Route, dict[str, Any]]] = []
+    if not isinstance(schema, dict):
+        return sites
+    if "pattern" in schema:
+        sites.append((route, schema))
+    for key, child in schema.get("properties", {}).items():
+        sites.extend(_pattern_sites(child, (*route, ("property", key))))
+    if "items" in schema:
+        sites.extend(_pattern_sites(schema["items"], (*route, ("item", None))))
+    for index, child in enumerate(schema.get("oneOf", [])):
+        sites.extend(_pattern_sites(child, (*route, ("alternative", index))))
+    return sites
+
+
+def _instance(schema: dict[str, Any], route: Route, replacement: str) -> Any:
+    """Build a valid instance whose string at the route is replaced by an invalid one."""
+    if not route:
+        return replacement
+    kind, key = route[0]
+    if kind == "alternative":
+        return _instance(schema["oneOf"][key], route[1:], replacement)
+    if kind == "item":
+        return [_instance(schema["items"], route[1:], replacement)]
+    value = _fill(schema)
+    value[key] = _instance(schema["properties"][key], route[1:], replacement)
+    return value
+
+
+def _line_break_variants(schema: dict[str, Any]) -> list[str]:
+    valid = _valid_string(schema)
+    candidates = [valid + "\n", valid + "\r", valid + "\r\n", "\n" + valid, "\n"]
+    candidates += [valid[:-1] + "\n", valid[:-1] + "\r", "\n" + valid[1:], "\r" + valid[1:]]
+    whole = re.compile(schema["pattern"][1:-1])
+    return [text for text in candidates if whole.fullmatch(text) is None]
+
+
+def published_patterns_are_enforced_with_whole_string_semantics(case: NativeAcceptance) -> None:
+    """Refuse a line break after, before or instead of every published pattern's match.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    document = case.create("Patterns")
+    before = case.success("scene.summary", {"document_id": document})
+    tools = case.success("automation.capabilities", {})["tools"]
+    exercised = 0
+    covered = set()
+    for tool in tools:
+        for route, schema in _pattern_sites(tool["inputSchema"]):
+            code = schema.get("x-error-code", "invalid_params")
+            for text in _line_break_variants(schema):
+                params = _instance(tool["inputSchema"], route, text)
+                response = case.worker.call(tool["name"], params)
+                label = f"{tool['name']} {route} {text!r}"
+                message = response["error"]["message"]
+                case.assertRegex(
+                    message, "published pattern|exactly one supported|too (long|short)", label
+                )
+                expected = code if "published pattern" in message else "invalid_params"
+                case.assertEqual(response["error"]["code"], expected, label)
+                exercised += 1
+            covered.add(tool["name"])
+    case.assertGreaterEqual(exercised, 150)
+    case.assertGreaterEqual(len(covered), 40)
+    case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
+    case.assertEqual(len(case.success("automation.list_documents", {})["documents"]), 1)
