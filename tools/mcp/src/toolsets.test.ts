@@ -41,9 +41,13 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-async function session(toolsets?: string[], catalog = capabilities(groups)) {
+async function session(
+  toolsets?: string[],
+  catalog = capabilities(groups),
+  reply: (method: string) => unknown = (method) => ({ ok: method }),
+) {
   const request = vi.fn(async (method: string) =>
-    method === "automation.capabilities" ? catalog : { ok: method },
+    method === "automation.capabilities" ? catalog : reply(method),
   );
   const server = createServer({ request, close: () => {} }, toolsets);
   const client = new Client({ name: "toolset-test", version: "1.0.0" });
@@ -177,4 +181,57 @@ test.each([
   };
   const { client } = await session(undefined, catalog);
   await expect(names(client)).rejects.toMatchObject({ data: { code: "INVALID_CATALOG" } });
+});
+
+function toolsetState(configured: boolean, reasons: string[] = []) {
+  return {
+    compiled: true,
+    installed: null,
+    configured,
+    loaded: null,
+    verified: "not_applicable",
+    usable: configured,
+    activation: { kind: "toolset", name: "audio" },
+    reasons,
+  };
+}
+
+test("runtime.inspect reports which toolsets this session has enabled", async () => {
+  const runtimeGroups = [{ name: "core", tools: ["runtime.inspect"] }, ...groups.slice(1)];
+  const native = {
+    platform: { os: "macos" },
+    toolsets: [
+      { name: "audio", state: toolsetState(true) },
+      { name: "rigging", state: { ...toolsetState(true), activation: { kind: "toolset" } } },
+    ],
+  };
+  const { client } = await session(["audio"], capabilities(runtimeGroups), () => native);
+  const enabled = await client.callTool({ name: "runtime.inspect", arguments: {} });
+  expect(enabled.structuredContent).toEqual({
+    platform: { os: "macos" },
+    toolsets: [
+      { name: "audio", state: toolsetState(true) },
+      {
+        name: "rigging",
+        state: {
+          ...toolsetState(false, ["toolset_disabled"]),
+          activation: { kind: "toolset" },
+        },
+      },
+    ],
+  });
+  await client.callTool({ name: "toolsets.disable", arguments: { names: ["audio"] } });
+  const disabled = await client.callTool({ name: "runtime.inspect", arguments: {} });
+  const reported = disabled.structuredContent as { toolsets: unknown[] };
+  expect(reported.toolsets).toContainEqual({
+    name: "audio",
+    state: toolsetState(false, ["toolset_disabled"]),
+  });
+});
+
+test("other native results pass through unchanged", async () => {
+  const native = { toolsets: [{ name: "audio", state: toolsetState(true) }] };
+  const { client } = await session(["all"], capabilities(groups), () => native);
+  const result = await client.callTool({ name: "audio.inspect", arguments: {} });
+  expect(result.structuredContent).toEqual(native);
 });

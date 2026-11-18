@@ -208,7 +208,7 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
       result =
         state?.isToolsetTool(name) === true
           ? toolResult(await toolsetCall(state, server, name, args))
-          : nativeToolResult(await worker.request(name, args), live);
+          : nativeToolResult(sessionResult(state, name, await worker.request(name, args)), live);
     } catch (error) {
       result = errorResult(error);
     }
@@ -220,6 +220,10 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
     }
   });
   return server;
+}
+
+function sessionResult(state: ToolsetState | undefined, name: string, value: unknown): unknown {
+  return state !== undefined && name === "runtime.inspect" ? state.sessionRuntime(value) : value;
 }
 
 type Validator = ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;
