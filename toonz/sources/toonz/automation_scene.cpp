@@ -3,6 +3,7 @@
 #include "automation_audio.h"
 #include "automation_path.h"
 #include "automation_drawing.h"
+#include "automation_files.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 
@@ -25,6 +26,7 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -46,6 +48,7 @@ constexpr int MaxFrame     = 1000000;
 constexpr int MaxSpan      = 10000;
 constexpr int MaxEntities  = 4096;
 constexpr qint64 MaxPixels = 16777216;
+constexpr qint64 MaxPngBytes = 67108864;
 
 QJsonObject textSchema() { return {{"type", "string"}, {"minLength", 1}}; }
 
@@ -412,11 +415,23 @@ QJsonValue createLevel(Context& context, const QJsonObject& params) {
   return describeLevel(document, result, true);
 }
 
-void validatePngPrecision(const QString& path) {
-  QFile input(path);
-  if (!input.open(QIODevice::ReadOnly))
+QByteArray readSourcePng(const QString& path) {
+  const QFileInfo info(path);
+  if (!info.isFile() || info.size() > MaxPngBytes)
+    throw Error("invalid_asset",
+                "Import requires a regular PNG file no larger than 64 MiB.");
+  QFile input;
+  if (openApprovedFile(input, path) != OpenResult::Opened)
     throw Error("io_error", "Cannot read the source PNG file.");
-  const QByteArray header    = input.read(29);
+  const QByteArray bytes = input.read(MaxPngBytes + 1);
+  if (input.error() != QFileDevice::NoError || bytes.size() > MaxPngBytes)
+    throw Error("invalid_asset",
+                "Import requires a regular PNG file no larger than 64 MiB.");
+  return bytes;
+}
+
+void validatePngPrecision(const QByteArray& bytes) {
+  const QByteArray header    = bytes.left(29);
   const QByteArray signature = QByteArray::fromHex("89504e470d0a1a0a");
   if (header.size() != 29 || !header.startsWith(signature) ||
       header.mid(8, 8) != QByteArray::fromHex("0000000d49484452"))
@@ -432,12 +447,11 @@ QImage readPng(Context& context, Document& document,
                const QJsonObject& params) {
   const QString path =
       context.resolvePath(requiredString(params, "path"), false);
-  const QFileInfo info(path);
-  if (!info.isFile() || info.size() > 67108864)
-    throw Error("invalid_asset",
-                "Import requires a regular PNG file no larger than 64 MiB.");
-  validatePngPrecision(path);
-  QImageReader reader(path, "png");
+  QByteArray bytes = readSourcePng(path);
+  validatePngPrecision(bytes);
+  QBuffer source(&bytes);
+  source.open(QIODevice::ReadOnly);
+  QImageReader reader(&source, "png");
   reader.setAutoDetectImageFormat(false);
   const QSize size = reader.size();
   if (size.isEmpty() || size.width() > 8192 || size.height() > 8192 ||

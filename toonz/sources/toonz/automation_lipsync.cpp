@@ -1,6 +1,7 @@
 #include "automation_lipsync.h"
 #include "automation.h"
 #include "automation_audio.h"
+#include "automation_files.h"
 
 #include "toutputproperties.h"
 #include "toonz/sceneproperties.h"
@@ -240,8 +241,11 @@ QByteArray readTimingFile(Context& context, const QString& path) {
     throw Error("invalid_asset", "The timing file is not a regular file.");
   if (info.size() > MaxFileBytes)
     throw Error("resource_limit", "Timing files are limited to 1 MiB.");
-  QFile file(resolved);
-  if (!file.open(QIODevice::ReadOnly))
+  QFile file;
+  const OpenResult opened = openApprovedFile(file, resolved);
+  if (opened == OpenResult::NotRegular)
+    throw Error("invalid_asset", "The timing file is not a regular file.");
+  if (opened != OpenResult::Opened)
     throw Error("io_error", "Cannot open the timing file.");
   const QByteArray bytes = file.read(MaxFileBytes + 1);
   if (file.error() != QFileDevice::NoError || bytes.size() != info.size())

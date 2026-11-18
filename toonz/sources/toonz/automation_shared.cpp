@@ -1,4 +1,5 @@
 #include "automation_shared.h"
+#include "automation_files.h"
 
 #include "toonz/libraryitems.h"
 
@@ -10,12 +11,6 @@
 #include <QRegularExpression>
 
 #include <algorithm>
-
-#ifndef _WIN32
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
 
 namespace GroundzeroAutomation {
 namespace {
@@ -157,6 +152,9 @@ QString resolveSharedPath(const QString& root, const QStringList& segments) {
   if (QFileInfo(current).canonicalFilePath() != current)
     throw Error("not_found",
                 "The shared entry does not exist with exactly this name.");
+#ifdef BUILD_UI_PORT_TESTS
+  firePathSwap("validated", current);
+#endif
   return current;
 }
 
@@ -220,28 +218,11 @@ void requireListingRevision(const QJsonObject& params,
 namespace {
 
 void openRegularFile(QFile& file, const QString& path) {
-#ifdef _WIN32
-  const QFileInfo info(path);
-  if (!info.isFile() || linkLike(info))
+  const OpenResult opened = openApprovedFile(file, path);
+  if (opened == OpenResult::NotRegular)
     throw Error("not_found", "The shared entry is not a regular file.");
-  file.setFileName(path);
-  if (!file.open(QIODevice::ReadOnly))
+  if (opened != OpenResult::Opened)
     throw Error("io_error", "Cannot open the shared file.");
-#else
-  const int descriptor = ::open(QFile::encodeName(path).constData(),
-                                O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
-  if (descriptor < 0) throw Error("io_error", "Cannot open the shared file.");
-  struct stat status{};
-  if (fstat(descriptor, &status) != 0 || !S_ISREG(status.st_mode)) {
-    ::close(descriptor);
-    throw Error("not_found", "The shared entry is not a regular file.");
-  }
-  if (!file.open(descriptor, QIODevice::ReadOnly,
-                 QFileDevice::AutoCloseHandle)) {
-    ::close(descriptor);
-    throw Error("io_error", "Cannot open the shared file.");
-  }
-#endif
 }
 
 }  // namespace

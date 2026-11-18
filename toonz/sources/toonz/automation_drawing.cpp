@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_audio.h"
 #include "automation_drawing.h"
+#include "automation_files.h"
 #include "automation_hook.h"
 #include "automation_vector_opacity.h"
 #include "tstrokeopacity.h"
@@ -1275,23 +1276,37 @@ QString pngPath(Context& context, const QJsonObject& params, bool write) {
   return path;
 }
 
-QByteArray readPngHeader(const QString& path) {
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
+constexpr qint64 MaxPngInputBytes = 256 * 1024 * 1024;
+
+QByteArray stagePng(const QString& source, QTemporaryFile& staged) {
+  QFile file;
+  const auto opened = openApprovedFile(file, source);
+  if (opened != OpenResult::Opened)
     throw Error("asset_unavailable",
-                "Cannot open PNG input: " + file.errorString());
-  if (file.size() > 256 * 1024 * 1024)
+                opened == OpenResult::NotRegular
+                    ? "Cannot open PNG input: not a regular file"
+                    : "Cannot open PNG input: " + file.errorString());
+  if (file.size() > MaxPngInputBytes)
     throw Error("resource_limit", "PNG input exceeds 256 MiB");
-  const auto header = file.read(33);
+  if (!staged.open())
+    throw Error("io_error", "Cannot stage PNG input: " + staged.errorString());
+  QByteArray header;
+  while (!file.atEnd()) {
+    const QByteArray block = file.read(1024 * 1024);
+    if (block.isEmpty() || staged.write(block) != block.size())
+      throw Error("io_error",
+                  "Cannot stage PNG input: " + staged.errorString());
+    if (header.size() < 33) header.append(block.left(33 - header.size()));
+  }
+  staged.close();
+  return header;
+}
+
+void validatePngHeader(const QByteArray& header) {
   if (header.size() != 33 ||
       header.left(8) != QByteArray::fromHex("89504e470d0a1a0a") ||
       header.mid(12, 4) != "IHDR")
     invalid("Input does not have a valid PNG signature and IHDR header");
-  return header;
-}
-
-void validatePngHeader(const QString& path) {
-  const auto header = readPngHeader(path);
   const auto* bytes = reinterpret_cast<const uchar*>(header.constData());
   const auto width  = qFromBigEndian<quint32>(bytes + 16);
   const auto height = qFromBigEndian<quint32>(bytes + 20);
@@ -1314,8 +1329,9 @@ QJsonObject importPng(Context& context, Document& document,
   if (level->getFrameCount() >= 4096)
     throw Error("resource_limit", "Level already has 4096 drawings");
   const QString path = pngPath(context, params, false);
-  validatePngHeader(path);
-  TImageReaderP reader(TFilePath(path.toStdWString()));
+  QTemporaryFile staged(context.runtimeDirectory + "/import-XXXXXX.png");
+  validatePngHeader(stagePng(path, staged));
+  TImageReaderP reader(TFilePath(staged.fileName().toStdWString()));
   const auto* info = reader->getImageInfo();
   if (!info || info->m_bitsPerSample > 8)
     throw Error("unsupported_precision",
@@ -1343,8 +1359,12 @@ QJsonObject exportPng(Context& context, Document& document,
   if (imageFormat(image) != "rgba8")
     invalid("PNG export requires an RGBA8 drawing");
   const QString path = pngPath(context, params, true);
-  QTemporaryFile temporary(QFileInfo(path).absolutePath() +
-                           "/.automation-XXXXXX.png");
+  const QFileInfo parent(QFileInfo(path).absolutePath());
+  if (!parent.isDir() || !parent.isWritable())
+    throw Error("io_error",
+                "Cannot stage PNG output: the destination folder is missing "
+                "or not writable");
+  QTemporaryFile temporary(context.runtimeDirectory + "/export-XXXXXX.png");
   if (!temporary.open())
     throw Error("io_error",
                 "Cannot stage PNG output: " + temporary.errorString());
@@ -1355,7 +1375,7 @@ QJsonObject exportPng(Context& context, Document& document,
     writer->save(image);
   }
   context.markMutationStarted();
-  if (!QFile::rename(temporaryPath, path))
+  if (!publishApproved(temporaryPath, path))
     throw Error("io_error",
                 "Cannot publish PNG output; destination may already exist");
   return {{"path", path},

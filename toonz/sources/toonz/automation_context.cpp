@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_files.h"
 #include "automation_path.h"
 
 #include "toonz/fxdag.h"
@@ -20,6 +21,8 @@
 
 namespace GroundzeroAutomation {
 namespace {
+
+constexpr int MaxNameBytes = 255;
 
 QString opaqueId(const QString& kind) {
   return kind + "_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -53,9 +56,12 @@ QString normalizedWorkerPath(const QString& path) {
       normalized.contains('\\'))
     throw Error("invalid_path",
                 "Use a nonempty path with forward-slash separators.");
-  for (const QString& part : normalized.split('/'))
+  for (const QString& part : normalized.split('/')) {
     if (part == "..")
       throw Error("invalid_path", "Parent traversal is not allowed.");
+    if (part.toUtf8().size() > MaxNameBytes)
+      throw Error("invalid_path", "A path component is longer than 255 bytes.");
+  }
   return normalized;
 }
 
@@ -72,9 +78,13 @@ QString canonicalAncestor(const QString& path) {
   }
   const QFileInfo existing(ancestor);
   const QString canonical = existing.canonicalFilePath();
-  if (existing.isSymLink() || canonical != ancestor)
+  if (existing.isSymLink())
     throw Error("path_denied",
                 "Symbolic links are not allowed in worker paths.");
+  if (canonical != ancestor)
+    throw Error("path_denied",
+                "Name the path exactly as it is stored: no symbolic link, "
+                "and no case or Unicode-normalization variant of a name.");
   return canonical;
 }
 
@@ -301,6 +311,9 @@ QString Context::resolvePath(const QString& path, bool write) const {
   const QString canonical = canonicalAncestor(absolute);
   if (!allowedPath(absolute, canonical, roots))
     throw Error("path_denied", "The path is outside the allowed roots.");
+#ifdef BUILD_UI_PORT_TESTS
+  firePathSwap("validated", absolute);
+#endif
   return absolute;
 }
 

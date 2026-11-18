@@ -1,3 +1,4 @@
+#include "automation_files.h"
 #include "automation_scene_host.h"
 #include "automation_shared_parse.h"
 
@@ -167,9 +168,15 @@ void hashProject(Scan& scan, ProjectRow& row) {
     scan.incomplete("hash_budget");
     return;
   }
-  QFile file(row.file);
-  if (!file.open(QIODevice::ReadOnly)) {
+  QFile file;
+  try {
+    if (openApprovedFile(file, row.file) != OpenResult::Opened) {
+      row.status = "unreadable";
+      return;
+    }
+  } catch (const Error&) {
     row.status = "unreadable";
+    scan.incomplete("skipped_links");
     return;
   }
   const QByteArray bytes = file.read(ProjectFileLimitBytes + 1);
@@ -330,8 +337,11 @@ QJsonValue listProjects(Context& context, const QJsonObject& params) {
   const int limit  = integerParam(params, "limit", 1, 64, 32);
   Scan scan{context, depth};
   scan.timer.start();
-  for (const QString& folder : scanFolders(context, params))
-    scanFolder(scan, folder, 0);
+  const QStringList folders = scanFolders(context, params);
+  for (const QString& folder : folders) scanFolder(scan, folder, 0);
+  for (const QString& folder : folders)
+    if (QFileInfo(folder).canonicalFilePath() != folder)
+      throw Error("path_denied", "The folder changed while it was listed.");
   std::sort(
       scan.rows.begin(), scan.rows.end(),
       [](const ProjectRow& a, const ProjectRow& b) { return a.file < b.file; });
@@ -615,14 +625,15 @@ QString findScenesXml(const QString& scene, const QString& root) {
 }
 
 QByteArray readSource(const QString& path, qint64 limit, const QString& code) {
-  QFile file(path);
-  if (!QFileInfo(path).isFile() || QFileInfo(path).isSymLink())
+  QFile file;
+  const OpenResult opened = openApprovedFile(file, path);
+  if (opened == OpenResult::NotRegular || !QFileInfo(path).isFile())
     throw Error(code, "A source file is missing.",
                 {{"cause", "missing"}, {"path", path}});
-  if (QFileInfo(path).size() > limit)
+  if (file.size() > limit)
     throw Error(code, "A source file exceeds its size limit.",
                 {{"cause", "too_large"}, {"path", path}});
-  if (!file.open(QIODevice::ReadOnly))
+  if (opened != OpenResult::Opened)
     throw Error("io_error", "A source file cannot be read.", {{"path", path}});
   const QByteArray bytes = file.read(limit + 1);
   if (bytes.size() > limit)
@@ -636,8 +647,8 @@ QString scenesXmlRevision(const QString& path) {
   if (path.isEmpty() || info.isSymLink() || !info.isFile() ||
       info.size() > ScenesXmlLimitBytes)
     return QString();
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) return QString();
+  QFile file;
+  if (openApprovedFile(file, path) != OpenResult::Opened) return QString();
   return fileRevision(file.read(ScenesXmlLimitBytes + 1));
 }
 
@@ -897,7 +908,10 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
     return scenesPage(params, scan, params.value("project_id").toString(),
                       QJsonValue());
   }
-  scanScenes(scan, sceneSubfolder(context, root, params), root, 0);
+  const QString folder = sceneSubfolder(context, root, params);
+  scanScenes(scan, folder, root, 0);
+  if (QFileInfo(folder).canonicalFilePath() != folder)
+    throw Error("path_denied", "The folder changed while it was listed.");
   return scenesPage(params, scan, params.value("project_id").toString(), root);
 }
 
