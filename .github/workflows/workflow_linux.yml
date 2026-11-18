@@ -64,6 +64,14 @@ jobs:
         set -euo pipefail
         python3 ci-scripts/mcp_guardrails.py --base "$MCP_BASE"
 
+    - name: Check the MCP capability census and revision coverage
+      run: |
+        set -euo pipefail
+        python3 ci-scripts/mcp_census.py
+        python3 ci-scripts/mcp_revision_matrix.py
+        python3 ci-scripts/run_harness_tests.py --pattern 'test_mcp_[cr]*.py' \
+          --report mcp-census-contracts.txt
+
     - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         version: '0.13.8'

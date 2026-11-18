@@ -22,6 +22,7 @@ import mcp_animation_cases
 import mcp_artwork_cases
 import mcp_assistance_cases
 import mcp_audio_cases
+import mcp_census_cases
 import mcp_color_composite_cases
 import mcp_curve_cases
 import mcp_drawing_cases
@@ -47,6 +48,7 @@ import mcp_receipt_cases
 import mcp_recipe_cases
 import mcp_render_cases
 import mcp_renumber_cases
+import mcp_revision_cases
 import mcp_rig_cases
 import mcp_scene_access_cases
 import mcp_scene_cases
@@ -835,6 +837,33 @@ class NativeAcceptance(unittest.TestCase):
         self.assertEqual(result["source_revision"], revision)
         return data
 
+    def test_revision_matrix_animation(self) -> None:
+        mcp_revision_cases.check_group(self, "animation")
+
+    def test_revision_matrix_drawing(self) -> None:
+        mcp_revision_cases.check_group(self, "drawing")
+
+    def test_revision_matrix_fx(self) -> None:
+        mcp_revision_cases.check_group(self, "fx")
+
+    def test_revision_matrix_lifecycle(self) -> None:
+        mcp_revision_cases.check_group(self, "lifecycle")
+
+    def test_revision_matrix_production(self) -> None:
+        mcp_revision_cases.check_group(self, "production")
+
+    def test_revision_matrix_render(self) -> None:
+        mcp_revision_cases.check_group(self, "render")
+
+    def test_revision_matrix_rigging(self) -> None:
+        mcp_revision_cases.check_group(self, "rigging")
+
+    def test_revision_matrix_scene(self) -> None:
+        mcp_revision_cases.check_group(self, "scene")
+
+    def test_revision_matrix_covers_the_catalog(self) -> None:
+        mcp_revision_cases.check_catalog(self)
+
     def test_project_inspect_reports_the_private_workspace(self) -> None:
         mcp_project_cases.project_inspect_reports_the_private_workspace(self)
 
@@ -843,6 +872,9 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_project_inspect_refuses_arguments(self) -> None:
         mcp_project_cases.project_inspect_refuses_arguments(self)
+
+    def test_census_matches_live_catalog(self) -> None:
+        mcp_census_cases.census_matches_live_catalog(self)
 
     def test_capabilities_are_strict_and_implemented(self) -> None:
         capabilities = self.success("automation.capabilities", {})

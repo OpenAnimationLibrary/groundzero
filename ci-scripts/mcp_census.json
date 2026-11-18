@@ -1,0 +1,3696 @@
+{
+ "schema_version": 1,
+ "claims": {
+  "protocol_version": 2,
+  "fx_profile": "builtin-2d-v2",
+  "fx_builtins": 31
+ },
+ "platforms": {
+  "qualified": [
+   "macOS"
+  ],
+  "not_recorded": [
+   "Linux",
+   "Windows"
+  ]
+ },
+ "non_tool_tokens": [
+  "details.cause",
+  "details.native_binding",
+  "details.reason",
+  "details.scope",
+  "details.slice",
+  "details.toolset"
+ ],
+ "formats": [
+  {
+   "id": "png",
+   "tokens": [
+    "PNG"
+   ],
+   "role": "level and drawing import, drawing export, preview and sequence output",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "raster.import_png",
+    "text": "PNG"
+   }
+  },
+  {
+   "id": "mp4",
+   "tokens": [
+    "MP4"
+   ],
+   "role": "opaque movie output",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "render.submit",
+    "property": "format",
+    "value": "mp4"
+   }
+  },
+  {
+   "id": "pli",
+   "tokens": [
+    "PLI"
+   ],
+   "role": "storage of vector levels in saved packages",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "level.create",
+    "property": "format",
+    "value": "vector"
+   }
+  },
+  {
+   "id": "tnz",
+   "tokens": [
+    "TNZ"
+   ],
+   "role": "scene file in saved packages",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "scene.save_copy"
+   }
+  },
+  {
+   "id": "wav",
+   "tokens": [
+    "WAV"
+   ],
+   "role": "sound import and mixdown output",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "audio.import",
+    "text": "WAV"
+   }
+  },
+  {
+   "id": "aiff",
+   "tokens": [
+    "AIFF"
+   ],
+   "role": "sound import",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "audio.import",
+    "text": "AIFF"
+   }
+  },
+  {
+   "id": "aifc",
+   "tokens": [
+    "AIFC"
+   ],
+   "role": "sound import",
+   "state": "refused",
+   "reason": "audio.import returns unsupported_format"
+  },
+  {
+   "id": "papagayo_dat",
+   "tokens": [
+    "DAT"
+   ],
+   "role": "lip-sync timing import",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "lipsync.import",
+    "property": "format",
+    "value": "papagayo_dat"
+   }
+  },
+  {
+   "id": "rhubarb_tsv",
+   "tokens": [
+    "TSV"
+   ],
+   "role": "lip-sync timing import",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "lipsync.import",
+    "property": "format",
+    "value": "rhubarb_tsv"
+   }
+  },
+  {
+   "id": "rhubarb_json",
+   "tokens": [],
+   "role": "lip-sync timing import",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "lipsync.import",
+    "property": "format",
+    "value": "rhubarb_json"
+   }
+  },
+  {
+   "id": "tpl",
+   "tokens": [
+    "TPL"
+   ],
+   "role": "studio palette files read from a granted root",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "studio_palette.list",
+    "text": ".tpl"
+   }
+  },
+  {
+   "id": "psd",
+   "tokens": [
+    "PSD"
+   ],
+   "role": "level files in a read-only user scene",
+   "state": "refused",
+   "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+  },
+  {
+   "id": "exr",
+   "tokens": [
+    "EXR"
+   ],
+   "role": "level files in a read-only user scene",
+   "state": "refused",
+   "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+  },
+  {
+   "id": "svg",
+   "tokens": [
+    "SVG"
+   ],
+   "role": "level files in a read-only user scene",
+   "state": "refused",
+   "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+  }
+ ],
+ "tools": {
+  "animation.channels": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_rich_animation_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys"
+   ]
+  },
+  "animation.copy_curve": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_whole_curve_copy_preserves_independence_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_whole_curve_rejections_and_quantized_steps",
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
+   ]
+  },
+  "animation.delete_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
+    "ci-scripts/mcp_acceptance.py::test_rich_animation_delete_keys_obeys_control_kinds",
+    "ci-scripts/mcp_acceptance.py::test_rich_animation_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
+   ]
+  },
+  "animation.keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
+    "ci-scripts/mcp_acceptance.py::test_parenting_preserves_local_keys_and_changes_rendered_placement",
+    "ci-scripts/mcp_acceptance.py::test_scene_edit_failures_leave_native_state_unchanged",
+    "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling"
+   ]
+  },
+  "animation.retime_curve": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_whole_curve_rejections_and_quantized_steps",
+    "ci-scripts/mcp_acceptance.py::test_whole_curve_retime_preserves_samples_rendering_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
+   ]
+  },
+  "animation.sample": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
+    "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_exposures_animation_and_document_isolation",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "animation.set_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
+    "ci-scripts/mcp_acceptance.py::test_rich_animation_retries_and_noops",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_rich_animation_round_trips_and_renders",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "artifact.read": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_changed_render_artifact_is_rejected",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_audio_movie_render_stays_video_only",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "assistance.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_passive_inspection_preserves_state",
+    "toonz/sources/toonz/tests/automation_assistance_test.cpp"
+   ]
+  },
+  "assistance.neural.preview": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render"
+   ]
+  },
+  "audio.clip.place": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_matches_independent_model",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "audio.clip.remove": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "audio.clip.update": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "audio.column.create": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_matches_independent_model",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "audio.column.set_volume": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production"
+   ]
+  },
+  "audio.import": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "audio.inspect": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_rejections_and_receipts",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "audio.mixdown": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_rejections_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
+    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_matches_independent_model",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "automation.capabilities": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_integers_beyond_exact_precision_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_private_bootstrap_ignores_launch_configuration",
+    "ci-scripts/mcp_acceptance.py::test_protocol_rejects_malformed_and_oversize_requests",
+    "ci-scripts/mcp_acceptance.py::test_capabilities_are_strict_and_implemented",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp"
+   ]
+  },
+  "automation.list_documents": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
+    "ci-scripts/mcp_acceptance.py::test_unregistered_and_altered_packages_are_not_admitted"
+   ]
+  },
+  "camera.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_preview_fit_preserves_camera",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_rich_animation_round_trips_and_renders",
+    "ci-scripts/mcp_acceptance.py::test_whole_curve_retime_preserves_samples_rendering_and_reopen",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "camera.update": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "cast.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_cast_paging_preserves_native_state",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "toonz/sources/toonz/tests/automation_production_test.cpp",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "cast.usage": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
+    "ci-scripts/mcp_acceptance.py::test_scene_cell_limit_suppresses_unused_claims",
+    "toonz/sources/toonz/tests/automation_production_test.cpp",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "column.cells": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_preserves_imported_source",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
+   ]
+  },
+  "column.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_lipsync_test.cpp",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "column.delete": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene"
+   ]
+  },
+  "column.expose": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_exposures_animation_and_document_isolation",
+    "ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_storyboard_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "column.update": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
+   ]
+  },
+  "drawing.clone": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_drawings_respect_native_format_number_limits",
+    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "drawing.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure",
+    "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
+    "ci-scripts/mcp_acceptance.py::test_drawings_respect_native_format_number_limits",
+    "ci-scripts/mcp_acceptance.py::test_non_lowercase_drawing_suffixes_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "toonz/sources/toonz/tests/automation_group_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "drawing.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_rgba_renumber_preserves_exposures_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_toonz_renumber_preserves_exposures_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_renumber_preserves_exposures_and_native_roundtrip",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "drawing.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "drawing.renumber": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_rgba_renumber_preserves_exposures_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_toonz_renumber_preserves_exposures_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "fx.catalog": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_census_matches_live_catalog",
+    "ci-scripts/mcp_acceptance.py::test_finishing_bounds_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
+    "ci-scripts/mcp_acceptance.py::test_hidden_fx_parameters_are_neither_listed_nor_writable",
+    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "fx.connect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
+    "ci-scripts/mcp_acceptance.py::test_glow_without_light_preserves_source_pixels",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "fx.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
+    "ci-scripts/mcp_acceptance.py::test_color_composite_blend_endpoints_select_sources",
+    "ci-scripts/mcp_acceptance.py::test_finishing_required_inputs_are_diagnosed",
+    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "fx.delete": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "fx.disconnect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "fx.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
+    "ci-scripts/mcp_acceptance.py::test_color_composite_keys_survive_copy_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp"
+   ]
+  },
+  "fx.enabled.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
+    "ci-scripts/mcp_acceptance.py::test_finishing_render_deadline_stops_slow_job",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp"
+   ]
+  },
+  "fx.graph": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_color_keys_survive_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
+    "ci-scripts/mcp_acceptance.py::test_generator_render_preserves_straight_alpha",
+    "ci-scripts/mcp_acceptance.py::test_glow_without_light_preserves_source_pixels",
+    "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
+    "toonz/sources/toonz/tests/automation_macro_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "fx.macro.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_macro_retries_retire_handles_without_reapplying",
+    "ci-scripts/mcp_acceptance.py::test_macro_roundtrip_preserves_pixels_and_mapping",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_macro_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp"
+   ]
+  },
+  "fx.macro.expand": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_macro_retries_retire_handles_without_reapplying",
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_macro_roundtrip_preserves_pixels_and_mapping",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_macro_test.cpp"
+   ]
+  },
+  "fx.output.select": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "fx.parameter.get": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_enum_parameters_accept_only_native_integers",
+    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_capacity_keeps_exact_replay",
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
+    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "fx.parameter.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_finishing_bounds_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_finishing_gradient_separation_rejects_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_color_composite_blend_endpoints_select_sources",
+    "ci-scripts/mcp_acceptance.py::test_color_composite_bounds_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "fx.parameter.set_key": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_color_composite_keys_survive_copy_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
+    "ci-scripts/mcp_acceptance.py::test_movie_snapshot_metadata_and_pixels",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "toonz/sources/toonz/tests/automation_color_composite_test.cpp"
+   ]
+  },
+  "fx.preset.apply": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp",
+    "toonz/sources/toonz/tests/automation_color_composite_test.cpp"
+   ]
+  },
+  "fx.preset.save": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_capacity_keeps_exact_replay",
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
+    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp",
+    "toonz/sources/toonz/tests/automation_color_composite_test.cpp"
+   ]
+  },
+  "fx.recipe.list": {
+   "origin": "worker",
+   "toolset": "fx-finishing",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_recipe_backlit_rim_light_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_cross_dissolve_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_exposure_grade_runs_literally",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
+   ]
+  },
+  "fx.rename": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
+    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_fx_preset_capacity_keeps_exact_replay",
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp"
+   ]
+  },
+  "fx.terminal.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_every_other_tool",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "hook.delete": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging"
+   ]
+  },
+  "hook.inspect": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_rig_pass_hook_matches_render",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "hook.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_parent_policy_and_refusals",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "level.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_cast_paging_preserves_native_state",
+    "ci-scripts/mcp_acceptance.py::test_level_capacity_rejection_preserves_scene",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "level.import": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_png_import_dimension_bounds_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
+    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene"
+   ]
+  },
+  "level.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
+    "ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure"
+   ]
+  },
+  "library.inspect": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
+    "ci-scripts/mcp_acceptance.py::test_library_unreadable_dependency_is_refused_not_hidden",
+    "ci-scripts/mcp_acceptance.py::test_shared_parser_failures_leave_worker_serving",
+    "ci-scripts/mcp_acceptance.py::test_shared_parsers_refuse_damaged_files"
+   ]
+  },
+  "library.list": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_library_listing_pages_are_capped",
+    "ci-scripts/mcp_acceptance.py::test_library_listing_revision_tracks_real_changes",
+    "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
+    "ci-scripts/mcp_acceptance.py::test_library_case_fold_collisions_are_reported",
+    "toonz/sources/toonz/tests/automation_shared_test.cpp"
+   ]
+  },
+  "library.thumbnail": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_library_thumbnails_are_bounded",
+    "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
+    "ci-scripts/mcp_acceptance.py::test_library_pose_thumbnails_are_bounded",
+    "toonz/sources/toonz/tests/automation_shared_test.cpp"
+   ]
+  },
+  "lipsync.apply": {
+   "origin": "worker",
+   "toolset": "lipsync",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
+    "ci-scripts/mcp_acceptance.py::test_lipsync_rejections_preserve_cells",
+    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
+   ]
+  },
+  "lipsync.import": {
+   "origin": "worker",
+   "toolset": "lipsync",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_lipsync_rejections_preserve_cells",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
+    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
+   ]
+  },
+  "lipsync.inspect": {
+   "origin": "worker",
+   "toolset": "lipsync",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
+    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
+   ]
+  },
+  "live.capabilities": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false,
+   "tests": [
+    "tools/mcp/src/server.test.ts",
+    "ci-scripts/mcp_live.py"
+   ]
+  },
+  "live.fx.set_scalar_value": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": true,
+   "tests": [
+    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
+    "tools/mcp/src/server.test.ts",
+    "ci-scripts/mcp_live.py"
+   ]
+  },
+  "live.inspect": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false,
+   "tests": [
+    "tools/mcp/src/live-protocol.test.ts",
+    "ci-scripts/mcp_live.py"
+   ]
+  },
+  "live.receipt": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false,
+   "tests": [
+    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
+    "toonz/sources/toonz/tests/automation_live_race_test.cpp",
+    "tools/mcp/src/live.test.ts",
+    "ci-scripts/mcp_live.py"
+   ]
+  },
+  "live.stage.set_key_value": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": true,
+   "tests": [
+    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
+    "toonz/sources/toonz/tests/automation_live_race_test.cpp",
+    "tools/mcp/src/server.test.ts",
+    "ci-scripts/mcp_live.py"
+   ]
+  },
+  "live.status": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false,
+   "tests": [
+    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
+    "toonz/sources/toonz/tests/automation_live_security_test.cpp",
+    "tools/mcp/src/live.test.ts",
+    "ci-scripts/mcp_live.py"
+   ]
+  },
+  "motion_path.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "motion_path.delete": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "motion_path.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "motion_path.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "motion_path.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "motion_path.rename": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
+   ]
+  },
+  "motion_path.update": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "object.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_unicode_names_preserve_data_and_reject_unpaired_surrogates",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "object.handles.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
+   ]
+  },
+  "object.parent": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_parent_policy_and_refusals",
+    "ci-scripts/mcp_acceptance.py::test_parenting_preserves_local_keys_and_changes_rendered_placement",
+    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
+    "ci-scripts/mcp_acceptance.py::test_parenting_rejections_preserve_every_object",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "object.path.attach": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "object.path.detach": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
+    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
+   ]
+  },
+  "object.pivot.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
+   ]
+  },
+  "offset_layer.create": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "offset_layer.delete": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "offset_layer.update": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
+    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "palette.clone_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "palette.create_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "palette.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_rgba_renumber_preserves_exposures_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
+    "ci-scripts/mcp_acceptance.py::test_toonz_renumber_preserves_exposures_and_native_roundtrip",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "palette.page.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "palette.page.move": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "palette.page.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "palette.page.rename": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "palette.pages": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip"
+   ]
+  },
+  "palette.rename_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "palette.style.move": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "palette.update_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_palette_updates_preserve_other_animation_keys",
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
+    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp"
+   ]
+  },
+  "project.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
+    "ci-scripts/mcp_acceptance.py::test_project_inspect_refuses_arguments",
+    "ci-scripts/mcp_acceptance.py::test_project_inspect_reports_the_private_workspace",
+    "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits"
+   ]
+  },
+  "project.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
+    "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
+    "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
+    "toonz/sources/toonz/tests/automation_scene_host_test.cpp"
+   ]
+  },
+  "raster.export_png": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
+    "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "raster.import_png": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
+    "ci-scripts/mcp_acceptance.py::test_native_decoder_failure_leaves_document_usable",
+    "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "raster.patch": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "raster.read_pixels": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
+    "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
+    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission"
+   ]
+  },
+  "render.artifacts": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_movie_cancellation_publishes_no_artifact",
+    "ci-scripts/mcp_acceptance.py::test_movie_writer_failure_publishes_no_artifact",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "render.cancel": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
+    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
+   ]
+  },
+  "render.capabilities": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "render.preview": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content",
+    "ci-scripts/mcp_acceptance.py::test_render_snapshot_survives_edits_and_discard",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_panels_spans_and_thumbnails",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "render.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
+    "ci-scripts/mcp_acceptance.py::test_movie_eof_interrupts_encoder_finalization",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "render.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_exact_render_retry_returns_the_same_job",
+    "ci-scripts/mcp_acceptance.py::test_finishing_preflight_bounds_render_extent",
+    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
+    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "rig.evaluate": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_pass_hook_matches_render",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "rig.inspect": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "scene.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_protocol_rejects_malformed_and_oversize_requests",
+    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
+    "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
+    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "scene.dependencies": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
+    "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
+    "toonz/sources/toonz/tests/automation_production_test.cpp",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "scene.discard": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_document_ids_do_not_alias_after_close_and_reopen",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "scene.open": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_unregistered_and_altered_packages_are_not_admitted",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "scene.open_read_only": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
+    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
+    "ci-scripts/mcp_acceptance.py::test_read_only_hosts_contain_native_failures",
+    "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle"
+   ]
+  },
+  "scene.package_info": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens"
+   ]
+  },
+  "scene.save_copy": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
+    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "scene.settings": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_revision_conflicts_noops_and_receipt_replay",
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+   ]
+  },
+  "scene.summary": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_scene_edit_failures_leave_native_state_unchanged",
+    "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
+    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "scene.validate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_scene_cell_limit_suppresses_unused_claims",
+    "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
+    "toonz/sources/toonz/tests/automation_production_test.cpp",
+    "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "shared.roots": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_shared_root_flags_are_explicit_and_read_only",
+    "toonz/sources/toonz/tests/automation_shared_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
+   ]
+  },
+  "storyboard.panel.create": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_panels_spans_and_thumbnails",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
+   ]
+  },
+  "storyboard.panel.delete": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
+   ]
+  },
+  "storyboard.panel.update": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
+    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
+   ]
+  },
+  "storyboard.panels": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_panels_spans_and_thumbnails",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
+    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
+    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
+   ]
+  },
+  "studio_palette.find": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
+    "toonz/sources/toonz/tests/automation_shared_test.cpp"
+   ]
+  },
+  "studio_palette.inspect": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
+    "ci-scripts/mcp_acceptance.py::test_shared_parsers_refuse_damaged_files",
+    "toonz/sources/toonz/tests/automation_shared_test.cpp"
+   ]
+  },
+  "studio_palette.list": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
+    "toonz/sources/toonz/tests/automation_shared_test.cpp"
+   ]
+  },
+  "text.fonts": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_text_outline_round_trip_and_edit",
+    "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
+    "toonz/sources/toonz/tests/automation_text_test.cpp"
+   ]
+  },
+  "toolsets.disable": {
+   "origin": "adapter",
+   "toolset": "adapter",
+   "writes": true,
+   "tests": [
+    "tools/mcp/src/toolsets.test.ts"
+   ]
+  },
+  "toolsets.enable": {
+   "origin": "adapter",
+   "toolset": "adapter",
+   "writes": true,
+   "tests": [
+    "tools/mcp/src/toolsets.test.ts"
+   ]
+  },
+  "toolsets.list": {
+   "origin": "adapter",
+   "toolset": "adapter",
+   "writes": false,
+   "tests": [
+    "tools/mcp/src/toolsets.test.ts"
+   ]
+  },
+  "vector.edit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_unknown_style_rejects_the_whole_vector_batch",
+    "ci-scripts/mcp_acceptance.py::test_vector_edits_validate_the_whole_batch",
+    "ci-scripts/mcp_acceptance.py::test_vector_fill_and_quadratic_geometry_validation",
+    "ci-scripts/mcp_acceptance.py::test_oversized_vector_selection_is_refused",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_fx_test.cpp",
+    "toonz/sources/toonz/tests/automation_text_test.cpp"
+   ]
+  },
+  "vector.fill": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_affine_preserves_paint_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_drawing_data_survives_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_fill_and_quadratic_geometry_validation",
+    "ci-scripts/mcp_acceptance.py::test_vector_transform_respects_fractional_pli_precision",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  },
+  "vector.group.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_reject_partial_boundaries",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_order_preserves_groups_and_stacking",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_group_test.cpp"
+   ]
+  },
+  "vector.group.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_group_test.cpp"
+   ]
+  },
+  "vector.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_edits_validate_the_whole_batch",
+    "ci-scripts/mcp_acceptance.py::test_unknown_style_rejects_the_whole_vector_batch",
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer"
+   ]
+  },
+  "vector.opacity.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
+    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
+    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
+   ]
+  },
+  "vector.opacity.profile.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
+    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
+   ]
+  },
+  "vector.opacity.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
+    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
+   ]
+  },
+  "vector.order.move": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_order_preserves_groups_and_stacking",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_group_test.cpp"
+   ]
+  },
+  "vector.select": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
+    "ci-scripts/mcp_acceptance.py::test_oversized_vector_selection_is_refused",
+    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
+   ]
+  },
+  "vector.structure": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_reject_partial_boundaries",
+    "ci-scripts/mcp_acceptance.py::test_vector_order_preserves_groups_and_stacking",
+    "toonz/sources/toonz/tests/automation_group_test.cpp"
+   ]
+  },
+  "vector.text.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
+    "ci-scripts/mcp_acceptance.py::test_text_outline_round_trip_and_edit",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
+    "toonz/sources/toonz/tests/automation_text_test.cpp"
+   ]
+  },
+  "vector.transform": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
+    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_affine_preserves_paint_and_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
+   ]
+  }
+ },
+ "outcomes": [
+  {
+   "id": "session.discover_operations",
+   "domain": "Session and capability discovery",
+   "outcome": "Discover the worker protocol, toolsets and typed operations with their input schemas.",
+   "classification": "exposed",
+   "tools": [
+    "automation.capabilities"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.select_toolsets",
+   "domain": "Session and capability discovery",
+   "outcome": "Choose which toolsets a session advertises, so it carries only the definitions it needs.",
+   "classification": "exposed",
+   "tools": [
+    "toolsets.list",
+    "toolsets.enable",
+    "toolsets.disable"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.list_documents",
+   "domain": "Session and capability discovery",
+   "outcome": "List the open detached documents with their current revisions.",
+   "classification": "exposed",
+   "tools": [
+    "automation.list_documents"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.inspect_project",
+   "domain": "Session and capability discovery",
+   "outcome": "Report the worker's private project and the limits of its isolation.",
+   "classification": "exposed",
+   "tools": [
+    "project.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.attach_live_editor",
+   "domain": "Session and capability discovery",
+   "outcome": "Attach to a running editor that was started with live automation and read its status, document state and capabilities.",
+   "classification": "optional",
+   "tools": [
+    "live.status",
+    "live.inspect",
+    "live.capabilities"
+   ],
+   "requires": "an editor launched with live automation and a private session file",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_receipts",
+   "domain": "Session and capability discovery",
+   "outcome": "Recover the outcome of a live write after a lost reply by its operation identifier.",
+   "classification": "optional",
+   "tools": [
+    "live.receipt"
+   ],
+   "requires": "an editor launched with live automation",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_stage_key_edit",
+   "domain": "Session and capability discovery",
+   "outcome": "Change the value of an existing camera or peg x, y or rotation key in the running editor as one undo step.",
+   "classification": "optional",
+   "tools": [
+    "live.stage.set_key_value"
+   ],
+   "requires": "an editor launched with live automation in edit mode",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_blur_edit",
+   "domain": "Session and capability discovery",
+   "outcome": "Change the qualified Blur scalar of an effect in the running editor as one undo step.",
+   "classification": "optional",
+   "tools": [
+    "live.fx.set_scalar_value"
+   ],
+   "requires": "an editor launched with live automation in edit mode",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_undo_redo",
+   "domain": "Session and capability discovery",
+   "outcome": "Undo and redo editor history through a typed operation, with stale-edit detection.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.live_document_lifecycle",
+   "domain": "Session and capability discovery",
+   "outcome": "Open, switch, save and close live editor documents with explicit handles.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.navigation_and_selection",
+   "domain": "Session and capability discovery",
+   "outcome": "Read and set the editor selection, current frame, viewer and panels without it acting as a hidden edit target.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.instance_discovery",
+   "domain": "Session and capability discovery",
+   "outcome": "Find authorized running editor instances without a session file passed by hand.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.generic_command_dispatch",
+   "domain": "Session and capability discovery",
+   "outcome": "Run an arbitrary menu command or script by identifier.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Every operation is a typed tool with its own bounds; an untyped dispatcher would bypass them."
+   }
+  },
+  {
+   "id": "scene.create_detached",
+   "domain": "Projects and scenes",
+   "outcome": "Create an isolated detached scene with explicit frame rate, pixel size and physical size.",
+   "classification": "exposed",
+   "tools": [
+    "scene.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.inspect",
+   "domain": "Projects and scenes",
+   "outcome": "Read the scene's levels, columns, stage objects and current revision.",
+   "classification": "exposed",
+   "tools": [
+    "scene.summary"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.update_settings",
+   "domain": "Projects and scenes",
+   "outcome": "Change frame rate, pixel size and physical size of an existing scene.",
+   "classification": "exposed",
+   "tools": [
+    "scene.settings"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.discard",
+   "domain": "Projects and scenes",
+   "outcome": "Close a detached document and invalidate its handles.",
+   "classification": "exposed",
+   "tools": [
+    "scene.discard"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.save_package",
+   "domain": "Projects and scenes",
+   "outcome": "Save a verified, hash-checked scene package with its artwork and sidecars into a new directory.",
+   "classification": "exposed",
+   "tools": [
+    "scene.save_copy"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.reopen_package",
+   "domain": "Projects and scenes",
+   "outcome": "Inspect and reopen a package that this worker published, with unchanged-content verification.",
+   "classification": "exposed",
+   "tools": [
+    "scene.open",
+    "scene.package_info"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.validate_basic",
+   "domain": "Projects and scenes",
+   "outcome": "Report basic scene issues without loading artwork or media.",
+   "classification": "exposed",
+   "tools": [
+    "scene.validate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.list_dependencies",
+   "domain": "Projects and scenes",
+   "outcome": "List the files a scene refers to with authorized metadata, without loading them.",
+   "classification": "exposed",
+   "tools": [
+    "scene.dependencies"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "project.discover_native_projects",
+   "domain": "Projects and scenes",
+   "outcome": "List the read roots and the native projects under them without parsing a project file.",
+   "classification": "exposed",
+   "tools": [
+    "project.list"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.open_existing_read_only",
+   "domain": "Projects and scenes",
+   "outcome": "Open an existing native scene from a read root as a read-only document with an explicit project binding, and inspect it with the qualified read tools.",
+   "classification": "exposed",
+   "tools": [
+    "scene.open_read_only"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.save_in_place",
+   "domain": "Projects and scenes",
+   "outcome": "Save the live scene and its assets in place with a per-asset result.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "scene.output_settings",
+   "domain": "Projects and scenes",
+   "outcome": "Edit output range, scale, markers and guide settings of a scene.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
+   "id": "scene.compare_revisions",
+   "domain": "Projects and scenes",
+   "outcome": "Compare two saved or live revisions of a scene.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "scene.recover_autosave",
+   "domain": "Projects and scenes",
+   "outcome": "Restore an autosaved or checkpointed scene into a new copy.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "project.create_and_select",
+   "domain": "Projects and scenes",
+   "outcome": "Create, select and update explicit projects, aliases and folder defaults.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "project.portable_collection",
+   "domain": "Projects and scenes",
+   "outcome": "Collect a scene and its assets into a relocatable delivery project.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "level.create_empty",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Create an empty vector, RGBA or Toonz raster level.",
+   "classification": "exposed",
+   "tools": [
+    "level.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.import_png",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Import one PNG image as a level's first drawing within asset limits.",
+   "classification": "exposed",
+   "tools": [
+    "level.import"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.inspect",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Read a level's format and exact drawing identifiers.",
+   "classification": "exposed",
+   "tools": [
+    "level.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "cast.read_usage",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Read cast metadata and the root-sheet exposure runs of each level, with bounded traversal.",
+   "classification": "exposed",
+   "tools": [
+    "cast.list",
+    "cast.usage"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.create",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Create an empty drawing in an existing level with an exact identity.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.inspect",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Load and describe one drawing.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.clone",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Clone a drawing inside its level without exposing the copy.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.clone"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.remove",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Remove an unexposed drawing.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.renumber",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Rename drawings together, including swaps, and update every exposure.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.renumber"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.import_other_media",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Import image sequences, layered files and other raster or vector formats, with a conversion plan.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
+   "id": "level.rename_replace_remove",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Rename, replace, remove from the cast or change canvas and resolution of a level.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
+   "id": "cast.organize_and_relink",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Organize the cast into folders and tags, relink missing files, make local copies and merge duplicates.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "drawing.reorder_merge_replace",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Reorder, merge or replace drawings while preserving suffixes and exposures.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "column.create",
+   "domain": "Timeline and columns",
+   "outcome": "Append an empty level column with a stable handle.",
+   "classification": "exposed",
+   "tools": [
+    "column.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.update_state",
+   "domain": "Timeline and columns",
+   "outcome": "Change a column's name, visibility, lock or opacity.",
+   "classification": "exposed",
+   "tools": [
+    "column.update"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.delete",
+   "domain": "Timeline and columns",
+   "outcome": "Delete an unlocked column that has no stage children.",
+   "classification": "exposed",
+   "tools": [
+    "column.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.read_cells",
+   "domain": "Timeline and columns",
+   "outcome": "Read an interval of timeline cells.",
+   "classification": "exposed",
+   "tools": [
+    "column.cells"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.expose_drawing",
+   "domain": "Timeline and columns",
+   "outcome": "Expose an existing drawing as a hold over a frame range.",
+   "classification": "exposed",
+   "tools": [
+    "column.expose"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "timeline.cell_and_time_edits",
+   "domain": "Timeline and columns",
+   "outcome": "Insert or remove time, clear cells, duplicate, group, fold or merge columns.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
+   "id": "timeline.retime",
+   "domain": "Timeline and columns",
+   "outcome": "Retime a range with explicit rules for curves, effects, sound and storyboard panels.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "timeline.child_sheets",
+   "domain": "Timeline and columns",
+   "outcome": "Create, enter, edit and explode child sheets and instances with shared-definition rules.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "timeline.notes_and_annotations",
+   "domain": "Timeline and columns",
+   "outcome": "Add notes, annotation columns and reference views to the timeline.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "camera.inspect_update",
+   "domain": "Stage, camera and animation",
+   "outcome": "Read and set the active camera's resolution and physical size.",
+   "classification": "exposed",
+   "tools": [
+    "camera.inspect",
+    "camera.update"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "stage.create_peg",
+   "domain": "Stage, camera and animation",
+   "outcome": "Create a pegbar with a stable handle.",
+   "classification": "exposed",
+   "tools": [
+    "object.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "stage.reparent",
+   "domain": "Stage, camera and animation",
+   "outcome": "Attach an object to a parent and optional parent handle, keeping local keys.",
+   "classification": "exposed",
+   "tools": [
+    "object.parent"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.discover_channels",
+   "domain": "Stage, camera and animation",
+   "outcome": "List an object's animatable channels with units, bounds and edit admission.",
+   "classification": "exposed",
+   "tools": [
+    "animation.channels"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.read_keys_and_samples",
+   "domain": "Stage, camera and animation",
+   "outcome": "Read curve keys with units and sample effective values at whole or fractional frames.",
+   "classification": "exposed",
+   "tools": [
+    "animation.keys",
+    "animation.sample"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.edit_keys",
+   "domain": "Stage, camera and animation",
+   "outcome": "Set sparse keys with explicit interpolation and controls, or delete keys after full validation.",
+   "classification": "exposed",
+   "tools": [
+    "animation.set_keys",
+    "animation.delete_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.copy_and_retime_curves",
+   "domain": "Stage, camera and animation",
+   "outcome": "Copy a whole curve to another channel or retime one with exact rational factors.",
+   "classification": "exposed",
+   "tools": [
+    "animation.copy_curve",
+    "animation.retime_curve"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "path.manage_motion_paths",
+   "domain": "Stage, camera and animation",
+   "outcome": "Create, list, inspect, edit, rename, duplicate and delete motion paths.",
+   "classification": "exposed",
+   "tools": [
+    "motion_path.create",
+    "motion_path.list",
+    "motion_path.inspect",
+    "motion_path.update",
+    "motion_path.rename",
+    "motion_path.duplicate",
+    "motion_path.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "path.attach_to_objects",
+   "domain": "Stage, camera and animation",
+   "outcome": "Attach an object to a motion path, with optional tangent aim, and detach it again.",
+   "classification": "exposed",
+   "tools": [
+    "object.path.attach",
+    "object.path.detach"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "camera.create_and_select",
+   "domain": "Stage, camera and animation",
+   "outcome": "Create, duplicate and delete cameras and choose the active one.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
+   "id": "stage.object_lifecycle",
+   "domain": "Stage, camera and animation",
+   "outcome": "Delete, duplicate and group stage objects, and add other object kinds.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "animation.expressions_and_file_curves",
+   "domain": "Stage, camera and animation",
+   "outcome": "Drive channels with expressions or file curves, with dependency-aware edits.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "animation.bake_and_reduce",
+   "domain": "Stage, camera and animation",
+   "outcome": "Bake or reduce curves and compare them with the original.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "animation.motion_synthesis",
+   "domain": "Stage, camera and animation",
+   "outcome": "Generate new character motion automatically from a description.",
+   "classification": "unsupported",
+   "tools": [],
+   "disposition": {
+    "kind": "unsupported",
+    "reason": "The application has no motion synthesis; it needs external content creation."
+   }
+  },
+  {
+   "id": "scene.author_editable_shot",
+   "domain": "Stage, camera and animation",
+   "outcome": "Build a shot from artwork, exposures, a camera move and an effect graph, render it, save it and reopen the package.",
+   "classification": "compositional",
+   "tools": [
+    "scene.create",
+    "level.create",
+    "drawing.create",
+    "raster.patch",
+    "column.create",
+    "column.expose",
+    "object.create",
+    "object.parent",
+    "animation.set_keys",
+    "fx.create",
+    "fx.connect",
+    "fx.parameter.set",
+    "fx.terminal.set",
+    "render.preview",
+    "render.submit",
+    "scene.save_copy",
+    "scene.open"
+   ],
+   "journey": [
+    "ci-scripts/mcp_shot.py"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.inspect_hierarchy",
+   "domain": "Rigging",
+   "outcome": "Read the stage hierarchy with handles, pivots, hook bindings and offset layers, and evaluate placements at chosen frames.",
+   "classification": "exposed",
+   "tools": [
+    "rig.inspect",
+    "rig.evaluate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.set_handles_and_pivots",
+   "domain": "Rigging",
+   "outcome": "Set an object's own handle, parent handle and stored pivot, and report the stage change.",
+   "classification": "exposed",
+   "tools": [
+    "object.handles.set",
+    "object.pivot.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.manage_offset_layers",
+   "domain": "Rigging",
+   "outcome": "Add, edit and remove additive offset layers on pegs, columns and cameras.",
+   "classification": "exposed",
+   "tools": [
+    "offset_layer.create",
+    "offset_layer.update",
+    "offset_layer.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.manage_hooks",
+   "domain": "Rigging",
+   "outcome": "Read, set and delete level hooks on explicit drawings.",
+   "classification": "exposed",
+   "tools": [
+    "hook.inspect",
+    "hook.set",
+    "hook.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.cutout_character_journey",
+   "domain": "Rigging",
+   "outcome": "Build a hierarchy of pegs with handles, hooks and offset layers, animate it and check the rendered result.",
+   "classification": "compositional",
+   "tools": [
+    "rig.inspect",
+    "rig.evaluate",
+    "object.create",
+    "object.parent",
+    "hook.set",
+    "offset_layer.create",
+    "animation.set_keys",
+    "render.preview"
+   ],
+   "journey": [
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.published_controls_and_pins",
+   "domain": "Rigging",
+   "outcome": "Publish channels as controls and add pins or inverse kinematics.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.skeleton_and_mesh_deformation",
+   "domain": "Rigging",
+   "outcome": "Build and edit skeletons, meshes and weights for Plastic deformation.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.deformer_chains_and_bake",
+   "domain": "Rigging",
+   "outcome": "Stack deformers and bake them into vector drawings.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.pose_libraries_and_retargeting",
+   "domain": "Rigging",
+   "outcome": "Save, apply and rename poses and map motion onto another rig.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.automatic_inference",
+   "domain": "Rigging",
+   "outcome": "Infer a rig from artwork automatically.",
+   "classification": "unsupported",
+   "tools": [],
+   "disposition": {
+    "kind": "unsupported",
+    "reason": "The application has no automatic rig inference; it needs external content creation."
+   }
+  },
+  {
+   "id": "vector.inspect_and_select",
+   "domain": "Vector drawing",
+   "outcome": "Read strokes and their control points, query them by geometry and read their order and groups.",
+   "classification": "exposed",
+   "tools": [
+    "vector.inspect",
+    "vector.select",
+    "vector.structure"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.edit_strokes",
+   "domain": "Vector drawing",
+   "outcome": "Add, reshape and delete strokes in one atomic edit.",
+   "classification": "exposed",
+   "tools": [
+    "vector.edit"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.fill_region",
+   "domain": "Vector drawing",
+   "outcome": "Assign a style to the closed region containing a point.",
+   "classification": "exposed",
+   "tools": [
+    "vector.fill"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.transform_drawing",
+   "domain": "Vector drawing",
+   "outcome": "Apply an affine transform to a whole drawing with an explicit thickness rule.",
+   "classification": "exposed",
+   "tools": [
+    "vector.transform"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.edit_opacity",
+   "domain": "Vector drawing",
+   "outcome": "Read and set stroke opacity and opacity envelopes.",
+   "classification": "exposed",
+   "tools": [
+    "vector.opacity.inspect",
+    "vector.opacity.set",
+    "vector.opacity.profile.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.groups_and_order",
+   "domain": "Vector drawing",
+   "outcome": "Group adjacent strokes, ungroup them and reorder strokes or groups.",
+   "classification": "exposed",
+   "tools": [
+    "vector.group.create",
+    "vector.group.remove",
+    "vector.order.move"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.text_outlines",
+   "domain": "Vector drawing",
+   "outcome": "Create editable vector outlines from installed fonts and list the fonts available.",
+   "classification": "optional",
+   "tools": [
+    "vector.text.create",
+    "text.fonts"
+   ],
+   "requires": "the fonts installed on the worker host",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.region_tools",
+   "domain": "Vector drawing",
+   "outcome": "Select by region, split, join, align, distribute and deform strokes.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "vector.brush_strokes",
+   "domain": "Vector drawing",
+   "outcome": "Draw deterministic sampled brush and eraser strokes with brush presets.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "vector.gradient_styles",
+   "domain": "Vector drawing",
+   "outcome": "Edit gradient styles and animate styles.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "vector.inbetween_and_morph",
+   "domain": "Vector drawing",
+   "outcome": "Author correspondence and generate vector inbetweens.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "raster.read_and_patch_pixels",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Read pixels and replace a bounded rectangle of RGBA or Toonz raster pixels atomically.",
+   "classification": "exposed",
+   "tools": [
+    "raster.read_pixels",
+    "raster.patch"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "raster.png_exchange",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Import an 8-bit PNG as a new drawing and export a drawing to a new PNG.",
+   "classification": "exposed",
+   "tools": [
+    "raster.import_png",
+    "raster.export_png"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.read",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Read a level palette's styles, animation keys, pages and membership.",
+   "classification": "exposed",
+   "tools": [
+    "palette.inspect",
+    "palette.pages"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.edit_styles",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Create, edit, rename, copy and move solid styles with stable identifiers.",
+   "classification": "exposed",
+   "tools": [
+    "palette.create_style",
+    "palette.update_style",
+    "palette.rename_style",
+    "palette.clone_style",
+    "palette.style.move"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.manage_pages",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Create, rename, move and remove empty palette pages.",
+   "classification": "exposed",
+   "tools": [
+    "palette.page.create",
+    "palette.page.rename",
+    "palette.page.move",
+    "palette.page.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.other_style_types",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Create textured, gradient and special styles, delete styles with a remap, and use reference images.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "raster.tools_and_selections",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Paint, erase, fill and transform raster areas with selections and masks.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "raster.conversion_jobs",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Vectorize, rasterize and convert levels as cancellable jobs.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "raster.scan_cleanup",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Clean up scanned drawings and autocenter them, keeping the originals.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "fx.discover_types",
+   "domain": "Effects",
+   "outcome": "Discover the admitted effect types with parameters, ranges, ports and replay class.",
+   "classification": "exposed",
+   "tools": [
+    "fx.catalog"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.inspect_graph",
+   "domain": "Effects",
+   "outcome": "Read the effect graph, generator columns, ports, terminals and current output.",
+   "classification": "exposed",
+   "tools": [
+    "fx.graph"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.build_graph",
+   "domain": "Effects",
+   "outcome": "Create and delete effects, connect and disconnect ports, set the terminal link and select the output.",
+   "classification": "exposed",
+   "tools": [
+    "fx.create",
+    "fx.delete",
+    "fx.connect",
+    "fx.disconnect",
+    "fx.terminal.set",
+    "fx.output.select"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.edit_parameters",
+   "domain": "Effects",
+   "outcome": "Read parameters and set values or linear keys with native range checks.",
+   "classification": "exposed",
+   "tools": [
+    "fx.parameter.get",
+    "fx.parameter.set",
+    "fx.parameter.set_key"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.manage_nodes",
+   "domain": "Effects",
+   "outcome": "Rename, enable or bypass and duplicate effects.",
+   "classification": "exposed",
+   "tools": [
+    "fx.rename",
+    "fx.enabled.set",
+    "fx.duplicate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.presets",
+   "domain": "Effects",
+   "outcome": "Save an effect's state as a preset package and apply it to an effect of the same type.",
+   "classification": "exposed",
+   "tools": [
+    "fx.preset.save",
+    "fx.preset.apply"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.macros",
+   "domain": "Effects",
+   "outcome": "Group connected effects into a macro and expand it again.",
+   "classification": "exposed",
+   "tools": [
+    "fx.macro.create",
+    "fx.macro.expand"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.finishing_recipes",
+   "domain": "Effects",
+   "outcome": "Build light wrap, rim light, exposure grade, cross dissolve and iris wipe from listed recipes of ordinary tool calls.",
+   "classification": "compositional",
+   "tools": [
+    "fx.recipe.list",
+    "fx.create",
+    "fx.connect",
+    "fx.parameter.set",
+    "fx.parameter.set_key",
+    "fx.terminal.set"
+   ],
+   "journey": [
+    "ci-scripts/mcp_acceptance.py::test_recipe_light_wrap_composite_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_backlit_rim_light_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_exposure_grade_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_cross_dissolve_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_iris_wipe_runs_literally"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.remaining_builtin_types",
+   "domain": "Effects",
+   "outcome": "Author with the native effect types beyond the admitted set.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W8"
+   }
+  },
+  {
+   "id": "fx.linked_parameters",
+   "domain": "Effects",
+   "outcome": "Link or unlink parameters between effects and edit dynamic port groups.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W3"
+   }
+  },
+  {
+   "id": "fx.expressions_and_particles",
+   "domain": "Effects",
+   "outcome": "Author expression-driven effects and deterministic particle systems with caches.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W8"
+   }
+  },
+  {
+   "id": "fx.three_dimensional_and_color",
+   "domain": "Effects",
+   "outcome": "Place supported 3D assets, lights and surfaces, and keep high-precision color and LUT semantics.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W8"
+   }
+  },
+  {
+   "id": "fx.installed_extensions",
+   "domain": "Effects",
+   "outcome": "Use installed effect plugins and develop effects in isolation.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W11"
+   }
+  },
+  {
+   "id": "render.read_capabilities",
+   "domain": "Rendering and review",
+   "outcome": "Report the render profiles, limits and media support of the worker.",
+   "classification": "exposed",
+   "tools": [
+    "render.capabilities"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.preview_frame",
+   "domain": "Rendering and review",
+   "outcome": "Render one frame from an immutable snapshot, poll the job and read the image.",
+   "classification": "exposed",
+   "tools": [
+    "render.preview",
+    "render.status",
+    "render.artifacts",
+    "artifact.read"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.png_sequence",
+   "domain": "Rendering and review",
+   "outcome": "Render a bounded PNG sequence as a job that is verified before it is published.",
+   "classification": "exposed",
+   "tools": [
+    "render.submit",
+    "render.status",
+    "render.artifacts"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.cancel_job",
+   "domain": "Rendering and review",
+   "outcome": "Request cancellation of a render job and poll it to a terminal state.",
+   "classification": "exposed",
+   "tools": [
+    "render.cancel",
+    "render.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.mp4_movie",
+   "domain": "Rendering and review",
+   "outcome": "Render an opaque MP4 movie with verified metadata.",
+   "classification": "optional",
+   "tools": [
+    "render.submit"
+   ],
+   "requires": "ffmpeg and ffprobe granted at launch",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "assistance.neural_preview",
+   "domain": "Rendering and review",
+   "outcome": "Render a Neural Style preview of a frame from a captured reference.",
+   "classification": "optional",
+   "tools": [
+    "assistance.neural.preview",
+    "assistance.inspect"
+   ],
+   "requires": "the installed Neural Style runtime and models",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.contact_sheets_and_compare",
+   "domain": "Rendering and review",
+   "outcome": "Compare before and after renders and produce contact sheets.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W3"
+   }
+  },
+  {
+   "id": "render.other_delivery_formats",
+   "domain": "Rendering and review",
+   "outcome": "Export other movie, image and interchange formats with a fidelity report.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W10"
+   }
+  },
+  {
+   "id": "render.preflight_and_gl_probe",
+   "domain": "Rendering and review",
+   "outcome": "Check graphics readiness, missing assets and codec availability before a job starts.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W1"
+   }
+  },
+  {
+   "id": "render.job_registry",
+   "domain": "Rendering and review",
+   "outcome": "List and reconnect to jobs with a common status model.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W1"
+   }
+  },
+  {
+   "id": "audio.import_and_inspect",
+   "domain": "Production assets and timing",
+   "outcome": "Import WAV or AIFF sound as a source and inspect sources, columns and clips.",
+   "classification": "exposed",
+   "tools": [
+    "audio.import",
+    "audio.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "audio.place_clips",
+   "domain": "Production assets and timing",
+   "outcome": "Create sound columns, set their volume, and place, move and remove clips.",
+   "classification": "exposed",
+   "tools": [
+    "audio.column.create",
+    "audio.column.set_volume",
+    "audio.clip.place",
+    "audio.clip.update",
+    "audio.clip.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "audio.mixdown",
+   "domain": "Production assets and timing",
+   "outcome": "Write an exact offline WAV mix of a frame range.",
+   "classification": "exposed",
+   "tools": [
+    "audio.mixdown"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "storyboard.panels",
+   "domain": "Production assets and timing",
+   "outcome": "List, create, edit, move and delete storyboard panels with captions, notes and colors.",
+   "classification": "exposed",
+   "tools": [
+    "storyboard.panels",
+    "storyboard.panel.create",
+    "storyboard.panel.update",
+    "storyboard.panel.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "lipsync.import_and_apply",
+   "domain": "Production assets and timing",
+   "outcome": "Import Papagayo or Rhubarb timing, inspect its cues and apply it to a drawing column at the scene rate.",
+   "classification": "exposed",
+   "tools": [
+    "lipsync.import",
+    "lipsync.inspect",
+    "lipsync.apply"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "library.read_shared_roots",
+   "domain": "Production assets and timing",
+   "outcome": "Read granted studio palettes and Library templates and pose sets, with identities and dependencies.",
+   "classification": "exposed",
+   "tools": [
+    "shared.roots",
+    "studio_palette.list",
+    "studio_palette.inspect",
+    "studio_palette.find",
+    "library.list",
+    "library.inspect",
+    "library.thumbnail"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "audio.wider_formats",
+   "domain": "Production assets and timing",
+   "outcome": "Accept AIFC, extensible WAV, 32-bit integer PCM and 32-bit AIFF, which are refused today.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "lipsync.run_analysis",
+   "domain": "Production assets and timing",
+   "outcome": "Run a mouth-shape analysis on sound and review it before applying.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "storyboard.reorder_and_retime",
+   "domain": "Production assets and timing",
+   "outcome": "Reorder storyboard sections with explicit synchronized timing.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "library.publish_and_insert",
+   "domain": "Production assets and timing",
+   "outcome": "Insert Library items into a scene and publish templates, poses and studio palettes.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "reference.images",
+   "domain": "Production assets and timing",
+   "outcome": "Manage reference images and external reference viewers.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "production.project_asset_lifecycle",
+   "domain": "Production assets and timing",
+   "outcome": "Consolidate, relink and collect production assets without hidden shared-file effects.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "production.devices_and_capture",
+   "domain": "Production assets and timing",
+   "outcome": "Acquire from scanners and cameras, run stop motion and record audio.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W11"
+   }
+  },
+  {
+   "id": "production.external_generation",
+   "domain": "Production assets and timing",
+   "outcome": "Use separately authorized external image, video and audio generation and multi-shot sequences.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W11"
+   }
+  },
+  {
+   "id": "assistance.cadmium",
+   "domain": "Production assets and timing",
+   "outcome": "Prepare sources, read proposals and apply reviewed colorization.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W9"
+   }
+  },
+  {
+   "id": "admin.plugins_and_models",
+   "domain": "Administration",
+   "outcome": "Install, update or remove plugins and models.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority and an impact preview; ordinary creative tools never fall back to it."
+   }
+  },
+  {
+   "id": "admin.recovery_and_cache",
+   "domain": "Administration",
+   "outcome": "Restore recovery data, evict media caches and delete logs.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority and an impact preview."
+   }
+  },
+  {
+   "id": "admin.preferences_and_workspace",
+   "domain": "Administration",
+   "outcome": "Change application preferences, shortcuts and rooms.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Application settings must not silently change deterministic generation."
+   }
+  },
+  {
+   "id": "admin.version_control_and_publishing",
+   "domain": "Administration",
+   "outcome": "Run repository and publishing operations against shared storage.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority and external-write contracts."
+   }
+  },
+  {
+   "id": "admin.lifecycle",
+   "domain": "Administration",
+   "outcome": "Quit or restart the editor.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority; a live session stops through the editor's own action."
+   }
+  }
+ ]
+}
