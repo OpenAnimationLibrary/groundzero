@@ -673,7 +673,8 @@ QJsonValue inspectAudio(Context& context, const QJsonObject& params) {
 }
 
 QString privateCopyPath(Context& context, const QString& container) {
-  const QString directory = context.resolvePath("sounds", true);
+  const QString directory =
+      context.resolvePath(context.privateDirectory("sounds"), true);
   if (!QDir().mkpath(directory))
     throw Error("io_error", "Cannot create the workspace sound directory.");
   return QDir(directory).filePath(
