@@ -29,6 +29,7 @@
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
 #include "tests/mcp_live_generation_test.h"
+#include "tests/mcp_live_history_test.h"
 #include "tests/mcp_live_security_fixture.h"
 #include "texception.h"
 #include "tfx.h"
@@ -199,6 +200,10 @@ public:
       require(resetNativeUiIntegrationScene(&error), error.toUtf8().constData());
       runNativeGenerationTests();
       require(resetNativeUiIntegrationScene(&error), error.toUtf8().constData());
+      prepareScene();
+      runNativeLiveHistoryTests();
+      require(resetNativeUiIntegrationScene(&error),
+              error.toUtf8().constData());
       prepareScene();
       const QJsonObject settings = readObject(fixturePath("config.json"));
       m_session = settings.value("session").toString();

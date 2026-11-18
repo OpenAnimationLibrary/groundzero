@@ -92,10 +92,24 @@ function answer(request) {
   writeResponse(request);
 }
 
+const errors = {
+  error: { code: "gui_busy", message: "Finish the gesture", details: {} },
+  stale: {
+    code: "stale_target",
+    message: "Inspect before editing",
+    details: { reason: "history_changed", current_fingerprint: "d".repeat(64), channel: "x" },
+  },
+  "bad-stale": {
+    code: "stale_target",
+    message: "Inspect before editing",
+    details: { reason: "undone" },
+  },
+};
+
 function writeResponse(request) {
   const result =
-    mode === "error"
-      ? { id: request.id, error: { code: "gui_busy", message: "Finish the gesture", details: {} } }
+    mode in errors
+      ? { id: request.id, error: errors[mode] }
       : {
           id: request.id,
           result: {

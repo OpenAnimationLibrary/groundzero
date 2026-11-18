@@ -28,6 +28,22 @@ export const LIVE_RECOVERY =
   "Reconnect to the same instance and query live.receipt with the original operation_id. " +
   "Do not blindly replay edits; a new instance requires inspection.";
 
+/** Why a live edit's expected_fingerprint is stale; fingerprints follow the undo history. */
+export type StaleTargetReason = "content_changed" | "history_changed" | "target_replaced";
+
+/** Details of a stale_target refusal: retry with current_fingerprint after re-checking. */
+export interface StaleTargetDetails {
+  reason: StaleTargetReason;
+  current_fingerprint: string;
+  [context: string]: unknown;
+}
+
+const STALE_TARGET_REASONS = new Set<unknown>([
+  "content_changed",
+  "history_changed",
+  "target_replaced",
+]);
+
 export interface LiveBuild {
   application: "groundzero";
   version: string;
@@ -259,5 +275,14 @@ export function liveError(value: unknown): WorkerError {
   ) {
     throw new Error("Invalid live error fields");
   }
+  if (value["code"] === "stale_target") staleTargetDetails(value["details"]);
   return new WorkerError(value["code"], value["message"], value["details"]);
+}
+
+function staleTargetDetails(details: Record<string, unknown>): StaleTargetDetails {
+  const { reason, current_fingerprint: current } = details;
+  if (!STALE_TARGET_REASONS.has(reason) || typeof current !== "string" || !sha256.test(current)) {
+    throw new Error("A stale_target error requires its reason and current fingerprint");
+  }
+  return details as StaleTargetDetails;
 }

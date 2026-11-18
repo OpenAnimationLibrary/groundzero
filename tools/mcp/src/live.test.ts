@@ -138,6 +138,24 @@ test("keeps GUI domain errors usable without disconnecting", async () => {
   await expect(connection.request("live.status")).rejects.toMatchObject({ code: "gui_busy" });
 });
 
+test("passes a stale_target reason and current fingerprint through unchanged", async () => {
+  const { connection } = connector("stale");
+  await connection.ready;
+  await expect(connection.request("live.stage.set_key_value")).rejects.toMatchObject({
+    code: "stale_target",
+    details: { reason: "history_changed", current_fingerprint: "d".repeat(64), channel: "x" },
+  });
+  await expect(connection.request("live.status")).rejects.toMatchObject({ code: "stale_target" });
+});
+
+test("closes on a stale_target error without its reason and current fingerprint", async () => {
+  const { connection } = connector("bad-stale");
+  await connection.ready;
+  await expect(connection.request("live.stage.set_key_value")).rejects.toMatchObject({
+    code: "LIVE_UNAVAILABLE",
+  });
+});
+
 test("closes after a duplicate receipt frame without replaying the completed operation", async () => {
   const { connection } = connector("duplicate");
   await connection.ready;

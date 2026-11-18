@@ -50,6 +50,7 @@ namespace {
 constexpr int MaxKeys       = 4096;
 constexpr int MaxParameters = 256;
 constexpr int MaxHandles    = 1024;
+constexpr int MaxIssued     = 4096;
 
 void limit(bool exceeded, const QString& message) {
   if (exceeded) throw Error("resource_limit", message);
@@ -243,6 +244,12 @@ T* resolve(const Handles<T>& handles, const QString& id) {
 
 }  // namespace
 
+// What one issued fingerprint covered, to explain a later stale edit.
+struct IssuedFingerprint final {
+  QString content;
+  QString parameter;
+};
+
 class SceneState final {
 public:
   QString instance;
@@ -264,10 +271,12 @@ public:
   Handles<TParam> parameters;
   Handles<TXshLevel> levels;
   Handles<TXshColumn> columns;
+  std::map<QString, IssuedFingerprint> fingerprints;
   QJsonArray reasons;
 
   explicit SceneState(QString id) : instance(std::move(id)) {}
   void retire() {
+    fingerprints.clear();
     objects.clear();
     effects.clear();
     nativeEffects.clear();
@@ -686,6 +695,7 @@ struct Snapshot final {
   QJsonArray reasons;
   std::map<TParam*, int> owners;
   QString metadataDigest;
+  QString contentDigest;
 };
 
 Snapshot snapshot(SceneState& state) {
@@ -714,6 +724,9 @@ Snapshot snapshot(SceneState& state) {
         QJsonArray{state.parameterId(entry.first), entry.second});
   result.qualification["parameter_identities"] = parameterIdentities;
   result.metadataDigest                        = digest(result.qualification);
+  QJsonObject content                          = result.qualification;
+  content.remove("history_generation");
+  result.contentDigest = digest(content);
   limit(QJsonDocument(result.value).toJson(QJsonDocument::Compact).size() >
             900 * 1024,
         "Live metadata exceeds its bounded response size.");
@@ -725,6 +738,28 @@ QString fingerprint(const Snapshot& data, const QJsonObject& target) {
   return digest({{"profile", "qualified_target_dependencies_v1"},
                  {"metadata_digest", data.metadataDigest},
                  {"target", target}});
+}
+
+// Records what the fingerprint covered so a later refusal can say why it is
+// stale. The record is bounded and retired with the handles it refers to.
+QString issue(SceneState& state, const Snapshot& data,
+              const QJsonObject& target, TDoubleParam* curve) {
+  const QString value = fingerprint(data, target);
+  if (state.fingerprints.size() >= MaxIssued) state.fingerprints.clear();
+  state.fingerprints[value] = {data.contentDigest, state.parameterId(curve)};
+  return value;
+}
+
+// Fingerprints are bound to the undo history's change generation, so an undo
+// or redo that restores earlier content still refuses an earlier fingerprint.
+QString staleReason(SceneState& state, const Snapshot& data,
+                    TDoubleParam* curve, const QString& expected) {
+  const auto found = state.fingerprints.find(expected);
+  if (found == state.fingerprints.end()) return "content_changed";
+  if (found->second.parameter != state.parameterId(curve))
+    return "target_replaced";
+  if (found->second.content != data.contentDigest) return "content_changed";
+  return "history_changed";
 }
 
 void observe(SceneState& state, const Snapshot& data) {
@@ -819,7 +854,7 @@ QJsonArray editableStages(SceneState& state, const Snapshot& data) {
       target["maximum"] = 1000000;
       target["curve"]   = targetCurve(data, entry.first, value.name, false);
       target["expected_fingerprint"] =
-          fingerprint(data, stageTarget(entry.first, value));
+          issue(state, data, stageTarget(entry.first, value), curve);
       result.append(target);
     }
   }
@@ -840,22 +875,28 @@ QJsonArray editableEffects(SceneState& state, const Snapshot& data) {
     target["maximum"]  = 10000;
     target["curve"]    = targetCurve(data, entry.first, "value", true);
     target["location"] = curve->getKeyframeCount() ? "existing_key" : "default";
-    target["expected_fingerprint"] = fingerprint(data, fxTarget(entry.first));
+    target["expected_fingerprint"] =
+        issue(state, data, fxTarget(entry.first), curve);
     result.append(target);
   }
   return result;
 }
 
-void requireFresh(const Snapshot& data, const QJsonObject& target,
+void requireFresh(SceneState& state, const Snapshot& data,
+                  const QJsonObject& target, TDoubleParam* curve,
                   const QJsonObject& params) {
   if (!data.reasons.isEmpty())
     throw Error("unsupported_target",
                 "Live writes require the admitted root metadata profile.",
                 {{"reasons", data.reasons}});
-  if (requiredString(params, "expected_fingerprint") !=
-      fingerprint(data, target))
-    throw Error("stale_target",
-                "Target dependencies changed; inspect before editing.");
+  const QString expected = requiredString(params, "expected_fingerprint");
+  if (expected == fingerprint(data, target)) return;
+  const QString reason = staleReason(state, data, curve, expected);
+  throw Error("stale_target",
+              "Target dependencies changed; inspect before editing, or retry "
+              "with current_fingerprint after checking the current value.",
+              {{"reason", reason},
+               {"current_fingerprint", issue(state, data, target, curve)}});
 }
 
 double newValue(const QJsonObject& params, TDoubleParam* curve, double bound) {
@@ -1010,7 +1051,7 @@ QJsonObject commitScalar(SceneState& state, const Snapshot& before,
   const double value = edit.value("value").toDouble();
   const double previous =
       index < 0 ? curve->getDefaultValue() : curve->getKeyframe(index).m_value;
-  const QString initial = fingerprint(before, target);
+  const QString initial = issue(state, before, target, curve);
   QJsonObject result{{"changed", previous != value},
                      {"before_fingerprint", initial},
                      {"after_fingerprint", initial},
@@ -1048,7 +1089,7 @@ QJsonObject commitScalar(SceneState& state, const Snapshot& before,
   verifyCommitOwner(state);
   const auto after = snapshot(state);
   observe(state, after);
-  result["after_fingerprint"]  = fingerprint(after, target);
+  result["after_fingerprint"]  = issue(state, after, target, curve);
   result["observation_serial"] = QString::number(state.serial);
   result["undo_entry_added"]   = true;
   return result;
@@ -1134,7 +1175,7 @@ QJsonObject editStage(SceneState& state, const QJsonObject& params) {
                 "The target curve has shared native owners.");
   const auto target =
       stageTarget(requiredString(params, "object_id"), valueChannel);
-  requireFresh(before, target, params);
+  requireFresh(state, before, target, curve, params);
   auto result = commitScalar(state, before, target, curve,
                              {{"key_index", index}, {"value", value}});
   for (auto it = target.begin(); it != target.end(); ++it)
@@ -1161,7 +1202,7 @@ QJsonObject editFx(SceneState& state, const QJsonObject& params) {
     throw Error("unsupported_target",
                 "The target curve has shared native owners.");
   const auto target = fxTarget(requiredString(params, "fx_id"));
-  requireFresh(before, target, params);
+  requireFresh(state, before, target, curve, params);
   auto result = commitScalar(state, before, target, curve,
                              {{"key_index", index}, {"value", value}});
   for (auto it = target.begin(); it != target.end(); ++it)
