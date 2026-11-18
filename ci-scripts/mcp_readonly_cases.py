@@ -4,8 +4,9 @@ The harness is driven by the live catalog: each tool annotated read-only is call
 representative arguments in mcp_readonly_calls.READ_CALLS, and a read tool without an entry
 fails the check. Around each call it hashes every file under the workspace (which holds the
 worker's private project and settings), the input root and every shared root, and compares
-the documents' revisions. After each tool it also saves a copy of every document and reads the
-whole native state back, so an object created on demand is seen as a change.
+the documents' revisions. After each tool it also saves a copy of the main document and reads
+every open document's whole native state back, and a copy of every document is compared at the
+start and the end, so an object created on demand is seen as a change.
 """
 
 from __future__ import annotations
