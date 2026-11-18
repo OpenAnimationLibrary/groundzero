@@ -26,6 +26,7 @@ namespace GroundzeroAutomation {
 struct ReadOnlyScene;
 struct RenderState;
 struct SceneHostRegistry;
+struct RuntimeState;
 
 class Error final : public std::runtime_error {
 public:
@@ -108,6 +109,10 @@ public:
   bool failureRecorded() const;
   bool helpersContained() const;
   std::shared_ptr<RenderState> renderState;
+  // Probe results cached for the worker's life; created on first use.
+  std::shared_ptr<RuntimeState> runtimeState;
+  // Set once by the dispatcher: the toolset names of its catalog.
+  QStringList toolsets;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
   // Wall-clock budget of one render job; past it the job ends as

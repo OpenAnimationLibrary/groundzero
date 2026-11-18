@@ -1,4 +1,5 @@
 #include "automation_shared_parse.h"
+#include "automation_runtime.h"
 #include "automation_scene_host.h"
 #include "librarycommand.h"
 
@@ -260,6 +261,7 @@ void startSelfWatchdog() {
 struct HelperRun final {
   QByteArray output;
   QString cause;
+  qint64 elapsedMs = 0;
 };
 
 QString exitCause(const QProcess& helper) {
@@ -294,10 +296,12 @@ HelperRun superviseHelper(QProcess& helper) {
     if (run.cause.isEmpty()) continue;
     helper.kill();
     helper.waitForFinished(3000);
+    run.elapsedMs = timer.elapsed();
     return run;
   }
   run.output += helper.readAllStandardOutput();
-  run.cause = exitCause(helper);
+  run.cause     = exitCause(helper);
+  run.elapsedMs = timer.elapsed();
   return run;
 }
 
@@ -372,14 +376,34 @@ QJsonObject parseSharedFile(Context& context, const QString& kind,
   return interpret(superviseHelper(helper), failureCode);
 }
 
+HelperProbeRun runProbeHelper(Context& context, const QString& kind) {
+  if (context.runtimeDirectory.isEmpty())
+    throw Error("io_error", "The worker has no private runtime directory.");
+  QTemporaryDir directory(
+      QDir(context.runtimeDirectory).filePath("probe-XXXXXX"));
+  if (!directory.isValid())
+    throw Error("io_error", "Cannot create the private probe directory.");
+  QProcess helper;
+  configureHelper(helper, context, directory.path(), kind);
+  const HelperRun run = superviseHelper(helper);
+  HelperProbeRun result;
+  result.cause              = run.cause;
+  result.elapsedMs          = run.elapsedMs;
+  const QJsonDocument reply = QJsonDocument::fromJson(run.output);
+  if (run.cause.isEmpty() && !reply.isObject()) result.cause = "crashed";
+  if (reply.isObject()) result.reply = reply.object();
+  return result;
+}
+
 int runSharedParseHelper(Context& context, const QString& kind, QFile& output) {
   startSelfWatchdog();
 #ifdef BUILD_UI_PORT_TESTS
   injectChildFault(context.childFault);
 #endif
+  const QJsonObject reply =
+      kind == "gl_probe" ? graphicsProbeReply() : helperReply(context, kind);
   const QByteArray line =
-      QJsonDocument(helperReply(context, kind)).toJson(QJsonDocument::Compact) +
-      '\n';
+      QJsonDocument(reply).toJson(QJsonDocument::Compact) + '\n';
   if (output.write(line) != line.size() || !output.flush()) return 2;
   return 0;
 }

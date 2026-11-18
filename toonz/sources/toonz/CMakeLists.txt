@@ -217,6 +217,7 @@ set(HEADERS
     automation_shared.h
     automation_shared_parse.h
     automation_scene_host.h
+    automation_runtime.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -313,6 +314,7 @@ set(SOURCES
     automation_drawing.cpp
     automation_render.cpp
     automation_media.cpp
+    automation_runtime.cpp
     automation_persistence.cpp
     automation_production.cpp
     automation_assistance.cpp
@@ -1294,6 +1296,7 @@ if(BUILD_UI_PORT_TESTS)
             "$<TARGET_FILE_DIR:OpenToonz>/$<TARGET_FILE_NAME:mcp_ffprobe_fixture>"
         VERBATIM)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)

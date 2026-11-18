@@ -10,6 +10,7 @@
 #include "automation_shared.h"
 #include "automation_storyboard.h"
 #include "automation_lipsync.h"
+#include "automation_runtime.h"
 
 #include "texception.h"
 
@@ -302,6 +303,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(fxRecipeOperations(), executeFx, "fx-finishing");
   add(drawingOperations(), executeDrawing, "core");
   add(renderOperations(), executeRender, "core");
+  add(runtimeOperations(), executeRuntime, "core");
   add(persistenceOperations(), executePersistence, "core");
   add(productionOperations(), executeProduction, "core");
   add(textOperations(), executeText, "core");
@@ -318,6 +320,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
         return executeAssistance(method, params);
       },
       "core");
+  m_context.toolsets = m_toolsets.keys();
 }
 
 void Dispatcher::addWorkerOperation(QJsonObject descriptor) {
@@ -390,6 +393,7 @@ QJsonValue Dispatcher::execute(const QString& method,
           {"tools", m_catalog},
           {"toolsets", toolsetCatalog()},
           {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
+          {"platform", runtimePlatform()},
           {"isolation", "private_process"},
           {"read_only_scenes", readOnlyCapabilities(m_context)}};
     return QJsonObject{{"documents", documentRows(m_context)}};
