@@ -145,7 +145,8 @@ leaves identifiable committed operations.
 
 `cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
 current detached document. Supply its `document_id` and latest `expected_revision`
-on every page, with optional `offset` and `limit`. Check `traversal_complete` and
+on every page, with optional `offset` and `limit`; every paged read returns a null
+`next_offset` (`next_index` for `rig.inspect`) on its last page. Check `traversal_complete` and
 `reasons`: paging an incomplete result cannot finish the omitted traversal or
 establish that omitted artwork is unused. Reads inspect at most 100,000 root-sheet
 cells and retain at most 4096 records; each response is limited to one MiB.

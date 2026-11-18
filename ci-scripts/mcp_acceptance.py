@@ -45,6 +45,7 @@ import mcp_palette_cases
 import mcp_production_cases
 import mcp_project_cases
 import mcp_protocol_cases
+import mcp_readonly_cases
 import mcp_receipt_cases
 import mcp_recipe_cases
 import mcp_render_cases
@@ -413,6 +414,24 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_compound_artwork_edits_preserve_native_roundtrip(self) -> None:
         mcp_artwork_cases.artwork_transform_renumber_palette_roundtrip(self)
+
+    def test_every_read_tool_leaves_files_and_native_state_unchanged(self) -> None:
+        mcp_readonly_cases.every_read_tool_leaves_everything_unchanged(self)
+
+    def test_readonly_harness_catches_writing_tools_labelled_as_reads(self) -> None:
+        mcp_readonly_cases.harness_catches_writing_tools_labelled_as_reads(self)
+
+    def test_readonly_harness_requires_an_entry_for_each_read_tool(self) -> None:
+        mcp_readonly_cases.requires_an_entry_for_each_read_tool(self)
+
+    def test_readonly_tree_hashing_sees_every_kind_of_change(self) -> None:
+        mcp_readonly_cases.tree_hashing_sees_every_kind_of_change(self)
+
+    def test_readonly_user_level_files_are_watched_by_name(self) -> None:
+        mcp_readonly_cases.user_level_files_are_watched_by_name(self)
+
+    def test_readonly_cache_declarations_are_private_and_exact(self) -> None:
+        mcp_readonly_cases.declared_caches_are_private_and_exact(self)
 
     def test_cast_paging_preserves_native_state(self) -> None:
         mcp_production_cases.cast_paging_preserves_native_state(self)

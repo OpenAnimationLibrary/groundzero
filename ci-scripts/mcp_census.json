@@ -974,8 +974,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_lipsync_rejections_preserve_cells",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
     "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
    ]
@@ -1058,9 +1058,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
     "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
     "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
    ]
@@ -1135,9 +1135,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_unicode_names_preserve_data_and_reject_unpaired_surrogates",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
     "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
@@ -1179,6 +1179,7 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
     "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
     "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
@@ -1263,7 +1264,7 @@
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
     "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1367,8 +1368,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_palette_updates_preserve_other_animation_keys",
     "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1410,6 +1411,7 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
@@ -1436,7 +1438,7 @@
     "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
     "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1460,7 +1462,7 @@
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_movie_cancellation_publishes_no_artifact",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
@@ -1495,9 +1497,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content",
-    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
-    "ci-scripts/mcp_acceptance.py::test_render_snapshot_survives_edits_and_discard",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -1733,8 +1735,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_panels_spans_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
     "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
    ]
