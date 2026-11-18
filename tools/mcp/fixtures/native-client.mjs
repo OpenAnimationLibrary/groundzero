@@ -32,13 +32,18 @@ function keys(value, expected) {
  * Args:
  *   frame: A bounded UTF-8 NDJSON frame without its newline.
  * Returns:
- *   The original request identity, advertised method name, and object arguments.
+ *   The original request identity, advertised method name, and object arguments, and
+ *   `cancel: true` when the test wants the call cancelled through MCP once it is sent.
  */
 export function parseRequest(frame) {
   assert(frame.length <= maxRequestBytes, "Fixture request exceeds 8 MiB");
   const request = JSON.parse(decoder.decode(frame));
   assert(object(request), "Fixture request must be an object");
-  keys(request, ["id", "method", "params"]);
+  keys(
+    request,
+    "cancel" in request ? ["id", "method", "params", "cancel"] : ["id", "method", "params"],
+  );
+  assert(!("cancel" in request) || request.cancel === true, "Fixture cancel must be true");
   assert.equal(typeof request.id, "string", "Fixture request ID must be a string");
   assert(request.id.length > 0 && request.id.length <= 128, "Invalid fixture request ID");
   assert.equal(typeof request.method, "string", "Fixture method must be a string");
@@ -166,7 +171,36 @@ async function writeFrame(response) {
   });
 }
 
-async function serve(client) {
+/** Send a tool call and cancel it through MCP as soon as it has been written to the adapter.
+ *
+ * Args:
+ *   client: The connected SDK client.
+ *   transport: Its stdio transport, observed so the cancellation follows the request.
+ *   request: The parsed fixture request.
+ * Returns:
+ *   The client's own outcome: a fixture error saying it gave the call up, never a server claim.
+ */
+export async function cancelledCall(client, transport, request) {
+  const abort = new AbortController();
+  const send = transport.send;
+  transport.send = async (message, ...rest) => {
+    await send.call(transport, message, ...rest);
+    if (message.method === "tools/call") abort.abort(new Error("Cancelled by the test"));
+  };
+  try {
+    const params = { name: request.method, arguments: request.params };
+    await client.callTool(params, { signal: abort.signal });
+  } catch (error) {
+    if (!abort.signal.aborted) throw error;
+    const message = `The client cancelled the MCP request: ${String(error)}`;
+    return { error: { code: "MCP_REQUEST_CANCELLED", message, details: {} } };
+  } finally {
+    transport.send = send;
+  }
+  throw new Error("A cancelled MCP request returned a result");
+}
+
+async function serve(client, transport) {
   const catalog = await client.listTools();
   assert.equal(catalog.nextCursor, undefined, "Unexpected paginated tool catalog");
   const names = new Set(catalog.tools.map((tool) => tool.name));
@@ -176,8 +210,12 @@ async function serve(client) {
   for await (const frame of readFrames(process.stdin)) {
     const request = parseRequest(frame);
     assert(names.has(request.method), `Unadvertised MCP tool: ${request.method}`);
-    const response = await client.callTool({ name: request.method, arguments: request.params });
-    const outcome = bridgeResult(request.method, response);
+    const outcome = request.cancel
+      ? await cancelledCall(client, transport, request)
+      : bridgeResult(
+          request.method,
+          await client.callTool({ name: request.method, arguments: request.params }),
+        );
     await writeFrame({ id: request.id, ...outcome });
     calls += 1;
     if (outcome.result?.image) images += 1;
@@ -191,17 +229,15 @@ async function connect(client) {
     process.env["GROUNDZERO_NATIVE_EXECUTABLE"],
     fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
   );
-  await client.connect(
-    new StdioClientTransport({
-      command: process.execPath,
-      args,
-      env: Object.fromEntries(
-        Object.entries(process.env).filter(([, value]) => value !== undefined),
-      ),
-      stderr: "inherit",
-    }),
-  );
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args,
+    env: Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)),
+    stderr: "inherit",
+  });
+  await client.connect(transport);
   assert.equal(client.getNegotiatedProtocolVersion(), protocolVersion, "Unexpected MCP protocol");
+  return transport;
 }
 
 async function main() {
@@ -238,8 +274,7 @@ async function main() {
   process.once("SIGINT", interrupted);
   process.stdout.once("error", stop);
   try {
-    await connect(client);
-    await serve(client);
+    await serve(client, await connect(client));
   } catch (error) {
     failure ??= error;
   } finally {

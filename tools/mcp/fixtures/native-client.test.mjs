@@ -1,13 +1,16 @@
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { fakeNativeExecutable } from "./fake-native.mjs";
 
-const { adapterArguments, bridgeResult, parseRequest, readFrames } = await import(
+const { adapterArguments, bridgeResult, cancelledCall, parseRequest, readFrames } = await import(
   new URL("native-client.mjs", import.meta.url).href
 );
 const png =
@@ -202,6 +205,49 @@ test("reports a terminated session as interrupted rather than as its broken inpu
     expect(await exited).toEqual([1, null]);
     expect(diagnostics).toBe("MCP shot fixture failed: Error: MCP shot fixture was interrupted\n");
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("accepts only an explicit request to cancel a call through MCP", () => {
+  const request = { id: "one", method: "probe.echo", params: { value: 1 } };
+  expect(parseRequest(Buffer.from(JSON.stringify({ ...request, cancel: true })))).toEqual({
+    ...request,
+    cancel: true,
+  });
+  for (const cancel of [false, "yes", 1]) {
+    expect(() => parseRequest(Buffer.from(JSON.stringify({ ...request, cancel })))).toThrow();
+  }
+});
+
+test("cancels a call through MCP only after it has reached the adapter", async () => {
+  const { directory, workspace, executable } = await fakeNativeExecutable();
+  const log = join(directory, "native-requests.log");
+  const client = new Client({ name: "fixture-cancel-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../dist/cli.js", import.meta.url))].concat([
+      "--executable",
+      executable,
+      "--workspace",
+      workspace,
+    ]),
+    env: { ...process.env, FAKE_NATIVE_LOG: log },
+    stderr: "pipe",
+  });
+  try {
+    await client.connect(transport);
+    const send = transport.send;
+    const request = { id: "two", method: "probe.slow", params: { value: 2, delay_ms: 200 } };
+    const outcome = await cancelledCall(client, transport, request);
+    expect(outcome.error.code).toBe("MCP_REQUEST_CANCELLED");
+    expect(transport.send).toBe(send);
+    const echo = await client.callTool({ name: "probe.echo", arguments: { value: 3 } });
+    expect(echo.structuredContent).toEqual({ value: 3 });
+    const received = (await readFile(log, "utf8")).trim().split("\n");
+    expect(received).toEqual(["automation.capabilities", "probe.slow", "probe.echo"]);
+  } finally {
+    await client.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
