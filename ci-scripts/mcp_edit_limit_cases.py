@@ -58,14 +58,15 @@ def unknown_style_rejects_the_whole_vector_batch(case: NativeAcceptance) -> None
     update["points"] = _stroke(0)["points"]
     for style in (styles, styles + 1, 4095, 4096, -1, 1.5):
         label = f"style {style}"
+        code = "invalid_params" if style in (styles, styles + 1, 4095) else case.schema_code()
         edits = [_stroke(5), _stroke(6, style)]
         error = case.failure(
             "vector.edit", case.write_params(document, {**target, **SPACE, "edits": edits})
         )
-        case.assertEqual(error["code"], "invalid_params", label)
+        case.assertEqual(error["code"], code, label)
         replace = {**update, "style_id": style}
         params = case.write_params(document, {**target, **SPACE, "edits": [replace]})
-        case.assertEqual(case.failure("vector.edit", params)["code"], "invalid_params", label)
+        case.assertEqual(case.failure("vector.edit", params)["code"], code, label)
         after = case.success("vector.inspect", {"document_id": document, **target})
         case.assertEqual(after, before, label)
         case.assertEqual(case.revisions[document], revision, label)
@@ -93,7 +94,8 @@ def oversized_vector_selection_is_refused(case: NativeAcceptance) -> None:
     narrow = {**SELECT_ALL, "x1": 10, "relation": "contained"}
     case.assertEqual(len(_select(case, document, target, narrow)["result"]["stroke_indices"]), 10)
     indices = {"mode": "indices", "stroke_indices": list(range(129))}
-    case.assertEqual(_select(case, document, target, indices)["error"]["code"], "invalid_params")
+    response = _select(case, document, target, indices)
+    case.assertEqual(response["error"]["code"], case.schema_code())
     indices["stroke_indices"] = list(range(128))
     case.assertEqual(len(_select(case, document, target, indices)["result"]["stroke_indices"]), 128)
 
@@ -113,15 +115,15 @@ def render_frame_ranges_are_refused_before_a_job_exists(case: NativeAcceptance) 
     document = _exposed_card(case)
     revision = case.revisions[document]
     ranges = (
-        {"start_frame": 2, "end_frame": 1},
-        {"start_frame": 1000000, "end_frame": 0},
-        {"start_frame": 0, "end_frame": 4, "step": 0},
-        {"start_frame": -1, "end_frame": 1},
-        {"start_frame": 0, "end_frame": 1000001},
+        ({"start_frame": 2, "end_frame": 1}, "invalid_params"),
+        ({"start_frame": 1000000, "end_frame": 0}, "invalid_params"),
+        ({"start_frame": 0, "end_frame": 4, "step": 0}, case.schema_code()),
+        ({"start_frame": -1, "end_frame": 1}, case.schema_code()),
+        ({"start_frame": 0, "end_frame": 1000001}, case.schema_code()),
     )
-    for frames in ranges:
+    for frames, code in ranges:
         error = case.failure("render.submit", case.write_params(document, frames))
-        case.assertEqual(error["code"], "invalid_params", frames)
+        case.assertEqual(error["code"], code, frames)
     case.assertEqual(case.revisions[document], revision)
     case.assertEqual(list(case.workspace.glob("**/renders/job_*")), [])
     job = case.mutate("render.submit", document, start_frame=1, end_frame=1)

@@ -50,16 +50,9 @@ def integers_beyond_exact_precision_are_refused(case: NativeAcceptance) -> None:
     Args:
         case: A fresh native-worker acceptance fixture.
     """
-    for literal in (
-        "9007199254740992",
-        "9007199254740993",
-        "-9007199254740993",
-        "18446744073709551616",
-        "1e30",
-    ):
-        response = _send(case, _create_text(literal))
-        case.assertEqual(response["id"], "limit", literal)
-        case.assertEqual(response["error"]["code"], "invalid_params", literal)
+    for value in (2**53, 2**53 + 1, -(2**53) - 1, 2**64, 1e30):
+        params = case.write_params(None, {"name": "Limit", "width_px": value})
+        case.schema_failure("scene.create", params)
     _no_documents(case)
     tools = case.success("automation.capabilities", {})["tools"]
     integers = [
@@ -82,31 +75,42 @@ def non_finite_numbers_are_refused_before_dispatch(case: NativeAcceptance) -> No
         response = _send(case, _create_text(literal))
         case.assertEqual(response["error"]["code"], "parse_error", literal)
         case.assertIsNone(response["id"], literal)
-    for value in (32.5, "32", True, None, [32]):
-        error = case.failure(
-            "scene.create",
-            case.write_params(None, {"name": "Kind", "width_px": value}),
-        )
-        case.assertEqual(error["code"], "invalid_params", repr(value))
     _no_documents(case)
 
 
-def deep_nesting_is_refused_without_stopping_the_worker(case: NativeAcceptance) -> None:
-    """Keep deeply nested values typed: bounded by the parser or by the unknown-field check.
+def wrong_value_kinds_are_refused_by_schema(case: NativeAcceptance) -> None:
+    """Refuse a non-integer, string, boolean, null or array where an integer is declared.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    for value in (32.5, "32", True, None, [32]):
+        params = case.write_params(None, {"name": "Kind", "width_px": value})
+        case.schema_failure("scene.create", params)
+    _no_documents(case)
+
+
+def nested_values_are_refused_by_schema(case: NativeAcceptance) -> None:
+    """Refuse a deeply nested value in an undeclared field as a schema violation.
 
     Args:
         case: A fresh native-worker acceptance fixture.
     """
     for depth in (31, 32, 33, 100):
-        nested = "[" * depth + "]" * depth
-        text = (
-            '{"id":"deep","method":"scene.create","params":'
-            f'{{"name":"Deep","operation_id":"deep-{depth}","extra":{nested}}}}}'
-        )
-        response = _send(case, text)
-        case.assertEqual(response["id"], "deep", depth)
-        case.assertEqual(response["error"]["code"], "invalid_params", depth)
-        case.assertIn("Unknown field: extra", response["error"]["message"])
+        nested: Any = []
+        for _ in range(depth - 1):
+            nested = [nested]
+        params = case.write_params(None, {"name": "Deep", "extra": nested})
+        case.schema_failure("scene.create", params)
+    _no_documents(case)
+
+
+def deep_nesting_is_refused_by_the_parser(case: NativeAcceptance) -> None:
+    """Refuse nesting beyond the JSON parser's limit as a typed parse error.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
     for depth in (1100, 20000):
         nested = "[" * depth + "]" * depth
         text = f'{{"id":"deep","method":"automation.capabilities","params":{{"pad":{nested}}}}}'
@@ -168,20 +172,11 @@ def non_lowercase_drawing_suffixes_are_refused(case: NativeAcceptance) -> None:
         drawing = {"number": 1, "suffix": suffix}
         target = {"level_id": level["level_id"], "drawing_id": drawing}
         label = repr(suffix)
-        error = case.failure("drawing.inspect", {"document_id": document, **target})
-        case.assertEqual(error["code"], "invalid_params", label)
-        error = case.failure(
-            "drawing.create", case.write_params(document, {**target, "format": "vector"})
-        )
-        case.assertEqual(error["code"], "invalid_params", label)
-        error = case.failure(
-            "column.expose",
-            case.write_params(
-                document,
-                {**target, "column_id": column["column_id"], "start_frame": 0, "length": 1},
-            ),
-        )
-        case.assertEqual(error["code"], "invalid_params", label)
+        case.schema_failure("drawing.inspect", {"document_id": document, **target})
+        params = case.write_params(document, {**target, "format": "vector"})
+        case.schema_failure("drawing.create", params)
+        expose = {**target, "column_id": column["column_id"], "start_frame": 0, "length": 1}
+        case.schema_failure("column.expose", case.write_params(document, expose))
         case.assertEqual(case.success("scene.summary", {"document_id": document}), before, label)
 
 
@@ -344,13 +339,14 @@ def published_patterns_are_enforced_with_whole_string_semantics(case: NativeAcce
         for route, schema in _pattern_sites(tool["inputSchema"]):
             for text in _line_break_variants(schema):
                 params = _instance(tool["inputSchema"], route, text)
-                response = case.worker.call(tool["name"], params)
                 label = f"{tool['name']} {route} {text!r}"
-                message = response["error"]["message"]
-                case.assertRegex(
-                    message, "published pattern|exactly one supported|too (long|short)", label
-                )
-                case.assertEqual(response["error"]["code"], "invalid_params", label)
+                error = case.schema_failure(tool["name"], params)
+                if not case.through_sdk:
+                    case.assertRegex(
+                        error["message"],
+                        "published pattern|exactly one supported|too (long|short)",
+                        label,
+                    )
                 exercised += 1
             covered.add(tool["name"])
     case.assertGreaterEqual(exercised, 150)

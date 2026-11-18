@@ -511,12 +511,21 @@ class NativeAcceptance(unittest.TestCase):
     def test_integers_beyond_exact_precision_are_refused(self) -> None:
         mcp_limit_cases.integers_beyond_exact_precision_are_refused(self)
 
+    @worker_only("writes NaN and overflowing number literals, which no SDK client can encode")
     def test_non_finite_numbers_are_refused_before_dispatch(self) -> None:
         mcp_limit_cases.non_finite_numbers_are_refused_before_dispatch(self)
 
-    def test_deep_nesting_is_refused_without_stopping_the_worker(self) -> None:
-        mcp_limit_cases.deep_nesting_is_refused_without_stopping_the_worker(self)
+    def test_wrong_value_kinds_are_refused_by_schema(self) -> None:
+        mcp_limit_cases.wrong_value_kinds_are_refused_by_schema(self)
 
+    def test_nested_values_are_refused_by_schema(self) -> None:
+        mcp_limit_cases.nested_values_are_refused_by_schema(self)
+
+    @worker_only("writes request lines nested beyond the worker's own JSON parser limit")
+    def test_deep_nesting_is_refused_by_the_parser(self) -> None:
+        mcp_limit_cases.deep_nesting_is_refused_by_the_parser(self)
+
+    @worker_only("writes request lines that repeat a key, which no SDK client can encode")
     def test_duplicate_keys_are_refused_before_dispatch(self) -> None:
         mcp_limit_cases.duplicate_keys_are_refused_before_dispatch(self)
 

@@ -205,5 +205,5 @@ def studio_palettes_list_inspect_find_preserve_roots(case: NativeAcceptance) -> 
     unique = call(case, worker, "studio_palette.find", {"palette_id": "frozen_1"})
     case.assertTrue(unique["unique"])
     escape = {"root": "studio_palettes", "folder": "../project"}
-    case.schema_failure("studio_palette.list", escape, "invalid_path", worker)
+    case.schema_failure("studio_palette.list", escape, worker=worker)
     case.assertEqual((tree_digest(studio), tree_digest(project)), before)

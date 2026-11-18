@@ -78,7 +78,7 @@ def library_listing_pages_are_capped(case: NativeAcceptance) -> None:
     case.assertEqual(_names(first) + _names(rest), sorted(_names(first) + _names(rest)))
     case.assertEqual(len(set(_names(first) + _names(rest))), 300)
     for params in ({"limit": LISTING_CAP + 1}, {"limit": 0}, {"offset": FOLDER_CAP + 1}):
-        refuse(case, worker, "library.list", {"kind": "template", **params}, "invalid_params")
+        refuse(case, worker, "library.list", {"kind": "template", **params}, case.schema_code())
     past = _list(case, worker, offset=FOLDER_CAP)
     case.assertEqual((past["items"], past["next_offset"]), ([], None))
     for number in range(300, FOLDER_CAP - 1):
@@ -221,7 +221,7 @@ def library_listing_revision_tracks_real_changes(case: NativeAcceptance) -> None
             worker,
             "library.list",
             {"kind": "template", "expected_listing_revision": malformed},
-            "invalid_params",
+            case.schema_code(),
         )
 
 
