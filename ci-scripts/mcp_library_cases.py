@@ -247,13 +247,20 @@ def _hardened_parsers_refuse(case: NativeAcceptance, scene: str, library: Path) 
     call(case, worker, "studio_palette.inspect", params)
 
 
+def shared_parsers_refuse_damaged_files(case: NativeAcceptance) -> None:
+    """The damaged templates and palettes that once ended a parse helper are refused."""
+    scene = (_package_scene(case) / "scene.tnz").read_text()
+    library = case.directory / "library"
+    (library / "templates").mkdir(parents=True)
+    _hardened_parsers_refuse(case, scene, library)
+
+
 def shared_parser_failures_leave_worker_serving(case: NativeAcceptance) -> None:
     """Native parser crashes, hangs and memory growth end only the parse helper."""
     scene = (_package_scene(case) / "scene.tnz").read_text()
     library = case.directory / "library"
     (library / "templates").mkdir(parents=True)
     (library / "templates" / "Valid.tnz").write_text(scene)
-    _hardened_parsers_refuse(case, scene, library)
     for fault, cause in (("crash", "crashed"), ("hang", "timeout"), ("memory", "memory")):
         worker = _fault_worker(case, library, fault)
         created = call(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_audio_model import tone, wav_file
 from mcp_studio_palette_cases import call, refuse, tree_digest
 from mcp_worker import Worker
 
@@ -309,26 +311,33 @@ def discard(case: NativeAcceptance, worker: Worker, document: str) -> None:
 
 
 def host_processes(worker: Worker) -> list[tuple[int, str]]:
-    """The scene host children of a worker: (pid, document_id)."""
+    """The scene hosts under a worker, or under the MCP client and adapter that start
+    it: (pid, document_id)."""
     listing = subprocess.run(
         ["ps", "-ax", "-o", "pid=,ppid=,command="], capture_output=True, text=True, check=True
     ).stdout
+    rows = [line.split(None, 2) for line in listing.splitlines()]
+    rows = [(int(row[0]), int(row[1]), row[2]) for row in rows if len(row) == 3]
+    tree = {worker.process.pid}
+    grown = True
+    while grown:
+        added = {pid for pid, parent, _command in rows if parent in tree} - tree
+        tree |= added
+        grown = bool(added)
     hosts = []
-    for line in listing.splitlines():
-        fields = line.split(None, 2)
-        if len(fields) == 3 and int(fields[1]) == worker.process.pid:
-            match = re.search(r"--scene-host (document_\S+)", fields[2])
-            if match:
-                hosts.append((int(fields[0]), match.group(1)))
+    for pid, parent, command in rows:
+        match = re.search(r"--scene-host (document_\S+)", command)
+        if match and parent in tree:
+            hosts.append((pid, match.group(1)))
     return hosts
 
 
-def fault_worker(case: NativeAcceptance, fault: str) -> Worker:
+def fault_worker(case: NativeAcceptance, fault: str, name: str = "") -> Worker:
     worker = Worker(
         case.executable,
         case.workspace,
         case.inputs,
-        case.directory / f"fault-{fault}.stderr.log",
+        case.directory / f"fault-{name or fault}.stderr.log",
         test_arguments=("--test-child-fault", fault),
     )
     case.addCleanup(worker.close)
@@ -667,12 +676,11 @@ def _tool_params(tool: dict[str, Any], document: str) -> dict[str, Any]:
     return params
 
 
-def read_only_documents_refuse_mutations(case: NativeAcceptance) -> None:
-    """Every write and every unqualified read refuses before reaching the host."""
+def read_only_documents_refuse_every_other_tool(case: NativeAcceptance) -> None:
+    """Every write and every unqualified read refuses before its arguments are checked."""
     scenes = corpus(case)
     worker = case.worker
-    opened = open_scene(case, worker, scenes["B"], "standalone")
-    document = opened["document_id"]
+    document = open_scene(case, worker, scenes["B"], "standalone")["document_id"]
     before = call(case, worker, "scene.summary", {"document_id": document})
     tools = call(case, worker, "automation.capabilities", {})["tools"]
     refused = 0
@@ -686,16 +694,47 @@ def read_only_documents_refuse_mutations(case: NativeAcceptance) -> None:
         case.assertEqual(details["reason"], "mutation" if write else "not_qualified", tool)
         refused += 1
     case.assertGreater(refused, 50)
-    params = {"document_id": document, "expected_revision": "0", "directory": "copy"}
-    details = refuse(
-        case, worker, "scene.save_copy", {**params, "operation_id": _op(case)}, "read_only_document"
-    )
-    case.assertEqual(details["reason"], "mutation")
     case.assertEqual(call(case, worker, "scene.summary", {"document_id": document}), before)
-    pending = {"document_id": document, "expected_revision": "0", "frame": 0, "format": "mp4"}
-    pending.update(start_frame=0, end_frame=0, operation_id=_op(case))
-    del pending["frame"]
-    refuse(case, worker, "render.submit", pending, "render_unavailable")
+    discard(case, worker, document)
+
+
+def _refusals(column: str, objects: str, directory: str) -> list[tuple]:
+    """(tool, valid arguments, reason, slice) for a sample of every refusal kind."""
+    return [
+        ("column.create", {"name": "Added"}, "mutation", None),
+        ("level.create", {"name": "Added", "format": "vector"}, "mutation", None),
+        ("camera.update", {"width_px": 64}, "mutation", None),
+        ("fx.create", {"type": "STD_blurFx"}, "mutation", None),
+        ("scene.save_copy", {"directory": directory}, "mutation", None),
+        ("column.cells", {"column_id": column, "start_frame": 0, "length": 1}, "not_qualified", 2),
+        ("animation.channels", {"object_id": objects}, "not_qualified", 2),
+        ("rig.inspect", {"expected_revision": "0"}, "not_qualified", 3),
+    ]
+
+
+def read_only_documents_refuse_mutations(case: NativeAcceptance) -> None:
+    """Writes, and reads not yet qualified, refuse with valid arguments and change nothing."""
+    scenes = corpus(case)
+    worker = case.worker
+    document = open_scene(case, worker, scenes["B"], "standalone")["document_id"]
+    before = call(case, worker, "scene.summary", {"document_id": document})
+    column = before["columns"][0]["column_id"]
+    objects = before["columns"][0]["object_id"]
+    directory = str(case.workspace / "copy")
+    tools = {
+        tool["name"]: tool for tool in call(case, worker, "automation.capabilities", {})["tools"]
+    }
+    for name, extra, reason, slice_ in _refusals(column, objects, directory):
+        params = {"document_id": document, **extra}
+        if not tools[name]["annotations"]["readOnlyHint"]:
+            params.update(expected_revision="0", operation_id=_op(case))
+        details = refuse(case, worker, name, params, "read_only_document")
+        case.assertEqual((details["reason"], details.get("slice")), (reason, slice_), name)
+    case.assertEqual(call(case, worker, "scene.summary", {"document_id": document}), before)
+    case.assertFalse((case.workspace / "copy").exists())
+    submit = {"document_id": document, "expected_revision": "0", "format": "mp4"}
+    submit.update(start_frame=0, end_frame=0, operation_id=_op(case))
+    refuse(case, worker, "render.submit", submit, "render_unavailable")
     discard(case, worker, document)
 
 
@@ -778,19 +817,74 @@ def read_only_receipts_sources_and_lost_hosts(case: NativeAcceptance) -> None:
     _source_change(case, worker, scenes)
 
 
+def _slow_call(worker: Worker, method: str, params: dict[str, Any], timeout: float) -> Any:
+    """One call allowed past the client's usual 30 second answer bound."""
+    worker.sequence += 1
+    identifier = f"acceptance-{worker.sequence}"
+    payload = json.dumps({"id": identifier, "method": method, "params": params}).encode()
+    response = worker.exchange(payload, timeout=timeout)
+    if response.get("id") != identifier:
+        raise AssertionError(f"Worker returned an unrelated request id: {response!r}")
+    return response
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _orphan_exits(case: NativeAcceptance, scene: Path) -> None:
+    """A host blocked in a load ends when its worker is killed, not only on input EOF."""
+    worker = fault_worker(case, "hang", "orphan")
+    params = {"path": str(scene), "project_id": "standalone", "operation_id": "orphan"}
+    request = {"id": "orphan", "method": "scene.open_read_only", "params": params}
+    assert worker.process.stdin is not None
+    worker.process.stdin.write(json.dumps(request).encode() + b"\n")
+    worker.process.stdin.flush()
+    deadline = time.monotonic() + 20
+    while not host_processes(worker) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    hosts = host_processes(worker)
+    case.assertEqual(len(hosts), 1)
+    worker.process.kill()
+    worker.process.wait(timeout=10)
+    deadline = time.monotonic() + 5
+    while _alive(hosts[0][0]) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    case.assertFalse(_alive(hosts[0][0]), "The orphaned host kept running")
+
+
 def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
-    """A host that crashes or grows past 2 GiB ends the open, never the worker."""
+    """A host that crashes, hangs past the 60 s open deadline or grows past 2 GiB ends the
+    open, never the worker."""
     scenes = corpus(case)
-    for fault, cause in (("crash", "crashed"), ("memory", "memory")):
+    _orphan_exits(case, scenes["B"])
+    for fault, cause, bound in (
+        ("crash", "crashed", 30),
+        ("memory", "memory", 30),
+        ("hang", "timeout", 75),
+    ):
         worker = fault_worker(case, fault)
         started = time.monotonic()
         params = {"path": str(scenes["B"]), "project_id": "standalone", "operation_id": fault}
-        details = refuse(case, worker, "scene.open_read_only", params, "invalid_scene")
-        case.assertEqual(details["cause"], cause)
-        case.assertLess(time.monotonic() - started, 60)
+        response = _slow_call(worker, "scene.open_read_only", params, bound + 15)
+        case.assertEqual(response["error"]["code"], "invalid_scene", response)
+        case.assertEqual(response["error"]["details"]["cause"], cause)
+        elapsed = time.monotonic() - started
+        case.assertLess(elapsed, bound)
+        if fault == "hang":
+            case.assertGreater(elapsed, 59)
         case.assertEqual(host_processes(worker), [])
         call(case, worker, "project.list", {"limit": 1})
         case.assertEqual(call(case, worker, "automation.list_documents", {})["documents"], [])
+
+
+def read_only_damaged_scenes_are_refused(case: NativeAcceptance) -> None:
+    """Scene damage that once crashed, hung or exhausted the parser is refused cleanly."""
+    scenes = corpus(case)
     text = (scenes["base"] / "scene.tnz").read_text()
     cell = re.compile(r"<cell>\s*0 [0-9]+ ")
     malformed = {
@@ -804,6 +898,7 @@ def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
         details = _refused_open(case, path, "invalid_scene")
         case.assertEqual(details["cause"], "rejected", name)
     case.assertEqual(host_processes(case.worker), [])
+    call(case, case.worker, "project.list", {"limit": 1})
 
 
 def _projects(case: NativeAcceptance, worker: Worker, scenes: dict[str, Path]) -> None:
@@ -940,3 +1035,346 @@ def read_only_level_prechecks_refuse_before_native_load(case: NativeAcceptance) 
     case.assertEqual((states["Layers"], states["Away"]), ("not_applicable", "forbidden"))
     case.assertTrue(opened["render"]["renderable"], opened["render"])
     discard(case, case.worker, opened["document_id"])
+
+
+def _linked_origin(text: str) -> str:
+    """Record a linked Library origin on the Ink level, as the editor writes it."""
+    origin = (
+        '{\\"id\\":\\"rig-id\\",\\"item\\":\\"Rig\\",\\"kind\\":\\"rig\\",'
+        '\\"source\\":\\"$scenefolder/assets/level-0.pli\\",\\"revision\\":1,\\"relationship\\":1}'
+    )
+    return re.sub(r"(Ink \s*<info[^>]*>\s*<path) ", rf'\1 libraryOrigin="{origin}" ', text, count=1)
+
+
+def _special_columns(text: str) -> str:
+    """Add palette, sound-text and mesh levels and a column exposing each."""
+    levels = (
+        "<paletteLevel id='2400'> <name> Swatches </name> "
+        '<path> "$scenefolder/assets/level-1.tpl" </path> </paletteLevel>\n'
+        "<soundTextLevel id='2401'> Words <type> textSound </type> "
+        '<frame> "hello" </frame> </soundTextLevel>\n'
+        "<level id='2402'>\nMesh \n"
+        '<path> "$scenefolder/assets/shape.mesh" </path>\n</level>\n'
+    )
+    columns = (
+        "<paletteColumn id='2410'> <cells> <cell> 0 6 <paletteLevel id='2400'/> 1 0 "
+        "</cell> </cells> </paletteColumn>\n"
+        "<soundTextColumn id='2411'> <cells> <cell> 0 1 <soundTextLevel id='2401'/> "
+        "</cell> </cells> </soundTextColumn>\n"
+        "<meshColumn id='2412'> <cells> <cell> 0 6 <level id='2402'/> 1 0 "
+        "</cell> </cells> </meshColumn>\n"
+    )
+    anchor = "</levels>\n    <folder"
+    text = text.replace(anchor, levels + anchor, 1)
+    return text.replace("<columns>", "<columns>\n" + columns, 1)
+
+
+def _textures(palette: str) -> str:
+    """A TLV palette with a texture outside the roots and a shipped library texture."""
+    styles = (
+        '<style> texture_2 4 "/nowhere/stone.bmp" 255 0 0 255 0 0 1 0 1 1 1 </style>'
+        '<style> texture_3 4 "brick.bmp" 255 0 0 255 0 0 1 0 1 1 1 </style>'
+    )
+    palette = palette.replace("</styles>", styles + "</styles>", 1)
+    return re.sub(r"<indices>\s*0 1\s*</indices>", "<indices> 0 1 2 3 </indices>", palette)
+
+
+def _rows(opened: dict[str, Any]) -> set[tuple[str, str, str]]:
+    return {
+        (row["kind"], row["reason"], row["name"] or "") for row in opened["content"]["unsupported"]
+    }
+
+
+def _special(case: NativeAcceptance, base: Path) -> None:
+    text = _linked_origin(_special_columns((base / "scene.tnz").read_text()))
+    opened = open_scene(case, case.worker, _variant(case, base, "special", text), "standalone")
+    rows = {(kind, reason) for kind, reason, _name in _rows(opened)}
+    expected = {
+        ("column", "unsupported_column"),
+        ("level", "unsupported_level_format"),
+        ("level", "linked_library_origin"),
+    }
+    case.assertTrue(expected <= rows, rows)
+    columns = [row for row in opened["content"]["unsupported"] if row["kind"] == "column"]
+    case.assertEqual(len(columns), 3, columns)
+    case.assertTrue(opened["render"]["renderable"], opened["render"])
+    read = {"document_id": opened["document_id"], "expected_revision": "0", "limit": 128}
+    cast = {row["name"]: row for row in call(case, case.worker, "cast.list", read)["items"]}
+    case.assertEqual(cast["Ink"]["library"]["relationship"], "linked")
+    case.assertEqual(
+        (cast["Mesh"]["kind"], cast["Mesh"]["load_status"]), ("mesh", "not_applicable")
+    )
+    case.assertEqual(cast["Swatches"]["kind"], "palette")
+    case.assertEqual(cast["Words"]["kind"], "sound_text")
+    discard(case, case.worker, opened["document_id"])
+
+
+def _styles(case: NativeAcceptance, base: Path) -> None:
+    folder = case.inputs / "admission" / "textures"
+    shutil.copytree(base / "assets", folder / "assets")
+    palette = folder / "assets" / "level-1.tpl"
+    palette.write_text(_textures(palette.read_text()))
+    (folder / "shot.tnz").write_text((base / "scene.tnz").read_text())
+    opened = open_scene(case, case.worker, folder / "shot.tnz", "standalone")
+    rows = {(kind, reason) for kind, reason, _name in _rows(opened)}
+    case.assertIn(("style", "external_file_reference"), rows)
+    case.assertIn(("style", "library_resource_unavailable"), rows)
+    pairs = {f"{row['reason']}/{row['rule']}" for row in opened["render"]["blockers"]}
+    case.assertIn("external_file_reference/anywhere", pairs)
+    case.assertIn("library_resource_unavailable/rendered", pairs)
+    discard(case, case.worker, opened["document_id"])
+
+
+def _sound(case: NativeAcceptance) -> None:
+    document = case.create("Sounding")
+    path = case.inputs / "tone.wav"
+    path.write_bytes(wav_file(tone(48000, "pcm_s16", 9600)))
+    level = case.mutate("audio.import", document, path=str(path), name="Tone")["source"]
+    column = case.mutate("audio.column.create", document, name="Sound", volume_permille=1000)
+    placement = {"timeline_start_frame": 0, "source_start_frame": 0, "frame_count": 4}
+    case.mutate(
+        "audio.clip.place",
+        document,
+        column_id=column["column"]["column_id"],
+        level_id=level["level_id"],
+        placement=placement,
+        overlap_policy="reject",
+    )
+    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "sounding"))
+    opened = open_scene(case, case.worker, saved["scene_path"], "standalone")
+    case.assertEqual(opened["counts"]["sound_levels"], 1)
+    case.assertTrue(opened["render"]["renderable"], opened["render"])
+    read = {"document_id": opened["document_id"], "expected_revision": "0"}
+    cast = {row["name"]: row for row in call(case, case.worker, "cast.list", read)["items"]}
+    case.assertEqual(
+        (cast["Tone"]["kind"], cast["Tone"]["load_status"]), ("sound", "not_applicable")
+    )
+    preview(case, case.worker, opened["document_id"], 0)
+    discard(case, case.worker, opened["document_id"])
+
+
+def read_only_content_rows_cover_columns_levels_and_styles(case: NativeAcceptance) -> None:
+    """Sound, sound-text, palette and mesh columns, a linked Library origin and texture
+    styles are each reported, and block renders only by their rule."""
+    base = base_package(case)
+    _special(case, base)
+    _styles(case, base)
+    _sound(case)
+
+
+# ---------------------------------------------------------------- limits
+
+ANCHOR = "</levels>\n    <folder"
+
+
+def _blurs(count: int, first: int) -> str:
+    return "".join(
+        f"<fxnode> <STD_blurFx id='{first + index}'> <name> b </name> </STD_blurFx> </fxnode>"
+        for index in range(count)
+    )
+
+
+def _child(identifier: int, effects: int = 0) -> str:
+    """A sub-xsheet exposing the Ink level, with extra effects in its own graph."""
+    child = _child_level(1).replace(f"'{CHILD_ID}'", f"'{identifier}'")
+    for offset in range(1, 6):
+        child = child.replace(f"'{CHILD_ID + offset}'", f"'{identifier + offset}'")
+    if effects:
+        internal = f"<internal> {_blurs(effects, identifier + 10)} </internal> "
+        child = child.replace("<fxnodes> ", f"<fxnodes> {internal}", 1)
+    return child
+
+
+def _exposing(identifier: int, column: int) -> str:
+    return (
+        f"<levelColumn id='{column}'> <status> 0 </status> <cells> <cell> "
+        f"0 1 <childLevel id='{identifier}'/>1 0 </cell> </cells> </levelColumn>\n"
+    )
+
+
+def _columns(text: str, count: int) -> str:
+    plain = "".join(
+        f"<levelColumn id='{900000 + index}'> <status> 0 </status> </levelColumn>\n"
+        for index in range(count)
+    )
+    return text.replace("<columns>", "<columns>\n" + plain, 1)
+
+
+def _with_children(text: str, children: list[str], columns: str, effects: str = "") -> str:
+    """Add top-sheet columns and effects first: child definitions hold their own
+    <columns> and <internal> tags, and come before the top sheet in the file."""
+    text = text.replace("<columns>", "<columns>\n" + columns, 1)
+    text = text.replace("<internal>", "<internal>" + effects, 1)
+    return text.replace(ANCHOR, "".join(children) + ANCHOR, 1)
+
+
+def _sheets(text: str, children: int) -> str:
+    identifiers = [1000000 + 10 * index for index in range(children)]
+    columns = "".join(
+        _exposing(identifier, 2000000 + index) for index, identifier in enumerate(identifiers)
+    )
+    return _with_children(text, [_child(identifier) for identifier in identifiers], columns)
+
+
+def _scene_effects(text: str, top: int, per_child: int) -> str:
+    """Four sub-xsheets with per_child extra effects each, and top extra top effects."""
+    identifiers = [3000000 + 10000 * index for index in range(4)]
+    columns = "".join(_exposing(identifier, identifier + 9999) for identifier in identifiers)
+    children = [_child(identifier, per_child) for identifier in identifiers]
+    return _with_children(text, children, columns, _blurs(top, 4000000))
+
+
+def _pegbars(text: str, count: int) -> str:
+    pegbars = "".join(f'<pegbar id="Peg{index + 1}"> </pegbar>\n' for index in range(count))
+    return text.replace('<pegbar id="Table">', pegbars + '<pegbar id="Table">', 1)
+
+
+def _row(text: str, row: int) -> str:
+    column = (
+        f"<levelColumn id='950000'> <status> 0 </status> <cells> <cell> {row} 1 "
+        "<level id='1'/>0001 0 </cell> </cells> </levelColumn>\n"
+    )
+    return text.replace("<columns>", "<columns>\n" + column, 1)
+
+
+def _bound(
+    case: NativeAcceptance, base: Path, name: str, scenes: tuple[str, str], limit: str
+) -> dict[str, Any]:
+    """Open the scene at a bound, then refuse the one past it; returns the open report."""
+    at = open_scene(case, case.worker, _variant(case, base, name + "-at", scenes[0]), "standalone")
+    discard(case, case.worker, at["document_id"])
+    details = _refused_open(case, _variant(case, base, name + "-past", scenes[1]), "scene_limit")
+    case.assertEqual(details["limit"], limit, name)
+    return at
+
+
+def read_only_structure_limits_hold_at_their_bounds(case: NativeAcceptance) -> None:
+    """Columns, effects per sheet and per scene, sheets and stage objects: the bound opens,
+    one more is a scene_limit; rows past 999,999 are refused by the native parser."""
+    base = base_package(case)
+    text = (base / "scene.tnz").read_text()
+    plain = open_scene(case, case.worker, _variant(case, base, "plain", text), "standalone")
+    discard(case, case.worker, plain["document_id"])
+    effects, objects = plain["counts"]["fx_nodes"], plain["counts"]["stage_objects"]
+    columns = plain["counts"]["columns"]
+    at = _bound(
+        case,
+        base,
+        "columns",
+        (_columns(text, 9999 - columns), _columns(text, 10000 - columns)),
+        "columns_per_sheet",
+    )
+    case.assertEqual(at["counts"]["columns"], 9999)
+    sheet = (
+        text.replace("<internal>", "<internal>" + _blurs(4096 - effects, 5000000), 1),
+        text.replace("<internal>", "<internal>" + _blurs(4097 - effects, 5000000), 1),
+    )
+    case.assertEqual(
+        _bound(case, base, "sheet-effects", sheet, "fx_nodes_per_sheet")["counts"]["fx_nodes"], 4096
+    )
+    top = 16384 - effects - 4 * 4095
+    whole = (_scene_effects(text, top, 4093), _scene_effects(text, top + 1, 4093))
+    case.assertEqual(
+        _bound(case, base, "scene-effects", whole, "fx_nodes")["counts"]["fx_nodes"], 16384
+    )
+    case.assertEqual(
+        _bound(case, base, "sheets", (_sheets(text, 1023), _sheets(text, 1024)), "sheets")[
+            "counts"
+        ]["sheets"],
+        1024,
+    )
+    pegs = (_pegbars(text, 16384 - objects), _pegbars(text, 16385 - objects))
+    case.assertEqual(
+        _bound(case, base, "objects", pegs, "stage_objects_per_sheet")["counts"]["stage_objects"],
+        16384,
+    )
+    late = open_scene(
+        case, case.worker, _variant(case, base, "row-at", _row(text, 999999)), "standalone"
+    )
+    case.assertEqual(late["counts"]["frames"], 1000000)
+    discard(case, case.worker, late["document_id"])
+    details = _refused_open(
+        case, _variant(case, base, "row-past", _row(text, 1000000)), "invalid_scene"
+    )
+    case.assertEqual(details["cause"], "rejected")
+
+
+def _padded(text: str, size: int) -> str:
+    """The scene text followed by spaces to exactly size bytes."""
+    return text + " " * (size - len(text.encode()))
+
+
+def _file_sizes(case: NativeAcceptance, base: Path, scenes: dict[str, Path]) -> None:
+    text = (base / "scene.tnz").read_text()
+    limit = 64 * 1024 * 1024
+    at = open_scene(
+        case, case.worker, _variant(case, base, "size-at", _padded(text, limit)), "standalone"
+    )
+    case.assertEqual(at["source"]["size_bytes"], limit)
+    discard(case, case.worker, at["document_id"])
+    details = _refused_open(
+        case, _variant(case, base, "size-past", _padded(text, limit + 1)), "scene_limit"
+    )
+    case.assertEqual((details["limit"], details["value"]), ("scene_file_bytes", limit + 1))
+    project = scenes["A"].parent.parent / "ShowA_otprj.xml"
+    show = project_id(case, case.worker, "ShowA")
+    original = project.read_text()
+    project.write_text(_padded(original, 1024 * 1024))
+    opened = open_scene(case, case.worker, scenes["A"], show)
+    discard(case, case.worker, opened["document_id"])
+    project.write_text(_padded(original, 1024 * 1024 + 1))
+    details = _refused_open(case, scenes["A"], "invalid_project", project=show)
+    case.assertEqual(details["cause"], "too_large")
+    project.write_text(original)
+    binding = scenes["A"].parent / "scenes.xml"
+    binding.write_text(_padded(scenes_xml(), 64 * 1024))
+    opened = open_scene(case, case.worker, scenes["A"], show)
+    case.assertEqual(opened["project"]["native_binding"]["status"], "matches")
+    discard(case, case.worker, opened["document_id"])
+    binding.write_text(_padded(scenes_xml(), 64 * 1024 + 1))
+    details = _refused_open(case, scenes["A"], "project_mismatch", project=show)
+    case.assertEqual((details["native_binding"], details["cause"]), ("unreadable", "too_large"))
+
+
+def _row_limits(case: NativeAcceptance, base: Path) -> None:
+    text = (base / "scene.tnz").read_text()
+    program = case.inputs / "never-run"
+    for count in (64, 65, 256, 257):
+        nodes = "".join(
+            f"<fxnode>{external_effect(program, 6000000 + index)}</fxnode>"
+            for index in range(count)
+        )
+        scene = text.replace("<internal>", "<internal>" + nodes, 1)
+        opened = open_scene(
+            case, case.worker, _variant(case, base, f"rows-{count}", scene), "standalone"
+        )
+        content, render = opened["content"], opened["render"]
+        case.assertEqual((content["unsupported_count"], render["blocker_count"]), (count, count))
+        case.assertEqual(len(content["unsupported"]), min(count, 256))
+        case.assertEqual(content["truncated"], count > 256)
+        case.assertEqual(len(render["blockers"]), min(count, 64))
+        discard(case, case.worker, opened["document_id"])
+
+
+def _documents(case: NativeAcceptance, scenes: dict[str, Path]) -> None:
+    for index in range(28):
+        case.create(f"Filler {index}")
+    opened = [
+        open_scene(case, case.worker, scenes["B"], "standalone")["document_id"] for _ in range(4)
+    ]
+    case.assertEqual(len(call(case, case.worker, "automation.list_documents", {})["documents"]), 32)
+    discard(case, case.worker, opened.pop())
+    case.mutate("scene.create", None, name="Last")
+    details = _refused_open(case, scenes["B"], "resource_limit")
+    case.assertEqual(details["limit"], "documents")
+    for document in opened:
+        discard(case, case.worker, document)
+
+
+def read_only_file_and_report_limits_hold_at_their_bounds(case: NativeAcceptance) -> None:
+    """Scene, project and scenes.xml sizes, the 32-document limit and the 256 unsupported
+    and 64 blocker rows: the bound is admitted, one more is refused or truncated."""
+    scenes = corpus(case)
+    _file_sizes(case, scenes["base"], scenes)
+    _row_limits(case, scenes["base"])
+    _documents(case, scenes)

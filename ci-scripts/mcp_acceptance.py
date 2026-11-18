@@ -324,6 +324,10 @@ class NativeAcceptance(unittest.TestCase):
     def test_library_items_report_identity_dependencies_and_thumbnails(self) -> None:
         mcp_library_cases.library_items_report_identity_dependencies_and_thumbnails(self)
 
+    def test_shared_parsers_refuse_damaged_files(self) -> None:
+        mcp_library_cases.shared_parsers_refuse_damaged_files(self)
+
+    @worker_only("needs the --test-child-fault test hook, which the adapter never passes")
     def test_shared_parser_failures_leave_worker_serving(self) -> None:
         mcp_library_cases.shared_parser_failures_leave_worker_serving(self)
 
@@ -339,9 +343,29 @@ class NativeAcceptance(unittest.TestCase):
     def test_read_only_documents_refuse_mutations(self) -> None:
         mcp_scene_access_cases.read_only_documents_refuse_mutations(self)
 
+    @worker_only(
+        "sends every catalog tool only its document handle; the adapter checks those"
+        " arguments against the tool's schema before the worker can refuse"
+    )
+    def test_read_only_documents_refuse_every_other_tool(self) -> None:
+        mcp_scene_access_cases.read_only_documents_refuse_every_other_tool(self)
+
+    def test_read_only_damaged_scenes_are_refused(self) -> None:
+        mcp_scene_access_cases.read_only_damaged_scenes_are_refused(self)
+
+    def test_read_only_content_rows_cover_columns_levels_and_styles(self) -> None:
+        mcp_scene_access_cases.read_only_content_rows_cover_columns_levels_and_styles(self)
+
+    def test_read_only_structure_limits_hold_at_their_bounds(self) -> None:
+        mcp_scene_access_cases.read_only_structure_limits_hold_at_their_bounds(self)
+
+    def test_read_only_file_and_report_limits_hold_at_their_bounds(self) -> None:
+        mcp_scene_access_cases.read_only_file_and_report_limits_hold_at_their_bounds(self)
+
     def test_read_only_receipts_sources_and_lost_hosts(self) -> None:
         mcp_scene_access_cases.read_only_receipts_sources_and_lost_hosts(self)
 
+    @worker_only("needs the --test-child-fault test hook, which the adapter never passes")
     def test_read_only_hosts_contain_native_failures(self) -> None:
         mcp_scene_access_cases.read_only_hosts_contain_native_failures(self)
 
