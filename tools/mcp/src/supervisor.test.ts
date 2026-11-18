@@ -35,12 +35,38 @@ function start(
   return { child, connection: new WorkerConnection(child, timeoutMs, true) };
 }
 
-async function descendantPort(connection: WorkerConnection): Promise<number> {
+async function processTree(
+  connection: WorkerConnection,
+): Promise<{ port: number; pids: number[] }> {
   const identity = await connection.request("ready");
-  if (!isObject(identity) || typeof identity["port"] !== "number") {
-    throw new Error("Fixture did not report its descendant listener");
+  if (
+    !isObject(identity) ||
+    typeof identity["port"] !== "number" ||
+    typeof identity["pid"] !== "number" ||
+    typeof identity["worker"] !== "number"
+  ) {
+    throw new Error("Fixture did not report its worker and descendant");
   }
-  return identity["port"];
+  return { port: identity["port"], pids: [identity["worker"], identity["pid"]] };
+}
+
+async function descendantPort(connection: WorkerConnection): Promise<number> {
+  return (await processTree(connection)).port;
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function expectGone(pids: number[]): Promise<void> {
+  const deadline = performance.now() + 2_000;
+  while (pids.some(alive) && performance.now() < deadline) await pause(20);
+  expect(pids.filter(alive)).toEqual([]);
 }
 
 function listening(port: number): Promise<boolean> {
@@ -77,16 +103,36 @@ posix("disconnect kills a TERM-ignoring descendant before releasing the group le
   expect(await listening(port)).toBe(false);
 });
 
-posix("close lets the worker finish its own end-of-input cleanup before any signal", async () => {
+posix("a worker that exits at the end of its input is released well within the grace", async () => {
   const { child, connection } = start(5_000, "", ["eof-cleanup"]);
-  const port = await descendantPort(connection);
+  const { port, pids } = await processTree(connection);
   const nativeExit = once(child, "message");
   const closed = once(child, "close");
+  const started = performance.now();
   connection.close();
   expect((await nativeExit)[0]).toEqual({ type: "native-exit", code: 0, signal: null });
   await closed;
+  expect(performance.now() - started).toBeLessThan(1_000);
+  await expectGone(pids);
   expect(await listening(port)).toBe(false);
 });
+
+posix(
+  "a worker that ignores the end of its input and SIGTERM is signalled, then killed",
+  async () => {
+    const { child, connection } = start(5_000, "", ["ignore-term"]);
+    const { port, pids } = await processTree(connection);
+    const closed = once(child, "close");
+    const started = performance.now();
+    connection.close();
+    await closed;
+    expect(performance.now() - started).toBeGreaterThanOrEqual(3_900);
+    expect(child.signalCode).toBe("SIGKILL");
+    await expectGone(pids);
+    expect(await listening(port)).toBe(false);
+  },
+  15_000,
+);
 
 posix("request timeout cleans descendants and reports the write outcome as unknown", async () => {
   const { child, connection } = start(3_000);

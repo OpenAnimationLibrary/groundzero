@@ -14,6 +14,7 @@ function descendant() {
 }
 
 function worker(mode) {
+  if (mode === "ignore-term") process.on("SIGTERM", () => {});
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "descendant"], {
     stdio: ["ignore", "ignore", "inherit", "ipc"],
   });
