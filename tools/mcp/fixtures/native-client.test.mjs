@@ -245,7 +245,7 @@ test("cancels a call through MCP only after it has reached the adapter", async (
     const echo = await client.callTool({ name: "probe.echo", arguments: { value: 3 } });
     expect(echo.structuredContent).toEqual({ value: 3 });
     const received = (await readFile(log, "utf8")).trim().split("\n");
-    expect(received).toEqual(["automation.capabilities", "probe.slow", "probe.echo"]);
+    expect(received).toEqual(["started", "automation.capabilities", "probe.slow", "probe.echo"]);
   } finally {
     await client.close();
     await rm(directory, { recursive: true, force: true });

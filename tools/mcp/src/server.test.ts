@@ -22,6 +22,18 @@ const tool = {
 
 const closers: (() => Promise<void>)[] = [];
 
+async function connected(server: ReturnType<typeof createServer>): Promise<Client> {
+  const client = new Client({ name: "adapter-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  closers.push(async () => {
+    await client.close();
+    await server.close();
+  });
+  return client;
+}
+
 async function session() {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
     if (method === "automation.capabilities") {
@@ -34,15 +46,7 @@ async function session() {
     return { name: params["name"], revision: "next" };
   });
   const close = vi.fn();
-  const server = await createServer({ request, close });
-  const client = new Client({ name: "adapter-test", version: "1.0.0" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  closers.push(async () => {
-    await client.close();
-    await server.close();
-  });
+  const client = await connected(createServer({ request, close }));
   return { client, request, close };
 }
 
@@ -104,10 +108,8 @@ test.each([
     tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, name: `tool.${i}` })),
     toolsets: core(Array.from({ length: 1025 }, (_, i) => `tool.${i}`)),
   },
-])("rejects an incompatible or malformed native catalog", async (catalog) => {
-  await expect(
-    createServer({ request: async () => catalog, close: () => {} }),
-  ).rejects.toBeInstanceOf(WorkerError);
+])("rejects an incompatible or malformed native catalog on first use", async (catalog) => {
+  await expectUnusableCatalog(catalog, /^(INCOMPATIBLE_WORKER|INVALID_CATALOG)$/u);
 });
 
 test("compiles and rejects invalid native schemas before accepting tool calls", async () => {
@@ -115,12 +117,32 @@ test("compiles and rejects invalid native schemas before accepting tool calls", 
     ...tool,
     inputSchema: { type: "object", properties: { name: { type: "not-a-schema-type" } } },
   };
-  await expect(
-    createServer({
-      request: async () => ({ protocol_version: 2, tools: [invalid], toolsets: core([tool.name]) }),
-      close: () => {},
-    }),
-  ).rejects.toThrow();
+  const catalog = { protocol_version: 2, tools: [invalid], toolsets: core([tool.name]) };
+  await expectUnusableCatalog(catalog, /^INVALID_CATALOG$/u);
+});
+
+async function expectUnusableCatalog(catalog: unknown, code: RegExp): Promise<void> {
+  const request = vi.fn(async () => catalog);
+  const unavailable = vi.fn();
+  const client = await connected(createServer({ request, close: () => {} }, ["core"], unavailable));
+  expect(request).not.toHaveBeenCalled();
+  await expect(client.listTools()).rejects.toMatchObject({
+    code: -32603,
+    data: { code: expect.stringMatching(code) },
+  });
+  const call = await client.callTool({ name: tool.name, arguments: {} });
+  expect(call.structuredContent).toMatchObject({ error: { code: expect.stringMatching(code) } });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(unavailable).toHaveBeenCalledTimes(1);
+  expect(unavailable.mock.calls[0]?.[0]).toBeInstanceOf(WorkerError);
+}
+
+test("negotiates without the worker and reads its catalog once, on first use", async () => {
+  const { client, request } = await session();
+  expect(request).not.toHaveBeenCalled();
+  await client.listTools();
+  await client.listTools();
+  expect(request.mock.calls).toEqual([["automation.capabilities"]]);
 });
 
 function liveCatalog() {

@@ -1,4 +1,9 @@
-import { Server, fromJsonSchema } from "@modelcontextprotocol/server";
+import {
+  ProtocolError,
+  ProtocolErrorCode,
+  Server,
+  fromJsonSchema,
+} from "@modelcontextprotocol/server";
 import type { CallToolResult, JsonSchemaType, Tool } from "@modelcontextprotocol/server";
 import { WorkerError, errorResult, isObject } from "#mcp/errors";
 import { boundedResult, toolResult } from "#mcp/results";
@@ -80,18 +85,31 @@ async function catalog(entries: unknown): Promise<Tool[]> {
 
 /** Build an MCP server exposing the enabled toolsets of this native binary.
  *
+ * Negotiation needs nothing from the worker: its catalog is read, and a deferred worker
+ * launched, when a client first lists or calls tools.
+ *
  * Args:
  *   worker: A private worker whose lifetime ends when the MCP connection closes.
  *   toolsets: Toolsets enabled at start in addition to core; "all" enables every toolset.
+ *   unavailable: Told once when the catalog cannot be read, for the adapter's diagnostics.
  * Returns:
  *   A new MCP server ready for one connection's protocol negotiation.
  */
-export async function createServer(
+export function createServer(
   worker: NativeApi,
   toolsets: string[] = ["core"],
-): Promise<Server> {
-  const state = await discover(worker, toolsets);
-  return serverWithTools(worker, state.all(), false, state);
+  unavailable: (error: WorkerError) => void = () => {},
+): Server {
+  let loading: Promise<Catalog> | undefined;
+  const load = () =>
+    (loading ??= discover(worker, toolsets)
+      .then((state) => compile(state.all(), state))
+      .catch((error: unknown) => {
+        const failure = catalogFailure(error);
+        unavailable(failure);
+        throw failure;
+      }));
+  return serverWithTools(worker, load, false);
 }
 
 /** Expose only the authenticated editor's exact six-tool live catalog.
@@ -110,7 +128,48 @@ export async function createLiveServer(connection: NativeApi, hello: LiveHello):
   ) {
     throw new WorkerError("INVALID_CATALOG", "Expected the exact six-tool live editor catalog");
   }
-  return serverWithTools(connection, tools, true);
+  const compiled = compile(tools);
+  return serverWithTools(connection, async () => compiled, true);
+}
+
+interface Catalog {
+  tools: Tool[];
+  state: ToolsetState | undefined;
+  validators: Map<string, Validator>;
+}
+
+function compile(tools: Tool[], state?: ToolsetState): Catalog {
+  const validators = new Map(
+    tools.map((tool) => [
+      tool.name,
+      // SDK Tool permits optional undefined fields; native JSON cannot contain them.
+      // fromJsonSchema compiles and validates the unchanged schema before any call.
+      fromJsonSchema<Record<string, unknown>>(tool.inputSchema as JsonSchemaType),
+    ]),
+  );
+  return { tools, state, validators };
+}
+
+function catalogFailure(error: unknown): WorkerError {
+  if (error instanceof WorkerError) return error;
+  const reason = error instanceof Error ? error.message : String(error);
+  return new WorkerError("INVALID_CATALOG", `Invalid native tool catalog: ${reason}`);
+}
+
+async function listedCatalog(load: () => Promise<Catalog>): Promise<Catalog> {
+  try {
+    return await load();
+  } catch (error) {
+    const failure = catalogFailure(error);
+    throw new ProtocolError(
+      ProtocolErrorCode.InternalError,
+      `${failure.code}: ${failure.message}`,
+      {
+        code: failure.code,
+        details: failure.details,
+      },
+    );
+  }
 }
 
 async function toolsetCall(
@@ -126,30 +185,21 @@ async function toolsetCall(
   return { ...state.list(), changed };
 }
 
-function serverWithTools(
-  worker: NativeApi,
-  tools: Tool[],
-  live: boolean,
-  state?: ToolsetState,
-): Server {
-  const validators = new Map(
-    tools.map((tool) => [
-      tool.name,
-      // SDK Tool permits optional undefined fields; native JSON cannot contain them.
-      // fromJsonSchema compiles and validates the unchanged schema before any call.
-      fromJsonSchema<Record<string, unknown>>(tool.inputSchema as JsonSchemaType),
-    ]),
-  );
+function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: boolean): Server {
   const server = new Server(
     { name: "groundzero", version: "0.1.0" },
-    { capabilities: { tools: state ? { listChanged: true } : {} } },
+    { capabilities: { tools: live ? {} : { listChanged: true } } },
   );
   server.onclose = () => worker.close();
-  server.setRequestHandler("tools/list", async () => ({ tools: state ? state.visible() : tools }));
+  server.setRequestHandler("tools/list", async () => {
+    const { tools, state } = await listedCatalog(load);
+    return { tools: state ? state.visible() : tools };
+  });
   server.setRequestHandler("tools/call", async (request, context) => {
     let result: CallToolResult;
     try {
       boundedResult({ content: [] }, context.mcpReq.id);
+      const { state, validators } = await load();
       const name = request.params.name;
       const validator = validators.get(name);
       if (!validator) throw new WorkerError("UNKNOWN_TOOL", `Unknown tool: ${name}`);

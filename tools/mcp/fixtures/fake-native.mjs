@@ -95,6 +95,7 @@ export async function fakeNativeExecutable() {
 if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
   await acceptControlChannel();
   const log = process.env["FAKE_NATIVE_LOG"];
+  if (log) appendFileSync(log, "started\n");
   createInterface({ input: process.stdin }).on("line", (line) => {
     const request = JSON.parse(line);
     if (log) appendFileSync(log, request.method + "\n");

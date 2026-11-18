@@ -1,6 +1,5 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
-import { WorkerError } from "#mcp/errors";
 import { createServer } from "#mcp/server";
 import { MAX_EXPOSED_TOOLS, TOOLSET_TOOLS } from "#mcp/toolsets";
 
@@ -46,7 +45,7 @@ async function session(toolsets?: string[], catalog = capabilities(groups)) {
   const request = vi.fn(async (method: string) =>
     method === "automation.capabilities" ? catalog : { ok: method },
   );
-  const server = await createServer({ request, close: () => {} }, toolsets);
+  const server = createServer({ request, close: () => {} }, toolsets);
   const client = new Client({ name: "toolset-test", version: "1.0.0" });
   const changes = vi.fn();
   client.setNotificationHandler("notifications/tools/list_changed", async () => changes());
@@ -154,7 +153,8 @@ test("refuses to expose more than the tool limit and keeps the session unchanged
 test("selects toolsets at startup, including all", async () => {
   const { client } = await session(["all"]);
   expect(await names(client)).toEqual([...groups.flatMap((group) => group.tools), ...toolsetNames]);
-  await expect(session(["nonexistent"])).rejects.toMatchObject({ code: "UNKNOWN_TOOLSET" });
+  const { client: unknown } = await session(["nonexistent"]);
+  await expect(names(unknown)).rejects.toMatchObject({ data: { code: "UNKNOWN_TOOLSET" } });
 });
 
 test.each([
@@ -175,7 +175,6 @@ test.each([
     tools: tools.map((name) => nativeTool(name)),
     toolsets: toolsets.map((group) => ({ ...group, description: "Tools" })),
   };
-  const created = createServer({ request: async () => catalog, close: () => {} });
-  await expect(created).rejects.toBeInstanceOf(WorkerError);
-  await expect(created).rejects.toMatchObject({ code: "INVALID_CATALOG" });
+  const { client } = await session(undefined, catalog);
+  await expect(names(client)).rejects.toMatchObject({ data: { code: "INVALID_CATALOG" } });
 });

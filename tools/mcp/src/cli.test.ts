@@ -1,10 +1,10 @@
 import { Client, parseJSONRPCMessage } from "@modelcontextprotocol/client";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import { readFile, rm } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -68,6 +68,16 @@ function mcpFrames(stdout: string): Frame[] {
 function malformedReply(id: number | string | null, code: number): Frame {
   const message = code === -32700 ? "Parse error" : "Invalid Request";
   return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+function children(pid: number | undefined): number[] {
+  const listing = execFileSync("/bin/ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" });
+  return listing
+    .trim()
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/u).map(Number))
+    .filter(([, parent]) => parent === pid)
+    .map(([child]) => child as number);
 }
 
 class RawAdapter {
@@ -194,7 +204,7 @@ posix("answers each malformed line once, forwards none and keeps serving", async
   expect(replies).toEqual(lines.flatMap(([, reply]) => (reply ? [reply] : [])));
   expect(await adapter.end()).toBe(0);
   expect(adapter.stdout).not.toContain(secret);
-  expect(await nativeRequests(log)).toEqual(["automation.capabilities", "probe.echo"]);
+  expect(await nativeRequests(log)).toEqual(["started", "automation.capabilities", "probe.echo"]);
 });
 
 posix("answers a line at the 10 MiB bound and closes the session on a longer one", async () => {
@@ -228,6 +238,7 @@ posix("keeps stdout to MCP frames through native noise and large results", async
   expect(await adapter.end()).toBe(0);
   expect(adapter.stderr).toContain("native diagnostic native diagnostic");
   expect(await nativeRequests(log)).toEqual([
+    "started",
     "automation.capabilities",
     "probe.noise",
     "probe.large",
@@ -266,6 +277,7 @@ posix("abandons a cancelled call without answering it or touching native state",
   expect(adapter.frames().filter((frame) => frame["id"] === 1)).toEqual([]);
   expect(await adapter.end()).toBe(0);
   expect(await nativeRequests(log)).toEqual([
+    "started",
     "automation.capabilities",
     "probe.slow",
     "probe.echo",
@@ -362,9 +374,60 @@ posix("reports a cancelled call as abandoned by the client, never as cancelled w
   expect(after.structuredContent).toEqual({ value: 7 });
   expect(errors).toEqual([]);
   expect(await nativeRequests(log)).toEqual([
-    "automation.capabilities",
+    "started",
     "automation.capabilities",
     "probe.slow",
     "probe.echo",
   ]);
 });
+
+posix.each(["modern", "legacy"] as const)(
+  "starts no native worker for a session that only negotiates (%s)",
+  async (mode) => {
+    const { client, log } = await sdkSession(mode);
+    await client.close();
+    await expect(readFile(log)).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+
+posix("starts exactly one native worker, on the first tools/list", async () => {
+  const { client, log } = await sdkSession("modern");
+  await expect(readFile(log)).rejects.toMatchObject({ code: "ENOENT" });
+  await client.listTools();
+  await client.listTools();
+  expect(await nativeRequests(log)).toEqual(["started", "automation.capabilities"]);
+  await client.callTool({ name: "probe.echo", arguments: { value: 8 } });
+  expect(await nativeRequests(log)).toEqual(["started", "automation.capabilities", "probe.echo"]);
+});
+
+posix(
+  "reports a native worker that fails to start on first use and leaves no process",
+  async () => {
+    const { args, log } = await nativeGrants();
+    const failing = join(scratch[scratch.length - 1] as string, "failing-native");
+    await writeFile(failing, "#!/bin/sh\necho 'native refused to start' >&2\nexit 3\n");
+    await chmod(failing, 0o755);
+    args[1] = failing;
+    const adapter = new RawAdapter(args, log);
+    const clientInfo = { name: "groundzero-cli-test", version: "1.0.0" };
+    const params = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo };
+    adapter.write({ jsonrpc: "2.0", id: 1, method: "initialize", params });
+    expect(await adapter.response(1)).toHaveProperty("result.serverInfo.name", "groundzero");
+    adapter.write({ jsonrpc: "2.0", method: "notifications/initialized" });
+    adapter.write({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    expect(await adapter.response(2)).toMatchObject({
+      error: { code: -32603, data: { code: "WORKER_UNAVAILABLE" } },
+    });
+    adapter.call(3, "probe.echo", { value: 1 });
+    expect(toolError(await adapter.response(3))).toMatchObject({ code: "WORKER_UNAVAILABLE" });
+    const deadline = performance.now() + 2_000;
+    while (children(adapter.child.pid).length > 0 && performance.now() < deadline) await pause(20);
+    expect(children(adapter.child.pid)).toEqual([]);
+    expect(adapter.stderr).toContain("native refused to start");
+    const reports = adapter.stderr.match(
+      /Groundzero MCP native worker unavailable: WORKER_UNAVAILABLE/gu,
+    );
+    expect(reports).toHaveLength(1);
+    expect(await adapter.end()).toBe(0);
+  },
+);
