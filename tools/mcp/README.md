@@ -410,8 +410,11 @@ Read-only renders produce PNG only (MP4 returns `render_unavailable`). A render 
 refused with `render_blocked`, listing at most 64 `blockers`, when the scene holds an
 external program, an effect that reads files, or a texture outside the roots
 anywhere, or when the current output reaches an unsupported level, column or effect,
-a level that did not load, or a shipped library texture; a camera without a finite
-positive size and DPI also blocks. The render preflight still applies. Every file the
+or a shipped library texture; a camera without a finite positive size and DPI also
+blocks. A rendered level whose file is missing or did not load fails the
+`dependencies` check first and returns `missing_dependency`. `render.preflight`
+reports all of these for a read-only document, with the worker's own lane and
+retention checks. Every file the
 scene reads is stat-pinned at open (size, nanosecond modification time and file id);
 a render re-checks the pins before it starts and before it publishes, and returns or
 fails with `source_changed` when a source changed. Results report
@@ -667,7 +670,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (108):
+- `core` toolset (110):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -686,13 +689,14 @@ the adapter and the live editor bridge add the rest.
   `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
   `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.artifacts`, `render.cancel`, `render.capabilities`,
-  `render.preview`, `render.status`, `render.submit`, `scene.create`, `scene.dependencies`,
-  `scene.discard`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
-  `scene.package_info`, `scene.save_copy`, `scene.settings`, `scene.source_status`,
-  `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`, `vector.fill`,
-  `vector.group.create`, `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
-  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
-  `vector.structure`, `vector.text.create`, `vector.transform`
+  `render.preflight`, `render.preview`, `render.status`, `render.submit`, `runtime.inspect`,
+  `scene.create`, `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
+  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
+  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`,
+  `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
+  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
+  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
+  `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
