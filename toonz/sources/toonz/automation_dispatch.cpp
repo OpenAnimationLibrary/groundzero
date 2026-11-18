@@ -388,7 +388,7 @@ QJsonValue Dispatcher::execute(const QString& method,
       throw Error("invalid_params", "This operation accepts no parameters.");
     if (method == "automation.capabilities")
       return QJsonObject{
-          {"protocol_version", 2},
+          {"protocol_version", 3},
           {"workspace", m_context.workspace()},
           {"tools", m_catalog},
           {"toolsets", toolsetCatalog()},

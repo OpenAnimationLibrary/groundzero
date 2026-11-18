@@ -5,6 +5,7 @@
 #include "automation_neural.h"
 #include "automation_ownership.h"
 #include "automation_scene_host.h"
+#include "automation_runtime.h"
 #include "stdfx/neuralstyleworker.h"
 #include "toonz/fxdag.h"
 #include "toonz/tcolumnfxset.h"
@@ -84,12 +85,6 @@ static Format readFormat(const QJsonObject& params) {
   throw Error("invalid_params", "The render format must be png or mp4.");
 }
 
-static bool movieWriterRegistered() {
-  QStringList formats;
-  TLevelWriter::getSupportedFormats(formats, true);
-  return formats.contains("mp4");
-}
-
 struct Request final {
   Format format = Format::Png;
   int width     = 0;
@@ -104,57 +99,98 @@ struct Request final {
   }
 };
 
-static TDimension readDimensions(const QJsonObject& params, ToonzScene& scene,
-                                 bool preview) {
-  const int bound             = preview ? kPreviewDimension : kMaxDimension;
-  const TDimension resolution = scene.getCurrentCamera()->getRes();
-  if (resolution.lx <= 0 || resolution.ly <= 0)
+enum class Kind { Preview, Sequence };
+
+// A render request as far as its parameters can be read; the checks decide
+// whether it is admissible.
+struct Plan final {
+  Request request;
+  Kind kind       = Kind::Sequence;
+  double fitScale = 1;
+  TDimension camera;
+  TDimensionD cameraSize;
+  TPointD dpi;
+  double frameRate = 0;
+
+  int bound() const {
+    return kind == Kind::Preview ? kPreviewDimension : kMaxDimension;
+  }
+  bool framesValid() const { return request.end >= request.start; }
+  bool sizeValid() const {
+    return request.width <= bound() && request.height <= bound();
+  }
+};
+
+static void readCamera(Plan& plan, ToonzScene& scene) {
+  TCamera* camera = scene.getCurrentCamera();
+  plan.camera     = camera->getRes();
+  plan.cameraSize = camera->getSize();
+  plan.dpi        = camera->getDpi();
+  plan.frameRate = scene.getProperties()->getOutputProperties()->getFrameRate();
+  if (plan.camera.lx <= 0 || plan.camera.ly <= 0)
     throw Error("invalid_camera",
                 "The scene camera must have positive dimensions.");
+}
+
+static Plan readPlan(const QJsonObject& params, ToonzScene& scene, Kind kind) {
+  Plan plan;
+  plan.kind = kind;
+  readCamera(plan, scene);
   if (params.contains("width") != params.contains("height"))
     throw Error("invalid_params",
                 "Specify both width and height when resizing the output.");
-  const double scale =
-      preview ? std::min(1.0,
-                         double(bound) / std::max(resolution.lx, resolution.ly))
-              : 1.0;
-  const int width  = integerParam(params, "width", 1, bound,
-                                  std::max(1, int(resolution.lx * scale)));
-  const int height = integerParam(params, "height", 1, bound,
-                                  std::max(1, int(resolution.ly * scale)));
-  if (width > bound || height > bound)
-    throw Error("render_limit",
-                "Specify width and height within the render limit.");
-  return TDimension(width, height);
-}
-
-static void validateMovieRequest(const Request& request) {
-  if (request.format != Format::Mp4) return;
-  if (request.step != 1 || request.width % 2 != 0 || request.height % 2 != 0)
-    throw Error("unsupported_render_settings",
-                "MP4 requires step 1 and even output width and height.");
-}
-
-static Request readRequest(const QJsonObject& params, ToonzScene& scene,
-                           bool preview) {
-  Request request;
-  const TDimension dimensions = readDimensions(params, scene, preview);
-  request.width               = dimensions.lx;
-  request.height              = dimensions.ly;
-  if (preview) {
+  if (kind == Kind::Preview && !params.contains("width"))
+    plan.fitScale = std::min(1.0, double(kPreviewDimension) /
+                                      std::max(plan.camera.lx, plan.camera.ly));
+  Request& request = plan.request;
+  request.width =
+      integerParam(params, "width", 1, kMaxDimension,
+                   std::max(1, int(plan.camera.lx * plan.fitScale)));
+  request.height =
+      integerParam(params, "height", 1, kMaxDimension,
+                   std::max(1, int(plan.camera.ly * plan.fitScale)));
+  if (kind == Kind::Preview) {
     request.start = integerParam(params, "frame", 0, 1000000, 0);
     request.end   = request.start;
-  } else {
-    request.format = readFormat(params);
-    request.start  = integerParam(params, "start_frame", 0, 1000000, 0);
-    request.end    = integerParam(params, "end_frame", request.start, 1000000,
-                                  request.start);
-    request.step   = integerParam(params, "step", 1, 1000000, 1);
+    return plan;
   }
-  validateMovieRequest(request);
-  if (request.count() > kMaxFrames || request.reserveBytes() > kWorkspaceBytes)
-    throw Error("render_limit", "Reduce the frame count or output dimensions.");
-  return request;
+  request.format = readFormat(params);
+  request.start  = integerParam(params, "start_frame", 0, 1000000, 0);
+  request.end    = integerParam(params, "end_frame", 0, 1000000, request.start);
+  request.step   = integerParam(params, "step", 1, 1000000, 1);
+  return plan;
+}
+
+static QJsonObject effectiveOutput(const Plan& plan) {
+  const Request& request = plan.request;
+  const bool movie       = request.format == Format::Mp4;
+  return {
+      {"width", request.width},
+      {"height", request.height},
+      {"fit_scale", plan.fitScale},
+      {"frames", QJsonObject{{"start", request.start},
+                             {"end", request.end},
+                             {"step", request.step},
+                             {"count", request.count()}}},
+      {"frame_rate", plan.frameRate},
+      {"profile", movie ? "opaque8-mp4" : "rgba8-png"},
+      {"color_depth_bits", 8},
+      {"color_space", "nonlinear"},
+      {"color_space_gamma", 2.2},
+      {"alpha", movie ? "opaque" : "straight"},
+      {"audio", false},
+      {"camera",
+       QJsonObject{{"resolution", QJsonObject{{"width", plan.camera.lx},
+                                              {"height", plan.camera.ly}}},
+                   {"size_inch", QJsonObject{{"width", plan.cameraSize.lx},
+                                             {"height", plan.cameraSize.ly}}},
+                   {"dpi", QJsonObject{{"x", plan.dpi.x}, {"y", plan.dpi.y}}}}},
+      {"crop",
+       QJsonObject{{"kind", "full_camera"},
+                   {"camera_pixels", QJsonObject{{"x0", 0},
+                                                 {"y0", 0},
+                                                 {"x1", plan.camera.lx},
+                                                 {"y1", plan.camera.ly}}}}}};
 }
 
 struct Artifact final {
@@ -286,11 +322,14 @@ public:
   QString error;
   Request request;
   QJsonObject assistance;
+  QJsonObject effective;
   QJsonArray provenance;
   QString snapshotInputs = "qualified-collected-native-scene";
   QString sourceFingerprint;
   // Runs before artifacts publish; a nonempty diagnostic fails the job.
   std::function<QString()> publicationCheck;
+  // The owning worker context, which outlives every job it retains.
+  Context* context      = nullptr;
   bool deadlineExceeded = false;
   std::shared_ptr<const NeuralStyle::WorkerExecution> neuralExecution;
   std::unique_ptr<ToonzScene> snapshot;
@@ -391,6 +430,7 @@ public:
         {"color_space_gamma", 2.2},
         {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
         {"error", error},
+        {"effective", effective},
         {"fx_provenance", provenance},
         {"snapshot_inputs", snapshotInputs},
         {"source_fingerprint", sourceFingerprint.isEmpty()
@@ -580,6 +620,8 @@ public:
                            return;
                          self->failed.insert(frame);
                          self->error = message;
+                         if (message.contains("OpenGL is not available"))
+                           markGraphicsFailedInWorker(*self->context);
                        });
     return !cancellation;
   }
@@ -828,19 +870,11 @@ struct RenderState final {
     return true;
   }
 
-  void admit(const RenderDetail::Request& request) const {
-    if (!idle())
-      throw Error("render_busy",
-                  "Wait for the active render job to finish or cancel it.");
-    if (int(jobs.size()) >= RenderDetail::kMaxJobs)
-      throw Error("render_limit",
-                  "This worker has reached its render job limit.");
-    qint64 reserved = request.reserveBytes();
+  qint64 reservedBytes() const {
+    qint64 reserved = 0;
     for (const auto& entry : jobs)
       reserved += entry.second->request.reserveBytes();
-    if (reserved > RenderDetail::kWorkspaceBytes)
-      throw Error("render_limit",
-                  "This worker has reached its render output storage limit.");
+    return reserved;
   }
 };
 
@@ -852,37 +886,355 @@ static RenderState& renderState(Context& context) {
   return *context.renderState;
 }
 
-static void validateWriter(const Context& context, Format format) {
-  if (format == Format::Mp4) {
-    if (context.mediaToolsDirectory.isEmpty())
-      throw Error(
-          "render_unavailable",
-          "Start the worker with an explicit --media-tools directory for MP4.");
-    if (!movieWriterRegistered())
-      throw Error(
-          "render_unavailable",
-          "The configured media tools did not register the native MP4 writer.");
-    return;
-  }
-  std::unique_ptr<Tiio::Writer> writer(Tiio::makeWriter("png"));
-  if (!writer)
-    throw Error("render_unavailable", "The native PNG writer is unavailable.");
-}
+// Every check render.preflight reports, in the order render jobs apply them.
+static const QStringList CheckIds{
+    "frame_range", "dimensions",       "scene_numbering", "fx_graph",
+    "fx_extent",   "graphics",         "writer",          "media_tools",
+    "encoder",     "dependencies",     "storage",         "lane",
+    "retention",   "render_admission", "source_pins"};
 
-static void admitReadOnly(Document& document, const Request& request) {
-  if (request.format == Format::Mp4)
-    throw Error("render_unavailable", "Read-only documents render PNG only.");
-  const std::vector<ContentRow> blockers = renderBlockers(document);
-  if (!blockers.empty()) {
+struct Check final {
+  QString id;
+  QString status = "pass";
+  QString code;
+  QString message;
+  QJsonObject details;
+
+  void fail(const QString& failure, const QString& text,
+            QJsonObject extra = {}) {
+    status  = "fail";
+    code    = failure;
+    message = text;
+    details = std::move(extra);
+  }
+  void skip(const QString& state, const QString& reason) {
+    status  = state;
+    details = {{"reason", reason}};
+  }
+  void unavailable(const QString& cause, const QString& text,
+                   QJsonObject extra = {}) {
+    extra.insert("cause", cause);
+    fail("render_unavailable", text, std::move(extra));
+  }
+  bool failed() const { return status == "fail"; }
+  QJsonObject toJson() const {
+    return {{"id", id},
+            {"status", status},
+            {"code",
+             code.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(code)},
+            {"details", details}};
+  }
+};
+
+// The checks every render job passes before any job, directory or snapshot
+// exists, also reported by render.preflight without starting one.
+class RenderChecks final {
+public:
+  RenderChecks(Context& context, Document& document, Plan plan)
+      : m_context(context), m_document(document), m_plan(std::move(plan)) {}
+
+  QJsonArray provenance;
+
+  void run(const QStringList& ids, bool stopAtFailure) {
+    for (const QString& id : ids) {
+      m_checks.push_back(evaluate(id));
+      if (stopAtFailure && m_checks.back().failed()) return;
+    }
+  }
+
+  const Check* firstFailure() const {
+    for (const Check& check : m_checks)
+      if (check.failed()) return &check;
+    return nullptr;
+  }
+
+  // Refuse with the first failing check's code; end_frame before
+  // start_frame is an invalid parameter of the job tools.
+  void requireReady() const {
+    const Check* check = firstFailure();
+    if (!check) return;
+    QJsonObject details = check->details;
+    details.insert("check", check->id);
+    if (check->id == "frame_range")
+      throw Error("invalid_params", check->message, details);
+    throw Error(check->code, check->message, details);
+  }
+
+  QJsonObject report() const {
+    QJsonArray checks;
+    for (const Check& check : m_checks) checks.append(check.toJson());
+    const Check* failure = firstFailure();
+    const bool shaped    = passed("frame_range") && passed("dimensions");
+    return {{"document_id", m_document.id},
+            {"revision", m_document.revisionText()},
+            {"ready", failure == nullptr},
+            {"checks", checks},
+            {"first_failure",
+             failure ? QJsonValue(failure->id) : QJsonValue(QJsonValue::Null)},
+            {"effective", shaped ? QJsonValue(effectiveOutput(m_plan))
+                                 : QJsonValue(QJsonValue::Null)},
+            {"probes_run", QJsonArray::fromStringList(m_probes)}};
+  }
+
+private:
+  using Evaluator = void (RenderChecks::*)(Check&);
+
+  Check evaluate(const QString& id) {
+    static const QHash<QString, Evaluator> evaluators{
+        {"frame_range", &RenderChecks::frameRange},
+        {"dimensions", &RenderChecks::dimensions},
+        {"scene_numbering", &RenderChecks::sceneNumbering},
+        {"fx_graph", &RenderChecks::fxGraph},
+        {"fx_extent", &RenderChecks::fxExtent},
+        {"graphics", &RenderChecks::graphics},
+        {"writer", &RenderChecks::writer},
+        {"media_tools", &RenderChecks::mediaTools},
+        {"encoder", &RenderChecks::encoder},
+        {"dependencies", &RenderChecks::dependencies},
+        {"storage", &RenderChecks::storage},
+        {"lane", &RenderChecks::lane},
+        {"retention", &RenderChecks::retention},
+        {"render_admission", &RenderChecks::renderAdmission},
+        {"source_pins", &RenderChecks::sourcePins}};
+    Check check;
+    check.id = id;
+    (this->*evaluators.value(id))(check);
+    return check;
+  }
+
+  bool passed(const QString& id) const {
+    for (const Check& check : m_checks)
+      if (check.id == id) return check.status == "pass";
+    return false;
+  }
+
+  bool movie() const { return m_plan.request.format == Format::Mp4; }
+
+  void frameRange(Check& check) {
+    if (m_plan.framesValid()) return;
+    check.fail("invalid_frame_range", "end_frame must not precede start_frame.",
+               {{"reason", "end_before_start"},
+                {"start_frame", m_plan.request.start},
+                {"end_frame", m_plan.request.end}});
+  }
+
+  void dimensions(Check& check) {
+    const Request& request = m_plan.request;
+    if (!m_plan.sizeValid())
+      return check.fail("render_limit",
+                        "Specify width and height within the render limit.",
+                        {{"reason", "dimensions"},
+                         {"width", request.width},
+                         {"height", request.height},
+                         {"max_dimension", m_plan.bound()}});
+    if (movie() && (request.step != 1 || request.width % 2 != 0 ||
+                    request.height % 2 != 0))
+      return check.fail("unsupported_render_settings",
+                        "MP4 requires step 1 and even output width and height.",
+                        {{"reason", "mp4_even_dimensions_step_1"}});
+    if (!m_plan.framesValid())
+      return check.skip("not_run", "frame_range_failed");
+    if (request.count() > kMaxFrames ||
+        request.reserveBytes() > kWorkspaceBytes)
+      check.fail("render_limit", "Reduce the frame count or output dimensions.",
+                 {{"reason", "frames_or_reservation"},
+                  {"frame_count", request.count()},
+                  {"max_frames", kMaxFrames},
+                  {"reserve_bytes", double(request.reserveBytes())},
+                  {"max_bytes", double(kWorkspaceBytes)}});
+  }
+
+  void sceneNumbering(Check& check) {
+    if (Preferences::instance()->isSceneNumberingEnabled())
+      check.fail("unsupported_render_settings",
+                 "Disable scene numbering before automated rendering.");
+  }
+
+  void fxGraph(Check& check) {
+    if (m_document.readOnly)
+      return check.skip("not_applicable", "read_only_render_profile");
+    try {
+      validateAutomationFxGraph(*m_document.scene);
+    } catch (const Error& error) {
+      check.fail(error.code, error.message, error.details);
+    }
+  }
+
+  void fxExtent(Check& check) {
+    if (!passed("fx_graph")) return check.skip("not_run", "fx_graph_failed");
+    if (!m_plan.framesValid() || !m_plan.sizeValid())
+      return check.skip("not_run", "request_invalid");
+    const Request& request = m_plan.request;
+    try {
+      provenance =
+          preflightAutomationRender(m_document, request.width, request.height,
+                                    request.start, request.end, request.step);
+    } catch (const Error& error) {
+      check.fail(error.code, error.message, error.details);
+    }
+  }
+
+  void graphics(Check& check) {
+    if (ensureGraphicsProbe(m_context)) m_probes.append("graphics");
+    if (graphicsState(m_context).usable()) return;
+    const QJsonObject probe =
+        graphicsReport(m_context).value("probe").toObject();
+    check.unavailable("gl_unavailable",
+                      "This worker has no usable OpenGL context; renders "
+                      "need native OpenGL.",
+                      {{"probe_result", probe.value("result")}});
+  }
+
+  void writer(Check& check) {
+    if (movie()) {
+      if (!mp4WriterRegistered())
+        check.unavailable(
+            "mp4_writer_unregistered",
+            "The configured media tools did not register the native MP4 "
+            "writer.");
+      return;
+    }
+    std::unique_ptr<Tiio::Writer> png(Tiio::makeWriter("png"));
+    if (!png)
+      check.unavailable("png_writer_unavailable",
+                        "The native PNG writer is unavailable.");
+  }
+
+  void mediaTools(Check& check) {
+    if (!movie()) return check.skip("not_applicable", "png");
+    if (m_context.mediaToolsDirectory.isEmpty())
+      return check.unavailable(
+          "media_tools_not_configured",
+          "Start the worker with an explicit --media-tools directory for MP4.");
+    if (ensureMediaProbe(m_context)) m_probes.append("media");
+    if (!mediaToolsUnchanged(m_context) ||
+        m_context.runtimeState->media->failure == "media_tools_missing")
+      check.unavailable("media_tools_changed",
+                        "A granted media tool changed after launch; start a "
+                        "new worker.");
+  }
+
+  void encoder(Check& check) {
+    if (!movie()) return check.skip("not_applicable", "png");
+    if (!passed("media_tools"))
+      return check.skip("not_run", "media_tools_failed");
+    const MediaProbe& probe = *m_context.runtimeState->media;
+    if (probe.failure.isEmpty()) {
+      check.details = {{"codec", probe.muxerCodec}, {"encoder", probe.encoder}};
+      return;
+    }
+    check.unavailable(
+        "codec_unavailable",
+        "The configured ffmpeg offers no encoder for the mp4 muxer's default "
+        "video codec.",
+        {{"reason", probe.failure},
+         {"codec", probe.muxerCodec.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                              : QJsonValue(probe.muxerCodec)}});
+  }
+
+  // Levels and palettes of an editable document render from memory; the
+  // snapshot re-reads every sound source from its private copy. A read-only
+  // document's loader reports the level files it could not load.
+  void dependencies(Check& check) {
+    QJsonArray missing;
+    if (m_document.readOnly) {
+      for (const ContentRow& row : readOnlyBlockers(true))
+        if (missing.size() < BlockerRowLimit) missing.append(row.blockerRow());
+    } else {
+      missing = missingAutomationSounds(*m_document.scene);
+    }
+    if (missing.isEmpty()) return;
+    check.fail("missing_dependency",
+               "A level or sound the render needs is missing, unreadable or "
+               "changed.",
+               {{"dependencies", missing}, {"count", missing.size()}});
+  }
+
+  void storage(Check& check) {
+    if (!m_plan.framesValid() || !m_plan.sizeValid())
+      return check.skip("not_run", "request_invalid");
+    const qint64 reserved =
+        renderState(m_context).reservedBytes() + m_plan.request.reserveBytes();
+    if (reserved > kWorkspaceBytes)
+      check.fail("render_limit",
+                 "This worker has reached its render output storage limit.",
+                 {{"reserved_bytes", double(reserved)},
+                  {"max_bytes", double(kWorkspaceBytes)}});
+  }
+
+  void lane(Check& check) {
+    if (!renderState(m_context).idle())
+      check.fail("render_busy",
+                 "Wait for the active render job to finish or cancel it.");
+  }
+
+  void retention(Check& check) {
+    if (int(renderState(m_context).jobs.size()) >= kMaxJobs)
+      check.fail("render_limit",
+                 "This worker has reached its render job limit.",
+                 {{"max_retained_jobs", kMaxJobs}});
+  }
+
+  static bool dependencyReason(const ContentRow& row) {
+    return row.reason == "missing_file" || row.reason == "level_load_failed" ||
+           row.reason == "partial_level";
+  }
+
+  std::vector<ContentRow> readOnlyBlockers(bool dependencyRows) {
+    std::vector<ContentRow> rows;
+    for (const ContentRow& row : renderBlockers(m_document))
+      if (dependencyReason(row) == dependencyRows) rows.push_back(row);
+    return rows;
+  }
+
+  void renderAdmission(Check& check) {
+    if (!m_document.readOnly)
+      return check.skip("not_applicable", "editable_document");
+    if (movie())
+      return check.fail("render_unavailable",
+                        "Read-only documents render PNG only.",
+                        {{"reason", "read_only_png_only"}});
+    const std::vector<ContentRow> blockers = readOnlyBlockers(false);
+    if (blockers.empty()) return;
     QJsonArray rows;
     for (const ContentRow& row : blockers)
       if (rows.size() < BlockerRowLimit) rows.append(row.blockerRow());
-    throw Error("render_blocked",
-                "The scene contains content the read-only render profile "
-                "does not run.",
-                {{"blockers", rows}, {"blocker_count", int(blockers.size())}});
+    check.fail("render_blocked",
+               "The scene contains content the read-only render profile "
+               "does not run.",
+               {{"blockers", rows}, {"blocker_count", int(blockers.size())}});
   }
-  requireUnchangedSources(document.readOnly->pins);
+
+  void sourcePins(Check& check) {
+    if (!m_document.readOnly)
+      return check.skip("not_applicable", "editable_document");
+    try {
+      requireUnchangedSources(m_document.readOnly->pins);
+    } catch (const Error& error) {
+      check.fail(error.code, error.message, error.details);
+    }
+  }
+
+  Context& m_context;
+  Document& m_document;
+  const Plan m_plan;
+  std::vector<Check> m_checks;
+  QStringList m_probes;
+};
+
+static std::shared_ptr<RenderJob> newJob(Context& context, Document& document,
+                                         const Plan& plan) {
+  auto job        = std::make_shared<RenderJob>();
+  job->id         = newId("job_");
+  job->documentId = document.id;
+  job->revision   = document.revisionText();
+  job->request    = plan.request;
+  job->effective  = effectiveOutput(plan);
+  job->context    = &context;
+  job->workspace  = context.workspace();
+  job->directory =
+      context.resolvePath(context.workspace() + "/renders/" + job->id, true);
+  return job;
 }
 
 static void linkReadOnlySources(RenderJob& job, Document& document) {
@@ -901,28 +1253,15 @@ static void linkReadOnlySources(RenderJob& job, Document& document) {
 static QJsonValue submit(Context& context, const QJsonObject& params,
                          bool preview) {
   Document& document = context.document(requiredString(params, "document_id"));
-  const Request request = readRequest(params, *document.scene, preview);
-  RenderState& state    = renderState(context);
-  state.admit(request);
-  if (document.readOnly) admitReadOnly(document, request);
-  validateWriter(context, request.format);
-  if (Preferences::instance()->isSceneNumberingEnabled())
-    throw Error("unsupported_render_settings",
-                "Disable scene numbering before automated rendering.");
-  if (!document.readOnly) validateAutomationFxGraph(*document.scene);
-  const QJsonArray provenance =
-      preflightAutomationRender(document, request.width, request.height,
-                                request.start, request.end, request.step);
-  auto job                 = std::make_shared<RenderJob>();
-  job->provenance          = provenance;
-  job->id                  = newId("job_");
-  job->documentId          = document.id;
-  job->revision            = document.revisionText();
-  job->request             = request;
-  job->workspace           = context.workspace();
+  const Plan plan    = readPlan(params, *document.scene,
+                                preview ? Kind::Preview : Kind::Sequence);
+  RenderChecks checks(context, document, plan);
+  checks.run(CheckIds, true);
+  checks.requireReady();
+  auto job                 = newJob(context, document, plan);
+  job->provenance          = checks.provenance;
   job->mediaToolsDirectory = context.mediaToolsDirectory;
-  job->directory =
-      context.resolvePath(context.workspace() + "/renders/" + job->id, true);
+  RenderState& state       = renderState(context);
   context.markMutationStarted();
 #ifdef BUILD_UI_PORT_TESTS
   job->fault = context.renderFault;
@@ -953,16 +1292,49 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   return job->describe();
 }
 
-static Request neuralRequest(ToonzScene& scene, const QJsonObject& params) {
-  const auto resolution = scene.getCurrentCamera()->getRes();
-  if (resolution.lx <= 0 || resolution.ly <= 0 || resolution.lx > 1024 || resolution.ly > 1024)
+static void requirePreflightFields(const QJsonObject& params,
+                                   const QString& kind) {
+  const QStringList sequence{"start_frame", "end_frame", "step", "format"};
+  const bool preview = kind == "preview";
+  bool valid         = params.contains("frame") == preview;
+  for (const QString& field : sequence)
+    if (preview && params.contains(field)) valid = false;
+  if (!preview &&
+      (!params.contains("start_frame") || !params.contains("end_frame")))
+    valid = false;
+  if (!valid)
+    throw Error("invalid_params",
+                "kind preview takes frame only; kind sequence takes "
+                "start_frame, end_frame and optional step and format.");
+}
+
+static QJsonValue preflight(Context& context, const QJsonObject& params) {
+  Document& document = context.document(requiredString(params, "document_id"));
+  if (requiredString(params, "expected_revision") != document.revisionText())
+    throw Error(
+        "stale_revision", "The document changed; inspect it before preflight.",
+        {{"document_id", document.id}, {"revision", document.revisionText()}});
+  const QString kind = requiredString(params, "kind");
+  requirePreflightFields(params, kind);
+  RenderChecks checks(
+      context, document,
+      readPlan(params, *document.scene,
+               kind == "preview" ? Kind::Preview : Kind::Sequence));
+  checks.run(CheckIds, false);
+  return checks.report();
+}
+
+static Plan neuralPlan(ToonzScene& scene, const QJsonObject& params) {
+  Plan plan;
+  plan.kind = Kind::Preview;
+  readCamera(plan, scene);
+  if (plan.camera.lx > 1024 || plan.camera.ly > 1024)
     throw Error("render_limit", "Neural preview requires a camera at most 1024 by 1024 pixels.");
-  Request request;
-  request.width = resolution.lx;
-  request.height = resolution.ly;
-  request.start = integerParam(params, "frame", 0, 999999, -1);
-  request.end = request.start;
-  return request;
+  plan.request.width  = plan.camera.lx;
+  plan.request.height = plan.camera.ly;
+  plan.request.start  = integerParam(params, "frame", 0, 999999, -1);
+  plan.request.end    = plan.request.start;
+  return plan;
 }
 
 static void attachNeuralPreview(RenderJob& job, const NeuralPreview& preview) {
@@ -985,25 +1357,21 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
     throw Error("unsupported_containment",
                 "Neural preview requires the supported MCP adapter's contained worker launch.");
   auto& document = context.document(requiredString(params, "document_id"));
-  const Request request = neuralRequest(*document.scene, params);
+  const Plan plan = neuralPlan(*document.scene, params);
+  RenderChecks checks(context, document, plan);
+  checks.run({"graphics", "writer", "lane", "retention", "storage"}, true);
+  checks.requireReady();
   auto& state = renderState(context);
-  state.admit(request);
-  validateWriter(context, Format::Png);
   if (Preferences::instance()->isSceneNumberingEnabled())
     throw Error("unsupported_render_settings", "Disable scene numbering before automated rendering.");
   validateAutomationScene(*document.scene);
   const QJsonArray provenance = preflightAutomationRender(
-      document, request.width, request.height, request.start, request.end, 1);
+      document, plan.request.width, plan.request.height, plan.request.start,
+      plan.request.end, 1);
   checkNeuralDeadline(deadline);
   const NeuralPreview preview = prepareNeuralPreview(context, document, params, deadline);
-  auto job = std::make_shared<RenderJob>();
+  auto job        = newJob(context, document, plan);
   job->provenance = provenance;
-  job->id = newId("job_");
-  job->documentId = document.id;
-  job->revision = document.revisionText();
-  job->request = request;
-  job->workspace = context.workspace();
-  job->directory = context.resolvePath(context.workspace() + "/renders/" + job->id, true);
   checkNeuralDeadline(deadline);
   context.markMutationStarted();
   try {
@@ -1091,25 +1459,30 @@ static QJsonValue artifactRead(Context& context, const QString& id) {
               "The artifact is unknown or belongs to an expired worker.");
 }
 
-static QJsonObject renderCapabilities(const Context& context) {
+static QJsonObject renderCapabilities(Context& context) {
+  ensureGraphicsProbe(context);
+  ensureMediaProbe(context);
   std::unique_ptr<Tiio::Writer> writer(Tiio::makeWriter("png"));
-  const bool configured = !context.mediaToolsDirectory.isEmpty();
-  const bool registered = movieWriterRegistered();
-  QJsonArray profiles{"rgba8-png"};
-  if (configured && registered) profiles.append("opaque8-mp4");
-  const QJsonObject movie{{"media_tools_configured", configured},
-                          {"writer_registered", registered},
-                          {"codec_verified_per_artifact", true},
-                          {"even_dimensions", true},
-                          {"step", 1},
-                          {"quality", 90},
-                          {"scale", 100},
-                          {"audio", false},
-                          {"alpha", "opaque"},
-                          {"matte", "black"}};
+  QJsonArray profiles;
+  if (graphicsState(context).usable()) {
+    if (writer) profiles.append("rgba8-png");
+    if (mediaState(context).usable()) profiles.append("opaque8-mp4");
+  }
+  QJsonObject movie = mp4Report(context);
+  movie.insert("media_tools_configured",
+               !context.mediaToolsDirectory.isEmpty());
+  movie.insert("codec_verified_per_artifact", true);
+  movie.insert("even_dimensions", true);
+  movie.insert("step", 1);
+  movie.insert("quality", 90);
+  movie.insert("scale", 100);
+  movie.insert("audio", false);
+  movie.insert("alpha", "opaque");
+  movie.insert("matte", "black");
   return {{"profiles", profiles},
           {"mp4", movie},
           {"png_writer_available", bool(writer)},
+          {"graphics", graphicsReport(context)},
           {"max_frames", kMaxFrames},
           {"max_dimension", kMaxDimension},
           {"max_preview_dimension", kPreviewDimension},
@@ -1120,8 +1493,6 @@ static QJsonObject renderCapabilities(const Context& context) {
           {"frame_origin", 0},
           {"snapshot_inputs", "qualified-collected-native-scene"},
           {"read_only_snapshot_inputs", linkedSnapshotInputs()},
-          {"graphics_backend", "requires-native-compatible-OpenGL"},
-          {"graphics_backend_verified", false},
           {"job_lifetime", "worker-session"}};
 }
 
@@ -1166,12 +1537,36 @@ QJsonArray renderOperations() {
                                         {"default", "png"}});
   sequence.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
   sequence.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
+  QJsonObject check{
+      {"document_id",
+       QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}}};
+  check.insert(
+      "expected_revision",
+      QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 80}});
+  check.insert("kind",
+               QJsonObject{{"type", "string"},
+                           {"enum", QJsonArray{"preview", "sequence"}}});
+  check.insert("frame", integerSchema(0, 1000000));
+  check.insert("start_frame", integerSchema(0, 1000000));
+  check.insert("end_frame", integerSchema(0, 1000000));
+  check.insert("step", integerSchema(1, 1000000));
+  check.insert("format", QJsonObject{{"type", "string"},
+                                     {"enum", QJsonArray{"png", "mp4"}}});
+  check.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
+  check.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
   return {
       neuralPreviewOperation(),
       operation("render.capabilities",
-                "Inspect bounded native render profiles and configured media "
-                "support.",
+                "Inspect bounded native render profiles, the graphics probe "
+                "and configured media support; runs the graphics and media "
+                "probes once per worker.",
                 {}, {}),
+      operation("render.preflight",
+                "Run every check that render.preview or render.submit runs "
+                "before a job exists, without starting one, and report the "
+                "effective output: size, fit, frames, rate, profile, alpha, "
+                "color, camera DPI and crop.",
+                check, {"document_id", "expected_revision", "kind"}),
       jobOperation("render.preview",
                    "Start an immutable one-frame native PNG preview job.",
                    preview, {"document_id", "frame"}),
@@ -1200,6 +1595,8 @@ QJsonValue executeRender(Context& context, const QString& method,
                 "Native render commands require the application thread.");
   if (method == "render.capabilities")
     return RenderDetail::renderCapabilities(context);
+  if (method == "render.preflight")
+    return RenderDetail::preflight(context, params);
   if (method == "assistance.neural.preview") return RenderDetail::submitNeural(context, params);
   if (method == "render.preview")
     return RenderDetail::submit(context, params, true);

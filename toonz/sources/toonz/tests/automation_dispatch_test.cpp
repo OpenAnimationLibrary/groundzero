@@ -362,8 +362,8 @@ void toolsetCatalog(Context& context) {
   Dispatcher dispatcher(context);
   const QJsonObject capabilities =
       result(dispatcher, "automation.capabilities", {});
-  require(capabilities.value("protocol_version").toInt() == 2,
-          "Toolset catalogs require protocol version 2");
+  require(capabilities.value("protocol_version").toInt() == 3,
+          "The catalog reports protocol version 3");
   QHash<QString, QString> listed;
   for (const QJsonValue& value : capabilities.value("toolsets").toArray()) {
     const QJsonObject toolset = value.toObject();

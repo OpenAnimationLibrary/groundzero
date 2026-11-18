@@ -48,8 +48,8 @@ const MAX_CATALOG_TOOLS = 1024;
 
 async function discover(worker: NativeApi, requested: string[]): Promise<ToolsetState> {
   const result = await worker.request("automation.capabilities");
-  if (!isObject(result) || result["protocol_version"] !== 2) {
-    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 2");
+  if (!isObject(result) || result["protocol_version"] !== 3) {
+    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 3");
   }
   const tools = await catalog(result["tools"]);
   return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
