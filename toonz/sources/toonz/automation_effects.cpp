@@ -254,7 +254,7 @@ const QHash<QString, Declaration>& declarations() {
        {ToolEffects{"read", "reads", {"reads_roots"}, "none", {}, false},
         {"resource_limit", "scene_host_failed", "stale_revision",
          "unsupported_target"}}},
-      {"scene.summary", {kInspect, {"not_a_code", "scene_host_failed"}}},
+      {"scene.summary", {kInspect, {"scene_host_failed"}}},
       {"scene.validate", {kInspect, {"stale_revision"}}},
       {"shared.roots", {kListShared, {}}},
       {"storyboard.panel.create", {kAdd, {"already_exists"}}},
