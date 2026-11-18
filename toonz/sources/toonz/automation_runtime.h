@@ -75,7 +75,11 @@ struct MediaProbe final {
 // Per-worker cache of probe results; probes run lazily and are cached for
 // the worker's life.
 struct RuntimeState final {
+  // The probe's verdict: a context was made or it could not be.
   std::optional<GraphicsProbe> graphics;
+  // A probe that did not finish in time: no verdict, so nothing is cached and
+  // the next render, preflight or probe request tries again.
+  std::optional<GraphicsProbe> graphicsTimeout;
   // Set when a render job failed for want of GL although the helper had GL.
   bool graphicsFailedInWorker = false;
   std::optional<MediaProbe> media;

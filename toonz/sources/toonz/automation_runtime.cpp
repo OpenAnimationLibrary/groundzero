@@ -46,7 +46,7 @@ constexpr int MaxNativeFormats     = 128;
 constexpr int MaxSoundFormats      = 64;
 constexpr int MaxLibraryVersions   = 16;
 constexpr int GraphicsProbeSize    = 16;
-constexpr int MaxGraphicsElapsedMs = 10000;
+constexpr int MaxGraphicsElapsedMs = GraphicsProbeDeadlineMs;
 const QStringList GraphicsResults{
     "context_ready", "no_context", "no_framebuffer", "readback_mismatch",
     "crashed",       "timeout",    "memory"};
@@ -184,10 +184,15 @@ bool ensureGraphicsProbe(Context& context, bool force) {
   probe.result =
       run.cause.isEmpty() ? run.reply.value("result").toString() : run.cause;
   if (!GraphicsResults.contains(probe.result)) probe.result = "crashed";
-  probe.vendor                 = run.reply.value("vendor").toString();
-  probe.renderer               = run.reply.value("renderer").toString();
-  probe.version                = run.reply.value("version").toString();
-  state.graphics               = probe;
+  probe.vendor   = run.reply.value("vendor").toString();
+  probe.renderer = run.reply.value("renderer").toString();
+  probe.version  = run.reply.value("version").toString();
+  if (probe.result == "timeout") {
+    state.graphicsTimeout = probe;
+    return true;
+  }
+  state.graphics = probe;
+  state.graphicsTimeout.reset();
   state.graphicsFailedInWorker = false;
   return true;
 }
@@ -200,7 +205,8 @@ CapabilityState graphicsState(Context& context) {
   const RuntimeState& state = runtimeState(context);
   CapabilityState capability;
   if (!state.graphics) {
-    capability.reasons = QStringList{"probe_not_run"};
+    capability.reasons =
+        QStringList{state.graphicsTimeout ? "probe_timeout" : "probe_not_run"};
     return capability;
   }
   if (state.graphicsFailedInWorker) {
@@ -221,7 +227,9 @@ QJsonObject graphicsReport(Context& context) {
   return {{"state", graphicsState(context).toJson()},
           {"qpa_platform", QGuiApplication::platformName().left(32)},
           {"probe", state.graphics ? QJsonValue(state.graphics->toJson())
-                                   : QJsonValue(QJsonValue::Null)},
+                    : state.graphicsTimeout
+                        ? QJsonValue(state.graphicsTimeout->toJson())
+                        : QJsonValue(QJsonValue::Null)},
           {"required_by", "every_render"}};
 }
 

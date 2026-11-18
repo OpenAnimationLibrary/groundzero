@@ -592,7 +592,10 @@ reports `GL_VENDOR`, `GL_RENDERER`, `GL_VERSION` and a `renderer_class`;
 `probes: ["media"]` hashes the granted `ffmpeg` and `ffprobe`, reads their version
 lines, the mp4 muxer's default video codec and whether an encoder for it is
 listed. Only the files in the `--media-tools` directory ever run; `PATH` is never
-searched. Probe results are cached for the worker's life. Native format lists are
+searched. Probe results are cached for the worker's life, except a graphics probe
+that does not finish within 20 seconds: that is no verdict, so graphics stays
+`verified: "not_run"` with reason `probe_timeout`, `probe.result` is `timeout`, and
+the next render, preflight or probe request tries again. Native format lists are
 not admissions: `formats.admitted` names what each tool accepts.
 
 Every render requires usable graphics. `render.preflight` takes the arguments of

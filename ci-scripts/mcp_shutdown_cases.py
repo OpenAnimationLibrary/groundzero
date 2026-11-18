@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import mcp_failure_cases
 from mcp_scene_access_cases import (
@@ -24,6 +24,11 @@ from mcp_worker import Worker
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
+
+
+def _openmp_registration(pid: int) -> Path:
+    """The file the OpenMP runtime registers each process in, outside the workspace."""
+    return Path(f"/tmp/__KMP_REGISTERED_LIB_{pid}")
 
 
 def _claims(workspace: Path) -> list[Path]:
@@ -47,6 +52,7 @@ def end_of_input_during_a_render_cleans_up(case: NativeAcceptance) -> None:
     elapsed, code = close_and_time(case, case.worker)
     case.assertEqual(code, 0)
     case.assertLess(elapsed, DEADLINE + SLACK)
+    case.assertFalse(_openmp_registration(case.worker.process.pid).exists())
     renders = case.workspace / "renders"
     case.assertEqual(sorted(path.name for path in renders.iterdir()), [done["job_id"]])
     case.assertFalse((renders / running).exists())
@@ -93,6 +99,7 @@ def shutdown_deadline_ends_a_stuck_teardown(case: NativeAcceptance) -> None:
     stuck.call("automation.capabilities", {})
     elapsed, code = close_and_time(case, stuck)
     case.assertEqual(code, DEADLINE_EXIT)
+    case.assertFalse(_openmp_registration(stuck.process.pid).exists())
     case.assertLess(elapsed, DEADLINE + SLACK)
     case.assertIn("shutdown deadline passed", stuck.log_path.read_text(errors="replace"))
     case.assertEqual(len(list(workspace.glob("runtime_*"))), 1)
@@ -175,3 +182,42 @@ def automation_processes_stay_in_the_background(case: NativeAcceptance) -> None:
     case.assertTrue(case.preview(case.create("Background")).startswith(b"\x89PNG"))
     params = {"document_id": opened["document_id"], "expected_revision": "0"}
     case.success("scene.discard", {**params, "operation_id": "background-discard"})
+
+
+def _graphics(case: NativeAcceptance, worker: Worker, *probes: str) -> dict[str, Any]:
+    params = {"probes": list(probes)} if probes else {}
+    return worker.call("runtime.inspect", params)["result"]["graphics"]
+
+
+def _preflight(case: NativeAcceptance, worker: Worker) -> dict[str, Any]:
+    created = worker.call(
+        "scene.create",
+        {
+            "operation_id": "probe-scene",
+            "name": "Probe",
+            "width_px": 32,
+            "height_px": 32,
+            "frame_rate": 24,
+        },
+    )["result"]
+    params = {"document_id": created["document_id"], "expected_revision": created["revision"]}
+    return worker.call("render.preflight", {**params, "kind": "preview", "frame": 0})["result"]
+
+
+def graphics_probe_timeout_is_not_a_verdict(case: NativeAcceptance) -> None:
+    """A probe that does not finish in time leaves graphics unknown and is tried again; a
+    probe that fails is the verdict and is kept."""
+    hung = fault_worker(case, "hang", "graphics-hang")
+    graphics = _graphics(case, hung, "graphics")
+    case.assertEqual(graphics["probe"]["result"], "timeout", graphics)
+    case.assertEqual(graphics["state"]["verified"], "not_run", graphics)
+    case.assertIn("probe_timeout", graphics["state"]["reasons"])
+    report = _preflight(case, hung)
+    check = next(check for check in report["checks"] if check["id"] == "graphics")
+    case.assertEqual(report["probes_run"], ["graphics"], report)
+    case.assertEqual(check["details"]["probe_result"], "timeout", check)
+    crashed = fault_worker(case, "crash", "graphics-crash")
+    graphics = _graphics(case, crashed, "graphics")
+    case.assertEqual(graphics["probe"]["result"], "crashed", graphics)
+    case.assertEqual(graphics["state"]["verified"], "failed", graphics)
+    case.assertEqual(_preflight(case, crashed)["probes_run"], [], "A failed probe was retried")
