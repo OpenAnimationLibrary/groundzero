@@ -329,6 +329,10 @@ static bool glUnavailable(const QString& message) {
   return message.contains("OpenGL is not available");
 }
 
+#ifdef BUILD_UI_PORT_TESTS
+constexpr unsigned long BusyHostMs = 8000;
+#endif
+
 class RenderJob final : public Job,
                         public MovieRenderer::Listener,
                         public std::enable_shared_from_this<RenderJob> {
@@ -370,6 +374,9 @@ public:
   // so later ones are this job's.
   int encoderExitsBefore = ffmpegForcedExits();
   qint64 stopRequestedMs = -1;
+  bool stopping          = false;
+  // When a poll answered off the application thread asked the job to stop.
+  std::atomic<qint64> interruptMs{-1};
 
   QString id() const override { return common.id; }
   JobLane lane() const override { return JobLane::Render; }
@@ -669,22 +676,38 @@ public:
     status           = JobStatus::Running;
     common.startedMs = now();
     renderer->start();
+#ifdef BUILD_UI_PORT_TESTS
+    // Test hook: a scene host whose application thread stays busy while its
+    // render runs, as a long decode or frame build keeps it.
+    if (fault == "busy-host") QThread::msleep(BusyHostMs);
+#endif
   }
 
   // A caller's request; a finished job records it and is unchanged.
   void cancel() override {
     if (!common.cancelRequested) {
+      const qint64 asked     = interruptMs.load();
       common.cancelRequested = true;
-      common.cancelMs        = now();
+      common.cancelMs        = asked >= 0 ? asked : now();
     }
     requestStop();
   }
 
+  // Render threads read `cancellation` and stop at their next frame;
+  // requestStop() completes the request on the application thread.
+  void interrupt(qint64 requestedMs) override {
+    qint64 unset = -1;
+    interruptMs.compare_exchange_strong(unset, requestedMs);
+    cancellation = true;
+  }
+
   void requestStop() {
-    if (terminal()) return;
-    if (cancellation.exchange(true)) return;
-    stopRequestedMs = now();
-    status = JobStatus::Canceling;
+    if (terminal() || stopping) return;
+    stopping           = true;
+    cancellation       = true;
+    const qint64 asked = interruptMs.load();
+    stopRequestedMs    = asked >= 0 ? asked : now();
+    status             = JobStatus::Canceling;
     if (verification) verification->cancel();
     cancelUntilClosed();
   }
@@ -1381,6 +1404,8 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   context.markMutationStarted();
 #ifdef BUILD_UI_PORT_TESTS
   job->fault = context.renderFault;
+  if (!context.sceneHostDocument.isEmpty() && context.childFault == "busy-host")
+    job->fault = context.childFault;
 #endif
   try {
     if (QFileInfo::exists(job->directory) ||

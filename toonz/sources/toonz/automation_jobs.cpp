@@ -3,6 +3,9 @@
 #include "automation_build_identity.h"
 #include "automation_scene_host.h"
 
+#include <QCoreApplication>
+#include <QMetaObject>
+#include <QMutexLocker>
 #include <QUuid>
 
 #include <algorithm>
@@ -166,6 +169,82 @@ qint64 JobRegistry::reservedBytes(JobLane lane) const {
   for (const auto& job : m_jobs)
     if (job->lane() == lane) reserved += job->reservedBytes();
   return reserved;
+}
+
+namespace {
+
+// A record as job.cancel leaves it once the request is recorded.
+QJsonObject cancelView(QJsonObject record, qint64 requestedMs) {
+  QJsonObject cancellation = record.value("cancellation").toObject();
+  if (!cancellation.value("requested").toBool()) {
+    cancellation.insert("requested", true);
+    cancellation.insert("requested_ms", requestedMs);
+  }
+  if (record.value("terminal").toBool())
+    cancellation.insert("effective", record.value("status") == "canceled");
+  else
+    record.insert("status", "cancellation_requested");
+  record.insert("cancellation", cancellation);
+  return record;
+}
+
+}  // namespace
+
+void JobRegistry::unsettle(const QString& id) {
+  QMutexLocker lock(&m_publishedLock);
+  const auto found = m_published.find(id);
+  if (found != m_published.end()) found->changed = true;
+}
+
+void JobRegistry::publish() {
+  std::vector<std::pair<std::shared_ptr<Job>, QJsonObject>> records;
+  {
+    QMutexLocker lock(&m_publishedLock);
+    for (const auto& job : m_jobs) {
+      const auto found   = m_published.constFind(job->id());
+      const bool settled = found != m_published.constEnd() &&
+                           found->record.value("terminal").toBool() &&
+                           found->interruptMs < 0 && !found->changed;
+      if (!settled) records.emplace_back(job, QJsonObject());
+    }
+  }
+  for (auto& entry : records) entry.second = entry.first->record();
+  QMutexLocker lock(&m_publishedLock);
+  for (auto& entry : records) {
+    Published& published = m_published[entry.first->id()];
+    published.job        = entry.first;
+    published.record     = entry.second;
+    published.changed    = false;
+    if (published.interruptMs < 0) continue;
+    if (entry.second.value("cancellation")
+            .toObject()
+            .value("requested")
+            .toBool())
+      published.interruptMs = -1;
+    else
+      published.record = cancelView(entry.second, published.interruptMs);
+  }
+}
+
+QJsonValue JobRegistry::answerPoll(const QString& id, bool cancel) {
+  QMutexLocker lock(&m_publishedLock);
+  const auto found = m_published.find(id);
+  if (found == m_published.end()) return QJsonValue();
+  if (!cancel) return found->record;
+  const std::shared_ptr<Job> job = found->job.lock();
+  if (!job) return QJsonValue();
+  const qint64 requestedMs = elapsedMs();
+  if (found->interruptMs < 0 && !found->record.value("cancellation")
+                                     .toObject()
+                                     .value("requested")
+                                     .toBool())
+    found->interruptMs = requestedMs;
+  job->interrupt(requestedMs);
+  found->record = cancelView(found->record, requestedMs);
+  QMetaObject::invokeMethod(
+      QCoreApplication::instance(), [job]() { job->cancel(); },
+      Qt::QueuedConnection);
+  return found->record;
 }
 
 void JobRegistry::admitAnalysis(const QString& hostActive,
@@ -341,6 +420,7 @@ QJsonValue executeJobs(Context& context, const QString& method,
     throw Error("unknown_operation", "Unknown job operation.");
   if (!job->terminal()) context.markMutationStarted();
   job->cancel();
+  jobRegistry(context).unsettle(job->id());
   return job->record();
 }
 

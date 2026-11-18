@@ -907,9 +907,9 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_job_list_filters_and_paging",
+    "ci-scripts/mcp_acceptance.py::test_job_busy_host_answers_polls_and_cancel",
     "ci-scripts/mcp_acceptance.py::test_job_states_and_refused_second_submit",
-    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
-    "ci-scripts/mcp_acceptance.py::test_read_only_render_cancel_and_host_loss_leave_nothing"
+    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job"
    ]
   },
   "job.result": {

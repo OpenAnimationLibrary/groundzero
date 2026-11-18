@@ -559,10 +559,14 @@ when its encoder, movie probe, Neural helper or scene host was killed, and
 `forced_processes` names which; otherwise it is `cooperative`. A job whose writers
 are still open 30 seconds after a stop request reports `stalled: true` and stays
 non-terminal while native work may still run; `job.status` and `job.cancel` keep
-answering, and a new worker is the recovery. When a read-only document's scene host
-ends, its running jobs read `failed` with failure `code` `scene_host_failed` and a
-forced `scene_host`. A render that finds no usable OpenGL context in the worker fails
-with failure `code` `gl_unavailable`. Each lane runs one job at a time: a second
+answering, and a new worker is the recovery. `job.status`, and `job.cancel` for a
+job in a read-only document's scene host, answer without waiting for the process's
+main thread: the record is as fresh as the job's state when that thread last went
+idle or answered a request, and a cancellation reaches the render threads at once.
+When a read-only document's scene host ends, its running jobs read `failed` with
+failure `code` `scene_host_failed` and a forced `scene_host`. A render that finds no
+usable OpenGL context in the worker fails with failure `code` `gl_unavailable`. Each
+lane runs one job at a time: a second
 render while one runs is refused with `render_busy` and creates nothing, and a
 worker retains at most 32 jobs per lane (`render_limit` for renders). A job id
 names the worker that issued it; an id a worker does not hold is refused with

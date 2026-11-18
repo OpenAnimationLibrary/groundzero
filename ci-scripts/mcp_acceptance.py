@@ -770,6 +770,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_job_stalled_cancellation_stays_non_terminal(self) -> None:
         mcp_jobs_cases.stalled_cancellation_stays_non_terminal(self)
 
+    def test_job_busy_host_answers_polls_and_cancel(self) -> None:
+        mcp_jobs_cases.busy_host_answers_polls_and_cancel(self)
+
     def test_job_movie_cancel_while_encoding_is_forced(self) -> None:
         mcp_jobs_cases.movie_cancel_while_encoding_is_forced(self)
 
