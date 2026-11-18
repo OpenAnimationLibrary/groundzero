@@ -1,4 +1,5 @@
 import { acceptControlChannel } from "#fixtures/control-channel";
+import { appendFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,5 +94,10 @@ export async function fakeNativeExecutable() {
 
 if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
   await acceptControlChannel();
-  createInterface({ input: process.stdin }).on("line", (line) => answer(JSON.parse(line)));
+  const log = process.env["FAKE_NATIVE_LOG"];
+  createInterface({ input: process.stdin }).on("line", (line) => {
+    const request = JSON.parse(line);
+    if (log) appendFileSync(log, request.method + "\n");
+    answer(request);
+  });
 }
