@@ -95,3 +95,30 @@ test("bounds pending operations and rejects all of them on disconnect", async ()
   connection.close();
   expect((await pending).every((result) => result.status === "rejected")).toBe(true);
 });
+
+function spawnFixture(mode: string): ReturnType<typeof spawn> {
+  return spawn(process.execPath, [
+    fileURLToPath(new URL("../fixtures/worker.mjs", import.meta.url)),
+    mode,
+  ]);
+}
+
+test("close ends the worker input so a worker can exit by itself", async () => {
+  const child = spawnFixture("echo");
+  const connection = new WorkerConnection(child, 5_000);
+  await connection.request("read");
+  const exited = once(child, "exit");
+  connection.close();
+  expect(await exited).toEqual([0, null]);
+});
+
+test("close signals a worker that outlives the end of its input by the grace period", async () => {
+  const child = spawnFixture("ignore-eof");
+  const connection = new WorkerConnection(child, 5_000);
+  await connection.request("read");
+  const exited = once(child, "exit");
+  const started = performance.now();
+  connection.close();
+  expect(await exited).toEqual([null, "SIGTERM"]);
+  expect(performance.now() - started).toBeGreaterThanOrEqual(1_900);
+});

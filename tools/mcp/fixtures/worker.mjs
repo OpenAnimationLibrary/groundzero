@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 await acceptControlChannel();
 
 const mode = process.argv[2];
+if (mode === "ignore-eof") setInterval(() => {}, 60_000);
 
 function writeInvalidResponse(request) {
   switch (mode) {

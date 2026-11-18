@@ -13,12 +13,19 @@ function descendant() {
   });
 }
 
-function worker() {
+function worker(mode) {
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "descendant"], {
     stdio: ["ignore", "ignore", "inherit", "ipc"],
   });
   child.once("message", (identity) => {
-    createInterface({ input: process.stdin }).on("line", (line) => {
+    const input = createInterface({ input: process.stdin });
+    if (mode === "eof-cleanup") {
+      input.once("close", () => {
+        child.once("exit", () => process.exit(0));
+        child.kill("SIGKILL");
+      });
+    }
+    input.on("line", (line) => {
       const request = JSON.parse(line);
       if (request.method === "stall") return;
       const response =
@@ -36,5 +43,5 @@ function worker() {
 if (process.argv[2] === "descendant") descendant();
 else {
   await acceptControlChannel();
-  worker();
+  worker(process.argv[2]);
 }

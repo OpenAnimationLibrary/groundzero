@@ -428,9 +428,12 @@ On POSIX systems, every adapter-launched worker uses a private process-group
 supervisor. The native worker verifies its parent socket credentials and a bounded
 startup handshake. A separate native guardian terminates its current group when
 that channel disappears or receives unexpected data, including after supervisor
-loss. Connection closure and timeouts also trigger group cleanup. Windows startup
-requires an owned kill-on-close Job Object before accepting requests. Raw POSIX
-workers remain usable for existing operations but have no verified helper containment.
+loss. When the MCP connection closes, the worker's input ends, so it cancels its
+renders and removes their partial output as when run directly; group cleanup
+follows if it is still running two seconds later. Timeouts trigger group cleanup
+at once. Windows startup requires an owned kill-on-close Job Object before
+accepting requests. Raw POSIX workers remain usable for existing operations but
+have no verified helper containment.
 
 ## Live editor sessions
 

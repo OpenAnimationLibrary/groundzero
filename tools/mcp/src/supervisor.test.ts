@@ -17,6 +17,7 @@ const posix = test.skipIf(process.platform === "win32");
 function start(
   timeoutMs = 5_000,
   expected = "",
+  mode: string[] = [],
 ): { child: ChildProcess; connection: WorkerConnection } {
   const child = spawn(
     process.execPath,
@@ -24,6 +25,7 @@ function start(
       fileURLToPath(new URL("../dist/supervisor.js", import.meta.url)),
       process.execPath,
       fileURLToPath(new URL("../fixtures/process-tree.mjs", import.meta.url)),
+      ...mode,
     ],
     { detached: true, stdio: ["pipe", "pipe", "pipe", "ipc"] },
   );
@@ -72,6 +74,17 @@ posix("disconnect kills a TERM-ignoring descendant before releasing the group le
   connection.close();
   await closed;
   expect(child.signalCode).toBe("SIGKILL");
+  expect(await listening(port)).toBe(false);
+});
+
+posix("close lets the worker finish its own end-of-input cleanup before any signal", async () => {
+  const { child, connection } = start(5_000, "", ["eof-cleanup"]);
+  const port = await descendantPort(connection);
+  const nativeExit = once(child, "message");
+  const closed = once(child, "close");
+  connection.close();
+  expect((await nativeExit)[0]).toEqual({ type: "native-exit", code: 0, signal: null });
+  await closed;
   expect(await listening(port)).toBe(false);
 });
 

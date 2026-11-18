@@ -9,6 +9,7 @@ import type { WorkerOptions } from "#mcp/options";
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_PENDING_REQUESTS = 16;
+const CLOSE_GRACE_MS = 2_000;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 interface PendingRequest {
@@ -93,12 +94,16 @@ export class WorkerConnection {
     });
   }
 
-  /** Close the private worker when the MCP client disconnects. */
+  /** Close the private worker when the MCP client disconnects.
+   *
+   * The worker sees the end of its input, as when run directly, so it can cancel renders and
+   * remove their partial output itself; it is stopped by signal only after a short grace period.
+   */
   close(): void {
-    this.fail("MCP connection closed");
+    this.fail("MCP connection closed", true);
   }
 
-  private fail(message: string): void {
+  private fail(message: string, graceful = false): void {
     if (this.failure) return;
     this.failure = new WorkerError("WORKER_UNAVAILABLE", message, {
       outcome_unknown: this.pending.size > 0,
@@ -111,6 +116,16 @@ export class WorkerConnection {
     this.pending.clear();
     this.buffer = Buffer.alloc(0);
     if (this.child.exitCode !== null || this.child.signalCode !== null) return;
+    if (!graceful) {
+      this.stop();
+      return;
+    }
+    this.child.stdin.end();
+    this.shutdownTimer = setTimeout(() => this.stop(), CLOSE_GRACE_MS);
+    this.shutdownTimer.unref();
+  }
+
+  private stop(): void {
     if (this.supervised) {
       this.stopSupervisor();
       return;
