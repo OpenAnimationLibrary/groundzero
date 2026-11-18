@@ -311,6 +311,8 @@ def _read_only_documents(
     ids["read_only_job"] = job
     artifacts = call(case, worker, "render.artifacts", {"job_id": job})["artifacts"]
     ids["read_only_artifact"] = artifacts[0]["artifact_id"]
+    ids["project_a"] = project
+    ids["project_shot"] = project_id(case, worker, "Shot A")
     return documents
 
 

@@ -35,9 +35,8 @@ def _next_page(page: Any) -> tuple[str, Any] | None:
     if not isinstance(page, dict):
         return None
     for key in PAGE_KEYS:
-        position = page.get(key)
-        if position and position < page.get("total", position + 1):
-            return PAGE_PARAMS[key], position
+        if page.get(key):
+            return PAGE_PARAMS[key], page[key]
     return None
 
 

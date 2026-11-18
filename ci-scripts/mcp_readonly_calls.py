@@ -10,14 +10,25 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from mcp_readonly_fixture import VECTOR_DRAWING, Fixture
 
 SCHEMA = "schema"
+EITHER = "either"
 ZERO = "00000000-0000-0000-0000-000000000000"
 MISSING_DRAWING = {"number": 99, "suffix": ""}
+SECTIONS = ("sheets", "columns", "stage_objects")
+DRAWING_TOOLS = frozenset(
+    {
+        "drawing.inspect",
+        "vector.inspect",
+        "vector.structure",
+        "vector.opacity.inspect",
+        "raster.read_pixels",
+    }
+)
 RECTANGLE = {
     "coordinate_space": "raster_pixels_lower_left",
     "x": 0,
@@ -35,7 +46,9 @@ class Call:
         label: Short name used in reports and known-violation entries.
         params: The arguments.
         refusal: The error code the call must be refused with, SCHEMA for a violation of
-            the advertised input schema, or None for a call that must succeed.
+            the advertised input schema, EITHER for a call whose outcome depends on the
+            scene's content (it must succeed or be refused with a structured error), or
+            None for a call that must succeed.
         reason: The `details.reason` a refusal must carry, when it names one.
         hint: What to do when a call that should be refused is not.
     """
@@ -112,6 +125,40 @@ def _stale(f: Fixture, **extra: Any) -> dict[str, Any]:
 
 def _drawing(f: Fixture, level: str, **extra: Any) -> dict[str, Any]:
     return _doc(f, level_id=f.ids[level], drawing_id=VECTOR_DRAWING, **extra)
+
+
+def _project_inspect(f: Fixture) -> list[Call]:
+    return [
+        Call("no arguments", {}),
+        Call("project", {"project_id": f.ids["project_a"]}),
+        Call("without a scenes folder", {"project_id": f.ids["project_shot"]}),
+        Call("unknown project", {"project_id": "nonsense"}, "not_found"),
+        Call("standalone", {"project_id": "standalone"}, "invalid_params"),
+    ]
+
+
+def _project_scenes(f: Fixture) -> list[Call]:
+    project = {"project_id": f.ids["project_a"]}
+    return [
+        Call("project", project),
+        Call("one at a time", {**project, "limit": 1}),
+        Call("without a scenes folder", {"project_id": f.ids["project_shot"]}),
+        Call("unknown project", {"project_id": "nonsense"}, "not_found"),
+        Call("standalone", {"project_id": "standalone"}, "invalid_params"),
+    ]
+
+
+def _editable_inventory(f: Fixture) -> list[Call]:
+    calls = []
+    for name, document in (("main", f.document), ("reopened", f.reopened), ("bare", f.bare)):
+        calls.extend(
+            replace(call, label=f"{name}: {call.label}") for call in _inventory(f, document)
+        )
+    return calls
+
+
+def _editable_source_status(f: Fixture) -> list[Call]:
+    return [Call("editable", _pinned(f), "unsupported_target")]
 
 
 def _no_arguments(_f: Fixture) -> list[Call]:
@@ -430,6 +477,101 @@ def _ro_pinned(_f: Fixture, document: str) -> list[Call]:
     ]
 
 
+def _ro_summary_of(f: Fixture, document: str) -> dict[str, Any]:
+    return f.case.success("scene.summary", {"document_id": document})
+
+
+def _ro_per_level(tool: str, f: Fixture, document: str, **extra: Any) -> list[Call]:
+    calls = []
+    for level in _ro_summary_of(f, document)["levels"]:
+        drawing = level["drawings"][0] if level["drawings"] else VECTOR_DRAWING
+        params = {"document_id": document, "level_id": level["level_id"], **extra}
+        if tool in DRAWING_TOOLS:
+            params["drawing_id"] = drawing
+        calls.append(Call(level["name"], params, EITHER))
+    return calls
+
+
+def _ro_levels_with_drawings(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("drawing.inspect", f, document)
+
+
+def _ro_palettes(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("palette.inspect", f, document)
+
+
+def _ro_vectors(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("vector.inspect", f, document)
+
+
+def _ro_opacity(f: Fixture, document: str) -> list[Call]:
+    extra = {"expected_revision": "0", "stroke_index": 0, "offset": 0, "limit": 8}
+    return _ro_per_level("vector.opacity.inspect", f, document, **extra)
+
+
+def _ro_pixels(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("raster.read_pixels", f, document, **RECTANGLE)
+
+
+def _ro_cells(f: Fixture, document: str) -> list[Call]:
+    columns = _ro_summary_of(f, document)["columns"]
+    window = {"document_id": document, "start_frame": 0, "length": 2}
+    return [
+        Call("first column", {**window, "column_id": columns[0]["column_id"]}),
+        Call("unknown", {**window, "column_id": _missing("column")}, "invalid_handle"),
+    ]
+
+
+def _ro_object(f: Fixture, document: str) -> dict[str, str]:
+    """The first column's stage object, or nothing where the scene file has no entry for it."""
+    object_id = _ro_summary_of(f, document)["columns"][0]["object_id"]
+    return {"document_id": document, "object_id": object_id} if object_id else {}
+
+
+def _ro_channels(f: Fixture, document: str) -> list[Call]:
+    given = _ro_object(f, document)
+    missing = {"document_id": document, "object_id": _missing("object")}
+    first = [Call("first column", given)] if given else []
+    return [*first, Call("unknown", missing, "invalid_handle")]
+
+
+def _ro_keys(f: Fixture, document: str) -> list[Call]:
+    given = _ro_object(f, document)
+    return [Call("x", {**given, "channel": "x", "unit": "inch"})] if given else []
+
+
+def _ro_samples(f: Fixture, document: str) -> list[Call]:
+    given = _ro_object(f, document)
+    sample = {**given, "channel": "x", "unit": "inch", "frames": [0, 1.5]}
+    return [Call("x", sample)] if given else []
+
+
+def _ro_parameters(f: Fixture, document: str) -> list[Call]:
+    effects = f.case.success("fx.graph", {"document_id": document})["effects"]
+    calls = [
+        Call(f"{row['type']} {index}", {"document_id": document, "fx_id": row["fx_id"]}, EITHER)
+        for index, row in enumerate(effects)
+    ]
+    missing = {"document_id": document, "fx_id": _missing("fx")}
+    return [*calls, Call("unknown", missing, "invalid_handle")]
+
+
+def _inventory(f: Fixture, document: str) -> list[Call]:
+    revision = f.revision(document)
+    pinned = {"document_id": document, "expected_revision": revision}
+    calls = [Call(section, {**pinned, "section": section}) for section in SECTIONS]
+    stale = {**pinned, "expected_revision": "stale", "section": "sheets"}
+    return [*calls, Call("stale", stale, "stale_revision")]
+
+
+def _ro_source_status(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    return [
+        Call("unchanged", pinned),
+        Call("stale", {**pinned, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
 READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "scene.summary": _ro_summary,
     "camera.inspect": _ro_document,
@@ -439,6 +581,20 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "scene.dependencies": _ro_pinned,
     "scene.validate": _ro_pinned,
     "fx.graph": _ro_document,
+    "scene.inventory": _inventory,
+    "scene.source_status": _ro_source_status,
+    "column.cells": _ro_cells,
+    "drawing.inspect": _ro_levels_with_drawings,
+    "palette.inspect": _ro_palettes,
+    "palette.pages": _ro_palettes,
+    "fx.parameter.get": _ro_parameters,
+    "animation.channels": _ro_channels,
+    "animation.keys": _ro_keys,
+    "animation.sample": _ro_samples,
+    "vector.inspect": _ro_vectors,
+    "vector.structure": _ro_vectors,
+    "vector.opacity.inspect": _ro_opacity,
+    "raster.read_pixels": _ro_pixels,
 }
 ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
 
@@ -446,7 +602,10 @@ ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
 READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "automation.capabilities": _no_arguments,
     "automation.list_documents": _no_arguments,
-    "project.inspect": _no_arguments,
+    "project.inspect": _project_inspect,
+    "project.scenes": _project_scenes,
+    "scene.inventory": _editable_inventory,
+    "scene.source_status": _editable_source_status,
     "project.list": _projects,
     "scene.summary": _per_document,
     "camera.inspect": _per_document,

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import mcp_readonly_fixture
 from mcp_readonly_calls import (
+    EITHER,
     READ_CALLS,
     READ_ONLY_CALLS,
     ROUTED_WRITES,
@@ -72,22 +73,7 @@ class KnownViolation:
     defect: str
 
 
-KNOWN_VIOLATIONS = (
-    KnownViolation(
-        "vector.inspect",
-        LAST_PAGE,
-        "next_offset is 1 on the last page",
-        "vector.inspect returns next_offset equal to the stroke total on its last page "
-        "(automation_drawing.cpp, next_offset at line 568); every other paged read returns null",
-    ),
-    KnownViolation(
-        "palette.inspect",
-        LAST_PAGE,
-        "next_offset is",
-        "palette.inspect returns next_offset equal to the style total on its last page "
-        "(automation_drawing.cpp, next_offset at line 828); every other paged read returns null",
-    ),
-)
+KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -203,6 +189,8 @@ class Harness:
         name = f"{tool} [{call.label}]"
         if call.refusal is None:
             case.assertNotIn("error", response, f"{name} was refused: {response}")
+            return
+        if call.refusal == EITHER:
             return
         case.assertIn("error", response, f"{name} was not refused. {call.hint}")
         error = response["error"]
