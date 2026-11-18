@@ -596,3 +596,25 @@ def dead_workers_directories_are_swept_and_live_ones_are_not(case: NativeAccepta
     case.assertEqual(list(case.workspace.rglob("renders/job_*")), [])
     case.assertTrue(mine <= set(case.workspace.glob("runtime_*")))
     case.assertTrue(held.is_dir() and plain.is_dir())
+
+
+def private_files_end_with_their_document_and_worker(case: NativeAcceptance) -> None:
+    """Worker-private level, sound and project files are removed with their document or worker."""
+    document = _scene(case)
+    source = tone(24000, "pcm_s16", 24000)
+    level = _import(case, document, "Voice", wav_file(source))["level_id"]
+    _place(case, document, _column(case, document), level, Clip(source, 0, 0, 10))
+    case.assertTrue(list(case.workspace.rglob("sounds/*")))
+    case.mutate("scene.discard", document)
+    case.assertEqual(list(case.workspace.rglob("sounds/*")), [])
+    packaged = _scene(case)
+    voice = _import(case, packaged, "Voice", wav_file(source))["level_id"]
+    _place(case, packaged, _column(case, packaged), voice, Clip(source, 0, 0, 10))
+    saved = case.mutate("scene.save_copy", packaged, directory=str(case.workspace / "residue"))
+    case.mutate("scene.discard", packaged)
+    reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
+    case.assertTrue(list(case.workspace.rglob("sounds/*")))
+    case.mutate("scene.discard", reopened)
+    case.assertEqual(list(case.workspace.rglob("sounds/*")), [])
+    case.assertEqual(list(case.workspace.glob("project_*")), [])
+    case.assertEqual(list(case.workspace.glob("sounds")) + list(case.workspace.glob("levels")), [])

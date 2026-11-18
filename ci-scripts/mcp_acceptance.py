@@ -687,6 +687,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_dead_workers_directories_are_swept_and_live_ones_are_not(self) -> None:
         mcp_failure_cases.dead_workers_directories_are_swept_and_live_ones_are_not(self)
 
+    def test_private_files_end_with_their_document_and_worker(self) -> None:
+        mcp_failure_cases.private_files_end_with_their_document_and_worker(self)
+
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
         self.workspace = self.directory / "workspace"
