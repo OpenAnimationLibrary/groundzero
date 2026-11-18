@@ -548,8 +548,8 @@ QJsonObject inspectVector(Context&, Document& document,
   const auto vector = vectorFor(level, frameId(params));
   const int offset  = integerParam(params, "offset", 0, kMaxStrokes, 0);
   const int limit   = integerParam(params, "limit", 1, 128, 32);
-  const int end =
-      std::min(offset + limit, static_cast<int>(vector->getStrokeCount()));
+  const int total   = static_cast<int>(vector->getStrokeCount());
+  const int end     = std::min(offset + limit, total);
   QJsonArray strokes;
   int pointCount = 0;
   for (int index = offset; index < end; ++index) {
@@ -561,11 +561,11 @@ QJsonObject inspectVector(Context&, Document& document,
     strokes.append(strokeJson(*stroke, index));
   }
   return {{"strokes", strokes},
-          {"total", static_cast<int>(vector->getStrokeCount())},
+          {"total", total},
           {"geometry_revision", document.revisionText()},
           {"coordinate_space", "drawing_native"},
           {"thickness", "native_radius"},
-          {"next_offset", end}};
+          {"next_offset", end < total ? QJsonValue(end) : QJsonValue()}};
 }
 
 std::vector<TThickPoint> controlPoints(const QJsonObject& definition) {
@@ -820,12 +820,13 @@ QJsonObject inspectPalette(Context&, Document& document,
   auto* palette    = paletteFor(simpleLevel(document, params));
   const int offset = integerParam(params, "offset", 0, kMaxStyles, 0);
   const int limit  = integerParam(params, "limit", 1, 128, 32);
-  const int end    = std::min(offset + limit, palette->getStyleCount());
+  const int total  = palette->getStyleCount();
+  const int end    = std::min(offset + limit, total);
   QJsonArray styles;
   for (int id = offset; id < end; ++id) styles.append(styleJson(palette, id));
   return {{"styles", styles},
-          {"total", palette->getStyleCount()},
-          {"next_offset", end},
+          {"total", total},
+          {"next_offset", end < total ? QJsonValue(end) : QJsonValue()},
           {"locked", palette->isLocked()},
           {"color_space", "rgba8_straight_native"},
           {"frame_base", 0},
