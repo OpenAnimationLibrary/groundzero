@@ -74,20 +74,7 @@ class KnownViolation:
     defect: str
 
 
-KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = (
-    KnownViolation(
-        tool="render.preflight" + READ_ONLY_SUFFIX,
-        call=SETTLED,
-        contains="stage objects went from",
-        defect="render.preflight in a scene host adds stage objects to the read-only scene",
-    ),
-    KnownViolation(
-        tool="render.preflight" + READ_ONLY_SUFFIX,
-        call=SETTLED,
-        contains="summary changed",
-        defect="the stage objects render.preflight adds also change the scene summary",
-    ),
-)
+KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = ()
 
 
 @dataclass(frozen=True)
