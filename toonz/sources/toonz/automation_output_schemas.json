@@ -138,12 +138,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "enabled",
-            "index",
-            "layer_id",
-            "name"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -203,7 +198,6 @@
         },
         "required": [
           "channel",
-          "object_id",
           "unit"
         ],
         "type": "object"
@@ -249,9 +243,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "kind"
-              ],
+              "required": [],
               "type": "object"
             },
             "interpolation": {
@@ -295,14 +287,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "frame",
-            "incoming",
-            "interpolation",
-            "linked_handles",
-            "step",
-            "value"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -340,7 +325,6 @@
         },
         "required": [
           "channel",
-          "object_id",
           "unit"
         ],
         "type": "object"
@@ -398,9 +382,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "kind"
-              ],
+              "required": [],
               "type": "object"
             },
             "interpolation": {
@@ -420,9 +402,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "frames"
-              ],
+              "required": [],
               "type": "object"
             },
             "step": {
@@ -436,14 +416,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "frame",
-            "incoming",
-            "interpolation",
-            "linked_handles",
-            "step",
-            "value"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -533,9 +506,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "kind"
-              ],
+              "required": [],
               "type": "object"
             },
             "interpolation": {
@@ -579,14 +550,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "frame",
-            "incoming",
-            "interpolation",
-            "linked_handles",
-            "step",
-            "value"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -680,9 +644,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "kind"
-              ],
+              "required": [],
               "type": "object"
             },
             "interpolation": {
@@ -726,14 +688,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "frame",
-            "incoming",
-            "interpolation",
-            "linked_handles",
-            "step",
-            "value"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -777,10 +732,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "denominator",
-              "numerator"
-            ],
+            "required": [],
             "type": "object"
           },
           "shift_frames": {
@@ -869,10 +821,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "frame",
-            "value"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -938,9 +887,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "kind"
-              ],
+              "required": [],
               "type": "object"
             },
             "interpolation": {
@@ -985,12 +932,7 @@
             }
           },
           "required": [
-            "frame",
-            "incoming",
-            "interpolation",
-            "linked_handles",
-            "step",
-            "value"
+            "frame"
           ],
           "type": "object"
         },
@@ -1102,18 +1044,7 @@
       }
     },
     "required": [
-      "alpha",
-      "artifact_id",
-      "document_id",
-      "frame",
-      "height",
-      "job_id",
-      "kind",
-      "mime_type",
-      "sha256",
-      "size_bytes",
-      "source_revision",
-      "width"
+      "document_id"
     ],
     "type": "object"
   },
@@ -1176,18 +1107,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "compiled",
-            "component",
-            "configuration",
-            "inference_available",
-            "package_source",
-            "presence",
-            "qualification",
-            "reasons",
-            "runtime",
-            "verification"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -1200,10 +1120,7 @@
         "type": "number"
       }
     },
-    "required": [
-      "components",
-      "format"
-    ],
+    "required": [],
     "type": "object"
   },
   "assistance.neural.preview": {
@@ -1522,13 +1439,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "fx_id",
-            "native_fx_version",
-            "replay_class",
-            "seeds",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -2024,11 +1935,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "frame",
-                "interpolation",
-                "value"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 4096,
@@ -2389,17 +2296,7 @@
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "column_id",
-                  "frame_count",
-                  "level_id",
-                  "native_start_frame",
-                  "source_sample_end_inclusive",
-                  "source_sample_start",
-                  "source_start_frame",
-                  "timeline_end_frame",
-                  "timeline_start_frame"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 256,
@@ -2436,11 +2333,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "frame",
-                  "interpolation",
-                  "value"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 4096,
@@ -2471,18 +2364,7 @@
               "type": "integer"
             }
           },
-          "required": [
-            "audible",
-            "clips",
-            "column_id",
-            "gain_default",
-            "gain_keys",
-            "locked",
-            "name",
-            "object_id",
-            "position",
-            "volume_permille"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 32,
@@ -2534,10 +2416,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "column_id",
-                "reason"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 32,
@@ -2587,13 +2466,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "bits_per_sample",
-                  "channels",
-                  "codec",
-                  "sample_rate",
-                  "sample_type"
-                ],
+                "required": [],
                 "type": "object"
               },
               {
@@ -2698,13 +2571,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "bits_per_sample",
-                "channels",
-                "codec",
-                "sample_rate",
-                "sample_type"
-              ],
+              "required": [],
               "type": "object"
             },
             "frame_rate": {
@@ -2764,22 +2631,8 @@
             }
           },
           "required": [
-            "clip_count",
-            "container",
-            "decoded_by",
-            "duration_seconds",
             "format",
-            "frame_rate",
-            "level_id",
-            "lossy_source",
-            "name",
-            "native_frame_count",
-            "pcm_sha256",
-            "sample_count",
-            "samples_per_frame",
-            "size_bytes",
-            "source_sha256",
-            "unreachable_tail_samples"
+            "frame_rate"
           ],
           "type": "object"
         },
@@ -2837,8 +2690,7 @@
             }
           },
           "required": [
-            "column_id",
-            "reason"
+            "column_id"
           ],
           "type": "object"
         },
@@ -3143,10 +2995,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "number",
-                    "suffix"
-                  ],
+                  "required": [],
                   "type": "object"
                 }
               ]
@@ -3231,13 +3080,7 @@
                     }
                   },
                   "required": [
-                    "item_id",
-                    "item_path",
-                    "kind",
-                    "recorded_relationship",
-                    "relationship",
-                    "revision",
-                    "source_asset_path"
+                    "revision"
                   ],
                   "type": "object"
                 }
@@ -3272,19 +3115,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "coded_path",
-            "cover",
-            "dirty",
-            "drawing_count",
-            "format",
-            "level_id",
-            "library",
-            "name",
-            "native_cast_id",
-            "source_expected_on_disk",
-            "tags"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -3330,14 +3161,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "response_bytes",
-          "result_records",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "next_offset": {
@@ -3396,12 +3220,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "scope": {
@@ -3419,20 +3238,7 @@
       }
     },
     "required": [
-      "discovered_records",
-      "document_id",
-      "excluded_checks",
-      "items",
-      "limit",
-      "limits",
-      "next_offset",
-      "offset",
-      "profile",
-      "reasons",
-      "scanned",
-      "scope",
-      "source_revision",
-      "traversal_complete"
+      "document_id"
     ],
     "type": "object"
   },
@@ -3489,13 +3295,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "column_id",
-            "column_index",
-            "first_frame",
-            "last_frame",
-            "level_id"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -3541,14 +3341,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "response_bytes",
-          "result_records",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "next_offset": {
@@ -3607,12 +3400,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "scope": {
@@ -3630,20 +3418,7 @@
       }
     },
     "required": [
-      "discovered_records",
-      "document_id",
-      "excluded_checks",
-      "items",
-      "limit",
-      "limits",
-      "next_offset",
-      "offset",
-      "profile",
-      "reasons",
-      "scanned",
-      "scope",
-      "source_revision",
-      "traversal_complete"
+      "document_id"
     ],
     "type": "object"
   },
@@ -3668,10 +3443,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "number",
-                "suffix"
-              ],
+              "required": [],
               "type": "object"
             },
             "empty": {
@@ -3688,10 +3460,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "empty",
-            "frame"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -4352,8 +4121,7 @@
                 }
               },
               "required": [
-                "number",
-                "suffix"
+                "number"
               ],
               "type": "object"
             },
@@ -4372,14 +4140,12 @@
                 }
               },
               "required": [
-                "number",
-                "suffix"
+                "number"
               ],
               "type": "object"
             }
           },
           "required": [
-            "destination_drawing_id",
             "drawing_id"
           ],
           "type": "object"
@@ -4461,11 +4227,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "id",
-                  "parameters",
-                  "rule"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -4492,11 +4254,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "coefficient",
-                  "max_px",
-                  "name"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -4557,14 +4315,7 @@
                     ]
                   }
                 },
-                "required": [
-                  "animatable",
-                  "keyframes",
-                  "name",
-                  "schema",
-                  "supported",
-                  "value"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -4592,12 +4343,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "connected",
-                  "control",
-                  "name",
-                  "type"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -4630,20 +4376,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "authoring",
-            "available",
-            "constraints",
-            "extent_parameters",
-            "generator",
-            "native_fx_version",
-            "parameters",
-            "ports",
-            "replay_class",
-            "required_inputs",
-            "seed_parameters",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -4697,10 +4430,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "code",
-            "message"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -4755,12 +4485,7 @@
                   ]
                 }
               },
-              "required": [
-                "member_key",
-                "member_port",
-                "port",
-                "source_fx_id"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -4834,14 +4559,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "connected",
-                      "control",
-                      "name",
-                      "source_fx_id",
-                      "source_member_key",
-                      "type"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 1048576,
@@ -4854,14 +4572,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "enabled",
-                "member_key",
-                "name",
-                "native_fx_version",
-                "ports",
-                "type"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -4874,11 +4585,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "input_mapping",
-          "members",
-          "root_member_key"
-        ],
+        "required": [],
         "type": "object"
       },
       "name": {
@@ -4922,12 +4629,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "connected",
-            "control",
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -4949,17 +4651,9 @@
       }
     },
     "required": [
-      "diagnostics",
       "document_id",
-      "enabled",
-      "fx_id",
-      "name",
-      "native_fx_version",
       "operation_id",
-      "ports",
-      "revision",
-      "terminal",
-      "type"
+      "revision"
     ],
     "type": "object"
   },
@@ -4996,10 +4690,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "code",
-            "message"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -5059,8 +4750,6 @@
             }
           },
           "required": [
-            "connected",
-            "control",
             "name",
             "type"
           ],
@@ -5187,12 +4876,7 @@
                   ]
                 }
               },
-              "required": [
-                "member_key",
-                "member_port",
-                "port",
-                "source_fx_id"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -5266,14 +4950,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "connected",
-                      "control",
-                      "name",
-                      "source_fx_id",
-                      "source_member_key",
-                      "type"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 1048576,
@@ -5286,14 +4963,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "enabled",
-                "member_key",
-                "name",
-                "native_fx_version",
-                "ports",
-                "type"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -5306,11 +4976,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "input_mapping",
-          "members",
-          "root_member_key"
-        ],
+        "required": [],
         "type": "object"
       },
       "name": {
@@ -5349,12 +5015,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "connected",
-            "control",
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -5376,17 +5037,9 @@
       }
     },
     "required": [
-      "diagnostics",
       "document_id",
-      "enabled",
-      "fx_id",
-      "name",
-      "native_fx_version",
       "operation_id",
-      "ports",
-      "revision",
-      "terminal",
-      "type"
+      "revision"
     ],
     "type": "object"
   },
@@ -5464,8 +5117,6 @@
             }
           },
           "required": [
-            "connected",
-            "control",
             "name",
             "type"
           ],
@@ -5590,8 +5241,6 @@
             }
           },
           "required": [
-            "connected",
-            "control",
             "name",
             "type"
           ],
@@ -5680,13 +5329,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "authoring_range_violations",
-                "class",
-                "editable",
-                "reasons",
-                "render"
-              ],
+              "required": [],
               "type": "object"
             },
             "column_id": {
@@ -5719,10 +5362,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "code",
-                  "message"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -5775,12 +5415,7 @@
                         ]
                       }
                     },
-                    "required": [
-                      "member_key",
-                      "member_port",
-                      "port",
-                      "source_fx_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 1048576,
@@ -5854,14 +5489,7 @@
                               "type": "string"
                             }
                           },
-                          "required": [
-                            "connected",
-                            "control",
-                            "name",
-                            "source_fx_id",
-                            "source_member_key",
-                            "type"
-                          ],
+                          "required": [],
                           "type": "object"
                         },
                         "maxItems": 1048576,
@@ -5874,14 +5502,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "enabled",
-                      "member_key",
-                      "name",
-                      "native_fx_version",
-                      "ports",
-                      "type"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 1048576,
@@ -5894,11 +5515,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "input_mapping",
-                "members",
-                "root_member_key"
-              ],
+              "required": [],
               "type": "object"
             },
             "name": {
@@ -5937,12 +5554,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "connected",
-                  "control",
-                  "name",
-                  "type"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -5958,14 +5570,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "enabled",
-            "fx_id",
-            "name",
-            "ports",
-            "terminal",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -5978,11 +5583,7 @@
         "type": "string"
       }
     },
-    "required": [
-      "current_output_fx_id",
-      "effects",
-      "xsheet_fx_id"
-    ],
+    "required": [],
     "type": "object"
   },
   "fx.macro.create": {
@@ -6074,8 +5675,6 @@
                   },
                   "required": [
                     "member_key",
-                    "member_port",
-                    "port",
                     "source_fx_id"
                   ],
                   "type": "object"
@@ -6152,12 +5751,7 @@
                           }
                         },
                         "required": [
-                          "connected",
-                          "control",
-                          "name",
-                          "source_fx_id",
-                          "source_member_key",
-                          "type"
+                          "source_fx_id"
                         ],
                         "type": "object"
                       },
@@ -6172,12 +5766,7 @@
                     }
                   },
                   "required": [
-                    "enabled",
-                    "member_key",
-                    "name",
-                    "native_fx_version",
-                    "ports",
-                    "type"
+                    "member_key"
                   ],
                   "type": "object"
                 },
@@ -6191,11 +5780,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "input_mapping",
-              "members",
-              "root_member_key"
-            ],
+            "required": [],
             "type": "object"
           },
           "name": {
@@ -6234,12 +5819,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "connected",
-                "control",
-                "name",
-                "type"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -6255,17 +5835,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "diagnostics",
-          "enabled",
-          "fx_id",
-          "macro",
-          "name",
-          "native_fx_version",
-          "ports",
-          "terminal",
-          "type"
-        ],
+        "required": [],
         "type": "object"
       },
       "operation_id": {
@@ -6290,12 +5860,8 @@
       }
     },
     "required": [
-      "changed",
       "document_id",
-      "member_mapping",
-      "node",
       "operation_id",
-      "retired_fx_ids",
       "revision"
     ],
     "type": "object"
@@ -6326,10 +5892,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "fx_id",
-            "member_key"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -6358,13 +5921,9 @@
       }
     },
     "required": [
-      "changed",
       "document_id",
-      "member_mapping",
       "operation_id",
-      "retired_macro_fx_id",
-      "revision",
-      "root_fx_id"
+      "revision"
     ],
     "type": "object"
   },
@@ -6464,14 +6023,7 @@
               ]
             }
           },
-          "required": [
-            "animatable",
-            "keyframes",
-            "name",
-            "schema",
-            "supported",
-            "value"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -6544,15 +6096,9 @@
       }
     },
     "required": [
-      "animatable",
       "document_id",
-      "keyframes",
-      "name",
       "operation_id",
-      "revision",
-      "schema",
-      "supported",
-      "value"
+      "revision"
     ],
     "type": "object"
   },
@@ -6619,15 +6165,9 @@
       }
     },
     "required": [
-      "animatable",
       "document_id",
-      "keyframes",
-      "name",
       "operation_id",
-      "revision",
-      "schema",
-      "supported",
-      "value"
+      "revision"
     ],
     "type": "object"
   },
@@ -6807,9 +6347,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "kind"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -6836,11 +6374,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "name",
-                  "parameter",
-                  "step"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -6865,10 +6399,7 @@
                     "type": "object"
                   }
                 },
-                "required": [
-                  "name",
-                  "schema"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -6998,11 +6529,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "arguments",
-                  "id",
-                  "tool"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -7020,22 +6547,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "available",
-            "category",
-            "checks",
-            "controls",
-            "id",
-            "inputs",
-            "missing_types",
-            "outcome",
-            "required_sources",
-            "required_types",
-            "seeds",
-            "steps",
-            "title",
-            "version"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -7128,8 +6640,6 @@
             }
           },
           "required": [
-            "connected",
-            "control",
             "name",
             "type"
           ],
@@ -7197,10 +6707,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "code",
-            "message"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -7258,12 +6765,7 @@
                   ]
                 }
               },
-              "required": [
-                "member_key",
-                "member_port",
-                "port",
-                "source_fx_id"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -7338,11 +6840,7 @@
                       }
                     },
                     "required": [
-                      "connected",
-                      "control",
                       "name",
-                      "source_fx_id",
-                      "source_member_key",
                       "type"
                     ],
                     "type": "object"
@@ -7359,7 +6857,6 @@
               },
               "required": [
                 "enabled",
-                "member_key",
                 "name",
                 "native_fx_version",
                 "ports",
@@ -7377,11 +6874,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "input_mapping",
-          "members",
-          "root_member_key"
-        ],
+        "required": [],
         "type": "object"
       },
       "name": {
@@ -7426,8 +6919,6 @@
             }
           },
           "required": [
-            "connected",
-            "control",
             "name",
             "type"
           ],
@@ -7589,10 +7080,7 @@
                         "type": "number"
                       }
                     },
-                    "required": [
-                      "x",
-                      "y"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "b": {
@@ -7609,10 +7097,7 @@
                         "type": "number"
                       }
                     },
-                    "required": [
-                      "x",
-                      "y"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "drawing_id": {
@@ -7640,10 +7125,7 @@
                   }
                 },
                 "required": [
-                  "a",
-                  "b",
-                  "drawing_id",
-                  "pass"
+                  "drawing_id"
                 ],
                 "type": "object"
               },
@@ -7684,10 +7166,7 @@
                   }
                 },
                 "required": [
-                  "child_object_id",
-                  "column_id",
-                  "object_id",
-                  "role"
+                  "column_id"
                 ],
                 "type": "object"
               },
@@ -7696,11 +7175,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "hook_number",
-            "keys",
-            "users"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -7923,10 +7398,7 @@
             }
           },
           "required": [
-            "child_object_id",
-            "column_id",
-            "object_id",
-            "role"
+            "column_id"
           ],
           "type": "object"
         },
@@ -7990,7 +7462,6 @@
     },
     "required": [
       "document_id",
-      "drawings",
       "format",
       "level_id",
       "name",
@@ -8022,10 +7493,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "number",
-            "suffix"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -8060,7 +7528,6 @@
     },
     "required": [
       "document_id",
-      "drawings",
       "format",
       "level_id",
       "name",
@@ -8099,10 +7566,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "number",
-            "suffix"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -8131,7 +7595,6 @@
       }
     },
     "required": [
-      "drawings",
       "format",
       "level_id",
       "name"
@@ -8439,10 +7902,7 @@
                     }
                   },
                   "required": [
-                    "pose_index",
-                    "name",
-                    "entry_count",
-                    "has_thumbnail"
+                    "name"
                   ],
                   "type": "object"
                 },
@@ -8451,11 +7911,7 @@
                 "type": "array"
               }
             },
-            "required": [
-              "pose_count",
-              "has_base",
-              "poses"
-            ],
+            "required": [],
             "type": "object"
           },
           {
@@ -8547,15 +8003,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "frame_count",
-              "column_count",
-              "level_count",
-              "child_sheet_count",
-              "levels",
-              "worker_insertable",
-              "not_insertable_reasons"
-            ],
+            "required": [],
             "type": "object"
           },
           {
@@ -8733,13 +8181,8 @@
                 }
               },
               "required": [
-                "status",
-                "item_id",
                 "revision",
-                "kind",
-                "source_scene",
-                "level_folder",
-                "sidecar_file_revision"
+                "kind"
               ],
               "type": "object"
             },
@@ -8893,12 +8336,9 @@
       }
     },
     "required": [
-      "height",
       "kind",
       "name",
-      "pose_index",
-      "source_file_revision",
-      "width"
+      "source_file_revision"
     ],
     "type": "object"
   },
@@ -8968,7 +8408,6 @@
             }
           },
           "required": [
-            "index",
             "shape"
           ],
           "type": "object"
@@ -9285,10 +8724,7 @@
             }
           },
           "required": [
-            "end",
-            "index",
-            "shape",
-            "start"
+            "shape"
           ],
           "type": "object"
         },
@@ -9344,9 +8780,7 @@
             },
             "required": [
               "document_id",
-              "frame_rate",
-              "level_id",
-              "pcm_sha256"
+              "frame_rate"
             ],
             "type": "object"
           },
@@ -9407,11 +8841,8 @@
               }
             },
             "required": [
-              "executable_sha256",
-              "name",
               "recognizer",
-              "shape_set",
-              "version"
+              "shape_set"
             ],
             "type": "object"
           },
@@ -9719,11 +9150,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "aim",
-            "object_id",
-            "update_position_keys"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -9832,12 +9259,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "consumer_count",
-            "control_point_count",
-            "name",
-            "path_id"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -9879,11 +9301,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "aim",
-            "object_id",
-            "update_position_keys"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -9987,11 +9405,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "aim",
-            "object_id",
-            "update_position_keys"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -10353,14 +9767,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             },
             "before": {
@@ -10397,14 +9804,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             },
             "frame": {
@@ -10426,14 +9826,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "after",
-            "before",
-            "frame",
-            "max_linear_delta",
-            "max_translation_delta_inch",
-            "preserved"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -10587,14 +9980,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             },
             "before": {
@@ -10631,14 +10017,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             },
             "frame": {
@@ -10660,14 +10039,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "after",
-            "before",
-            "frame",
-            "max_linear_delta",
-            "max_translation_delta_inch",
-            "preserved"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -10910,14 +10282,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             },
             "before": {
@@ -10954,14 +10319,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             },
             "frame": {
@@ -10983,14 +10341,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "after",
-            "before",
-            "frame",
-            "max_linear_delta",
-            "max_translation_delta_inch",
-            "preserved"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -11053,10 +10404,8 @@
                 }
               },
               "required": [
-                "channel",
                 "default_value",
-                "key_count",
-                "unit"
+                "key_count"
               ],
               "type": "object"
             },
@@ -11231,10 +10580,8 @@
                 }
               },
               "required": [
-                "channel",
                 "default_value",
-                "key_count",
-                "unit"
+                "key_count"
               ],
               "type": "object"
             },
@@ -11347,12 +10694,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a",
-                "b",
-                "g",
-                "r"
-              ],
+              "required": [],
               "type": "object"
             },
             "color_space": {
@@ -11373,7 +10715,6 @@
           },
           "required": [
             "color",
-            "color_space",
             "frame",
             "timing"
           ],
@@ -11407,12 +10748,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "a",
-          "b",
-          "g",
-          "r"
-        ],
+        "required": [],
         "type": "object"
       },
       "document_id": {
@@ -11506,9 +10842,6 @@
           }
         },
         "required": [
-          "a",
-          "b",
-          "g",
           "r"
         ],
         "type": "object"
@@ -11631,12 +10964,7 @@
                         "type": "number"
                       }
                     },
-                    "required": [
-                      "a",
-                      "b",
-                      "g",
-                      "r"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "color_space": {
@@ -11691,12 +11019,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a",
-                "b",
-                "g",
-                "r"
-              ],
+              "required": [],
               "type": "object"
             },
             "editable": {
@@ -11808,11 +11131,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "name",
-            "page_index",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -11895,11 +11214,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "name",
-            "page_index",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -11982,11 +11297,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "name",
-            "page_index",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -12069,11 +11380,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "name",
-            "page_index",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -12146,11 +11453,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "name",
-            "page_index",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -12208,12 +11511,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a",
-                "b",
-                "g",
-                "r"
-              ],
+              "required": [],
               "type": "object"
             },
             "color_space": {
@@ -12234,7 +11532,6 @@
           },
           "required": [
             "color",
-            "color_space",
             "frame",
             "timing"
           ],
@@ -12268,12 +11565,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "a",
-          "b",
-          "g",
-          "r"
-        ],
+        "required": [],
         "type": "object"
       },
       "document_id": {
@@ -12382,11 +11674,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "name",
-            "page_index",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -12453,9 +11741,6 @@
                 }
               },
               "required": [
-                "a",
-                "b",
-                "g",
                 "r"
               ],
               "type": "object"
@@ -12478,7 +11763,6 @@
           },
           "required": [
             "color",
-            "color_space",
             "frame",
             "timing"
           ],
@@ -12513,9 +11797,6 @@
           }
         },
         "required": [
-          "a",
-          "b",
-          "g",
           "r"
         ],
         "type": "object"
@@ -12622,9 +11903,7 @@
             }
           },
           "required": [
-            "access",
             "document_id",
-            "host_state",
             "revision"
           ],
           "type": "object"
@@ -12651,12 +11930,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "accept_non_alphabet_suffix",
-          "letter_count_for_suffix",
-          "no_separator_format_allowed",
-          "use_standard"
-        ],
+        "required": [],
         "type": "object"
       },
       "file_revision": {
@@ -12717,15 +11991,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "alias",
-            "authority",
-            "coded_path",
-            "exists",
-            "resolved_path",
-            "scene_dependent",
-            "use_scene_path"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -12819,13 +12085,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "camera_height_in",
-              "camera_height_px",
-              "camera_width_in",
-              "camera_width_px",
-              "frame_rate"
-            ],
+            "required": [],
             "type": "object"
           }
         ]
@@ -12957,15 +12217,7 @@
           },
           "required": [
             "project_id",
-            "name",
-            "folder",
-            "project_file",
-            "format",
-            "size_bytes",
-            "file_revision",
-            "status",
-            "alternates",
-            "duplicate_name"
+            "status"
           ],
           "type": "object"
         },
@@ -12994,9 +12246,7 @@
             }
           },
           "required": [
-            "path",
-            "kind",
-            "available"
+            "path"
           ],
           "type": "object"
         },
@@ -13132,11 +12382,7 @@
             }
           },
           "required": [
-            "path",
-            "relative_path",
-            "kind",
-            "size_bytes",
-            "modified"
+            "path"
           ],
           "type": "object"
         },
@@ -13639,12 +12885,7 @@
           },
           "required": [
             "alpha",
-            "artifact_id",
             "height",
-            "kind",
-            "mime_type",
-            "sha256",
-            "size_bytes",
             "width"
           ],
           "type": "object"
@@ -13701,10 +12942,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "x",
-                  "y"
-                ],
+                "required": [],
                 "type": "object"
               },
               "resolution": {
@@ -13748,11 +12986,7 @@
                 "type": "object"
               }
             },
-            "required": [
-              "dpi",
-              "resolution",
-              "size_inch"
-            ],
+            "required": [],
             "type": "object"
           },
           "color_depth_bits": {
@@ -13797,12 +13031,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "x0",
-                  "x1",
-                  "y0",
-                  "y1"
-                ],
+                "required": [],
                 "type": "object"
               },
               "kind": {
@@ -13811,10 +13040,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "camera_pixels",
-              "kind"
-            ],
+            "required": [],
             "type": "object"
           },
           "fit_scale": {
@@ -13852,9 +13078,6 @@
               }
             },
             "required": [
-              "count",
-              "end",
-              "start",
               "step"
             ],
             "type": "object"
@@ -13877,15 +13100,9 @@
         },
         "required": [
           "alpha",
-          "audio",
-          "camera",
-          "color_depth_bits",
           "color_space",
           "color_space_gamma",
-          "crop",
-          "fit_scale",
           "frame_rate",
-          "frames",
           "height",
           "profile",
           "width"
@@ -13958,13 +13175,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "fx_id",
-            "native_fx_version",
-            "replay_class",
-            "seeds",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -14117,10 +13328,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "x",
-                  "y"
-                ],
+                "required": [],
                 "type": "object"
               },
               "resolution": {
@@ -14137,10 +13345,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "height",
-                  "width"
-                ],
+                "required": [],
                 "type": "object"
               },
               "size_inch": {
@@ -14157,18 +13362,11 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "height",
-                  "width"
-                ],
+                "required": [],
                 "type": "object"
               }
             },
-            "required": [
-              "dpi",
-              "resolution",
-              "size_inch"
-            ],
+            "required": [],
             "type": "object"
           },
           "color_depth_bits": {
@@ -14213,12 +13411,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "x0",
-                  "x1",
-                  "y0",
-                  "y1"
-                ],
+                "required": [],
                 "type": "object"
               },
               "kind": {
@@ -14227,10 +13420,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "camera_pixels",
-              "kind"
-            ],
+            "required": [],
             "type": "object"
           },
           "fit_scale": {
@@ -14267,12 +13457,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "count",
-              "end",
-              "start",
-              "step"
-            ],
+            "required": [],
             "type": "object"
           },
           "height": {
@@ -14291,21 +13476,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "alpha",
-          "audio",
-          "camera",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
-          "crop",
-          "fit_scale",
-          "frame_rate",
-          "frames",
-          "height",
-          "profile",
-          "width"
-        ],
+        "required": [],
         "type": "object"
       },
       "end_frame": {
@@ -14369,13 +13540,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "fx_id",
-            "native_fx_version",
-            "replay_class",
-            "seeds",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -14449,28 +13614,8 @@
       }
     },
     "required": [
-      "alpha",
-      "color_space",
-      "color_space_gamma",
-      "completed_frames",
       "document_id",
-      "end_frame",
-      "error",
-      "failed_frames",
-      "format",
-      "frame_count",
-      "frame_rate",
-      "fx_provenance",
-      "height",
-      "job_id",
-      "operation_id",
-      "profile",
-      "source_revision",
-      "start_frame",
-      "status",
-      "step",
-      "width",
-      "writers_closed"
+      "operation_id"
     ],
     "type": "object"
   },
@@ -14519,14 +13664,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "elapsed_ms",
-              "renderer",
-              "renderer_class",
-              "result",
-              "vendor",
-              "version"
-            ],
+            "required": [],
             "type": "object"
           },
           "qpa_platform": {
@@ -14563,10 +13701,7 @@
                     ]
                   }
                 },
-                "required": [
-                  "kind",
-                  "name"
-                ],
+                "required": [],
                 "type": "object"
               },
               "compiled": {
@@ -14621,16 +13756,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "activation",
-              "compiled",
-              "configured",
-              "installed",
-              "loaded",
-              "reasons",
-              "usable",
-              "verified"
-            ],
+            "required": [],
             "type": "object"
           }
         },
@@ -14867,12 +13993,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "id",
-            "status",
-            "code",
-            "details"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 15,
@@ -14917,10 +14038,7 @@
                         "type": "number"
                       }
                     },
-                    "required": [
-                      "x",
-                      "y"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "resolution": {
@@ -14937,10 +14055,7 @@
                         "type": "integer"
                       }
                     },
-                    "required": [
-                      "width",
-                      "height"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "size_inch": {
@@ -14957,18 +14072,11 @@
                         "type": "number"
                       }
                     },
-                    "required": [
-                      "width",
-                      "height"
-                    ],
+                    "required": [],
                     "type": "object"
                   }
                 },
-                "required": [
-                  "resolution",
-                  "size_inch",
-                  "dpi"
-                ],
+                "required": [],
                 "type": "object"
               },
               "color_depth_bits": {
@@ -15010,12 +14118,7 @@
                         "type": "integer"
                       }
                     },
-                    "required": [
-                      "x0",
-                      "y0",
-                      "x1",
-                      "y1"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "kind": {
@@ -15023,10 +14126,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "kind",
-                  "camera_pixels"
-                ],
+                "required": [],
                 "type": "object"
               },
               "fit_scale": {
@@ -15063,12 +14163,7 @@
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "start",
-                  "end",
-                  "step",
-                  "count"
-                ],
+                "required": [],
                 "type": "object"
               },
               "height": {
@@ -15089,21 +14184,7 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "width",
-              "height",
-              "fit_scale",
-              "frames",
-              "frame_rate",
-              "profile",
-              "color_depth_bits",
-              "color_space",
-              "color_space_gamma",
-              "alpha",
-              "audio",
-              "camera",
-              "crop"
-            ],
+            "required": [],
             "type": "object"
           },
           {
@@ -15487,10 +14568,6 @@
             }
           },
           "required": [
-            "fx_id",
-            "native_fx_version",
-            "replay_class",
-            "seeds",
             "type"
           ],
           "type": "object"
@@ -15656,10 +14733,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "x",
-                  "y"
-                ],
+                "required": [],
                 "type": "object"
               },
               "resolution": {
@@ -15703,11 +14777,7 @@
                 "type": "object"
               }
             },
-            "required": [
-              "dpi",
-              "resolution",
-              "size_inch"
-            ],
+            "required": [],
             "type": "object"
           },
           "color_depth_bits": {
@@ -15752,12 +14822,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "x0",
-                  "x1",
-                  "y0",
-                  "y1"
-                ],
+                "required": [],
                 "type": "object"
               },
               "kind": {
@@ -15766,10 +14831,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "camera_pixels",
-              "kind"
-            ],
+            "required": [],
             "type": "object"
           },
           "fit_scale": {
@@ -15807,9 +14869,6 @@
               }
             },
             "required": [
-              "count",
-              "end",
-              "start",
               "step"
             ],
             "type": "object"
@@ -15832,15 +14891,9 @@
         },
         "required": [
           "alpha",
-          "audio",
-          "camera",
-          "color_depth_bits",
           "color_space",
           "color_space_gamma",
-          "crop",
-          "fit_scale",
           "frame_rate",
-          "frames",
           "height",
           "profile",
           "width"
@@ -15913,13 +14966,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "fx_id",
-            "native_fx_version",
-            "replay_class",
-            "seeds",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -16326,10 +15373,6 @@
             }
           },
           "required": [
-            "fx_id",
-            "native_fx_version",
-            "replay_class",
-            "seeds",
             "type"
           ],
           "type": "object"
@@ -16484,10 +15527,6 @@
                   }
                 },
                 "required": [
-                  "base",
-                  "channel",
-                  "effective",
-                  "offset",
                   "unit"
                 ],
                 "type": "object"
@@ -16520,10 +15559,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "x",
-                "y"
-              ],
+              "required": [],
               "type": "object"
             },
             "parent_attachment_local": {
@@ -16540,10 +15576,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "x",
-                "y"
-              ],
+              "required": [],
               "type": "object"
             },
             "pivot_stage": {
@@ -16560,10 +15593,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "x",
-                "y"
-              ],
+              "required": [],
               "type": "object"
             },
             "placement": {
@@ -16600,26 +15630,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "a11",
-                "a12",
-                "a21",
-                "a22",
-                "dx_inch",
-                "dy_inch"
-              ],
+              "required": [],
               "type": "object"
             }
           },
-          "required": [
-            "channels",
-            "frame",
-            "object_id",
-            "own_handle_local",
-            "parent_attachment_local",
-            "pivot_stage",
-            "placement"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -16734,17 +15749,11 @@
                       "type": "number"
                     }
                   },
-                  "required": [
-                    "x",
-                    "y"
-                  ],
+                  "required": [],
                   "type": "object"
                 }
               },
-              "required": [
-                "kind",
-                "native"
-              ],
+              "required": [],
               "type": "object"
             },
             "hook_bindings": {
@@ -16770,12 +15779,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "hook_defined",
-                  "hook_number",
-                  "level_id",
-                  "role"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -16833,12 +15837,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "enabled",
-                  "index",
-                  "layer_id",
-                  "name"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -16882,17 +15881,11 @@
                       "type": "number"
                     }
                   },
-                  "required": [
-                    "x",
-                    "y"
-                  ],
+                  "required": [],
                   "type": "object"
                 }
               },
-              "required": [
-                "kind",
-                "native"
-              ],
+              "required": [],
               "type": "object"
             },
             "parent_id": {
@@ -16924,10 +15917,7 @@
                       "type": "number"
                     }
                   },
-                  "required": [
-                    "x",
-                    "y"
-                  ],
+                  "required": [],
                   "type": "object"
                 },
                 "offset": {
@@ -16944,17 +15934,11 @@
                       "type": "number"
                     }
                   },
-                  "required": [
-                    "x",
-                    "y"
-                  ],
+                  "required": [],
                   "type": "object"
                 }
               },
-              "required": [
-                "center",
-                "offset"
-              ],
+              "required": [],
               "type": "object"
             },
             "status": {
@@ -16963,23 +15947,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "children",
-            "column_id",
-            "depth",
-            "handle",
-            "hook_bindings",
-            "kind",
-            "levels_exposed",
-            "locked",
-            "name",
-            "object_id",
-            "offset_layers",
-            "parent_handle",
-            "parent_id",
-            "pivot",
-            "status"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -17318,12 +16286,7 @@
                   }
                 },
                 "required": [
-                  "result",
-                  "vendor",
-                  "renderer",
-                  "version",
-                  "renderer_class",
-                  "elapsed_ms"
+                  "version"
                 ],
                 "type": "object"
               },
@@ -17510,13 +16473,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "file",
-                  "size_bytes",
-                  "sha256",
-                  "version_line",
-                  "library_versions"
-                ],
+                "required": [],
                 "type": "object"
               },
               {
@@ -17579,13 +16536,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "file",
-                  "size_bytes",
-                  "sha256",
-                  "version_line",
-                  "library_versions"
-                ],
+                "required": [],
                 "type": "object"
               },
               {
@@ -18288,17 +17239,7 @@
               ]
             }
           },
-          "required": [
-            "authority",
-            "availability",
-            "coded_path",
-            "owner_id",
-            "owner_kind",
-            "path_kind",
-            "resolved_path",
-            "role",
-            "size_bytes"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -18344,14 +17285,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "response_bytes",
-          "result_records",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "next_offset": {
@@ -18410,12 +17344,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "scope": {
@@ -18433,20 +17362,7 @@
       }
     },
     "required": [
-      "discovered_records",
-      "document_id",
-      "excluded_checks",
-      "items",
-      "limit",
-      "limits",
-      "next_offset",
-      "offset",
-      "profile",
-      "reasons",
-      "scanned",
-      "scope",
-      "source_revision",
-      "traversal_complete"
+      "document_id"
     ],
     "type": "object"
   },
@@ -18558,10 +17474,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "column_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 16,
@@ -18569,15 +17482,7 @@
                   "type": "array"
                 }
               },
-              "required": [
-                "sheet_path",
-                "level_id",
-                "name",
-                "depth",
-                "column_count",
-                "frame_count",
-                "instance_count"
-              ],
+              "required": [],
               "type": "object"
             },
             {
@@ -18681,10 +17586,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "column_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 16,
@@ -18692,22 +17594,7 @@
                   "type": "array"
                 }
               },
-              "required": [
-                "column_id",
-                "sheet_path",
-                "index",
-                "kind",
-                "name",
-                "preview_visible",
-                "camstand_visible",
-                "locked",
-                "opacity",
-                "first_frame",
-                "last_frame",
-                "level_ids",
-                "level_ids_truncated",
-                "duplicate_name"
-              ],
+              "required": [],
               "type": "object"
             },
             {
@@ -18770,10 +17657,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "column_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 16,
@@ -18781,16 +17665,7 @@
                   "type": "array"
                 }
               },
-              "required": [
-                "object_id",
-                "sheet_path",
-                "kind",
-                "name",
-                "parent_id",
-                "locked",
-                "is_current_camera",
-                "duplicate_name"
-              ],
+              "required": [],
               "type": "object"
             }
           ]
@@ -18853,16 +17728,7 @@
       }
     },
     "required": [
-      "document_id",
-      "source_revision",
-      "section",
-      "items",
-      "offset",
-      "limit",
-      "discovered",
-      "next_offset",
-      "traversal_complete",
-      "reasons"
+      "document_id"
     ],
     "type": "object"
   },
@@ -19026,10 +17892,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "column_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 16,
@@ -19037,16 +17900,7 @@
                   "type": "array"
                 }
               },
-              "required": [
-                "kind",
-                "reason",
-                "name",
-                "level_id",
-                "column_id",
-                "fx_id",
-                "sheet_path",
-                "detail"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 256,
@@ -19059,11 +17913,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "unsupported",
-          "unsupported_count",
-          "truncated"
-        ],
+        "required": [],
         "type": "object"
       },
       "counts": {
@@ -19110,16 +17960,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "sheets",
-          "levels",
-          "columns",
-          "fx_nodes",
-          "frames",
-          "drawings",
-          "sound_levels",
-          "stage_objects"
-        ],
+        "required": [],
         "type": "object"
       },
       "document_id": {
@@ -19155,10 +17996,7 @@
           }
         },
         "required": [
-          "levels_loaded",
-          "levels_failed",
-          "elapsed_ms",
-          "host_memory_bytes"
+          "elapsed_ms"
         ],
         "type": "object"
       },
@@ -19199,12 +18037,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "use_standard",
-              "accept_non_alphabet_suffix",
-              "letter_count_for_suffix",
-              "no_separator_format_allowed"
-            ],
+            "required": [],
             "type": "object"
           },
           "folders": {
@@ -19260,15 +18093,7 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "alias",
-                "coded_path",
-                "scene_dependent",
-                "use_scene_path",
-                "resolved_path",
-                "authority",
-                "exists"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 64,
@@ -19365,13 +18190,8 @@
         },
         "required": [
           "project_id",
-          "name",
           "project_file",
-          "project_file_revision",
-          "binding",
-          "native_binding",
-          "file_path_rules",
-          "folders"
+          "binding"
         ],
         "type": "object"
       },
@@ -19484,10 +18304,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "column_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 16,
@@ -19495,15 +18312,7 @@
                   "type": "array"
                 }
               },
-              "required": [
-                "reason",
-                "rule",
-                "level_id",
-                "column_id",
-                "fx_id",
-                "sheet_path",
-                "detail"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 64,
@@ -19528,13 +18337,7 @@
             "const": "linked-source-stat-pinned"
           }
         },
-        "required": [
-          "renderable",
-          "blockers",
-          "blocker_count",
-          "snapshot_inputs",
-          "formats"
-        ],
+        "required": [],
         "type": "object"
       },
       "revision": {
@@ -19590,14 +18393,7 @@
           }
         },
         "required": [
-          "scene_path",
-          "scene_file_revision",
-          "size_bytes",
-          "scene_version",
-          "unrecognized_scene_tags",
-          "unrecognized_tag_count",
-          "source_fingerprint",
-          "pinned_file_count"
+          "scene_path"
         ],
         "type": "object"
       }
@@ -19605,15 +18401,7 @@
     "required": [
       "document_id",
       "revision",
-      "access",
-      "profile",
-      "source",
-      "project",
-      "counts",
-      "content",
-      "render",
       "load",
-      "host_state",
       "operation_id"
     ],
     "type": "object"
@@ -19641,11 +18429,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "path",
-            "sha256",
-            "size_bytes"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -19676,10 +18460,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "number",
-                  "suffix"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -19731,10 +18512,7 @@
                             "type": "array"
                           }
                         },
-                        "required": [
-                          "name",
-                          "styles"
-                        ],
+                        "required": [],
                         "type": "object"
                       },
                       "maxItems": 1048576,
@@ -19790,13 +18568,7 @@
                                   "type": "number"
                                 }
                               },
-                              "required": [
-                                "name",
-                                "color",
-                                "frame",
-                                "timing",
-                                "space"
-                              ],
+                              "required": [],
                               "type": "object"
                             },
                             "maxItems": 1048576,
@@ -19809,11 +18581,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "name",
-                          "color",
-                          "keys"
-                        ],
+                        "required": [],
                         "type": "object"
                       },
                       "maxItems": 1048576,
@@ -19821,10 +18589,7 @@
                       "type": "array"
                     }
                   },
-                  "required": [
-                    "styles",
-                    "pages"
-                  ],
+                  "required": [],
                   "type": "object"
                 }
               ]
@@ -19899,16 +18664,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "drawings",
-            "hooks_sha256",
-            "name",
-            "palette",
-            "path",
-            "raster",
-            "stroke_opacity_sha256",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -19957,12 +18713,7 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "frame_count",
-                  "source",
-                  "source_start_frame",
-                  "timeline_start_frame"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -19993,15 +18744,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "audible",
-            "clips",
-            "gain_sha256",
-            "locked",
-            "name",
-            "position",
-            "volume_permille"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -20046,13 +18789,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "bits_per_sample",
-                "channels",
-                "codec",
-                "sample_rate",
-                "sample_type"
-              ],
+              "required": [],
               "type": "object"
             },
             "name": {
@@ -20086,16 +18823,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "container",
-            "format",
-            "name",
-            "path",
-            "pcm_sha256",
-            "sample_count",
-            "size_bytes",
-            "source_sha256"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -20118,14 +18846,7 @@
         "type": "number"
       }
     },
-    "required": [
-      "files",
-      "levels",
-      "profile",
-      "scene_file",
-      "source_revision",
-      "version"
-    ],
+    "required": [],
     "type": "object"
   },
   "scene.save_copy": {
@@ -20326,10 +19047,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "number",
-                  "suffix"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -20353,7 +19071,6 @@
             }
           },
           "required": [
-            "drawings",
             "format",
             "level_id",
             "name"
@@ -20472,10 +19189,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "path",
-            "change"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 64,
@@ -20529,14 +19243,7 @@
       }
     },
     "required": [
-      "document_id",
-      "state",
-      "fingerprint_at_open",
-      "current_fingerprint",
-      "changed",
-      "changed_count",
-      "checked_files",
-      "elapsed_ms"
+      "document_id"
     ],
     "type": "object"
   },
@@ -20707,10 +19414,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "number",
-                  "suffix"
-                ],
+                "required": [],
                 "type": "object"
               },
               "maxItems": 1048576,
@@ -20836,11 +19540,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "project_id",
-              "scene_path",
-              "source_fingerprint"
-            ],
+            "required": [],
             "type": "object"
           }
         ]
@@ -20936,10 +19636,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "number",
-                    "suffix"
-                  ],
+                  "required": [],
                   "type": "object"
                 }
               ]
@@ -21003,18 +19700,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "code",
-            "column_id",
-            "column_index",
-            "drawing_id",
-            "first_frame",
-            "fx_id",
-            "last_frame",
-            "level_id",
-            "message",
-            "severity"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -21060,14 +19746,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "response_bytes",
-          "result_records",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "next_offset": {
@@ -21126,12 +19805,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "columns",
-          "fx_nodes",
-          "levels",
-          "scanned_cells"
-        ],
+        "required": [],
         "type": "object"
       },
       "scope": {
@@ -21149,20 +19823,7 @@
       }
     },
     "required": [
-      "discovered_records",
-      "document_id",
-      "excluded_checks",
-      "items",
-      "limit",
-      "limits",
-      "next_offset",
-      "offset",
-      "profile",
-      "reasons",
-      "scanned",
-      "scope",
-      "source_revision",
-      "traversal_complete"
+      "document_id"
     ],
     "type": "object"
   },
@@ -21220,7 +19881,6 @@
                 }
               },
               "required": [
-                "global_palettes_folder",
                 "templates_folder",
                 "poses_folder"
               ],
@@ -21250,14 +19910,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "root",
-            "configured",
-            "writable",
-            "available",
-            "path",
-            "layout"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 3,
@@ -21366,10 +20019,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "number",
-                          "suffix"
-                        ],
+                        "required": [],
                         "type": "object"
                       },
                       "level_id": {
@@ -21378,10 +20028,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "drawing_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   {
@@ -21576,10 +20223,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "number",
-                          "suffix"
-                        ],
+                        "required": [],
                         "type": "object"
                       },
                       "level_id": {
@@ -21588,10 +20232,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "drawing_id",
-                      "level_id"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   {
@@ -21746,10 +20387,7 @@
                               "type": "string"
                             }
                           },
-                          "required": [
-                            "number",
-                            "suffix"
-                          ],
+                          "required": [],
                           "type": "object"
                         },
                         "level_id": {
@@ -21758,10 +20396,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "drawing_id",
-                        "level_id"
-                      ],
+                      "required": [],
                       "type": "object"
                     },
                     {
@@ -21920,9 +20555,7 @@
             }
           },
           "required": [
-            "root",
-            "path",
-            "size_bytes"
+            "root"
           ],
           "type": "object"
         },
@@ -22018,11 +20651,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "page_index",
-            "name",
-            "style_ids"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 128,
@@ -22098,12 +20727,7 @@
                       "type": "integer"
                     }
                   },
-                  "required": [
-                    "r",
-                    "g",
-                    "b",
-                    "a"
-                  ],
+                  "required": [],
                   "type": "object"
                 },
                 {
@@ -22177,12 +20801,7 @@
                     }
                   },
                   "required": [
-                    "global_name",
-                    "state",
-                    "palette_id",
-                    "source_style_id",
-                    "original_name",
-                    "edited"
+                    "palette_id"
                   ],
                   "type": "object"
                 },
@@ -22222,16 +20841,7 @@
               "type": "integer"
             }
           },
-          "required": [
-            "style_id",
-            "name",
-            "native_tag",
-            "solid",
-            "color",
-            "keyframe_count",
-            "page_index",
-            "link"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 128,
@@ -22451,10 +21061,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "family",
-            "styles"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -22650,11 +21257,7 @@
             }
           },
           "required": [
-            "count",
-            "depth",
-            "first_index",
-            "index",
-            "parent_index"
+            "index"
           ],
           "type": "object"
         },
@@ -22928,9 +21531,7 @@
                   }
                 },
                 "required": [
-                  "thickness",
-                  "x",
-                  "y"
+                  "thickness"
                 ],
                 "type": "object"
               },
@@ -22944,13 +21545,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "closed",
-            "index",
-            "native_id",
-            "points",
-            "style_id"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -23322,11 +21917,7 @@
             }
           },
           "required": [
-            "count",
-            "depth",
-            "first_index",
-            "index",
-            "parent_index"
+            "index"
           ],
           "type": "object"
         },
@@ -23483,11 +22074,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "distance",
-              "parameter",
-              "stroke_index"
-            ],
+            "required": [],
             "type": "object"
           }
         ]
@@ -23585,11 +22172,7 @@
             }
           },
           "required": [
-            "count",
-            "depth",
-            "first_index",
-            "index",
-            "parent_index"
+            "index"
           ],
           "type": "object"
         },
@@ -23708,10 +22291,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "x",
-          "y"
-        ],
+        "required": [],
         "type": "object"
       },
       "bounds": {
@@ -23768,10 +22348,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "number",
-          "suffix"
-        ],
+        "required": [],
         "type": "object"
       },
       "editable_as": {
@@ -23899,7 +22476,6 @@
             },
             "required": [
               "family",
-              "size_points",
               "style"
             ],
             "type": "object"

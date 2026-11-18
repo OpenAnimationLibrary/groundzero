@@ -70,6 +70,7 @@ jobs:
         python3 ci-scripts/mcp_census.py
         python3 ci-scripts/mcp_revision_matrix.py
         python3 ci-scripts/mcp_schema_keys.py
+        python3 ci-scripts/mcp_schema_required.py
         python3 ci-scripts/run_harness_tests.py --pattern 'test_mcp_[cr]*.py' \
           --report mcp-census-contracts.txt
 

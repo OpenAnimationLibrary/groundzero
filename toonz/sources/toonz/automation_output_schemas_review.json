@@ -1,0 +1,566 @@
+{
+  "animation.channels": {
+    "handler": "inspectAnimationChannels",
+    "read": []
+  },
+  "animation.copy_curve": {
+    "handler": "copyAnimationCurve",
+    "read": []
+  },
+  "animation.delete_keys": {
+    "handler": "deleteKeys",
+    "read": []
+  },
+  "animation.keys": {
+    "handler": "inspectKeys",
+    "read": []
+  },
+  "animation.retime_curve": {
+    "handler": "retimeAnimationCurve",
+    "read": []
+  },
+  "animation.sample": {
+    "handler": "sampleAnimation",
+    "read": []
+  },
+  "animation.set_keys": {
+    "handler": "setKeys",
+    "read": []
+  },
+  "artifact.read": {
+    "handler": "artifactRead",
+    "read": []
+  },
+  "assistance.inspect": {
+    "handler": null,
+    "read": []
+  },
+  "assistance.neural.preview": {
+    "handler": "submitNeural",
+    "read": []
+  },
+  "audio.clip.place": {
+    "handler": "placeClip",
+    "read": []
+  },
+  "audio.clip.remove": {
+    "handler": "removeClip",
+    "read": []
+  },
+  "audio.clip.update": {
+    "handler": "updateClip",
+    "read": []
+  },
+  "audio.column.create": {
+    "handler": "createColumn",
+    "read": []
+  },
+  "audio.column.set_volume": {
+    "handler": "setVolume",
+    "read": []
+  },
+  "audio.import": {
+    "handler": "importAudio",
+    "read": []
+  },
+  "audio.inspect": {
+    "handler": "inspectAudio",
+    "read": []
+  },
+  "audio.mixdown": {
+    "handler": "mixdown",
+    "read": []
+  },
+  "camera.inspect": {
+    "handler": "inspectCamera",
+    "read": []
+  },
+  "camera.update": {
+    "handler": "updateCamera",
+    "read": []
+  },
+  "cast.list": {
+    "handler": null,
+    "read": []
+  },
+  "cast.usage": {
+    "handler": null,
+    "read": []
+  },
+  "column.cells": {
+    "handler": "inspectCells",
+    "read": []
+  },
+  "column.create": {
+    "handler": "createColumn",
+    "read": []
+  },
+  "column.delete": {
+    "handler": "deleteColumn",
+    "read": []
+  },
+  "column.expose": {
+    "handler": "exposeColumn",
+    "read": []
+  },
+  "column.update": {
+    "handler": "updateColumn",
+    "read": []
+  },
+  "drawing.clone": {
+    "handler": "cloneDrawing",
+    "read": []
+  },
+  "drawing.create": {
+    "handler": "createDrawing",
+    "read": []
+  },
+  "drawing.inspect": {
+    "handler": "inspectDrawing",
+    "read": []
+  },
+  "drawing.remove": {
+    "handler": "removeDrawing",
+    "read": []
+  },
+  "drawing.renumber": {
+    "handler": "renumberDrawing",
+    "read": []
+  },
+  "fx.catalog": {
+    "handler": "effectCatalog",
+    "read": []
+  },
+  "fx.connect": {
+    "handler": null,
+    "read": []
+  },
+  "fx.create": {
+    "handler": "createEffect",
+    "read": []
+  },
+  "fx.delete": {
+    "handler": "deleteEffect",
+    "read": []
+  },
+  "fx.disconnect": {
+    "handler": null,
+    "read": []
+  },
+  "fx.duplicate": {
+    "handler": "duplicateEffect",
+    "read": []
+  },
+  "fx.enabled.set": {
+    "handler": "enableEffect",
+    "read": []
+  },
+  "fx.graph": {
+    "handler": null,
+    "read": []
+  },
+  "fx.macro.create": {
+    "handler": "createMacro",
+    "read": []
+  },
+  "fx.macro.expand": {
+    "handler": "expandMacro",
+    "read": []
+  },
+  "fx.output.select": {
+    "handler": "selectOutput",
+    "read": []
+  },
+  "fx.parameter.get": {
+    "handler": "getParameters",
+    "read": []
+  },
+  "fx.parameter.set": {
+    "handler": null,
+    "read": []
+  },
+  "fx.parameter.set_key": {
+    "handler": null,
+    "read": []
+  },
+  "fx.preset.apply": {
+    "handler": "applyPreset",
+    "read": []
+  },
+  "fx.preset.save": {
+    "handler": "savePreset",
+    "read": []
+  },
+  "fx.recipe.list": {
+    "handler": "listAutomationFxRecipes",
+    "read": []
+  },
+  "fx.rename": {
+    "handler": "renameEffect",
+    "read": []
+  },
+  "fx.terminal.set": {
+    "handler": "setTerminal",
+    "read": []
+  },
+  "hook.delete": {
+    "handler": "deleteHook",
+    "read": []
+  },
+  "hook.inspect": {
+    "handler": "inspectHooks",
+    "read": []
+  },
+  "hook.set": {
+    "handler": "setHook",
+    "read": []
+  },
+  "level.create": {
+    "handler": "createLevel",
+    "read": []
+  },
+  "level.import": {
+    "handler": "importLevel",
+    "read": []
+  },
+  "level.inspect": {
+    "handler": "inspectLevel",
+    "read": []
+  },
+  "library.inspect": {
+    "handler": "inspectItem",
+    "read": []
+  },
+  "library.list": {
+    "handler": "listItems",
+    "read": []
+  },
+  "library.thumbnail": {
+    "handler": "itemThumbnail",
+    "read": []
+  },
+  "lipsync.apply": {
+    "handler": "applyTiming",
+    "read": []
+  },
+  "lipsync.import": {
+    "handler": "importTiming",
+    "read": []
+  },
+  "lipsync.inspect": {
+    "handler": "inspectTiming",
+    "read": []
+  },
+  "motion_path.create": {
+    "handler": "createPath",
+    "read": []
+  },
+  "motion_path.delete": {
+    "handler": "deletePath",
+    "read": []
+  },
+  "motion_path.duplicate": {
+    "handler": "duplicatePath",
+    "read": []
+  },
+  "motion_path.inspect": {
+    "handler": "readPath",
+    "read": []
+  },
+  "motion_path.list": {
+    "handler": "listPaths",
+    "read": []
+  },
+  "motion_path.rename": {
+    "handler": "renamePath",
+    "read": []
+  },
+  "motion_path.update": {
+    "handler": "updatePath",
+    "read": []
+  },
+  "object.create": {
+    "handler": "createObject",
+    "read": []
+  },
+  "object.handles.set": {
+    "handler": "setHandles",
+    "read": []
+  },
+  "object.parent": {
+    "handler": "parentObject",
+    "read": []
+  },
+  "object.path.attach": {
+    "handler": "attachPath",
+    "read": []
+  },
+  "object.path.detach": {
+    "handler": "detachPath",
+    "read": []
+  },
+  "object.pivot.set": {
+    "handler": "setPivot",
+    "read": []
+  },
+  "offset_layer.create": {
+    "handler": "createLayer",
+    "read": []
+  },
+  "offset_layer.delete": {
+    "handler": "deleteLayer",
+    "read": []
+  },
+  "offset_layer.update": {
+    "handler": "updateLayer",
+    "read": []
+  },
+  "palette.clone_style": {
+    "handler": "cloneStyle",
+    "read": []
+  },
+  "palette.create_style": {
+    "handler": "createStyle",
+    "read": []
+  },
+  "palette.inspect": {
+    "handler": "inspectPalette",
+    "read": []
+  },
+  "palette.page.create": {
+    "handler": "createPage",
+    "read": []
+  },
+  "palette.page.move": {
+    "handler": "movePage",
+    "read": []
+  },
+  "palette.page.remove": {
+    "handler": "removePage",
+    "read": []
+  },
+  "palette.page.rename": {
+    "handler": "renamePage",
+    "read": []
+  },
+  "palette.pages": {
+    "handler": "inspectPages",
+    "read": []
+  },
+  "palette.rename_style": {
+    "handler": "renameStyle",
+    "read": []
+  },
+  "palette.style.move": {
+    "handler": "moveStyle",
+    "read": []
+  },
+  "palette.update_style": {
+    "handler": "updateStyle",
+    "read": []
+  },
+  "project.inspect": {
+    "handler": "inspectProject",
+    "read": []
+  },
+  "project.list": {
+    "handler": "listProjects",
+    "read": []
+  },
+  "project.scenes": {
+    "handler": "listScenes",
+    "read": []
+  },
+  "raster.export_png": {
+    "handler": "exportPng",
+    "read": []
+  },
+  "raster.import_png": {
+    "handler": "importPng",
+    "read": []
+  },
+  "raster.patch": {
+    "handler": "patchPixels",
+    "read": []
+  },
+  "raster.read_pixels": {
+    "handler": "readPixels",
+    "read": []
+  },
+  "render.artifacts": {
+    "handler": "artifactList",
+    "read": []
+  },
+  "render.cancel": {
+    "handler": null,
+    "read": []
+  },
+  "render.capabilities": {
+    "handler": "renderCapabilities",
+    "read": []
+  },
+  "render.preflight": {
+    "handler": "preflight",
+    "read": []
+  },
+  "render.preview": {
+    "handler": "submit",
+    "read": []
+  },
+  "render.status": {
+    "handler": "describe",
+    "read": []
+  },
+  "render.submit": {
+    "handler": "submit",
+    "read": []
+  },
+  "rig.evaluate": {
+    "handler": "evaluateRig",
+    "read": []
+  },
+  "rig.inspect": {
+    "handler": "inspectRig",
+    "read": []
+  },
+  "runtime.inspect": {
+    "handler": "inspect",
+    "read": []
+  },
+  "scene.create": {
+    "handler": "createScene",
+    "read": []
+  },
+  "scene.dependencies": {
+    "handler": null,
+    "read": []
+  },
+  "scene.discard": {
+    "handler": "discardScene",
+    "read": []
+  },
+  "scene.inventory": {
+    "handler": null,
+    "read": []
+  },
+  "scene.open": {
+    "handler": "openPackage",
+    "read": []
+  },
+  "scene.open_read_only": {
+    "handler": "openReadOnly",
+    "read": []
+  },
+  "scene.package_info": {
+    "handler": null,
+    "read": []
+  },
+  "scene.save_copy": {
+    "handler": "saveCopy",
+    "read": []
+  },
+  "scene.settings": {
+    "handler": "updateSettings",
+    "read": []
+  },
+  "scene.source_status": {
+    "handler": null,
+    "read": []
+  },
+  "scene.summary": {
+    "handler": "sceneSummary",
+    "read": []
+  },
+  "scene.validate": {
+    "handler": null,
+    "read": []
+  },
+  "shared.roots": {
+    "handler": "sharedRoots",
+    "read": []
+  },
+  "storyboard.panel.create": {
+    "handler": "createPanel",
+    "read": []
+  },
+  "storyboard.panel.delete": {
+    "handler": "deletePanel",
+    "read": []
+  },
+  "storyboard.panel.update": {
+    "handler": "updatePanel",
+    "read": []
+  },
+  "storyboard.panels": {
+    "handler": "listPanels",
+    "read": []
+  },
+  "studio_palette.find": {
+    "handler": "findPalette",
+    "read": []
+  },
+  "studio_palette.inspect": {
+    "handler": "inspectPalette",
+    "read": []
+  },
+  "studio_palette.list": {
+    "handler": "listPalettes",
+    "read": []
+  },
+  "text.fonts": {
+    "handler": "fonts",
+    "read": []
+  },
+  "vector.edit": {
+    "handler": "editVector",
+    "read": []
+  },
+  "vector.fill": {
+    "handler": "fillVector",
+    "read": []
+  },
+  "vector.group.create": {
+    "handler": "createVectorGroup",
+    "read": []
+  },
+  "vector.group.remove": {
+    "handler": "removeVectorGroup",
+    "read": []
+  },
+  "vector.inspect": {
+    "handler": "inspectVector",
+    "read": []
+  },
+  "vector.opacity.inspect": {
+    "handler": "inspectVectorOpacity",
+    "read": []
+  },
+  "vector.opacity.profile.set": {
+    "handler": "setVectorOpacityProfile",
+    "read": []
+  },
+  "vector.opacity.set": {
+    "handler": "setVectorOpacity",
+    "read": []
+  },
+  "vector.order.move": {
+    "handler": "moveVectorOrder",
+    "read": []
+  },
+  "vector.select": {
+    "handler": "selectVector",
+    "read": []
+  },
+  "vector.structure": {
+    "handler": "inspectVectorStructure",
+    "read": []
+  },
+  "vector.text.create": {
+    "handler": "createText",
+    "read": []
+  },
+  "vector.transform": {
+    "handler": "transformVector",
+    "read": []
+  }
+}
