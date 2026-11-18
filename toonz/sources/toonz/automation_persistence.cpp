@@ -490,7 +490,8 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
                 "Reopened storyboard panels differ from the published scene.");
   validateAutomationScene(*scene);
   indexAutomationMacroMembers(*scene);
-  if (automationMacroFingerprint(*scene, context.workspace()) != package.macroFingerprint)
+  if (automationMacroFingerprint(*scene, context.scratchDirectory()) !=
+      package.macroFingerprint)
     throw Error("invalid_package", "The reopened macro graph differs from its published source.");
   verifyFiles(directory, package);
   return scene;
@@ -515,10 +516,7 @@ Package publishPackage(Context& context, Document& document,
                 "Cannot create a private package staging directory.");
   const Package package = writePackage(document, staging.path());
   reopenPackage(context, staging.path(), package);
-  context.markMutationStarted();
-  if (context.writeFaultArmed("publish") ||
-      !publishApproved(staging.path(), path))
-    throw Error("package_write_failed",
+  publishStaged(context, staging.path(), path, "package_write_failed",
                 "Cannot publish the verified package directory.");
   staging.setAutoRemove(false);
   return package;

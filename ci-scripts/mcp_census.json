@@ -420,10 +420,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_finished_render_folder_is_swept_once_its_worker_is_gone",
     "ci-scripts/mcp_acceptance.py::test_dead_workers_directories_are_swept_and_live_ones_are_not",
     "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip"
+    "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted"
    ]
   },
   "camera.inspect": {
@@ -1469,10 +1469,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_publication_on_other_file_systems_is_atomic_or_refused",
     "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
     "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "ci-scripts/mcp_shot.py"
    ]

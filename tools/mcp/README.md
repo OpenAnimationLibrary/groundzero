@@ -48,7 +48,9 @@ by a tool call. A single-valued option such as `--workspace` or `--media-tools`
 given twice is refused with the flag named. Reads admit a hard link inside a root
 like the file it names, since the two are indistinguishable; outputs are
 published without replacing anything, so a hard link never lets a tool change a
-file outside the root. The executable must include native automation support and its
+file outside the root. A destination file system that can neither create a name
+exclusively nor hard-link a finished file (FAT and exFAT) is refused with
+`publication_unsupported` and nothing is written. The executable must include native automation support and its
 normal libraries, codecs, and application resources.
 
 Movie rendering requires an explicit `--media-tools /opt/groundzero/media` startup

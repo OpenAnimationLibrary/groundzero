@@ -28,6 +28,17 @@ namespace GroundzeroAutomation {
 namespace {
 
 #ifdef BUILD_UI_PORT_TESTS
+struct PublishFaults final {
+  bool exclusiveRenameRefused = false;
+  bool hardLinkRefused        = false;
+  bool racingDestination      = false;
+};
+
+PublishFaults& publishFaults() {
+  static PublishFaults faults;
+  return faults;
+}
+
 struct PathSwap final {
   QString path;
   QString target;
@@ -86,25 +97,97 @@ int pinDirectory(const QString& directory) {
   return descriptor;
 }
 
-bool noReplaceRename(const QString& staged, int directory,
-                     const QByteArray& name) {
-  const QByteArray from = QFile::encodeName(staged);
-#ifdef __APPLE__
-  const int status = renameatx_np(AT_FDCWD, from.constData(), directory,
-                                  name.constData(), RENAME_EXCL);
-#elif defined(__linux__)
-  const int status = int(syscall(SYS_renameat2, AT_FDCWD, from.constData(),
-                                 directory, name.constData(), 1u));
-#else
-  const int status = -1;
-  errno            = ENOTSUP;
+#ifdef BUILD_UI_PORT_TESTS
+// Plays the other party at the decisive moment: a destination that appears
+// after the directory was pinned and right before the final atomic step.
+QString& racingStaged() {
+  static QString staged;
+  return staged;
+}
+
+void raceDestination(int directory, const QByteArray& name) {
+  if (!publishFaults().racingDestination) return;
+  publishFaults().racingDestination = false;
+  const QString& staged             = racingStaged();
+  struct stat source{};
+  if (lstat(QFile::encodeName(staged).constData(), &source) == 0 &&
+      S_ISDIR(source.st_mode)) {
+    mkdirat(directory, name.constData(), 0700);
+    return;
+  }
+  const int created =
+      ::openat(directory, name.constData(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+  if (created < 0) return;
+  const char text[] = "other party\n";
+  if (::write(created, text, sizeof(text) - 1) < 0) {
+  }
+  ::close(created);
+}
 #endif
-  if (status == 0) return true;
-  if (errno != ENOTSUP && errno != EINVAL) return false;
-  struct stat existing{};
-  if (fstatat(directory, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) == 0)
-    return false;
-  return renameat(AT_FDCWD, from.constData(), directory, name.constData()) == 0;
+
+// The kernel call that renames without ever replacing: renameatx_np with
+// RENAME_EXCL on macOS, renameat2 with RENAME_NOREPLACE on Linux.
+int exclusiveRename(const QByteArray& from, int directory,
+                    const QByteArray& name) {
+#ifdef BUILD_UI_PORT_TESTS
+  if (publishFaults().exclusiveRenameRefused) {
+    errno = ENOTSUP;
+    return -1;
+  }
+  raceDestination(directory, name);
+#endif
+#ifdef __APPLE__
+  return renameatx_np(AT_FDCWD, from.constData(), directory, name.constData(),
+                      RENAME_EXCL);
+#elif defined(__linux__)
+  return int(syscall(SYS_renameat2, AT_FDCWD, from.constData(), directory,
+                     name.constData(), 1u));
+#else
+  Q_UNUSED(from);
+  Q_UNUSED(directory);
+  Q_UNUSED(name);
+  errno = ENOTSUP;
+  return -1;
+#endif
+}
+
+bool refusedForLackOfSupport(int error) {
+  return error == ENOTSUP || error == EOPNOTSUPP || error == EINVAL ||
+         error == ENOSYS;
+}
+
+// Hard-link the finished file to its name, which fails if the name exists,
+// then drop the staged name. The name appears complete or not at all.
+PublishResult linkPublish(const QByteArray& from, int directory,
+                          const QByteArray& name) {
+#ifdef BUILD_UI_PORT_TESTS
+  if (publishFaults().hardLinkRefused) return PublishResult::Unsupported;
+  raceDestination(directory, name);
+#endif
+  if (linkat(AT_FDCWD, from.constData(), directory, name.constData(), 0) == 0) {
+    ::unlink(from.constData());
+    return PublishResult::Published;
+  }
+  if (errno == EEXIST) return PublishResult::Exists;
+  return refusedForLackOfSupport(errno) || errno == EPERM
+             ? PublishResult::Unsupported
+             : PublishResult::Failed;
+}
+
+// Atomic create-if-absent publication, or a refusal; never a check followed by
+// a rename. A folder has no atomic alternative to the exclusive rename.
+PublishResult exclusivePublish(const QString& staged, int directory,
+                               const QByteArray& name) {
+  const QByteArray from = QFile::encodeName(staged);
+  struct stat source{};
+  const bool folder =
+      lstat(from.constData(), &source) == 0 && S_ISDIR(source.st_mode);
+  if (exclusiveRename(from, directory, name) == 0)
+    return PublishResult::Published;
+  if (errno == EEXIST) return PublishResult::Exists;
+  if (!refusedForLackOfSupport(errno)) return PublishResult::Failed;
+  return folder ? PublishResult::Unsupported
+                : linkPublish(from, directory, name);
 }
 
 EntryInfo::Kind entryKind(mode_t mode) {
@@ -159,6 +242,13 @@ ListResult readEntries(int directory, const QString& path,
 void armPathSwap(const QString& path, const QString& target,
                  const QString& stage) {
   pendingSwap() = {path, target, stage};
+}
+
+void armPublishFaults(const QStringList& faults) {
+  PublishFaults& active         = publishFaults();
+  active.exclusiveRenameRefused = faults.contains("exclusive_rename_refused");
+  active.hardLinkRefused        = faults.contains("hard_link_refused");
+  active.racingDestination      = faults.contains("racing_destination");
 }
 
 void firePathSwap(const QString& stage, const QString& path) {
@@ -313,15 +403,21 @@ OpenResult openApprovedFile(QFile& file, const QString& path) {
   return OpenResult::Opened;
 }
 
-bool publishApproved(const QString& staged, const QString& path) {
+PublishResult publishApproved(const QString& staged, const QString& path) {
   const QFileInfo target(path);
   const Handle directory = pinDirectory(target.absolutePath(), FILE_ADD_FILE);
-  if (!directory.valid()) return false;
+  if (!directory.valid()) return PublishResult::Failed;
 #ifdef BUILD_UI_PORT_TESTS
   firePathSwap("pinned", path);
 #endif
-  return MoveFileExW(nativeName(staged).c_str(), nativeName(path).c_str(), 0) !=
-         0;
+  // Without MOVEFILE_REPLACE_EXISTING the move fails when the name exists,
+  // and the file system decides that atomically.
+  if (MoveFileExW(nativeName(staged).c_str(), nativeName(path).c_str(), 0))
+    return PublishResult::Published;
+  const DWORD error = GetLastError();
+  return error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS
+             ? PublishResult::Exists
+             : PublishResult::Failed;
 }
 
 ListResult listApprovedDirectory(const QString& directory,
@@ -390,17 +486,18 @@ OpenResult openApprovedFile(QFile& file, const QString& path) {
   return OpenResult::Opened;
 }
 
-bool publishApproved(const QString& staged, const QString& path) {
+PublishResult publishApproved(const QString& staged, const QString& path) {
   const QFileInfo target(path);
   const int directory = pinDirectory(target.absolutePath());
-  if (directory < 0) return false;
+  if (directory < 0) return PublishResult::Failed;
+  const QByteArray name = QFile::encodeName(target.fileName());
 #ifdef BUILD_UI_PORT_TESTS
   firePathSwap("pinned", path);
+  racingStaged() = staged;
 #endif
-  const bool published =
-      noReplaceRename(staged, directory, QFile::encodeName(target.fileName()));
+  const PublishResult result = exclusivePublish(staged, directory, name);
   ::close(directory);
-  return published;
+  return result;
 }
 
 ListResult listApprovedDirectory(const QString& directory,
@@ -417,5 +514,26 @@ ListResult listApprovedDirectory(const QString& directory,
 }
 
 #endif
+
+void publishStaged(Context& context, const QString& staged, const QString& path,
+                   const QString& failureCode, const QString& failureMessage) {
+  context.markMutationStarted();
+  if (context.writeFaultArmed("publish"))
+    throw Error(failureCode, failureMessage);
+  switch (publishApproved(staged, path)) {
+  case PublishResult::Published:
+    return;
+  case PublishResult::Unsupported:
+    context.resetMutationStarted();
+    throw Error("publication_unsupported",
+                "This file system can neither create a name exclusively nor "
+                "hard-link a finished file to it, so the output would risk "
+                "replacing a file; nothing was written.",
+                {{"reason", "exclusive_publication_unavailable"}});
+  case PublishResult::Exists:
+  case PublishResult::Failed:
+    throw Error(failureCode, failureMessage);
+  }
+}
 
 }  // namespace GroundzeroAutomation

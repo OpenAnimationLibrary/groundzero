@@ -664,7 +664,8 @@ Pivot pivotRoundTrip(const Pivot& pivot, const QString& file) {
 }
 
 Pivot canonicalPivot(Context& context, const Pivot& pivot) {
-  QTemporaryDir directory(context.workspace() + "/pivot-canonical-XXXXXX");
+  QTemporaryDir directory(context.scratchDirectory() +
+                          "/pivot-canonical-XXXXXX");
   if (!directory.isValid())
     throw Error("io_error", "Cannot create private pivot preparation storage.");
   const Pivot first  = pivotRoundTrip(pivot, directory.filePath("first.xml"));
