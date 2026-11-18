@@ -100,6 +100,10 @@ public:
   QMap<QString, SharedRootGrant> sharedRoots;
   // The private per-process runtime directory inside the workspace.
   QString runtimeDirectory;
+#ifdef BUILD_UI_PORT_TESTS
+  // Test-only fault (crash, hang or memory) injected into child processes.
+  QString childFault;
+#endif
 
 private:
   QString m_workspace;
@@ -144,6 +148,8 @@ std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
 void validateAutomationScene(ToonzScene& scene);
 
 #ifdef BUILD_UI_PORT_TESTS
+// Test-only: crash, hang or grow memory in a child process (empty: nothing).
+void injectChildFault(const QString& fault);
 void runAutomationFxTests(Context& context);
 void runAutomationFxAuthoringTests(Context& context);
 void runAutomationColorCompositeTests(Context& context);

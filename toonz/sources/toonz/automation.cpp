@@ -30,12 +30,17 @@
 #include <QThread>
 #include <QUuid>
 
+#include <chrono>
 #include <clocale>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <functional>
 #include <iostream>
+#include <thread>
+#include <vector>
 
 #ifdef BUILD_UI_PORT_TESTS
 #include "automation_production.h"
@@ -79,6 +84,7 @@ struct Options {
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
+  QString childFault;
 #endif
 };
 
@@ -250,6 +256,10 @@ Options parseOptions(const QStringList& arguments) {
     }
     if (key == "--test-render-deadline-ms" && index + 1 < arguments.size()) {
       options.testRenderDeadlineMs = arguments[++index].toInt();
+      continue;
+    }
+    if (key == "--test-child-fault" && index + 1 < arguments.size()) {
+      options.childFault = arguments[++index];
       continue;
     }
 #endif
@@ -456,6 +466,26 @@ bool writeResponse(QFile& output, QJsonObject response) {
 }
 
 #ifdef BUILD_UI_PORT_TESTS
+}  // namespace
+
+void injectChildFault(const QString& fault) {
+  if (fault == "crash") std::abort();
+  if (fault == "hang")
+    for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
+  if (fault != "memory") return;
+  // 4 GiB, past every child memory bound, then wait: a missing bound shows as
+  // a timeout instead of exhausting the machine.
+  constexpr size_t block = 64 * 1024 * 1024;
+  std::vector<std::unique_ptr<char[]>> blocks;
+  for (int index = 0; index < 64; ++index) {
+    blocks.push_back(std::make_unique<char[]>(block));
+    std::memset(blocks.back().get(), 1, block);
+  }
+  for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
+}
+
+namespace {
+
 int domainTestResult(Context& context) {
   try {
     runAutomationFxTests(context);
@@ -523,6 +553,7 @@ int executeWorker(QApplication& application, QFile& output,
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)
     context.renderDeadlineMs = options.testRenderDeadlineMs;
+  context.childFault = options.childFault;
 #endif
   context.sharedRoots         = options.sharedRoots;
   context.runtimeDirectory    = runtime;

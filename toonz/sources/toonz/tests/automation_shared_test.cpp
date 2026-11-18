@@ -15,7 +15,8 @@
 namespace GroundzeroAutomation {
 namespace {
 
-const QString PaletteId = "1700000000_1234567890123456789";
+const QString PaletteId      = "1700000000_1234567890123456789";
+const QString OtherPaletteId = "1700000000_9876543210987654321";
 
 void require(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
@@ -206,7 +207,8 @@ void checkListing(Dispatcher& dispatcher) {
           "A stale listing revision is a listing conflict");
 }
 
-void checkInspect(Dispatcher& dispatcher, const QString& studio) {
+void checkInspect(Context& context, Dispatcher& dispatcher,
+                  const QString& studio) {
   const QJsonObject params{{"root", "studio_palettes"},
                            {"path", "Global Palettes/Warm.tpl"}};
   const QJsonObject inspected =
@@ -248,10 +250,17 @@ void checkInspect(Dispatcher& dispatcher, const QString& studio) {
   write(studio + "/Global Palettes/Texture.tpl",
         palette(PaletteId, {"texture_x 4 \"/missing/t.bmp\" 255 0 0 255 0 0 "
                             "1 0 1 1 1"}));
+  result(
+      dispatcher, "studio_palette.inspect",
+      {{"root", "studio_palettes"}, {"path", "Global Palettes/Texture.tpl"}});
+  write(studio + "/Global Palettes/Crash.tpl",
+        palette(OtherPaletteId, {"color_0 3 0 0 0 0"}));
+  context.childFault        = "crash";
   const QJsonObject crashed = failure(
       dispatcher, "studio_palette.inspect",
-      {{"root", "studio_palettes"}, {"path", "Global Palettes/Texture.tpl"}},
+      {{"root", "studio_palettes"}, {"path", "Global Palettes/Crash.tpl"}},
       "unsupported_palette");
+  context.childFault.clear();
   require(crashed.value("cause") == "crashed",
           "A native parser crash ends only the helper");
   require(result(dispatcher, "studio_palette.list",
@@ -292,7 +301,7 @@ void checkStudio(Context& context, Dispatcher& dispatcher) {
   {
     RootsScope scope(context, {{"studio_palettes", {studio, false}}});
     checkListing(dispatcher);
-    checkInspect(dispatcher, studio);
+    checkInspect(context, dispatcher, studio);
     for (const QString& bad :
          {QString("../x"), QString("Global Palettes/"), QString("a\\b")})
       failure(dispatcher, "studio_palette.list",

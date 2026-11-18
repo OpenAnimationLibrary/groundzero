@@ -193,22 +193,13 @@ def library_items_report_identity_dependencies_and_thumbnails(case: NativeAccept
     case.assertEqual(changed["file_revision"], pinned["file_revision"])
 
 
-def _malformed_templates(scene: str) -> dict[str, tuple[str, str]]:
-    """Generate the probe corpus from a real scene: name -> (text, expected cause)."""
+def _malformed_templates(scene: str) -> dict[str, str]:
+    """The probe corpus that once crashed, hung or exhausted the template parser."""
     cell = re.compile(r"<cell>\s*0 [0-9]+ ")
     return {
-        "Crash": (scene.replace('id="Camera1"', 'id="Camera-0"', 1), "crashed"),
-        "Hang": (scene.replace("<ports>", "<ports>x", 1), "timeout"),
-        "Memory": (cell.sub("<cell>0 2000000000 ", scene, count=1), "memory"),
-    }
-
-
-def _malformed_palettes() -> dict[str, tuple[bytes, str]]:
-    texture = 'texture_x 4 "/missing/t.bmp" 255 0 0 255 0 0 1 0 1 1 1'
-    fids = "<refImgPath fids='1-2000000000'>\"x.png\"</refImgPath>"
-    return {
-        "Texture": (palette_text(PALETTE_ID, [texture]), "crashed"),
-        "Fids": (palette_text(PALETTE_ID, ["color_0 3 0 0 0 0"], fids), "memory"),
+        "Crash": scene.replace('id="Camera1"', 'id="Camera-0"', 1),
+        "Hang": scene.replace("<ports>", "<ports>x", 1),
+        "Memory": cell.sub("<cell>0 2000000000 ", scene, count=1),
     }
 
 
@@ -221,39 +212,59 @@ def _contained(
     case.assertLess(time.monotonic() - started, 14, params)
 
 
+def _fault_worker(case: NativeAcceptance, library: Path, fault: str) -> Worker:
+    worker = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / f"library-{fault}.stderr.log",
+        shared_roots={"library": library},
+        test_arguments=("--test-child-fault", fault),
+    )
+    case.addCleanup(worker.close)
+    return worker
+
+
+def _hardened_parsers_refuse(case: NativeAcceptance, scene: str, library: Path) -> None:
+    """The once-fatal corpus is now refused cleanly by the hardened native parsers."""
+    studio = case.directory / "studio"
+    (studio / "Global Palettes").mkdir(parents=True)
+    fids = "<refImgPath fids='1-2000000000'>\"x.png\"</refImgPath>"
+    texture = 'texture_x 4 "/missing/t.bmp" 255 0 0 255 0 0 1 0 1 1 1'
+    palettes = studio / "Global Palettes"
+    (palettes / "Fids.tpl").write_bytes(palette_text(PALETTE_ID, ["color_0 3 0 0 0 0"], fids))
+    (palettes / "Texture.tpl").write_bytes(palette_text(PALETTE_ID, [texture]))
+    for name, text in _malformed_templates(scene).items():
+        case.assertNotEqual(text, scene, name)
+        (library / "templates" / f"{name}.tnz").write_text(text)
+    worker = shared_worker(case, {"library": library, "studio_palettes": studio})
+    for name in _malformed_templates(scene):
+        params = {"kind": "template", "name": name}
+        _contained(case, worker, "library.inspect", params, ("invalid_library_item", "rejected"))
+    params = {"root": "studio_palettes", "path": "Global Palettes/Fids.tpl"}
+    _contained(case, worker, "studio_palette.inspect", params, ("unsupported_palette", "rejected"))
+    params = {"root": "studio_palettes", "path": "Global Palettes/Texture.tpl"}
+    call(case, worker, "studio_palette.inspect", params)
+
+
 def shared_parser_failures_leave_worker_serving(case: NativeAcceptance) -> None:
     """Native parser crashes, hangs and memory growth end only the parse helper."""
     scene = (_package_scene(case) / "scene.tnz").read_text()
-    library, studio = case.directory / "library", case.directory / "studio"
+    library = case.directory / "library"
     (library / "templates").mkdir(parents=True)
-    (studio / "Global Palettes").mkdir(parents=True)
-    templates = _malformed_templates(scene)
-    palettes = _malformed_palettes()
-    for name, (text, _cause) in templates.items():
-        case.assertNotEqual(text, scene, name)
-        (library / "templates" / f"{name}.tnz").write_text(text)
-    for name, (data, _cause) in palettes.items():
-        (studio / "Global Palettes" / f"{name}.tpl").write_bytes(data)
-    worker = shared_worker(case, {"library": library, "studio_palettes": studio})
-    created = call(
-        case,
-        worker,
-        "scene.create",
-        {
-            "operation_id": "survivor",
-            "name": "Survivor",
-            "width_px": 32,
-            "height_px": 32,
-            "frame_rate": 24,
-        },
-    )
-    for name, (_text, cause) in templates.items():
-        params = {"kind": "template", "name": name}
+    (library / "templates" / "Valid.tnz").write_text(scene)
+    _hardened_parsers_refuse(case, scene, library)
+    for fault, cause in (("crash", "crashed"), ("hang", "timeout"), ("memory", "memory")):
+        worker = _fault_worker(case, library, fault)
+        created = call(
+            case,
+            worker,
+            "scene.create",
+            {"operation_id": "survivor", "name": "Survivor", "width_px": 32, "height_px": 32},
+        )
+        params = {"kind": "template", "name": "Valid"}
         _contained(case, worker, "library.inspect", params, ("invalid_library_item", cause))
-    for name, (_data, cause) in palettes.items():
-        params = {"root": "studio_palettes", "path": f"Global Palettes/{name}.tpl"}
-        _contained(case, worker, "studio_palette.inspect", params, ("unsupported_palette", cause))
-    documents = call(case, worker, "automation.list_documents", {})["documents"]
-    case.assertEqual([entry["document_id"] for entry in documents], [created["document_id"]])
-    call(case, worker, "scene.summary", {"document_id": created["document_id"]})
+        documents = call(case, worker, "automation.list_documents", {})["documents"]
+        case.assertEqual([entry["document_id"] for entry in documents], [created["document_id"]])
+        call(case, worker, "scene.summary", {"document_id": created["document_id"]})
     case.assertEqual(list(case.workspace.glob("runtime_*/shared-parse-*")), [])

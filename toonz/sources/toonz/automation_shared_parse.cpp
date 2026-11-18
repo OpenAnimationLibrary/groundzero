@@ -288,8 +288,8 @@ HelperRun superviseHelper(QProcess& helper) {
   return run;
 }
 
-void configureHelper(QProcess& helper, const QString& directory,
-                     const QString& kind) {
+void configureHelper(QProcess& helper, const Context& context,
+                     const QString& directory, const QString& kind) {
   auto environment = QProcessEnvironment::systemEnvironment();
   environment.remove("GROUNDZERO_AUTOMATION_CONTROL_FD");
   helper.setProcessEnvironment(environment);
@@ -298,8 +298,15 @@ void configureHelper(QProcess& helper, const QString& directory,
   helper.setStandardInputFile(QProcess::nullDevice());
   helper.setStandardErrorFile(QProcess::nullDevice());
   helper.setProgram(QCoreApplication::applicationFilePath());
-  helper.setArguments({"--automation-worker", "--workspace", directory,
-                       "--parse-helper", kind});
+  QStringList arguments{"--automation-worker", "--workspace", directory,
+                        "--parse-helper", kind};
+#ifdef BUILD_UI_PORT_TESTS
+  if (!context.childFault.isEmpty())
+    arguments << "--test-child-fault" << context.childFault;
+#else
+  Q_UNUSED(context);
+#endif
+  helper.setArguments(arguments);
 }
 
 QString causeText(const QString& cause) {
@@ -348,12 +355,15 @@ QJsonObject parseSharedFile(Context& context, const QString& kind,
     throw Error("io_error", "Cannot write the private parse copy.");
   copy.close();
   QProcess helper;
-  configureHelper(helper, directory.path(), kind);
+  configureHelper(helper, context, directory.path(), kind);
   return interpret(superviseHelper(helper), failureCode);
 }
 
 int runSharedParseHelper(Context& context, const QString& kind, QFile& output) {
   startSelfWatchdog();
+#ifdef BUILD_UI_PORT_TESTS
+  injectChildFault(context.childFault);
+#endif
   const QByteArray line =
       QJsonDocument(helperReply(context, kind)).toJson(QJsonDocument::Compact) +
       '\n';
