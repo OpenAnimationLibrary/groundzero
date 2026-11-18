@@ -17,6 +17,10 @@
 #include <algorithm>
 #include <map>
 
+#ifdef _WIN32
+#include <qt_windows.h>
+#endif
+
 namespace GroundzeroAutomation {
 
 struct SceneHost final {
@@ -28,6 +32,11 @@ struct SceneHost final {
   QString lostPhase;
   QString lastJob;
   bool renderActive = false;
+#ifdef _WIN32
+  // A job that ends the host when the worker's handle to it closes, including
+  // when the worker itself is killed.
+  HANDLE lifetime = nullptr;
+#endif
 
   bool lost() const { return !lostCause.isEmpty(); }
 };
@@ -462,6 +471,34 @@ QStringList hostArguments(const Context& context, const QString& directory,
   return arguments;
 }
 
+// POSIX hosts watch their parent instead (startSceneHostWatchdog). On Windows
+// the worker puts each host in a job of its own that kills it when the job's
+// only handle, held by the worker, closes; nested jobs need Windows 8.
+void bindHostLifetime(SceneHost& host) {
+#ifdef _WIN32
+  const HANDLE job = CreateJobObjectW(nullptr, nullptr);
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  const HANDLE process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE,
+                                     FALSE, DWORD(host.process->processId()));
+  const bool bound =
+      job && process && SetHandleInformation(job, HANDLE_FLAG_INHERIT, 0) &&
+      SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
+                              sizeof(limits)) &&
+      AssignProcessToJobObject(job, process);
+  if (process) CloseHandle(process);
+  if (bound) {
+    host.lifetime = job;
+    return;
+  }
+  if (job) CloseHandle(job);
+  stopProcess(host);
+  host.lostCause = "crashed";
+#else
+  Q_UNUSED(host);
+#endif
+}
+
 std::unique_ptr<SceneHost> startHost(Context& context,
                                      const QString& documentId,
                                      const QByteArray& sceneBytes) {
@@ -479,6 +516,8 @@ std::unique_ptr<SceneHost> startHost(Context& context,
   host->process    = std::make_unique<QProcess>();
   auto environment = QProcessEnvironment::systemEnvironment();
   environment.remove("GROUNDZERO_AUTOMATION_CONTROL_FD");
+  environment.insert("GROUNDZERO_SCENE_HOST_PARENT",
+                     QString::number(QCoreApplication::applicationPid()));
   host->process->setProcessEnvironment(environment);
   host->process->setWorkingDirectory(host->directory);
   host->process->setProcessChannelMode(QProcess::SeparateChannels);
@@ -489,6 +528,8 @@ std::unique_ptr<SceneHost> startHost(Context& context,
   host->process->start();
   if (!host->process->waitForStarted(SceneHostOpenDeadlineMs))
     host->lostCause = "crashed";
+  else
+    bindHostLifetime(*host);
   return host;
 }
 
@@ -497,6 +538,10 @@ void removeHost(SceneHost& host) {
     host.process->closeWriteChannel();
     if (!host.process->waitForFinished(HostCloseGraceMs)) stopProcess(host);
   }
+#ifdef _WIN32
+  if (host.lifetime) CloseHandle(host.lifetime);
+  host.lifetime = nullptr;
+#endif
   if (!host.directory.isEmpty()) QDir(host.directory).removeRecursively();
 }
 

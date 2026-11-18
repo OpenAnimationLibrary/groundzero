@@ -35,15 +35,9 @@ namespace GroundzeroAutomation {
 namespace {
 
 constexpr int HostMemoryExit = 125;
+#ifndef _WIN32
 constexpr int HostOrphanExit = 126;
-
-qint64 parentProcess() {
-#ifdef _WIN32
-  return 0;
-#else
-  return qint64(getppid());
 #endif
-}
 
 struct NativeBinding final {
   QString status;
@@ -802,7 +796,22 @@ QJsonValue executeSceneHost(Context& context, const QString& method,
 
 void startSceneHostWatchdog() {
   const qint64 process = QCoreApplication::applicationPid();
-  const qint64 parent  = parentProcess();
+#ifdef _WIN32
+  // The worker holds the host in a job that ends it with the worker.
+  std::thread([process] {
+    for (;;) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      if (processMemoryBytes(process) > SceneHostMemoryBytes)
+        std::_Exit(HostMemoryExit);
+    }
+  }).detach();
+#else
+  // The worker names itself: a worker that died before this point has
+  // already left the host with another parent.
+  bool named         = false;
+  const pid_t worker = pid_t(
+      qEnvironmentVariableIntValue("GROUNDZERO_SCENE_HOST_PARENT", &named));
+  const pid_t parent = named ? worker : getppid();
   std::thread([process, parent] {
     for (;;) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -810,9 +819,10 @@ void startSceneHostWatchdog() {
         std::_Exit(HostMemoryExit);
       // A killed worker cannot close our input while a native load blocks
       // the event loop.
-      if (parentProcess() != parent) std::_Exit(HostOrphanExit);
+      if (getppid() != parent) std::_Exit(HostOrphanExit);
     }
   }).detach();
+#endif
 }
 
 }  // namespace GroundzeroAutomation
