@@ -27,6 +27,7 @@ import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
 import mcp_library_cases
+import mcp_lipsync_cases
 import mcp_macro_cases
 import mcp_media_cases
 import mcp_motion_path_cases
@@ -261,6 +262,15 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_storyboard_rejections_preserve_panels(self) -> None:
         mcp_storyboard_cases.storyboard_rejections_preserve_panels(self)
+
+    def test_lipsync_dat_import_inspect_and_apply(self) -> None:
+        mcp_lipsync_cases.lipsync_dat_import_inspect_and_apply(self)
+
+    def test_lipsync_rhubarb_rational_timing(self) -> None:
+        mcp_lipsync_cases.lipsync_rhubarb_rational_timing(self)
+
+    def test_lipsync_rejections_preserve_cells(self) -> None:
+        mcp_lipsync_cases.lipsync_rejections_preserve_cells(self)
 
     def test_vector_opacity_round_trip(self) -> None:
         mcp_vector_opacity_cases.vector_opacity_round_trip(self)

@@ -8,6 +8,7 @@
 #include "automation_rig.h"
 #include "automation_shared.h"
 #include "automation_storyboard.h"
+#include "automation_lipsync.h"
 
 #include "texception.h"
 
@@ -243,7 +244,10 @@ QString toolsetDescription(const QString& toolset) {
        "stylize, grade and transition effects with the core FX tools."},
       {"storyboard",
        "Storyboard panels: spans, captions, notes, colors and the drawing "
-       "each panel shows."}};
+       "each panel shows."},
+      {"lipsync",
+       "Lip-sync timing import from Papagayo and Rhubarb files and exact "
+       "application to drawing columns."}};
   const auto found = descriptions.constFind(toolset);
   if (found == descriptions.constEnd())
     throw Error("internal_error",
@@ -282,6 +286,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(hookOperations(), executeHook, "rigging");
   add(sharedOperations(), executeShared, "shared-library");
   add(storyboardOperations(), executeStoryboard, "storyboard");
+  add(lipsyncOperations(), executeLipsync, "lipsync");
   add(
       assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {

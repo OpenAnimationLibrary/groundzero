@@ -45,6 +45,7 @@
 #include "automation_rig.h"
 #include "automation_shared.h"
 #include "automation_storyboard.h"
+#include "automation_lipsync.h"
 #include "automation_text.h"
 #include "automation_vector_opacity.h"
 #include "tests/automation_animation_test.h"
@@ -463,6 +464,7 @@ int domainTestResult(Context& context) {
     runAutomationRigTests(context);
     runAutomationSharedTests(context);
     runAutomationStoryboardTests(context);
+    runAutomationLipsyncTests(context);
     runAutomationProductionTests(context);
     runAutomationAssistanceTests();
     runAutomationMacroTests(context);
