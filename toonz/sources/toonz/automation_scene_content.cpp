@@ -108,11 +108,20 @@ std::set<TFx*> sheetMembers(TXsheet* sheet) {
   return members;
 }
 
-size_t memberCount(const std::set<TFx*>& members) {
-  size_t count = members.size();
-  for (TFx* fx : members)
+// Effect nodes, macro members included; column FX are bounded by the column
+// limit instead, and a generator column counts its generator.
+size_t effectCount(const std::set<TFx*>& members) {
+  size_t count = 0;
+  for (TFx* fx : members) {
+    if (auto* wrapper = dynamic_cast<TZeraryColumnFx*>(fx)) {
+      count += wrapper->getZeraryFx() ? 1 : 0;
+      continue;
+    }
+    if (dynamic_cast<TColumnFx*>(fx)) continue;
+    ++count;
     if (auto* macro = dynamic_cast<TMacroFx*>(fx))
       count += macro->getFxs().size();
+  }
   return count;
 }
 
@@ -179,7 +188,7 @@ QString nodeClass(TFx* fx) {
 QString memberReason(const QString& kind) {
   if (kind == "external_code" || kind == "file_resource") return kind;
   if (kind == "builtin_other") return "unsupported_fx";
-  if (kind == "unknown") return "unknown_fx";
+  if (kind == "unknown") return "unsupported_fx";
   return QString();
 }
 
@@ -418,10 +427,11 @@ void requireReadOnlyStructure(ToonzScene& scene) {
       throw Error("scene_limit", "A sheet has 10,000 or more columns.",
                   {{"limit", "columns_per_sheet"},
                    {"value", entry.sheet->getColumnCount()}});
-    const size_t nodes = memberCount(sheetMembers(entry.sheet));
+    const size_t nodes = effectCount(sheetMembers(entry.sheet));
     total += nodes;
     if (nodes > size_t(FxNodesPerSheetLimit))
-      throw Error("scene_limit", "A sheet has more than 4096 effect nodes.",
+      throw Error("scene_limit",
+                  "A sheet has more than 4096 effects besides its column FX.",
                   {{"limit", "fx_nodes_per_sheet"}, {"value", int(nodes)}});
     const int objects =
         entry.sheet->getStageObjectTree()->getStageObjectCount();
@@ -430,7 +440,8 @@ void requireReadOnlyStructure(ToonzScene& scene) {
                   {{"limit", "stage_objects_per_sheet"}, {"value", objects}});
   }
   if (total > size_t(FxNodesPerSceneLimit))
-    throw Error("scene_limit", "The scene has more than 16,384 effect nodes.",
+    throw Error("scene_limit",
+                "The scene has more than 16,384 effects besides its column FX.",
                 {{"limit", "fx_nodes"}, {"value", int(total)}});
 }
 
@@ -439,7 +450,7 @@ QJsonObject readOnlyCounts(Document& document) {
   int columns = 0, effects = 0, objects = 0, sounds = 0;
   for (const SheetEntry& entry : index.sheets) {
     columns += entry.sheet->getColumnCount();
-    effects += int(memberCount(sheetMembers(entry.sheet)));
+    effects += int(effectCount(sheetMembers(entry.sheet)));
     objects += entry.sheet->getStageObjectTree()->getStageObjectCount();
   }
   TLevelSet* set = document.scene->getLevelSet();
