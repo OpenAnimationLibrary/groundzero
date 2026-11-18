@@ -1097,6 +1097,12 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
     add_test(NAME rasterpaste COMMAND rasterpaste_test)
     set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    # Runs the input modifiers' sub-track copy as compiled into tnztools
+    add_executable(inputmodifier_test tnztools/tests/inputmodifier_test.cpp)
+    target_link_libraries(inputmodifier_test PRIVATE tnztools tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME inputmodifier COMMAND inputmodifier_test)
+    set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60)
 endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)
