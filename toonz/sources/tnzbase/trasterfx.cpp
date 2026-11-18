@@ -77,10 +77,17 @@ inline TRectD myConvert(const TRect &rect) {
 
 //--------------------------------------------------
 
+// True if tfloor / tceil of v are defined: v is a number whose integer part,
+// and that part moved by one, both fit an int.
+inline bool fitsInt(double v) { return v > -2147483647.0 && v < 2147483646.0; }
+
 inline void enlargeToI(TRectD &r) {
+  // A rect which is infinite (TConsts::infiniteRectD), not a number, or beyond
+  // ints' numerical bounds is left as it is: its coordinates cannot be
+  // converted to int.
+  if (!fitsInt(r.x0) || !fitsInt(r.y0) || !fitsInt(r.x1) || !fitsInt(r.y1))
+    return;
   TRectD temp(tfloor(r.x0), tfloor(r.y0), tceil(r.x1), tceil(r.y1));
-  // NOTE: If we enlarge a TConsts::infiniteRectD or one which trespass
-  // ints' numerical bounds, the rect may become empty.
   if (!myIsEmpty(temp)) r = temp;
 }
 
