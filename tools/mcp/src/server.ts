@@ -7,6 +7,8 @@ import {
 import type { CallToolResult, JsonSchemaType, Tool } from "@modelcontextprotocol/server";
 import { WorkerError, errorResult, isObject } from "#mcp/errors";
 import { boundedResult, toolResult } from "#mcp/results";
+import { JobLedger } from "#mcp/jobs-ledger";
+import type { WorkerLoss } from "#mcp/jobs-ledger";
 import { LIVE_TOOL_NAMES } from "#mcp/live-protocol";
 import type { LiveHello } from "#mcp/live-protocol";
 import { ToolsetState, parseToolsets } from "#mcp/toolsets";
@@ -14,6 +16,8 @@ import { ToolsetState, parseToolsets } from "#mcp/toolsets";
 export interface NativeApi {
   request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   close: () => void;
+  /** How the worker was lost, once it was. */
+  loss?: () => WorkerLoss | undefined;
 }
 
 interface NativeTool extends Tool {
@@ -191,6 +195,7 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
     { capabilities: { tools: live ? {} : { listChanged: true } } },
   );
   server.onclose = () => worker.close();
+  const ledger = new JobLedger();
   server.setRequestHandler("tools/list", async () => {
     const { tools, state } = await listedCatalog(load);
     return { tools: state ? state.visible() : tools };
@@ -208,7 +213,14 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
       result =
         state?.isToolsetTool(name) === true
           ? toolResult(await toolsetCall(state, server, name, args))
-          : nativeToolResult(sessionResult(state, name, await worker.request(name, args)), live);
+          : nativeToolResult(
+              sessionResult(
+                state,
+                name,
+                await ledgerRequest(worker, ledger, name, args, context.mcpReq.signal),
+              ),
+              live,
+            );
     } catch (error) {
       result = errorResult(error);
     }
@@ -224,6 +236,42 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
 
 function sessionResult(state: ToolsetState | undefined, name: string, value: unknown): unknown {
   return state !== undefined && name === "runtime.inspect" ? state.sessionRuntime(value) : value;
+}
+
+// A native call whose job records go to the session ledger. A cancelled MCP request is
+// abandoned, never cancelled natively: a job it started is recorded as such. After the
+// worker is lost, job.status and job.list answer from the ledger.
+async function ledgerRequest(
+  worker: NativeApi,
+  ledger: JobLedger,
+  name: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<unknown> {
+  try {
+    const value = await worker.request(name, args);
+    ledger.observe(value, signal.aborted);
+    return name === "job.list" ? ledger.annotate(value) : value;
+  } catch (error) {
+    const answer = ledgerAnswer(worker, ledger, name, args, error);
+    if (answer === undefined) throw error;
+    return answer;
+  }
+}
+
+function ledgerAnswer(
+  worker: NativeApi,
+  ledger: JobLedger,
+  name: string,
+  args: Record<string, unknown>,
+  error: unknown,
+): unknown {
+  const loss = worker.loss?.();
+  if (!(error instanceof WorkerError) || error.code !== "WORKER_UNAVAILABLE" || !loss) {
+    return undefined;
+  }
+  if (name === "job.list") return ledger.list(args, loss);
+  return name === "job.status" ? ledger.status(String(args["job_id"]), loss) : undefined;
 }
 
 type Validator = ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;
