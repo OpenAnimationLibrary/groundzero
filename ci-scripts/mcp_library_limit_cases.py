@@ -236,7 +236,10 @@ def library_case_fold_collisions_are_reported(case: NativeAcceptance) -> None:
     for name in names:
         (library / "templates" / f"{name}.tnz").write_bytes(b"")
     if len(list((library / "templates").glob("*.tnz"))) != len(names):
-        case.skipTest("This filesystem folds case, so case-differing names cannot coexist")
+        case.skipTest(
+            "The output volume is case-insensitive, so Rig.tnz, rig.tnz and RIG.tnz are one file; "
+            "run with --output on a case-sensitive volume"
+        )
     worker = shared_worker(case, {"library": library})
     listing = _list(case, worker)
     flags = {item["name"]: item["case_fold_collision"] for item in listing["items"]}
