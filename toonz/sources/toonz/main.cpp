@@ -30,6 +30,7 @@
 #include "nativeuiintegrationtest.h"
 #include "iconlifecycleintegrationtest.h"
 #include "mcpliveintegrationtest.h"
+#include "tests/mcp_live_disabled_test.h"
 #endif
 
 // TnzTools includes
@@ -1040,6 +1041,11 @@ int main(int argc, char *argv[]) {
     QTimer::singleShot(0, &a, [&a, &w, nativeIconClearOnly] {
       if (!nativeIconClearOnly && qgetenv("GROUNDZERO_NATIVE_UI_SUITE") == "mcp-live") {
         startMcpLiveIntegrationTest(&w, [&a](int result) { a.exit(result); });
+        return;
+      }
+      if (!nativeIconClearOnly &&
+          qgetenv("GROUNDZERO_NATIVE_UI_SUITE") == "mcp-live-disabled") {
+        startMcpLiveDisabledTest(&w, [&a](int result) { a.exit(result); });
         return;
       }
       // The required clear scenario has its own fresh terminal process. It
