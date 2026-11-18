@@ -1,7 +1,7 @@
 #include "automation_runtime.h"
+#include "automation_build_identity.h"
 #include "automation_shared_parse.h"
 
-#include "tenv.h"
 #include "tiio.h"
 #include "tlevel_io.h"
 #include "tsound_io.h"
@@ -571,23 +571,12 @@ QString boundedText(const QString& value, int limit) {
   return text.isEmpty() ? QString("unknown") : text;
 }
 
-QString executableDigest() {
-  static const QString digest =
-      hashFile(QCoreApplication::applicationFilePath());
-  return digest;
-}
-
+// The build value is the live bridge's identity, so runtime.inspect and the
+// live hello report one value for one application.
 QJsonObject workerIdentity() {
   static const QString instance =
       QUuid::createUuid().toString(QUuid::WithoutBraces);
-  return {{"instance_id", instance},
-          {"build",
-           QJsonObject{
-               {"application", "groundzero"},
-               {"version",
-                boundedText(
-                    QString::fromStdString(TEnv::getApplicationVersion()), 64)},
-               {"executable_sha256", executableDigest()}}}};
+  return {{"instance_id", instance}, {"build", buildIdentity()}};
 }
 
 QStringList requestedProbes(const QJsonObject& params) {
