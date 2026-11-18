@@ -42,7 +42,7 @@ function descriptorSchema(declared: boolean): Parameters<typeof fromJsonSchema>[
   const required = ["name", "description", "inputSchema", "annotations"];
   return {
     type: "object" as const,
-    required: declared ? [...required, "effects", "errors"] : required,
+    required: declared ? [...required, "outputSchema", "effects", "errors"] : required,
     properties: {
       name: { type: "string", pattern: "^[a-zA-Z0-9_.-]{1,128}$" },
       description: { type: "string", maxLength: 8192 },

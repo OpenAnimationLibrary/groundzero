@@ -1,4 +1,5 @@
 import { acceptControlChannel } from "#fixtures/control-channel";
+import { outputSchema } from "#mcp/declarations";
 import { appendFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -60,6 +61,7 @@ const tools = [
 ].map((tool) => ({
   ...tool,
   annotations: readOnly,
+  outputSchema: outputSchema({ type: "object" }),
   effects,
   errors: ["invalid_params"],
   toolset: "core",

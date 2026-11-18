@@ -99,9 +99,8 @@ and report `partially_applied` when they fail after a change began.
 adapter's own codes included. The annotations follow from the effects:
 `readOnlyHint` for reads, `destructiveHint` for writes that can overwrite,
 `idempotentHint` always, and `openWorldHint: false` because no tool reaches a
-network or an outside service. `automation.capabilities`,
-`automation.list_documents` and the three toolset tools also publish an
-`outputSchema`: their structured content or the error envelope
+network or an outside service. Every tool also publishes an `outputSchema`:
+its structured content (the result without its image) or the error envelope
 `{error: {code, message, details}}` that every error result carries, with
 messages of at most 2,048 characters. A result outside its tool's output schema
 is never forwarded: the call returns `INVALID_RESULT` with the tool, `outcome`

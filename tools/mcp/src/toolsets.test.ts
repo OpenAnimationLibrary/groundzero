@@ -1,6 +1,6 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
-import { sessionEffects } from "#mcp/declarations";
+import { outputSchema, sessionEffects } from "#mcp/declarations";
 import { createServer } from "#mcp/server";
 import { MAX_EXPOSED_TOOLS, TOOLSET_TOOLS } from "#mcp/toolsets";
 
@@ -10,6 +10,7 @@ function nativeTool(name: string) {
     description: `Native ${name}`,
     inputSchema: { type: "object", additionalProperties: false, properties: {} },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    outputSchema: outputSchema({ type: "object" }),
     effects: { ...sessionEffects("read"), document: "reads" },
     errors: ["invalid_params"],
   };

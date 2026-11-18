@@ -144,6 +144,7 @@ test.each([
   { ...declared, outputSchema: renamed },
   { ...declared, outputSchema: { type: "object", oneOf: [renamed, renamed] } },
   { ...declared, effects: undefined },
+  { ...declared, outputSchema: undefined },
   { ...declared, errors: [] },
   { ...declared, effects: { ...declared.effects, class: "writes_everything" } },
 ])("rejects a catalog whose output schema or declarations are malformed", async (fields) => {
