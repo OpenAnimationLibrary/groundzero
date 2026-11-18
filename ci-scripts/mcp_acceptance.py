@@ -25,11 +25,14 @@ import mcp_audio_cases
 import mcp_color_composite_cases
 import mcp_curve_cases
 import mcp_drawing_cases
+import mcp_edit_limit_cases
 import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
 import mcp_library_cases
+import mcp_library_limit_cases
+import mcp_limit_cases
 import mcp_lipsync_cases
 import mcp_macro_cases
 import mcp_media_cases
@@ -504,6 +507,57 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_document_ids_do_not_alias_after_close_and_reopen(self) -> None:
         mcp_protocol_cases.document_ids_do_not_alias_after_close_and_reopen(self)
+
+    def test_integers_beyond_exact_precision_are_refused(self) -> None:
+        mcp_limit_cases.integers_beyond_exact_precision_are_refused(self)
+
+    def test_non_finite_numbers_are_refused_before_dispatch(self) -> None:
+        mcp_limit_cases.non_finite_numbers_are_refused_before_dispatch(self)
+
+    def test_deep_nesting_is_refused_without_stopping_the_worker(self) -> None:
+        mcp_limit_cases.deep_nesting_is_refused_without_stopping_the_worker(self)
+
+    def test_duplicate_keys_are_refused_before_dispatch(self) -> None:
+        mcp_limit_cases.duplicate_keys_are_refused_before_dispatch(self)
+
+    def test_non_lowercase_drawing_suffixes_are_refused(self) -> None:
+        mcp_limit_cases.non_lowercase_drawing_suffixes_are_refused(self)
+
+    def test_enum_parameters_accept_only_native_integers(self) -> None:
+        mcp_limit_cases.enum_parameters_accept_only_native_integers(self)
+
+    def test_hidden_fx_parameters_are_neither_listed_nor_writable(self) -> None:
+        mcp_limit_cases.hidden_fx_parameters_are_neither_listed_nor_writable(self)
+
+    def test_unknown_style_rejects_the_whole_vector_batch(self) -> None:
+        mcp_edit_limit_cases.unknown_style_rejects_the_whole_vector_batch(self)
+
+    def test_oversized_vector_selection_is_refused(self) -> None:
+        mcp_edit_limit_cases.oversized_vector_selection_is_refused(self)
+
+    def test_render_frame_ranges_are_refused_before_a_job_exists(self) -> None:
+        mcp_edit_limit_cases.render_frame_ranges_are_refused_before_a_job_exists(self)
+
+    def test_exact_render_retry_returns_the_same_job(self) -> None:
+        mcp_edit_limit_cases.exact_render_retry_returns_the_same_job(self)
+
+    def test_library_listing_pages_are_capped(self) -> None:
+        mcp_library_limit_cases.library_listing_pages_are_capped(self)
+
+    def test_library_thumbnails_are_bounded(self) -> None:
+        mcp_library_limit_cases.library_thumbnails_are_bounded(self)
+
+    def test_library_pose_thumbnails_are_bounded(self) -> None:
+        mcp_library_limit_cases.library_pose_thumbnails_are_bounded(self)
+
+    def test_library_listing_revision_tracks_real_changes(self) -> None:
+        mcp_library_limit_cases.library_listing_revision_tracks_real_changes(self)
+
+    def test_library_case_fold_collisions_are_reported(self) -> None:
+        mcp_library_limit_cases.library_case_fold_collisions_are_reported(self)
+
+    def test_library_unreadable_dependency_is_refused_not_hidden(self) -> None:
+        mcp_library_limit_cases.library_unreadable_dependency_is_refused_not_hidden(self)
 
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
