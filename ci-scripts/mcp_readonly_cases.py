@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 UNKNOWN_ARGUMENT = Call("unknown argument", {"unrecognized_acceptance_argument": True}, SCHEMA)
 SETTLED = "after the tool's calls"
+REPEATS = 2
 
 PRIVATE_CACHES = (
     Cache(
@@ -112,10 +113,16 @@ def _listing_changes(
 ) -> list[str]:
     old = {item["document_id"]: item for item in before}
     new = {item["document_id"]: item for item in after}
-    return [
-        f"document {key}: listing entry went from {old.get(key)} to {new.get(key)}"
-        for key in _differing(old, new)
-    ]
+    notes = []
+    for key in _differing(old, new):
+        if key not in old or key not in new:
+            notes.append(f"document {key}: opened or closed during the call")
+            continue
+        notes.extend(
+            f"document {key}: {field} went from {old[key].get(field)} to {new[key].get(field)}"
+            for field in _differing(old[key], new[key])
+        )
+    return notes
 
 
 @dataclass
@@ -189,8 +196,10 @@ class Harness:
         """Call a tool with each of its calls, then compare copies and native state."""
         if calls is None:
             calls = [*READ_CALLS[tool](self.fixture), UNKNOWN_ARGUMENT]
-        for call in calls:
-            self.call(tool, call)
+        for repeat in range(REPEATS):
+            for call in calls:
+                again = replace(call, label=f"{call.label} (again)") if repeat else call
+                self.call(tool, again)
         self._settle(tool)
 
     def _settle(self, tool: str) -> None:
@@ -270,7 +279,7 @@ def every_read_tool_leaves_everything_unchanged(case: NativeAcceptance) -> None:
         harness.check_tool(name)
     harness.finish()
     case.assertEqual(harness.unexplained(KNOWN_VIOLATIONS), [])
-    case.assertGreaterEqual(harness.calls, 2 * len(names))
+    case.assertGreaterEqual(harness.calls, 4 * len(names))
 
 
 def _writer(f: Fixture, **params: Any) -> dict[str, Any]:
@@ -290,7 +299,7 @@ def harness_catches_writing_tools_labelled_as_reads(case: NativeAcceptance) -> N
     exported = {"level_id": fixture.ids["rgba_level"], "drawing_id": {"number": 1, "suffix": ""}}
     exported["path"] = str(case.workspace / "mislabelled.png")
     writers = {
-        "scene.settings": ({"width_px": 48}, "listing entry went from"),
+        "scene.settings": ({"width_px": 48}, "revision went from"),
         "raster.export_png": (exported, "new workspace/mislabelled.png"),
         "column.create": ({"name": "Created by a read"}, "columns went from"),
         "object.create": ({"kind": "pegbar", "name": "Created"}, "stage objects went from"),
@@ -303,6 +312,18 @@ def harness_catches_writing_tools_labelled_as_reads(case: NativeAcceptance) -> N
         harness.check_tool(tool, [Call("mislabelled", _writer(fixture, **params))])
         reported = [item.change for item in harness.findings[before:]]
         case.assertTrue(any(expected in item for item in reported), (tool, expected, reported))
+    _require_known_violations_to_be_exact(case, harness)
+
+
+def _require_known_violations_to_be_exact(case: NativeAcceptance, harness: Harness) -> None:
+    known = [
+        KnownViolation(item.tool, item.call, item.change, "a writing tool labelled as a read")
+        for item in harness.findings
+    ]
+    case.assertEqual(harness.unexplained(known), [])
+    stale = KnownViolation("scene.summary", "main", "no such change", "a defect that was fixed")
+    case.assertEqual(len(harness.unexplained([*known, stale])), 1)
+    case.assertEqual(len(harness.unexplained(known[1:])), 1)
 
 
 def requires_an_entry_for_each_read_tool(case: NativeAcceptance) -> None:
