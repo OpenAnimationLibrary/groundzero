@@ -674,7 +674,9 @@ FxBuilder::FxBuilder(ToonzScene *scene, TXsheet *xsh, double frame,
 //-------------------------------------------------------------------
 
 TFxP FxBuilder::buildFx() {
-  TFx *outputFx = m_xsh->getFxDag()->getOutputFx(0);
+  FxDag* fxDag = m_xsh->getFxDag();
+  if (fxDag->getOutputFxCount() == 0) return TFxP();
+  TFx* outputFx = fxDag->getOutputFx(0);
   if (!outputFx || outputFx->getInputPortCount() != 1 ||
       outputFx->getInputPort(0)->getFx() == 0)
     return TFxP();
