@@ -427,6 +427,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_readonly_tree_hashing_sees_every_kind_of_change(self) -> None:
         mcp_readonly_cases.tree_hashing_sees_every_kind_of_change(self)
 
+    def test_readonly_user_level_files_are_watched_by_name(self) -> None:
+        mcp_readonly_cases.user_level_files_are_watched_by_name(self)
+
     def test_readonly_cache_declarations_are_private_and_exact(self) -> None:
         mcp_readonly_cases.declared_caches_are_private_and_exact(self)
 

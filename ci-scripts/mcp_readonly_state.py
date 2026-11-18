@@ -20,6 +20,7 @@ PINNED_TOOLS = (
     "storyboard.panels",
     "rig.inspect",
 )
+READ_ONLY_TOOLS = ("cast.list", "cast.usage", "scene.dependencies", "scene.validate")
 COUNTED = ("stage objects", "effects", "levels", "columns", "palette styles", "palette pages")
 
 
@@ -78,7 +79,25 @@ def _level(case: NativeAcceptance, base: dict[str, Any], pinned: dict, level: di
     }
 
 
+def _read_only_document(case: NativeAcceptance, entry: dict[str, str]) -> dict[str, Any]:
+    base = {"document_id": entry["document_id"]}
+    pinned = {**base, "expected_revision": entry["revision"]}
+    summary = _read(case, "scene.summary", base)
+    return {
+        "summary": summary,
+        "camera": _read(case, "camera.inspect", base),
+        "graph": _read(case, "fx.graph", base),
+        "pinned": {tool: _paged(case, tool, pinned) for tool in READ_ONLY_TOOLS},
+        "levels": [
+            {"inspect": _read(case, "level.inspect", {**base, "level_id": level["level_id"]})}
+            for level in summary["levels"]
+        ],
+    }
+
+
 def _document(case: NativeAcceptance, entry: dict[str, str]) -> dict[str, Any]:
+    if entry.get("access") == "read_only":
+        return _read_only_document(case, entry)
     base = {"document_id": entry["document_id"]}
     pinned = {**base, "expected_revision": entry["revision"]}
     summary = _read(case, "scene.summary", base)
@@ -119,6 +138,8 @@ def _document(case: NativeAcceptance, entry: dict[str, str]) -> dict[str, Any]:
 def read_state(case: NativeAcceptance) -> dict[str, Any]:
     """Read every open document through the read tools that describe native state.
 
+    A read-only document is read through the tools its scene host answers.
+
     Args:
         case: The case whose worker holds the documents.
     Returns:
@@ -146,8 +167,8 @@ def counts(state: dict[str, Any]) -> dict[str, dict[str, int]]:
         document = state[entry["document_id"]]
         styles = pages = 0
         for level in document["levels"]:
-            styles += sum(len(page.get("styles", [])) for page in level["palette"])
-            pages += len(level["pages"].get("pages", []))
+            styles += sum(len(page.get("styles", [])) for page in level.get("palette", []))
+            pages += len(level.get("pages", {}).get("pages", []))
         result[entry["document_id"]] = dict(
             zip(
                 COUNTED,

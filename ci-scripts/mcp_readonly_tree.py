@@ -124,3 +124,28 @@ def compare(before: Tree, after: Tree, caches: Sequence[Cache] = ()) -> list[str
             if field not in allowed
         )
     return notes
+
+
+def snapshot_named(directories: Mapping[str, Path], patterns: Sequence[str]) -> Tree:
+    """Hash only the entries of each directory whose names match a pattern, recursively.
+
+    Args:
+        directories: Label to a directory that is shared with other programs.
+        patterns: Case-insensitive globs over entry names directly inside a directory.
+    Returns:
+        Entries keyed by `<label>/<relative path>`; a missing directory has none.
+    """
+    tree: Tree = {}
+    for label, directory in directories.items():
+        if not directory.is_dir():
+            continue
+        for child in sorted(directory.iterdir()):
+            if not any(
+                fnmatch.fnmatch(child.name.lower(), pattern.lower()) for pattern in patterns
+            ):
+                continue
+            if child.is_dir() and not child.is_symlink():
+                tree.update(snapshot({f"{label}/{child.name}": child}))
+            else:
+                tree[f"{label}/{child.name}"] = _entry(child)
+    return tree

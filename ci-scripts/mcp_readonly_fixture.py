@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest import mock
 
 from mcp_audio_model import constant, wav_file
 from mcp_library_cases import _build_library, _package_scene
 from mcp_lipsync_cases import DAT_CUES, dat_file
+from mcp_readonly_tree import Tree, snapshot, snapshot_named
 from mcp_rig_cases import _arm_rig
-from mcp_studio_palette_cases import _build_studio
+from mcp_scene_access_cases import _op, _variant, corpus, open_scene, project_id, wait
+from mcp_studio_palette_cases import _build_studio, call
 from mcp_worker import Worker
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
+USER_LEVEL_NAMES = ("GroundzeroAutomation*", "com.GroundzeroAutomation*")
 VECTOR_DRAWING = {"number": 1, "suffix": ""}
 RASTER_SIZE = 4
 
@@ -34,6 +42,12 @@ class Fixture:
     ids: dict[str, str] = field(default_factory=dict)
     package: Path = field(default_factory=Path)
     input_package: Path = field(default_factory=Path)
+    read_only: dict[str, str] = field(default_factory=dict)
+    user_directories: dict[str, Path] = field(default_factory=dict)
+
+    def watched(self) -> Tree:
+        """Hash the granted roots, the worker's temporary directory and its user-level files."""
+        return {**snapshot(self.roots), **snapshot_named(self.user_directories, USER_LEVEL_NAMES)}
 
     @property
     def documents(self) -> list[str]:
@@ -55,18 +69,81 @@ def _shared_roots(case: NativeAcceptance) -> dict[str, Path]:
     return {"studio_palettes": studio, "project_palettes": project, "library": library}
 
 
-def _start_worker(case: NativeAcceptance, shared: dict[str, Path]) -> Worker:
+def user_level_directories() -> dict[str, Path]:
+    """Return the directories where Qt keeps user-level settings, data and caches."""
+    home = Path.home()
+    if sys.platform == "darwin":
+        library = home / "Library"
+        return {
+            "preferences": library / "Preferences",
+            "support": library / "Application Support",
+            "caches": library / "Caches",
+        }
+    if sys.platform == "win32":
+        names = {"roaming": "APPDATA", "local": "LOCALAPPDATA"}
+        return {
+            label: Path(os.environ[name]) for label, name in names.items() if name in os.environ
+        }
+    xdg = {"config": (".config", "XDG_CONFIG_HOME"), "data": (".local/share", "XDG_DATA_HOME")}
+    xdg["cache"] = (".cache", "XDG_CACHE_HOME")
+    return {
+        label: Path(os.environ.get(name, home / folder)) for label, (folder, name) in xdg.items()
+    }
+
+
+def _redirected(pid: int) -> str:
+    """Return the environment text of a process, or an empty string where it cannot be read."""
+    if sys.platform == "linux":
+        return Path(f"/proc/{pid}/environ").read_bytes().replace(b"\0", b"\n").decode()
+    if sys.platform == "darwin":
+        shown = subprocess.run(
+            ["ps", "-E", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True
+        )
+        return shown.stdout
+    return ""
+
+
+def _worker_pids(worker: Worker) -> list[int]:
+    listing = subprocess.run(
+        ["ps", "-ax", "-o", "pid=,ppid=,command="], capture_output=True, text=True, check=True
+    ).stdout
+    rows = [line.split(None, 2) for line in listing.splitlines()]
+    rows = [(int(row[0]), int(row[1]), row[2]) for row in rows if len(row) == 3]
+    tree = {worker.process.pid}
+    grown = True
+    while grown:
+        added = {pid for pid, parent, _ in rows if parent in tree} - tree
+        tree |= added
+        grown = bool(added)
+    return [pid for pid, _, command in rows if pid in tree and "--automation-worker" in command]
+
+
+def require_redirect(case: NativeAcceptance, worker: Worker, temporary: Path) -> None:
+    """Require the native worker process to have been started with the private temp directory."""
+    if os.name != "posix":
+        return
+    pids = _worker_pids(worker)
+    case.assertTrue(pids, "No native worker process was found")
+    for pid in pids:
+        case.assertIn(f"TMPDIR={temporary}", _redirected(pid))
+
+
+def _start_worker(case: NativeAcceptance, shared: dict[str, Path], temporary: Path) -> Worker:
     case.worker.close()
-    worker = Worker(
-        case.executable,
-        case.workspace,
-        case.inputs,
-        case.directory / "readonly.stderr.log",
-        shared_roots=shared,
-        shared_write=("library",),
-    )
+    temporary.mkdir()
+    variables = {"TMPDIR": str(temporary), "TMP": str(temporary), "TEMP": str(temporary)}
+    with mock.patch.dict(os.environ, variables):
+        worker = Worker(
+            case.executable,
+            case.workspace,
+            case.inputs,
+            case.directory / "readonly.stderr.log",
+            shared_roots=shared,
+            shared_write=("library",),
+        )
     case.addCleanup(worker.close)
     case.worker = worker
+    require_redirect(case, worker, temporary)
     return worker
 
 
@@ -207,6 +284,36 @@ def _vector_style(case: NativeAcceptance, document: str, level: str) -> None:
     case.mutate("palette.update_style", document, **target, color=blue, keyframe=24)
 
 
+def _no_stage_objects(text: str) -> str:
+    return re.sub(
+        r'<pegbar [^>]*id="(Camera1|Table|Col\d+)"[^>]*>.*?</pegbar>\s*', "", text, flags=re.S
+    )
+
+
+def _read_only_documents(
+    case: NativeAcceptance, worker: Worker, ids: dict[str, str]
+) -> dict[str, str]:
+    scenes = corpus(case)
+    stripped = _no_stage_objects((scenes["base"] / "scene.tnz").read_text())
+    scenes["N"] = _variant(case, scenes["base"], "no-stage-objects", stripped)
+    project = project_id(case, worker, "ShowA")
+    opened = {
+        "project": open_scene(case, worker, scenes["A"], project),
+        "sheets": open_scene(case, worker, scenes["B"], "standalone"),
+        "unsafe": open_scene(case, worker, scenes["C"], "standalone"),
+        "no_stage_objects": open_scene(case, worker, scenes["N"], "standalone"),
+    }
+    documents = {name: result["document_id"] for name, result in opened.items()}
+    params = {"document_id": documents["project"], "expected_revision": "0", "frame": 0}
+    params.update(width=32, height=32, operation_id=_op(case))
+    job = call(case, worker, "render.preview", params)["job_id"]
+    case.assertEqual(wait(case, worker, job)["status"], "completed")
+    ids["read_only_job"] = job
+    artifacts = call(case, worker, "render.artifacts", {"job_id": job})["artifacts"]
+    ids["read_only_artifact"] = artifacts[0]["artifact_id"]
+    return documents
+
+
 def build(case: NativeAcceptance) -> Fixture:
     """Create the shared roots, a worker that holds them, and one scene with every kind of content.
 
@@ -216,7 +323,8 @@ def build(case: NativeAcceptance) -> Fixture:
         The fixture, whose `roots` are every directory the harness hashes.
     """
     shared = _shared_roots(case)
-    worker = _start_worker(case, shared)
+    temporary = case.directory / "temporary"
+    worker = _start_worker(case, shared, temporary)
     bare = case.create("Bare")
     document, body, _body_column, arm_column = _arm_rig(case)
     ids = {
@@ -241,5 +349,11 @@ def build(case: NativeAcceptance) -> Fixture:
     copied = case.inputs / "saved-package"
     shutil.copytree(package, copied)
     reopened = case.mutate("scene.open", None, path=str(package))["document_id"]
+    read_only = _read_only_documents(case, worker, ids)
     roots: dict[str, Any] = {"workspace": case.workspace, "inputs": case.inputs, **shared}
-    return Fixture(case, worker, roots, document, reopened, bare, ids, package, copied)
+    roots["temporary"] = temporary
+    user = user_level_directories()
+    fixture = Fixture(case, worker, roots, document, reopened, bare, ids, package, copied)
+    fixture.read_only = read_only
+    fixture.user_directories = user
+    return fixture

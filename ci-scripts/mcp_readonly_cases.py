@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import mcp_readonly_fixture
-from mcp_readonly_calls import READ_CALLS, SCHEMA, Call
+from mcp_readonly_calls import READ_CALLS, READ_ONLY_CALLS, ROUTED_WRITES, SCHEMA, Call
+from mcp_readonly_fixture import USER_LEVEL_NAMES
 from mcp_readonly_state import counts, read_state
-from mcp_readonly_tree import Cache, Tree, compare, snapshot
+from mcp_readonly_tree import Cache, Tree, compare, snapshot, snapshot_named
+from mcp_scene_access_cases import _tool_params
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -30,6 +32,9 @@ if TYPE_CHECKING:
 
 UNKNOWN_ARGUMENT = Call("unknown argument", {"unrecognized_acceptance_argument": True}, SCHEMA)
 SETTLED = "after the tool's calls"
+LAST_PAGE = "last page"
+READ_ONLY_SUFFIX = " on a read-only document"
+PAGE_KEYS = ("next_offset", "next_index")
 REPEATS = 2
 
 PRIVATE_CACHES = (
@@ -61,7 +66,22 @@ class KnownViolation:
     defect: str
 
 
-KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = ()
+KNOWN_VIOLATIONS = (
+    KnownViolation(
+        "vector.inspect",
+        LAST_PAGE,
+        "next_offset is 1 on the last page",
+        "vector.inspect returns next_offset equal to the stroke total on its last page "
+        "(automation_drawing.cpp, next_offset at line 568); every other paged read returns null",
+    ),
+    KnownViolation(
+        "palette.inspect",
+        LAST_PAGE,
+        "next_offset is",
+        "palette.inspect returns next_offset equal to the style total on its last page "
+        "(automation_drawing.cpp, next_offset at line 828); every other paged read returns null",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -143,7 +163,7 @@ class Harness:
         """Take the baselines every later comparison is made against."""
         self.copies = self._save_copies(self.fixture.documents)
         self.state = read_state(self.fixture.case)
-        self.tree = snapshot(self.fixture.roots)
+        self.tree = self.fixture.watched()
 
     def _revisions(self) -> list[dict[str, str]]:
         return self.fixture.case.success("automation.list_documents", {})["documents"]
@@ -174,44 +194,73 @@ class Harness:
 
     def _outcome(self, tool: str, call: Call, response: dict[str, Any]) -> None:
         case = self.fixture.case
+        name = f"{tool} [{call.label}]"
         if call.refusal is None:
-            case.assertNotIn("error", response, f"{tool} [{call.label}] was refused: {response}")
+            case.assertNotIn("error", response, f"{name} was refused: {response}")
             return
-        case.assertIn("error", response, f"{tool} [{call.label}] was not refused")
+        case.assertIn("error", response, f"{name} was not refused. {call.hint}")
+        error = response["error"]
         expected = case.schema_code() if call.refusal == SCHEMA else call.refusal
-        case.assertEqual(response["error"]["code"], expected, f"{tool} [{call.label}]")
+        case.assertEqual(error["code"], expected, name)
+        if call.reason is not None:
+            case.assertEqual(error["details"].get("reason"), call.reason, name)
 
-    def call(self, tool: str, call: Call) -> None:
+    def call(self, tool: str, call: Call, suffix: str = "") -> dict[str, Any]:
         """Call one tool, require its expected outcome, and record any change it caused."""
         before = self._revisions()
         response = self.fixture.worker.call(tool, call.params)
         self._outcome(tool, call, response)
         self.calls += 1
-        after = snapshot(self.fixture.roots)
+        after = self.fixture.watched()
         notes = compare(self.tree, after, self.caches)
         notes.extend(_listing_changes(before, self._revisions()))
         self.tree = after
-        self.findings.extend(Finding(tool, call.label, note) for note in notes)
+        self.findings.extend(Finding(tool + suffix, call.label, note) for note in notes)
+        return response
 
-    def check_tool(self, tool: str, calls: Sequence[Call] | None = None) -> None:
+    def check_tool(self, tool: str, calls: Sequence[Call] | None = None, suffix: str = "") -> None:
         """Call a tool with each of its calls, then compare copies and native state."""
         if calls is None:
             calls = [*READ_CALLS[tool](self.fixture), UNKNOWN_ARGUMENT]
+        self.check_group(tool + suffix, [(tool, call) for call in calls], suffix)
+
+    def check_group(self, name: str, pairs: Sequence[tuple[str, Call]], suffix: str = "") -> None:
+        """Make each (tool, call) twice, then compare copies and native state once."""
         for repeat in range(REPEATS):
-            for call in calls:
+            for tool, call in pairs:
                 again = replace(call, label=f"{call.label} (again)") if repeat else call
-                self.call(tool, again)
-        self._settle(tool)
+                self.call(tool, again, suffix)
+        self._settle(name)
+
+    def check_last_page(
+        self, tool: str, calls: Sequence[Call], limit: int, suffix: str = ""
+    ) -> None:
+        """Require a response that holds every item to end its paging the way the others do."""
+        for call in calls:
+            if call.refusal is not None:
+                continue
+            response = self.call(
+                tool, replace(call, params={**call.params, "limit": limit}), suffix
+            )
+            result = response["result"]
+            keys = [key for key in PAGE_KEYS if key in result]
+            if len(keys) != 1:
+                note = f"the last page carries {keys or 'no paging key'}, not one of {PAGE_KEYS}"
+            elif result[keys[0]] is not None:
+                note = f"{keys[0]} is {result[keys[0]]} on the last page, not null"
+            else:
+                continue
+            self.findings.append(Finding(tool + suffix, LAST_PAGE, f"{note} ({call.label})"))
 
     def _settle(self, tool: str) -> None:
         notes = self._compare_copies([self.fixture.document])
-        saved = snapshot(self.fixture.roots)
+        saved = self.fixture.watched()
         state = read_state(self.fixture.case)
         notes.extend(self._compare_state(state))
-        reads = compare(saved, snapshot(self.fixture.roots), self.caches)
+        reads = compare(saved, self.fixture.watched(), self.caches)
         notes.extend(f"the harness's own state reads changed files: {note}" for note in reads)
         self.state = state
-        self.tree = snapshot(self.fixture.roots)
+        self.tree = self.fixture.watched()
         self.findings.extend(Finding(tool, SETTLED, note) for note in notes)
 
     def _compare_copies(self, documents: Sequence[str]) -> list[str]:
@@ -266,18 +315,76 @@ def _catalog(case: NativeAcceptance) -> list[dict[str, Any]]:
     return case.success("automation.capabilities", {})["tools"]
 
 
+def _paged_limits(catalog: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    limits = {}
+    for tool in catalog:
+        properties = tool["inputSchema"]["properties"]
+        if tool["annotations"]["readOnlyHint"] and "limit" in properties:
+            if "offset" in properties or "start_index" in properties:
+                limits[tool["name"]] = properties["limit"]["maximum"]
+    return limits
+
+
+def _refusals_on_read_only(catalog: Sequence[dict[str, Any]], document: str) -> list:
+    pairs = []
+    for tool in catalog:
+        name, properties = tool["name"], tool["inputSchema"]["properties"]
+        if "document_id" not in properties or name in READ_ONLY_CALLS or name in ROUTED_WRITES:
+            continue
+        write = not tool["annotations"]["readOnlyHint"]
+        hint = (
+            f"{name} writes: add it to ROUTED_WRITES in mcp_readonly_calls.py if scene hosts "
+            "now answer it, and cover its effects in the scene access cases"
+            if write
+            else f"{name} reads: add it to READ_ONLY_CALLS in mcp_readonly_calls.py"
+        )
+        reason = "mutation" if write else "not_qualified"
+        call = Call("refused", _tool_params(tool, document), "read_only_document", reason, hint)
+        pairs.append((name, call))
+    return pairs
+
+
+def check_read_only_documents(harness: Harness, catalog: Sequence[dict[str, Any]]) -> None:
+    """Call the reads that scene hosts answer on every read-only document, and refuse the rest.
+
+    Args:
+        harness: A started harness whose fixture holds read-only documents.
+        catalog: The live catalog.
+    """
+    fixture = harness.fixture
+    limits = _paged_limits(catalog)
+    for tool in read_tool_names(catalog):
+        if tool not in READ_ONLY_CALLS:
+            continue
+        calls = [
+            replace(call, label=f"{kind}: {call.label}")
+            for kind, document in fixture.read_only.items()
+            for call in READ_ONLY_CALLS[tool](fixture, document)
+        ]
+        harness.check_tool(tool, calls, READ_ONLY_SUFFIX)
+        if tool in limits:
+            harness.check_last_page(tool, calls, limits[tool], READ_ONLY_SUFFIX)
+    pairs = _refusals_on_read_only(catalog, fixture.read_only["sheets"])
+    harness.check_group("every other tool" + READ_ONLY_SUFFIX, pairs, READ_ONLY_SUFFIX)
+
+
 def every_read_tool_leaves_everything_unchanged(case: NativeAcceptance) -> None:
     """Call each catalog read tool with successful and refused arguments and require no change.
 
     Args:
         case: A fresh acceptance case; the harness replaces its worker.
     """
-    names = read_tool_names(_catalog(case))
+    catalog = _catalog(case)
+    names = read_tool_names(catalog)
     require_entries(names, READ_CALLS)
+    limits = _paged_limits(catalog)
     harness = Harness(mcp_readonly_fixture.build(case))
     harness.start()
     for name in names:
         harness.check_tool(name)
+        if name in limits:
+            harness.check_last_page(name, READ_CALLS[name](harness.fixture), limits[name])
+    check_read_only_documents(harness, catalog)
     harness.finish()
     case.assertEqual(harness.unexplained(KNOWN_VIOLATIONS), [])
     case.assertGreaterEqual(harness.calls, 4 * len(names))
@@ -305,6 +412,16 @@ def harness_catches_writing_tools_labelled_as_reads(case: NativeAcceptance) -> N
         "column.create": ({"name": "Created by a read"}, "columns went from"),
         "object.create": ({"kind": "pegbar", "name": "Created"}, "stage objects went from"),
         "fx.create": ({"type": "STD_glowFx"}, "effects went from"),
+        "render.preview": (
+            {
+                "document_id": fixture.read_only["project"],
+                "expected_revision": "0",
+                "frame": 1,
+                "width": 32,
+                "height": 32,
+            },
+            "new workspace/",
+        ),
     }
     harness = Harness(fixture, PRIVATE_CACHES)
     harness.start()
@@ -317,14 +434,18 @@ def harness_catches_writing_tools_labelled_as_reads(case: NativeAcceptance) -> N
 
 
 def _require_known_violations_to_be_exact(case: NativeAcceptance, harness: Harness) -> None:
+    changes = {(item.tool, item.call, item.change) for item in harness.findings}
     known = [
-        KnownViolation(item.tool, item.call, item.change, "a writing tool labelled as a read")
-        for item in harness.findings
+        KnownViolation(tool, call, change, "a writing tool labelled as a read")
+        for tool, call, change in sorted(changes, key=lambda item: -len(item[2]))
     ]
     case.assertEqual(harness.unexplained(known), [])
     stale = KnownViolation("scene.summary", "main", "no such change", "a defect that was fixed")
     case.assertEqual(len(harness.unexplained([*known, stale])), 1)
-    case.assertEqual(len(harness.unexplained(known[1:])), 1)
+    revision = [entry for entry in known if "revision went from" in entry.contains]
+    unexplained = harness.unexplained([entry for entry in known if entry not in revision])
+    case.assertTrue(unexplained)
+    case.assertTrue(all("revision went from" in line for line in unexplained), unexplained)
 
 
 def requires_an_entry_for_each_read_tool(case: NativeAcceptance) -> None:
@@ -376,6 +497,31 @@ def tree_hashing_sees_every_kind_of_change(case: NativeAcceptance) -> None:
         case.assertIn(expected, compare(before, snapshot({"workspace": root})), name)
         shutil.rmtree(root)
         target = _write(root / "folder" / "file.bin")
+
+
+def user_level_files_are_watched_by_name(case: NativeAcceptance) -> None:
+    """Require entries of a shared user-level directory to be seen only when they match.
+
+    Args:
+        case: A fresh acceptance case.
+    """
+    shared = case.directory / "user-level"
+    _write(shared / "GroundzeroAutomation" / "settings.ini")
+    _write(shared / "Unrelated" / "file")
+    watched = {"support": shared}
+    before = snapshot_named(watched, USER_LEVEL_NAMES)
+    case.assertEqual(
+        sorted(before),
+        ["support/GroundzeroAutomation/", "support/GroundzeroAutomation/settings.ini"],
+    )
+    _write(shared / "Unrelated" / "later")
+    case.assertEqual(compare(before, snapshot_named(watched, USER_LEVEL_NAMES)), [])
+    _write(shared / "GroundzeroAutomation" / "cache.bin")
+    _write(shared / "com.GroundzeroAutomation.plist")
+    notes = compare(before, snapshot_named(watched, USER_LEVEL_NAMES))
+    case.assertIn("new support/GroundzeroAutomation/cache.bin", notes)
+    case.assertIn("new support/com.GroundzeroAutomation.plist", notes)
+    case.assertEqual(snapshot_named({"absent": shared / "none"}, USER_LEVEL_NAMES), {})
 
 
 def declared_caches_are_private_and_exact(case: NativeAcceptance) -> None:

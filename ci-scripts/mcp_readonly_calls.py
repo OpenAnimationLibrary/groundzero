@@ -35,11 +35,15 @@ class Call:
         params: The arguments.
         refusal: The error code the call must be refused with, SCHEMA for a violation of
             the advertised input schema, or None for a call that must succeed.
+        reason: The `details.reason` a refusal must carry, when it names one.
+        hint: What to do when a call that should be refused is not.
     """
 
     label: str
     params: dict[str, Any]
     refusal: str | None = None
+    reason: str | None = None
+    hint: str = ""
 
 
 def _missing(kind: str) -> str:
@@ -208,6 +212,7 @@ def _pixels(f: Fixture) -> list[Call]:
 def _job(f: Fixture) -> list[Call]:
     return [
         Call("completed", {"job_id": f.ids["job"]}),
+        Call("of a read-only document", {"job_id": f.ids["read_only_job"]}),
         Call("unknown", {"job_id": _missing("job")}, "unknown_job"),
     ]
 
@@ -215,6 +220,7 @@ def _job(f: Fixture) -> list[Call]:
 def _artifact(f: Fixture) -> list[Call]:
     return [
         Call("preview", {"artifact_id": f.ids["artifact"]}),
+        Call("of a read-only document", {"artifact_id": f.ids["read_only_artifact"]}),
         Call("unknown", {"artifact_id": _missing("artifact")}, "unknown_artifact"),
     ]
 
@@ -241,11 +247,13 @@ def _pinned_with(stale_code: str) -> Callable[[Fixture], list[Call]]:
 
 def _fonts(_f: Fixture) -> list[Call]:
     return [
-        Call("prefix", {"family_prefix": "Ar", "offset": 0, "limit": 4}),
+        Call("prefix", {"family_prefix": "Arial", "offset": 0, "limit": 4}),
         Call(
-            "beyond the end", {"family_prefix": "Ar", "offset": 4096, "limit": 4}, "invalid_params"
+            "beyond the end",
+            {"family_prefix": "Arial", "offset": 4096, "limit": 4},
+            "invalid_params",
         ),
-        Call("empty page", {"family_prefix": "Ar", "offset": 0, "limit": 0}, SCHEMA),
+        Call("empty page", {"family_prefix": "Arial", "offset": 0, "limit": 0}, SCHEMA),
     ]
 
 
@@ -345,6 +353,47 @@ def _assistance(_f: Fixture) -> list[Call]:
         Call("cadmium", {"component": "cadmium"}),
         Call("unknown component", {"component": "other"}, SCHEMA),
     ]
+
+
+def _ro_document(_f: Fixture, document: str) -> list[Call]:
+    return [Call("document", {"document_id": document})]
+
+
+def _ro_summary(f: Fixture, document: str) -> list[Call]:
+    return [
+        *_ro_document(f, document),
+        Call("without drawings", {"document_id": document, "include_drawings": False}),
+    ]
+
+
+def _ro_levels(f: Fixture, document: str) -> list[Call]:
+    levels = f.case.success("scene.summary", {"document_id": document})["levels"]
+    calls = [
+        Call(row["name"], {"document_id": document, "level_id": row["level_id"]}) for row in levels
+    ]
+    missing = {"document_id": document, "level_id": _missing("level")}
+    return [*calls, Call("unknown", missing, "invalid_handle")]
+
+
+def _ro_pinned(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    return [
+        Call("document", pinned),
+        Call("stale", {**pinned, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
+READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
+    "scene.summary": _ro_summary,
+    "camera.inspect": _ro_document,
+    "level.inspect": _ro_levels,
+    "cast.list": _ro_pinned,
+    "cast.usage": _ro_pinned,
+    "scene.dependencies": _ro_pinned,
+    "scene.validate": _ro_pinned,
+    "fx.graph": _ro_document,
+}
+ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
 
 
 READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
