@@ -142,6 +142,15 @@ void acceptedSources() {
       parseAutomationAudio(aiffFile("AIFF", 2, 8, 1, "\x01\xff")).sampleType ==
           TSound::INT,
       "8-bit AIFF is not signed");
+  const auto wide = parseAutomationAudio(
+      aiffFile("AIFF", 1, 24, 2, QByteArray("\x01\x02\x03\x80\x00\x01", 6)));
+  require(wide.sampleType == TSound::INT && wide.bitsPerSample == 24 &&
+              wide.sampleCount == 2 &&
+              wide.pcmSha256 == QCryptographicHash::hash(
+                                    QByteArray("\x03\x02\x01\x01\x00\x80", 6),
+                                    QCryptographicHash::Sha256)
+                                    .toHex(),
+          "24-bit AIFF samples are not hashed in native little-endian order");
 }
 
 void unsupportedSources() {
@@ -159,8 +168,6 @@ void unsupportedSources() {
               "A 4000 Hz source was admitted");
   expectParse(aiffFile("AIFC", 1, 16, 2, pcm), "unsupported_format",
               "AIFC was admitted");
-  expectParse(aiffFile("AIFF", 1, 24, 1, QByteArray(3, 1)),
-              "unsupported_format", "24-bit AIFF was admitted");
   expectParse(aiffFile("AIFF", 1, 32, 1, QByteArray(4, 1)),
               "unsupported_format", "32-bit AIFF was admitted");
   expectParse("OggS" + QByteArray(64, 0), "unsupported_format",

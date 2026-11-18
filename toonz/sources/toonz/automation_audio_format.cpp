@@ -119,12 +119,12 @@ int aiffSampleType(int bits) {
   if (bits == 0 || bits % 8 != 0)
     corrupt("The AIFF sample size is not a whole number of bytes.",
             {{"bits_per_sample", bits}});
-  if (bits == 8 || bits == 16) return TSound::INT;
-  // The native AIFF reader leaves the last 24-bit sample unconverted and reads
-  // 32-bit integers as floats; neither preserves the source samples.
+  if (bits == 8 || bits == 16 || bits == 24) return TSound::INT;
+  // The native AIFF reader reads 32-bit integers as floats, which does not
+  // preserve the source samples.
   unsupported(
-      "Only 8- and 16-bit AIFF samples are admitted; use WAV for "
-      "24-bit or float audio.",
+      "Only 8-, 16- and 24-bit AIFF samples are admitted; use WAV for "
+      "float audio.",
       {{"bits_per_sample", bits}});
 }
 

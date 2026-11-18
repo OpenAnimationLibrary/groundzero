@@ -313,10 +313,10 @@ concurrently by another process.
 
 The `audio` toolset imports sound and places it on the timeline. `audio.import`
 copies a WAV or AIFF file into the workspace as a sound source after checking its
-structure without the native reader: 8-, 16- or 24-bit PCM or 32-bit float WAV, 8-
-or 16-bit AIFF, mono or stereo, 8000–96000 Hz, at most 160 MiB, 600 seconds and
+structure without the native reader: 8-, 16- or 24-bit PCM or 32-bit float WAV, 8-,
+16- or 24-bit AIFF, mono or stereo, 8000–96000 Hz, at most 160 MiB, 600 seconds and
 128 MiB decoded. Float samples must be finite and within ±2.0. Extensible WAV,
-AIFC, 32-bit integer PCM and 24- or 32-bit AIFF return `unsupported_format`;
+AIFC, 32-bit integer PCM and 32-bit AIFF return `unsupported_format`;
 damaged files return `invalid_asset`. A document admits 64 sources, 32 sound
 columns and 1024 clips (256 per column). Imports, clip placement and mixdown
 require a frame rate that the scene file stores exactly, such as 23.976, 24 or
