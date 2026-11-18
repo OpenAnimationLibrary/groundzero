@@ -302,10 +302,87 @@ runs past 10 seconds or exceeds 1 GiB of memory is stopped; the call returns
 available. A file the native parser rejects returns the same code with
 `details.cause: "rejected"`. Each parse adds about half a second.
 
+User scenes open read-only in the `core` toolset. `project.list` lists the read
+roots (the workspace and each `--input-root`) and the native projects under them,
+at most depth 4, 20,000 entries and 10 seconds per call, paged at 64. A folder is
+a project when the native project-file search finds a file in it; the row names
+that file, its format (`otprj`, `prj63ml`, `prj6`, `prj` or `tahoma`), a `sha256:`
+revision (files over 1 MiB are listed unhashed with `status: "too_large"`) and up
+to 8 `alternates`. Project files are never parsed by the listing. Hidden entries
+and symlinks are skipped and counted, and the workspace's runtime, render and
+worker project folders are not listed. `project_id` hashes the canonical project
+file path; a worker accepts only ids it returned. Listings carry a `listing:`
+revision and refuse a stale `expected_listing_revision` with `revision_conflict`.
+The editor's project roots and `TOONZPROJECTS` are never consulted.
+
+`scene.open_read_only` opens a `.tnz` of at most 64 MiB from a read root with an
+explicit `project_id`, or `standalone` for none. It finds the scene's `scenes.xml`
+by walking up to, never beyond, the read root that holds the scene. By default the
+selected project must match that native binding (`standalone` matches when there
+is no `scenes.xml` within the roots); otherwise the call returns
+`project_mismatch` with `details.native_binding` (`differs`, `outside_roots`,
+`unresolved_name`, `unreadable` or `none_within_roots`) and the native project's id
+when there is one. `project_binding: "override"` opens with the selected project
+anyway and reports `binding: "override"`. The scene is copied and loaded in its own
+scene host process: the same executable, holding only that document, with the
+project's file-path rules, no media tools and no shared roots. The result reports
+the source revision and `source_fingerprint`, the project folders with their
+resolved paths (`null` with `authority: "outside_roots"` for a folder outside the
+roots, which is never read), counts, every unsupported item in `content` and the
+render admission in `render`. A worker holds at most 4 read-only documents; each
+also counts toward the 32-document limit. Opening is a write: retry with the same
+`operation_id` to get the same document.
+
+The host loads each level itself and records why one did not load: `missing`,
+`forbidden` (outside the roots), `partial`, `unsupported_samples`, `failed` (a
+reader error or a first frame over 16,384 pixels per axis or 268,435,456 pixels),
+`creator_forbidden`, or `not_applicable` for formats this profile does not load
+(PSD, movies, EXR, SVG and mesh levels). A scene is refused with `scene_limit` past
+16 nested sub-xsheets, 1024 sheets, 10,000 columns per sheet, 4096 levels,
+1,000,000 drawings, 4096 effect nodes per sheet or 16,384 per scene, 16,384 stage
+objects per sheet or 65,536 files read; `invalid_scene` with `details.cause:
+"rejected"` carries the native parser's message. A scene whose file names an
+effect id this build does not know is refused by the native loader. A host that
+crashes, takes more than 60 seconds to open or 30 seconds to answer a read, or
+exceeds 2 GiB of memory is stopped: an open returns `invalid_scene` with
+`details.cause` `crashed`, `timeout` or `memory`; afterwards the document stays
+listed with `host_state: "lost"` and every call on it returns `scene_host_failed`
+until `scene.discard` removes it. The worker and its other documents keep serving.
+
+A read-only document's revision is always `"0"`. `scene.summary` (with optional
+`include_drawings: false`), `camera.inspect`, `level.inspect`, `cast.list`,
+`cast.usage`, `scene.dependencies`, `scene.validate`, `fx.graph`, `render.preview`
+and `render.submit` run in its host; the job and artifact tools follow the job.
+Production reads report `profile: "native-read-only-v1"`; cast rows add `kind`,
+`load_status` and `cover_status`, dependency rows add `pinned`, and `scene.validate`
+adds `unsupportedColumn`, `externalCodeFx`, `fileResourceFx`, `missingDependency`,
+`forbiddenDependency`, `levelLoadFailed`, `unrecognizedSceneData` and
+`authoringRangeExceeded` (info). `fx.graph` gives every effect an `admission`:
+`class`, whether it renders, and the authoring ranges a builtin effect exceeds;
+effects outside `builtin-2d-v2` are described without parameters. Every other tool
+returns `read_only_document` before it reaches the host: `details.reason` is
+`mutation` for writes, including `scene.save_copy`, and `not_qualified` for reads
+not yet available, with `details.slice`.
+
+Read-only renders produce PNG only (MP4 returns `render_unavailable`). A render is
+refused with `render_blocked`, listing at most 64 `blockers`, when the scene holds an
+external program, an effect that reads files, or a texture outside the roots
+anywhere, or when the current output reaches an unsupported level, column or effect,
+a level that did not load, or a shipped library texture; a camera without a finite
+positive size and DPI also blocks. The render preflight still applies. Every file the
+scene reads is stat-pinned at open (size, nanosecond modification time and file id);
+a render re-checks the pins before it starts and before it publishes, and returns or
+fails with `source_changed` when a source changed. Results report
+`snapshot_inputs: "linked-source-stat-pinned"` and the `source_fingerprint`.
+`scene.discard` stops the host and removes its private copy and outputs; it is
+refused with `render_busy` while one of the document's jobs is running.
+`automation.list_documents` reports each document's `access` and `host_state`.
+
 `scene.open` accepts unchanged packages produced by the same running worker.
 The worker retains the authoritative manifest privately; editing a public
-manifest cannot authorize a changed scene. Arbitrary native scenes and packages
-from previous worker sessions are rejected. Saved files remain available for
+manifest cannot authorize a changed scene. Other native scenes and packages from
+previous worker sessions are rejected with `unregistered_package` and
+`details.hint: "scene.open_read_only"`. Saved files remain available for
 normal application use after the worker exits. Render jobs use separate copies
 of the scene and artwork. This process isolation is not an operating system
 sandbox for native image readers, and the workspace must not be modified
