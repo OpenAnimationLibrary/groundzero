@@ -41,6 +41,7 @@ import mcp_movie_cases
 import mcp_movie_eof
 import mcp_palette_cases
 import mcp_production_cases
+import mcp_project_cases
 import mcp_protocol_cases
 import mcp_receipt_cases
 import mcp_recipe_cases
@@ -833,6 +834,15 @@ class NativeAcceptance(unittest.TestCase):
         self.assertEqual(len(data), artifact["size_bytes"])
         self.assertEqual(result["source_revision"], revision)
         return data
+
+    def test_project_inspect_reports_the_private_workspace(self) -> None:
+        mcp_project_cases.project_inspect_reports_the_private_workspace(self)
+
+    def test_project_inspect_is_bounded_and_read_only(self) -> None:
+        mcp_project_cases.project_inspect_is_bounded_and_read_only(self)
+
+    def test_project_inspect_refuses_arguments(self) -> None:
+        mcp_project_cases.project_inspect_refuses_arguments(self)
 
     def test_capabilities_are_strict_and_implemented(self) -> None:
         capabilities = self.success("automation.capabilities", {})
