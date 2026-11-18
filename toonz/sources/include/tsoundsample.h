@@ -1096,28 +1096,28 @@ inline TStereo8UnsignedSample TStereo8UnsignedSample::from(
 //==============================================================================
 
 inline TMono16Sample TMono16Sample::from(const TMono8UnsignedSample &sample) {
-  return TMono16Sample((sample.getValue(TSound::MONO) - 128) << 8);
+  return TMono16Sample((sample.getValue(TSound::MONO) - 128) * 256);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono16Sample TMono16Sample::from(const TMono8SignedSample &sample) {
-  return TMono16Sample(sample.getValue(TSound::MONO) << 8);
+  return TMono16Sample(sample.getValue(TSound::MONO) * 256);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono16Sample TMono16Sample::from(const TStereo8SignedSample &sample) {
   return TMono16Sample(
-      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT)) << 7);
+      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT)) * 128);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono16Sample TMono16Sample::from(const TStereo8UnsignedSample &sample) {
   return TMono16Sample(
-      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT) - 256)
-      << 7);
+      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT) - 256) *
+      128);
 }
 
 //------------------------------------------------------------------------------
@@ -1168,14 +1168,14 @@ inline TMono16Sample TMono16Sample::from(const TStereo32FloatSample &sample) {
 
 inline TStereo16Sample TStereo16Sample::from(
     const TMono8UnsignedSample &sample) {
-  int srcval = (sample.getValue(TSound::MONO) - 128) << 8;
+  int srcval = (sample.getValue(TSound::MONO) - 128) * 256;
   return TStereo16Sample(srcval, srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TStereo16Sample TStereo16Sample::from(const TMono8SignedSample &sample) {
-  int srcval = sample.getValue(TSound::MONO) << 8;
+  int srcval = sample.getValue(TSound::MONO) * 256;
   return TStereo16Sample(srcval, srcval);
 }
 
@@ -1183,8 +1183,8 @@ inline TStereo16Sample TStereo16Sample::from(const TMono8SignedSample &sample) {
 
 inline TStereo16Sample TStereo16Sample::from(
     const TStereo8SignedSample &sample) {
-  int srcvalL = sample.getValue(TSound::LEFT) << 8;
-  int srcvalR = sample.getValue(TSound::RIGHT) << 8;
+  int srcvalL = sample.getValue(TSound::LEFT) * 256;
+  int srcvalR = sample.getValue(TSound::RIGHT) * 256;
   return TStereo16Sample(srcvalL, srcvalR);
 }
 
@@ -1192,8 +1192,8 @@ inline TStereo16Sample TStereo16Sample::from(
 
 inline TStereo16Sample TStereo16Sample::from(
     const TStereo8UnsignedSample &sample) {
-  int srcvalL = (sample.getValue(TSound::LEFT) - 128) << 8;
-  int srcvalR = (sample.getValue(TSound::RIGHT) - 128) << 8;
+  int srcvalL = (sample.getValue(TSound::LEFT) - 128) * 256;
+  int srcvalR = (sample.getValue(TSound::RIGHT) - 128) * 256;
   return TStereo16Sample(srcvalL, srcvalR);
 }
 
@@ -1245,22 +1245,22 @@ inline TStereo16Sample TStereo16Sample::from(const TStereo32FloatSample &sample)
 //==============================================================================
 
 inline TMono24Sample TMono24Sample::from(const TMono8UnsignedSample &sample) {
-  int srcval = (sample.getValue(TSound::MONO) - 128) << 16;
+  int srcval = (sample.getValue(TSound::MONO) - 128) * 65536;
   return TMono24Sample(srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono24Sample TMono24Sample::from(const TMono8SignedSample &sample) {
-  int srcval = sample.getValue(TSound::MONO) << 16;
+  int srcval = sample.getValue(TSound::MONO) * 65536;
   return TMono24Sample(srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono24Sample TMono24Sample::from(const TStereo8SignedSample &sample) {
-  int srcval = (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT))
-               << 15;
+  int srcval =
+      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT)) * 32768;
   return TMono24Sample(srcval);
 }
 
@@ -1268,23 +1268,23 @@ inline TMono24Sample TMono24Sample::from(const TStereo8SignedSample &sample) {
 
 inline TMono24Sample TMono24Sample::from(const TStereo8UnsignedSample &sample) {
   int srcval =
-      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT) - 256)
-      << 15;
+      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT) - 256) *
+      32768;
   return TMono24Sample(srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono24Sample TMono24Sample::from(const TMono16Sample &sample) {
-  int srcval = sample.getValue(TSound::MONO) << 8;
+  int srcval = sample.getValue(TSound::MONO) * 256;
   return TMono24Sample(srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TMono24Sample TMono24Sample::from(const TStereo16Sample &sample) {
-  int srcval = (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT))
-               << 7;
+  int srcval =
+      (sample.getValue(TSound::LEFT) + sample.getValue(TSound::RIGHT)) * 128;
   return TMono24Sample(srcval);
 }
 
@@ -1322,14 +1322,14 @@ inline TMono24Sample TMono24Sample::from(const TStereo32FloatSample &sample) {
 
 inline TStereo24Sample TStereo24Sample::from(
     const TMono8UnsignedSample &sample) {
-  int srcval = (sample.getValue(TSound::MONO) - 128) << 16;
+  int srcval = (sample.getValue(TSound::MONO) - 128) * 65536;
   return TStereo24Sample(srcval, srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TStereo24Sample TStereo24Sample::from(const TMono8SignedSample &sample) {
-  int srcval = sample.getValue(TSound::MONO) << 16;
+  int srcval = sample.getValue(TSound::MONO) * 65536;
   return TStereo24Sample(srcval, srcval);
 }
 
@@ -1337,8 +1337,8 @@ inline TStereo24Sample TStereo24Sample::from(const TMono8SignedSample &sample) {
 
 inline TStereo24Sample TStereo24Sample::from(
     const TStereo8SignedSample &sample) {
-  int srcvalL = sample.getValue(TSound::LEFT) << 16;
-  int srcvalR = sample.getValue(TSound::RIGHT) << 16;
+  int srcvalL = sample.getValue(TSound::LEFT) * 65536;
+  int srcvalR = sample.getValue(TSound::RIGHT) * 65536;
   return TStereo24Sample(srcvalL, srcvalR);
 }
 
@@ -1346,23 +1346,23 @@ inline TStereo24Sample TStereo24Sample::from(
 
 inline TStereo24Sample TStereo24Sample::from(
     const TStereo8UnsignedSample &sample) {
-  int srcvalL = (sample.getValue(TSound::LEFT) - 128) << 16;
-  int srcvalR = (sample.getValue(TSound::RIGHT) - 128) << 16;
+  int srcvalL = (sample.getValue(TSound::LEFT) - 128) * 65536;
+  int srcvalR = (sample.getValue(TSound::RIGHT) - 128) * 65536;
   return TStereo24Sample(srcvalL, srcvalR);
 }
 
 //------------------------------------------------------------------------------
 
 inline TStereo24Sample TStereo24Sample::from(const TMono16Sample &sample) {
-  int srcval = sample.getValue(TSound::MONO) << 8;
+  int srcval = sample.getValue(TSound::MONO) * 256;
   return TStereo24Sample(srcval, srcval);
 }
 
 //------------------------------------------------------------------------------
 
 inline TStereo24Sample TStereo24Sample::from(const TStereo16Sample &sample) {
-  int srcvalL = sample.getValue(TSound::LEFT) << 8;
-  int srcvalR = sample.getValue(TSound::RIGHT) << 8;
+  int srcvalL = sample.getValue(TSound::LEFT) * 256;
+  int srcvalR = sample.getValue(TSound::RIGHT) * 256;
   return TStereo24Sample(srcvalL, srcvalR);
 }
 
