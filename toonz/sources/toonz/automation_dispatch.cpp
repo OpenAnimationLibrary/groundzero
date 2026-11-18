@@ -297,6 +297,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
       "List detached documents and their current revisions.", {}, {}));
   add(sceneOperations(), executeScene, "core");
   add(sceneAccessOperations(), executeSceneAccess, "core");
+  add(sceneInventoryOperations(), executeSceneInventory, "core");
   add(fxOperations(), executeFx, "core");
   add(fxRecipeOperations(), executeFx, "fx-finishing");
   add(drawingOperations(), executeDrawing, "core");

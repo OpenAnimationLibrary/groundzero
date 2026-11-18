@@ -42,25 +42,6 @@ struct SceneIndex final {
   std::map<TXshColumn*, std::vector<TXshLevel*>> columnLevels;
 };
 
-std::vector<TXshLevel*> distinctLevels(TXshColumn* column) {
-  std::vector<TXshLevel*> result;
-  if (!column || column->getSoundColumn() || column->getZeraryFxColumn())
-    return result;
-  TXshCellColumn* cells = column->getCellColumn();
-  if (!cells) return result;
-  int first = 0, last = -1;
-  column->getRange(first, last);
-  std::set<TXshLevel*> seen;
-  TXshLevel* previous = nullptr;
-  for (int row = std::max(first, 0); row <= last; ++row) {
-    TXshLevel* level = cells->getCell(row).m_level.getPointer();
-    if (!level || level == previous) continue;
-    previous = level;
-    if (seen.insert(level).second) result.push_back(level);
-  }
-  return result;
-}
-
 QJsonArray childPath(Document* document, const QJsonArray& path,
                      TXshColumn* column, TXshLevel* level) {
   QJsonArray result = path;
@@ -82,7 +63,7 @@ SceneIndex indexScene(ToonzScene& scene, Document* document) {
     for (int column = 0; column < entry.sheet->getColumnCount(); ++column) {
       TXshColumn* native = entry.sheet->getColumn(column);
       if (!native) continue;
-      auto levels                = distinctLevels(native);
+      auto levels                = columnLevels(native);
       index.columnLevels[native] = levels;
       for (TXshLevel* level : levels)
         if (TXshChildLevel* child = level->getChildLevel())
@@ -413,6 +394,25 @@ QString issueCode(const QString& reason) {
 }
 
 }  // namespace
+
+std::vector<TXshLevel*> columnLevels(TXshColumn* column) {
+  std::vector<TXshLevel*> result;
+  if (!column || column->getSoundColumn() || column->getZeraryFxColumn())
+    return result;
+  TXshCellColumn* cells = column->getCellColumn();
+  if (!cells) return result;
+  int first = 0, last = -1;
+  column->getRange(first, last);
+  std::set<TXshLevel*> seen;
+  TXshLevel* previous = nullptr;
+  for (int row = std::max(first, 0); row <= last; ++row) {
+    TXshLevel* level = cells->getCell(row).m_level.getPointer();
+    if (!level || level == previous) continue;
+    previous = level;
+    if (seen.insert(level).second) result.push_back(level);
+  }
+  return result;
+}
 
 void requireReadOnlyStructure(ToonzScene& scene) {
   const SceneIndex index = indexScene(scene, nullptr);

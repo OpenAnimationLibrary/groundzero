@@ -350,7 +350,9 @@ QJsonValue discardScene(Context& context, const QJsonObject& params) {
   return QJsonObject{{"document_id", id}, {"discarded", true}};
 }
 
-QJsonValue inspectProject(Context& context, const QJsonObject&) {
+QJsonValue inspectProject(Context& context, const QJsonObject& params) {
+  if (params.contains("project_id"))
+    return inspectGrantedProject(context, requiredString(params, "project_id"));
   return QJsonObject{{"mode", "private_workspace"},
                      {"documents", documentRows(context)},
                      {"arbitrary_scene_open", true},
@@ -1116,9 +1118,13 @@ QJsonObject merge(QJsonObject target, const QJsonObject& source) {
 void addSceneOperations(QJsonArray& catalog) {
   QJsonObject settings = cameraSchema();
   settings.insert("frame_rate", numberSchema(1, 240));
-  catalog.append(
-      operation("project.inspect",
-                "Inspect the worker's private project and documents.", {}, {}));
+  catalog.append(operation(
+      "project.inspect",
+      "Inspect the worker's private project and documents; with a project_id "
+      "from project.list, parse that project file and report its folders.",
+      {{"project_id",
+        QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}},
+      {}));
   catalog.append(
       operation("scene.create",
                 "Create an isolated native scene. Timeline frames start at 0.",

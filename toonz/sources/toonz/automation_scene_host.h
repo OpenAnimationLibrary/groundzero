@@ -56,6 +56,8 @@ struct SourcePin final {
   qint64 mtimeNs = 0;
   quint64 fileId = 0;
   bool exists    = false;
+  // The stat failed for a reason other than a missing file.
+  bool unreadable = false;
 
   bool operator==(const SourcePin& other) const;
   bool operator!=(const SourcePin& other) const { return !(*this == other); }
@@ -73,6 +75,10 @@ QString sourceFingerprint(const QStringList& revisions,
 QStringList changedSourcePins(const std::vector<SourcePin>& pins);
 // Throws source_changed when any pin differs from the file on disk.
 void requireUnchangedSources(const std::vector<SourcePin>& pins);
+// scene.source_status of a read-only document in its host.
+QJsonObject sourceStatus(Document& document);
+// Throws source_changed when a file of that level changed since open.
+void requireUnchangedLevel(Document& document, TXshLevel* level);
 
 // What a read-only document reports and blocks (section 5).
 struct ContentRow final {
@@ -99,6 +105,9 @@ struct LevelState final {
   QString kind;
   QString loadStatus;
   int bitDepth = 0;
+  // The level's own files: pins[firstPin, endPin).
+  int firstPin = 0;
+  int endPin   = 0;
 };
 
 // The host's record of a read-only document: its source, project and loader
@@ -130,6 +139,14 @@ QJsonObject fxAdmission(Document& document, TFx* fx);
 bool fxAdmitted(TFx* fx);
 // The section 6.4 scene.validate issue rows of a read-only document.
 QJsonArray readOnlyIssues(Document& document);
+// The distinct levels a column exposes, in row order; none for sound and
+// generator columns.
+std::vector<TXshLevel*> columnLevels(TXshColumn* column);
+// The child sheet an instance path names from the top sheet: each step's
+// column exposes that step's child level. Throws invalid_handle otherwise.
+TXsheet* resolveSheetPath(Document& document, const QJsonArray& path);
+// The input schema of an instance path.
+QJsonObject sheetPathSchema();
 // Classify every level, column and effect of a loaded user scene.
 void classifyReadOnlyContent(Document& document);
 // Section 3.4 structure bounds: sheets, depth, effects and stage objects.
@@ -162,6 +179,17 @@ QJsonValue executeSceneHost(Context& context, const QString& method,
                             const QJsonObject& params);
 // Ends the host process when its memory passes the host bound.
 void startSceneHostWatchdog();
+
+// scene.inventory on either kind of document.
+QJsonArray sceneInventoryOperations();
+QJsonValue executeSceneInventory(Context& context, const QString& method,
+                                 const QJsonObject& params);
+
+// Parse-helper side of a project file: name, version, path rules, folders
+// as coded and decoded against the project folder, and scene defaults.
+QJsonObject nativeProjectSummary(const QString& projectFile);
+// project.inspect with a project_id this worker issued.
+QJsonValue inspectGrantedProject(Context& context, const QString& projectId);
 
 // Worker side.
 QJsonArray sceneAccessOperations();

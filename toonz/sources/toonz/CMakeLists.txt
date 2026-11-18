@@ -329,6 +329,7 @@ set(SOURCES
     automation_scene_access.cpp
     automation_scene_host.cpp
     automation_scene_content.cpp
+    automation_scene_inventory.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp

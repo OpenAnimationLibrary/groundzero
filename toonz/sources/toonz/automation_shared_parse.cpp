@@ -1,4 +1,5 @@
 #include "automation_shared_parse.h"
+#include "automation_scene_host.h"
 #include "librarycommand.h"
 
 #include "tcolorstyles.h"
@@ -61,6 +62,7 @@ constexpr int MemoryExit         = 125;
 QString extension(const QString& kind) {
   if (kind == "studio_palette") return "tpl";
   if (kind == "template") return "tnz";
+  if (kind == "project") return "path";
   return "tposes";
 }
 
@@ -197,9 +199,19 @@ QJsonObject poseSummary(const TFilePath& path, int thumbnail) {
   return summary;
 }
 
+// The worker passes the real project file's path, not a copy: relative
+// project folders resolve against the folder that holds it.
+QJsonObject projectSummary(const TFilePath& input) {
+  QFile file(input.getQString());
+  if (!file.open(QIODevice::ReadOnly))
+    throw Error("rejected", "The project path cannot be read.");
+  return nativeProjectSummary(QString::fromUtf8(file.read(8192)));
+}
+
 QJsonObject summarize(Context& context, const QString& kind) {
   static const QRegularExpression shape(QRegularExpression::anchoredPattern(
-      "(studio_palette|template|pose_set|pose_thumbnail:([0-9]{1,4}))"));
+      "(studio_palette|template|project|pose_set|pose_thumbnail:([0-9]{1,4})"
+      ")"));
   const auto match = shape.match(kind);
   if (!match.hasMatch()) throw Error("rejected", "Unknown parse kind.");
   const TFilePath path(QDir(context.workspace())
@@ -207,6 +219,7 @@ QJsonObject summarize(Context& context, const QString& kind) {
                            .toStdWString());
   if (kind == "studio_palette") return paletteSummary(path);
   if (kind == "template") return templateSummary(context, path);
+  if (kind == "project") return projectSummary(path);
   const int thumbnail =
       match.captured(2).isEmpty() ? -1 : match.captured(2).toInt();
   return poseSummary(path, thumbnail);

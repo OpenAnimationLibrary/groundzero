@@ -6,6 +6,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -723,22 +724,218 @@ QJsonValue openReadOnly(Context& context, const QJsonObject& params) {
   return result;
 }
 
+// ------------------------------------------------- project.inspect, .scenes
+
+constexpr int MaxSceneDepth   = 8;
+constexpr int MaxScenePage    = 128;
+constexpr int MaxSceneEntries = 20000;
+
+ProjectEntry grantedProject(Context& context, const QJsonObject& params) {
+  const QString id = requiredString(params, "project_id");
+  if (id == "standalone")
+    throw Error("invalid_params", "standalone has no project file.");
+  return selectedProject(context, id);
+}
+
+// The worker's view of a decoded project folder: authority within the roots,
+// and existence only for folders inside them.
+QJsonObject grantedFolder(Context& context, QJsonObject folder) {
+  const QString decoded = folder.take("decoded").toString();
+  QString authority     = "unresolved";
+  QJsonValue resolved, exists;
+  if (folder.value("scene_dependent").toBool()) {
+    authority = "scene_dependent";
+  } else if (QDir::isAbsolutePath(decoded)) {
+    authority = "outside_roots";
+    try {
+      const QString allowed =
+          context.resolvePath(QDir::cleanPath(decoded), false);
+      authority =
+          beneath(allowed, context.workspace()) ? "workspace" : "input_root";
+      resolved = allowed;
+      exists   = QFileInfo(allowed).exists();
+    } catch (const Error&) {
+    }
+  }
+  folder.insert("resolved_path", resolved);
+  folder.insert("authority", authority);
+  folder.insert("exists", exists);
+  return folder;
+}
+
+// Parse a granted project file in a parse helper, hashing it before and after.
+QJsonObject parsedProject(Context& context, const ProjectEntry& project,
+                          QString& revision) {
+  revision = fileRevision(
+      readSource(project.file, ProjectFileLimitBytes, "invalid_project"));
+  QJsonObject summary = parseSharedFile(
+      context, "project", project.file.toUtf8(), "invalid_project");
+  if (fileRevision(readSource(project.file, ProjectFileLimitBytes,
+                              "invalid_project")) != revision)
+    throw Error("source_changed", "The project file changed while it was read.",
+                {{"paths", QJsonArray{project.file}}, {"count", 1}});
+  QJsonArray folders;
+  for (const QJsonValue& folder : summary.value("folders").toArray())
+    folders.append(grantedFolder(context, folder.toObject()));
+  summary.insert("folders", folders);
+  return summary;
+}
+
+struct SceneScan final {
+  QElapsedTimer timer;
+  int entries  = 0;
+  qint64 links = 0;
+  QStringList reasons;
+  QJsonArray rows;
+
+  void incomplete(const QString& reason) {
+    if (!reasons.contains(reason)) reasons.append(reason);
+  }
+};
+
+QJsonObject sceneRow(const QFileInfo& entry, const QString& root) {
+  const bool folder = entry.isDir();
+  return {
+      {"path", entry.absoluteFilePath()},
+      {"relative_path", QDir(root).relativeFilePath(entry.absoluteFilePath())},
+      {"kind", folder ? "folder" : "scene"},
+      {"size_bytes", folder ? QJsonValue() : QJsonValue(double(entry.size()))},
+      {"modified", entry.lastModified().toUTC().toString(Qt::ISODate)}};
+}
+
+void scanScenes(SceneScan& scan, const QString& folder, const QString& root,
+                int depth) {
+  const QFileInfoList entries = QDir(folder).entryInfoList(
+      QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+      QDir::Name);
+  for (const QFileInfo& entry : entries) {
+    if (++scan.entries > MaxSceneEntries) return scan.incomplete("entry_limit");
+    if (scan.timer.elapsed() > MaxScanMs) return scan.incomplete("time_limit");
+    if (entry.fileName().startsWith('.')) continue;
+    if (entry.isSymLink()) {
+      ++scan.links;
+      scan.incomplete("skipped_links");
+      continue;
+    }
+    if (entry.isFile() && entry.suffix().toLower() == "tnz")
+      scan.rows.append(sceneRow(entry, root));
+    if (!entry.isDir()) continue;
+    scan.rows.append(sceneRow(entry, root));
+    if (depth + 1 > MaxSceneDepth)
+      scan.incomplete("depth_limit");
+    else
+      scanScenes(scan, entry.absoluteFilePath(), root, depth + 1);
+  }
+}
+
+QString scenesFolder(const QJsonObject& project) {
+  for (const QJsonValue& value : project.value("folders").toArray()) {
+    const QJsonObject folder = value.toObject();
+    if (folder.value("alias") == "scenes" && folder.value("exists").toBool())
+      return folder.value("resolved_path").toString();
+  }
+  return QString();
+}
+
+QString sceneSubfolder(Context& context, const QString& root,
+                       const QJsonObject& params) {
+  if (!params.contains("folder")) return root;
+  const QString relative = requiredString(params, "folder");
+  if (QDir::isAbsolutePath(relative) || relative.contains('\\') ||
+      relative.split('/').contains(".."))
+    throw Error("invalid_path",
+                "folder is a forward-slash path inside the scenes folder.");
+  const QString folder =
+      context.resolvePath(QDir(root).filePath(relative), false);
+  if (!QFileInfo(folder).isDir())
+    throw Error("not_found", "The folder does not exist.", {{"path", folder}});
+  return folder;
+}
+
+QJsonObject scenesPage(const QJsonObject& params, const SceneScan& scan,
+                       const QString& id, const QJsonValue& root) {
+  const QString revision =
+      "listing:" +
+      fileRevision(QJsonDocument(scan.rows).toJson(QJsonDocument::Compact))
+          .mid(7);
+  if (params.contains("expected_listing_revision") &&
+      params.value("expected_listing_revision").toString() != revision)
+    throw Error("revision_conflict", "The scene listing changed.",
+                {{"scope", "listing"}, {"listing_revision", revision}});
+  const int offset = integerParam(params, "offset", 0, MaxSceneEntries, 0);
+  const int limit  = integerParam(params, "limit", 1, MaxScenePage, 32);
+  if (offset > scan.rows.size())
+    throw Error("invalid_params", "offset exceeds the discovered entries.");
+  const int end = std::min(offset + limit, int(scan.rows.size()));
+  QJsonArray page;
+  for (int index = offset; index < end; ++index)
+    page.append(scan.rows.at(index));
+  return {
+      {"project_id", id},
+      {"scenes_folder", root},
+      {"items", page},
+      {"listing_revision", revision},
+      {"offset", offset},
+      {"limit", limit},
+      {"discovered", int(scan.rows.size())},
+      {"next_offset", end < scan.rows.size() ? QJsonValue(end) : QJsonValue()},
+      {"scan",
+       QJsonObject{{"complete", scan.reasons.isEmpty()},
+                   {"reasons", QJsonArray::fromStringList(scan.reasons)},
+                   {"entries_visited", scan.entries},
+                   {"skipped_links", double(scan.links)}}}};
+}
+
+QJsonValue listScenes(Context& context, const QJsonObject& params) {
+  const ProjectEntry project = grantedProject(context, params);
+  QString revision;
+  const QString root = scenesFolder(parsedProject(context, project, revision));
+  SceneScan scan;
+  scan.timer.start();
+  if (root.isEmpty()) {
+    scan.incomplete("unreadable");
+    return scenesPage(params, scan, params.value("project_id").toString(),
+                      QJsonValue());
+  }
+  scanScenes(scan, sceneSubfolder(context, root, params), root, 0);
+  return scenesPage(params, scan, params.value("project_id").toString(), root);
+}
+
 // ------------------------------------------------------------------ routing
 
 const QSet<QString>& forwardedTools() {
-  static const QSet<QString> tools = {
-      "scene.summary",  "camera.inspect",     "level.inspect",  "cast.list",
-      "cast.usage",     "scene.dependencies", "scene.validate", "fx.graph",
-      "render.preview", "render.submit"};
+  static const QSet<QString> tools = {"scene.summary",
+                                      "camera.inspect",
+                                      "level.inspect",
+                                      "cast.list",
+                                      "cast.usage",
+                                      "scene.dependencies",
+                                      "scene.validate",
+                                      "fx.graph",
+                                      "render.preview",
+                                      "render.submit",
+                                      "scene.inventory",
+                                      "scene.source_status",
+                                      "column.cells",
+                                      "drawing.inspect",
+                                      "palette.inspect",
+                                      "palette.pages",
+                                      "fx.parameter.get",
+                                      "animation.channels",
+                                      "animation.keys",
+                                      "animation.sample",
+                                      "vector.inspect",
+                                      "vector.structure",
+                                      "vector.opacity.inspect",
+                                      "raster.read_pixels"};
   return tools;
 }
 
-const QSet<QString>& sliceTwoTools() {
+// Reads that decode drawings: a changed level file refuses them.
+const QSet<QString>& decodingTools() {
   static const QSet<QString> tools = {
-      "column.cells",     "drawing.inspect",        "palette.inspect",
-      "palette.pages",    "fx.parameter.get",       "animation.channels",
-      "animation.keys",   "animation.sample",       "vector.inspect",
-      "vector.structure", "vector.opacity.inspect", "raster.read_pixels"};
+      "drawing.inspect", "vector.inspect", "vector.structure",
+      "vector.opacity.inspect", "raster.read_pixels"};
   return tools;
 }
 
@@ -754,7 +951,6 @@ const QSet<QString>& sliceTwoTools() {
                 {{"reason", "mutation"}, {"tool", method}});
   const QString toolset = descriptor.value("toolset").toString();
   QJsonValue slice;
-  if (sliceTwoTools().contains(method)) slice = 2;
   if (toolset == "rigging" || toolset == "audio" || toolset == "storyboard")
     slice = 3;
   throw Error(
@@ -911,8 +1107,15 @@ bool routeToSceneHost(Context& context, const QString& method,
     if (!document->readOnly) document = nullptr;
   }
   if (!context.sceneHostDocument.isEmpty()) {
-    if (document && !forwardedTools().contains(method))
-      refuseReadOnly(method, descriptor);
+    if (!document) return false;
+    if (!forwardedTools().contains(method)) refuseReadOnly(method, descriptor);
+#ifdef BUILD_UI_PORT_TESTS
+    if (context.childFault == "read-hang" && method == "scene.summary")
+      injectChildFault("hang");
+#endif
+    if (decodingTools().contains(method) && params.value("level_id").isString())
+      requireUnchangedLevel(
+          *document, document->level(params.value("level_id").toString()));
     return false;
   }
   if (context.sceneHosts &&
@@ -965,6 +1168,28 @@ QJsonObject readOnlyCapabilities(Context&) {
 
 void closeSceneHosts(Context& context) { context.sceneHosts.reset(); }
 
+QJsonValue inspectGrantedProject(Context& context, const QString& projectId) {
+  const ProjectEntry project =
+      grantedProject(context, {{"project_id", projectId}});
+  QString revision;
+  const QJsonObject summary = parsedProject(context, project, revision);
+  return QJsonObject{{"kind", "granted_project"},
+                     {"project_id", projectId},
+                     {"name", summary.value("name").toString().isEmpty()
+                                  ? project.name
+                                  : summary.value("name").toString()},
+                     {"folder", project.folder},
+                     {"project_file", project.file},
+                     {"file_revision", revision},
+                     {"format", projectFormat(project.file)},
+                     {"version", summary.value("version")},
+                     {"file_path_rules", summary.value("file_path_rules")},
+                     {"folders", summary.value("folders")},
+                     {"scene_defaults", summary.value("scene_defaults")},
+                     {"alternates", QJsonArray::fromStringList(alternateFiles(
+                                        project.folder, project.file))}};
+}
+
 QJsonArray sceneAccessOperations() {
   const auto text = [](int maximum) {
     return QJsonObject{
@@ -1000,18 +1225,47 @@ QJsonArray sceneAccessOperations() {
        {"operation_id", text(128)}},
       {"path", "project_id", "operation_id"}, true);
   open.insert("mutates_document", false);
+  QJsonObject status = operation(
+      "scene.source_status",
+      "Re-check every file pinned when a read-only document was opened and "
+      "report whether the source on disk changed.",
+      {{"document_id", text(128)}, {"expected_revision", text(80)}},
+      {"document_id", "expected_revision"});
   open.insert("annotations", QJsonObject{{"readOnlyHint", false},
                                          {"destructiveHint", false},
                                          {"idempotentHint", true}});
-  return {list, open};
+  QJsonObject scenes = operation(
+      "project.scenes",
+      "List .tnz scene files and folders under a project's scenes folder, "
+      "paged. Nothing is parsed.",
+      {{"project_id", text(64)},
+       {"folder", text(1024)},
+       {"offset", integer(0, MaxSceneEntries)},
+       {"limit", integer(1, MaxScenePage)},
+       {"expected_listing_revision", text(80)}},
+      {"project_id"});
+  return {list, open, status, scenes};
 }
 
 QJsonValue executeSceneAccess(Context& context, const QString& method,
                               const QJsonObject& params) {
+  if (method == "scene.source_status") {
+    Document& document =
+        context.document(requiredString(params, "document_id"));
+    if (requiredString(params, "expected_revision") != document.revisionText())
+      throw Error("stale_revision", "Refresh scene.summary before continuing.",
+                  {{"document_id", document.id},
+                   {"revision", document.revisionText()}});
+    if (!document.readOnly)
+      throw Error("unsupported_target",
+                  "An editable document has no pinned source files.");
+    return sourceStatus(document);
+  }
   if (!context.sceneHostDocument.isEmpty())
     throw Error("method_not_found",
                 "A scene host does not open other documents.");
   if (method == "project.list") return listProjects(context, params);
+  if (method == "project.scenes") return listScenes(context, params);
   if (method == "scene.open_read_only") return openReadOnly(context, params);
   throw Error("method_not_found", "Unknown scene access operation.");
 }

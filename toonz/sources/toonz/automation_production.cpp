@@ -2,6 +2,7 @@
 #include "automation_fx.h"
 #include "automation_scene_host.h"
 
+#include "tcolorstyles.h"
 #include "tfilepath.h"
 #include "tfx.h"
 #include "tmacrofx.h"
@@ -10,6 +11,9 @@
 #include "toonz/fxdag.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/tcamera.h"
+#include "toutputproperties.h"
 #include "toonz/sceneresources.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/tcolumnfxset.h"
@@ -513,12 +517,49 @@ bool inspectColumn(Report& report, int index) {
   return scanColumn(report, index, column);
 }
 
+// A read-only scene whose output frame rate or camera resolution differs from
+// its project's scene defaults.
+void projectMismatches(Report& report) {
+  const auto project = report.document.readOnly
+                           ? report.document.readOnly->project
+                           : std::shared_ptr<TProject>();
+  if (!project || project->getFolderCount() == 0) return;
+  const TSceneProperties& defaults = project->getSceneProperties();
+  ToonzScene& scene                = *report.document.scene;
+  const double fps =
+      scene.getProperties()->getOutputProperties()->getFrameRate();
+  const double projectFps = defaults.getOutputProperties()->getFrameRate();
+  if (std::abs(fps - projectFps) > 1e-6) {
+    auto row =
+        issue("frameRateMismatch",
+              QString("Scene frame rate %1 differs from the project's %2.")
+                  .arg(fps)
+                  .arg(projectFps));
+    row.insert("severity", "info");
+    report.append(row);
+  }
+  if (defaults.getCameras().empty()) return;
+  const TDimension res     = scene.getCurrentCamera()->getRes();
+  const TDimension planned = defaults.getCameras().front()->getRes();
+  if (res == planned) return;
+  auto row = issue("resolutionMismatch",
+                   QString("Camera %1x%2 differs from the project's %3x%4.")
+                       .arg(res.lx)
+                       .arg(res.ly)
+                       .arg(planned.lx)
+                       .arg(planned.ly));
+  row.insert("severity", "info");
+  report.append(row);
+}
+
 void usage(Report& report) {
   for (int index = 0; index < report.columnCount; ++index)
     if (!inspectColumn(report, index)) return;
-  if (report.validates())
+  if (report.validates()) {
     for (const QJsonValue& row : readOnlyIssues(report.document))
       if (!report.append(row.toObject())) return;
+    projectMismatches(report);
+  }
   if (!report.validates() || !report.reasons.isEmpty()) return;
   for (TXshLevel* level : report.levels) {
     if (report.used.contains(level)) continue;
@@ -685,11 +726,57 @@ bool extraLevelDependencies(Report& report, TXshLevel* level,
                          palette->getRefImgPath());
 }
 
+bool observedDependency(Report& report, const QString& owner, const QString& id,
+                        const QString& role, const TFilePath& path) {
+  return report.append(
+      observeDependency(report, dependencyRow(owner, id, role, path), path));
+}
+
+// Texture styles name image files: shipped library textures have no folder.
+bool styleDependencies(Report& report, TXshLevel* level,
+                       TXshSimpleLevel* simple) {
+  const TPalette* palette = simple->getPalette();
+  for (int id = 0; palette && id < palette->getStyleCount(); ++id) {
+    TColorStyle* style = palette->getStyle(id);
+    for (int param = 0; style && param < style->getParamCount(); ++param) {
+      if (style->getParamType(param) != TColorStyle::FILEPATH) continue;
+      const TFilePath path =
+          style->getParamValue(TColorStyle::TFilePath_tag(), param);
+      if (path.isEmpty()) continue;
+      auto row =
+          dependencyRow("level", report.levelIds.value(level), "texture", path);
+      if (path.getParentDir().isEmpty()) {
+        row.insert("path_kind", "unsupported");
+        row.insert("availability", "unsupported");
+      } else {
+        row = observeDependency(report, row, path);
+      }
+      if (!report.append(row)) return false;
+    }
+  }
+  return true;
+}
+
+bool hookDependency(Report& report, TXshLevel* level) {
+  if (level->getPath().isEmpty()) return true;
+  const TFilePath hook = TXshSimpleLevel::getExistingHookFile(
+      report.document.scene->decodeFilePath(level->getPath()));
+  return hook.isEmpty() ||
+         observedDependency(report, "level", report.levelIds.value(level),
+                            "hook_sidecar", hook);
+}
+
 bool levelDependencies(Report& report, TXshLevel* level) {
+  if (level->getSoundLevel())
+    return observedDependency(report, "level", report.levelIds.value(level),
+                              "sound", level->getPath());
   if (!levelDependency(report, level, "primary", level->getPath()))
     return false;
   TXshSimpleLevel* simple = level->getSimpleLevel();
   if (!simple) return true;
+  if (!hookDependency(report, level) ||
+      !styleDependencies(report, level, simple))
+    return false;
   if (level->getType() == TZP_XSHLEVEL && !level->getPath().isEmpty())
     if (!levelDependency(report, level, "palette",
                          level->getPath().withType("tpl")))
@@ -697,18 +784,39 @@ bool levelDependencies(Report& report, TXshLevel* level) {
   return extraLevelDependencies(report, level, simple);
 }
 
+// The project's raster drawing palette, read when the scene has raster
+// levels and the project defines a palettes folder.
+bool rasterPaletteDependency(Report& report) {
+  const auto project = report.document.scene->getProject();
+  if (!report.readOnly() || !project || project->getFolderIndex("palettes") < 0)
+    return true;
+  bool raster = false;
+  for (TXshLevel* level : report.levels)
+    raster = raster || level->getType() == OVL_XSHLEVEL;
+  return !raster ||
+         observedDependency(report, "scene", report.document.id,
+                            "raster_drawing_palette",
+                            TFilePath("+palettes/Raster_Drawing_Palette.tpl"));
+}
+
+bool fxDependency(Report& report, const QString& id, SceneFxResource* fx) {
+  if (report.readOnly())
+    return observedDependency(report, "fx", id, "fx_file_resource",
+                              fx->resourcePath());
+  auto row = dependencyRow("fx", id, "fx_resource", fx->resourcePath());
+  row.insert("path_kind", "unsupported");
+  row.insert("availability", "unsupported");
+  return report.append(row);
+}
+
 void dependencies(Report& report) {
   for (TXshLevel* level : report.levels)
     if (!levelDependencies(report, level)) return;
+  if (!rasterPaletteDependency(report)) return;
   for (auto it = report.effects.constBegin(); it != report.effects.constEnd();
        ++it) {
     auto* resource = dynamic_cast<SceneFxResource*>(parameterFx(it.value()));
-    if (!resource) continue;
-    auto row =
-        dependencyRow("fx", it.key(), "fx_resource", resource->resourcePath());
-    row.insert("path_kind", "unsupported");
-    row.insert("availability", "unsupported");
-    if (!report.append(row)) return;
+    if (resource && !fxDependency(report, it.key(), resource)) return;
   }
 }
 

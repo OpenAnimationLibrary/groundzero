@@ -63,10 +63,9 @@ TFx* parameterFx(TFx* fx) {
   return wrapper->getZeraryFx();
 }
 
-std::set<TFx*> sceneMembers(ToonzScene& scene) {
+std::set<TFx*> sheetMembers(TXsheet* sheet) {
   std::set<TFx*> members;
-  TXsheet* sheet = scene.getXsheet();
-  FxDag* graph   = sheet->getFxDag();
+  FxDag* graph = sheet->getFxDag();
   graph->getInternalFxs()->getFxs(members);
   members.insert(graph->getXsheetFx());
   for (int index = 0; index < graph->getOutputFxCount(); ++index)
@@ -76,6 +75,10 @@ std::set<TFx*> sceneMembers(ToonzScene& scene) {
     if (column && column->getFx()) members.insert(column->getFx());
   }
   return members;
+}
+
+std::set<TFx*> sceneMembers(ToonzScene& scene) {
+  return sheetMembers(scene.getXsheet());
 }
 
 std::set<TFx*> graphMembers(Document& document) {
@@ -320,18 +323,19 @@ QJsonValue effectCatalog(const EffectFactory& factory = makeEffect) {
 
 QJsonArray diagnostics(TFx* fx) { return automationFxProfileDiagnostics(fx); }
 
-QJsonObject describeFx(Document& document, TFx* fx) {
+// graph is the sheet graph that holds fx; null means the current sheet's.
+QJsonObject describeFx(Document& document, TFx* fx, FxDag* graph = nullptr) {
+  if (!graph) graph = dag(document);
   TFx* native = parameterFx(fx);
-  QJsonObject result{
-      {"fx_id", document.idForFx(fx)},
-      {"type", QString::fromStdString(native->getFxType())},
-      {"name", QString::fromStdWString(native->getName())},
-      {"enabled", fx->getAttributes()->isEnabled() &&
-                      native->getAttributes()->isEnabled()},
-      {"native_fx_version", native->getFxVersion()},
-      {"ports", portsDescription(fx, &document)},
-      {"terminal", dag(document)->getTerminalFxs()->containsFx(fx)},
-      {"diagnostics", diagnostics(native)}};
+  QJsonObject result{{"fx_id", document.idForFx(fx)},
+                     {"type", QString::fromStdString(native->getFxType())},
+                     {"name", QString::fromStdWString(native->getName())},
+                     {"enabled", fx->getAttributes()->isEnabled() &&
+                                     native->getAttributes()->isEnabled()},
+                     {"native_fx_version", native->getFxVersion()},
+                     {"ports", portsDescription(fx, &document)},
+                     {"terminal", graph->getTerminalFxs()->containsFx(fx)},
+                     {"diagnostics", diagnostics(native)}};
   if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
     result["column_id"]         = document.idForColumn(column->getXshColumn());
     result["column_index"]      = column->getColumnIndex();
@@ -344,17 +348,16 @@ QJsonObject describeFx(Document& document, TFx* fx) {
 
 // Read-only documents describe effects outside the profile without their
 // parameters or diagnostics.
-QJsonObject reducedFx(Document& document, TFx* fx) {
+QJsonObject reducedFx(Document& document, TFx* fx, FxDag* graph) {
   auto* wrapper = dynamic_cast<TZeraryColumnFx*>(fx);
   TFx* native = wrapper && wrapper->getZeraryFx() ? wrapper->getZeraryFx() : fx;
-  QJsonObject result{
-      {"fx_id", document.idForFx(fx)},
-      {"type", QString::fromStdString(native->getFxType())},
-      {"name", QString::fromStdWString(native->getName())},
-      {"enabled", fx->getAttributes()->isEnabled() &&
-                      native->getAttributes()->isEnabled()},
-      {"ports", portsDescription(fx, &document)},
-      {"terminal", dag(document)->getTerminalFxs()->containsFx(fx)}};
+  QJsonObject result{{"fx_id", document.idForFx(fx)},
+                     {"type", QString::fromStdString(native->getFxType())},
+                     {"name", QString::fromStdWString(native->getName())},
+                     {"enabled", fx->getAttributes()->isEnabled() &&
+                                     native->getAttributes()->isEnabled()},
+                     {"ports", portsDescription(fx, &document)},
+                     {"terminal", graph->getTerminalFxs()->containsFx(fx)}};
   if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
     TXshColumn* owner = column->getXshColumn();
     result["column_id"] =
@@ -365,31 +368,37 @@ QJsonObject reducedFx(Document& document, TFx* fx) {
   return result;
 }
 
-QJsonObject graphEntry(Document& document, TFx* fx) {
+QJsonObject graphEntry(Document& document, TFx* fx, FxDag* graph) {
   QJsonObject entry;
   if (!document.readOnly) {
-    entry = describeFx(document, fx);
+    entry = describeFx(document, fx, graph);
   } else {
     try {
-      entry =
-          fxAdmitted(fx) ? describeFx(document, fx) : reducedFx(document, fx);
+      entry = fxAdmitted(fx) ? describeFx(document, fx, graph)
+                             : reducedFx(document, fx, graph);
     } catch (const Error&) {
-      entry = reducedFx(document, fx);
+      entry = reducedFx(document, fx, graph);
     }
   }
   entry.insert("admission", fxAdmission(document, fx));
   return entry;
 }
 
-QJsonValue inspectGraph(Document& document) {
+// sheet_path names a sub-xsheet instance; without it, the current sheet.
+QJsonValue inspectGraph(Document& document, const QJsonObject& params) {
+  TXsheet* sheet =
+      params.contains("sheet_path")
+          ? resolveSheetPath(document, params.value("sheet_path").toArray())
+          : document.scene->getXsheet();
   if (!document.readOnly) validateAutomationFxGraph(*document.scene);
+  FxDag* graph = sheet->getFxDag();
   QJsonArray effects;
-  for (TFx* fx : graphMembers(document))
-    if (fx) effects.append(graphEntry(document, fx));
-  TFx* output = dag(document)->getCurrentOutputFx();
+  for (TFx* fx : sheetMembers(sheet))
+    if (fx) effects.append(graphEntry(document, fx, graph));
+  TFx* output = graph->getCurrentOutputFx();
   return QJsonObject{
       {"effects", effects},
-      {"xsheet_fx_id", document.idForFx(dag(document)->getXsheetFx())},
+      {"xsheet_fx_id", document.idForFx(graph->getXsheetFx())},
       {"current_output_fx_id",
        output ? QJsonValue(document.idForFx(output)) : QJsonValue()}};
 }
@@ -1362,10 +1371,13 @@ QJsonArray fxOperations() {
       operation("fx.catalog",
                 "Discover allowed builtin effects and native typed parameters.",
                 {}, {}),
-      operation("fx.graph",
-                "Inspect graph, generator columns, ports, terminals, and "
-                "current output.",
-                {{"document_id", stringSchema()}}, {"document_id"}),
+      operation(
+          "fx.graph",
+          "Inspect graph, generator columns, ports, terminals, and "
+          "current output; sheet_path inspects a sub-xsheet instance "
+          "named by scene.inventory.",
+          {{"document_id", stringSchema()}, {"sheet_path", sheetPathSchema()}},
+          {"document_id"}),
       operation(
           "fx.create",
           "Create a disconnected builtin effect, generator column, or output.",
@@ -1437,8 +1449,8 @@ QJsonValue executeFx(Context& context, const QString& method,
        [](Context& ctx, Document& doc, const QJsonObject& args) {
          return changeParameter(ctx, doc, args, true);
        }},
-      {"fx.graph", [](Context&, Document& doc, const QJsonObject&) {
-         return inspectGraph(doc);
+      {"fx.graph", [](Context&, Document& doc, const QJsonObject& args) {
+         return inspectGraph(doc, args);
        }}};
   const auto handler = handlers.find(method);
   if (handler == handlers.end())

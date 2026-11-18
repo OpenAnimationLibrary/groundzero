@@ -11,6 +11,9 @@
 #include "toonz/imagestyles.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/tcamera.h"
+#include "toutputproperties.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/txsheet.h"
@@ -469,12 +472,15 @@ void classifyStyles(Loader& loader, TXshSimpleLevel* level) {
 
 LevelState loadSimpleLevel(Loader& loader, TXshSimpleLevel* level) {
   LevelState state{levelKind(level), QString(), 0};
+  state.firstPin = int(loader.source.pins.size());
+  state.endPin   = state.firstPin;
   TFilePath decoded;
   state.loadStatus = locate(loader, level, decoded);
   if (state.loadStatus.isEmpty())
     state.loadStatus = precheck(loader, level, decoded);
   if (!state.loadStatus.isEmpty()) return state;
   pinLevelFiles(loader, decoded);
+  state.endPin = int(loader.source.pins.size());
   try {
     level->load();
   } catch (...) {
@@ -701,7 +707,68 @@ QJsonObject openReport(Context& context, const HostLoadRequest& request,
       {"native_project_file", binding.projectFile}};
 }
 
+QJsonValue projectVersion(const QString& projectFile) {
+  try {
+    TIStream is(TFilePath(projectFile.toStdWString()));
+    std::string tag;
+    if (!is || !is.matchTag(tag) || tag != "project") return QJsonValue();
+    while (is.matchTag(tag)) {
+      if (tag != "version") {
+        is.skipCurrentTag();
+        continue;
+      }
+      int major = 0, minor = 0;
+      is >> major >> minor;
+      return QString("%1.%2").arg(major).arg(minor);
+    }
+  } catch (...) {
+  }
+  return QJsonValue();
+}
+
+QJsonValue sceneDefaults(TProject& project) {
+  const TSceneProperties& properties = project.getSceneProperties();
+  if (properties.getCameras().empty()) return QJsonValue();
+  const TCamera* camera = properties.getCameras().front();
+  return QJsonObject{
+      {"camera_width_px", camera->getRes().lx},
+      {"camera_height_px", camera->getRes().ly},
+      {"camera_width_in", camera->getSize().lx},
+      {"camera_height_in", camera->getSize().ly},
+      {"frame_rate", properties.getOutputProperties()->getFrameRate()}};
+}
+
+QJsonArray projectFolders(TProject& project) {
+  QJsonArray folders;
+  for (int index = 0; index < project.getFolderCount() && index < 64; ++index) {
+    const std::string name = project.getFolderName(index);
+    const bool dependent   = !project.isConstantFolder(index);
+    const TFilePath coded  = project.getFolder(index);
+    folders.append(QJsonObject{
+        {"alias", QString::fromStdString(name).left(64)},
+        {"coded_path", coded.getQString().left(4096)},
+        {"scene_dependent", dependent},
+        {"use_scene_path", project.getUseScenePath(name)},
+        {"decoded",
+         dependent ? QString() : project.decode(coded).getQString()}});
+  }
+  return folders;
+}
+
 }  // namespace
+
+QJsonObject nativeProjectSummary(const QString& projectFile) {
+  TProject project;
+  project.load(TFilePath(projectFile.toStdWString()));
+  return {
+      {"name",
+       QString::fromStdWString(project.getName().getWideString()).left(256)},
+      {"version", projectVersion(projectFile)},
+      {"file_path_rules", pathRules(project)},
+      {"folders", projectFolders(project)},
+      {"folder_count", project.getFolderCount()},
+      {"scene_defaults", sceneDefaults(project)}};
+}
 
 QJsonObject loadReadOnlyDocument(Context& context, const QString& documentId,
                                  const HostLoadRequest& request) {
