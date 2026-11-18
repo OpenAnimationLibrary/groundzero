@@ -134,6 +134,26 @@ void unusedStylesMatchSceneChecker(Context& context) {
           "The scan did not report every drawing done");
 }
 
+// A closed stroke whose regions were never computed: the scan builds them on
+// a copy, so the document's drawing still has none afterwards.
+void documentDrawingsAreNotWritten(Context& context) {
+  Fixture fixture(context);
+  TVectorImageP image = fixture.level->getFrame(TFrameId(1), false);
+  std::vector<TThickPoint> loop{TThickPoint(0, 0, 1), TThickPoint(20, 0, 1),
+                                TThickPoint(20, 20, 1), TThickPoint(0, 20, 1),
+                                TThickPoint(0, 0, 1)};
+  TStroke* stroke = TStroke::interpolate(loop, 0.1);
+  stroke->setSelfLoop(true);
+  stroke->setStyle(1);
+  image->addStroke(stroke);
+  const UINT regions = image->getRegionCount();
+  const QString id = fixture.submit("unused_styles").value("job_id").toString();
+  require(fixture.finish(id).value("status") == "completed",
+          "The unused-style scan failed");
+  require(image->getRegionCount() == regions,
+          "The scan computed regions on the document's drawing");
+}
+
 void stepsStayShort(Context& context) {
   Fixture fixture(context);
   constexpr int delay = 5;
@@ -238,6 +258,7 @@ void secondCheckIsBusy(Context& context) {
 void runAutomationSceneCheckTests(Context& context) {
   const std::pair<const char*, std::function<void(Context&)>> cases[]{
       {"unused styles match SceneChecker", unusedStylesMatchSceneChecker},
+      {"document drawings are not written", documentDrawingsAreNotWritten},
       {"steps stay short", stepsStayShort},
       {"cancel ends at once with rows", cancelEndsAtOnceWithRows},
       {"a write ends the scan", writeEndsTheScan},
