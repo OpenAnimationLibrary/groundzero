@@ -1,5 +1,7 @@
 #include "automation_production.h"
 
+#include "automation_dispatch.h"
+
 #include "tfx.h"
 #include "tmacrofx.h"
 #include "tpalette.h"
@@ -21,6 +23,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileDevice>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 
@@ -510,6 +513,116 @@ void macroInspectionBudget(Context& context) {
           "Macro descendants bypassed the global FX inspection budget");
 }
 
+QJsonObject dispatched(Dispatcher& dispatcher, const QString& method,
+                       QJsonObject params) {
+  static int sequence = 0;
+  if (method != "cast.list" && !params.contains("operation_id"))
+    params.insert("operation_id",
+                  "production-test-" + QString::number(++sequence));
+  const auto response = dispatcher.dispatch(
+      {{"id", "production"}, {"method", method}, {"params", params}});
+  require(response.contains("result"),
+          QJsonDocument(response).toJson(QJsonDocument::Compact).constData());
+  return response.value("result").toObject();
+}
+
+QJsonObject at(Document& document, QJsonObject params) {
+  params.insert("document_id", document.id);
+  params.insert("expected_revision", document.revisionText());
+  return params;
+}
+
+QString packageLevel(Dispatcher& dispatcher, Document& document,
+                     const QString& name) {
+  const QString level =
+      dispatched(dispatcher, "level.create",
+                 at(document, {{"name", name}, {"format", "vector"}}))
+          .value("level_id")
+          .toString();
+  dispatched(
+      dispatcher, "drawing.create",
+      at(document, {{"level_id", level},
+                    {"drawing_id", QJsonObject{{"number", 1}, {"suffix", ""}}},
+                    {"format", "vector"}}));
+  return level;
+}
+
+QJsonObject castItem(const QJsonObject& report, const QString& name) {
+  for (const auto& value : rows(report))
+    if (value.toObject().value("name") == name) return value.toObject();
+  throw std::runtime_error("The cast report lacks an expected level");
+}
+
+QJsonObject castReport(Dispatcher& dispatcher, Document& document) {
+  return dispatched(dispatcher, "cast.list", at(document, {}));
+}
+
+void tagsAndProvenanceSurvivePackages(Context& context) {
+  Dispatcher dispatcher(context);
+  const auto created = dispatched(
+      dispatcher, "scene.create",
+      {{"name", "Cast package"}, {"width_px", 32}, {"height_px", 32}});
+  Document& source = context.document(created.value("document_id").toString());
+  const QString tagged = packageLevel(dispatcher, source, "Tagged");
+  packageLevel(dispatcher, source, "Plain");
+  auto* level = source.level(tagged)->getSimpleLevel();
+  level->setCastTags({"hero", QString::fromUtf8("caf\xc3\xa9"), "pose"});
+  level->setCastCover(TFrameId(1));
+  TXshLevel::LibraryProvenance origin;
+  origin.relationship = TXshLevel::LibraryProvenance::LocalCopy;
+  origin.itemId       = "recorded-id";
+  origin.kind         = "symbol";
+  origin.itemPath     = "recorded/library/item";
+  origin.revision     = 3;
+  level->setLibraryProvenance(origin);
+  const auto before = castReport(dispatcher, source);
+  require(castItem(before, "Tagged").value("tags").toArray().size() == 3 &&
+              castItem(before, "Tagged").value("library").isObject(),
+          "The source cast report lacks the native metadata under test");
+  const QString directory = QDir(context.workspace()).filePath("cast-package");
+  dispatched(dispatcher, "scene.save_copy",
+             at(source, {{"directory", directory}}));
+  const auto opened =
+      dispatched(dispatcher, "scene.open", {{"path", directory}});
+  Document& reopened = context.document(opened.value("document_id").toString());
+  const auto after   = castReport(dispatcher, reopened);
+  for (const QString& name : {QString("Tagged"), QString("Plain")}) {
+    const auto original = castItem(before, name);
+    const auto restored = castItem(after, name);
+    for (const QString& field :
+         {QString("tags"), QString("cover"), QString("library")})
+      require(original.value(field) == restored.value(field),
+              "Cast tags, cover or Library provenance changed in a package");
+  }
+  require(castItem(after, "Plain").value("tags").toArray().isEmpty() &&
+              castItem(after, "Plain").value("library").isNull(),
+          "A package invented tags or an origin for an untouched level");
+  context.removeDocument(reopened.id);
+  context.removeDocument(source.id);
+}
+
+void unreadableDependencyFile(Context& context) {
+#ifndef _WIN32
+  Fixture fixture(context);
+  auto* level        = fixture.level(L"Unreadable");
+  const QString path = context.workspace() + "/unreadable.pli";
+  writeFile(path);
+  require(QFile::setPermissions(path, QFileDevice::Permissions()),
+          "Cannot remove read permission from the fixture");
+  level->setPath(TFilePath(path), true);
+  const auto item = rows(fixture.read("scene.dependencies")).first().toObject();
+  QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+  require(item.value("availability") == "present" &&
+              item.value("size_bytes") == 6 &&
+              item.value("authority") == "workspace",
+          "A file without read permission was not reported by its metadata");
+  require(fixture.document.revision == 7,
+          "Dependency inspection changed the revision");
+#else
+  (void)context;
+#endif
+}
+
 }  // namespace
 
 void runAutomationProductionTests(Context& context) {
@@ -526,9 +639,11 @@ void runAutomationProductionTests(Context& context) {
   qualifiedMacroInspection(context);
   unsupportedMacroInspection(context);
   macroInspectionBudget(context);
+  tagsAndProvenanceSurvivePackages(context);
+  unreadableDependencyFile(context);
   require(context.mutationStarted() == mutation,
           "Read inspection changed the worker mutation marker");
-  std::cout << "PASS: native production inspection boundaries (12 groups)\n";
+  std::cout << "PASS: native production inspection boundaries (14 groups)\n";
 }
 
 }  // namespace GroundzeroAutomation

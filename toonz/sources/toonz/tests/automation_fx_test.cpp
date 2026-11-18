@@ -146,6 +146,47 @@ void testCatalog(Context& context, Document& document) {
   }
 }
 
+QStringList parameterNames(const QJsonArray& parameters) {
+  QStringList names;
+  for (const QJsonValue& parameter : parameters)
+    names.append(parameter.toObject().value("name").toString());
+  return names;
+}
+
+void testHiddenParametersAreNotPublic(Context& context, Document& document) {
+  const QJsonObject catalog = executeFx(context, "fx.catalog", {}).toObject();
+  int hidden = 0, obsolete = 0;
+  for (const QJsonValue& entry : catalog.value("effects").toArray()) {
+    const QString type = entry.toObject().value("type").toString();
+    const QStringList advertised =
+        parameterNames(entry.toObject().value("parameters").toArray());
+    const QString id = create(context, document, type);
+    TFx* fx          = document.fx(id);
+    if (auto* generator = dynamic_cast<TZeraryColumnFx*>(fx))
+      fx = generator->getZeraryFx();
+    const QStringList described = parameterNames(
+        call(context, document, "fx.parameter.get", {{"fx_id", id}})
+            .value("parameters")
+            .toArray());
+    TParamContainer* params = fx->getParams();
+    for (int index = 0; index < params->getParamCount(); ++index) {
+      const TParamVar* var = params->getParamVar(index);
+      const QString name   = QString::fromStdString(var->getName());
+      if (!var->isHidden() && !var->isObsolete()) continue;
+      ++(var->isObsolete() ? obsolete : hidden);
+      require(!advertised.contains(name) && !described.contains(name),
+              "A hidden or obsolete native parameter was described as public");
+      expectError(context, "UNKNOWN_PARAMETER", [&] {
+        call(context, document, "fx.parameter.set",
+             {{"fx_id", id}, {"parameter", name}, {"value", 0}});
+      });
+    }
+  }
+  require(hidden > 0, "No admitted effect carries a hidden native parameter");
+  require(obsolete > 0,
+          "No admitted effect carries an obsolete native parameter");
+}
+
 void testGenerator(Context& context, Document& document) {
   const QJsonObject created =
       call(context, document, "fx.create",
@@ -699,6 +740,7 @@ void runAutomationFxTests(Context& context) {
   testNativeKeyframePredecessors();
   Document& document = context.addDocument(std::make_unique<ToonzScene>());
   testCatalog(context, document);
+  testHiddenParametersAreNotPublic(context, document);
   testGenerator(context, document);
   testConnections(context, document);
   testImplicitCycles(context, document);
