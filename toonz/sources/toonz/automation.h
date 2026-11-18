@@ -27,6 +27,7 @@ struct ReadOnlyScene;
 class JobRegistry;
 struct SceneHostRegistry;
 struct RuntimeState;
+struct SelectionRegistry;
 
 class Error final : public std::runtime_error {
 public:
@@ -68,6 +69,8 @@ struct Document final {
   QHash<QString, TDoubleParamP> offsetLayers;
   // Set only for read-only documents opened from user scenes.
   std::shared_ptr<ReadOnlyScene> readOnly;
+  // Selection handles issued for this document's drawings.
+  std::shared_ptr<SelectionRegistry> selections;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);

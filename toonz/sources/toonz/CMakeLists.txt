@@ -207,6 +207,8 @@ set(HEADERS
     automation_hook.h
     automation_storyboard.h
     automation_lipsync.h
+    automation_drawing_analysis.h
+    automation_drawing_inspection.h
     automation_vector_opacity.h
     automation_dispatch.h
     automation_containment.h
@@ -309,6 +311,8 @@ set(SOURCES
     automation_hook.cpp
     automation_storyboard.cpp
     automation_lipsync.cpp
+    automation_drawing_analysis.cpp
+    automation_drawing_inspection.cpp
     automation_vector_opacity.cpp
     automation_scene.cpp
     automation_fx.cpp
@@ -1310,6 +1314,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_jobs_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_drawing_analysis_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)

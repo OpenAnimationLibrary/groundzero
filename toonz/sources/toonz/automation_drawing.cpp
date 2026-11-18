@@ -1,6 +1,8 @@
 #include "automation.h"
 #include "automation_audio.h"
 #include "automation_drawing.h"
+#include "automation_drawing_analysis.h"
+#include "automation_drawing_inspection.h"
 #include "automation_files.h"
 #include "automation_hook.h"
 #include "automation_vector_opacity.h"
@@ -543,14 +545,25 @@ QJsonObject strokeJson(const TStroke& stroke, int index) {
           {"points", points}};
 }
 
+void requireCurrentRevision(const Document& document,
+                            const QJsonObject& params) {
+  if (!params.contains("expected_revision")) return;
+  if (requiredString(params, "expected_revision") != document.revisionText())
+    throw Error("stale_revision",
+                "The document changed; inspect the drawing again.",
+                {{"revision", document.revisionText()}});
+}
+
 QJsonObject inspectVector(Context&, Document& document,
                           const QJsonObject& params) {
+  requireCurrentRevision(document, params);
   auto* level       = simpleLevel(document, params);
   const auto vector = vectorFor(level, frameId(params));
   const int offset  = integerParam(params, "offset", 0, kMaxStrokes, 0);
   const int limit   = integerParam(params, "limit", 1, 128, 32);
   const int total   = static_cast<int>(vector->getStrokeCount());
   const int end     = std::min(offset + limit, total);
+  const auto roles  = drawingRoles(*vector);
   QJsonArray strokes;
   int pointCount = 0;
   for (int index = offset; index < end; ++index) {
@@ -559,13 +572,17 @@ QJsonObject inspectVector(Context&, Document& document,
     if (pointCount > 32768)
       throw Error("resource_limit",
                   "Reduce the vector inspection limit to return fewer points");
-    strokes.append(strokeJson(*stroke, index));
+    auto json = strokeJson(*stroke, index);
+    describeStroke(json, *stroke, roles.byStroke[index]);
+    strokes.append(json);
   }
   return {{"strokes", strokes},
           {"total", total},
+          {"revision", document.revisionText()},
           {"geometry_revision", document.revisionText()},
           {"coordinate_space", "drawing_native"},
           {"thickness", "native_radius"},
+          {"summary", inspectionSummary(*vector, paletteFor(level), roles)},
           {"next_offset", end < total ? QJsonValue(end) : QJsonValue()}};
 }
 
@@ -1574,8 +1591,14 @@ void vectorCatalog(QJsonArray& tools) {
   auto properties = target();
   properties.insert("offset", range(0, kMaxStrokes));
   properties.insert("limit", range(1, 128));
+  properties.insert(
+      "expected_revision",
+      QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 80}});
   tools.append(operation(
-      "vector.inspect", "Read editable quadratic control points and styles",
+      "vector.inspect",
+      "Read editable quadratic control points and styles, each stroke's art "
+      "role, zero-thickness flag and opacity scalars, and a whole-drawing "
+      "summary of style usage and role counts; regions are not computed",
       properties, {"document_id", "level_id", "drawing_id"}));
   properties = target();
   properties.insert("coordinate_space", choice({"drawing_native"}));
@@ -2461,6 +2484,23 @@ std::vector<int> opacityIndices(const QJsonObject& params, int count) {
   return {unique.begin(), unique.end()};
 }
 
+// The strokes a write targets: explicit indices or a selection handle bound
+// to this drawing and revision.
+std::vector<int> opacityTargets(Document& document, const QJsonObject& params,
+                                int count) {
+  const bool handle = params.contains("selection_id");
+  if (handle == params.contains("stroke_indices"))
+    invalid("Provide exactly one of stroke_indices and selection_id");
+  if (!handle) return opacityIndices(params, count);
+  const auto indices = resolveSelection(
+      document, requiredString(params, "selection_id"),
+      requiredString(params, "level_id"), frameJson(frameId(params)));
+  if (indices.empty()) invalid("The selection contains no strokes");
+  for (int index : indices)
+    if (index >= count) invalid("The selection no longer fits the drawing");
+  return indices;
+}
+
 QJsonArray opacityIndexJson(const std::vector<int>& indices) {
   QJsonArray result;
   for (int index : indices) result.append(index);
@@ -2478,13 +2518,15 @@ TVectorImageP opacityImage(TXshSimpleLevel* level, const TFrameId& frame) {
 }
 
 QJsonObject nearestOpacityStroke(const TVectorImageP& image,
-                                 const QJsonObject& query) {
+                                 const QJsonObject& query,
+                                 const std::vector<bool>& allowed) {
   const TPointD point(number(query, "x", -kMaxCoordinate, kMaxCoordinate),
                       number(query, "y", -kMaxCoordinate, kMaxCoordinate));
   const double maximum = number(query, "max_distance", 0, kMaxCoordinate);
   double bestDistance  = maximum * maximum;
   QJsonObject result;
   for (UINT index = 0; index < image->getStrokeCount(); ++index) {
+    if (!allowed[index]) continue;
     double parameter = 0, distance = 0;
     if (!image->getStroke(index)->getNearestW(point, parameter, distance,
                                               false))
@@ -2511,13 +2553,15 @@ TRectD opacityQueryBounds(const QJsonObject& query) {
 }
 
 std::vector<int> opacityBounds(const TVectorImageP& image,
-                               const QJsonObject& query) {
+                               const QJsonObject& query,
+                               const std::vector<bool>& allowed) {
   const QString relation = requiredString(query, "relation");
   if (relation != "intersects" && relation != "contained")
     invalid("Unknown bounds relation");
   const auto box = opacityQueryBounds(query);
   std::vector<int> result;
   for (UINT index = 0; index < image->getStrokeCount(); ++index) {
+    if (!allowed[index]) continue;
     const auto bounds = image->getStroke(index)->getCenterlineBBox();
     if (relation == "contained" ? box.contains(bounds) : box.overlaps(bounds))
       result.push_back(index);
@@ -2528,6 +2572,73 @@ std::vector<int> opacityBounds(const TVectorImageP& image,
   return result;
 }
 
+// One flag per stroke: whether its role is among the query's roles filter.
+std::vector<bool> rolesAllowed(const TVectorImageP& image,
+                               const QJsonObject& params) {
+  std::vector<bool> allowed(image->getStrokeCount(), true);
+  if (!params.contains("roles")) return allowed;
+  std::set<int> wanted;
+  for (const auto& value : array(params, "roles", 1, 4)) {
+    const int role = value.isString() ? roleFromName(value.toString()) : -1;
+    if (role < 0) invalid("Unknown art role in the roles filter");
+    if (!wanted.insert(role).second) invalid("Roles must be unique");
+  }
+  const auto roles = drawingRoles(*image);
+  for (size_t index = 0; index < allowed.size(); ++index)
+    allowed[index] = wanted.count(roles.byStroke[index]) > 0;
+  return allowed;
+}
+
+QJsonObject selectionRule(const QJsonObject& query, const QJsonObject& params) {
+  static const std::map<QString, std::pair<QString, QString>> rules{
+      {"indices",
+       {"explicit", "TVectorImage stroke index at the bound revision"}},
+      {"nearest_centerline",
+       {"centerline", "TStroke::getNearestW, ties keep the lower index"}},
+      {"centerline_bounds", {"centerline_bbox", "TStroke::getCenterlineBBox"}},
+      {"lasso",
+       {"lasso_region",
+        "VectorSelectionTool::selectRegionVectorImage, TRegion::contains "
+        "(stroke, true)"}}};
+  const QString mode = query.value("mode").toString();
+  const auto& rule   = rules.at(mode);
+  return {{"mode", mode},
+          {"relation",
+           query.contains("relation") ? query.value("relation") : QJsonValue()},
+          {"geometry", rule.first},
+          {"roles",
+           params.contains("roles") ? params.value("roles") : QJsonValue()},
+          {"native_reference", rule.second}};
+}
+
+std::vector<int> selectedIndices(const TVectorImageP& image,
+                                 const QJsonObject& query,
+                                 const std::vector<bool>& allowed,
+                                 QJsonValue& nearest) {
+  const QString mode = requiredString(query, "mode");
+  std::vector<int> indices;
+  if (mode == "indices") {
+    for (int index : opacityIndices(query, image->getStrokeCount()))
+      if (allowed[index]) indices.push_back(index);
+  } else if (mode == "centerline_bounds") {
+    indices = opacityBounds(image, query, allowed);
+  } else if (mode == "nearest_centerline") {
+    const auto match = nearestOpacityStroke(image, query, allowed);
+    if (!match.isEmpty()) {
+      nearest = match;
+      indices.push_back(match.value("stroke_index").toInt());
+    }
+  } else if (mode == "lasso") {
+    const QString relation = requiredString(query, "relation");
+    if (relation != "intersects" && relation != "contained")
+      invalid("Unknown lasso relation");
+    indices = lassoSelection(*image, lassoPolygon(query),
+                             relation == "intersects", allowed, 128);
+  } else
+    invalid("Unknown vector selection mode");
+  return indices;
+}
+
 QJsonObject selectVector(Context&, Document& document,
                          const QJsonObject& params) {
   auto result = opacityIdentity(document, params);
@@ -2536,21 +2647,17 @@ QJsonObject selectVector(Context&, Document& document,
   const auto image =
       opacityImage(simpleLevel(document, params), frameId(params));
   const auto query   = params.value("query").toObject();
-  const QString mode = requiredString(query, "mode");
-  std::vector<int> indices;
+  const auto allowed = rolesAllowed(image, params);
   QJsonValue nearest(QJsonValue::Null);
-  if (mode == "indices") {
-    indices = opacityIndices(query, image->getStrokeCount());
-  } else if (mode == "centerline_bounds") {
-    indices = opacityBounds(image, query);
-  } else if (mode == "nearest_centerline") {
-    const auto match = nearestOpacityStroke(image, query);
-    if (!match.isEmpty()) {
-      nearest = match;
-      indices.push_back(match.value("stroke_index").toInt());
-    }
-  } else
-    invalid("Unknown vector selection mode");
+  const auto indices = selectedIndices(image, query, allowed, nearest);
+  SelectionBinding binding;
+  binding.levelId   = requiredString(params, "level_id");
+  binding.drawingId = frameJson(frameId(params));
+  binding.indices   = indices;
+  binding.rule      = selectionRule(query, params);
+  const auto handle = issueSelection(document, binding);
+  for (auto it = handle.begin(); it != handle.end(); ++it)
+    result.insert(it.key(), it.value());
   result.insert("coordinate_space", "drawing_native");
   result.insert("stroke_indices", opacityIndexJson(indices));
   result.insert("nearest", nearest);
@@ -2637,7 +2744,8 @@ QJsonObject writeVectorOpacity(Context& context, Document& document,
   auto* level         = simpleLevel(document, params);
   const auto frame    = frameId(params);
   const auto original = writableOpacityImage(level, frame);
-  const auto indices  = opacityIndices(params, original->getStrokeCount());
+  const auto indices =
+      opacityTargets(document, params, original->getStrokeCount());
   const auto knots = profile ? opacityProfile(params) : std::vector<TPointD>();
   auto candidate   = original->cloneWithGroupContext();
   bool changed     = false;
@@ -2801,6 +2909,7 @@ QJsonArray drawingOperations() {
   palettePageCatalog(tools);
   paletteStyleCatalog(tools);
   rasterCatalog(tools);
+  tools.append(drawingAnalysisOperation());
   return tools;
 }
 
@@ -2829,6 +2938,7 @@ QJsonValue executeDrawing(Context& context, const QString& method,
       {"drawing.inspect", inspectDrawing},
       {"drawing.clone", cloneDrawing},
       {"drawing.remove", removeDrawing},
+      {"drawing.analysis.submit", submitDrawingAnalysis},
       {"drawing.renumber", renumberDrawing},
       {"vector.inspect", inspectVector},
       {"vector.select", selectVector},
