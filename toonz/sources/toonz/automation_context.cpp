@@ -227,12 +227,16 @@ Document& Context::document(const QString& id) {
   return *found->second;
 }
 
-Document& Context::addDocument(std::unique_ptr<ToonzScene> scene) {
-  if (!scene)
-    throw Error("invalid_document", "Cannot register an empty scene.");
+void Context::requireDocumentCapacity() const {
   if (m_documents.size() >= 32)
     throw Error("resource_limit",
                 "Close a document before creating another (limit: 32).");
+}
+
+Document& Context::addDocument(std::unique_ptr<ToonzScene> scene) {
+  if (!scene)
+    throw Error("invalid_document", "Cannot register an empty scene.");
+  requireDocumentCapacity();
   scene->setProject(m_project);
   auto document    = std::make_unique<Document>(std::move(scene));
   const QString id = document->id;

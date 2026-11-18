@@ -87,6 +87,8 @@ public:
   Context& operator=(const Context&) = delete;
 
   Document& document(const QString& id);
+  /// Refuse with resource_limit while the worker holds its maximum documents.
+  void requireDocumentCapacity() const;
   Document& addDocument(std::unique_ptr<ToonzScene> scene);
   // Register a read-only document that keeps its own project binding.
   Document& addReadOnlyDocument(std::unique_ptr<ToonzScene> scene,

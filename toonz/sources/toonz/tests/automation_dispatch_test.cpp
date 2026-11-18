@@ -387,9 +387,56 @@ void toolsetCatalog(Context& context) {
   }
 }
 
+QString createdDocument(Dispatcher& dispatcher, int serial) {
+  return result(dispatcher, "scene.create",
+                {{"name", QString("limit-%1").arg(serial)},
+                 {"operation_id", QString("limit-create-%1").arg(serial)}})
+      .value("document_id")
+      .toString();
+}
+
+void requireRefusedAtLimit(Context& context, Dispatcher& dispatcher,
+                           const QString& method, const QJsonObject& params) {
+  const QJsonArray before = context.documents();
+  const QJsonObject response = call(dispatcher, method, params);
+  const QJsonObject error    = response.value("error").toObject();
+  require(error.value("code") == "resource_limit",
+          "A refusal at the document limit must be resource_limit, not "
+          "partially_applied");
+  require(context.documents() == before,
+          "A refusal at the document limit must change no document");
+}
+
+void documentLimit(Context& context) {
+  Dispatcher dispatcher(context);
+  QStringList created;
+  const QString source = createdDocument(dispatcher, 0);
+  created << source;
+  const QJsonObject saved =
+      result(dispatcher, "scene.save_copy",
+             {{"document_id", source},
+              {"expected_revision", "1"},
+              {"operation_id", "limit-save"},
+              {"directory", context.workspace() + "/limit-package"}});
+  for (int serial = 1; context.documents().size() < 32; ++serial)
+    created << createdDocument(dispatcher, serial);
+  require(context.documents().size() == 32,
+          "The document limit fixture must reach 32 documents");
+  requireRefusedAtLimit(
+      context, dispatcher, "scene.create",
+      {{"name", "limit-over"}, {"operation_id", "limit-create-over"}});
+  requireRefusedAtLimit(
+      context, dispatcher, "scene.open",
+      {{"path", saved.value("package_directory")},
+       {"operation_id", "limit-open-over"}});
+  for (const QString& id : created) context.removeDocument(id);
+  std::cout << "automation-dispatch-test: document limit PASS" << std::endl;
+}
+
 }  // namespace
 
 void runAutomationDispatcherTests(Context& context) {
+  documentLimit(context);
   toolsetCatalog(context);
   {
     Dispatcher dispatcher(context);

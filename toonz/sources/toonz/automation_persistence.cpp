@@ -553,6 +553,7 @@ QJsonObject saveCopy(Context& context, const QJsonObject& params) {
 }
 
 QJsonObject openPackage(Context& context, const QJsonObject& params) {
+  context.requireDocumentCapacity();
   const QString directory = admittedDirectory(context, params);
   auto scene =
       reopenPackage(context, directory, publishedPackages.at(directory));

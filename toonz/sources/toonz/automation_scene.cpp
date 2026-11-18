@@ -295,6 +295,7 @@ void applySettings(ToonzScene& scene, const Settings& settings) {
 }
 
 QJsonValue createScene(Context& context, const QJsonObject& params) {
+  context.requireDocumentCapacity();
   const QString name = nameParam(params);
   if (name.contains('/') || name.contains('\\') || name == "." || name == "..")
     throw Error("invalid_argument",
