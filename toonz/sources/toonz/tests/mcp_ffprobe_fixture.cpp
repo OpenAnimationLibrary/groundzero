@@ -277,8 +277,32 @@ int execute(const std::string& mode, const std::filesystem::path& movie) {
 
 }  // namespace
 
+// Answer the runtime media probe and the writer registration query as a
+// media tool whose mp4 muxer has an h264 encoder; -1 for other calls.
+int answerQuery(int argc, char* argv[]) {
+  const std::vector<std::string> arguments(argv + 1, argv + argc);
+  using Arguments = std::vector<std::string>;
+  if (arguments == Arguments{"-formats"})
+    std::cout << " DE mp4             MP4 (MPEG-4 Part 14)\n";
+  else if (arguments == Arguments{"-hide_banner", "-version"})
+    std::cout << "ffmpeg version fixture\n"
+                 "libavcodec     62. 28.102 / 62. 28.102\n";
+  else if (arguments == Arguments{"-hide_banner", "-h", "muxer=mp4"})
+    std::cout << "Muxer mp4 [MP4 (MPEG-4 Part 14)]:\n"
+                 "    Default video codec: h264.\n";
+  else if (arguments == Arguments{"-hide_banner", "-encoders"})
+    std::cout << "Encoders:\n ------\n"
+                 " V....D fixture264           Fixture encoder (codec h264)\n";
+  else
+    return -1;
+  std::cout.flush();
+  return std::cout ? 0 : 74;
+}
+
 int main(int argc, char* argv[]) {
   try {
+    const int answered = answerQuery(argc, argv);
+    if (answered >= 0) return answered;
     const Invocation call = invocation(argc, argv);
     if (isEncoder(call)) return stallEncoder(call);
     validateInvocation(call);

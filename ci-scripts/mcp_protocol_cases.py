@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+ELAPSED = re.compile(r"\"elapsed_ms\": [0-9]+")
 ACTIVE = {"preparing", "running", "finalizing"}
 CANCELLED_BY_CLIENT = "MCP_REQUEST_CANCELLED"
 TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
@@ -157,6 +158,7 @@ def _normalized(record: list[tuple[str, Any]], roots: dict[Path, str]) -> list[t
         text = text.replace(json.dumps(str(root))[1:-1], name)
     handles: dict[str, str] = {}
     text = UUID.sub(lambda match: handles.setdefault(match[0], f"<id-{len(handles)}>"), text)
+    text = ELAPSED.sub('"elapsed_ms": "<elapsed>"', text)
     return [tuple(item) for item in json.loads(text)]
 
 
