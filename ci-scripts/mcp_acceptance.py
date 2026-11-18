@@ -158,6 +158,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_finishing_required_inputs_are_diagnosed(self) -> None:
         mcp_finishing_cases.finishing_required_inputs_are_diagnosed(self)
 
+    def test_finishing_render_deadline_stops_slow_job(self) -> None:
+        mcp_finishing_cases.finishing_render_deadline_stops_slow_job(self)
+
     def test_light_presets_cover_native_types(self) -> None:
         mcp_finishing_cases.light_presets_cover_native_types(self)
 
@@ -547,7 +550,7 @@ class NativeAcceptance(unittest.TestCase):
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             result = self.success("render.status", {"job_id": job})
-            if result["status"] in {"completed", "failed", "canceled"}:
+            if result["status"] in {"completed", "failed", "canceled", "deadline_exceeded"}:
                 return result
             self.assertIn(
                 result["status"],

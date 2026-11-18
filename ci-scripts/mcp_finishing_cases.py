@@ -14,6 +14,7 @@ from mcp_fx_authoring_cases import (
     _scene,
     presets_cover_native_types,
 )
+from mcp_worker import Worker
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -274,6 +275,43 @@ def finishing_required_inputs_are_diagnosed(case: NativeAcceptance) -> None:
             "fx.connect", document, fx_id=node["fx_id"], port=port, source_fx_id=card
         )
         case.assertEqual(connected["diagnostics"], [])
+    _close_worker(case)
+
+
+def _deadline_worker(case: NativeAcceptance, milliseconds: int) -> None:
+    case.worker.close()
+    case.workspace = case.directory / "deadline-workspace"
+    case.workspace.mkdir()
+    case.worker = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / "deadline-worker.stderr.log",
+        test_arguments=("--test-render-deadline-ms", str(milliseconds)),
+    )
+    case.addCleanup(case.worker.close)
+
+
+def finishing_render_deadline_stops_slow_job(case: NativeAcceptance) -> None:
+    """End a slow light-wrap render at its deadline without artifacts and keep serving."""
+    _deadline_worker(case, 1500)
+    document, _target, artwork = _artwork(case)
+    wrap = _create(case, document, "STD_lightWrapFx")
+    for port in ("Source", "Background"):
+        case.mutate("fx.connect", document, fx_id=wrap, port=port, source_fx_id=artwork)
+    case.mutate("fx.parameter.set", document, fx_id=wrap, parameter="softness", value=20)
+    _output(case, document, wrap)
+    slow = {"start_frame": 0, "end_frame": 12, "width": 192, "height": 192}
+    job = case.mutate("render.submit", document, **slow)
+    ended = case.wait_job(job["job_id"])
+    case.assertEqual(ended["status"], "deadline_exceeded", ended)
+    case.assertTrue(ended["writers_closed"])
+    case.assertLess(ended["completed_frames"], ended["frame_count"])
+    case.assertIn("deadline", ended["error"])
+    error = case.failure("render.artifacts", {"job_id": job["job_id"]})
+    case.assertEqual(error["code"], "artifacts_unavailable")
+    case.mutate("fx.enabled.set", document, fx_id=wrap, enabled=False)
+    case.assertEqual(len(_pixels(case, document, 0)), 32 * 32)
     _close_worker(case)
 
 

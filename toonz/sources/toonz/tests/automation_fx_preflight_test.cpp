@@ -21,7 +21,9 @@
 #include "toonz/tstageobjecttree.h"
 #include "toonz/txsheet.h"
 
+#include <QEventLoop>
 #include <QTemporaryDir>
+#include <QTimer>
 
 #include <cmath>
 #include <functional>
@@ -350,10 +352,71 @@ void macroMemberExtent(Context& context) {
   output(document, nullptr);
   context.removeDocument(document.id);
 }
+QJsonObject waitForJob(Context& context, const QString& job) {
+  QJsonObject status;
+  QEventLoop loop;
+  QTimer poll, limit;
+  QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+    status =
+        executeRender(context, "render.status", {{"job_id", job}}).toObject();
+    const QString state = status.value("status").toString();
+    if (state == "completed" || state == "failed" || state == "canceled" ||
+        state == "deadline_exceeded")
+      loop.quit();
+  });
+  QObject::connect(&limit, &QTimer::timeout, &loop, &QEventLoop::quit);
+  poll.start(5);
+  limit.start(30000);
+  loop.exec(QEventLoop::ExcludeUserInputEvents);
+  return status;
+}
+
+QString submitSequence(Context& context, Document& document) {
+  return executeRender(context, "render.submit",
+                       {{"document_id", document.id},
+                        {"start_frame", 0},
+                        {"end_frame", 119}})
+      .toObject()
+      .value("job_id")
+      .toString();
+}
+
+void renderDeadline(Context& context) {
+  auto& document = scene(context, 64, 48);
+  output(document, create(context, document, "colorCardFx"));
+  const int budget         = context.renderDeadlineMs;
+  context.renderDeadlineMs = 1;
+  const QString late       = submitSequence(context, document);
+  const QJsonObject ended  = waitForJob(context, late);
+  require(ended.value("status") == "deadline_exceeded" &&
+              ended.value("writers_closed").toBool() &&
+              ended.value("error").toString().contains("deadline"),
+          "A render past its deadline must end as deadline_exceeded");
+  rejects(
+      context,
+      [&] { executeRender(context, "render.artifacts", {{"job_id", late}}); },
+      "artifacts_unavailable");
+  context.renderDeadlineMs = 200;
+  const QString canceled   = submitSequence(context, document);
+  executeRender(context, "render.cancel", {{"job_id", canceled}});
+  require(waitForJob(context, canceled).value("status") == "canceled",
+          "A caller's cancellation must not be reported as a deadline");
+  context.renderDeadlineMs = budget;
+  const QString preview =
+      executeRender(context, "render.preview",
+                    {{"document_id", document.id}, {"frame", 0}})
+          .toObject()
+          .value("job_id")
+          .toString();
+  require(waitForJob(context, preview).value("status") == "completed",
+          "The worker must keep rendering after a deadline");
+  context.removeDocument(document.id);
+}
 }  // namespace
 
 namespace GroundzeroAutomation {
 void runAutomationFxPreflightTests(Context& context) {
+  renderDeadline(context);
   columnPlacements(context);
   sharedPlacements(context);
   mirroredPlacement(context);
