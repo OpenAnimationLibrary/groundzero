@@ -490,6 +490,21 @@ class NativeAcceptance(unittest.TestCase):
     def test_runtime_media_without_encoder_is_not_usable(self) -> None:
         mcp_runtime_cases.runtime_media_without_encoder_is_not_usable(self)
 
+    def test_render_preflight_reports_every_failure(self) -> None:
+        mcp_runtime_cases.render_preflight_reports_every_failure(self)
+
+    def test_mp4_refused_without_encoder(self) -> None:
+        mcp_runtime_cases.mp4_refused_without_encoder(self)
+
+    def test_runtime_unavailable_backends_are_not_advertised(self) -> None:
+        mcp_runtime_cases.runtime_unavailable_backends_are_not_advertised(self)
+
+    def test_preview_reports_effective_output(self) -> None:
+        mcp_runtime_cases.preview_reports_effective_output(self)
+
+    def test_media_tools_replaced_after_launch_are_refused(self) -> None:
+        mcp_runtime_cases.media_tools_replaced_after_launch_are_refused(self)
+
     def test_movie_snapshot_metadata_and_pixels(self) -> None:
         mcp_movie_cases.movie_snapshot_metadata_and_pixels(self)
 

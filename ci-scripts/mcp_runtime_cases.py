@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import shutil
+import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -250,3 +252,187 @@ def runtime_media_without_encoder_is_not_usable(case: NativeAcceptance) -> None:
         },
     )
     case.assertEqual(media["ffmpeg"]["version_line"], "ffmpeg version stub-1")
+
+
+CHECK_ORDER = [
+    "frame_range",
+    "dimensions",
+    "scene_numbering",
+    "fx_graph",
+    "fx_extent",
+    "graphics",
+    "writer",
+    "media_tools",
+    "encoder",
+    "dependencies",
+    "storage",
+    "lane",
+    "retention",
+    "render_admission",
+    "source_pins",
+]
+
+
+def _use_worker(case: NativeAcceptance, name: str, media_tools: Path | None = None) -> None:
+    """Make a fresh worker the case's own, so its scene helpers address it."""
+    case.workspace = case.directory / f"{name}-workspace"
+    case.workspace.mkdir()
+    case.worker = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / f"{name}.stderr.log",
+        media_tools=media_tools,
+    )
+    case.addCleanup(case.worker.close)
+    case.revisions.clear()
+
+
+def _preflight(case: NativeAcceptance, document: str, **params: Any) -> dict[str, Any]:
+    request = {"document_id": document, "expected_revision": case.revisions[document], **params}
+    return case.success("render.preflight", request)
+
+
+def _refused(case: NativeAcceptance, method: str, document: str, **params: Any) -> dict[str, Any]:
+    """Require a render refusal that leaves no job output and an unchanged revision."""
+    before = case.success("scene.summary", {"document_id": document})
+    error = case.failure(method, case.write_params(document, params))
+    case.assertFalse((case.workspace / "renders").exists(), error)
+    case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
+    return error
+
+
+def render_preflight_reports_every_failure(case: NativeAcceptance) -> None:
+    """Report every failing check at once; the job tools refuse with the first one."""
+    tools = stub_media_tools(case, "preflight-tools", " V....D mpeg4  MPEG-4 part 2")
+    _use_worker(case, "preflight", media_tools=tools)
+    document = case.create("Preflight")
+    broken = {"start_frame": 10, "end_frame": 5, "format": "mp4", "width": 33, "height": 32}
+    report = _preflight(case, document, kind="sequence", **broken)
+    case.assertEqual([check["id"] for check in report["checks"]], CHECK_ORDER)
+    failed = {check["id"]: check for check in report["checks"] if check["status"] == "fail"}
+    case.assertEqual(set(failed), {"frame_range", "dimensions", "encoder"}, report)
+    case.assertEqual(failed["frame_range"]["code"], "invalid_frame_range")
+    case.assertEqual(failed["dimensions"]["code"], "unsupported_render_settings")
+    case.assertEqual(failed["encoder"]["code"], "render_unavailable")
+    case.assertEqual(failed["encoder"]["details"]["cause"], "codec_unavailable")
+    case.assertEqual((report["ready"], report["first_failure"]), (False, "frame_range"))
+    case.assertIsNone(report["effective"])
+    case.assertEqual(sorted(report["probes_run"]), ["graphics", "media"])
+    case.assertEqual(report["revision"], case.revisions[document])
+    error = _refused(case, "render.submit", document, **broken)
+    case.assertEqual(error["code"], "invalid_params")
+    case.assertEqual(error["details"]["reason"], "end_before_start")
+    case.assertEqual(error["details"]["check"], "frame_range")
+    ready = _preflight(case, document, kind="sequence", start_frame=0, end_frame=2)
+    case.assertEqual(
+        (ready["ready"], ready["first_failure"], ready["probes_run"]), (True, None, [])
+    )
+    case.assertEqual(ready["effective"]["frames"], {"start": 0, "end": 2, "step": 1, "count": 3})
+    stale = {"document_id": document, "expected_revision": "999", "kind": "preview", "frame": 0}
+    case.assertEqual(case.failure("render.preflight", stale)["code"], "stale_revision")
+    for shape in ({"kind": "preview", "frame": 0, "start_frame": 0}, {"kind": "sequence"}):
+        request = {"document_id": document, "expected_revision": case.revisions[document], **shape}
+        case.assertEqual(case.failure("render.preflight", request)["code"], "invalid_params")
+
+
+def mp4_refused_without_encoder(case: NativeAcceptance) -> None:
+    """Refuse MP4 before any job when ffmpeg has no encoder for the muxer's codec."""
+    tools = stub_media_tools(case, "no-encoder-tools", " V....D mpeg4  MPEG-4 part 2")
+    _use_worker(case, "no-encoder", media_tools=tools)
+    capabilities = case.success("render.capabilities", {})
+    case.assertEqual(capabilities["profiles"], ["rgba8-png"])
+    case.assertIs(capabilities["mp4"]["encoder_available"], False)
+    case.assertNotIn("graphics_backend", capabilities)
+    document = case.create("No encoder")
+    movie = {"start_frame": 0, "end_frame": 1, "format": "mp4", "width": 32, "height": 32}
+    error = _refused(case, "render.submit", document, **movie)
+    case.assertEqual(error["code"], "render_unavailable")
+    case.assertEqual(
+        (error["details"]["cause"], error["details"]["check"]), ("codec_unavailable", "encoder")
+    )
+
+
+def runtime_unavailable_backends_are_not_advertised(case: NativeAcceptance) -> None:
+    """Under Qt's offscreen platform on macOS, report no GL and refuse renders before a job."""
+    if sys.platform != "darwin":
+        case.skipTest("the offscreen platform has no OpenGL integration only on macOS")
+    with _environment(QT_QPA_PLATFORM="offscreen"):
+        _use_worker(case, "offscreen")
+        graphics = _inspect(case, case.worker, "graphics")["graphics"]
+        capabilities = case.success("render.capabilities", {})
+        document = case.create("No GL")
+        error = _refused(case, "render.preview", document, frame=0)
+    case.assertEqual(graphics["qpa_platform"], "offscreen")
+    case.assertNotEqual(graphics["probe"]["result"], "context_ready", graphics)
+    _require_state(case, graphics["state"], verified="failed", usable=False)
+    case.assertEqual(capabilities["profiles"], [])
+    case.assertIs(capabilities["graphics"]["state"]["usable"], False)
+    case.assertEqual(error["code"], "render_unavailable")
+    case.assertEqual(
+        (error["details"]["cause"], error["details"]["check"]), ("gl_unavailable", "graphics")
+    )
+
+
+def preview_reports_effective_output(case: NativeAcceptance) -> None:
+    """Report the preview fit, crop, color policy and camera DPI before and with the job."""
+    document = case.mutate(
+        "scene.create",
+        None,
+        name="Effective",
+        width_px=1920,
+        height_px=1080,
+        width_in=16,
+        height_in=9,
+        frame_rate=24,
+    )["document_id"]
+    camera = case.success("camera.inspect", {"document_id": document})
+    report = _preflight(case, document, kind="preview", frame=0)
+    effective = report["effective"]
+    case.assertEqual((effective["width"], effective["height"]), (1024, 576))
+    case.assertAlmostEqual(effective["fit_scale"], 1024 / 1920)
+    case.assertEqual(
+        effective["crop"],
+        {"kind": "full_camera", "camera_pixels": {"x0": 0, "y0": 0, "x1": 1920, "y1": 1080}},
+    )
+    dpi = effective["camera"]["dpi"]
+    case.assertAlmostEqual(dpi["x"], camera["width_px"] / camera["width_in"])
+    case.assertAlmostEqual(dpi["y"], camera["height_px"] / camera["height_in"])
+    case.assertEqual(effective["camera"]["resolution"], {"width": 1920, "height": 1080})
+    expected = {"profile": "rgba8-png", "alpha": "straight", "color_depth_bits": 8}
+    case.assertEqual({key: effective[key] for key in expected}, expected)
+    case.assertEqual((effective["frame_rate"], effective["audio"]), (24, False))
+    job = case.mutate("render.preview", document, frame=0)
+    case.assertEqual(job["effective"], effective)
+    case.wait_job(job["job_id"])
+    sized = _preflight(
+        case, document, kind="sequence", start_frame=0, end_frame=0, width=64, height=36
+    )
+    case.assertEqual(sized["effective"]["fit_scale"], 1)
+
+
+def media_tools_replaced_after_launch_are_refused(case: NativeAcceptance) -> None:
+    """Refuse MP4 once a granted media tool changes, and accept an unchanged re-stat."""
+    source = case.media_tools
+    if source is None:
+        case.fail("Media replacement qualification requires --media-tools")
+    tools = case.directory / "replaced-tools"
+    tools.mkdir()
+    for name in ("ffmpeg", "ffprobe"):
+        shutil.copy2(_binary(source, name), _binary(tools, name))
+    _use_worker(case, "replaced", media_tools=tools.resolve())
+    document = case.create("Replaced tools")
+    movie = {"start_frame": 0, "end_frame": 1, "format": "mp4", "width": 32, "height": 32}
+    case.assertTrue(_preflight(case, document, kind="sequence", **movie)["ready"])
+    probe = _binary(tools, "ffprobe")
+    os.utime(probe)
+    case.assertTrue(_preflight(case, document, kind="sequence", **movie)["ready"])
+    probe.chmod(0o700)
+    with probe.open("ab") as handle:
+        handle.write(b"\0")
+    error = _refused(case, "render.submit", document, **movie)
+    case.assertEqual(error["code"], "render_unavailable")
+    case.assertEqual(error["details"]["cause"], "media_tools_changed")
+    state = _inspect(case, case.worker)["media"]["state"]
+    _require_state(case, state, verified="failed", usable=False)
+    case.assertIn("media_tools_changed", state["reasons"])

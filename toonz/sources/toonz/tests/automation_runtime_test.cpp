@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_dispatch.h"
 #include "automation_runtime.h"
 
 #include <QDir>
@@ -7,6 +8,7 @@
 #include <QJsonArray>
 #include <QTemporaryDir>
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -251,6 +253,115 @@ void platformReport() {
 #endif
 }
 
+QJsonObject dispatched(Dispatcher& dispatcher, const QString& method,
+                       const QJsonObject& params) {
+  return dispatcher.dispatch(
+      {{"id", "runtime-test"}, {"method", method}, {"params", params}});
+}
+
+QJsonObject preflightReport(Dispatcher& dispatcher, Document& document,
+                            QJsonObject params) {
+  params.insert("document_id", document.id);
+  params.insert("expected_revision", document.revisionText());
+  const QJsonObject response =
+      dispatched(dispatcher, "render.preflight", params);
+  require(response.contains("result"), "render.preflight did not answer");
+  return response.value("result").toObject();
+}
+
+QJsonObject checkById(const QJsonObject& report, const QString& id) {
+  for (const QJsonValue& check : report.value("checks").toArray())
+    if (check.toObject().value("id") == id) return check.toObject();
+  throw std::runtime_error("A preflight check is missing");
+}
+
+void preflightOrderAndCodes(Context& context) {
+  Dispatcher dispatcher(context);
+  const QJsonObject created =
+      dispatched(dispatcher, "scene.create",
+                 {{"operation_id", "runtime-preflight-scene"},
+                  {"name", "Preflight"},
+                  {"width_px", 1920},
+                  {"height_px", 1080},
+                  {"width_in", 16},
+                  {"height_in", 9},
+                  {"frame_rate", 24}})
+          .value("result")
+          .toObject();
+  Document& document =
+      context.document(created.value("document_id").toString());
+  const QStringList order{"frame_range",  "dimensions",       "scene_numbering",
+                          "fx_graph",     "fx_extent",        "graphics",
+                          "writer",       "media_tools",      "encoder",
+                          "dependencies", "storage",          "lane",
+                          "retention",    "render_admission", "source_pins"};
+  const QJsonObject broken = preflightReport(dispatcher, document,
+                                             {{"kind", "sequence"},
+                                              {"start_frame", 9},
+                                              {"end_frame", 3},
+                                              {"width", 2048},
+                                              {"height", 2048},
+                                              {"format", "mp4"}});
+  QStringList ids;
+  for (const QJsonValue& check : broken.value("checks").toArray())
+    ids.append(check.toObject().value("id").toString());
+  require(ids == order, "Preflight checks are not in their published order");
+  require(
+      checkById(broken, "frame_range").value("code") == "invalid_frame_range",
+      "end before start did not fail frame_range");
+  require(checkById(broken, "dimensions").value("status") == "not_run",
+          "Frame-dependent limits ran without a frame range");
+  require(checkById(broken, "writer").value("status") == "fail" &&
+              checkById(broken, "media_tools")
+                      .value("details")
+                      .toObject()
+                      .value("cause") == "media_tools_not_configured",
+          "Unconfigured MP4 did not fail writer and media_tools");
+  require(checkById(broken, "encoder").value("status") == "not_run",
+          "The encoder check ran without media tools");
+  require(checkById(broken, "storage").value("status") == "not_run",
+          "Storage was checked without a frame range");
+  require(broken.value("first_failure") == "frame_range" &&
+              broken.value("effective").isNull() &&
+              !broken.value("ready").toBool(),
+          "A failed preflight reported an effective output");
+  const QJsonObject preview = preflightReport(
+      dispatcher, document, {{"kind", "preview"}, {"frame", 4}});
+  const QJsonObject effective = preview.value("effective").toObject();
+  require(effective.value("width") == 1024 && effective.value("height") == 576,
+          "The preview fit is not 1024 by 576");
+  require(
+      std::abs(effective.value("fit_scale").toDouble() - 1024.0 / 1920) < 1e-9,
+      "The preview fit scale is wrong");
+  require(
+      effective.value("frames").toObject().value("count") == 1 &&
+          effective.value("camera").toObject().value("dpi").toObject().value(
+              "x") == 120,
+      "The preview frames or camera DPI are wrong");
+  const QJsonObject oversized = preflightReport(
+      dispatcher, document,
+      {{"kind", "preview"}, {"frame", 0}, {"width", 1500}, {"height", 10}});
+  require(checkById(oversized, "dimensions").value("code") == "render_limit" &&
+              oversized.value("effective").isNull(),
+          "A preview beyond 1024 pixels passed preflight");
+  const QJsonObject sequence = preflightReport(dispatcher, document,
+                                               {{"kind", "sequence"},
+                                                {"start_frame", 0},
+                                                {"end_frame", 10},
+                                                {"step", 5},
+                                                {"width", 64},
+                                                {"height", 36}});
+  const QJsonObject frames =
+      sequence.value("effective").toObject().value("frames").toObject();
+  require(frames.value("count") == 3 &&
+              sequence.value("effective").toObject().value("fit_scale") == 1,
+          "A sequence effective output is wrong");
+  require(checkById(sequence, "render_admission").value("status") ==
+              "not_applicable",
+          "Read-only admission applied to an editable document");
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationRuntimeTests(Context& context) {
@@ -263,8 +374,9 @@ void runAutomationRuntimeTests(Context& context) {
 #ifndef _WIN32
   mediaIdentityAndChange(context);
 #endif
-  std::cout << "automation-runtime-test: capability states, probes and "
-               "parsers PASS\n";
+  preflightOrderAndCodes(context);
+  std::cout << "automation-runtime-test: capability states, probes, parsers "
+               "and preflight PASS\n";
 }
 
 }  // namespace GroundzeroAutomation
