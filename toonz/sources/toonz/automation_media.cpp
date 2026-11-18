@@ -263,8 +263,10 @@ private:
     finish({});
   }
 
+  // The first reason stands: a cancel that arrives while the timed-out probe
+  // is being killed does not turn the timeout into a cancellation.
   void abort(const QString& error) {
-    if (m_done) return;
+    if (m_done || !m_failure.isEmpty()) return;
     m_failure = error;
     if (m_process.state() != QProcess::NotRunning)
       m_process.kill();

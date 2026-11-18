@@ -268,7 +268,8 @@ int execute(const std::string& mode, const std::filesystem::path& movie) {
     return 0;
   }
   const std::string result = metadata(mode);
-  if (mode == "delay") std::this_thread::sleep_for(std::chrono::seconds(75));
+  // A delayed probe outlives any test: only a kill ends it.
+  if (mode == "delay") std::this_thread::sleep_for(std::chrono::minutes(10));
   if (mode == "tamper") tamper(movie);
   std::cout << result << '\n';
   std::cout.flush();
