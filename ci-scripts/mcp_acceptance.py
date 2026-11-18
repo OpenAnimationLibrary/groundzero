@@ -840,6 +840,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_swapped_paths_cannot_redirect_a_pinned_directory(self) -> None:
         mcp_file_race_cases.swapped_paths_cannot_redirect_a_pinned_directory(self)
 
+    def test_private_files_end_with_their_document_and_worker(self) -> None:
+        mcp_failure_cases.private_files_end_with_their_document_and_worker(self)
+
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
         self.workspace = self.directory / "workspace"

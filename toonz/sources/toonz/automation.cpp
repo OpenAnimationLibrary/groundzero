@@ -579,7 +579,8 @@ int executeDomainTests(QApplication& application, Context& context) {
 int executeWorker(QApplication& application, QFile& output,
                   const Options& options, bool helpersContained,
                   const QString& runtime) {
-  Context context(options.workspace, options.inputRoots, helpersContained);
+  Context context(options.workspace, options.inputRoots, helpersContained,
+                  runtime);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)

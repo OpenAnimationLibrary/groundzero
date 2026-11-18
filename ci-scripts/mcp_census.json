@@ -1629,10 +1629,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_private_files_end_with_their_document_and_worker",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
     "ci-scripts/mcp_acceptance.py::test_document_ids_do_not_alias_after_close_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
     "tools/mcp/src/native.test.ts",

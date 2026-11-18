@@ -366,7 +366,8 @@ QJsonValue inspectProject(Context& context, const QJsonObject& params) {
 }
 
 TFilePath newLevelPath(Context& context, const QString& extension) {
-  const QString directory = context.resolvePath("levels", true);
+  const QString directory =
+      context.resolvePath(context.privateDirectory("levels"), true);
   if (!QDir().mkpath(directory))
     throw Error("io_error", "Cannot create the workspace level directory.");
   const QString id        = QUuid::createUuid().toString(QUuid::WithoutBraces);
