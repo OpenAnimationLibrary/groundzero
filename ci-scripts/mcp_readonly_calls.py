@@ -311,6 +311,35 @@ def _job(f: Fixture) -> list[Call]:
     ]
 
 
+def _jobs(f: Fixture) -> list[Call]:
+    return [
+        Call("every job", {}),
+        Call("main document, terminal", {"document_id": f.document, "state": "terminal"}),
+        Call("render previews, second page", {"kind": "render_preview", "offset": 1, "limit": 1}),
+        Call("unknown document", {"document_id": _missing("document")}, "document_not_found"),
+    ]
+
+
+def _preflight_preview(f: Fixture, document: str) -> dict[str, Any]:
+    revision = f.revision(document)
+    return {"document_id": document, "expected_revision": revision, "kind": "preview", "frame": 0}
+
+
+def _preflight(f: Fixture) -> list[Call]:
+    preview = _preflight_preview(f, f.document)
+    sequence = {key: value for key, value in preview.items() if key != "frame"}
+    sequence.update(kind="sequence", start_frame=0, end_frame=1)
+    return [
+        Call("preview", preview),
+        Call("sequence", sequence),
+        Call("stale", {**preview, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
+def _runtime(_f: Fixture) -> list[Call]:
+    return [Call("no probes", {}), Call("unknown probe", {"probes": ["audio"]}, SCHEMA)]
+
+
 def _artifact(f: Fixture) -> list[Call]:
     return [
         Call("preview", {"artifact_id": f.ids["artifact"]}),
@@ -451,6 +480,14 @@ def _assistance(_f: Fixture) -> list[Call]:
 
 def _ro_document(_f: Fixture, document: str) -> list[Call]:
     return [Call("document", {"document_id": document})]
+
+
+def _ro_jobs(_f: Fixture, document: str) -> list[Call]:
+    return [Call("document's jobs", {"document_id": document})]
+
+
+def _ro_preflight(f: Fixture, document: str) -> list[Call]:
+    return [Call("preview", _preflight_preview(f, document))]
 
 
 def _ro_summary(f: Fixture, document: str) -> list[Call]:
@@ -595,6 +632,8 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "vector.structure": _ro_vectors,
     "vector.opacity.inspect": _ro_opacity,
     "raster.read_pixels": _ro_pixels,
+    "job.list": _ro_jobs,
+    "render.preflight": _ro_preflight,
 }
 ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
 
@@ -627,6 +666,9 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "palette.pages": _pages,
     "raster.read_pixels": _pixels,
     "render.capabilities": _no_arguments,
+    "render.preflight": _preflight,
+    "runtime.inspect": _runtime,
+    "job.list": _jobs,
     "job.status": _job,
     "job.result": _job,
     "artifact.read": _artifact,
