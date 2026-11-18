@@ -93,6 +93,36 @@ void parserFailures() {
               "invalid_params");
 }
 
+void workerDuplicateKeys() {
+  const QList<QByteArray> duplicated{
+      "{\"x\":1,\"x\":2}", "{\"x\":1,\"\\u0078\":2}",
+      "{\"a\":{\"x\":1},\"x\":{\"nested\":1,\"nested\":2}}",
+      "{\"x\":[{\"y\":1},{\"z\":1,\"z\":1}]}",
+      "{\"\\u00e9\":1,\"\xc3\xa9\":2}"};
+  for (const QByteArray& input : duplicated) {
+    try {
+      rejectDuplicateKeys(input);
+    } catch (const Error& error) {
+      require(error.code == "invalid_params" &&
+                  !error.message.contains("live capabilities"),
+              "Worker duplicate-key refusal has the wrong code or advice");
+      continue;
+    }
+    throw std::runtime_error("A duplicate JSON key was accepted: " +
+                             std::string(input.constData()));
+  }
+  QByteArray deep("0");
+  for (int index = 0; index < 100; ++index) deep = "{\"x\":" + deep + "}";
+  const QList<QByteArray> distinct{"{\"x\":1,\"y\":2}",
+                                   "{\"x\":{\"x\":1},\"y\":{\"x\":2}}",
+                                   "{\"x\":[{\"y\":1},{\"y\":2}]}",
+                                   "{\"x\":\"x\",\"y\":\"y\"}",
+                                   "{\"x\":1,\"X\":2}",
+                                   "{\"x\":1e-400}",
+                                   deep};
+  for (const QByteArray& input : distinct) rejectDuplicateKeys(input);
+}
+
 void parserBounds() {
   const QByteArray maximum =
       "{\"x\":\"" + QByteArray(maximumRequestBytes - 8, 'x') + "\"}";
@@ -331,6 +361,7 @@ void permissionAndStop() {
 void runAutomationLiveProtocolTests() {
   const std::pair<const char*, void (*)()> cases[]{
       {"parser failures", parserFailures},
+      {"worker duplicate keys", workerDuplicateKeys},
       {"parser bounds", parserBounds},
       {"stage schemas", schemas},
       {"FX schemas", fxSchemas},

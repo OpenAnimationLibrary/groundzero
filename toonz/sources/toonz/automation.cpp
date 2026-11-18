@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_dispatch.h"
 #include "automation_containment.h"
+#include "automation_live_protocol.h"
 #include "automation_shared_parse.h"
 
 #include "tenv.h"
@@ -430,6 +431,7 @@ QJsonObject processLine(Dispatcher& dispatcher, const QByteArray& line,
     const QJsonDocument document = QJsonDocument::fromJson(line, &parse);
     if (parse.error != QJsonParseError::NoError || !document.isObject())
       throw Error("parse_error", "Expected one JSON request object per line.");
+    Live::rejectDuplicateKeys(line);
     return dispatcher.dispatch(document.object());
   } catch (const Error& error) {
     return {{"id", QJsonValue::Null}, {"error", errorObject(error)}};

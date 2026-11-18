@@ -11,6 +11,9 @@ constexpr int maximumReceiptBytes  = 4096;
 
 // Parse one complete UTF-8 JSON object, rejecting duplicate keys and depth >16.
 QJsonObject parseMessage(const QByteArray& bytes, int maximumBytes);
+// Throw invalid_params when any object in a parsed JSON text repeats a key.
+// The caller has already parsed `bytes` as valid JSON.
+void rejectDuplicateKeys(const QByteArray& bytes);
 // Encode one object with the four-byte unsigned big-endian length prefix.
 QByteArray frameMessage(const QJsonObject& value, int maximumBytes);
 void validateRequest(const QJsonObject& request);

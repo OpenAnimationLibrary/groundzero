@@ -6,46 +6,61 @@
 #include <QSet>
 
 #include <cmath>
+#include <limits>
 
 namespace GroundzeroAutomation {
 namespace Live {
 namespace {
 
+const QString liveAdvice = " Inspect the live capabilities and retry.";
+
 void invalid(const QString& message) {
-  throw Error("invalid_params",
-              message + " Inspect the live capabilities and retry.");
+  throw Error("invalid_params", message + liveAdvice);
 }
 
 bool endsLiteral(char value) {
   return value == ',' || value == '}' || value == ']' || value <= ' ';
 }
 
+struct ShapeRules final {
+  int maximumDepth;
+  bool finiteNumbers;
+  QString advice;
+};
+
 class JsonShape final {
 public:
-  explicit JsonShape(const QByteArray& bytes) : m_bytes(bytes) {}
+  JsonShape(const QByteArray& bytes, const ShapeRules& rules)
+      : m_bytes(bytes), m_rules(rules) {}
   void validate() { value(1); }
 
 private:
+  [[noreturn]] void fail(const QString& message) const {
+    throw Error("invalid_params", message + m_rules.advice);
+  }
+
   void space() {
     while (m_offset < m_bytes.size() && m_bytes.at(m_offset) <= ' ') ++m_offset;
   }
 
-  QString string() {
+  QByteArray stringToken() {
     const int begin = m_offset++;
     while (m_offset < m_bytes.size()) {
       const char next = m_bytes.at(m_offset++);
       if (next == '\\') {
         ++m_offset;
       } else if (next == '"') {
-        const QByteArray token = m_bytes.mid(begin, m_offset - begin);
-        return QJsonDocument::fromJson("[" + token + "]")
-            .array()
-            .at(0)
-            .toString();
+        return m_bytes.mid(begin, m_offset - begin);
       }
     }
-    invalid("An unterminated JSON string was received.");
-    return {};
+    fail("An unterminated JSON string was received.");
+  }
+
+  QString key() {
+    return QJsonDocument::fromJson("[" + stringToken() + "]")
+        .array()
+        .at(0)
+        .toString();
   }
 
   void object(int depth) {
@@ -53,10 +68,10 @@ private:
     space();
     QSet<QString> keys;
     while (m_bytes.at(m_offset) != '}') {
-      const QString key = string();
-      if (keys.contains(key))
-        invalid("Duplicate JSON object keys are not allowed.");
-      keys.insert(key);
+      const QString name = key();
+      if (keys.contains(name))
+        fail("Duplicate JSON object keys are not allowed.");
+      keys.insert(name);
       space();
       ++m_offset;
       value(depth + 1);
@@ -88,15 +103,16 @@ private:
       ++m_offset;
     }
     const QByteArray token = m_bytes.mid(begin, m_offset - begin);
+    if (!m_rules.finiteNumbers) return;
     if (token == "true" || token == "false" || token == "null") return;
     bool valid          = false;
     const double number = token.toDouble(&valid);
-    if (!valid || !std::isfinite(number))
-      invalid("JSON numbers must be finite.");
+    if (!valid || !std::isfinite(number)) fail("JSON numbers must be finite.");
   }
 
   void value(int depth) {
-    if (depth > 16) invalid("JSON nesting exceeds the live protocol limit.");
+    if (depth > m_rules.maximumDepth)
+      fail("JSON nesting exceeds the live protocol limit.");
     space();
     switch (m_bytes.at(m_offset)) {
     case '{':
@@ -106,7 +122,7 @@ private:
       array(depth);
       break;
     case '"':
-      string();
+      stringToken();
       break;
     default:
       literal();
@@ -115,6 +131,7 @@ private:
   }
 
   const QByteArray& m_bytes;
+  const ShapeRules m_rules;
   int m_offset = 0;
 };
 
@@ -289,8 +306,13 @@ QJsonObject parseMessage(const QByteArray& bytes, int maximumBytes) {
   const QJsonDocument document = QJsonDocument::fromJson(bytes, &error);
   if (error.error != QJsonParseError::NoError || !document.isObject())
     invalid("A live frame must contain exactly one valid JSON object.");
-  JsonShape(bytes).validate();
+  JsonShape(bytes, {16, true, liveAdvice}).validate();
   return document.object();
+}
+
+void rejectDuplicateKeys(const QByteArray& bytes) {
+  const QString advice = " Remove the repeated key and resend the request.";
+  JsonShape(bytes, {std::numeric_limits<int>::max(), false, advice}).validate();
 }
 
 QByteArray frameMessage(const QJsonObject& value, int maximumBytes) {
