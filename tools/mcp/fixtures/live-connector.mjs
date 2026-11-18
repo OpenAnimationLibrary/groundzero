@@ -11,7 +11,11 @@ const methods = [
   "live.receipt",
   "live.capabilities",
 ];
+const build = { application: "groundzero", version: "1.8", build_digest: "c".repeat(64) };
+const identity = { protocol: "groundzero-live-v2", build };
 const hello = {
+  protocol: "groundzero-live-v2",
+  build,
   instance_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   client_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
   mode: "edit",
@@ -33,12 +37,32 @@ function frame(value) {
   return output;
 }
 
+function refusal(code, message = "The connector refused before its hello.") {
+  const editor = { protocol: "groundzero-live-v1", build: null };
+  return { refusal: { code, message, details: { connector: identity, editor } } };
+}
+
+function refuse() {
+  const value = mode === "oversized-refusal" ? refusal("build_mismatch", "x".repeat(513)) : null;
+  const code = mode.slice("refusal-".length);
+  process.stdout.write(frame(value ?? refusal(code)), () => process.exit(2));
+}
+
+const helloChanges = {
+  "invalid-hello": () => (hello.mode = "admin"),
+  "invalid-identity": () => (hello.instance_id = "not-an-instance-uuid"),
+  "wrong-limits": () => (hello.limits.pending_per_client = 16),
+  "unversioned-hello": () => delete hello.protocol,
+  "previous-hello": () => (hello.protocol = "groundzero-live-v1"),
+  "invalid-build": () => (hello.build = { ...build, build_digest: "short" }),
+};
+
 function initial() {
   if (mode === "no-hello") return;
-  if (mode === "invalid-hello") hello.mode = "admin";
-  if (mode === "invalid-identity") hello.instance_id = "not-an-instance-uuid";
-  if (mode === "wrong-limits") hello.limits.pending_per_client = 16;
+  if (mode.startsWith("refusal-") || mode === "oversized-refusal") return refuse();
+  helloChanges[mode]?.();
   process.stdout.write(frame(hello));
+  if (mode === "late-refusal") process.stdout.write(frame(refusal("build_mismatch")));
 }
 
 function malformed(request) {
@@ -68,10 +92,24 @@ function answer(request) {
   writeResponse(request);
 }
 
+const errors = {
+  error: { code: "gui_busy", message: "Finish the gesture", details: {} },
+  stale: {
+    code: "stale_target",
+    message: "Inspect before editing",
+    details: { reason: "history_changed", current_fingerprint: "d".repeat(64), channel: "x" },
+  },
+  "bad-stale": {
+    code: "stale_target",
+    message: "Inspect before editing",
+    details: { reason: "undone" },
+  },
+};
+
 function writeResponse(request) {
   const result =
-    mode === "error"
-      ? { id: request.id, error: { code: "gui_busy", message: "Finish the gesture", details: {} } }
+    mode in errors
+      ? { id: request.id, error: errors[mode] }
       : {
           id: request.id,
           result: {

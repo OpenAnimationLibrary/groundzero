@@ -10,7 +10,6 @@ import {
   EFFECTS_SCHEMA,
   ERRORS_SCHEMA,
   conformingResult,
-  declarationMeta,
   successValidator,
 } from "#mcp/declarations";
 import type { Validator } from "#mcp/declarations";
@@ -18,7 +17,7 @@ import { WorkerError, errorResult, isObject } from "#mcp/errors";
 import { boundedResult, toolResult } from "#mcp/results";
 import { LIVE_TOOL_NAMES } from "#mcp/live-protocol";
 import type { LiveHello } from "#mcp/live-protocol";
-import { ToolsetState, parseToolsets } from "#mcp/toolsets";
+import { ToolsetState, parseToolsets, toolsetDeclaration } from "#mcp/toolsets";
 
 export interface NativeApi {
   request: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -67,8 +66,8 @@ const MAX_CATALOG_TOOLS = 1024;
 
 async function discover(worker: NativeApi, requested: string[]): Promise<ToolsetState> {
   const result = await worker.request("automation.capabilities");
-  if (!isObject(result) || result["protocol_version"] !== 2) {
-    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 2");
+  if (!isObject(result) || result["protocol_version"] !== 3) {
+    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 3");
   }
   const tools = await catalog(result["tools"], true);
   return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
@@ -82,13 +81,6 @@ function forwarded(tool: NativeTool): Tool {
     annotations: tool.annotations,
   };
   if (tool.outputSchema !== undefined) entry.outputSchema = tool.outputSchema;
-  if (tool.effects !== undefined && tool.errors !== undefined) {
-    const errors = [
-      ...tool.errors,
-      ...ADAPTER_ERRORS.filter((code) => !tool.errors?.includes(code)),
-    ];
-    entry._meta = declarationMeta(tool.effects, errors);
-  }
   return entry;
 }
 
@@ -131,6 +123,7 @@ export function createServer(
   worker: NativeApi,
   toolsets: string[] = ["core"],
   unavailable: (error: WorkerError) => void = () => {},
+  strict = false,
 ): Server {
   let loading: Promise<Catalog> | undefined;
   const load = () =>
@@ -141,7 +134,7 @@ export function createServer(
         unavailable(failure);
         throw failure;
       }));
-  return serverWithTools(worker, load, false);
+  return serverWithTools(worker, load, { live: false, strict });
 }
 
 /** Expose only the authenticated editor's exact six-tool live catalog.
@@ -152,7 +145,11 @@ export function createServer(
  * Returns:
  *   An MCP server with no detached-worker tools or fallback.
  */
-export async function createLiveServer(connection: NativeApi, hello: LiveHello): Promise<Server> {
+export async function createLiveServer(
+  connection: NativeApi,
+  hello: LiveHello,
+  strict = false,
+): Promise<Server> {
   const tools = await catalog(hello.tools, false);
   if (
     tools.length !== LIVE_TOOL_NAMES.size ||
@@ -161,7 +158,7 @@ export async function createLiveServer(connection: NativeApi, hello: LiveHello):
     throw new WorkerError("INVALID_CATALOG", "Expected the exact six-tool live editor catalog");
   }
   const compiled = compile(tools);
-  return serverWithTools(connection, async () => compiled, true);
+  return serverWithTools(connection, async () => compiled, { live: true, strict });
 }
 
 interface Compiled {
@@ -227,7 +224,53 @@ async function toolsetCall(
   return { ...state.list(), changed };
 }
 
-function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: boolean): Server {
+interface Mode {
+  live: boolean;
+  strict: boolean;
+}
+
+/** A listed tool: no output schema, which the adapter keeps for its own result checks. */
+function listed(tool: Tool): Tool {
+  const { outputSchema: _kept, ...entry } = tool;
+  return entry;
+}
+
+async function describedTools(
+  state: ToolsetState,
+  worker: NativeApi,
+  names: string[],
+): Promise<Record<string, unknown>> {
+  const native = names.filter((name) => !state.isToolsetTool(name));
+  const reply = native.length > 0 ? await worker.request("tool.describe", { names: native }) : {};
+  const remote = isObject(reply) && Array.isArray(reply["tools"]) ? reply["tools"] : [];
+  const described = new Map<unknown, unknown>();
+  for (const tool of remote) {
+    if (!isObject(tool) || !Array.isArray(tool["errors"])) continue;
+    const errors = tool["errors"] as unknown[];
+    const added = ADAPTER_ERRORS.filter((code) => !errors.includes(code));
+    described.set(tool["name"], { ...tool, errors: [...errors, ...added] });
+  }
+  return {
+    tools: names.map((name) =>
+      state.isToolsetTool(name) ? toolsetDeclaration(name) : described.get(name),
+    ),
+  };
+}
+
+async function nativeCall(
+  state: ToolsetState | undefined,
+  worker: NativeApi,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  if (state !== undefined && name === "tool.describe") {
+    return describedTools(state, worker, args["names"] as string[]);
+  }
+  return sessionResult(state, name, await worker.request(name, args));
+}
+
+function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, mode: Mode): Server {
+  const { live, strict } = mode;
   const server = new Server(
     { name: "groundzero", version: "0.1.0" },
     { capabilities: { tools: live ? {} : { listChanged: true } } },
@@ -235,7 +278,7 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
   server.onclose = () => worker.close();
   server.setRequestHandler("tools/list", async () => {
     const { tools, state } = await listedCatalog(load);
-    return { tools: state ? state.visible() : tools };
+    return { tools: (state ? state.visible() : tools).map(listed) };
   });
   server.setRequestHandler("tools/call", async (request, context) => {
     let result: CallToolResult;
@@ -248,12 +291,10 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
       state?.requireEnabled(name);
       const args = await validArguments(compiled.input, request.params.arguments ?? {});
       result = await conformingResult(
-        compiled.tool,
-        compiled.output,
-        args,
+        { tool: compiled.tool, validator: compiled.output, args, strict },
         state?.isToolsetTool(name) === true
           ? toolResult(await toolsetCall(state, server, name, args))
-          : nativeToolResult(await worker.request(name, args), live),
+          : nativeToolResult(await nativeCall(state, worker, name, args), live),
       );
     } catch (error) {
       result = errorResult(error);
@@ -266,6 +307,10 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
     }
   });
   return server;
+}
+
+function sessionResult(state: ToolsetState | undefined, name: string, value: unknown): unknown {
+  return state !== undefined && name === "runtime.inspect" ? state.sessionRuntime(value) : value;
 }
 
 async function validArguments(

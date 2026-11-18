@@ -16,7 +16,6 @@ const {
   cancelledCall,
   parseRequest,
   readFrames,
-  requireDeclaredError,
 } = await import(new URL("native-client.mjs", import.meta.url).href);
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=";
@@ -168,7 +167,7 @@ test("passes worker grants to the adapter unchanged so it validates them alone",
     "/inputs",
   ];
   expect(adapterArguments(["--automation-worker", ...grants], "/bin/OpenToonz", "/cli.js")).toEqual(
-    ["/cli.js", "--executable", "/bin/OpenToonz", "--toolsets", "all", ...grants],
+    ["/cli.js", "--executable", "/bin/OpenToonz", "--toolsets", "all", "--strict-results", ...grants],
   );
 });
 
@@ -255,12 +254,4 @@ test("cancels a call through MCP only after it has reached the adapter", async (
     await client.close();
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test("refuses an error code the called tool does not declare", () => {
-  const error = { error: { code: "stale", message: "", details: {} } };
-  expect(() => requireDeclaredError("scene.summary", error, ["stale"])).not.toThrow();
-  expect(() => requireDeclaredError("scene.summary", { result: {} }, [])).not.toThrow();
-  expect(() => requireDeclaredError("toolsets.list", error, undefined)).not.toThrow();
-  expect(() => requireDeclaredError("scene.summary", error, ["other"])).toThrow(/undeclared/u);
 });

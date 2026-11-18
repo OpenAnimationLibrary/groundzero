@@ -26,6 +26,7 @@ namespace GroundzeroAutomation {
 struct ReadOnlyScene;
 struct RenderState;
 struct SceneHostRegistry;
+struct RuntimeState;
 
 class Error final : public std::runtime_error {
 public:
@@ -108,6 +109,10 @@ public:
   bool failureRecorded() const;
   bool helpersContained() const;
   std::shared_ptr<RenderState> renderState;
+  // Probe results cached for the worker's life; created on first use.
+  std::shared_ptr<RuntimeState> runtimeState;
+  // Set once by the dispatcher: the toolset names of its catalog.
+  QStringList toolsets;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
   // Wall-clock budget of one render job; past it the job ends as
@@ -135,7 +140,8 @@ public:
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
-  // fail-after-final-frame, encoder-failure or stray-callbacks.
+  // fail-after-final-frame, encoder-failure, stray-callbacks or
+  // gl-context-failure.
   QString renderFault;
   // Test-only file-writing fault: publish makes the final rename fail.
   QString writeFault;

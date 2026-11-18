@@ -663,3 +663,45 @@ test("drives a rig journey in the rigging toolset through actual MCP stdio", asy
     }
   }
 }, 30_000);
+
+// tools/list before the effect declarations, plus 5 %: growth past it is a decision.
+const LISTING_BUDGET_BYTES = { core: 94_380, all: 126_036 };
+
+test.each(["core", "all"] as const)(
+  "keeps the %s tools/list within its byte budget and free of declarations",
+  async (toolsets) => {
+    const executable = process.env["GROUNDZERO_EXECUTABLE"];
+    if (!executable) throw new Error("test:native requires GROUNDZERO_EXECUTABLE");
+    const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-mcp-listing-")));
+    const client = new Client({ name: "groundzero-listing-test", version: "1.0.0" });
+    try {
+      await client.connect(
+        new StdioClientTransport({
+          command: process.execPath,
+          args: [
+            fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+            "--executable",
+            executable,
+            "--workspace",
+            workspace,
+            "--toolsets",
+            toolsets,
+          ],
+          env: environment(),
+          stderr: "inherit",
+        }),
+      );
+      const { tools } = await client.listTools();
+      for (const tool of tools) {
+        expect(Object.keys(tool).sort()).toEqual(
+          ["annotations", "description", "inputSchema", "name"],
+        );
+      }
+      const bytes = Buffer.byteLength(JSON.stringify({ tools }));
+      expect(bytes).toBeLessThanOrEqual(LISTING_BUDGET_BYTES[toolsets]);
+    } finally {
+      await client.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  },
+);

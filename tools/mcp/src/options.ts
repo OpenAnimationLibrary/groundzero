@@ -21,11 +21,14 @@ const SHARED_ROLES = new Set(["studio_palettes", "project_palettes", "library"])
 
 export interface DetachedOptions extends WorkerOptions {
   toolsets: string[];
+  /** Refuse results outside their output schema instead of flagging them (tests). */
+  strictResults: boolean;
 }
 
 export interface LiveOptions {
   executable: string;
   liveSession: string;
+  strictResults: boolean;
 }
 
 export type AdapterOptions = DetachedOptions | LiveOptions;
@@ -69,6 +72,7 @@ function launchArguments(args: string[]) {
       "shared-write": { type: "string", multiple: true },
       "live-session": { type: "string" },
       toolsets: { type: "string" },
+      "strict-results": { type: "boolean" },
     },
     strict: true,
     allowPositionals: false,
@@ -113,7 +117,7 @@ function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
   if (liveSession === undefined || !isAbsolute(liveSession) || liveSession.includes("\0")) {
     throw new Error("--live-session must be an absolute session-file path");
   }
-  return { executable, liveSession };
+  return { executable, liveSession, strictResults: values["strict-results"] === true };
 }
 
 function toolsetNames(value: string | undefined): string[] {
@@ -194,6 +198,7 @@ async function detachedOptions(
     workspace,
     inputRoots: [...new Set(inputRoots)],
     toolsets: toolsetNames(values.toolsets),
+    strictResults: values["strict-results"] === true,
   };
   if (values["media-tools"] !== undefined) {
     options.mediaToolsDirectory = await granted(

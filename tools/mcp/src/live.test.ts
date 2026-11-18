@@ -49,13 +49,76 @@ test("authenticates before calls and preserves operation identity across split f
   });
 });
 
-test.each(["invalid-hello", "invalid-identity", "wrong-limits", "no-hello"])(
-  "rejects invalid or absent authentication: %s",
-  async (mode) => {
-    const { connection } = connector(mode, 300);
-    await expect(connection.ready).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+test.each([
+  "invalid-hello",
+  "invalid-identity",
+  "wrong-limits",
+  "no-hello",
+  "unversioned-hello",
+  "previous-hello",
+  "invalid-build",
+])("rejects invalid or absent authentication: %s", async (mode) => {
+  const { connection } = connector(mode, 300);
+  await expect(connection.ready).rejects.toMatchObject({ code: "LIVE_UNAVAILABLE" });
+});
+
+test("accepts a versioned hello", async () => {
+  const { connection } = connector();
+  await expect(connection.ready).resolves.toMatchObject({
+    protocol: "groundzero-live-v2",
+    build: { application: "groundzero", version: "1.8", build_digest: "c".repeat(64) },
+  });
+});
+
+test.each(["build_mismatch", "protocol_mismatch"])(
+  "maps a %s refusal to LIVE_INCOMPATIBLE",
+  async (cause) => {
+    const { connection } = connector(`refusal-${cause}`);
+    await expect(connection.ready).rejects.toMatchObject({
+      code: "LIVE_INCOMPATIBLE",
+      details: {
+        cause,
+        connector: { protocol: "groundzero-live-v2" },
+        editor: { protocol: "groundzero-live-v1", build: null },
+        recovery: "Start the editor and the adapter from one build.",
+      },
+    });
   },
 );
+
+test.each([
+  "authentication_failed",
+  "live_unavailable",
+  "invalid_capabilities",
+  "live_security",
+  "connector_io",
+  "invalid_frame",
+])("maps a %s refusal to LIVE_UNAVAILABLE with its cause", async (cause) => {
+  const { connection } = connector(`refusal-${cause}`);
+  await expect(connection.ready).rejects.toMatchObject({
+    code: "LIVE_UNAVAILABLE",
+    details: { cause, outcome_unknown: false },
+  });
+});
+
+test.each(["refusal-unknown_code", "oversized-refusal"])(
+  "treats a malformed refusal as an invalid frame: %s",
+  async (mode) => {
+    const { connection } = connector(mode);
+    await expect(connection.ready).rejects.toMatchObject({
+      code: "LIVE_UNAVAILABLE",
+      details: { cause: "invalid_frame" },
+    });
+  },
+);
+
+test("closes on a refusal after the hello", async () => {
+  const { connection } = connector("late-refusal");
+  await connection.ready;
+  await expect(connection.request("live.status")).rejects.toMatchObject({
+    code: "LIVE_UNAVAILABLE",
+  });
+});
 
 test.each(["extra-field", "both-results", "unknown-id", "bad-error", "oversized", "empty-frame"])(
   "closes malformed framed connections without echoing payload secrets: %s",
@@ -73,6 +136,24 @@ test("keeps GUI domain errors usable without disconnecting", async () => {
   await connection.ready;
   await expect(connection.request("live.inspect")).rejects.toMatchObject({ code: "gui_busy" });
   await expect(connection.request("live.status")).rejects.toMatchObject({ code: "gui_busy" });
+});
+
+test("passes a stale_target reason and current fingerprint through unchanged", async () => {
+  const { connection } = connector("stale");
+  await connection.ready;
+  await expect(connection.request("live.stage.set_key_value")).rejects.toMatchObject({
+    code: "stale_target",
+    details: { reason: "history_changed", current_fingerprint: "d".repeat(64), channel: "x" },
+  });
+  await expect(connection.request("live.status")).rejects.toMatchObject({ code: "stale_target" });
+});
+
+test("closes on a stale_target error without its reason and current fingerprint", async () => {
+  const { connection } = connector("bad-stale");
+  await connection.ready;
+  await expect(connection.request("live.stage.set_key_value")).rejects.toMatchObject({
+    code: "LIVE_UNAVAILABLE",
+  });
 });
 
 test("closes after a duplicate receipt frame without replaying the completed operation", async () => {

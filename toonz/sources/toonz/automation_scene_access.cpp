@@ -914,6 +914,7 @@ const QSet<QString>& forwardedTools() {
                                       "fx.graph",
                                       "render.preview",
                                       "render.submit",
+                                      "render.preflight",
                                       "scene.inventory",
                                       "scene.source_status",
                                       "column.cells",
@@ -1032,33 +1033,81 @@ QJsonValue forward(Context& context, SceneHost& host, const QString& method,
   }
 }
 
+struct RenderCapacity final {
+  QString active;
+  int retained = 0;
+};
+
 // One active render job and 32 retained jobs per worker, hosts included.
-void requireRenderCapacity(Context& context) {
-  QString active = activeRenderJob(context);
-  int retained   = renderJobCount(context);
-  if (context.sceneHosts) {
-    retained += context.sceneHosts->jobs.size();
-    for (auto& entry : context.sceneHosts->hosts) {
-      SceneHost& host = *entry.second;
-      if (!active.isEmpty() || !host.renderActive || host.lost()) continue;
-      try {
-        recordRoutes(
-            context, host,
-            exchange(context, host, "render.status", {{"job_id", host.lastJob}},
-                     SceneHostReadDeadlineMs, "render"));
-      } catch (const Error& error) {
-        if (error.code != "scene_host_failed") throw;
-      }
-      if (host.renderActive && !host.lost()) active = host.lastJob;
+RenderCapacity renderCapacity(Context& context) {
+  RenderCapacity capacity{activeRenderJob(context), renderJobCount(context)};
+  if (!context.sceneHosts) return capacity;
+  capacity.retained += context.sceneHosts->jobs.size();
+  for (auto& entry : context.sceneHosts->hosts) {
+    SceneHost& host = *entry.second;
+    if (!capacity.active.isEmpty() || !host.renderActive || host.lost())
+      continue;
+    try {
+      recordRoutes(
+          context, host,
+          exchange(context, host, "render.status", {{"job_id", host.lastJob}},
+                   SceneHostReadDeadlineMs, "render"));
+    } catch (const Error& error) {
+      if (error.code != "scene_host_failed") throw;
     }
+    if (host.renderActive && !host.lost()) capacity.active = host.lastJob;
   }
-  if (!active.isEmpty())
+  return capacity;
+}
+
+void requireRenderCapacity(Context& context) {
+  const RenderCapacity capacity = renderCapacity(context);
+  if (!capacity.active.isEmpty())
     throw Error("render_busy",
                 "Wait for the active render job to finish or cancel it.",
-                {{"job_id", active}});
-  if (retained >= 32)
+                {{"job_id", capacity.active}});
+  if (capacity.retained >= 32)
     throw Error("render_limit",
                 "This worker has reached its render job limit.");
+}
+
+QJsonObject capacityCheck(const QString& id, const QString& code,
+                          const QJsonObject& details) {
+  return {{"id", id},
+          {"status", code.isEmpty() ? "pass" : "fail"},
+          {"code", code.isEmpty() ? QJsonValue() : QJsonValue(code)},
+          {"details", details}};
+}
+
+// A host sees only its own jobs; the lane and retention checks of a
+// read-only preflight are the worker's, hosts included.
+QJsonObject withWorkerCapacity(Context& context, QJsonObject report) {
+  const RenderCapacity capacity = renderCapacity(context);
+  QJsonArray checks;
+  QString firstFailure;
+  for (const QJsonValue& value : report.value("checks").toArray()) {
+    QJsonObject check = value.toObject();
+    const QString id  = check.value("id").toString();
+    if (id == "lane")
+      check =
+          capacity.active.isEmpty()
+              ? capacityCheck(id, {}, {})
+              : capacityCheck(id, "render_busy", {{"job_id", capacity.active}});
+    else if (id == "retention")
+      check =
+          capacity.retained < 32
+              ? capacityCheck(id, {}, {})
+              : capacityCheck(id, "render_limit", {{"max_retained_jobs", 32}});
+    if (firstFailure.isEmpty() && check.value("status") == "fail")
+      firstFailure = id;
+    checks.append(check);
+  }
+  report.insert("checks", checks);
+  report.insert("first_failure", firstFailure.isEmpty()
+                                     ? QJsonValue(QJsonValue::Null)
+                                     : QJsonValue(firstFailure));
+  report.insert("ready", firstFailure.isEmpty());
+  return report;
 }
 
 SceneHost* hostForRequest(Context& context, const QJsonObject& params) {
@@ -1131,6 +1180,8 @@ bool routeToSceneHost(Context& context, const QString& method,
     }
     if (!forwardedTools().contains(method)) refuseReadOnly(method, descriptor);
     result = forward(context, *host, method, params);
+    if (method == "render.preflight")
+      result = withWorkerCapacity(context, result.toObject());
     return true;
   }
   SceneHost* host = hostForRequest(context, params);

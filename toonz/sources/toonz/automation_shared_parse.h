@@ -42,6 +42,26 @@ QJsonObject parseSharedFile(Context& context, const QString& kind,
 //   Process exit code; 0 when a reply was written.
 int runSharedParseHelper(Context& context, const QString& kind, QFile& output);
 
+// Bounded outcome of a probe helper, which reads no input file.
+struct HelperProbeRun final {
+  // The helper's JSON reply; empty when it wrote none.
+  QJsonObject reply;
+  // Empty, crashed, timeout or memory.
+  QString cause;
+  qint64 elapsedMs = 0;
+};
+
+// Run this executable in helper mode `kind` in a private directory, with the
+// worker's environment and the parse helper bounds.
+//
+// Args:
+//   context: Worker owning the private runtime directory.
+//   kind: A probe kind the helper answers without input, such as gl_probe.
+// Returns:
+//   The reply and how the helper ended; a crash, hang or memory growth ends
+//   only the helper.
+HelperProbeRun runProbeHelper(Context& context, const QString& kind);
+
 // Return a process's physical memory footprint in bytes, or -1 if unknown.
 qint64 processMemoryBytes(qint64 processId);
 

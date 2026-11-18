@@ -473,6 +473,10 @@ async function journey(context, report, slots) {
   const [first, second] = slots;
   const capabilities = await success(first, "live.capabilities", {}, report);
   assert.equal(capabilities.mode, "edit");
+  assert.equal(capabilities.protocol, "groundzero-live-v2");
+  const status = await success(second, "live.status", {}, report);
+  assert.deepEqual(status.build, capabilities.build);
+  report.capabilities_build = capabilities.build;
   assert(capabilities.fingerprint_exclusions.includes("pixels"));
   assert(capabilities.fingerprint_exclusions.includes("palette_colors_and_animation"));
   await stageJourney(first, second, report);

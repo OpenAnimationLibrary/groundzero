@@ -47,5 +47,6 @@ QJsonObject errorEnvelopeSchema();
 // Success shapes of the two worker operations.
 QJsonObject capabilitiesResultSchema();
 QJsonObject documentListResultSchema();
+QJsonObject toolDescriptionResultSchema(int maximumTools);
 
 }  // namespace GroundzeroAutomation

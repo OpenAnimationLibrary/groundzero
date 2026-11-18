@@ -34,6 +34,7 @@ private:
     QLocalSocket* socket = nullptr;
     QByteArray bytes;
     QString clientId;
+    bool refused = false;
     std::chrono::steady_clock::time_point authDeadline;
     QList<Pending> pending;
     QSet<QString> ids;

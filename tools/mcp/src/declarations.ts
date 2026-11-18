@@ -130,14 +130,6 @@ export function sessionEffects(kind: "read" | "session"): Record<string, unknown
   };
 }
 
-/** The `_meta` entries that carry a tool's effects and every error code it can return. */
-export function declarationMeta(
-  effects: unknown,
-  errors: readonly string[],
-): Record<string, unknown> {
-  return { "groundzero/effects": effects, "groundzero/errors": errors };
-}
-
 export type Validator = ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;
 
 /** Compile the success branch of a tool's output schema.
@@ -169,32 +161,65 @@ function successBranch(schema: Record<string, unknown>): JsonSchemaType | undefi
   return success?.["type"] === "object" ? (success as JsonSchemaType) : undefined;
 }
 
-/** Forward a successful result only when its structured content matches the success shape.
+/** How the adapter checks one successful result against the tool's success shape. */
+export interface ResultCheck {
+  tool: Tool;
+  validator: Validator | undefined;
+  args: Record<string, unknown>;
+  /** Refuse a nonconforming result instead of reporting it; the test fixture sets this. */
+  strict: boolean;
+}
+
+const ISSUE_PATH = /(?:^|, )data((?:\/[^ ,]*)?) /gu;
+
+// The SDK validator reports one issue whose message lists each failure as
+// "data/<json pointer> must ...". Keep the pointers only: the values never reach a log.
+function issuePaths(issues: ReadonlyArray<{ readonly message: string }>): string[] {
+  const paths = new Set<string>();
+  for (const issue of issues) {
+    for (const match of issue.message.matchAll(ISSUE_PATH)) {
+      const pointer = match[1] ?? "";
+      paths.add(pointer === "" ? "(result)" : pointer.slice(1).replaceAll("/", "."));
+    }
+  }
+  return paths.size > 0 ? [...paths].slice(0, MAX_ISSUES) : ["(result)"];
+}
+
+/** Check a successful result against its tool's success shape.
+ *
+ * A strict session returns INVALID_RESULT instead of a nonconforming result. Otherwise the
+ * result, whose work may already have happened, is returned unchanged with the
+ * `groundzero/output_mismatch` flag in `_meta`, and one stderr line names the tool and the
+ * failing paths, never the values.
  *
  * Args:
- *   tool: The called tool.
- *   validator: Its compiled success shape, if it publishes one.
- *   args: The validated call arguments, for the operation identity of a write.
+ *   check: The tool, its compiled success shape, the call arguments and the mode.
  *   result: The converted native result.
  * Returns:
- *   The result unchanged, or INVALID_RESULT that says whether a write was applied.
+ *   The result, flagged or refused when it does not conform.
  */
 export async function conformingResult(
-  tool: Tool,
-  validator: Validator | undefined,
-  args: Record<string, unknown>,
+  check: ResultCheck,
   result: CallToolResult,
 ): Promise<CallToolResult> {
+  const { tool, validator, args, strict } = check;
   if (validator === undefined || result.isError === true) return result;
   const parsed = await validator["~standard"].validate(result.structuredContent);
   if (!parsed.issues) return result;
+  const paths = issuePaths(parsed.issues);
+  if (!strict) {
+    process.stderr.write(
+      `groundzero-mcp: ${tool.name} result does not match its output schema at ${paths.join(", ")}\n`,
+    );
+    return { ...result, _meta: { ...result._meta, "groundzero/output_mismatch": true } };
+  }
   const readOnly = tool.annotations?.readOnlyHint === true;
   return errorResult(
     new WorkerError("INVALID_RESULT", `${tool.name} returned a result outside its output schema`, {
       tool: tool.name,
       outcome: readOnly ? "none" : "applied",
       operation_id: args["operation_id"] ?? null,
-      issues: parsed.issues.slice(0, MAX_ISSUES).map((issue) => issue.message),
+      issues: paths,
     }),
   );
 }

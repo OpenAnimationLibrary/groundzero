@@ -1,5 +1,7 @@
 #include "automation_live_protocol.h"
 
+#include "automation_build_identity.h"
+
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QRegularExpression>
@@ -401,6 +403,8 @@ void validateParams(const QString& method, const QJsonObject& params) {
 
 QJsonObject capabilities(const QString& mode) {
   return {{"mode", mode},
+          {"protocol", liveProtocol},
+          {"build", buildIdentity()},
           {"tools", operations()},
           {"limits", limits()},
           {"profiles", QJsonArray{"qualified_target_dependencies_v1",
@@ -416,6 +420,22 @@ QJsonObject liveError(const Error& error) {
   return {{"code", error.code},
           {"message", error.message.left(512)},
           {"details", error.details}};
+}
+
+QJsonObject liveIdentity() {
+  return {{"protocol", liveProtocol}, {"build", buildIdentity()}};
+}
+
+QJsonObject handshakeMismatch(const QJsonObject& authentication) {
+  QString code;
+  if (authentication.value("protocol") != QJsonValue(liveProtocol))
+    code = "protocol_mismatch";
+  else if (authentication.value("build") != QJsonValue(buildIdentity()))
+    code = "build_mismatch";
+  if (code.isEmpty()) return {};
+  return {{"error",
+           QJsonObject{{"code", code},
+                       {"details", QJsonObject{{"editor", liveIdentity()}}}}}};
 }
 
 }  // namespace Live

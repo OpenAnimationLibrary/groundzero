@@ -1,4 +1,5 @@
 #include "automation_live_transport.h"
+#include "automation_build_identity.h"
 #include "automation_live_security.h"
 
 #include <QLocalServer>
@@ -20,10 +21,11 @@ quint32 frameSize(const QByteArray& bytes) {
 
 void validateHello(const QJsonObject& message) {
   const QSet<QString> fields{"protocol", "instance_id", "client_id", "token"};
-  if (message.size() != 4)
+  if (message.size() != 5 || !message.value("build").isObject())
     throw Error("authentication_failed", "Invalid live handshake.");
   for (auto it = message.constBegin(); it != message.constEnd(); ++it)
-    if (!fields.contains(it.key()) || !it.value().isString())
+    if (it.key() != "build" &&
+        (!fields.contains(it.key()) || !it.value().isString()))
       throw Error("authentication_failed", "Invalid live handshake.");
   const QRegularExpression uuid(QRegularExpression::anchoredPattern(
       "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
@@ -159,6 +161,10 @@ void Transport::receive(QLocalSocket* socket) {
 }
 
 bool Transport::consume(Connection& connection) {
+  if (connection.refused) {
+    connection.bytes.clear();
+    return false;
+  }
   if (connection.bytes.size() < 4) return false;
   const quint32 size = frameSize(connection.bytes);
   if (!size || size > static_cast<quint32>(maximumRequestBytes))
@@ -183,6 +189,13 @@ void Transport::authenticate(Connection& connection,
       count(true) >= 2)
     throw Error("authentication_failed",
                 "The live authentication window is closed.");
+  const QJsonObject mismatch = handshakeMismatch(message);
+  if (!mismatch.isEmpty()) {
+    send(connection, mismatch);
+    connection.refused = true;
+    connection.socket->disconnectFromServer();
+    return;
+  }
   validateGrant(message);
   const QString id = message.value("client_id").toString();
   for (const auto& other : m_connections)
@@ -190,7 +203,9 @@ void Transport::authenticate(Connection& connection,
       throw Error("authentication_failed",
                   "The live client identity is already attached.");
   connection.clientId = id;
-  send(connection, {{"instance_id", m_security->instanceId()},
+  send(connection, {{"protocol", liveProtocol},
+                    {"build", buildIdentity()},
+                    {"instance_id", m_security->instanceId()},
                     {"client_id", id},
                     {"mode", m_security->mode()},
                     {"tools", operations()},
@@ -198,8 +213,7 @@ void Transport::authenticate(Connection& connection,
 }
 
 void Transport::validateGrant(const QJsonObject& message) const {
-  if (message.value("protocol") != "groundzero-live-v1" ||
-      message.value("instance_id") != m_security->instanceId() ||
+  if (message.value("instance_id") != m_security->instanceId() ||
       !constantTimeTokenEquals(message.value("token").toString().toUtf8(),
                                m_security->token()))
     throw Error("authentication_failed",

@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-const protocol = "groundzero-live-v1";
+const protocol = "groundzero-live-v2";
 const catalog = [
   "live.capabilities",
   "live.fx.set_scalar_value",
@@ -124,6 +124,7 @@ async function descriptor(path) {
   assert(bytes.length <= 4096, "Published session descriptor exceeds 4096 bytes");
   const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   assert.deepEqual(Object.keys(value).sort(), [
+    "build",
     "endpoint",
     "instance_id",
     "mode",
@@ -132,6 +133,8 @@ async function descriptor(path) {
     "token",
   ]);
   assert.equal(value.protocol, protocol);
+  assert.deepEqual(Object.keys(value.build).sort(), ["application", "build_digest", "version"]);
+  assert.match(value.build.build_digest, /^[0-9a-f]{64}$/);
   assert.match(value.token, /^[0-9a-f]{64}$/);
   return value;
 }
@@ -139,6 +142,7 @@ async function descriptor(path) {
 function authentication(session) {
   return {
     protocol,
+    build: session.build,
     instance_id: session.instance_id,
     client_id: randomUUID(),
     token: session.token,
@@ -146,6 +150,8 @@ function authentication(session) {
 }
 
 function checkHello(hello, session) {
+  assert.equal(hello.protocol, protocol);
+  assert.deepEqual(hello.build, session.build);
   assert.equal(hello.instance_id, session.instance_id);
   assert.equal(hello.mode, session.mode);
   assert.equal(typeof hello.client_id, "string");
@@ -187,14 +193,29 @@ async function rejectedAuthentication(session, payload, label) {
     for (const response of peer.frames) {
       assert(!("result" in response), `${label} exposed a result before authentication`);
       assert(
-        ["authentication_failed", "invalid_params"].includes(response.error?.code),
+        ["authentication_failed", "invalid_params", ...Object.values(mismatches)].includes(
+          response.error?.code,
+        ),
         `${label} exposed unexpected preauthentication output`,
       );
+    }
+    if (label in mismatches) {
+      assert.equal(peer.frames.length, 1, `${label} was not answered with its refusal`);
+      assert.equal(peer.frames[0].error.code, mismatches[label]);
+      assert.deepEqual(Object.keys(peer.frames[0].error.details.editor).sort(), [
+        "build",
+        "protocol",
+      ]);
     }
   } finally {
     await peer.close();
   }
 }
+
+const mismatches = {
+  "wrong protocol": "protocol_mismatch",
+  "foreign build and wrong token": "build_mismatch",
+};
 
 async function authenticationFailures(session) {
   const valid = authentication(session);
@@ -203,6 +224,14 @@ async function authenticationFailures(session) {
     ["wrong token", frame({ ...valid, token: badToken })],
     ["wrong instance", frame({ ...valid, instance_id: randomUUID() })],
     ["wrong protocol", frame({ ...valid, protocol: "unsupported-live-version" })],
+    [
+      "foreign build and wrong token",
+      frame({
+        ...valid,
+        token: badToken,
+        build: { ...valid.build, build_digest: "f".repeat(64) },
+      }),
+    ],
     ["unknown authentication field", frame({ ...valid, unexpected: true })],
     ["unauthenticated tool", frame({ id: "before-auth", method: "live.status", params: {} })],
     ["duplicate authentication key", frame(Buffer.from('{"protocol":"a","protocol":"b"}'))],
@@ -244,7 +273,7 @@ function processHello(stream) {
   });
 }
 
-async function connectorBaseline(context, session) {
+async function connectorBaseline(context, session, report) {
   const child = spawn(context.executable, ["--automation-live-connect", context.session], {
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -261,6 +290,7 @@ async function connectorBaseline(context, session) {
       "Native connector authenticated hello",
     );
     checkHello(hello, session);
+    if (report) report.hello_build = hello.build;
     child.stdin.end();
     const result = await bounded(outcome, "Native connector EOF");
     assert.deepEqual(result, { code: 0, signal: null });
@@ -270,7 +300,17 @@ async function connectorBaseline(context, session) {
   }
 }
 
-async function rejectedFile(executable, path, token, label) {
+function refusalFrame(stdout, code, label) {
+  assert(stdout.length > 4, `${label} sent no refusal frame`);
+  assert.equal(stdout.readUInt32BE(0), stdout.length - 4, `${label} sent more than one frame`);
+  const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(stdout.subarray(4)));
+  assert.deepEqual(Object.keys(value), ["refusal"]);
+  assert.deepEqual(Object.keys(value.refusal).sort(), ["code", "details", "message"]);
+  if (code) assert.equal(value.refusal.code, code, `${label} refused with another code`);
+  return value.refusal;
+}
+
+async function rejectedFile(executable, path, token, label, code = undefined) {
   const child = spawn(executable, ["--automation-live-connect", path], {
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -284,11 +324,11 @@ async function rejectedFile(executable, path, token, label) {
     const result = await bounded(outcome, label);
     const stdout = Buffer.concat(output);
     const stderr = Buffer.concat(errors).toString("utf8");
-    assert.equal(result.code, 1, `${label} was not rejected by native session admission`);
+    assert.equal(result.code, 2, `${label} was not refused by native session admission`);
     assert.equal(result.signal, null, `${label} crashed the native connector`);
-    assert.equal(stdout.length, 0, `${label} published protocol output before admission`);
-    assert.match(stderr, /Groundzero live connector failed: [A-Za-z_]+\./);
-    assert(!stderr.includes(token), `${label} leaked a token in its diagnostic`);
+    assert.equal(stderr, "", `${label} wrote diagnostics instead of a refusal frame`);
+    assert(!stdout.includes(token), `${label} leaked a token in its refusal`);
+    return refusalFrame(stdout, code, label);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await bounded(outcome, `${label} process cleanup`);
@@ -405,10 +445,10 @@ async function posixFiles(context, session) {
   await chmod(root, 0o700);
   const directory = dirname(context.session);
   const prefix = `fixture-${randomUUID()}`;
-  const paths = ["group", "linked", "hardlink", "symbolic", "alias"].map((name) =>
+  const paths = ["group", "linked", "hardlink", "symbolic", "alias", "foreign"].map((name) =>
     join(directory, `${prefix}-${name}.json`),
   );
-  const [group, linked, hardlink, symbolic, aliased] = paths;
+  const [group, linked, hardlink, symbolic, aliased, foreign] = paths;
   try {
     for (const path of [group, linked, aliased]) {
       await copyFile(context.session, path);
@@ -450,12 +490,28 @@ async function posixFiles(context, session) {
       session.token,
       "directory in place of session file",
     );
-    return 6;
+    await foreignBuild(context, session, foreign);
+    return 7;
   } finally {
     await chmod(directory, 0o700);
     for (const path of paths) await rm(path, { force: true });
     await rm(root, { recursive: true });
   }
+}
+
+async function foreignBuild(context, session, path) {
+  const build = { ...session.build, build_digest: "e".repeat(64) };
+  await writeFile(path, JSON.stringify({ ...session, build }), { mode: 0o600 });
+  const refusal = await rejectedFile(
+    context.executable,
+    path,
+    session.token,
+    "session file of another build",
+    "build_mismatch",
+  );
+  assert.deepEqual(refusal.details.editor, { protocol, build });
+  assert.deepEqual(refusal.details.connector, { protocol, build: session.build });
+  assert(!JSON.stringify(refusal).includes(session.endpoint), "A refusal named the endpoint");
 }
 
 async function rejectedFrame(session, payload, label) {
@@ -597,6 +653,61 @@ async function modalBusy(context, phase) {
   }
 }
 
+const busyStates = [
+  ["nested-loop-open", "nested-loop-close", "nested_event_loop"],
+  ["gesture-begin", "gesture-end", "interactive_tool"],
+  ["save-begin", "save-end", "saving"],
+];
+
+// A mutation arriving while the GUI is in a nested loop, a drawing gesture or
+// a save is refused; its retry replays the refusal and a new edit applies once.
+async function busyRefusal(peer, phase, [open, close, reason]) {
+  const operation = cameraEdit(await inspectPeer(peer));
+  const before = (await phase(open)).native;
+  let rejected;
+  try {
+    rejected = await request(peer, "live.stage.set_key_value", operation);
+  } finally {
+    assert.deepEqual((await phase(close)).native, before, `${open} changed native state`);
+  }
+  assert.equal(rejected.error?.code, "gui_busy", `${open} admitted a mutation`);
+  assert(rejected.error.details.reasons.includes(reason), `${open} did not report ${reason}`);
+  const replayed = await request(peer, "live.stage.set_key_value", operation);
+  assert.deepEqual(replayed.error, rejected.error, `${open} retry was not the retained refusal`);
+  assert.deepEqual((await phase("snapshot")).native, before, `${open} retry changed state`);
+  const edit = cameraEdit(await inspectPeer(peer));
+  const applied = await request(peer, "live.stage.set_key_value", edit);
+  assert.equal(applied.result?.changed, true, `${open} blocked a later edit`);
+  const after = (await phase("snapshot")).native;
+  assert.equal(after.history_index, before.history_index + 1, `${open} edit not applied once`);
+  assert.deepEqual((await request(peer, "live.stage.set_key_value", edit)).result, applied.result);
+  assert.deepEqual((await phase("snapshot")).native, after, `${open} edit was applied twice`);
+  await phase("human-undo");
+}
+
+// Leaves an empty history, as the SDK journey expects, once the cached status
+// has observed the new scene epoch that a history reset starts.
+async function resetHistory(peer, phase) {
+  const previous = (await request(peer, "live.status")).result.scene_epoch;
+  await phase("history-reset");
+  for (let attempt = 0; attempt < 40; ++attempt) {
+    if ((await request(peer, "live.status")).result.scene_epoch !== previous) return;
+    await delay(50);
+  }
+  throw new Error("The live status did not observe the history reset");
+}
+
+async function busyStatesRefuse(context, phase) {
+  const peer = await authenticated(await descriptor(context.session));
+  try {
+    for (const state of busyStates) await busyRefusal(peer, phase, state);
+    await resetHistory(peer, phase);
+  } finally {
+    await peer.close();
+  }
+  return busyStates.length;
+}
+
 function queuedRequest(method, params) {
   return { id: randomUUID(), method, params };
 }
@@ -699,8 +810,9 @@ export async function verifyLiveSecurity(context, phase) {
   } finally {
     await peer.close();
   }
-  await connectorBaseline(context, session);
-  const report = { authentication: await authenticationFailures(session), sessionFiles: 0 };
+  const report = { sessionFiles: 0 };
+  await connectorBaseline(context, session, report);
+  report.authentication = await authenticationFailures(session);
   if (process.platform === "win32") {
     report.windows_identities = await windowsIdentities(context, session);
     const variants = await phase("security-files");
@@ -726,6 +838,7 @@ export async function verifyLiveSecurity(context, phase) {
   await connectionLimits(session);
   await inspectMode(context, phase);
   await modalBusy(context, phase);
+  report.busy_states_refused = await busyStatesRefuse(context, phase);
   await admissionDeadline(context, phase);
   await stopAndRenew(context, phase);
   report.status = "passed";

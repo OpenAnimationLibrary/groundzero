@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { WorkerError, isObject } from "#mcp/errors";
 import {
   LIVE_PENDING_REQUESTS,
+  LIVE_RECOVERY,
   LIVE_RESPONSE_BYTES,
   decodeLiveJson,
   exactFields,
@@ -115,19 +116,23 @@ export class LiveConnection {
     while (this.buffer.length >= 4) {
       const size = this.buffer.readUInt32BE(0);
       if (size === 0 || size > LIVE_RESPONSE_BYTES) {
-        this.fail("Live response exceeds the framed response limit");
+        this.fail("Live response exceeds the framed response limit", this.framingCause());
         return;
       }
       if (this.buffer.length < size + 4) return;
       const body = this.buffer.subarray(4, size + 4);
       this.buffer = this.buffer.subarray(size + 4);
-      try {
-        this.respond(decodeLiveJson(body));
-      } catch {
-        this.fail("Invalid live connector response");
-        return;
-      }
+      this.accept(body);
       if (this.failure) return;
+    }
+  }
+
+  private accept(body: Buffer): void {
+    try {
+      this.respond(decodeLiveJson(body));
+    } catch (error) {
+      if (!this.hello && error instanceof WorkerError) this.failWith(error);
+      else this.fail("Invalid live connector response", this.framingCause());
     }
   }
 
@@ -153,15 +158,24 @@ export class LiveConnection {
     this.pending.delete(value["id"]);
   }
 
-  private fail(message: string): void {
+  private framingCause(): Record<string, string> {
+    return this.hello ? {} : { cause: "invalid_frame" };
+  }
+
+  private fail(message: string, extra: Record<string, unknown> = {}): void {
+    this.failWith(
+      new WorkerError("LIVE_UNAVAILABLE", message, {
+        outcome_unknown: this.pending.size > 0,
+        instance_id: this.hello?.instanceId ?? null,
+        recovery: LIVE_RECOVERY,
+        ...extra,
+      }),
+    );
+  }
+
+  private failWith(failure: WorkerError): void {
     if (this.failure) return;
-    this.failure = new WorkerError("LIVE_UNAVAILABLE", message, {
-      outcome_unknown: this.pending.size > 0,
-      instance_id: this.hello?.instanceId ?? null,
-      recovery:
-        "Reconnect to the same instance and query live.receipt with the original operation_id. " +
-        "Do not blindly replay edits; a new instance requires inspection.",
-    });
+    this.failure = failure;
     clearTimeout(this.startupTimer);
     this.rejectHello?.(this.failure);
     this.resolveHello = undefined;

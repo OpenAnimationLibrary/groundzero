@@ -10,6 +10,8 @@ namespace GroundzeroAutomation {
 namespace {
 
 constexpr int maximumErrors = 64;
+// The adapter appends its own codes, at most 8, to a described tool's list.
+constexpr int maximumNativeErrors = maximumErrors - 8;
 
 struct Declaration {
   ToolEffects effects;
@@ -109,7 +111,8 @@ const QHash<QString, Declaration>& declarations() {
       {"fx.macro.create", {kEdit, {"INVALID_MACRO", "invalid_handle"}}},
       {"fx.macro.expand", {kEdit, {"INVALID_MACRO"}}},
       {"fx.output.select", {kEdit, {"INVALID_OUTPUT"}}},
-      {"fx.parameter.get", {kInspect, {"UNSUPPORTED_PARAMETER"}}},
+      {"fx.parameter.get",
+       {kInspect, {"UNSUPPORTED_FX", "UNSUPPORTED_PARAMETER"}}},
       {"fx.parameter.set",
        {kEdit,
         {"INVALID_PARAMS", "OUT_OF_RANGE", "PARAMETER_CONSTRAINT",
@@ -128,7 +131,7 @@ const QHash<QString, Declaration>& declarations() {
       {"fx.terminal.set", {kEdit, {}}},
       {"hook.delete",
        {kEdit, {"has_dependents", "locked", "missing_key", "not_found"}}},
-      {"hook.inspect", {kInspect, {}}},
+      {"hook.inspect", {kInspect, {"unsupported_level"}}},
       {"hook.set", {kEdit, {"locked", "missing_drawing"}}},
       {"level.create", {kAdd, {"name_conflict"}}},
       {"level.import",
@@ -167,12 +170,12 @@ const QHash<QString, Declaration>& declarations() {
       {"offset_layer.update", {kEdit, {"name_conflict"}}},
       {"palette.clone_style", {kAdd, {}}},
       {"palette.create_style", {kAdd, {}}},
-      {"palette.inspect", {kInspect, {}}},
+      {"palette.inspect", {kInspect, {"unsupported_type"}}},
       {"palette.page.create", {kAdd, {}}},
       {"palette.page.move", {kEdit, {}}},
       {"palette.page.remove", {kEdit, {"page_not_empty"}}},
       {"palette.page.rename", {kEdit, {}}},
-      {"palette.pages", {kInspect, {}}},
+      {"palette.pages", {kInspect, {"unsupported_type"}}},
       {"palette.rename_style", {kEdit, {}}},
       {"palette.style.move", {kEdit, {}}},
       {"palette.update_style", {kEdit, {}}},
@@ -196,11 +199,19 @@ const QHash<QString, Declaration>& declarations() {
       {"render.cancel",
        {ToolEffects{"job_control", "none", {}, "controls", {}, true}, {}}},
       {"render.capabilities", {kInspectWorker, {}}},
+      {"render.preflight",
+       {ToolEffects{"read",
+                    "reads",
+                    {},
+                    "none",
+                    {"parse_helper", "media_tools"},
+                    false},
+        {"scene_host_failed", "stale_revision"}}},
       {"render.preview",
        {ToolEffects{
             "job_start", "reads", {"writes_private"}, "starts", {}, false},
-        {"fx_preflight_failed", "render_blocked", "render_busy",
-         "source_changed"}}},
+        {"fx_preflight_failed", "missing_dependency", "render_blocked",
+         "render_busy", "render_unavailable", "source_changed"}}},
       {"render.status", {kJobRead, {"scene_host_failed"}}},
       {"render.submit",
        {ToolEffects{"job_start",
@@ -214,6 +225,10 @@ const QHash<QString, Declaration>& declarations() {
          "unsupported_render_settings"}}},
       {"rig.evaluate", {kInspect, {}}},
       {"rig.inspect", {kInspect, {}}},
+      {"runtime.inspect",
+       {ToolEffects{
+            "read", "none", {}, "none", {"parse_helper", "media_tools"}, false},
+        {}}},
       {"scene.create",
        {ToolEffects{"document_lifecycle", "creates", {}, "none", {}, false},
         {}}},
@@ -274,18 +289,19 @@ const QHash<QString, Declaration>& declarations() {
        {kParseShared, {"revision_conflict", "unsupported_palette"}}},
       {"studio_palette.list", {kListShared, {}}},
       {"text.fonts", {kInspectWorker, {}}},
+      {"tool.describe", {kInspectWorker, {"unknown_tool"}}},
       {"vector.edit", {kEdit, {}}},
       {"vector.fill", {kEdit, {"not_found"}}},
       {"vector.group.create",
        {kEdit, {"not_found", "unsupported_grouping", "unsupported_type"}}},
       {"vector.group.remove", {kEdit, {"not_found"}}},
-      {"vector.inspect", {kInspect, {"source_changed"}}},
-      {"vector.opacity.inspect", {kInspect, {}}},
+      {"vector.inspect", {kInspect, {"source_changed", "unsupported_type"}}},
+      {"vector.opacity.inspect", {kInspect, {"revision_conflict"}}},
       {"vector.opacity.profile.set", {kEdit, {}}},
       {"vector.opacity.set", {kEdit, {}}},
       {"vector.order.move", {kEdit, {"unsupported_grouping"}}},
       {"vector.select", {kInspect, {"resource_limit", "revision_conflict"}}},
-      {"vector.structure", {kInspect, {}}},
+      {"vector.structure", {kInspect, {"unsupported_type"}}},
       {"vector.text.create",
        {kAdd,
         {"already_exists", "font_not_found", "missing_glyph",
@@ -405,8 +421,8 @@ QJsonObject declaredTool(QJsonObject descriptor, const ToolEffects& effects,
   QStringList codes = commonErrors(effects, inputs);
   for (const QString& code : errors)
     if (!codes.contains(code)) codes.append(code);
-  if (codes.size() > maximumErrors)
-    undeclared(name, "declares more than 64 error codes; trim its row");
+  if (codes.size() > maximumNativeErrors)
+    undeclared(name, "declares more than 56 error codes; trim its row");
   descriptor.remove("mutates_document");
   descriptor.insert("effects", effectsObject(effects));
   descriptor.insert("errors", QJsonArray::fromStringList(codes));
@@ -545,6 +561,17 @@ QJsonObject descriptorSchema() {
       required);
 }
 
+// The platform description runtime.inspect also reports.
+QJsonObject platformSchema() {
+  return successSchemas()
+      .value("runtime.inspect")
+      .toObject()
+      .value("properties")
+      .toObject()
+      .value("platform")
+      .toObject();
+}
+
 QJsonObject readOnlyScenesSchema() {
   const QJsonObject count{
       {"type", "integer"}, {"minimum", 0}, {"maximum", 9007199254740991.0}};
@@ -564,14 +591,25 @@ QJsonObject capabilitiesResultSchema() {
                     {"description", stringSchema(1, 1024)},
                     {"tools", arraySchema(stringSchema(1, 128), 0, 1024)}});
   return strictObject(
-      {{"protocol_version", QJsonObject{{"type", "integer"}, {"const", 2}}},
+      {{"protocol_version", QJsonObject{{"type", "integer"}, {"const", 3}}},
        {"workspace", stringSchema(1, 4096)},
        {"tools", arraySchema(descriptorSchema(), 0, 1024)},
        {"toolsets", arraySchema(toolset, 1, 64)},
        {"media_tools_configured", QJsonObject{{"type", "boolean"}}},
        {"isolation",
         QJsonObject{{"type", "string"}, {"const", "private_process"}}},
+       {"platform", platformSchema()},
        {"read_only_scenes", readOnlyScenesSchema()}});
+}
+
+QJsonObject toolDescriptionResultSchema(int maximumTools) {
+  const QJsonObject tool = strictObject(
+      {{"name", stringSchema(1, 128)},
+       {"toolset", stringSchema(1, 32)},
+       {"effects", effectsSchema()},
+       {"errors", arraySchema(stringSchema(1, 64), 1, maximumErrors)},
+       {"outputSchema", QJsonObject{{"type", "object"}}}});
+  return strictObject({{"tools", arraySchema(tool, 1, maximumTools)}});
 }
 
 QJsonObject documentListResultSchema() {

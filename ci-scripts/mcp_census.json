@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "claims": {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "fx_profile": "builtin-2d-v2",
   "fx_builtins": 31
  },
@@ -16,11 +16,13 @@
  },
  "non_tool_tokens": [
   "details.cause",
+  "details.check",
   "details.native_binding",
   "details.reason",
   "details.scope",
   "details.slice",
-  "details.toolset"
+  "details.toolset",
+  "formats.admitted"
  ],
  "formats": [
   {
@@ -295,6 +297,7 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_passive_inspection_preserves_state",
+    "ci-scripts/mcp_acceptance.py::test_runtime_reports_private_stuff_and_plugin_policy",
     "toonz/sources/toonz/tests/automation_assistance_test.cpp"
    ]
   },
@@ -431,8 +434,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_preview_fit_preserves_camera",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_preview_reports_effective_output",
     "ci-scripts/mcp_acceptance.py::test_rich_animation_round_trips_and_renders",
-    "ci-scripts/mcp_acceptance.py::test_whole_curve_retime_preserves_samples_rendering_and_reopen",
     "ci-scripts/mcp_shot.py"
    ]
   },
@@ -975,8 +978,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_lipsync_rejections_preserve_cells",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
     "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
    ]
@@ -996,6 +999,7 @@
    "toolset": "live",
    "writes": false,
    "tests": [
+    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
     "tools/mcp/src/server.test.ts",
     "ci-scripts/mcp_live.py"
    ]
@@ -1037,7 +1041,7 @@
    "tests": [
     "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
     "toonz/sources/toonz/tests/automation_live_race_test.cpp",
-    "tools/mcp/src/server.test.ts",
+    "tools/mcp/src/live.test.ts",
     "ci-scripts/mcp_live.py"
    ]
   },
@@ -1058,9 +1062,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
     "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
     "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
    ]
@@ -1135,9 +1139,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_unicode_names_preserve_data_and_reject_unpaired_surrogates",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
     "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
@@ -1179,6 +1183,7 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
     "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
     "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
@@ -1263,7 +1268,7 @@
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
     "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1367,8 +1372,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_palette_updates_preserve_other_animation_keys",
     "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1410,6 +1415,7 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
@@ -1436,7 +1442,7 @@
     "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
     "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1460,7 +1466,7 @@
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_movie_cancellation_publishes_no_artifact",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
@@ -1486,7 +1492,22 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_mp4_refused_without_encoder",
+    "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
+    "ci-scripts/mcp_acceptance.py::test_runtime_media_identity",
     "tools/mcp/src/native.test.ts"
+   ]
+  },
+  "render.preflight": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_render_preflight_reports_every_failure",
+    "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_preview_reports_effective_output",
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "toonz/sources/toonz/tests/automation_runtime_test.cpp"
    ]
   },
   "render.preview": {
@@ -1496,8 +1517,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content",
-    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -1558,6 +1579,17 @@
     "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
     "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
     "toonz/sources/toonz/tests/automation_rig_test.cpp"
+   ]
+  },
+  "runtime.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
+    "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
+    "ci-scripts/mcp_acceptance.py::test_runtime_formats_native_vs_admitted",
+    "ci-scripts/mcp_acceptance.py::test_runtime_media_identity"
    ]
   },
   "scene.create": {
@@ -1696,8 +1728,8 @@
     "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
     "ci-scripts/mcp_acceptance.py::test_scene_edit_failures_leave_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1733,8 +1765,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_panels_spans_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
+    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
     "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
    ]
@@ -1811,11 +1843,20 @@
     "toonz/sources/toonz/tests/automation_text_test.cpp"
    ]
   },
+  "tool.describe": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
+   ]
+  },
   "toolsets.disable": {
    "origin": "adapter",
    "toolset": "adapter",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_runtime_states_distinguish_layers",
     "tools/mcp/src/toolsets.test.ts"
    ]
   },
@@ -1824,6 +1865,7 @@
    "toolset": "adapter",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_runtime_states_distinguish_layers",
     "tools/mcp/src/toolsets.test.ts"
    ]
   },
@@ -1995,6 +2037,30 @@
    "classification": "exposed",
    "tools": [
     "automation.capabilities"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "automation.describe_tools",
+   "domain": "Session and capability discovery",
+   "outcome": "Read a tool's effects, every error code it can return and the shape of its result.",
+   "classification": "exposed",
+   "tools": [
+    "tool.describe"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.inspect_runtime",
+   "domain": "Session and capability discovery",
+   "outcome": "Report what this worker can actually run: build, platform, graphics readiness, granted media tools and mp4 encoder, native and admitted formats, plugin policy and toolset states, each layer by layer.",
+   "classification": "exposed",
+   "tools": [
+    "runtime.inspect"
    ],
    "disposition": {
     "kind": "implemented"
@@ -3396,6 +3462,18 @@
    "classification": "exposed",
    "tools": [
     "render.capabilities"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.preflight",
+   "domain": "Rendering and review",
+   "outcome": "Check a render request against every check a render job applies and report each failure and the effective output, without starting a job.",
+   "classification": "exposed",
+   "tools": [
+    "render.preflight"
    ],
    "disposition": {
     "kind": "implemented"

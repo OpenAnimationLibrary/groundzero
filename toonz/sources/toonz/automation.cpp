@@ -4,6 +4,7 @@
 #include "automation_live_protocol.h"
 #include "automation_ownership.h"
 #include "automation_scene_host.h"
+#include "automation_runtime.h"
 #include "automation_shared_parse.h"
 
 #include "tenv.h"
@@ -528,6 +529,7 @@ int domainTestResult(Context& context) {
     runAutomationTextTests(context);
     runAutomationMediaProcessTests(context);
     runAutomationSceneHostTests(context);
+    runAutomationRuntimeTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "

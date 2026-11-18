@@ -198,6 +198,7 @@ endif()
 set(HEADERS
     automation.h
     automation_animation.h
+    automation_build_identity.h
     automation_fx_profile.h
     automation_path.h
     automation_audio.h
@@ -218,6 +219,7 @@ set(HEADERS
     automation_shared.h
     automation_shared_parse.h
     automation_scene_host.h
+    automation_runtime.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -315,6 +317,7 @@ set(SOURCES
     automation_drawing.cpp
     automation_render.cpp
     automation_media.cpp
+    automation_runtime.cpp
     automation_persistence.cpp
     automation_production.cpp
     automation_assistance.cpp
@@ -332,6 +335,7 @@ set(SOURCES
     automation_scene_host.cpp
     automation_scene_content.cpp
     automation_scene_inventory.cpp
+    automation_build_identity.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp
@@ -1204,10 +1208,11 @@ if(BUILD_UI_PORT_TESTS)
     set_tests_properties(mcp_path_authority PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_path_test)
     add_executable(mcp_live_protocol_test
+        automation_build_identity.cpp
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_protocol_test.cpp)
     target_compile_definitions(mcp_live_protocol_test PRIVATE
-        AUTOMATION_LIVE_PROTOCOL_STANDALONE)
+        AUTOMATION_LIVE_PROTOCOL_STANDALONE AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
     target_include_directories(mcp_live_protocol_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(mcp_live_protocol_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
@@ -1217,10 +1222,11 @@ if(BUILD_UI_PORT_TESTS)
     set_tests_properties(mcp_live_protocol PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_live_protocol_test)
     add_executable(mcp_live_race_test
+        automation_build_identity.cpp
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_race_test.cpp)
     target_compile_definitions(mcp_live_race_test PRIVATE
-        AUTOMATION_LIVE_RACE_STANDALONE)
+        AUTOMATION_LIVE_RACE_STANDALONE AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
     target_include_directories(mcp_live_race_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(mcp_live_race_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
@@ -1263,10 +1269,14 @@ if(BUILD_UI_PORT_TESTS)
         set_tests_properties(mcp_containment PROPERTIES TIMEOUT 90)
         add_dependencies(OpenToonz mcp_containment_test)
         add_executable(mcp_live_security_test
+            automation_build_identity.cpp
             automation_error.cpp automation_live_protocol.cpp
             automation_live_security.cpp automation_live_security_posix.cpp
-            automation_live_connector.cpp tests/automation_live_security_test.cpp)
+            automation_live_connector.cpp automation_live_state.cpp
+            automation_live_transport.cpp tests/automation_live_security_test.cpp)
         target_include_directories(mcp_live_security_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_compile_definitions(mcp_live_security_test PRIVATE
+            AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
         set_target_properties(mcp_live_security_test PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
         target_link_libraries(mcp_live_security_test PRIVATE
@@ -1296,6 +1306,7 @@ if(BUILD_UI_PORT_TESTS)
             "$<TARGET_FILE_DIR:OpenToonz>/$<TARGET_FILE_NAME:mcp_ffprobe_fixture>"
         VERBATIM)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)
@@ -1322,6 +1333,10 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_live_race_test.cpp)
     target_sources(OpenToonz PRIVATE
         tests/mcp_live_generation_test.cpp tests/mcp_live_generation_test.h)
+    target_sources(OpenToonz PRIVATE
+        tests/mcp_live_history_test.cpp tests/mcp_live_history_test.h
+        tests/mcp_live_lifecycle_test.cpp tests/mcp_live_lifecycle_test.h
+        tests/mcp_live_disabled_test.cpp tests/mcp_live_disabled_test.h)
     target_sources(OpenToonz PRIVATE
         mcpliveintegrationtest.cpp mcpliveintegrationtest.h
         tests/mcp_live_security_fixture.cpp tests/mcp_live_security_fixture.h)

@@ -37,6 +37,13 @@ export class WorkerConnection {
   private shutdownTimer: ReturnType<typeof setTimeout> | undefined;
   private nativeExit: string | undefined;
 
+  /** Own a started worker or supervisor, the leader of its own process group.
+   *
+   * Args:
+   *   child: The process this adapter started.
+   *   timeoutMs: Upper bound for one native response.
+   *   supervised: Whether the child is the POSIX helper supervisor.
+   */
   constructor(
     child: ChildProcess,
     private readonly timeoutMs = 120_000,
@@ -130,19 +137,26 @@ export class WorkerConnection {
       this.stopSupervisor();
       return;
     }
-    this.child.kill("SIGTERM");
-    this.shutdownTimer = setTimeout(() => this.child.kill("SIGKILL"), 2_000);
+    this.signal("SIGTERM");
+    this.shutdownTimer = setTimeout(() => this.signal("SIGKILL"), 2_000);
     this.shutdownTimer.unref();
   }
 
   private stopSupervisor(): void {
     if (!this.child.connected) {
-      this.child.kill("SIGTERM");
+      this.signal("SIGTERM");
       return;
     }
     this.child.send("stop", (error: Error | null) => {
-      if (error) this.child.kill("SIGTERM");
+      if (error) this.signal("SIGTERM");
     });
+  }
+
+  // Signals go only through the child's handle and only before it is reaped: an unreaped
+  // child keeps its process ID, and so the ID of the group it leads, from being reused.
+  // Node reaps a child and records its exit status in one step, so there is no window.
+  private signal(name: NodeJS.Signals): void {
+    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill(name);
   }
 
   private receive(chunk: Buffer): void {

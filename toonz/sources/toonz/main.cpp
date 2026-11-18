@@ -4,6 +4,7 @@
 #include "crashhandler.h"
 #include "automation.h"
 #include "automation_live_startup.h"
+#include "automation_build_identity.h"
 #include "automation_live_security.h"
 #include "autosaverecovery.h"
 #include "mainwindow.h"
@@ -30,6 +31,7 @@
 #include "nativeuiintegrationtest.h"
 #include "iconlifecycleintegrationtest.h"
 #include "mcpliveintegrationtest.h"
+#include "tests/mcp_live_disabled_test.h"
 #endif
 
 // TnzTools includes
@@ -316,6 +318,9 @@ static void startLiveUi(GroundzeroAutomation::Live::LiveUi& owner) {
 int main(int argc, char *argv[]) {
   if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-live-connect")
     return GroundzeroAutomation::Live::runConnector(argc, argv);
+  if (argc == 2 &&
+      QString::fromLocal8Bit(argv[1]) == "--automation-build-manifest")
+    return GroundzeroAutomation::printBuildManifest(argc, argv);
   if (argc > 1 && QString::fromLocal8Bit(argv[1]) == "--automation-worker")
     return GroundzeroAutomation::runWorker(argc, argv);
   GroundzeroAutomation::Live::Options liveOptions;
@@ -1040,6 +1045,11 @@ int main(int argc, char *argv[]) {
     QTimer::singleShot(0, &a, [&a, &w, nativeIconClearOnly] {
       if (!nativeIconClearOnly && qgetenv("GROUNDZERO_NATIVE_UI_SUITE") == "mcp-live") {
         startMcpLiveIntegrationTest(&w, [&a](int result) { a.exit(result); });
+        return;
+      }
+      if (!nativeIconClearOnly &&
+          qgetenv("GROUNDZERO_NATIVE_UI_SUITE") == "mcp-live-disabled") {
+        startMcpLiveDisabledTest(&w, [&a](int result) { a.exit(result); });
         return;
       }
       // The required clear scenario has its own fresh terminal process. It

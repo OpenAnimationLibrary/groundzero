@@ -1248,6 +1248,22 @@ void reopenSource(ToonzScene& scene, const QJsonObject& entry) {
 
 }  // namespace
 
+QJsonArray missingAutomationSounds(ToonzScene& scene) {
+  QJsonArray missing;
+  for (const auto& source : soundSources(scene)) {
+    try {
+      verifiedSource(scene, *source.second);
+    } catch (const Error& error) {
+      if (missing.size() < 64)
+        missing.append(QJsonObject{
+            {"kind", "sound"},
+            {"name", QString::fromStdWString(source.second->getName())},
+            {"code", error.code}});
+    }
+  }
+  return missing;
+}
+
 QJsonObject writeAutomationSounds(ToonzScene& scene, const QString& directory) {
   QJsonArray sounds;
   for (const auto& source : soundSources(scene))

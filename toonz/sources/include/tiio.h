@@ -48,6 +48,9 @@ public:
 
   const TImageInfo &getImageInfo() const { return m_info; }
 
+  // Append the extensions of every registered raster and vector reader.
+  static void getSupportedFormats(QStringList& formats);
+
   virtual TPropertyGroup *getProperties() const { return 0; }
 
   void readLine(char *buffer) { readLine(buffer, 0, m_info.m_lx - 1, 1); }

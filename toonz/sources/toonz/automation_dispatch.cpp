@@ -11,6 +11,7 @@
 #include "automation_shared.h"
 #include "automation_storyboard.h"
 #include "automation_lipsync.h"
+#include "automation_runtime.h"
 
 #include "texception.h"
 
@@ -32,6 +33,7 @@ constexpr int maximumControlReceipts = 32;
 constexpr qint64 maximumControlBytes = 16 * 1024;
 // The error envelope of every outputSchema bounds messages to 2048 characters.
 constexpr int maximumErrorMessage = 2048;
+constexpr int maximumDescribedTools = 16;
 
 qint64 receiptSize(const QJsonObject& response) {
   return QJsonDocument(response).toJson(QJsonDocument::Compact).size();
@@ -281,6 +283,38 @@ QString toolsetDescription(const QString& toolset) {
   return found.value();
 }
 
+QJsonObject catalogEntry(const QJsonArray& catalog, const QString& name) {
+  for (const QJsonValue& value : catalog)
+    if (value.toObject().value("name") == name) return value.toObject();
+  return {};
+}
+
+QJsonObject describeTools(const QJsonArray& catalog,
+                          const QJsonObject& params) {
+  validate(
+      params,
+      catalogEntry(catalog, "tool.describe").value("inputSchema").toObject(),
+      "params", 0);
+  QJsonArray tools;
+  QJsonArray unknown;
+  for (const QJsonValue& name : params.value("names").toArray()) {
+    const QJsonObject tool = catalogEntry(catalog, name.toString());
+    if (tool.isEmpty()) {
+      unknown.append(name);
+      continue;
+    }
+    tools.append(QJsonObject{{"name", name},
+                             {"toolset", tool.value("toolset")},
+                             {"effects", tool.value("effects")},
+                             {"errors", tool.value("errors")},
+                             {"outputSchema", tool.value("outputSchema")}});
+  }
+  if (!unknown.isEmpty())
+    throw Error("unknown_tool", "No tool of this worker has these names.",
+                {{"names", unknown}});
+  return {{"tools", tools}};
+}
+
 }  // namespace
 
 void checkResult(const QJsonObject& descriptor, const QJsonValue& result) {
@@ -322,6 +356,19 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
       operation("automation.list_documents",
                 "List detached documents and their current revisions.", {}, {}),
       documentListResultSchema()));
+  addWorkerOperation(withOutputSchema(
+      operation(
+          "tool.describe",
+          "Return the full declaration of up to 16 tools: effects, every "
+          "error code, and the output schema of the structured result.",
+          {{"names", QJsonObject{{"type", "array"},
+                                 {"minItems", 1},
+                                 {"maxItems", maximumDescribedTools},
+                                 {"items", QJsonObject{{"type", "string"},
+                                                       {"minLength", 1},
+                                                       {"maxLength", 128}}}}}},
+          {"names"}),
+      toolDescriptionResultSchema(maximumDescribedTools)));
   add(sceneOperations(), executeScene, "core");
   add(sceneAccessOperations(), executeSceneAccess, "core");
   add(sceneInventoryOperations(), executeSceneInventory, "core");
@@ -329,6 +376,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(fxRecipeOperations(), executeFx, "fx-finishing");
   add(drawingOperations(), executeDrawing, "core");
   add(renderOperations(), executeRender, "core");
+  add(runtimeOperations(), executeRuntime, "core");
   add(persistenceOperations(), executePersistence, "core");
   add(productionOperations(), executeProduction, "core");
   add(textOperations(), executeText, "core");
@@ -345,6 +393,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
         return executeAssistance(method, params);
       },
       "core");
+  m_context.toolsets = m_toolsets.keys();
 }
 
 void Dispatcher::addWorkerOperation(QJsonObject descriptor) {
@@ -376,7 +425,7 @@ void Dispatcher::add(const QJsonArray& operations, Handler handler,
           "internal_error",
           "The native operation catalog contains a duplicate or empty name.");
     if (name == "automation.capabilities" ||
-        name == "automation.list_documents")
+        name == "automation.list_documents" || name == "tool.describe")
       throw Error("internal_error",
                   "A native domain cannot replace a worker operation.");
     descriptor.insert("toolset", toolset);
@@ -408,17 +457,19 @@ QJsonObject Dispatcher::dispatch(const QJsonObject& request) {
 
 QJsonValue Dispatcher::execute(const QString& method,
                                const QJsonObject& params) {
+  if (method == "tool.describe") return describeTools(m_catalog, params);
   if (method == "automation.capabilities" ||
       method == "automation.list_documents") {
     if (!params.isEmpty())
       throw Error("invalid_params", "This operation accepts no parameters.");
     if (method == "automation.capabilities")
       return QJsonObject{
-          {"protocol_version", 2},
+          {"protocol_version", 3},
           {"workspace", m_context.workspace()},
           {"tools", m_catalog},
           {"toolsets", toolsetCatalog()},
           {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
+          {"platform", runtimePlatform()},
           {"isolation", "private_process"},
           {"read_only_scenes", readOnlyCapabilities(m_context)}};
     return QJsonObject{{"documents", documentRows(m_context)}};

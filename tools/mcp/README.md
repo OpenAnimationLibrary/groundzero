@@ -77,7 +77,7 @@ adapter at startup. During a session:
 - A session exposes at most 256 native tools. A request that would exceed this
   returns `TOOLSET_LIMIT` and leaves the enabled toolsets unchanged.
 
-The adapter requires native automation protocol version 2. An older or newer
+The adapter requires native automation protocol version 3. An older or newer
 worker is refused with `INCOMPATIBLE_WORKER`.
 
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
@@ -88,24 +88,34 @@ require an `operation_id`; changes to an existing document also require its late
 `expected_revision`. Keep the original operation ID when checking a retry within
 the same worker. Receipts and document handles expire when that worker exits.
 
-Each listed tool declares what it does. `_meta["groundzero/effects"]` gives its
-class (`read`, `document_write`, `document_lifecycle`, `job_start`, `job_control`
-or `session`), its effect on documents, the files it reads or writes, the jobs and
-helper processes it starts, whether it can change or remove existing state
-(`overwrites`), and the grants it needs. Writes keep no undo history, never claim
-a rollback, replay their receipt on retry, keep the revision on an exact no-op,
-and report `partially_applied` when they fail after a change began.
-`_meta["groundzero/errors"]` lists the error codes the tool can return, the
-adapter's own codes included. The annotations follow from the effects:
-`readOnlyHint` for reads, `destructiveHint` for writes that can overwrite,
-`idempotentHint` always, and `openWorldHint: false` because no tool reaches a
-network or an outside service. Every tool also publishes an `outputSchema`:
-its structured content (the result without its image) or the error envelope
-`{error: {code, message, details}}` that every error result carries, with
-messages of at most 2,048 characters. A result outside its tool's output schema
-is never forwarded: the call returns `INVALID_RESULT` with the tool, `outcome`
-(`applied` for a write whose change happened, `none` for a read), the
-`operation_id` and at most 16 issues; inspect state before retrying a write.
+The tool list stays small: each tool carries its name, description, input schema
+and annotations. The annotations follow from the tool's effects: `readOnlyHint`
+for reads, `destructiveHint` for writes that can overwrite, `idempotentHint`
+always, and `openWorldHint: false` because no tool reaches a network or an outside
+service. `tool.describe` with `{"names": [...]}` (1 to 16 tool names, the toolset
+tools included) returns each tool's full declaration; `automation.capabilities`
+returns all of them at once. A declaration gives:
+
+- `effects`: the class (`read`, `document_write`, `document_lifecycle`,
+  `job_start`, `job_control` or `session`), the effect on documents, the files read
+  or written, the jobs and helper processes started, whether existing state can be
+  changed or removed (`overwrites`), and the grants needed. Writes keep no undo
+  history, never claim a rollback, replay their receipt on retry, keep the
+  revision on an exact no-op, and report `partially_applied` when they fail after
+  a change began.
+- `errors`: every error code the tool can return, the adapter's own included. An
+  unknown name returns `unknown_tool`, which lists the unknown names in its details.
+- `outputSchema`: the structured content (the result without its image) or the
+  error envelope `{error: {code, message, details}}` that every error result
+  carries, with messages of at most 2,048 characters.
+
+The adapter checks every successful result against its tool's output schema. A
+result that does not match is still returned, because its work may already have
+happened: the reply carries `_meta["groundzero/output_mismatch"]: true`, and the
+adapter writes one line to stderr naming the tool and the failing paths, never the
+values. Launched with `--strict-results`, as the acceptance tests do, the adapter
+instead returns `INVALID_RESULT` with the tool, `outcome` (`applied` for a write,
+`none` for a read), the `operation_id` and at most 16 failing paths.
 
 Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
 budget. The first cancellation for each of at most 32 retained render jobs has
@@ -164,7 +174,8 @@ leaves identifiable committed operations.
 
 `cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
 current detached document. Supply its `document_id` and latest `expected_revision`
-on every page, with optional `offset` and `limit`. Check `traversal_complete` and
+on every page, with optional `offset` and `limit`; every paged read returns a null
+`next_offset` (`next_index` for `rig.inspect`) on its last page. Check `traversal_complete` and
 `reasons`: paging an incomplete result cannot finish the omitted traversal or
 establish that omitted artwork is unused. Reads inspect at most 100,000 root-sheet
 cells and retain at most 4096 records; each response is limited to one MiB.
@@ -429,8 +440,11 @@ Read-only renders produce PNG only (MP4 returns `render_unavailable`). A render 
 refused with `render_blocked`, listing at most 64 `blockers`, when the scene holds an
 external program, an effect that reads files, or a texture outside the roots
 anywhere, or when the current output reaches an unsupported level, column or effect,
-a level that did not load, or a shipped library texture; a camera without a finite
-positive size and DPI also blocks. The render preflight still applies. Every file the
+or a shipped library texture; a camera without a finite positive size and DPI also
+blocks. A rendered level whose file is missing or did not load fails the
+`dependencies` check first and returns `missing_dependency`. `render.preflight`
+reports all of these for a read-only document, with the worker's own lane and
+retention checks. Every file the
 scene reads is stat-pinned at open (size, nanosecond modification time and file id);
 a render re-checks the pins before it starts and before it publishes, and returns or
 fails with `source_changed` when a source changed. Results report
@@ -551,6 +565,49 @@ size, dimensions, timing, and observed codec metadata after verification. Movie
 bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
 movie IDs with `unsupported_artifact_kind`.
 
+`runtime.inspect` reports what this worker can actually run: its build and
+platform (operating system and version, the machine's and the build's CPU
+architecture, whether the process runs translated, Qt versions), graphics readiness, the granted media tools, native and admitted
+formats, the built-in-only plugin policy, the private empty stuff folder, fonts and
+toolsets. Each capability has `compiled`, `installed`, `configured`, `loaded`,
+`verified` and `usable` states, an `activation` that names what enables it
+(`--media-tools` for MP4, `toolsets.enable` for a disabled toolset) and short
+`reasons`. Without `probes` it starts no process and never-run probes report
+`verified: "not_run"`. `probes: ["graphics"]` runs a helper process that builds the
+offscreen OpenGL context renders use, clears and reads back a framebuffer, and
+reports `GL_VENDOR`, `GL_RENDERER`, `GL_VERSION` and a `renderer_class`;
+`probes: ["media"]` hashes the granted `ffmpeg` and `ffprobe`, reads their version
+lines, the mp4 muxer's default video codec and whether an encoder for it is
+listed. Only the files in the `--media-tools` directory ever run; `PATH` is never
+searched. Probe results are cached for the worker's life. Native format lists are
+not admissions: `formats.admitted` names what each tool accepts.
+
+Every render requires usable graphics. `render.preflight` takes the arguments of
+`render.preview` (`kind: "preview"`, `frame`) or `render.submit`
+(`kind: "sequence"`, `start_frame`, `end_frame`, `step`, `format`), plus
+`expected_revision`, and runs all 15 checks the job tools apply, in order:
+`frame_range`, `dimensions`, `scene_numbering`, `fx_graph`, `fx_extent`,
+`graphics`, `writer`, `media_tools`, `encoder`, `dependencies`, `storage`, `lane`,
+`retention`, `render_admission` and `source_pins`. Every check runs and reports
+its status, code and details, so one call lists every problem; `effective`
+describes the output (size, preview fit scale, frames, rate, profile, 8-bit
+nonlinear color with gamma 2.2, alpha, no audio, camera resolution, size and DPI,
+and a full-camera crop). `render.preview`, `render.submit` and
+`assistance.neural.preview` refuse with the first failing check's code and
+`details.check` before any job, directory or snapshot exists; an `end_frame`
+before `start_frame` is `invalid_params` with `details.reason:
+"end_before_start"`. Unavailable graphics, writer, media tools and encoder are
+`render_unavailable` with `details.cause` `gl_unavailable`,
+`png_writer_unavailable`, `mp4_writer_unregistered`,
+`media_tools_not_configured`, `media_tools_changed` or `codec_unavailable`. A
+granted media tool replaced after its first probe refuses MP4 with
+`media_tools_changed`. A sound source whose private copy is missing or changed
+fails `dependencies` with `missing_dependency`. Job records carry the same
+`effective` object. `render.capabilities` runs the graphics and media probes once,
+reports `graphics` and the mp4 `encoder`, `encoder_available` and
+`muxer_default_video_codec`, lists no profile when graphics is unusable and lists
+`opaque8-mp4` only when the media tools are usable with an encoder.
+
 Call `render.cancel` to request job cancellation, then poll `render.status` until
 the job reaches a terminal status. Cancelling an MCP request can leave native work
 running. Treat an abandoned write as having an unknown outcome and inspect state
@@ -615,6 +672,29 @@ the session-file security and operating-system peer identity before authenticati
 Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
 `--shared-root`, and `--shared-write`.
 
+The editor and the connector must be the same build. The session file, the
+authentication and the editor's hello carry the bridge protocol
+(`groundzero-live-v2`) and a build identity: `application`, a `version` label,
+and `build_digest`, which identifies the native code that runs. It is the
+SHA-256 of a manifest with one line per file, `<name>\t<sha256>\n`: first
+`executable` and the SHA-256 of the main executable, then, in name order, each
+library this project builds (`colorfx`, `image`, `sound`, `tfarm`, `tnzbase`,
+`tnzcore`, `tnzext`, `tnzstdfx`, `tnztools`, `toonzlib`, `toonzqt`), read from
+where the dynamic loader loaded it. A project library that is not loaded is an
+error. Third-party and system libraries are not part of it. `Groundzero
+--automation-build-manifest` prints the manifest as one JSON line,
+`{"build_digest", "files": [{"name", "path", "sha256"}]}`, so a runner can
+recompute the digest over the same files. The editor computes the identity on a
+background thread when live automation is configured; the connector computes it
+before it reads the session file, about 0.4 s for the 61 MB macOS build. The
+connector compares the session file before it connects, so a mismatched pair never sends
+the token. A mismatch fails attachment with `LIVE_INCOMPATIBLE`; its details
+name the `cause` (`protocol_mismatch` or `build_mismatch`) and the `connector`
+and `editor` identities. Start the editor and the adapter from one build. Any
+other failure before the hello is `LIVE_UNAVAILABLE` with the connector's refusal
+code as `cause`. `live.status` and `live.capabilities` also report `protocol`
+and `build`.
+
 Both permission modes advertise exactly `live.status`, `live.inspect`,
 `live.stage.set_key_value`, `live.fx.set_scalar_value`, `live.receipt`, and
 `live.capabilities`. Inspect mode rejects writes with `permission_denied`.
@@ -623,6 +703,16 @@ qualified native Blur scalar. A changed value creates one native undo entry;
 same-value edits preserve history. Use the returned schemas and editable-target
 fingerprints rather than detached revision fields. Fingerprints cover qualified
 target dependencies; pixels, palette content, and asset bytes are excluded.
+
+Fingerprints also follow the native undo history, so an edit prepared before an
+undo or redo is refused with `stale_target` even when the undo restored the
+earlier values. The refusal's details give a `reason` and the
+`current_fingerprint`: `content_changed` (the qualified metadata differs from
+what the fingerprint covered, also used for a fingerprint the editor did not
+issue), `history_changed` (the metadata is the same but the history moved), or
+`target_replaced` (the target's native parameter was replaced). Check the
+current value with `live.inspect`, then retry with `current_fingerprint` under a
+new operation UUID.
 
 The editor accepts two authenticated clients sharing handles and operation
 receipts. Each connection permits four pending requests, with 64 KiB requests
@@ -643,7 +733,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (108):
+- `core` toolset (111):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -662,13 +752,14 @@ the adapter and the live editor bridge add the rest.
   `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
   `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.artifacts`, `render.cancel`, `render.capabilities`,
-  `render.preview`, `render.status`, `render.submit`, `scene.create`, `scene.dependencies`,
-  `scene.discard`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
-  `scene.package_info`, `scene.save_copy`, `scene.settings`, `scene.source_status`,
-  `scene.summary`, `scene.validate`, `text.fonts`, `vector.edit`, `vector.fill`,
-  `vector.group.create`, `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
-  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
-  `vector.structure`, `vector.text.create`, `vector.transform`
+  `render.preflight`, `render.preview`, `render.status`, `render.submit`, `runtime.inspect`,
+  `scene.create`, `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
+  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
+  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
+  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
+  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
+  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
+  `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

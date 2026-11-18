@@ -13,7 +13,7 @@ from threading import Thread
 from typing import Any, BinaryIO, ClassVar
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
-SDK_CLIENT = "native-client.mjs"
+DESCRIBE_BATCH = 16
 KEEPS_REVISION = {"none", "reads", "opens_read_only"}
 TYPES: dict[str, tuple[type, ...]] = {
     "object": (dict,),
@@ -135,6 +135,23 @@ def require_declared_error(tool: dict[str, Any], code: Any) -> None:
         )
 
 
+def _request(worker: Worker, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    payload = json.dumps({"id": "declarations", "method": method, "params": params}).encode()
+    response = worker.exchange(payload)
+    if "result" not in response:
+        raise AssertionError(f"{method} failed while reading declarations: {response}")
+    return response["result"]
+
+
+def _described(worker: Worker) -> list[dict[str, Any]]:
+    names = [tool["name"] for tool in _request(worker, "automation.capabilities", {})["tools"]]
+    described = []
+    for start in range(0, len(names), DESCRIBE_BATCH):
+        batch = names[start : start + DESCRIBE_BATCH]
+        described.extend(_request(worker, "tool.describe", {"names": batch})["tools"])
+    return described
+
+
 class Worker:
     """Own one native process and retain its stderr for CI failure diagnosis.
 
@@ -244,8 +261,7 @@ class Worker:
         method = tool["name"]
         if "error" in response:
             content = {"error": response["error"]}
-            if self.executable.name != SDK_CLIENT:
-                require_declared_error(tool, response["error"].get("code"))
+            require_declared_error(tool, response["error"].get("code"))
         else:
             content = {key: value for key, value in response["result"].items() if key != "image"}
         if "outputSchema" in tool:
@@ -258,7 +274,11 @@ class Worker:
             raise AssertionError(f"{method} claims a rollback, which no tool declares")
 
     def _catalog(self) -> dict[str, dict[str, Any]]:
-        """Read the tool descriptors once per executable from a private worker."""
+        """Read every tool's published declaration once per executable from a private worker.
+
+        The names come from the capabilities and the declarations from tool.describe, so
+        through the SDK client the error lists include the adapter's own codes.
+        """
         if self.executable not in Worker.declarations:
             with tempfile.TemporaryDirectory(prefix="declarations-") as directory:
                 root = Path(directory).resolve(strict=True)
@@ -266,10 +286,7 @@ class Worker:
                 (root / "inputs").mkdir()
                 probe = Worker(self.executable, root / "workspace", root / "inputs", root / "log")
                 try:
-                    payload = (
-                        b'{"id":"declarations","method":"automation.capabilities","params":{}}'
-                    )
-                    tools = probe.exchange(payload)["result"]["tools"]
+                    tools = _described(probe)
                 finally:
                     probe.close()
             Worker.declarations[self.executable] = {tool["name"]: tool for tool in tools}

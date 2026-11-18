@@ -1,3 +1,4 @@
+#include "automation_build_identity.h"
 #include "automation_live_protocol.h"
 #include "automation_live_state.h"
 
@@ -374,6 +375,62 @@ void permissionAndStop() {
               "gui_busy");
 }
 
+void buildIdentitySchema() {
+  const QJsonObject identity = buildIdentity();
+  require(validBuildIdentity(identity) && identity == buildIdentity(),
+          "The build identity is malformed or not stable");
+  for (const auto& change :
+       {std::pair<QString, QJsonValue>{"application", "other"},
+        {"version", ""},
+        {"version", QString(65, '1')},
+        {"build_digest", QString(63, 'a')},
+        {"build_digest", QString(64, 'A')},
+        {"extra", 1}}) {
+    QJsonObject changed = identity;
+    changed.insert(change.first, change.second);
+    require(!validBuildIdentity(changed), "A malformed build identity passed");
+  }
+}
+
+void authenticationVersionChecks() {
+  const QJsonObject valid{{"protocol", liveProtocol},
+                          {"build", buildIdentity()},
+                          {"instance_id", instance},
+                          {"client_id", operationId(1)},
+                          {"token", QString(64, 'a')}};
+  require(handshakeMismatch(valid).isEmpty(),
+          "A matching handshake was refused");
+  QJsonObject foreignBuild = valid;
+  QJsonObject build        = buildIdentity();
+  build.insert("build_digest", QString(64, 'f'));
+  foreignBuild.insert("build", build);
+  QJsonObject previous = valid;
+  previous.insert("protocol", "groundzero-live-v1");
+  QJsonObject foreignWithToken = foreignBuild;
+  foreignWithToken.insert("token", QString(64, 'b'));
+  const QJsonObject editor = liveIdentity();
+  for (const auto& entry :
+       {std::pair<QJsonObject, QString>{foreignBuild, "build_mismatch"},
+        {previous, "protocol_mismatch"},
+        {foreignWithToken, "build_mismatch"}}) {
+    const QJsonObject refused = handshakeMismatch(entry.first);
+    const QJsonObject expected{{"code", entry.second},
+                               {"details", QJsonObject{{"editor", editor}}}};
+    require(refused == QJsonObject{{"error", expected}},
+            "A foreign handshake was not refused with the editor identity");
+  }
+  SharedState state(instance, "inspect");
+  for (const QString& method :
+       QStringList{"live.status", "live.capabilities"}) {
+    const QJsonObject result = state.admit("client", read(method), true)
+                                   .immediate.value("result")
+                                   .toObject();
+    require(result.value("protocol") == QJsonValue(liveProtocol) &&
+                result.value("build") == QJsonValue(buildIdentity()),
+            "A cached live read omitted its protocol or build");
+  }
+}
+
 }  // namespace
 
 void runAutomationLiveProtocolTests() {
@@ -389,7 +446,9 @@ void runAutomationLiveProtocolTests() {
       {"reply pressure", replyPressure},
       {"receipt capacity", capacity},
       {"bounded native outcome", boundedOutcome},
-      {"permission and Stop", permissionAndStop}};
+      {"permission and Stop", permissionAndStop},
+      {"build identity schema", buildIdentitySchema},
+      {"authentication version checks", authenticationVersionChecks}};
   for (const auto& test : cases) {
     test.second();
     std::cout << "automation-live-protocol-test: " << test.first << " PASS\n";

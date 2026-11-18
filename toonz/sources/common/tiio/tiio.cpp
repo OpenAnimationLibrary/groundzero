@@ -240,6 +240,13 @@ Tiio::Writer::Writer() : m_properties(0) {}
 
 Tiio::Writer::~Writer() {}
 
+void Tiio::Reader::getSupportedFormats(QStringList& formats) {
+  for (const auto& entry : TiioTable::instance()->m_readers)
+    formats.push_back(QString::fromStdString(entry.first));
+  for (const auto& entry : TiioTable::instance()->m_vectorReaders)
+    formats.push_back(QString::fromStdString(entry.first));
+}
+
 void Tiio::Writer::getSupportedFormats(QStringList &formats,
                                        bool onlyRenderFormats) {
   TiioTable::VectorWriterTable::const_iterator vit =

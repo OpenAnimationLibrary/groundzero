@@ -23,7 +23,7 @@ interface Group {
 
 function capabilities(groups: Group[]) {
   return {
-    protocol_version: 2,
+    protocol_version: 3,
     tools: groups.flatMap((group) => group.tools.map((name) => nativeTool(name))),
     toolsets: groups.map((group) => ({
       name: group.name,
@@ -45,9 +45,13 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-async function session(toolsets?: string[], catalog = capabilities(groups)) {
+async function session(
+  toolsets?: string[],
+  catalog = capabilities(groups),
+  reply: (method: string) => unknown = (method) => ({ ok: method }),
+) {
   const request = vi.fn(async (method: string) =>
-    method === "automation.capabilities" ? catalog : { ok: method },
+    method === "automation.capabilities" ? catalog : reply(method),
   );
   const server = createServer({ request, close: () => {} }, toolsets);
   const client = new Client({ name: "toolset-test", version: "1.0.0" });
@@ -175,7 +179,7 @@ test.each([
   ["a reserved tool name", [{ name: "core", tools: ["toolsets.list"] }], ["toolsets.list"]],
 ])("rejects a native catalog with %s", async (_label, toolsets, tools) => {
   const catalog = {
-    protocol_version: 2,
+    protocol_version: 3,
     tools: tools.map((name) => nativeTool(name)),
     toolsets: toolsets.map((group) => ({ ...group, description: "Tools" })),
   };
@@ -183,16 +187,15 @@ test.each([
   await expect(names(client)).rejects.toMatchObject({ data: { code: "INVALID_CATALOG" } });
 });
 
-test("toolset tools publish output schemas and declarations their results satisfy", async () => {
+test("toolset tools are listed lean and described on request", async () => {
   const { client } = await session();
   const listed = (await client.listTools()).tools.filter((tool) =>
     tool.name.startsWith("toolsets."),
   );
   expect(listed.map((tool) => tool.name)).toEqual(toolsetNames);
   for (const tool of listed) {
-    expect(tool.outputSchema).toMatchObject({ type: "object" });
-    expect(tool._meta?.["groundzero/effects"]).toMatchObject({ document: "none", files: [] });
-    expect(tool._meta?.["groundzero/errors"]).toContain("INVALID_ARGUMENTS");
+    expect(tool).not.toHaveProperty("outputSchema");
+    expect(tool).not.toHaveProperty("_meta");
   }
   expect(listed[0]?.annotations?.readOnlyHint).toBe(true);
   for (const [name, args] of [
@@ -202,5 +205,59 @@ test("toolset tools publish output schemas and declarations their results satisf
   ] as const) {
     const result = await client.callTool({ name, arguments: args });
     expect(result.isError).toBeUndefined();
+    expect(result._meta?.["groundzero/output_mismatch"]).toBeUndefined();
   }
+});
+
+function toolsetState(configured: boolean, reasons: string[] = []) {
+  return {
+    compiled: true,
+    installed: null,
+    configured,
+    loaded: null,
+    verified: "not_applicable",
+    usable: configured,
+    activation: { kind: "toolset", name: "audio" },
+    reasons,
+  };
+}
+
+test("runtime.inspect reports which toolsets this session has enabled", async () => {
+  const runtimeGroups = [{ name: "core", tools: ["runtime.inspect"] }, ...groups.slice(1)];
+  const native = {
+    platform: { os: "macos" },
+    toolsets: [
+      { name: "audio", state: toolsetState(true) },
+      { name: "rigging", state: { ...toolsetState(true), activation: { kind: "toolset" } } },
+    ],
+  };
+  const { client } = await session(["audio"], capabilities(runtimeGroups), () => native);
+  const enabled = await client.callTool({ name: "runtime.inspect", arguments: {} });
+  expect(enabled.structuredContent).toEqual({
+    platform: { os: "macos" },
+    toolsets: [
+      { name: "audio", state: toolsetState(true) },
+      {
+        name: "rigging",
+        state: {
+          ...toolsetState(false, ["toolset_disabled"]),
+          activation: { kind: "toolset" },
+        },
+      },
+    ],
+  });
+  await client.callTool({ name: "toolsets.disable", arguments: { names: ["audio"] } });
+  const disabled = await client.callTool({ name: "runtime.inspect", arguments: {} });
+  const reported = disabled.structuredContent as { toolsets: unknown[] };
+  expect(reported.toolsets).toContainEqual({
+    name: "audio",
+    state: toolsetState(false, ["toolset_disabled"]),
+  });
+});
+
+test("other native results pass through unchanged", async () => {
+  const native = { toolsets: [{ name: "audio", state: toolsetState(true) }] };
+  const { client } = await session(["all"], capabilities(groups), () => native);
+  const result = await client.callTool({ name: "audio.inspect", arguments: {} });
+  expect(result.structuredContent).toEqual(native);
 });

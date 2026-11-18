@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -40,17 +41,98 @@ def stage_fixture(arguments: argparse.Namespace, directory: Path, session: Path)
     return fixture
 
 
-def validate_evidence(fixture: Path, report: dict[str, Any]) -> None:
+def file_sha256(path: Path) -> str:
+    """Return the SHA-256 of one file, read in bounded chunks.
+
+    Args:
+        path: The file to hash.
+
+    Returns:
+        The lowercase hexadecimal digest.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_manifest(executable: Path) -> dict[str, Any]:
+    """Ask the application for the files its build identity covers.
+
+    Args:
+        executable: The application's main executable.
+
+    Returns:
+        The manifest: build_digest and the covered files with their paths.
+    """
+    result = subprocess.run(
+        [str(executable), "--automation-build-manifest"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+        check=True,
+    )
+    return json.loads(result.stdout.decode("utf-8"))
+
+
+def verified_build_digest(executable: Path) -> str:
+    """Return the application's build_digest after recomputing it over the files it names.
+
+    Args:
+        executable: The application's main executable.
+
+    Returns:
+        The build_digest, equal to this runner's SHA-256 of the manifest lines.
+    """
+    manifest = build_manifest(executable)
+    files = manifest["files"]
+    if not files or files[0]["name"] != "executable":
+        raise AssertionError("The build manifest does not start with the executable")
+    if Path(files[0]["path"]).resolve() != executable.resolve():
+        raise AssertionError("The build manifest names another executable")
+    lines = "".join(f"{entry['name']}\t{file_sha256(Path(entry['path']))}\n" for entry in files)
+    digest = hashlib.sha256(lines.encode("utf-8")).hexdigest()
+    if digest != manifest["build_digest"]:
+        raise AssertionError("The build manifest's digest does not match its files")
+    return digest
+
+
+def validate_build(fixture: Path, sdk: dict[str, Any], executable: Path) -> str:
+    """Require the hello and live.capabilities to name the build this run started.
+
+    Args:
+        fixture: The retained evidence directory from the completed app process.
+        sdk: Evidence written by the official SDK journey process.
+        executable: The native application the runner launched.
+
+    Returns:
+        The build identity's build_digest that both handshake records carried.
+    """
+    expected = verified_build_digest(executable)
+    security = json.loads((fixture / "security-boundaries.json").read_text(encoding="utf-8"))
+    for label, build in (
+        ("connector hello", security.get("hello_build")),
+        ("live.capabilities", sdk.get("capabilities_build")),
+    ):
+        if not isinstance(build, dict) or build.get("build_digest") != expected:
+            raise AssertionError(f"The {label} build is not the launched build's identity")
+    return expected
+
+
+def validate_evidence(fixture: Path, report: dict[str, Any], executable: Path) -> None:
     """Require independent SDK and native completion records from the same run.
 
     Args:
         fixture: The retained evidence directory from the completed app process.
         report: Runner result receiving validated completion counts.
+        executable: The native application the runner launched.
     """
     sdk = json.loads((fixture / "sdk.json").read_text(encoding="utf-8"))
     native = json.loads((fixture / "native.json").read_text(encoding="utf-8"))
     if sdk.get("status") != "passed" or native.get("status") != "passed":
         raise AssertionError("Live SDK and independent native observations must both pass")
+    report["build_digest"] = validate_build(fixture, sdk, executable)
     validate_clients(sdk)
     validate_phases(native)
     if native.get("sdk_exit_code") != 0 or native.get("sdk_exit_status") != "normal":
@@ -129,6 +211,12 @@ def validate_phases(native: dict[str, Any]) -> None:
         "curve-unlock",
         "cycle-enable",
         "cycle-disable",
+        "nested-loop-open",
+        "nested-loop-close",
+        "gesture-begin",
+        "gesture-end",
+        "save-begin",
+        "save-end",
     }
     if not expected.issubset(phases):
         raise AssertionError(f"Missing native journey phases: {sorted(expected - phases)}")
@@ -183,7 +271,7 @@ def qualify(arguments: argparse.Namespace, report: dict[str, Any], session: Path
             if result.returncode != 0:
                 raise AssertionError("Live GUI qualification failed; inspect native-output.txt")
             confirm_process_group_exit(state)
-            validate_evidence(fixture, report)
+            validate_evidence(fixture, report, arguments.executable)
         finally:
             (arguments.output / "native-output.txt").write_bytes(state.get("output", b""))
             report["process_tree_stopped"] = state["safe_to_release"]

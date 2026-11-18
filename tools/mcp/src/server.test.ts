@@ -49,6 +49,11 @@ const declared = {
 };
 
 const closers: (() => Promise<void>)[] = [];
+const liveBuild = {
+  application: "groundzero" as const,
+  version: "1.8",
+  build_digest: "c".repeat(64),
+};
 
 async function connected(server: ReturnType<typeof createServer>): Promise<Client> {
   const client = new Client({ name: "adapter-test", version: "1.0.0" });
@@ -62,19 +67,40 @@ async function connected(server: ReturnType<typeof createServer>): Promise<Clien
   return client;
 }
 
-async function session() {
+const describe = {
+  name: "tool.describe",
+  description: "Describe tools",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["names"],
+    properties: { names: { type: "array", items: { type: "string" }, maxItems: 16 } },
+  },
+  annotations: { ...tool.annotations, readOnlyHint: true, destructiveHint: false },
+  outputSchema: outputSchema({ type: "object" }),
+  effects: sessionEffects("read"),
+  errors: ["invalid_params", "unknown_tool"],
+};
+
+async function session(strict = false) {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
     if (method === "automation.capabilities") {
       return {
-        protocol_version: 2,
-        tools: [{ ...tool, ...declared, toolset: "core" }],
-        toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
+        protocol_version: 3,
+        tools: [
+          { ...tool, ...declared, toolset: "core" },
+          { ...describe, toolset: "core" },
+        ],
+        toolsets: [{ name: "core", description: "Core tools", tools: [tool.name, describe.name] }],
       };
+    }
+    if (method === "tool.describe") {
+      return { tools: [{ name: tool.name, toolset: "core", ...declared }] };
     }
     return { name: params["name"], revision: "next" };
   });
   const close = vi.fn();
-  const client = await connected(createServer({ request, close }));
+  const client = await connected(createServer({ request, close }, ["core"], () => {}, strict));
   return { client, request, close };
 }
 
@@ -87,25 +113,48 @@ test("advertises only tools implemented by the current native worker", async () 
   const result = await client.listTools();
   expect(result.tools.map((entry) => entry.name)).toEqual([
     tool.name,
+    describe.name,
     ...TOOLSET_TOOLS.map((entry) => entry.name),
   ]);
 });
 
-test("forwards outputSchema and carries effects and errors in _meta", async () => {
+test("lists only name, description, input schema and annotations", async () => {
   const { client } = await session();
   const [listed] = (await client.listTools()).tools;
-  expect(listed).toEqual({
-    ...tool,
-    outputSchema: declared.outputSchema,
-    _meta: {
-      "groundzero/effects": declared.effects,
-      "groundzero/errors": [...declared.errors, ...ADAPTER_ERRORS],
-    },
-  });
+  expect(listed).toEqual(tool);
 });
 
-test("rejects nonconforming structured content and reports the applied write", async () => {
+test("describes native and toolset tools with the adapter's own error codes", async () => {
   const { client, request } = await session();
+  const names = [tool.name, "toolsets.list"];
+  const result = await client.callTool({ name: describe.name, arguments: { names } });
+  expect(request).toHaveBeenLastCalledWith(describe.name, { names: [tool.name] });
+  const tools = (result.structuredContent as { tools: Record<string, unknown>[] }).tools;
+  expect(tools.map((entry) => entry["name"])).toEqual(names);
+  expect(tools[0]?.["errors"]).toEqual([...declared.errors, ...ADAPTER_ERRORS]);
+  expect(tools[0]?.["outputSchema"]).toEqual(declared.outputSchema);
+  expect(tools[1]?.["effects"]).toMatchObject({ class: "read", document: "none" });
+});
+
+test("returns a nonconforming result unchanged, flagged, with only its paths on stderr", async () => {
+  const { client, request } = await session();
+  await client.listTools();
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  request.mockResolvedValueOnce({ name: "Shot", revision: 7 } as never);
+  const args = { name: "Shot", operation_id: "rename-8", expected_revision: "epoch:6" };
+  const result = await client.callTool({ name: tool.name, arguments: args });
+  const lines = stderr.mock.calls.map(([line]) => String(line));
+  stderr.mockRestore();
+  expect(result.isError).toBeUndefined();
+  expect(result.structuredContent).toEqual({ name: "Shot", revision: 7 });
+  expect(result._meta).toEqual({ "groundzero/output_mismatch": true });
+  expect(lines).toEqual([
+    "groundzero-mcp: scene.rename result does not match its output schema at revision\n",
+  ]);
+});
+
+test("a strict session refuses nonconforming content and reports the applied write", async () => {
+  const { client, request } = await session(true);
   await client.listTools();
   request.mockResolvedValueOnce({ name: "Shot", revision: 7 } as never);
   const args = { name: "Shot", operation_id: "rename-8", expected_revision: "epoch:6" };
@@ -119,8 +168,18 @@ test("rejects nonconforming structured content and reports the applied write", a
   });
   const issues = (result.structuredContent as { error: { details: { issues: string[] } } }).error
     .details.issues;
-  expect(issues.length).toBeGreaterThan(0);
-  expect(issues.length).toBeLessThanOrEqual(16);
+  expect(issues).toEqual(["revision"]);
+});
+
+test("names every failing path of a nonconforming result", async () => {
+  const { client, request } = await session(true);
+  await client.listTools();
+  request.mockResolvedValueOnce({ name: 4, revision: 7, stray: "x" } as never);
+  const args = { name: "Shot", operation_id: "rename-10", expected_revision: "epoch:6" };
+  const result = await client.callTool({ name: tool.name, arguments: args });
+  const details = (result.structuredContent as { error: { details: { issues: string[] } } })
+    .error.details;
+  expect(details.issues).toEqual(["(result)", "name", "revision"]);
 });
 
 test("error results conform to the error envelope of every output schema", async () => {
@@ -150,7 +209,7 @@ test.each([
 ])("rejects a catalog whose output schema or declarations are malformed", async (fields) => {
   const tools = [{ ...tool, ...fields, toolset: "core" }];
   await expectUnusableCatalog(
-    { protocol_version: 2, tools, toolsets: core([tool.name]) },
+    { protocol_version: 3, tools, toolsets: core([tool.name]) },
     /^INVALID_CATALOG$/u,
   );
 });
@@ -197,16 +256,16 @@ const core = (names: string[]) => [{ name: "core", description: "Core tools", to
 test.each([
   { protocol_version: 1, tools: [{ ...tool, ...declared }], toolsets: core([tool.name]) },
   {
-    protocol_version: 2,
+    protocol_version: 3,
     tools: [
       { ...tool, ...declared },
       { ...tool, ...declared },
     ],
     toolsets: core([tool.name]),
   },
-  { protocol_version: 2, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
+  { protocol_version: 3, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
   {
-    protocol_version: 2,
+    protocol_version: 3,
     tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, ...declared, name: `tool.${i}` })),
     toolsets: core(Array.from({ length: 1025 }, (_, i) => `tool.${i}`)),
   },
@@ -220,7 +279,7 @@ test("compiles and rejects invalid native schemas before accepting tool calls", 
     ...declared,
     inputSchema: { type: "object", properties: { name: { type: "not-a-schema-type" } } },
   };
-  const catalog = { protocol_version: 2, tools: [invalid], toolsets: core([tool.name]) };
+  const catalog = { protocol_version: 3, tools: [invalid], toolsets: core([tool.name]) };
   await expectUnusableCatalog(catalog, /^INVALID_CATALOG$/u);
 });
 
@@ -279,6 +338,8 @@ async function liveSession(mode: "inspect" | "edit") {
   const server = await createLiveServer(
     { request, close: () => {} },
     {
+      protocol: "groundzero-live-v2",
+      build: liveBuild,
       instanceId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
       mode,
@@ -331,6 +392,8 @@ test("rejects a live catalog that adds detached authority or omits an approved m
       createLiveServer(
         { request: async () => ({}), close: () => {} },
         {
+          protocol: "groundzero-live-v2",
+          build: liveBuild,
           instanceId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
           clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
           mode: "edit",

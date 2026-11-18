@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { once } from "node:events";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter, once } from "node:events";
+import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { WorkerConnection } from "#mcp/worker";
 
 const connections: WorkerConnection[] = [];
@@ -121,4 +123,87 @@ test("close signals a worker that outlives the end of its input by the grace per
   connection.close();
   expect(await exited).toEqual([null, "SIGTERM"]);
   expect(performance.now() - started).toBeGreaterThanOrEqual(1_900);
+});
+
+// Stands in for the supervisor process at the signalling boundary: the PID it
+// had is free for reuse once it has exited, so nothing may signal it after.
+class ExitedChild extends EventEmitter {
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly pid = 4242;
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  connected = true;
+  readonly kill = vi.fn(() => true);
+  readonly send = vi.fn();
+
+  exit(): void {
+    this.exitCode = 0;
+    this.connected = false;
+    this.emit("exit", 0, null);
+  }
+}
+
+test.each([true, false])(
+  "never signals a worker that exited during its close grace (supervised %s)",
+  (supervised) => {
+    vi.useFakeTimers();
+    try {
+      const child = new ExitedChild();
+      const connection = new WorkerConnection(child as unknown as ChildProcess, 1_000, supervised);
+      connection.close();
+      child.exit();
+      vi.advanceTimersByTime(10_000);
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(child.send).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test.each([true, false])(
+  "never signals a worker whose request timed out after it exited (supervised %s)",
+  async (supervised) => {
+    vi.useFakeTimers();
+    try {
+      const child = new ExitedChild();
+      const connection = new WorkerConnection(child as unknown as ChildProcess, 1_000, supervised);
+      const pending = connection.request("read").catch((error: unknown) => error);
+      child.exit();
+      vi.advanceTimersByTime(10_000);
+      expect(await pending).toMatchObject({ code: "WORKER_UNAVAILABLE" });
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(child.send).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+// A real child that the adapter has not reaped is signalled through its handle.
+test.skipIf(process.platform === "win32")("signals an unreaped timed-out worker", async () => {
+  const child = spawn("/bin/sleep", ["30"], { stdio: ["pipe", "pipe", "pipe"] });
+  const closed = once(child, "close");
+  const connection = new WorkerConnection(child, 200);
+  await expect(connection.request("read")).rejects.toMatchObject({ code: "WORKER_UNAVAILABLE" });
+  const [, signal] = await closed;
+  expect(signal).toBe("SIGTERM");
+});
+
+// The decision itself: once the child is reaped its ID may name another process, so a
+// pending stop sends nothing, even before the exit event is delivered.
+test.each([false, true])("signals a worker only while it is unreaped (reaped %s)", (reaped) => {
+  vi.useFakeTimers();
+  try {
+    const child = new ExitedChild();
+    const connection = new WorkerConnection(child as unknown as ChildProcess, 1_000);
+    connection.close();
+    if (reaped) child.exitCode = 0;
+    vi.advanceTimersByTime(2_500);
+    expect(child.kill.mock.calls).toEqual(reaped ? [] : [["SIGTERM"]]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

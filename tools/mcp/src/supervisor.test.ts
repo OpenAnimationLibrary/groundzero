@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { isObject } from "#mcp/errors";
 import { WorkerConnection } from "#mcp/worker";
 
@@ -262,3 +262,34 @@ posix("contains descendants even when no media tools were granted", async () => 
     }
   }
 });
+
+// The supervisor leads the worker's process group. Once its control channel is gone the
+// adapter falls back to a signal through the child handle, and only before the child is
+// reaped: an unreaped child's ID, and so its group's ID, cannot have been reused.
+posix.each([false, true])(
+  "signals the supervisor group leader only before it is reaped (reaped %s)",
+  async (reaped) => {
+    const { child, connection } = start(5_000);
+    await processTree(connection);
+    const pid = child.pid ?? 0;
+    const kill = vi.spyOn(child, "kill");
+    // Node emits no close for a child whose channel the parent disconnected.
+    const exited = once(child, "exit");
+    process.kill(pid, "SIGSTOP");
+    try {
+      child.disconnect();
+      connection.close();
+      if (reaped) {
+        process.kill(pid, "SIGKILL");
+        await exited;
+      }
+      await pause(2_500);
+      expect(kill.mock.calls).toEqual(reaped ? [] : [["SIGTERM"]]);
+    } finally {
+      if (!reaped) {
+        process.kill(pid, "SIGCONT");
+        await exited;
+      }
+    }
+  },
+);

@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "automation.h"
+#include "automation_build_identity.h"
 #include "automation_live_protocol.h"
 #include "automation_live_security_p.h"
 
@@ -29,17 +30,47 @@ void requireProcessId(const QJsonValue& value) {
                 "The live grant process identifier is invalid.");
 }
 
+QJsonObject editorIdentity(const QJsonObject& object) {
+  const QJsonValue build = object.value("build");
+  return {{"protocol", object.value("protocol")},
+          {"build", validBuildIdentity(build) ? build : QJsonValue()}};
+}
+
+QJsonObject mismatchDetails(const QJsonObject& object) {
+  return {{"connector", liveIdentity()}, {"editor", editorIdentity(object)}};
+}
+
+// The label is compared before the key set, so an editor of another bridge
+// version is reported as such rather than as a damaged grant.
+void requireProtocol(const QJsonObject& object) {
+  const QJsonValue protocol = object.value("protocol");
+  if (!protocol.isString() || protocol.toString().isEmpty() ||
+      protocol.toString().size() > 64)
+    throw Error("live_security", "The live grant schema is invalid.");
+  if (protocol != QJsonValue(liveProtocol))
+    throw Error("protocol_mismatch",
+                "The editor runs another live bridge version. Start the "
+                "editor and the adapter from one build.",
+                mismatchDetails(object));
+}
+
 void requireDescriptor(const QJsonObject& object) {
-  const QStringList keys = {"endpoint", "instance_id", "mode",
-                            "pid",      "protocol",    "token"};
-  if (object.keys() != keys ||
-      object.value("protocol") != QJsonValue("groundzero-live-v1"))
+  requireProtocol(object);
+  const QStringList keys = {"build", "endpoint", "instance_id", "mode",
+                            "pid",   "protocol", "token"};
+  if (object.keys() != keys || !validBuildIdentity(object.value("build")))
     throw Error("live_security", "The live grant schema is invalid.");
   for (const QString& key : {QString("endpoint"), QString("instance_id"),
                              QString("mode"), QString("token")})
     if (!object.value(key).isString())
       throw Error("live_security", "The live grant requires string fields.");
   requireProcessId(object.value("pid"));
+  if (object.value("build").toObject().value("build_digest") !=
+      buildIdentity().value("build_digest"))
+    throw Error("build_mismatch",
+                "The editor is another build. Start the editor and the "
+                "adapter from one build.",
+                mismatchDetails(object));
 }
 
 void requireIdentity(const QString& id, const QByteArray& token) {
@@ -117,7 +148,8 @@ void SecuritySession::publish() {
   if (!m_impl->publisher || m_impl->published || m_impl->token.isEmpty())
     throw Error("live_security", "The live grant cannot be published again.");
   m_impl->files->captureSocket(m_impl->endpoint);
-  const QJsonObject grant{{"protocol", "groundzero-live-v1"},
+  const QJsonObject grant{{"protocol", liveProtocol},
+                          {"build", buildIdentity()},
                           {"instance_id", m_impl->instance},
                           {"endpoint", m_impl->endpoint},
                           {"pid", double(QCoreApplication::applicationPid())},

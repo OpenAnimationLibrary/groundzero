@@ -33,6 +33,7 @@ FORWARDED = {
     "fx.graph",
     "render.preview",
     "render.submit",
+    "render.preflight",
     "scene.discard",
     "scene.inventory",
     "scene.source_status",
@@ -445,10 +446,20 @@ def _journey_c(case: NativeAcceptance, worker: Worker, scene: Path) -> str:
     case.assertIn("anywhere", rules)
     document = opened["document_id"]
     params = {"document_id": document, "expected_revision": "0", "frame": 0}
+    report = call(case, worker, "render.preflight", {**params, "kind": "preview"})
+    checks = {check["id"]: check for check in report["checks"]}
+    case.assertEqual(report["first_failure"], "dependencies", report)
+    missing = checks["dependencies"]["details"]["dependencies"]
+    case.assertEqual({row["reason"] for row in missing}, {"missing_file"}, missing)
+    case.assertEqual(checks["render_admission"]["code"], "render_blocked")
+    admission = checks["render_admission"]["details"]["blockers"]
+    case.assertIn("external_code", {row["reason"] for row in admission})
+    case.assertEqual(checks["fx_graph"]["status"], "not_applicable")
+    case.assertEqual(checks["source_pins"]["status"], "pass")
     details = refuse(
-        case, worker, "render.preview", {**params, "operation_id": _op(case)}, "render_blocked"
+        case, worker, "render.preview", {**params, "operation_id": _op(case)}, "missing_dependency"
     )
-    case.assertGreaterEqual(details["blocker_count"], 2)
+    case.assertEqual(details["check"], "dependencies")
     codes = {
         row["code"]
         for row in call(

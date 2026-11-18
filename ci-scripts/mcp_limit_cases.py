@@ -28,7 +28,7 @@ def _send(case: NativeAcceptance, text: str) -> dict[str, Any]:
 
 def _no_documents(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
-    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 2)
+    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 3)
 
 
 def _integer_properties(schema: Any, path: str) -> list[tuple[str, dict[str, Any]]]:

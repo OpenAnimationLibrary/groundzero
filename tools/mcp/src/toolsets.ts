@@ -1,5 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/server";
-import { declarationMeta, outputSchema, sessionEffects } from "#mcp/declarations";
+import { outputSchema, sessionEffects } from "#mcp/declarations";
 import { WorkerError, isObject } from "#mcp/errors";
 
 /** Most native tools one session may expose at once. */
@@ -74,7 +74,16 @@ interface ToolsetToolSpec {
   errors: string[];
 }
 
+const DECLARATIONS = new Map<string, Record<string, unknown>>();
+
 function toolsetTool({ name, description, changes, errors }: ToolsetToolSpec): Tool {
+  DECLARATIONS.set(name, {
+    name,
+    toolset: "adapter",
+    effects: sessionEffects(changes ? "session" : "read"),
+    errors: [...LOAD_ERRORS, ...errors],
+    outputSchema: listingSchema(changes),
+  });
   return {
     name,
     description,
@@ -88,11 +97,12 @@ function toolsetTool({ name, description, changes, errors }: ToolsetToolSpec): T
       idempotentHint: true,
       openWorldHint: false,
     },
-    _meta: declarationMeta(sessionEffects(changes ? "session" : "read"), [
-      ...LOAD_ERRORS,
-      ...errors,
-    ]),
   };
+}
+
+/** The declaration `tool.describe` returns for one of the adapter's toolset tools. */
+export function toolsetDeclaration(name: string): Record<string, unknown> | undefined {
+  return DECLARATIONS.get(name);
 }
 
 /** Adapter-owned tools that switch which native toolsets this session exposes. */
@@ -214,6 +224,40 @@ export class ToolsetState {
   /** Native tools of enabled toolsets in catalog order, then the toolset tools. */
   visible(): Tool[] {
     return [...this.tools.filter((tool) => this.isEnabled(tool.name)), ...TOOLSET_TOOLS];
+  }
+
+  /** Report this session's toolset states in a runtime.inspect result.
+   *
+   * The worker serves every toolset; only the adapter knows which ones this session exposes.
+   * A toolset is configured, and usable, when it is enabled here.
+   *
+   * Args:
+   *   result: The native runtime.inspect result.
+   * Returns:
+   *   The result with each toolset state's configured, usable and reasons set for this session.
+   */
+  sessionRuntime(result: unknown): unknown {
+    if (!isObject(result) || !Array.isArray(result["toolsets"])) return result;
+    const toolsets = result["toolsets"].map((entry: unknown) => {
+      if (!isObject(entry) || typeof entry["name"] !== "string" || !isObject(entry["state"])) {
+        return entry;
+      }
+      const enabled = this.enabled.has(entry["name"]);
+      const state = entry["state"];
+      const reasons = Array.isArray(state["reasons"])
+        ? state["reasons"].filter((reason) => reason !== "toolset_disabled")
+        : [];
+      return {
+        ...entry,
+        state: {
+          ...state,
+          configured: enabled,
+          usable: state["usable"] === true && enabled,
+          reasons: enabled ? reasons : [...reasons, "toolset_disabled"],
+        },
+      };
+    });
+    return { ...result, toolsets };
   }
 
   isToolsetTool(name: string): boolean {

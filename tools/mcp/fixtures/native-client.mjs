@@ -140,22 +140,6 @@ export function bridgeResult(method, response) {
   return { result: metadata };
 }
 
-/** Require a tool error's code to be one the listed tool declares in `_meta`.
- *
- * Args:
- *   method: The advertised MCP tool called by the fixture.
- *   outcome: The bridged result or error.
- *   declared: The tool's `_meta["groundzero/errors"]`, if it publishes one.
- */
-export function requireDeclaredError(method, outcome, declared) {
-  if (!outcome.error || declared === undefined) return;
-  assert(Array.isArray(declared), `${method} publishes a malformed error list`);
-  assert(
-    declared.includes(outcome.error.code),
-    `${method} returned undeclared error code ${outcome.error.code}`,
-  );
-}
-
 /** Turn the worker command line this fixture stands in for into the adapter's.
  *
  * Args:
@@ -163,8 +147,8 @@ export function requireDeclaredError(method, outcome, declared) {
  *   executable: The absolute native executable the adapter launches.
  *   cli: The adapter entry point.
  * Returns:
- *   Adapter arguments enabling every toolset, with the grants passed on unchanged so the
- *   adapter alone validates them.
+ *   Adapter arguments enabling every toolset and strict result checks, with the grants
+ *   passed on unchanged so the adapter alone validates them.
  */
 export function adapterArguments(argv, executable, cli) {
   const [mode, ...grants] = argv;
@@ -173,7 +157,7 @@ export function adapterArguments(argv, executable, cli) {
     assert(!token.startsWith("-") || workerGrants.has(token), `Not a worker grant: ${token}`);
   }
   assert(executable && isAbsolute(executable), "GROUNDZERO_NATIVE_EXECUTABLE must be absolute");
-  return [cli, "--executable", executable, "--toolsets", "all", ...grants];
+  return [cli, "--executable", executable, "--toolsets", "all", "--strict-results", ...grants];
 }
 
 async function writeFrame(response) {
@@ -221,9 +205,6 @@ async function serve(client, transport) {
   assert.equal(catalog.nextCursor, undefined, "Unexpected paginated tool catalog");
   const names = new Set(catalog.tools.map((tool) => tool.name));
   assert.equal(names.size, catalog.tools.length, "Duplicate MCP tool names");
-  const declared = new Map(
-    catalog.tools.map((tool) => [tool.name, tool._meta?.["groundzero/errors"]]),
-  );
   let calls = 0;
   let images = 0;
   for await (const frame of readFrames(process.stdin)) {
@@ -235,7 +216,6 @@ async function serve(client, transport) {
           request.method,
           await client.callTool({ name: request.method, arguments: request.params }),
         );
-    if (!request.cancel) requireDeclaredError(request.method, outcome, declared.get(request.method));
     await writeFrame({ id: request.id, ...outcome });
     calls += 1;
     if (outcome.result?.image) images += 1;

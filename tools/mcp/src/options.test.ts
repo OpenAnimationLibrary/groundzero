@@ -127,6 +127,7 @@ test("canonicalizes executable and deduplicates explicit input roots", async () 
     workspace: path,
     inputRoots: [path],
     toolsets: ["core"],
+    strictResults: false,
   });
 });
 
@@ -159,7 +160,7 @@ test("selects the trusted non-GUI connector without reading a session grant", as
   const path = await workspace();
   const session = join(path, "session-native-will-validate.json");
   expect(await parseOptions(["--executable", process.execPath, "--live-session", session])).toEqual(
-    { executable: await realpath(process.execPath), liveSession: session },
+    { executable: await realpath(process.execPath), liveSession: session, strictResults: false },
   );
 });
 
@@ -314,4 +315,15 @@ test("rejects unsafe, overlapping and ambiguous shared root grants", async () =>
       parseOptions(["--executable", process.execPath, "--workspace", path, ...extra]),
     ).rejects.toThrow(message);
   }
+});
+
+test("--strict-results selects strict result checks for tests", async () => {
+  const options = await parseOptions([
+    "--executable",
+    process.execPath,
+    "--workspace",
+    await realpath(tmpdir()),
+    "--strict-results",
+  ]);
+  expect(options.strictResults).toBe(true);
 });

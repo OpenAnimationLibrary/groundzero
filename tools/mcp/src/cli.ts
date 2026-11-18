@@ -53,9 +53,9 @@ async function main(): Promise<void> {
       };
       try {
         const api = { request: worker.request.bind(worker), close };
-        if (live) return await createLiveServer(api, await live.ready);
+        if (live) return await createLiveServer(api, await live.ready, options.strictResults);
         const toolsets = "toolsets" in options ? options.toolsets : ["core"];
-        return createServer(api, toolsets, reportUnavailable);
+        return createServer(api, toolsets, reportUnavailable, options.strictResults);
       } catch (error) {
         close();
         throw error;

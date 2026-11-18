@@ -370,8 +370,8 @@ void toolsetCatalog(Context& context) {
   Dispatcher dispatcher(context);
   const QJsonObject capabilities =
       result(dispatcher, "automation.capabilities", {});
-  require(capabilities.value("protocol_version").toInt() == 2,
-          "Toolset catalogs require protocol version 2");
+  require(capabilities.value("protocol_version").toInt() == 3,
+          "The catalog reports protocol version 3");
   QHash<QString, QString> listed;
   for (const QJsonValue& value : capabilities.value("toolsets").toArray()) {
     const QJsonObject toolset = value.toObject();
@@ -465,6 +465,22 @@ void effectDeclarations(Context& context) {
               capabilities);
   checkResult(catalogEntry(capabilities, "automation.list_documents"),
               result(dispatcher, "automation.list_documents", {}));
+  const QJsonObject described =
+      result(dispatcher, "tool.describe",
+             {{"names", QJsonArray{"scene.summary", "tool.describe"}}});
+  checkResult(catalogEntry(capabilities, "tool.describe"), described);
+  const QJsonObject summary =
+      described.value("tools").toArray().first().toObject();
+  require(
+      summary.value("name") == "scene.summary" &&
+          summary.value("outputSchema") ==
+              catalogEntry(capabilities, "scene.summary").value("outputSchema"),
+      "tool.describe did not return the catalog's declaration");
+  rejected(dispatcher, "tool.describe",
+           {{"names", QJsonArray{"scene.summary", "no.such.tool"}}},
+           "unknown_tool");
+  rejected(dispatcher, "tool.describe", {{"names", QJsonArray{}}},
+           "invalid_params");
   QSet<QString> names;
   for (const QJsonValue& value : capabilities.value("tools").toArray()) {
     const QJsonObject tool = value.toObject();
