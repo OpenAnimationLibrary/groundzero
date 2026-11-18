@@ -81,6 +81,21 @@ def base_package(case: NativeAcceptance) -> Path:
     case.mutate(
         "drawing.create", document, level_id=vector["level_id"], drawing_id=DRAWING, format="vector"
     )
+    stroke = {
+        "action": "add",
+        "style_id": 1,
+        "closed": False,
+        "points": [{"x": x, "y": 0, "thickness": 1} for x in (-10, 0, 10)],
+    }
+    case.mutate(
+        "vector.edit",
+        document,
+        level_id=vector["level_id"],
+        drawing_id=DRAWING,
+        coordinate_space="drawing_native",
+        sharing="all_exposures",
+        edits=[stroke],
+    )
     raster = case.mutate("level.create", document, name="Cel", format="toonzRaster")
     case.mutate(
         "drawing.create",
@@ -171,11 +186,12 @@ def _standalone(base: Path, folder: Path) -> Path:
     shutil.copytree(base / "assets", folder / "assets")
     (folder / "assets" / "deep.0001.tif").write_bytes(tiff(4, 4, 4, 16))
     text = (base / "scene.tnz").read_text()
+    child = f"<childLevel id='{CHILD_ID}'/>1 1"
+    # Count the top sheet's cells before the child definition adds its own.
+    text = _cells(text, {3: child, 4: child, 5: f"<level id='{TIFF_ID}'/>0001 0"})
     text = text.replace(
         "</levels>\n    <folder", _child_level(1) + _tiff_level() + "</levels>\n    <folder", 1
     )
-    child = f"<childLevel id='{CHILD_ID}'/>1 1"
-    text = _cells(text, {3: child, 4: child, 5: f"<level id='{TIFF_ID}'/>0001 0"})
     blur = r"(<STD_blurFx id='\d+'>\s*<params>\s*<value>\s*<default>\s*)20"
     text = re.sub(blur, r"\g<1>300", text)
     path = folder / "shot_b.tnz"
@@ -496,8 +512,8 @@ def _child_with_effect(text: str, effect: str) -> str:
         f"<fxnodes> <internal> <fxnode> {effect} </fxnode> </internal> <terminal> "
         f"<fxnode> <{tag} id='{identifier}'/> </fxnode>",
     )
-    text = text.replace("</levels>\n    <folder", child + "</levels>\n    <folder", 1)
-    return _cells(text, {3: f"<childLevel id='{CHILD_ID}'/>1 1"})
+    text = _cells(text, {3: f"<childLevel id='{CHILD_ID}'/>1 1"})
+    return text.replace("</levels>\n    <folder", child + "</levels>\n    <folder", 1)
 
 
 def _missing_level() -> str:
@@ -706,8 +722,7 @@ def _refusals(column: str, objects: str, directory: str) -> list[tuple]:
         ("camera.update", {"width_px": 64}, "mutation", None),
         ("fx.create", {"type": "STD_blurFx"}, "mutation", None),
         ("scene.save_copy", {"directory": directory}, "mutation", None),
-        ("column.cells", {"column_id": column, "start_frame": 0, "length": 1}, "not_qualified", 2),
-        ("animation.channels", {"object_id": objects}, "not_qualified", 2),
+        ("motion_path.list", {}, "not_qualified", None),
         ("rig.inspect", {"expected_revision": "0"}, "not_qualified", 3),
     ]
 
@@ -1125,7 +1140,8 @@ def _styles(case: NativeAcceptance, base: Path) -> None:
     discard(case, case.worker, opened["document_id"])
 
 
-def _sound(case: NativeAcceptance) -> None:
+def sound_package(case: NativeAcceptance, directory: Path) -> Path:
+    """Save a worker scene with one sound column playing a WAV clip."""
     document = case.create("Sounding")
     path = case.inputs / "tone.wav"
     path.write_bytes(wav_file(tone(48000, "pcm_s16", 9600)))
@@ -1140,8 +1156,13 @@ def _sound(case: NativeAcceptance) -> None:
         placement=placement,
         overlap_policy="reject",
     )
-    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "sounding"))
-    opened = open_scene(case, case.worker, saved["scene_path"], "standalone")
+    saved = case.mutate("scene.save_copy", document, directory=str(directory))
+    return Path(saved["scene_path"])
+
+
+def _sound(case: NativeAcceptance) -> None:
+    scene = sound_package(case, case.workspace / "sounding")
+    opened = open_scene(case, case.worker, scene, "standalone")
     case.assertEqual(opened["counts"]["sound_levels"], 1)
     case.assertTrue(opened["render"]["renderable"], opened["render"])
     read = {"document_id": opened["document_id"], "expected_revision": "0"}
