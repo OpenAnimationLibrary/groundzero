@@ -722,7 +722,7 @@ def _refusals(column: str, objects: str, directory: str) -> list[tuple]:
         ("camera.update", {"width_px": 64}, "mutation", None),
         ("fx.create", {"type": "STD_blurFx"}, "mutation", None),
         ("scene.save_copy", {"directory": directory}, "mutation", None),
-        ("motion_path.list", {}, "not_qualified", None),
+        ("motion_path.list", {"expected_revision": "0"}, "not_qualified", None),
         ("rig.inspect", {"expected_revision": "0"}, "not_qualified", 3),
     ]
 
