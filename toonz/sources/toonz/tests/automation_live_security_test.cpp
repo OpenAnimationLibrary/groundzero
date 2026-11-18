@@ -123,6 +123,52 @@ void versionedHandshake(SecuritySession& publisher, const QString& path,
   require(connector.readAllStandardError().isEmpty(),
           "Connector emitted diagnostics");
 }
+// The connector refuses an editor hello of another build or bridge version
+// and forwards nothing from it.
+void helloMismatch(SecuritySession& publisher, const QString& path,
+                   const QString& field) {
+  QProcess connector;
+  connector.start(QCoreApplication::applicationFilePath(),
+                  {"--automation-live-connect", path});
+  require(connector.waitForStarted(3000), "Connector failed to start");
+  qintptr descriptor = -1;
+  QElapsedTimer timer;
+  timer.start();
+  while (descriptor < 0 && timer.elapsed() < 3000) {
+    descriptor = publisher.acceptDescriptor();
+    if (descriptor < 0) connector.waitForReadyRead(10);
+  }
+  require(descriptor >= 0, "Connector never reached native listener");
+  QLocalSocket peer;
+  require(peer.setSocketDescriptor(descriptor),
+          "Cannot adopt accepted descriptor");
+  const auto auth   = parseMessage(readFrame(peer), maximumRequestBytes);
+  QJsonObject build = buildIdentity();
+  build.insert("executable_sha256", QString(64, 'd'));
+  const QJsonValue protocol =
+      field == "protocol" ? QJsonValue("groundzero-live-v1") : liveProtocol;
+  sendFrame(peer, {{"protocol", protocol},
+                   {"build", field == "build" ? build : buildIdentity()},
+                   {"instance_id", publisher.instanceId()},
+                   {"client_id", auth.value("client_id")},
+                   {"mode", publisher.mode()},
+                   {"tools", operations()},
+                   {"limits", limits()}});
+  connector.closeWriteChannel();
+  require(connector.waitForFinished(5000) && connector.exitCode() == 2,
+          "A foreign editor hello was not refused");
+  const QByteArray output   = connector.readAllStandardOutput();
+  const QJsonObject refusal = parseMessage(output.mid(4), maximumResponseBytes)
+                                  .value("refusal")
+                                  .toObject();
+  require(refusal.value("code") == field + "_mismatch" &&
+              refusal.value("details").toObject().value("editor") ==
+                  QJsonObject(
+                      {{"protocol", protocol},
+                       {"build", field == "build" ? build : buildIdentity()}}),
+          "A foreign editor hello was refused with the wrong code or details");
+  requireNoSecrets(output, publisher);
+}
 // Runs a connector expected to refuse before the hello; the listener must
 // stay unconnected for three seconds when one is given.
 QJsonObject refusal(const QString& path, const QString& code,
@@ -492,6 +538,8 @@ int main(int argc, char* argv[]) {
             "Wrong token accepted");
     versionedHandshake(publisher, path, false);
     versionedHandshake(publisher, path, true);
+    helloMismatch(publisher, path, "build");
+    helloMismatch(publisher, path, "protocol");
     buildMismatchBeforeConnect(publisher, path, root);
     protocolMismatchBeforeConnect(publisher, path, root);
     fileAdmission(publisher, path, root);
