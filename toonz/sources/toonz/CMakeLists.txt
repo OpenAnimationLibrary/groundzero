@@ -205,6 +205,7 @@ set(HEADERS
     automation_rig.h
     automation_hook.h
     automation_storyboard.h
+    automation_lipsync.h
     automation_vector_opacity.h
     automation_dispatch.h
     automation_containment.h
@@ -300,6 +301,7 @@ set(SOURCES
     automation_rig.cpp
     automation_hook.cpp
     automation_storyboard.cpp
+    automation_lipsync.cpp
     automation_vector_opacity.cpp
     automation_scene.cpp
     automation_fx.cpp

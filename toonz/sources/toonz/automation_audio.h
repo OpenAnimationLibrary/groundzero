@@ -19,6 +19,7 @@ class TXshSoundLevel;
 
 namespace GroundzeroAutomation {
 class Context;
+struct Document;
 
 constexpr qint64 AutomationAudioFileBytes = 160LL * 1024 * 1024;
 
@@ -68,6 +69,12 @@ QJsonValue executeAudio(Context& context, const QString& method,
 // Require the sound sources and columns of a scene to fit the worker profile
 // that save, render and reopen admit.
 void validateAutomationAudio(ToonzScene& scene);
+
+// PCM digest of a document's sound source, as audio.inspect reports it.
+//
+// Throws:
+//   Error: invalid_params when the level is not a sound source.
+QString automationSoundPcmSha256(Document& document, TXshLevel* level);
 
 // Decoded PCM bytes a sound source adds to the document asset estimate.
 qint64 automationSoundBytes(TXshSoundLevel& level);

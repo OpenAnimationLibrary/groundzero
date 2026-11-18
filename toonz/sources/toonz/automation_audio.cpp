@@ -1116,6 +1116,12 @@ void addEditTools(QJsonArray& catalog) {
 
 }  // namespace
 
+QString automationSoundPcmSha256(Document& document, TXshLevel* level) {
+  TXshSoundLevel* sound = level->getSoundLevel();
+  if (!sound) invalid("level_id must name an imported sound source.");
+  return sourceMetadata(document, sound).value("pcm_sha256").toString();
+}
+
 qint64 automationSoundBytes(TXshSoundLevel& level) {
   const TSoundTrackP track = level.getSoundTrack();
   return track ? qint64(track->getSampleCount()) * track->getSampleSize() : 0;
