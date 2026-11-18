@@ -43,6 +43,7 @@
 #include "automation_audio.h"
 #include "automation_rig.h"
 #include "automation_shared.h"
+#include "automation_storyboard.h"
 #include "automation_text.h"
 #include "automation_vector_opacity.h"
 #include "tests/automation_animation_test.h"
@@ -451,6 +452,7 @@ int domainTestResult(Context& context) {
     runAutomationAudioTests(context);
     runAutomationRigTests(context);
     runAutomationSharedTests(context);
+    runAutomationStoryboardTests(context);
     runAutomationProductionTests(context);
     runAutomationAssistanceTests();
     runAutomationMacroTests(context);

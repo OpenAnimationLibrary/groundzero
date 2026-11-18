@@ -7,6 +7,7 @@
 #include "automation_hook.h"
 #include "automation_rig.h"
 #include "automation_shared.h"
+#include "automation_storyboard.h"
 
 #include "texception.h"
 
@@ -239,7 +240,10 @@ QString toolsetDescription(const QString& toolset) {
        "dependencies and thumbnails."},
       {"fx-finishing",
        "Static FX finishing recipes whose steps compose light, blur, "
-       "stylize, grade and transition effects with the core FX tools."}};
+       "stylize, grade and transition effects with the core FX tools."},
+      {"storyboard",
+       "Storyboard panels: spans, captions, notes, colors and the drawing "
+       "each panel shows."}};
   const auto found = descriptions.constFind(toolset);
   if (found == descriptions.constEnd())
     throw Error("internal_error",
@@ -277,6 +281,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(rigOperations(), executeRig, "rigging");
   add(hookOperations(), executeHook, "rigging");
   add(sharedOperations(), executeShared, "shared-library");
+  add(storyboardOperations(), executeStoryboard, "storyboard");
   add(
       assistanceOperations(),
       [](Context&, const QString& method, const QJsonObject& params) {

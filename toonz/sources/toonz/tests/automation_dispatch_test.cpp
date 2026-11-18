@@ -270,6 +270,7 @@ void partialCancellation(Context& context, Dispatcher& dispatcher) {
 
 QString domainToolset(const QString& name) {
   if (name.startsWith("audio.")) return "audio";
+  if (name.startsWith("storyboard.")) return "storyboard";
   if (name.startsWith("rig.") || name.startsWith("hook.") ||
       name.startsWith("offset_layer.") || name == "object.handles.set" ||
       name == "object.pivot.set")
