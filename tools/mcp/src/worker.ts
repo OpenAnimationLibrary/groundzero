@@ -5,8 +5,6 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WorkerError, isObject } from "#mcp/errors";
 import type { WorkerOptions } from "#mcp/options";
-import { ProcessIdentity, processStart } from "#mcp/process-identity";
-import type { StartProbe } from "#mcp/process-identity";
 
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 256 * 1024;
@@ -38,7 +36,6 @@ export class WorkerConnection {
   private failure: WorkerError | undefined;
   private shutdownTimer: ReturnType<typeof setTimeout> | undefined;
   private nativeExit: string | undefined;
-  private readonly identity: ProcessIdentity | undefined;
 
   /** Own a started worker or supervisor, the leader of its own process group.
    *
@@ -46,17 +43,14 @@ export class WorkerConnection {
    *   child: The process this adapter started.
    *   timeoutMs: Upper bound for one native response.
    *   supervised: Whether the child is the POSIX helper supervisor.
-   *   probe: Reads a process's start time, to tell the child from a recycled ID.
    */
   constructor(
     child: ChildProcess,
     private readonly timeoutMs = 120_000,
     private readonly supervised = false,
-    private readonly probe: StartProbe = processStart,
   ) {
     requirePipes(child);
     this.child = child;
-    this.identity = ProcessIdentity.of(child.pid, probe);
     child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
     child.stdout.on("error", (error: Error) => this.fail(error.message));
     child.stdin.on("error", (error: Error) => this.fail(error.message));
@@ -158,10 +152,11 @@ export class WorkerConnection {
     });
   }
 
-  // A child that exited may have had its ID, and so its group ID, reused by an unrelated
-  // process; only the process started here, by ID and start time, is signalled.
+  // Signals go only through the child's handle and only before it is reaped: an unreaped
+  // child keeps its process ID, and so the ID of the group it leads, from being reused.
+  // Node reaps a child and records its exit status in one step, so there is no window.
   private signal(name: NodeJS.Signals): void {
-    if (this.identity?.isCurrent(this.probe)) this.child.kill(name);
+    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill(name);
   }
 
   private receive(chunk: Buffer): void {
