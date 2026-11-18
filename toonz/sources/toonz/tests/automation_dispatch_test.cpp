@@ -277,6 +277,7 @@ QString domainToolset(const QString& name) {
   if (name == "shared.roots" || name.startsWith("studio_palette.") ||
       name.startsWith("library."))
     return "shared-library";
+  if (name == "fx.recipe.list") return "fx-finishing";
   return "core";
 }
 

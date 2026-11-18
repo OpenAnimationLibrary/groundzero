@@ -129,14 +129,15 @@ Render jobs report `fx_provenance`: the type, native version, replay class and s
 of every effect the output renders. `fx.graph` reports `REQUIRED_INPUT_MISSING` while
 backlit has no Light, light wrap no Background or local blur no Reference input.
 
-`fx.recipe.list` returns static recipes: light wrap, backlit rim light, exposure
-grade, cross dissolve and iris wipe. Each lists its required effect types and whether
-they are available, its inputs with defaults, its steps as ordinary tool calls, named
-controls and checks. An argument whose whole value is `${input.<name>}` or
-`${steps.<id>.<field>}` takes that input's or earlier result's JSON value. A recipe
-never runs on the worker: run its steps yourself with the usual `expected_revision`
-and `operation_id`, so a recipe that stops halfway leaves identifiable committed
-operations.
+`fx.recipe.list`, in the `fx-finishing` toolset, returns static recipes: light wrap,
+backlit rim light, exposure grade, cross dissolve and iris wipe. The effects they
+use are ordinary catalog types reached through the `core` FX tools. Each lists its
+required effect types and whether they are available, its inputs with defaults, its
+steps as ordinary tool calls, named controls and checks. An argument whose whole
+value is `${input.<name>}` or `${steps.<id>.<field>}` takes that input's or earlier
+result's JSON value. A recipe never runs on the worker: run its steps yourself with
+the usual `expected_revision` and `operation_id`, so a recipe that stops halfway
+leaves identifiable committed operations.
 
 `cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
 current detached document. Supply its `document_id` and latest `expected_revision`

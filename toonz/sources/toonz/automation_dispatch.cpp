@@ -236,7 +236,10 @@ QString toolsetDescription(const QString& toolset) {
       {"shared-library",
        "Read-only discovery of granted shared roots: studio palettes, "
        "Library templates and pose sets, with identities, revisions, "
-       "dependencies and thumbnails."}};
+       "dependencies and thumbnails."},
+      {"fx-finishing",
+       "Static FX finishing recipes whose steps compose light, blur, "
+       "stylize, grade and transition effects with the core FX tools."}};
   const auto found = descriptions.constFind(toolset);
   if (found == descriptions.constEnd())
     throw Error("internal_error",
@@ -263,6 +266,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
       "List detached documents and their current revisions.", {}, {}));
   add(sceneOperations(), executeScene, "core");
   add(fxOperations(), executeFx, "core");
+  add(fxRecipeOperations(), executeFx, "fx-finishing");
   add(drawingOperations(), executeDrawing, "core");
   add(renderOperations(), executeRender, "core");
   add(persistenceOperations(), executePersistence, "core");

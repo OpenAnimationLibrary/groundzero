@@ -1275,11 +1275,11 @@ void validateAutomationFxGraph(ToonzScene& scene) {
   validateEdges(members, graph);
 }
 
-QJsonObject recipeOperation() {
+QJsonArray fxRecipeOperations() {
   const QJsonArray categories{
       "background", "title",       "transition", "atmosphere", "cel_finishing",
       "matte",      "stylization", "light",      "particles",  "procedural"};
-  return operation(
+  return {operation(
       "fx.recipe.list",
       "List static FX recipes: atomic tool-call steps that run with the "
       "existing tools. An argument whose whole value is ${input.<name>} or "
@@ -1287,7 +1287,7 @@ QJsonObject recipeOperation() {
       "and operation_id per call. Check frames assume the input defaults.",
       {{"recipe_id", stringSchema()},
        {"category", QJsonObject{{"type", "string"}, {"enum", categories}}}},
-      {});
+      {})};
 }
 
 QJsonArray fxOperations() {
@@ -1317,7 +1317,6 @@ QJsonArray fxOperations() {
       operation("fx.catalog",
                 "Discover allowed builtin effects and native typed parameters.",
                 {}, {}),
-      recipeOperation(),
       operation("fx.graph",
                 "Inspect graph, generator columns, ports, terminals, and "
                 "current output.",

@@ -117,6 +117,8 @@ int integerParam(const QJsonObject& params, const QString& name, int minimum,
 
 QJsonArray sceneOperations();
 QJsonArray fxOperations();
+// The fx-finishing toolset: read-only FX recipes.
+QJsonArray fxRecipeOperations();
 QJsonArray drawingOperations();
 QJsonArray renderOperations();
 QJsonArray persistenceOperations();
