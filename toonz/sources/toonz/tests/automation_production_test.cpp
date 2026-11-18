@@ -601,21 +601,68 @@ void tagsAndProvenanceSurvivePackages(Context& context) {
   context.removeDocument(source.id);
 }
 
+#ifndef _WIN32
+// Removes access on construction and restores it however the scope ends.
+class Withdrawn final {
+public:
+  explicit Withdrawn(const QString& path) : m_path(path) {
+    m_original = QFile::permissions(path);
+    require(QFile::setPermissions(path, QFileDevice::Permissions()),
+            "Cannot remove permissions from the fixture");
+  }
+  ~Withdrawn() { QFile::setPermissions(m_path, m_original); }
+
+private:
+  QString m_path;
+  QFileDevice::Permissions m_original;
+};
+
+QJsonObject dependencyRow(Fixture& fixture, TXshSimpleLevel* level,
+                          const QString& path) {
+  level->setPath(TFilePath(path), true);
+  return rows(fixture.read("scene.dependencies")).first().toObject();
+}
+
+void requireUnreadable(const QJsonObject& item, const char* message) {
+  require(item.value("availability") == "unreadable" &&
+              item.value("size_bytes").isNull() &&
+              item.value("authority") == "workspace",
+          message);
+}
+#endif
+
 void unreadableDependencyFile(Context& context) {
 #ifndef _WIN32
   Fixture fixture(context);
   auto* level        = fixture.level(L"Unreadable");
-  const QString path = context.workspace() + "/unreadable.pli";
-  writeFile(path);
-  require(QFile::setPermissions(path, QFileDevice::Permissions()),
-          "Cannot remove read permission from the fixture");
-  level->setPath(TFilePath(path), true);
-  const auto item = rows(fixture.read("scene.dependencies")).first().toObject();
-  QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-  require(item.value("availability") == "present" &&
-              item.value("size_bytes") == 6 &&
-              item.value("authority") == "workspace",
-          "A file without read permission was not reported by its metadata");
+  const QString file = context.workspace() + "/unreadable.pli";
+  writeFile(file);
+  QDir().mkpath(context.workspace() + "/denied");
+  const QString nested = context.workspace() + "/denied/nested.pli";
+  writeFile(nested);
+  {
+    Withdrawn guard(file);
+    if (!QFile(file).open(QIODevice::ReadOnly))
+      requireUnreadable(dependencyRow(fixture, level, file),
+                        "A file that cannot be opened was not unreadable");
+  }
+  require(
+      dependencyRow(fixture, level, file).value("availability") == "present",
+      "Restored read permission did not restore the metadata");
+  {
+    Withdrawn guard(context.workspace() + "/denied");
+    if (!QFileInfo(nested).exists())
+      requireUnreadable(dependencyRow(fixture, level, nested),
+                        "A file in an unreadable folder was not unreadable");
+  }
+  require(
+      dependencyRow(fixture, level, nested).value("availability") == "present",
+      "Restored folder access did not restore the metadata");
+  const auto absent =
+      dependencyRow(fixture, level, context.workspace() + "/absent.pli");
+  require(absent.value("availability") == "missing" &&
+              absent.value("size_bytes").isNull(),
+          "A truly absent file was not reported as missing");
   require(fixture.document.revision == 7,
           "Dependency inspection changed the revision");
 #else

@@ -20,12 +20,17 @@
 #include "toonz/txshsimplelevel.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QMap>
 #include <QSet>
 
 #include <algorithm>
+#include <cerrno>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 #include <set>
 #include <vector>
 
@@ -524,6 +529,19 @@ QString resolveDependency(Report& report, const TFilePath& path) {
   return report.context.resolvePath(actual.getQString(), false);
 }
 
+// Whether a lookup failed because access was denied rather than because the
+// entry is absent.
+bool lookupDenied(const QString& path) {
+#ifdef _WIN32
+  Q_UNUSED(path);
+  return false;
+#else
+  struct stat status{};
+  return ::lstat(QFile::encodeName(path).constData(), &status) != 0 &&
+         (errno == EACCES || errno == EPERM);
+#endif
+}
+
 void fileObservation(QJsonObject& row, const QString& path) {
   const QFileInfo file(path);
   if (file.isSymLink()) {
@@ -533,12 +551,16 @@ void fileObservation(QJsonObject& row, const QString& path) {
     return;
   }
   if (!file.exists()) {
-    row.insert("availability", "missing");
+    row.insert("availability", lookupDenied(path) ? "unreadable" : "missing");
     return;
   }
   if (!file.isFile()) {
     row.insert("availability", "unsupported");
     row.insert("path_kind", "unsupported");
+    return;
+  }
+  if (!QFile(path).open(QIODevice::ReadOnly)) {
+    row.insert("availability", "unreadable");
     return;
   }
   const qint64 bytes = file.size();
@@ -694,7 +716,11 @@ QJsonArray productionOperations() {
       {"cast.usage",
        "Read root-sheet cast exposure runs with bounded traversal."},
       {"scene.dependencies",
-       "Read declared dependency references and authorized file metadata."},
+       "Read declared dependency references and authorized file metadata. "
+       "availability is present, missing, unreadable (it exists but cannot "
+       "be opened, or its folder denies access), forbidden, unsupported, "
+       "not_checked, unresolved or unsaved; unreadable files report no "
+       "size."},
       {"scene.validate",
        "Read basic in-memory scene issues without loading artwork or media."}};
   for (auto it = descriptions.constBegin(); it != descriptions.constEnd(); ++it)

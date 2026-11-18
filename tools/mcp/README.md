@@ -150,7 +150,10 @@ on every page, with optional `offset` and `limit`. Check `traversal_complete` an
 establish that omitted artwork is unused. Reads inspect at most 100,000 root-sheet
 cells and retain at most 4096 records; each response is limited to one MiB.
 Dependency reads inspect authorized file metadata without loading images or
-expanding sequences, sidecars, or nested sheets. Linked Library origins are outside
+expanding sequences, sidecars, or nested sheets. A dependency's `availability` is
+`present` (with `size_bytes`), `missing`, `unreadable` (the file exists but cannot
+be opened for reading, or a folder on its path denies access; no size is
+reported), `forbidden`, `unsupported`, `not_checked`, `unresolved` or `unsaved`. Linked Library origins are outside
 this profile. These checks do not certify package or render compatibility.
 
 `fx.macro.create` groups 2–64 connected over, blur, or glow effects into a native
