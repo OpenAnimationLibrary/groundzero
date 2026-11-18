@@ -475,6 +475,9 @@ void effectDeclarations(Context& context) {
   for (const QString& name : declaredToolNames())
     require(names.contains(name),
             "An effect declaration names no registered tool; remove its row");
+  for (const QString& name : outputSchemaNames())
+    require(names.contains(name),
+            "An output schema names no registered tool; remove its entry");
   require(refusedAs(operation("fixture.undeclared", "Private", {}, {}),
                     "internal_error", "add a row for it"),
           "A tool without an effect declaration was registered");
@@ -483,13 +486,13 @@ void effectDeclarations(Context& context) {
           "A read declaration was accepted for a tool with receipts");
   require(refusedAs(operation("automation.capabilities", "Private", {}, {}),
                     "internal_error", "has no outputSchema"),
-          "A tool without an output schema was registered unlisted");
+          "A tool without an output schema was registered");
   require(refusedAs(withOutputSchema(operation("scene.summary", "Private",
                                                {{"document_id", QJsonObject{}}},
                                                {"document_id"}),
                                      QJsonObject{{"type", "object"}}),
-                    "internal_error", "remove it from pendingOutputSchemas"),
-          "A tool listed as pending published an output schema");
+                    "internal_error", "keep one"),
+          "A tool published two output schemas");
 }
 
 QJsonValue strayField(Context&, const QString&, const QJsonObject&) {

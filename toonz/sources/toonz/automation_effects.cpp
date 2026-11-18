@@ -1,7 +1,9 @@
 #include "automation_effects.h"
 
+#include <QFile>
 #include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QSet>
 
 namespace GroundzeroAutomation {
@@ -42,7 +44,7 @@ const QHash<QString, Declaration>& declarations() {
       {"animation.delete_keys", {kEdit, {"invalid_argument", "missing_key"}}},
       {"animation.keys", {kInspect, {}}},
       {"animation.retime_curve", {kEdit, {"locked"}}},
-      {"animation.sample", {kInspect, {"invalid_argument", "invalid_handle"}}},
+      {"animation.sample", {kInspect, {"invalid_argument"}}},
       {"animation.set_keys",
        {kEdit,
         {"invalid_argument", "invalid_unit", "locked", "unsupported_channel"}}},
@@ -59,14 +61,15 @@ const QHash<QString, Declaration>& declarations() {
                     "starts",
                     {"neural_helper"},
                     false},
-        {}}},
+        {"unsupported_containment"}}},
       {"audio.clip.place",
        {kEdit, {"audio_overlap", "incompatible_column", "timing_conflict"}}},
       {"audio.clip.remove", {kEdit, {"locked", "not_found"}}},
-      {"audio.clip.update", {kEdit, {}}},
+      {"audio.clip.update", {kEdit, {"not_found"}}},
       {"audio.column.create", {kAdd, {}}},
       {"audio.column.set_volume", {kEdit, {"locked"}}},
-      {"audio.import", {kImport, {"invalid_asset", "unsupported_format"}}},
+      {"audio.import",
+       {kImport, {"invalid_asset", "name_conflict", "unsupported_format"}}},
       {"audio.inspect", {kInspect, {"revision_conflict"}}},
       {"audio.mixdown",
        {kExport, {"already_exists", "missing_parent", "timing_conflict"}}},
@@ -80,29 +83,29 @@ const QHash<QString, Declaration>& declarations() {
       {"column.create", {kAdd, {}}},
       {"column.delete", {kEdit, {"has_dependents", "locked"}}},
       {"column.expose",
-       {kEdit, {"incompatible_column", "invalid_handle", "locked"}}},
-      {"column.update", {kEdit, {"invalid_handle", "locked"}}},
-      {"drawing.clone", {kAdd, {"unsupported_drawing_id"}}},
-      {"drawing.create", {kAdd, {}}},
+       {kEdit,
+        {"incompatible_column", "locked", "missing_drawing",
+         "occupied_cells"}}},
+      {"column.update", {kEdit, {"locked"}}},
+      {"drawing.clone", {kAdd, {"already_exists", "unsupported_drawing_id"}}},
+      {"drawing.create", {kAdd, {"already_exists"}}},
       {"drawing.inspect", {kInspect, {"not_found"}}},
-      {"drawing.remove", {kEdit, {"has_dependents", "in_use"}}},
+      {"drawing.remove", {kEdit, {"has_dependents", "in_use", "not_found"}}},
       {"drawing.renumber",
        {kEdit,
-        {"already_exists", "invalid_handle", "locked", "not_found",
-         "unsupported_drawing_id"}}},
+        {"already_exists", "locked", "not_found", "unsupported_drawing_id"}}},
       {"fx.catalog", {kInspectWorker, {}}},
-      {"fx.connect", {kEdit, {"GRAPH_CYCLE"}}},
-      {"fx.create", {kAdd, {}}},
+      {"fx.connect", {kEdit, {"GRAPH_CYCLE", "UNKNOWN_PORT"}}},
+      {"fx.create", {kAdd, {"UNSUPPORTED_FX"}}},
       {"fx.delete", {kEdit, {"UNSUPPORTED_FX"}}},
-      {"fx.disconnect", {kEdit, {}}},
+      {"fx.disconnect", {kEdit, {"UNKNOWN_PORT"}}},
       {"fx.duplicate", {kAdd, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
       {"fx.enabled.set", {kEdit, {"UNSUPPORTED_FX", "locked"}}},
       {"fx.graph", {kInspect, {}}},
       {"fx.macro.create", {kEdit, {"INVALID_MACRO", "invalid_handle"}}},
       {"fx.macro.expand", {kEdit, {"INVALID_MACRO"}}},
-      {"fx.output.select", {kEdit, {}}},
-      {"fx.parameter.get",
-       {kInspect, {"UNSUPPORTED_PARAMETER", "invalid_handle"}}},
+      {"fx.output.select", {kEdit, {"INVALID_OUTPUT"}}},
+      {"fx.parameter.get", {kInspect, {"UNSUPPORTED_PARAMETER"}}},
       {"fx.parameter.set",
        {kEdit,
         {"INVALID_PARAMS", "OUT_OF_RANGE", "PARAMETER_CONSTRAINT",
@@ -117,16 +120,15 @@ const QHash<QString, Declaration>& declarations() {
         {"ALREADY_EXISTS", "INVALID_PARAMS", "MISSING_PARENT",
          "PRESET_WRITE_FAILED", "RESOURCE_LIMIT"}}},
       {"fx.recipe.list", {kInspectWorker, {}}},
-      {"fx.rename",
-       {kEdit,
-        {"INVALID_PARAMS", "UNSUPPORTED_FX", "invalid_handle", "locked"}}},
+      {"fx.rename", {kEdit, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
       {"fx.terminal.set", {kEdit, {}}},
       {"hook.delete",
        {kEdit, {"has_dependents", "locked", "missing_key", "not_found"}}},
       {"hook.inspect", {kInspect, {}}},
       {"hook.set", {kEdit, {"locked", "missing_drawing"}}},
-      {"level.create", {kAdd, {}}},
-      {"level.import", {kImport, {"invalid_asset", "unsupported_precision"}}},
+      {"level.create", {kAdd, {"name_conflict"}}},
+      {"level.import",
+       {kImport, {"invalid_asset", "name_conflict", "unsupported_precision"}}},
       {"level.inspect", {kInspect, {}}},
       {"library.inspect", {kParseShared, {"invalid_library_item", "io_error"}}},
       {"library.list",
@@ -136,15 +138,17 @@ const QHash<QString, Declaration>& declarations() {
        {kParseShared, {"asset_unavailable", "not_found", "resource_limit"}}},
       {"lipsync.apply",
        {kEdit,
-        {"incompatible_column", "invalid_handle", "locked", "missing_drawing",
-         "stale_analysis", "timing_conflict", "unsupported_level"}}},
-      {"lipsync.import", {kEditFromFile, {"invalid_asset"}}},
+        {"incompatible_column", "locked", "missing_drawing", "stale_analysis",
+         "timing_conflict", "unsupported_level"}}},
+      {"lipsync.import",
+       {ToolEffects{
+            "document_write", "reads", {"reads_roots"}, "none", {}, false},
+        {"invalid_asset"}}},
       {"lipsync.inspect", {kInspect, {}}},
       {"motion_path.create", {kAdd, {}}},
       {"motion_path.delete", {kEdit, {}}},
       {"motion_path.duplicate", {kAdd, {}}},
-      {"motion_path.inspect",
-       {kInspect, {"invalid_handle", "revision_conflict"}}},
+      {"motion_path.inspect", {kInspect, {"revision_conflict"}}},
       {"motion_path.list", {kInspect, {}}},
       {"motion_path.rename", {kEdit, {}}},
       {"motion_path.update", {kEdit, {"locked"}}},
@@ -156,7 +160,7 @@ const QHash<QString, Declaration>& declarations() {
       {"object.pivot.set", {kEdit, {}}},
       {"offset_layer.create", {kAdd, {"name_conflict", "unsupported_target"}}},
       {"offset_layer.delete", {kEdit, {}}},
-      {"offset_layer.update", {kEdit, {"invalid_handle", "name_conflict"}}},
+      {"offset_layer.update", {kEdit, {"name_conflict"}}},
       {"palette.clone_style", {kAdd, {}}},
       {"palette.create_style", {kAdd, {}}},
       {"palette.inspect", {kInspect, {}}},
@@ -172,13 +176,15 @@ const QHash<QString, Declaration>& declarations() {
        {ToolEffects{"read", "none", {"reads_roots"}, "none", {}, false},
         {"invalid_path", "invalid_project", "io_error", "not_found",
          "path_denied", "resource_limit", "revision_conflict"}}},
+      {"project.inspect", {kInspectWorker, {}}},
       {"project.list",
        {ToolEffects{"read", "none", {"reads_roots"}, "none", {}, false},
         {"invalid_path", "io_error", "not_found", "path_denied",
          "revision_conflict"}}},
-      {"project.inspect", {kInspectWorker, {}}},
       {"raster.export_png", {kExport, {"already_exists", "asset_unavailable"}}},
-      {"raster.import_png", {kEditFromFile, {"unsupported_precision"}}},
+      {"raster.import_png",
+       {kEditFromFile,
+        {"already_exists", "asset_unavailable", "unsupported_precision"}}},
       {"raster.patch", {kEdit, {}}},
       {"raster.read_pixels", {kInspect, {}}},
       {"render.artifacts", {kJobRead, {"artifacts_unavailable"}}},
@@ -188,8 +194,9 @@ const QHash<QString, Declaration>& declarations() {
       {"render.preview",
        {ToolEffects{
             "job_start", "reads", {"writes_private"}, "starts", {}, false},
-        {"fx_preflight_failed"}}},
-      {"render.status", {kJobRead, {}}},
+        {"fx_preflight_failed", "render_blocked", "render_busy",
+         "source_changed"}}},
+      {"render.status", {kJobRead, {"scene_host_failed"}}},
       {"render.submit",
        {ToolEffects{"job_start",
                     "reads",
@@ -209,7 +216,7 @@ const QHash<QString, Declaration>& declarations() {
         {"stale_revision"}}},
       {"scene.discard",
        {ToolEffects{"document_lifecycle", "discards", {}, "none", {}, true},
-        {}}},
+        {"render_busy"}}},
       {"scene.open",
        {ToolEffects{"document_lifecycle",
                     "creates",
@@ -223,8 +230,12 @@ const QHash<QString, Declaration>& declarations() {
       {"scene.inventory",
        {kInspect, {"resource_limit", "scene_host_failed", "stale_revision"}}},
       {"scene.open_read_only",
-       {ToolEffects{"document_lifecycle", "opens_read_only", {"reads_roots"},
-                    "none", {"scene_host"}, false},
+       {ToolEffects{"document_lifecycle",
+                    "opens_read_only",
+                    {"reads_roots"},
+                    "none",
+                    {"scene_host"},
+                    false},
         {"invalid_project", "invalid_scene", "io_error", "not_found",
          "project_mismatch", "scene_limit", "source_changed",
          "unsupported_type"}}},
@@ -243,7 +254,7 @@ const QHash<QString, Declaration>& declarations() {
        {ToolEffects{"read", "reads", {"reads_roots"}, "none", {}, false},
         {"resource_limit", "scene_host_failed", "stale_revision",
          "unsupported_target"}}},
-      {"scene.summary", {kInspect, {}}},
+      {"scene.summary", {kInspect, {"not_a_code", "scene_host_failed"}}},
       {"scene.validate", {kInspect, {"stale_revision"}}},
       {"shared.roots", {kListShared, {}}},
       {"storyboard.panel.create", {kAdd, {"already_exists"}}},
@@ -278,149 +289,20 @@ const QHash<QString, Declaration>& declarations() {
   return table;
 }
 
-// Tools whose results have no published outputSchema yet. A tool registered
-// without an outputSchema must be listed here, and a listed tool must not have
-// one, so each schema that lands removes its name.
-const QSet<QString>& pendingOutputSchemas() {
-  static const QSet<QString> pending{
-      "animation.channels",
-      "animation.copy_curve",
-      "animation.delete_keys",
-      "animation.keys",
-      "animation.retime_curve",
-      "animation.sample",
-      "animation.set_keys",
-      "artifact.read",
-      "assistance.inspect",
-      "assistance.neural.preview",
-      "audio.clip.place",
-      "audio.clip.remove",
-      "audio.clip.update",
-      "audio.column.create",
-      "audio.column.set_volume",
-      "audio.import",
-      "audio.inspect",
-      "audio.mixdown",
-      "camera.inspect",
-      "camera.update",
-      "cast.list",
-      "cast.usage",
-      "column.cells",
-      "column.create",
-      "column.delete",
-      "column.expose",
-      "column.update",
-      "drawing.clone",
-      "drawing.create",
-      "drawing.inspect",
-      "drawing.remove",
-      "drawing.renumber",
-      "fx.catalog",
-      "fx.connect",
-      "fx.create",
-      "fx.delete",
-      "fx.disconnect",
-      "fx.duplicate",
-      "fx.enabled.set",
-      "fx.graph",
-      "fx.macro.create",
-      "fx.macro.expand",
-      "fx.output.select",
-      "fx.parameter.get",
-      "fx.parameter.set",
-      "fx.parameter.set_key",
-      "fx.preset.apply",
-      "fx.preset.save",
-      "fx.recipe.list",
-      "fx.rename",
-      "fx.terminal.set",
-      "hook.delete",
-      "hook.inspect",
-      "hook.set",
-      "level.create",
-      "level.import",
-      "level.inspect",
-      "library.inspect",
-      "library.list",
-      "library.thumbnail",
-      "lipsync.apply",
-      "lipsync.import",
-      "lipsync.inspect",
-      "motion_path.create",
-      "motion_path.delete",
-      "motion_path.duplicate",
-      "motion_path.inspect",
-      "motion_path.list",
-      "motion_path.rename",
-      "motion_path.update",
-      "object.create",
-      "object.handles.set",
-      "object.parent",
-      "object.path.attach",
-      "object.path.detach",
-      "object.pivot.set",
-      "offset_layer.create",
-      "offset_layer.delete",
-      "offset_layer.update",
-      "palette.clone_style",
-      "palette.create_style",
-      "palette.inspect",
-      "palette.page.create",
-      "palette.page.move",
-      "palette.page.remove",
-      "palette.page.rename",
-      "palette.pages",
-      "palette.rename_style",
-      "palette.style.move",
-      "palette.update_style",
-      "project.inspect",
-      "project.list",
-      "raster.export_png",
-      "raster.import_png",
-      "raster.patch",
-      "raster.read_pixels",
-      "render.artifacts",
-      "render.cancel",
-      "render.capabilities",
-      "render.preview",
-      "render.status",
-      "render.submit",
-      "rig.evaluate",
-      "rig.inspect",
-      "scene.create",
-      "scene.dependencies",
-      "scene.discard",
-      "scene.open",
-      "scene.open_read_only",
-      "scene.package_info",
-      "scene.save_copy",
-      "scene.settings",
-      "scene.summary",
-      "scene.validate",
-      "shared.roots",
-      "storyboard.panel.create",
-      "storyboard.panel.delete",
-      "storyboard.panel.update",
-      "storyboard.panels",
-      "studio_palette.find",
-      "studio_palette.inspect",
-      "studio_palette.list",
-      "text.fonts",
-      "vector.edit",
-      "vector.fill",
-      "vector.group.create",
-      "vector.group.remove",
-      "vector.inspect",
-      "vector.opacity.inspect",
-      "vector.opacity.profile.set",
-      "vector.opacity.set",
-      "vector.order.move",
-      "vector.select",
-      "vector.structure",
-      "vector.text.create",
-      "vector.transform",
-  };
-  return pending;
+// Success shapes of the tools whose descriptors do not build their own, keyed
+// by tool name. The file is a resource of the executable.
+const QJsonObject& successSchemas() {
+  static const QJsonObject schemas = [] {
+    QFile file(":/automation/automation_output_schemas.json");
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(
+        file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject())
+      throw Error("internal_error",
+                  "automation_output_schemas.json is missing or malformed.");
+    return document.object();
+  }();
+  return schemas;
 }
 
 bool isRead(const ToolEffects& effects) { return effects.kind == "read"; }
@@ -460,11 +342,23 @@ QJsonObject effectsObject(const ToolEffects& effects) {
       {"grants", grants(effects)}};
 }
 
+// Handles other than documents, jobs and artifacts are resolved by lookups
+// that refuse an unknown or retired handle with invalid_handle.
+bool takesHandle(const QJsonObject& inputs) {
+  static const QSet<QString> dedicated{"document_id", "operation_id", "job_id",
+                                       "artifact_id"};
+  for (const QString& input : inputs.keys())
+    if (input.endsWith("_id") && !dedicated.contains(input)) return true;
+  return false;
+}
+
 QStringList commonErrors(const ToolEffects& effects,
                          const QJsonObject& inputs) {
   QStringList result{"invalid_params", "method_not_found", "worker_busy",
                      "native_error", "response_too_large"};
-  if (inputs.contains("document_id")) result.append("document_not_found");
+  if (inputs.contains("document_id"))
+    result << "document_not_found" << "read_only_document";
+  if (takesHandle(inputs)) result.append("invalid_handle");
   if (inputs.contains("job_id")) result.append("unknown_job");
   if (inputs.contains("path") || inputs.contains("directory") ||
       inputs.contains("output_path"))
@@ -522,19 +416,24 @@ QJsonObject declaredTool(const QJsonObject& descriptor) {
   const auto found   = declarations().constFind(name);
   if (found == declarations().constEnd())
     undeclared(name, "has no effect declaration: add a row for it");
-  const bool pending = pendingOutputSchemas().contains(name);
-  if (descriptor.contains("outputSchema") == pending)
+  const QJsonValue listed = successSchemas().value(name);
+  if (listed.isObject() == descriptor.contains("outputSchema"))
     throw Error("internal_error",
                 "Tool " + name +
-                    (pending ? " has an outputSchema: remove it from "
-                               "pendingOutputSchemas"
-                             : " has no outputSchema: give its descriptor one "
-                               "with withOutputSchema") +
-                    " (automation_effects.cpp).");
+                    (listed.isObject()
+                         ? " has an outputSchema in its descriptor and in "
+                           "automation_output_schemas.json; keep one."
+                         : " has no outputSchema: add its success shape to "
+                           "automation_output_schemas.json."));
+  if (listed.isObject())
+    return declaredTool(withOutputSchema(descriptor, listed.toObject()),
+                        found->effects, found->errors);
   return declaredTool(descriptor, found->effects, found->errors);
 }
 
 QStringList declaredToolNames() { return declarations().keys(); }
+
+QStringList outputSchemaNames() { return successSchemas().keys(); }
 
 bool advancesRevision(const QJsonObject& descriptor) {
   static const QSet<QString> advancing{"writes", "creates", "discards"};

@@ -641,7 +641,7 @@ endif()
 set(OBJCSOURCES filebrowsermodel.cpp)
 
 # Resource file(s)
-set(RESOURCES toonz.qrc)
+set(RESOURCES toonz.qrc automation_schemas.qrc)
 
 if(BUILD_ENV_MSVC)
     set(RC_FILE toonz.rc)

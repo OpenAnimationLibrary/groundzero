@@ -32,6 +32,9 @@ QJsonObject declaredTool(const QJsonObject& descriptor);
 // The names of the tools the effect table declares, for the census check.
 QStringList declaredToolNames();
 
+// The names of the tools automation_output_schemas.json describes.
+QStringList outputSchemaNames();
+
 // Whether a successful write advances the revision of its document.
 bool advancesRevision(const QJsonObject& descriptor);
 

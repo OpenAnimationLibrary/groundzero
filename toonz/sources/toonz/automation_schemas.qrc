@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/automation">
+    <file>automation_output_schemas.json</file>
+  </qresource>
+</RCC>
