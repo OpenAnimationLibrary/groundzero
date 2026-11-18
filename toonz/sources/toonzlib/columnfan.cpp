@@ -2,8 +2,10 @@
 
 #include "toonz/columnfan.h"
 #include "toonz/preferences.h"
+#include "toonz/txsheet.h"
 
 // TnzCore includes
+#include "texception.h"
 #include "tstream.h"
 
 // STD includss
@@ -174,6 +176,9 @@ void ColumnFan::loadData(TIStream &is) {
   while (!is.eos()) {
     int index = 0, count = 0;
     is >> index >> count;
+    const int maxColumnCount = TXsheet::maxColumnCount;
+    if (index < 0 || index >= maxColumnCount || count > maxColumnCount - index)
+      throw TException("folded columns outside the xsheet");
     int j;
     for (j = 0; j < count; j++) deactivate(index + j);
   }

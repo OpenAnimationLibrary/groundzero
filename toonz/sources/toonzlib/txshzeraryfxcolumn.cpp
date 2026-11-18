@@ -155,8 +155,9 @@ void TXshZeraryFxColumn::loadData(TIStream &is) {
             touched = true;
             if (getRange(r0, r1)) removeCells(r0, r1 - r0 + 1);
           }
-          int r, n;
+          int r = 0, n = 0;
           is >> r >> n;
+          checkLoadedRows(r, n);
           for (int i = 0; i < n; i++) setCell(r++, cell);
         } else
           throw TException("expected <cell>");
