@@ -516,6 +516,7 @@ int domainTestResult(Context& context) {
     runAutomationMacroTests(context);
     runAutomationTextTests(context);
     runAutomationMediaProcessTests(context);
+    runAutomationSceneHostTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "

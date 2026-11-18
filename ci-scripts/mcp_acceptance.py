@@ -47,6 +47,7 @@ import mcp_recipe_cases
 import mcp_render_cases
 import mcp_renumber_cases
 import mcp_rig_cases
+import mcp_scene_access_cases
 import mcp_scene_cases
 import mcp_storyboard_cases
 import mcp_studio_palette_cases
@@ -325,6 +326,30 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_shared_parser_failures_leave_worker_serving(self) -> None:
         mcp_library_cases.shared_parser_failures_leave_worker_serving(self)
+
+    def test_read_only_journey_renders_and_preserves_sources(self) -> None:
+        mcp_scene_access_cases.read_only_journey_renders_and_preserves_sources(self)
+
+    def test_read_only_render_admission_refuses_unsafe_content(self) -> None:
+        mcp_scene_access_cases.read_only_render_admission_refuses_unsafe_content(self)
+
+    def test_read_only_rejections_and_limits(self) -> None:
+        mcp_scene_access_cases.read_only_rejections_and_limits(self)
+
+    def test_read_only_documents_refuse_mutations(self) -> None:
+        mcp_scene_access_cases.read_only_documents_refuse_mutations(self)
+
+    def test_read_only_receipts_sources_and_lost_hosts(self) -> None:
+        mcp_scene_access_cases.read_only_receipts_sources_and_lost_hosts(self)
+
+    def test_read_only_hosts_contain_native_failures(self) -> None:
+        mcp_scene_access_cases.read_only_hosts_contain_native_failures(self)
+
+    def test_read_only_projects_bind_their_own_folders(self) -> None:
+        mcp_scene_access_cases.read_only_projects_bind_their_own_folders(self)
+
+    def test_read_only_level_prechecks_refuse_before_native_load(self) -> None:
+        mcp_scene_access_cases.read_only_level_prechecks_refuse_before_native_load(self)
 
     def test_text_outline_round_trip_and_edit(self) -> None:
         mcp_text_cases.text_outline_round_trip_and_edit(self)
