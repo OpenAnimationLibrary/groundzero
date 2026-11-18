@@ -80,7 +80,7 @@ def sample(schema: dict[str, Any]) -> Any:
         return schema["const"]
     if "enum" in schema:
         return schema["enum"][0]
-    if "oneOf" in schema and "type" not in schema:
+    if "oneOf" in schema and ("type" not in schema or "type" in schema["oneOf"][0]):
         return sample(schema["oneOf"][0])
     kind = schema.get("type")
     if kind == "object":
