@@ -125,6 +125,10 @@ the camera size, the camera placement and the placement of every column upstream
 A job whose padding would pass the parameter's `max_px` (1024 pixels for most) fails
 with `fx_preflight_failed` and details `{reason, fx_id, parameter, frame, extent_px,
 max_px}`; erode/dilate also requires an unmirrored placement (`positive_determinant`).
+A render job that is still running ten minutes after submission is stopped as
+cancellation would stop it and ends with status `deadline_exceeded`: its writers are
+closed, it publishes no artifacts, and the worker keeps serving. A job stops between
+frames and tiles, so the status can read `cancellation_requested` for a while first.
 Render jobs report `fx_provenance`: the type, native version, replay class and seeds
 of every effect the output renders. `fx.graph` reports `REQUIRED_INPUT_MISSING` while
 backlit has no Light, light wrap no Background or local blur no Reference input.
