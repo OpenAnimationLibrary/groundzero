@@ -132,6 +132,12 @@ def _raw_wav(tag: int, channels: int, bits: int, data: bytes, align: int | None 
     return b"RIFF" + struct.pack("<I", len(body + data)) + body + data
 
 
+def _aiff_with_bits(bits: int) -> bytes:
+    data = bytearray(aiff_file(constant(8000, "pcm_s24", 4, 1)))
+    data[26:28] = struct.pack(">h", bits)
+    return bytes(data)
+
+
 def _bad_sources() -> dict[str, tuple[bytes, str]]:
     oversized = _raw_wav(1, 1, 16, bytes(8))
     oversized = oversized[:40] + struct.pack("<I", 0x7FFFFFF0) + oversized[44:]
@@ -146,7 +152,7 @@ def _bad_sources() -> dict[str, tuple[bytes, str]]:
         "three-channels": (_raw_wav(1, 3, 16, bytes(12)), "unsupported_format"),
         "int32": (_raw_wav(1, 1, 32, bytes(8)), "unsupported_format"),
         "aifc": (aiff_file(constant(8000, "pcm_s16", 4, 1), b"AIFC"), "unsupported_format"),
-        "aiff24": (aiff_file(constant(8000, "pcm_s24", 4, 1)), "unsupported_format"),
+        "aiff32": (_aiff_with_bits(32), "unsupported_format"),
         "low-rate": (wav_file(constant(4000, "pcm_s16", 8, 1)), "unsupported_format"),
         "mp3": (b"ID3" + bytes(64), "unsupported_format"),
     }
@@ -630,3 +636,71 @@ def audio_movie_render_stays_video_only(case: NativeAcceptance) -> None:
     path = mcp_movie_cases._check_artifact(case, artifact)
     mcp_movie_cases._probe(case, path, artifact)
     case.assertEqual(_inspect(case, document)["columns"][0]["audible"], True)
+
+
+AIFF24_CASES = (
+    (1, 24000, 25, 1),
+    (2, 24000, 25, 1),
+    (1, 24000, 25, 1920),
+    (2, 24000, 25, 2880),
+    (1, 22075, 25, 883),
+    (2, 22075, 25, 2649),
+    (1, 22075, 25, 4411),
+)
+
+
+def _aiff24_source(rate: int, channels: int, count: int) -> Source:
+    """A ramp whose last sample sits at full scale, so an unconverted tail cannot match."""
+    ramp = tone(rate, "pcm_s24", count, channels, step=100003)
+    edge = (8388607.0, -8388608.0)
+    last = tuple(edge[channel % 2] for channel in range(channels))
+    return Source(rate, "pcm_s24", (*ramp.frames[:-1], last))
+
+
+def _aiff24_scene(
+    case: NativeAcceptance, fps: float, source: Source
+) -> tuple[str, str, Clip, bytes]:
+    document = _scene(case, fps)
+    data = aiff_file(source)
+    record = _check_import(case, document, "Wide", data, source)
+    case.assertEqual((record["container"], record["decoded_by"]), ("aiff", "native_aiff"))
+    case.assertEqual(record["format"]["codec"], "pcm_s24")
+    frames = max(1, int(len(source.frames) / source.rate * fps))
+    clip = Clip(source, 0, 0, frames)
+    column = _column(case, document)
+    _place(case, document, column, record["level_id"], clip)
+    if clip.count < 2:
+        filler = constant(source.rate, "pcm_s24", source.rate, 0)
+        level = _import(case, document, "Filler", wav_file(filler))["level_id"]
+        _place(case, document, _column(case, document), level, Clip(filler, 0, 0, 3))
+    return document, column, clip, data
+
+
+def audio_aiff24_round_trips_every_sample(case: NativeAcceptance) -> None:
+    """Import, mix, save and reopen 24-bit AIFF with the decoded PCM equal sample for sample."""
+    for channels, rate, fps, count in AIFF24_CASES:
+        with case.subTest(channels=channels, rate=rate, count=count):
+            source = _aiff24_source(rate, channels, count)
+            document, column, clip, data = _aiff24_scene(case, fps, source)
+            end = clip.count - 1
+            mixable = clip.count > 1
+            expected = offline_mix([Column([clip], 1000)], 0, end, fps) if mixable else None
+            if expected:
+                _assert_mix(case, _mixdown(case, document, 0, end), expected)
+            saved = case.mutate(
+                "scene.save_copy",
+                document,
+                directory=str(case.workspace / f"aiff24-{channels}-{rate}-{count}"),
+            )
+            info = case.success("scene.package_info", {"path": saved["package_directory"]})
+            aiff = [entry["path"] for entry in info["sounds"] if entry["path"].endswith(".aif")]
+            case.assertEqual(len(aiff), 1)
+            case.assertEqual((Path(saved["package_directory"]) / aiff[0]).read_bytes(), data)
+            reopened = case.mutate("scene.open", None, path=saved["package_directory"])
+            record = _inspect(case, reopened["document_id"])["sources"][0]
+            case.assertEqual(record["pcm_sha256"], pcm_sha256(source))
+            case.assertEqual(record["sample_count"], count)
+            if expected:
+                _assert_mix(case, _mixdown(case, reopened["document_id"], 0, end), expected)
+            case.mutate("scene.discard", reopened["document_id"])
+            case.mutate("scene.discard", document)

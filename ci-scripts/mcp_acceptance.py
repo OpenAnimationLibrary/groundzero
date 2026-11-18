@@ -254,6 +254,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_audio_mixdown_matches_independent_model(self) -> None:
         mcp_audio_cases.audio_mixdown_matches_independent_model(self)
 
+    def test_audio_aiff24_round_trips_every_sample(self) -> None:
+        mcp_audio_cases.audio_aiff24_round_trips_every_sample(self)
+
     def test_audio_mixdown_formats_and_saturation(self) -> None:
         mcp_audio_cases.audio_mixdown_formats_and_saturation(self)
 
