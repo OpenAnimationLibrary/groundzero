@@ -91,6 +91,7 @@ def instruction_like_text_is_returned_as_data_and_never_acted_on(case: NativeAcc
     worker = shared_worker(
         case, {"studio_palettes": case.directory / "studio", "library": case.directory / "library"}
     )
+    case.assertNotIn("error", worker.call("shared.roots", {}))
     documents = case.success("automation.list_documents", {})["documents"]
     before = Observation(case, _roots(case)[1:], worker)
     texts = _calls(case, worker, palette, item)
