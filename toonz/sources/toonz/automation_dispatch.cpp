@@ -181,8 +181,7 @@ void validateString(const QString& value, const QJsonObject& schema,
       !wholeStringPattern(schema.value("pattern").toString())
            .match(value)
            .hasMatch())
-    throw Error(schema.value("x-error-code").toString("invalid_params"),
-                path + ": String does not match its published pattern.");
+    reject(path, "String does not match its published pattern.");
 }
 
 void validateNumber(double value, const QJsonObject& schema,

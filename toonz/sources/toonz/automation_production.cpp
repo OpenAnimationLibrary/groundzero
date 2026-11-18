@@ -27,10 +27,8 @@
 #include <QSet>
 
 #include <algorithm>
-#include <cerrno>
-#ifndef _WIN32
-#include <sys/stat.h>
-#endif
+#include <filesystem>
+#include <system_error>
 #include <set>
 #include <vector>
 
@@ -530,16 +528,15 @@ QString resolveDependency(Report& report, const TFilePath& path) {
 }
 
 // Whether a lookup failed because access was denied rather than because the
-// entry is absent.
+// entry is absent. The UTF-16 path converts to the native encoding on every
+// platform.
 bool lookupDenied(const QString& path) {
-#ifdef _WIN32
-  Q_UNUSED(path);
-  return false;
-#else
-  struct stat status{};
-  return ::lstat(QFile::encodeName(path).constData(), &status) != 0 &&
-         (errno == EACCES || errno == EPERM);
-#endif
+  std::error_code failure;
+  const std::filesystem::file_status status = std::filesystem::symlink_status(
+      std::filesystem::path(path.toStdU16String()), failure);
+  return status.type() == std::filesystem::file_type::none &&
+         (failure == std::errc::permission_denied ||
+          failure == std::errc::operation_not_permitted);
 }
 
 void fileObservation(QJsonObject& row, const QString& path) {

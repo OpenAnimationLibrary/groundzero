@@ -342,7 +342,6 @@ def published_patterns_are_enforced_with_whole_string_semantics(case: NativeAcce
     covered = set()
     for tool in tools:
         for route, schema in _pattern_sites(tool["inputSchema"]):
-            code = schema.get("x-error-code", "invalid_params")
             for text in _line_break_variants(schema):
                 params = _instance(tool["inputSchema"], route, text)
                 response = case.worker.call(tool["name"], params)
@@ -351,8 +350,7 @@ def published_patterns_are_enforced_with_whole_string_semantics(case: NativeAcce
                 case.assertRegex(
                     message, "published pattern|exactly one supported|too (long|short)", label
                 )
-                expected = code if "published pattern" in message else "invalid_params"
-                case.assertEqual(response["error"]["code"], expected, label)
+                case.assertEqual(response["error"]["code"], "invalid_params", label)
                 exercised += 1
             covered.add(tool["name"])
     case.assertGreaterEqual(exercised, 150)

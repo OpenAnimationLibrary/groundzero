@@ -527,8 +527,7 @@ QJsonObject folderSchema() {
   return {{"type", "string"},
           {"minLength", 0},
           {"maxLength", 1024},
-          {"pattern", "^(?:" + segment + "(?:/" + segment + "){0,15})?$"},
-          {"x-error-code", "invalid_path"}};
+          {"pattern", "^(?:" + segment + "(?:/" + segment + "){0,15})?$"}};
 }
 
 QJsonObject palettePathSchema() {
@@ -536,8 +535,7 @@ QJsonObject palettePathSchema() {
   return {{"type", "string"},
           {"minLength", 5},
           {"maxLength", 1024},
-          {"pattern", "^(?:" + segment + "/){0,15}" + segment + "\\.tpl$"},
-          {"x-error-code", "invalid_path"}};
+          {"pattern", "^(?:" + segment + "/){0,15}" + segment + "\\.tpl$"}};
 }
 
 }  // namespace

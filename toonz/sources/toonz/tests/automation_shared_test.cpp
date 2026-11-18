@@ -293,10 +293,12 @@ void checkStudio(Context& context, Dispatcher& dispatcher) {
     RootsScope scope(context, {{"studio_palettes", {studio, false}}});
     checkListing(dispatcher);
     checkInspect(dispatcher, studio);
-    for (const QString& bad : {QString("../x"), QString("Global Palettes/"),
-                               QString("CON"), QString("a\\b")})
+    for (const QString& bad :
+         {QString("../x"), QString("Global Palettes/"), QString("a\\b")})
       failure(dispatcher, "studio_palette.list",
-              {{"root", "studio_palettes"}, {"folder", bad}}, "invalid_path");
+              {{"root", "studio_palettes"}, {"folder", bad}}, "invalid_params");
+    failure(dispatcher, "studio_palette.list",
+            {{"root", "studio_palettes"}, {"folder", "CON"}}, "invalid_path");
   }
   checkFind(context, dispatcher, studio, canonical(projectDirectory));
 }

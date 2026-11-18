@@ -660,8 +660,7 @@ QJsonObject nameSchema() {
   return {{"type", "string"},
           {"minLength", 1},
           {"maxLength", 120},
-          {"pattern", "^" + sharedSegmentPattern() + "$"},
-          {"x-error-code", "invalid_path"}};
+          {"pattern", "^" + sharedSegmentPattern() + "$"}};
 }
 
 }  // namespace
