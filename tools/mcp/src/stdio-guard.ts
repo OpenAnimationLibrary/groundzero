@@ -16,15 +16,15 @@ const MAX_ECHOED_ID_LENGTH = 128;
 export interface LineReply {
   code: number;
   message: string;
-  id: string | number | null;
+  id?: string | number;
 }
 
 export type LineVerdict = JSONRPCMessage | LineReply | undefined;
 
-function echoedId(id: unknown): string | number | null {
-  if (Number.isSafeInteger(id)) return id as number;
-  if (typeof id === "string" && id.length <= MAX_ECHOED_ID_LENGTH) return id;
-  return null;
+function echoedId(id: unknown): { id?: string | number } {
+  if (Number.isSafeInteger(id)) return { id: id as number };
+  if (typeof id === "string" && id.length <= MAX_ECHOED_ID_LENGTH) return { id };
+  return {};
 }
 
 function notificationOrResponse(value: Record<string, unknown>): boolean {
@@ -38,7 +38,8 @@ function notificationOrResponse(value: Record<string, unknown>): boolean {
  *   line: One line of client input without its line ending.
  * Returns:
  *   The parsed message; a reply for text that is not JSON (-32700) or for an invalid request
- *   (-32600, with its id only when that id is valid and short); or undefined for a blank line
+ *   (-32600, with its id only when that id is valid and short, as MCP leaves an unknown id
+ *   out rather than null); or undefined for a blank line
  *   and for an invalid notification or response, which JSON-RPC never answers.
  */
 export function classifyLine(line: string): LineVerdict {
@@ -47,14 +48,14 @@ export function classifyLine(line: string): LineVerdict {
   try {
     value = JSON.parse(line);
   } catch {
-    return { code: ProtocolErrorCode.ParseError, message: "Parse error", id: null };
+    return { code: ProtocolErrorCode.ParseError, message: "Parse error" };
   }
   try {
     return parseJSONRPCMessage(value);
   } catch {
     if (isObject(value) && notificationOrResponse(value)) return undefined;
-    const id = isObject(value) ? echoedId(value["id"]) : null;
-    return { code: ProtocolErrorCode.InvalidRequest, message: "Invalid Request", id };
+    const id = isObject(value) ? echoedId(value["id"]) : {};
+    return { code: ProtocolErrorCode.InvalidRequest, message: "Invalid Request", ...id };
   }
 }
 
@@ -90,8 +91,8 @@ export function guardedStdioTransport(
       transport.onmessage?.(verdict);
       return;
     }
-    const { code, message, id } = verdict;
-    const reply = { jsonrpc: "2.0", id, error: { code, message } } as unknown as JSONRPCMessage;
+    const { code, message, ...id } = verdict;
+    const reply: JSONRPCMessage = { jsonrpc: "2.0", ...id, error: { code, message } };
     transport.send(reply).catch((error: unknown) => transport.onerror?.(error as Error));
   };
   const overflow = () => {

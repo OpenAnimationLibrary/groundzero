@@ -1,5 +1,6 @@
 import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from "@modelcontextprotocol/server";
 import type { JSONRPCMessage } from "@modelcontextprotocol/server";
+import { ReadBuffer } from "@modelcontextprotocol/client";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { PassThrough } from "node:stream";
 import { setTimeout as pause } from "node:timers/promises";
@@ -45,14 +46,11 @@ test("the SDK transport still closes on input over the bound the guard keeps", a
 });
 
 test.each([
-  ["{bad", { code: -32700, message: "Parse error", id: null }],
-  ["7", { code: -32600, message: "Invalid Request", id: null }],
+  ["{bad", { code: -32700, message: "Parse error" }],
+  ["7", { code: -32600, message: "Invalid Request" }],
   ['{"jsonrpc":"2.0","id":7,"method":7}', { code: -32600, message: "Invalid Request", id: 7 }],
   ['{"jsonrpc":"2.0","id":"a","params":[]}', { code: -32600, message: "Invalid Request", id: "a" }],
-  [
-    '{"jsonrpc":"2.0","id":1.5,"method":"x"}',
-    { code: -32600, message: "Invalid Request", id: null },
-  ],
+  ['{"jsonrpc":"2.0","id":1.5,"method":"x"}', { code: -32600, message: "Invalid Request" }],
   ['{"jsonrpc":"2.0","method":7}', undefined],
   ['{"jsonrpc":"2.0","id":3,"result":7,"error":{}}', undefined],
   ["  ", undefined],
@@ -79,4 +77,35 @@ test("passes valid messages to the transport and answers a malformed request onc
   input.end();
   await pause(20);
   expect(closed).toBe(true);
+});
+
+test("every reply kind parses as an MCP message in the SDK client's reader", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const transport = guardedStdioTransport(input, output);
+  const reader = new ReadBuffer();
+  output.on("data", (chunk: Buffer) => reader.append(chunk));
+  await transport.start();
+  input.write(
+    [
+      "{bad json",
+      "[]",
+      '{"jsonrpc":"2.0","id":{"x":1},"method":"ping"}',
+      '{"jsonrpc":"1.0","id":7,"method":"ping"}',
+      '{"jsonrpc":"1.0","id":"seven","method":"ping"}',
+    ].join("\n") + "\n",
+  );
+  await pause(20);
+  const parsed: JSONRPCMessage[] = [];
+  for (let message = reader.readMessage(); message; message = reader.readMessage()) {
+    parsed.push(message);
+  }
+  expect(parsed.map((message) => ("id" in message ? message.id : undefined))).toEqual([
+    undefined,
+    undefined,
+    undefined,
+    7,
+    "seven",
+  ]);
+  await transport.close();
 });

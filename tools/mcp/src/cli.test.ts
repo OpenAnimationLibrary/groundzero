@@ -44,30 +44,18 @@ async function nativeRequests(log: string): Promise<string[]> {
 
 type Frame = Record<string, unknown>;
 
-/** Accept an MCP message, or the JSON-RPC error with a null id that answers a malformed line. */
-function mcpFrame(line: string): Frame {
-  const value: unknown = JSON.parse(line);
-  if (isObject(value) && value["id"] === null) {
-    expect(Object.keys(value).sort()).toEqual(["error", "id", "jsonrpc"]);
-    expect(value["jsonrpc"]).toBe("2.0");
-    expect(Object.keys(value["error"] as object).sort()).toEqual(["code", "message"]);
-    return value;
-  }
-  return parseJSONRPCMessage(value) as Frame;
-}
-
 /** Parse adapter stdout, requiring every byte to belong to a newline-ended MCP frame. */
 function mcpFrames(stdout: string): Frame[] {
   expect(stdout === "" || stdout.endsWith("\n")).toBe(true);
   return stdout
     .split("\n")
     .filter((line) => line !== "")
-    .map(mcpFrame);
+    .map((line) => parseJSONRPCMessage(JSON.parse(line)) as Frame);
 }
 
 function malformedReply(id: number | string | null, code: number): Frame {
   const message = code === -32700 ? "Parse error" : "Invalid Request";
-  return { jsonrpc: "2.0", id, error: { code, message } };
+  return { jsonrpc: "2.0", ...(id === null ? {} : { id }), error: { code, message } };
 }
 
 function children(pid: number | undefined): number[] {

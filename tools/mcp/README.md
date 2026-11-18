@@ -431,7 +431,7 @@ Each MCP connection gets one native worker, started when the client first lists 
 calls tools rather than during protocol negotiation. If it cannot start, that call
 and every later one that needs it fail with `WORKER_UNAVAILABLE`, and the reason is
 written to stderr. An input line that is not JSON is answered with JSON-RPC error
-`-32700` and an invalid request with `-32600`, both with a null `id` unless the
+`-32700` and an invalid request with `-32600`, both without an `id` unless the
 request carries a valid one; invalid notifications and responses get no reply. A
 line over 10 MiB closes the connection without a reply. The adapter declares no
 tasks capability, so a tool call carrying a `task` field is processed normally and
