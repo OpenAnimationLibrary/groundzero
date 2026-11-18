@@ -666,6 +666,7 @@ def finished_render_folder_is_swept_once_its_worker_is_gone(case: NativeAcceptan
     """A finished job's folder stays while its worker lives and goes when a later worker starts."""
     if os.name == "nt":
         case.skipTest("The fixture reads POSIX process tables")
+    case.success("automation.list_documents", {})
     alive = _native_pids(case.workspace)
     victim = _second_worker(case, "victim")
     primary, case.worker = case.worker, victim
