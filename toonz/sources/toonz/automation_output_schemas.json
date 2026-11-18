@@ -17991,9 +17991,9 @@
                 "const": "groundzero",
                 "type": "string"
               },
-              "executable_sha256": {
-                "maxLength": 64,
-                "minLength": 64,
+              "build_digest": {
+                "maxLength": 80,
+                "minLength": 1,
                 "type": "string"
               },
               "version": {
@@ -18005,7 +18005,7 @@
             "required": [
               "application",
               "version",
-              "executable_sha256"
+              "build_digest"
             ],
             "type": "object"
           },
