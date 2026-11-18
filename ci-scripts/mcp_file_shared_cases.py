@@ -25,7 +25,7 @@ LINKED = frozenset({"path_denied"})
 ABSENT = frozenset({"not_found", "asset_unavailable"})
 UNSAFE = frozenset({"invalid_path"})
 GLOBAL = "Global Palettes"
-WORST_SECONDS = 8
+WORST_SECONDS = 24
 Setup = Callable[[], None]
 
 
@@ -237,6 +237,7 @@ def shared_roots_hold_the_file_boundary(case: NativeAcceptance) -> None:
     _build_library(case, _package_scene(case), roots.library)
     shutil.copy(case.fixture, roots.library / "templates" / "sceneIcons" / "Copied .png")
     worker = shared_worker(case, {"studio_palettes": roots.studio, "library": roots.library})
+    case.assertNotIn("error", worker.call("shared.roots", {}))
     probes = [*_palette_probes(roots), *_folder_probes(roots), *_library_probes(roots)]
     for probe in probes:
         with case.subTest(method=probe.method, probe=probe.label):

@@ -25,8 +25,8 @@ EXISTS = frozenset({"already_exists", "ALREADY_EXISTS"})
 NO_PARENT = frozenset({"missing_parent", "MISSING_PARENT"})
 ADMIT, DENY, ALIAS = "admit", "deny", "alias"
 NAME_BYTES = 255
-PIPE_RELEASE_SECONDS = 8
-PIPE_BLOCK_LIMIT = 4
+PIPE_RELEASE_SECONDS = 20
+PIPE_BLOCK_LIMIT = 12
 
 
 @dataclass

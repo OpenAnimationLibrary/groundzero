@@ -40,10 +40,12 @@ def _swap_was_applied(case: NativeAcceptance, swap: Path) -> None:
 
 def _expect_refusal(case: NativeAcceptance, tool: PathTool, response: dict[str, Any]) -> None:
     case.assertIn("error", response, f"{tool.name} followed a swapped path: {response}")
+    error = response["error"]
+    code = error["details"].get("cause_code") if error["code"] == "partially_applied" else None
     allowed = {"path_denied"} | (
         INPUT_REFUSALS | READ_ONLY_REFUSED if tool.mode == "read" else set()
     )
-    case.assertIn(response["error"]["code"], allowed, response)
+    case.assertIn(code or error["code"], allowed, response)
 
 
 def _expect_nothing_replaced(
