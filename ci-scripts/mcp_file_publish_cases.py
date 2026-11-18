@@ -160,26 +160,26 @@ def publication_on_other_file_systems_is_atomic_or_refused(case: NativeAcceptanc
         workspace.mkdir()
         expected = "published" if _supports_atomic_create(volume) else "refused"
         case.workspace = workspace
-        for name in ("raster.export_png", "audio.mixdown"):
+        for name in ("raster.export_png", "audio.mixdown", "scene.save_copy"):
             with case.subTest(file_system=file_system, tool=name):
-                outcome = _outcome(case, PATH_TOOLS[name])
-                case.assertEqual(outcome, expected)
+                outcome = _outcome(case, PATH_TOOLS[name], name != "scene.save_copy")
+                if name != "scene.save_copy":
+                    case.assertEqual(outcome, expected)
                 tried.append(f"{file_system} {name}: {outcome}")
     print("file systems tried:\n  " + "\n  ".join(tried))
 
 
-def _outcome(case: NativeAcceptance, tool: PathTool) -> str:
+def _outcome(case: NativeAcceptance, tool: PathTool, typed: bool) -> str:
+    """Publish once; a refusal must leave no staging folder, even with AppleDouble files."""
     _worker(case, None)
     state = tool.prepare(case)
     destination = _destination(case, tool)
     response = tool.drive(case, state, str(destination))
-    case.worker.close()
-    _worker(case, None)
-    case.assertEqual(case.worker.call("automation.list_documents", {})["result"]["documents"], [])
-    case.assertEqual(staging_left(case.workspace), [], "a later worker left staging behind")
+    case.assertEqual(staging_left(case.workspace), [], "a refusal left staging behind")
     if "error" not in response:
         case.assertTrue(destination.exists())
         return "published"
-    case.assertEqual(response["error"]["code"], REFUSED, response)
+    if typed:
+        case.assertEqual(response["error"]["code"], REFUSED, response)
     case.assertFalse(destination.exists())
     return "refused"

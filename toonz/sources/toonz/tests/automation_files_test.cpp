@@ -225,6 +225,36 @@ void checkPublicationPrimitives(const QString& root) {
   armPublishFaults({});
 }
 
+void checkTreeRemoval(const QString& root) {
+  QTemporaryDir temporary(root + "/files-XXXXXX");
+  const QString base    = sandbox(temporary, "tree");
+  const QString outside = sandbox(temporary, "outside");
+  write(outside + "/keep.txt", "keep");
+  QDir().mkpath(base + "/staging/a/b");
+  write(base + "/staging/a/b/deep.txt", "deep");
+  write(base + "/staging/top.txt", "top");
+  write(base + "/staging/._top.txt", "companion");
+  require(QFile::link(outside, base + "/staging/link"),
+          "Cannot link a fixture");
+  require(removeApprovedTree(base + "/staging"),
+          "A tree with links must be removed");
+  require(!QFileInfo(base + "/staging").exists(), "The tree is gone");
+  require(contents(outside + "/keep.txt") == "keep",
+          "Removing a tree never follows a link out of it");
+  require(removeApprovedTree(base + "/staging"),
+          "A missing tree counts as removed");
+  QDir().mkpath(base + "/swapped/inner");
+  write(outside + "/inner-keep.txt", "keep");
+  require(QFile::rename(base + "/swapped", base + "/swapped.kept") &&
+              QFile::link(outside, base + "/swapped"),
+          "Cannot swap a fixture");
+  require(throwsDenied([&] { removeApprovedTree(base + "/swapped/inner"); }) ||
+              !removeApprovedTree(base + "/swapped/inner"),
+          "A redirected tree is refused");
+  require(contents(outside + "/inner-keep.txt") == "keep",
+          "A redirected removal leaves the target alone");
+}
+
 void checkHardLinks(const QString& root) {
   QTemporaryDir temporary(root + "/files-XXXXXX");
   const QString base    = sandbox(temporary, "hard");
@@ -258,6 +288,7 @@ void runAutomationFilesTests(Context& context) {
   checkSwaps(root);
   checkHardLinks(root);
   checkPublicationPrimitives(root);
+  checkTreeRemoval(root);
 #endif
   std::cerr << "automation-files-test: PASS\n";
 }

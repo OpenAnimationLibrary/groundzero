@@ -685,6 +685,10 @@ def finished_render_folder_is_swept_once_its_worker_is_gone(case: NativeAcceptan
     document = _scene(case, 4)
     job = case.mutate("render.submit", document, **SEQUENCE)["job_id"]
     case.assertEqual(case.wait_job(job)["status"], "completed")
+    result = case.success("job.result", {"job_id": job})
+    case.assertEqual(result["job"]["status"], "completed")
+    artifact = result["artifacts"][0]["artifact_id"]
+    case.assertEqual(case.success("artifact.read", {"artifact_id": artifact})["frame"], 0)
     case.worker = primary
     folders = list(case.workspace.glob("renders/job_*"))
     case.assertEqual(len(folders), 1)

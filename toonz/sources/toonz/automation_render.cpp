@@ -438,7 +438,10 @@ public:
   void releaseOutput(bool keep) {
     if (keep) return;
     ownership.release();
-    QDir(directory).removeRecursively();
+    try {
+      removeApprovedTree(directory);
+    } catch (const Error&) {
+    }
   }
 
   bool holding(const char* point, std::function<void()> resume) {

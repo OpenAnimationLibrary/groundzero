@@ -1700,9 +1700,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_publication_on_other_file_systems_is_atomic_or_refused",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
     "ci-scripts/mcp_acceptance.py::test_package_publish_failure_reports_what_is_on_disk",
-    "ci-scripts/mcp_acceptance.py::test_package_write_refusals_leave_nothing_behind",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_audio_test.cpp",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
