@@ -780,6 +780,8 @@ void TFx::loadData(TIStream &is) {
 
           is.closeChild();
         }
+        // Text or a <tag/> is not a parameter: the loop would never pass it
+        if (!is.eos()) throw TException("expected a parameter tag in <params>");
       }
     } else if (tagName == "paramsLinkedTo") {
       TPersist *p = 0;
@@ -834,6 +836,8 @@ void TFx::loadData(TIStream &is) {
 
           is.closeChild();
         }
+        // Text or a <tag/> is not a port: the loop would never pass it
+        if (!is.eos()) throw TException("expected a port tag in <ports>");
       }
     } else if (tagName == "dagNodePos") {
       TPointD p;
@@ -1005,6 +1009,8 @@ void TFx::loadPreset(TIStream &is) {
           }  // Parameter not present
           is.closeChild();
         }
+        // Text or a <tag/> is not a parameter: the loop would never pass it
+        if (!is.eos()) throw TException("expected a parameter tag in <params>");
       }
     } else {
       throw TException("Fx preset unknown tag!");
