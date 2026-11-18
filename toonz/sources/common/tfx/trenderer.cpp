@@ -1435,6 +1435,12 @@ void RenderTask::onFinished(TThread::RunnableP) {
   // This main-thread slot runs after the worker's complete/failure callback.
   // Release its render outputs before admitting another output window.
   releaseTiles();
+  // The pool worker drops its reference to this task only after it has emitted
+  // finished(), so it can destroy the task after the render is reported
+  // finished. Destroying the frame graph unregisters its ports from the scene's
+  // column FX, whose port sets are unsynchronized: release it on this thread,
+  // before the owner of the scene can be told the render is over.
+  m_fx = TFxPair();
   {
     QMutexLocker locker(&rendererImp->m_renderInstancesMutex);
     auto it = rendererImp->m_activeInstances.find(m_renderId);
