@@ -1038,7 +1038,7 @@ QJsonValue mixdown(Context& context, const QJsonObject& params) {
   const QString staged   = staging.filePath("mix.wav");
   const QByteArray bytes = stageMix(mix, staged);
   context.markMutationStarted();
-  if (QFileInfo::exists(request.output) ||
+  if (QFileInfo::exists(request.output) || context.writeFaultArmed("publish") ||
       !QFile::rename(staged, request.output))
     throw Error("io_error", "Cannot publish the verified mixdown file.");
   ++mixdownArtifacts.files;

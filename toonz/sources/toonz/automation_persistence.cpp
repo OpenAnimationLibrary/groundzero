@@ -512,7 +512,8 @@ Package publishPackage(Context& context, Document& document,
   const Package package = writePackage(document, staging.path());
   reopenPackage(context, staging.path(), package);
   context.markMutationStarted();
-  if (QFileInfo(path).exists() || !QDir().rename(staging.path(), path))
+  if (QFileInfo(path).exists() || context.writeFaultArmed("publish") ||
+      !QDir().rename(staging.path(), path))
     throw Error("package_write_failed",
                 "Cannot publish the verified package directory.");
   staging.setAutoRemove(false);
