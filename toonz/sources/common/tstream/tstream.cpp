@@ -665,6 +665,13 @@ public:
   bool matchValue(std::string &value);
 
   void skipCurrentTag();
+
+  // Called before a begin tag is entered
+  void checkTagDepth() const {
+    if (m_tagStack.size() >= TStreamLimits::maxTagDepth)
+      throw TException("tags are nested more than " +
+                       std::to_string(TStreamLimits::maxTagDepth) + " deep");
+  }
 };
 
 //---------------------------------------------------------------
@@ -1179,6 +1186,7 @@ TIStream &TIStream::operator>>(TPersist *&v) {
 
   Imp::PersistTable::iterator pit = m_imp->m_table.find(id);
   if (pit == m_imp->m_table.end()) {
+    if (tag.m_type == StreamTag::BeginTag) m_imp->checkTagDepth();
     v = TPersistFactory::instance()->create(tagName);
     if (!v) throw TException("unable to create a persistent '" + tagName + "'");
     m_imp->m_table[id] = v;
@@ -1232,6 +1240,8 @@ bool TIStream::eos() {
 bool TIStream::matchTag(std::string &tagName) {
   if (!m_imp->matchTag()) return false;
   if (m_imp->m_currentTag.m_type == StreamTag::EndTag) return false;
+  if (m_imp->m_currentTag.m_type != StreamTag::BeginEndTag)
+    m_imp->checkTagDepth();
   tagName                    = m_imp->m_currentTag.m_name;
   m_imp->m_currentTag.m_name = "";
   if (m_imp->m_currentTag.m_type != StreamTag::BeginEndTag)
@@ -1285,6 +1295,7 @@ bool TIStream::isBeginEndTag() {
 bool TIStream::openChild(std::string &tagName) {
   if (!m_imp->matchTag()) return false;
   if (m_imp->m_currentTag.m_type != StreamTag::BeginTag) return false;
+  m_imp->checkTagDepth();
   tagName                    = m_imp->m_currentTag.m_name;
   m_imp->m_currentTag.m_name = "";
   m_imp->m_tagStack.push_back(tagName);
