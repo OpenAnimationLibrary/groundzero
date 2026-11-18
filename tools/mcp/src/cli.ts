@@ -26,6 +26,7 @@ function deferredWorker(options: WorkerOptions): NativeApi {
       closed = true;
       worker?.close();
     },
+    loss: () => worker?.loss(),
   };
 }
 
@@ -52,7 +53,11 @@ async function main(): Promise<void> {
         workers.delete(worker);
       };
       try {
-        const api = { request: worker.request.bind(worker), close };
+        const api = {
+          request: worker.request.bind(worker),
+          close,
+          ...("loss" in worker ? { loss: () => worker.loss?.() } : {}),
+        };
         if (live) return await createLiveServer(api, await live.ready);
         const toolsets = "toolsets" in options ? options.toolsets : ["core"];
         return createServer(api, toolsets, reportUnavailable);

@@ -35,7 +35,8 @@ QString projectIdForFile(const QString& canonicalProjectFile) {
 
 bool SourcePin::operator==(const SourcePin& other) const {
   return path == other.path && size == other.size && mtimeNs == other.mtimeNs &&
-         fileId == other.fileId && exists == other.exists;
+         fileId == other.fileId && exists == other.exists &&
+         digest == other.digest;
 }
 
 SourcePin statSourcePin(const QString& path) {
@@ -62,7 +63,10 @@ SourcePin statSourcePin(const QString& path) {
   const quint64 ticks = (quint64(info.ftLastWriteTime.dwHighDateTime) << 32) |
                         info.ftLastWriteTime.dwLowDateTime;
   pin.mtimeNs         = qint64(ticks * 100);
-  pin.fileId = (quint64(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+  pin.fileId  = (quint64(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+  pin.regular = !(info.dwFileAttributes &
+                  (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_DEVICE |
+                   FILE_ATTRIBUTE_REPARSE_POINT));
 #else
   struct stat info{};
   if (lstat(QFile::encodeName(path).constData(), &info) != 0) {
@@ -78,9 +82,36 @@ SourcePin statSourcePin(const QString& path) {
   pin.mtimeNs =
       qint64(info.st_mtim.tv_sec) * 1000000000LL + info.st_mtim.tv_nsec;
 #endif
-  pin.fileId = quint64(info.st_ino);
+  pin.fileId  = quint64(info.st_ino);
+  pin.regular = S_ISREG(info.st_mode);
 #endif
   return pin;
+}
+
+QByteArray contentDigest(const QString& path, qint64 size) {
+  constexpr qint64 ChunkBytes = 1024 * 1024;
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return {};
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  qint64 total = 0;
+  for (;;) {
+    const QByteArray chunk = file.read(ChunkBytes);
+    if (chunk.isEmpty()) break;
+    total += chunk.size();
+    if (total > size) return {};
+    hash.addData(chunk);
+  }
+  if (file.error() != QFileDevice::NoError || total != size) return {};
+  return hash.result();
+}
+
+SourcePin currentSourcePin(const SourcePin& pinned) {
+  SourcePin current = statSourcePin(pinned.path);
+  if (!pinned.digest.isEmpty() && current.regular &&
+      current.size == pinned.size && current.mtimeNs == pinned.mtimeNs &&
+      current.fileId == pinned.fileId)
+    current.digest = contentDigest(pinned.path, current.size);
+  return current;
 }
 
 void addSourcePin(ReadOnlyScene& source, const QString& path) {
@@ -90,19 +121,26 @@ void addSourcePin(ReadOnlyScene& source, const QString& path) {
         "scene_limit", "The scene reads more than 65,536 files.",
         {{"limit", "pinned_files"}, {"value", int(source.pins.size()) + 1}});
   source.pinnedPaths.insert(path);
-  source.pins.push_back(statSourcePin(path));
+  SourcePin pin = statSourcePin(path);
+  if (pin.regular && pin.size <= PinDigestFileBytes &&
+      source.digestedBytes + pin.size <= PinDigestTotalBytes) {
+    pin.digest = contentDigest(path, pin.size);
+    if (!pin.digest.isEmpty()) source.digestedBytes += pin.size;
+  }
+  source.pins.push_back(pin);
 }
 
 QString sourceFingerprint(const QStringList& revisions,
                           const std::vector<SourcePin>& pins) {
   QStringList lines;
   for (const SourcePin& pin : pins)
-    lines.append(QString("%1\t%2\t%3\t%4\t%5")
+    lines.append(QString("%1\t%2\t%3\t%4\t%5\t%6")
                      .arg(pin.path)
                      .arg(pin.exists ? 1 : 0)
                      .arg(pin.size)
                      .arg(pin.mtimeNs)
-                     .arg(pin.fileId));
+                     .arg(pin.fileId)
+                     .arg(QString::fromLatin1(pin.digest.toHex())));
   std::sort(lines.begin(), lines.end());
   QByteArray canonical = revisions.join('\n').toUtf8();
   canonical.append('\n');
@@ -116,7 +154,7 @@ QString sourceFingerprint(const QStringList& revisions,
 QStringList changedSourcePins(const std::vector<SourcePin>& pins) {
   QStringList changed;
   for (const SourcePin& pin : pins)
-    if (statSourcePin(pin.path) != pin) changed.append(pin.path);
+    if (currentSourcePin(pin) != pin) changed.append(pin.path);
   return changed;
 }
 
@@ -137,6 +175,24 @@ QString pinChange(const SourcePin& pinned, const SourcePin& current) {
   if (!current.exists) return current.unreadable ? "unreadable" : "missing";
   if (current.fileId != pinned.fileId) return "replaced";
   return "modified";
+}
+
+// What a check compares: content and metadata, or metadata only.
+QJsonObject verification(const std::vector<SourcePin>& pins) {
+  int content      = 0;
+  int metadataOnly = 0;
+  QJsonArray paths;
+  for (const SourcePin& pin : pins) {
+    if (!pin.digest.isEmpty()) {
+      ++content;
+      continue;
+    }
+    ++metadataOnly;
+    if (paths.size() < MetadataOnlyPathLimit) paths.append(pin.path);
+  }
+  return {{"content_checked_files", content},
+          {"metadata_only_files", metadataOnly},
+          {"metadata_only_paths", paths}};
 }
 
 }  // namespace
@@ -160,7 +216,7 @@ QJsonObject sourceStatus(Document& document) {
   int count      = 0;
   bool sceneGone = false;
   for (const SourcePin& pin : source.pins) {
-    current.push_back(statSourcePin(pin.path));
+    current.push_back(currentSourcePin(pin));
     if (current.back() == pin) continue;
     ++count;
     if (pin.path == source.scenePath && !current.back().exists)
@@ -179,6 +235,7 @@ QJsonObject sourceStatus(Document& document) {
           {"changed", changed},
           {"changed_count", count},
           {"checked_files", int(current.size())},
+          {"verification", verification(source.pins)},
           {"elapsed_ms", double(timer.elapsed())}};
 }
 

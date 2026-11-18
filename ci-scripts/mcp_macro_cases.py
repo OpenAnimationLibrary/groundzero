@@ -69,7 +69,7 @@ def _assert_snapshot_frames(
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], "completed", status)
     case.assertTrue(status["writers_closed"])
-    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     case.assertEqual([artifact["frame"] for artifact in artifacts], list(FRAMES))
     for artifact in artifacts:
         result = case.success("artifact.read", {"artifact_id": artifact["artifact_id"]})

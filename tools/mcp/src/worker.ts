@@ -4,6 +4,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WorkerError, isObject } from "#mcp/errors";
+import type { LossCause, WorkerLoss } from "#mcp/jobs-ledger";
 import type { WorkerOptions } from "#mcp/options";
 
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -38,6 +39,10 @@ export class WorkerConnection {
   private failure: WorkerError | undefined;
   private shutdownTimer: ReturnType<typeof setTimeout> | undefined;
   private nativeExit: string | undefined;
+  private lossCause: LossCause | undefined;
+  private killed = false;
+  private exitCode: number | null = null;
+  private exitSignal: string | null = null;
 
   /** Own a started worker or supervisor, the leader of its own process group.
    *
@@ -56,7 +61,7 @@ export class WorkerConnection {
     child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
     child.stdout.on("error", (error: Error) => this.fail(error.message));
     child.stdin.on("error", (error: Error) => this.fail(error.message));
-    child.on("error", (error: Error) => this.fail(error.message));
+    child.on("error", (error: Error) => this.fail(error.message, "worker_exit"));
     child.on("message", (message: unknown) => {
       if (!isObject(message) || message["type"] !== "native-exit") return;
       this.nativeExit =
@@ -67,8 +72,11 @@ export class WorkerConnection {
       if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
     });
     child.on("close", (code, signal) => {
+      this.exitCode = code;
+      this.exitSignal = signal;
       this.fail(
         this.nativeExit ?? `Worker exited (code ${String(code)}, signal ${String(signal)})`,
+        "worker_exit",
       );
     });
   }
@@ -93,7 +101,7 @@ export class WorkerConnection {
     }
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(
-        () => this.fail(`Timed out waiting for ${method}`),
+        () => this.fail(`Timed out waiting for ${method}`, "request_timeout"),
         this.timeoutMs,
       );
       this.pending.set(id, { resolve, reject, timeout });
@@ -109,11 +117,23 @@ export class WorkerConnection {
    * remove their partial output itself; it is stopped by signal only after a short grace period.
    */
   close(): void {
-    this.fail("MCP connection closed", true);
+    this.fail("MCP connection closed", "client_disconnect", true);
   }
 
-  private fail(message: string, graceful = false): void {
+  /** How the worker was lost, once it was; undefined while it serves. */
+  loss(): WorkerLoss | undefined {
+    if (!this.lossCause) return undefined;
+    return {
+      cause: this.lossCause,
+      adapter_killed_worker: this.killed,
+      exit_code: this.exitCode,
+      signal: this.exitSignal,
+    };
+  }
+
+  private fail(message: string, cause: LossCause = "protocol_failure", graceful = false): void {
     if (this.failure) return;
+    this.lossCause = cause;
     this.failure = new WorkerError("WORKER_UNAVAILABLE", message, {
       outcome_unknown: this.pending.size > 0,
       recovery: "Inspect saved workspace state before restarting; do not replay writes",
@@ -149,6 +169,7 @@ export class WorkerConnection {
       this.signal("SIGTERM");
       return;
     }
+    this.killed = true;
     this.child.send("stop", (error: Error | null) => {
       if (error) this.signal("SIGTERM");
     });
@@ -158,7 +179,9 @@ export class WorkerConnection {
   // child keeps its process ID, and so the ID of the group it leads, from being reused.
   // Node reaps a child and records its exit status in one step, so there is no window.
   private signal(name: NodeJS.Signals): void {
-    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill(name);
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
+    this.killed = true;
+    this.child.kill(name);
   }
 
   private receive(chunk: Buffer): void {

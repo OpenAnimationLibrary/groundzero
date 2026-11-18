@@ -116,9 +116,7 @@ def _repeated_grants(case: NativeAcceptance, workspace: list[str]) -> None:
         roots = [item for folder in folders for item in ("--input-root", folder)]
         _refused(case, "17 input roots", [*workspace, *roots], "input root")
     with case.subTest(rule="a second workspace"):
-        if case.through_sdk:
-            case.skipTest("the adapter's option parser keeps the last --workspace it is given")
-        _refused(case, "two workspaces", [*workspace, *workspace], "workspace")
+        _refused(case, "two workspaces", [*workspace, *workspace], "--workspace")
 
 
 def _admitted(case: NativeAcceptance, spelling: str, log: Path) -> Worker:

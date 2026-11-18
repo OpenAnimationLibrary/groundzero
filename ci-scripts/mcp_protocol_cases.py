@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 ELAPSED = re.compile(r"\"elapsed_ms\": [0-9]+")
+# Job and artifact ids start with their worker instance's first eight digits.
+WORKER_PREFIX = re.compile(r"\b(job|artifact)_[0-9a-f]{8}_")
+CLOCK_FIELDS = {"submitted_ms", "started_ms", "ended_ms", "requested_ms"}
+# A render snapshot package's manifest names the worker's own paths.
+MANIFEST = re.compile(r"\"snapshot_manifest_sha256\": \"[0-9a-f]{64}\"")
 ACTIVE = {"preparing", "running", "finalizing"}
 CANCELLED_BY_CLIENT = "MCP_REQUEST_CANCELLED"
 TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
@@ -133,9 +138,9 @@ def _render(journey: Journey, document: str) -> None:
     status = job
     while status["status"] not in TERMINAL and time.monotonic() < deadline:
         time.sleep(0.05)
-        status = journey.worker.call("render.status", {"job_id": job["job_id"]})["result"]
+        status = journey.worker.call("job.status", {"job_id": job["job_id"]})["result"]
     journey.case.assertEqual(status["status"], "completed", status)
-    artifacts = journey.read("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = journey.read("job.result", {"job_id": job["job_id"]})["artifacts"]
     journey.read("artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
 
 
@@ -152,13 +157,27 @@ def run_journey(journey: Journey) -> list[tuple[str, Any]]:
     return journey.record
 
 
+def _untimed(value: Any) -> Any:
+    """Replace job clock readings, which differ between any two workers."""
+    if isinstance(value, dict):
+        return {
+            key: "<ms>" if key in CLOCK_FIELDS and value[key] is not None else _untimed(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_untimed(item) for item in value]
+    return value
+
+
 def _normalized(record: list[tuple[str, Any]], roots: dict[Path, str]) -> list[tuple[str, Any]]:
-    text = json.dumps(record)
+    text = json.dumps(_untimed(record))
     for root, name in roots.items():
         text = text.replace(json.dumps(str(root))[1:-1], name)
+    text = WORKER_PREFIX.sub(r"\1_<worker>_", text)
     handles: dict[str, str] = {}
     text = UUID.sub(lambda match: handles.setdefault(match[0], f"<id-{len(handles)}>"), text)
     text = ELAPSED.sub('"elapsed_ms": "<elapsed>"', text)
+    text = MANIFEST.sub('"snapshot_manifest_sha256": "<manifest>"', text)
     return [tuple(item) for item in json.loads(text)]
 
 
@@ -220,9 +239,9 @@ def mcp_cancellation_leaves_render_running(case: NativeAcceptance) -> None:
     _abandon(case, "scene.settings", case.write_params(document, {"width_px": 64}))
     summary = case.success("scene.summary", {"document_id": document})
     case.assertNotEqual(summary["revision"], revision)
-    status = case.success("render.status", {"job_id": job["job_id"]})
+    status = case.success("job.status", {"job_id": job["job_id"]})
     case.assertIn(status["status"], ACTIVE, status)
-    case.success("render.cancel", case.write_params(None, {"job_id": job["job_id"]}))
+    case.success("job.cancel", case.write_params(None, {"job_id": job["job_id"]}))
     case.assertEqual(case.wait_job(job["job_id"])["status"], "canceled")
 
 

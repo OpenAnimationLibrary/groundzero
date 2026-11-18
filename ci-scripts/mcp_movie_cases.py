@@ -111,7 +111,7 @@ def _movie_artifact(case: NativeAcceptance, job: dict[str, Any]) -> dict[str, An
     case.assertEqual(status["format"], "mp4")
     case.assertEqual(status["profile"], "opaque8-mp4")
     case.assertEqual(status["frame_rate"], FRAME_RATE)
-    result = case.success("render.artifacts", {"job_id": job["job_id"]})
+    result = case.success("job.result", {"job_id": job["job_id"]})
     case.assertNotIn("image", result)
     case.assertEqual(len(result["artifacts"]), 1, result)
     return result["artifacts"][0]
@@ -309,7 +309,7 @@ def _unpublished(case: NativeAcceptance, job: dict[str, Any], expected: str) -> 
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], expected, status)
     case.assertIs(status["writers_closed"], True)
-    error = case.failure("render.artifacts", {"job_id": job["job_id"]})
+    error = case.failure("job.result", {"job_id": job["job_id"]})
     case.assertEqual(error["code"], "artifacts_unavailable")
 
 
@@ -323,7 +323,7 @@ def movie_cancellation_publishes_no_artifact(case: NativeAcceptance) -> None:
     document, _effect = _fixture(case)
     before = case.success("scene.summary", {"document_id": document})
     job = case.mutate("render.submit", document, **{**_options(), "end_frame": 129})
-    canceled = case.success("render.cancel", case.write_params(None, {"job_id": job["job_id"]}))
+    canceled = case.success("job.cancel", case.write_params(None, {"job_id": job["job_id"]}))
     case.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
     _unpublished(case, job, "canceled")
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)

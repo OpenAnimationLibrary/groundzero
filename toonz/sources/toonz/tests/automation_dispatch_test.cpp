@@ -1,5 +1,6 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
+#include "automation_jobs.h"
 
 #include <QJsonDocument>
 
@@ -144,7 +145,7 @@ QJsonObject startJob(Dispatcher& dispatcher) {
 
 void rejectUnknownJobs(Dispatcher& dispatcher) {
   for (int index = 0; index < 40; ++index)
-    rejected(dispatcher, "render.cancel",
+    rejected(dispatcher, "job.cancel",
              {{"operation_id", "unknown-" + QString::number(index)},
               {"job_id", "missing-" + QString::number(index)}},
              "unknown_job");
@@ -152,30 +153,30 @@ void rejectUnknownJobs(Dispatcher& dispatcher) {
 
 void verifyReplay(Dispatcher& dispatcher, const QJsonObject& params,
                   const QJsonObject& receipt) {
-  require(call(dispatcher, "render.cancel", params) == receipt,
+  require(call(dispatcher, "job.cancel", params) == receipt,
           "Cancellation receipt changed on replay");
   QJsonObject changed = params;
   changed.insert("job_id", "different-job");
-  rejected(dispatcher, "render.cancel", changed, "operation_conflict");
+  rejected(dispatcher, "job.cancel", changed, "operation_conflict");
   rejected(dispatcher, "scene.create",
            {{"operation_id", params.value("operation_id")}},
            "operation_conflict");
   changed = params;
   changed.insert("operation_id", "second-cancel-id");
-  rejected(dispatcher, "render.cancel", changed, "resource_limit");
+  rejected(dispatcher, "job.cancel", changed, "resource_limit");
 }
 
 void closeJob(Context& context, Dispatcher& dispatcher,
               const QJsonObject& job) {
   const QJsonObject before =
-      result(dispatcher, "render.status", {{"job_id", job.value("job_id")}});
+      result(dispatcher, "job.status", {{"job_id", job.value("job_id")}});
   require(before.value("status") == "cancellation_requested" ||
               before.value("status") == "canceled",
           "The tested operation did not request native cancellation");
-  require(shutdownRender(context, 60000),
+  require(settleJobs(context, 60000),
           "Native writers did not close after cancellation");
   const QJsonObject status =
-      result(dispatcher, "render.status", {{"job_id", job.value("job_id")}});
+      result(dispatcher, "job.status", {{"job_id", job.value("job_id")}});
   require(status.value("status") == "canceled", "Native render did not cancel");
   require(status.value("writers_closed").toBool(),
           "Native writers survived cancellation");
@@ -188,7 +189,7 @@ QString bytePressure(Context& context, Dispatcher& dispatcher) {
   rejectUnknownJobs(dispatcher);
   const QJsonObject params{{"operation_id", "cancel"},
                            {"job_id", job.value("job_id")}};
-  const QJsonObject receipt = call(dispatcher, "render.cancel", params);
+  const QJsonObject receipt = call(dispatcher, "job.cancel", params);
   require(receipt.contains("result"),
           "Byte quota blocked the first native cancellation");
   closeJob(context, dispatcher, job);
@@ -198,7 +199,7 @@ QString bytePressure(Context& context, Dispatcher& dispatcher) {
 
 QJsonValue escapedCancellation(Context& context, const QString& method,
                                const QJsonObject& params) {
-  QJsonObject response = executeRender(context, method, params).toObject();
+  QJsonObject response = executeJobs(context, method, params).toObject();
   response.insert("error", QString(2048, QChar(1)));
   return response;
 }
@@ -207,7 +208,7 @@ void terminalPressure(Dispatcher& dispatcher, const QString& jobId) {
   fillByteQuota(dispatcher);
   const QJsonObject params{{"operation_id", QString(128, QChar(1))},
                            {"job_id", jobId}};
-  const QJsonObject receipt = call(dispatcher, "render.cancel", params);
+  const QJsonObject receipt = call(dispatcher, "job.cancel", params);
   require(receipt.contains("result"),
           "Terminal first cancellation lost its reservation");
   const int bytes =
@@ -220,13 +221,13 @@ void terminalPressure(Dispatcher& dispatcher, const QString& jobId) {
 
 QJsonValue oversizedCancellation(Context& context, const QString& method,
                                  const QJsonObject& params) {
-  executeRender(context, method, params);
+  executeJobs(context, method, params);
   throw Error("native_error", QString(32 * 1024, QChar(1)));
 }
 
 QJsonValue oversizedResult(Context& context, const QString& method,
                            const QJsonObject& params) {
-  QJsonObject response = executeRender(context, method, params).toObject();
+  QJsonObject response = executeJobs(context, method, params).toObject();
   response.insert("error", QString(32 * 1024, QChar(1)));
   return response;
 }
@@ -236,7 +237,7 @@ void oversizedResultPressure(Context& context, Dispatcher& dispatcher) {
   fillByteQuota(dispatcher);
   const QJsonObject params{{"operation_id", "cancel-result"},
                            {"job_id", job.value("job_id")}};
-  const QJsonObject receipt = call(dispatcher, "render.cancel", params);
+  const QJsonObject receipt = call(dispatcher, "job.cancel", params);
   const QJsonObject error   = receipt.value("error").toObject();
   require(error.value("code") == "response_too_large",
           "Oversized successful cancellation result was not bounded");
@@ -255,7 +256,7 @@ void partialCancellation(Context& context, Dispatcher& dispatcher) {
   fillByteQuota(dispatcher);
   const QJsonObject params{{"operation_id", "cancel-partial"},
                            {"job_id", job.value("job_id")}};
-  const QJsonObject receipt = call(dispatcher, "render.cancel", params);
+  const QJsonObject receipt = call(dispatcher, "job.cancel", params);
   require(
       receipt.value("error").toObject().value("code") == "partially_applied",
       "Post-cancel failure lost its explicit partial outcome");
@@ -465,7 +466,7 @@ void runAutomationDispatcherTests(Context& context) {
   {
     Dispatcher dispatcher(context);
     dispatcher.add(boundaryOperations(), largeResult, "core");
-    dispatcher.m_entries["render.cancel"].handler = oversizedResult;
+    dispatcher.m_entries["job.cancel"].handler = oversizedResult;
     oversizedResultPressure(context, dispatcher);
   }
   {
@@ -476,13 +477,13 @@ void runAutomationDispatcherTests(Context& context) {
   {
     Dispatcher dispatcher(context);
     dispatcher.add(boundaryOperations(), largeResult, "core");
-    dispatcher.m_entries["render.cancel"].handler = escapedCancellation;
+    dispatcher.m_entries["job.cancel"].handler = escapedCancellation;
     terminalPressure(dispatcher, jobId);
   }
   {
     Dispatcher dispatcher(context);
     dispatcher.add(boundaryOperations(), largeResult, "core");
-    dispatcher.m_entries["render.cancel"].handler = oversizedCancellation;
+    dispatcher.m_entries["job.cancel"].handler = oversizedCancellation;
     partialCancellation(context, dispatcher);
   }
   std::cout << "automation-dispatch-test: byte-pressure cancellation PASS"

@@ -1,4 +1,6 @@
 #include "automation.h"
+#include "automation_build_identity.h"
+#include "automation_jobs.h"
 #include "automation_dispatch.h"
 #include "automation_activity.h"
 #include "automation_files.h"
@@ -93,6 +95,9 @@ struct Options {
   QStringList sharedWrites;
   QString parseHelper;
   QString sceneHost;
+  // A scene host's worker instance and monotonic start time.
+  QString workerInstance;
+  QString workerEpoch;
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
@@ -224,6 +229,10 @@ void addOption(Options& options, const QString& key, const QString& value) {
     options.parseHelper = value;
   else if (key == "--scene-host")
     options.sceneHost = value;
+  else if (key == "--worker-instance")
+    options.workerInstance = value;
+  else if (key == "--worker-epoch")
+    options.workerEpoch = value;
   else
     addWorkerRoot(options, key, value);
 }
@@ -232,7 +241,8 @@ bool valueOption(const QString& key) {
   return key == "--workspace" || key == "--input-root" ||
          key == "--media-tools" || key == "--shared-root" ||
          key == "--shared-write" || key == "--parse-helper" ||
-         key == "--scene-host";
+         key == "--scene-host" || key == "--worker-instance" ||
+         key == "--worker-epoch";
 }
 
 bool overlapping(const QString& first, const QString& second) {
@@ -261,6 +271,21 @@ void validateSharedRoots(Options& options) {
         throw Error("invalid_argument",
                     "Shared roots must not overlap one another.");
   }
+}
+
+// Only a scene host takes its worker's instance and clock, and needs both.
+void validateWorkerInstance(const Options& options) {
+  const bool given =
+      !options.workerInstance.isEmpty() || !options.workerEpoch.isEmpty();
+  if (!given && options.sceneHost.isEmpty()) return;
+  bool number = false;
+  options.workerEpoch.toLongLong(&number);
+  const QUuid instance(options.workerInstance);
+  if (options.sceneHost.isEmpty() || !number || instance.isNull() ||
+      instance.toString(QUuid::WithoutBraces) != options.workerInstance)
+    throw Error("invalid_argument",
+                "A scene host takes its worker's --worker-instance UUID and "
+                "--worker-epoch milliseconds; a worker takes neither.");
 }
 
 Options parseOptions(const QStringList& arguments) {
@@ -308,6 +333,7 @@ Options parseOptions(const QStringList& arguments) {
                                        !options.sharedRoots.isEmpty()))
     throw Error("invalid_argument",
                 "A scene host never receives media tools or shared roots.");
+  validateWorkerInstance(options);
   validateSharedRoots(options);
   return options;
 }
@@ -545,6 +571,7 @@ int domainTestResult(Context& context) {
     runAutomationAudioTests(context);
     runAutomationRigTests(context);
     runAutomationSharedTests(context);
+    runAutomationFilesTests(context);
     runAutomationStoryboardTests(context);
     runAutomationLipsyncTests(context);
     runAutomationProductionTests(context);
@@ -554,6 +581,7 @@ int domainTestResult(Context& context) {
     runAutomationMediaProcessTests(context);
     runAutomationSceneHostTests(context);
     runAutomationRuntimeTests(context);
+    runAutomationJobsTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "
@@ -594,9 +622,10 @@ int executeDomainTests(QApplication& application, Context& context) {
 
 // What a worker must finish before its process ends, in order, within the
 // shutdown deadline armed when its input ended:
-// 1. render jobs canceled and their writers closed, so unfinished output is
-//    removed and finished output is kept (the job claims are then released,
-//    which keeps a later worker's sweep away from finished jobs);
+// 1. every job in the registry, on both lanes, canceled and ended (render
+//    writers closed), so unfinished output is removed and finished output is
+//    kept; the registry then goes, which releases the finished jobs' claims and
+//    keeps a later worker's sweep away from their output;
 // 2. scene hosts ended, together, and their private copies removed;
 // 3. the image cache's files removed.
 // Locks need no step: the system drops them when the process ends.
@@ -605,9 +634,8 @@ void tearDownWorker(Context& context) {
   if (context.renderFault == "teardown-hang")
     for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
 #endif
-  if (shutdownRender(context,
-                     std::min(RenderShutdownBudgetMs, shutdownRemainingMs())))
-    context.renderState.reset();
+  if (settleJobs(context, std::min(JobShutdownBudgetMs, shutdownRemainingMs())))
+    context.jobs.reset();
   closeSceneHosts(context);
   TImageCache::instance()->clear(true);
 }
@@ -615,7 +643,8 @@ void tearDownWorker(Context& context) {
 int executeWorker(QApplication& application, QFile& output,
                   const Options& options, bool helpersContained,
                   const QString& runtime) {
-  Context context(options.workspace, options.inputRoots, helpersContained);
+  Context context(options.workspace, options.inputRoots, helpersContained,
+                  runtime);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)
@@ -623,6 +652,7 @@ int executeWorker(QApplication& application, QFile& output,
   context.childFault = options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
+  context.pathSwap    = options.pathSwap;
   if (!options.pathSwap.isEmpty())
     armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif
@@ -632,12 +662,16 @@ int executeWorker(QApplication& application, QFile& output,
     return runSharedParseHelper(context, options.parseHelper, output);
   if (!options.sceneHost.isEmpty()) {
     context.sceneHostDocument = options.sceneHost;
+    context.workerInstance    = options.workerInstance;
+    context.workerEpochMs     = options.workerEpoch.toLongLong();
     startSceneHostWatchdog();
   }
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
   sweepAbandonedRenders(context);
+  jobRegistry(context);
+  prefetchBuildIdentity();
   Dispatcher dispatcher(context);
   InputThread reader(
       application,
@@ -647,7 +681,7 @@ int executeWorker(QApplication& application, QFile& output,
       [&application, &context]() {
         // A native writer can be inside a nested event loop. Set its abort
         // token before quit unwinds that loop into a blocking writer join.
-        requestRenderCancellation(context);
+        cancelAllJobs(context);
         application.quit();
       });
   reader.start();

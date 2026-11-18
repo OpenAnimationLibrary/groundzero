@@ -39,6 +39,7 @@ import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
 import mcp_group_cases
+import mcp_jobs_cases
 import mcp_library_cases
 import mcp_library_limit_cases
 import mcp_limit_cases
@@ -92,9 +93,10 @@ REQUIRED_TOOLS = {
     "camera.update",
     "render.preview",
     "render.submit",
-    "render.status",
-    "render.cancel",
-    "render.artifacts",
+    "job.status",
+    "job.cancel",
+    "job.result",
+    "job.list",
     "artifact.read",
 }
 SDK_CLIENT = "native-client.mjs"
@@ -373,6 +375,12 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_read_only_source_status_reports_each_change(self) -> None:
         mcp_scene_reads_cases.read_only_source_status_reports_each_change(self)
+
+    def test_read_only_source_status_checks_content_within_bounds(self) -> None:
+        mcp_scene_reads_cases.read_only_source_status_checks_content_within_bounds(self)
+
+    def test_read_only_content_digests_hold_their_deadlines(self) -> None:
+        mcp_scene_reads_cases.read_only_content_digests_hold_their_deadlines(self)
 
     def test_read_only_projects_inspect_and_list_scenes(self) -> None:
         mcp_scene_reads_cases.read_only_projects_inspect_and_list_scenes(self)
@@ -754,6 +762,32 @@ class NativeAcceptance(unittest.TestCase):
     def test_render_stray_callbacks_do_not_change_the_outcome(self) -> None:
         mcp_failure_cases.render_stray_callbacks_do_not_change_the_outcome(self)
 
+    @worker_only("needs --test-render-fault hold-launch")
+    def test_job_states_and_refused_second_submit(self) -> None:
+        mcp_jobs_cases.job_states_and_refused_second_submit(self)
+
+    def test_job_record_identity_inputs_limits(self) -> None:
+        mcp_jobs_cases.job_record_identity_inputs_limits(self)
+
+    def test_job_submit_retry_returns_same_job(self) -> None:
+        mcp_jobs_cases.submit_retry_returns_same_job(self)
+
+    def test_job_repeated_status_and_cancel(self) -> None:
+        mcp_jobs_cases.repeated_status_and_cancel(self)
+
+    def test_job_stale_ids(self) -> None:
+        mcp_jobs_cases.stale_job_ids(self)
+
+    def test_job_list_filters_and_paging(self) -> None:
+        mcp_jobs_cases.job_list_filters_and_paging(self)
+
+    @worker_only("needs --test-render-fault hold-writers")
+    def test_job_stalled_cancellation_stays_non_terminal(self) -> None:
+        mcp_jobs_cases.stalled_cancellation_stays_non_terminal(self)
+
+    def test_job_movie_cancel_while_encoding_is_forced(self) -> None:
+        mcp_jobs_cases.movie_cancel_while_encoding_is_forced(self)
+
     @worker_only("kills the worker process and needs --test-render-fault hold-publication")
     def test_render_worker_killed_mid_preview_then_new_worker(self) -> None:
         mcp_failure_cases.render_worker_killed_mid_preview_then_new_worker(self)
@@ -818,6 +852,15 @@ class NativeAcceptance(unittest.TestCase):
     def test_project_scenes_refuse_a_folder_swapped_after_validation(self) -> None:
         mcp_file_project_cases.project_scenes_refuse_a_folder_swapped_after_validation(self)
 
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_project_listings_stay_in_the_folder_they_pinned(self) -> None:
+        mcp_file_project_cases.project_list_stays_in_the_folder_it_pinned(self)
+        mcp_file_project_cases.project_scenes_stays_in_the_folder_it_pinned(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_shared_listings_stay_in_the_folder_they_pinned(self) -> None:
+        mcp_file_shared_cases.shared_listings_stay_in_the_folder_they_pinned(self)
+
     def test_shared_roots_hold_the_file_boundary(self) -> None:
         mcp_file_shared_cases.shared_roots_hold_the_file_boundary(self)
 
@@ -846,6 +889,9 @@ class NativeAcceptance(unittest.TestCase):
     @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
     def test_swapped_paths_cannot_redirect_a_pinned_directory(self) -> None:
         mcp_file_race_cases.swapped_paths_cannot_redirect_a_pinned_directory(self)
+
+    def test_private_files_end_with_their_document_and_worker(self) -> None:
+        mcp_failure_cases.private_files_end_with_their_document_and_worker(self)
 
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))
@@ -1023,7 +1069,7 @@ class NativeAcceptance(unittest.TestCase):
         """Wait for an explicit terminal job state within a fixed CI deadline."""
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
-            result = self.success("render.status", {"job_id": job})
+            result = self.success("job.status", {"job_id": job})
             if result["status"] in {"completed", "failed", "canceled", "deadline_exceeded"}:
                 return result
             self.assertIn(
@@ -1047,7 +1093,7 @@ class NativeAcceptance(unittest.TestCase):
         self.assertEqual(self.revisions[document], revision)
         status = self.wait_job(job["job_id"])
         self.assertEqual(status["status"], "completed", status)
-        artifacts = self.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+        artifacts = self.success("job.result", {"job_id": job["job_id"]})["artifacts"]
         self.assertEqual(len(artifacts), 1, artifacts)
         artifact = artifacts[0]
         result = self.success("artifact.read", {"artifact_id": artifact["artifact_id"]})
@@ -1802,10 +1848,10 @@ class NativeAcceptance(unittest.TestCase):
         job = self.mutate(
             "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )
-        canceled = self.success("render.cancel", self.write_params(None, {"job_id": job["job_id"]}))
+        canceled = self.success("job.cancel", self.write_params(None, {"job_id": job["job_id"]}))
         self.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
         self.assertEqual(self.wait_job(job["job_id"])["status"], "canceled")
-        self.failure("render.artifacts", {"job_id": job["job_id"]})
+        self.failure("job.result", {"job_id": job["job_id"]})
         self.mutate(
             "render.submit", document, start_frame=0, end_frame=119, step=1, width=256, height=256
         )

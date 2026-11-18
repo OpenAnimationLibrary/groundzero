@@ -274,12 +274,15 @@ class CensusFailureCases(unittest.TestCase):
     def test_numeric_claims_must_match(self) -> None:
         self.readme = self.readme.replace("admits 31 builtins", "admits 30 builtins")
         self.assert_reports(self.static(), "README FX profile or builtin count differs")
-        self.readme = self.readme.replace("protocol version 3", "protocol version 4")
+        claimed = self.census["claims"]["protocol_version"]
+        self.readme = self.readme.replace(
+            f"protocol version {claimed}", f"protocol version {claimed + 1}"
+        )
         self.assert_reports(self.static(), "README protocol version differs")
 
     def test_catalog_claims_must_match(self) -> None:
         self.fx_catalog["effects"].pop()
-        self.capabilities["protocol_version"] = 4
+        self.capabilities["protocol_version"] += 1
         problems = self.live()
         self.assert_reports(problems, "catalog FX profile or builtin count differs")
         self.assert_reports(problems, "catalog protocol version differs")

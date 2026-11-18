@@ -138,7 +138,7 @@ async function completedJob(client: Client, job: Record<string, unknown>, timeou
   while (!["completed", "failed", "canceled"].includes(String(status["status"]))) {
     if (Date.now() > deadline) throw new Error(`Render job timed out: ${JSON.stringify(status)}`);
     await setTimeout(50);
-    status = await call(client, "render.status", { job_id: job["job_id"] });
+    status = await call(client, "job.status", { job_id: job["job_id"] });
   }
   expect(status["status"], JSON.stringify(status)).toBe("completed");
   expect(status["writers_closed"]).toBe(true);
@@ -154,7 +154,7 @@ async function preview(client: Client, documentId: unknown, revision: unknown): 
     height: previewSize,
   });
   await completedJob(client, job);
-  const output = await call(client, "render.artifacts", { job_id: job["job_id"] });
+  const output = await call(client, "job.result", { job_id: job["job_id"] });
   const artifacts = output["artifacts"];
   if (!Array.isArray(artifacts) || !isObject(artifacts[0])) {
     throw new Error("Completed preview did not publish an artifact");
@@ -221,7 +221,7 @@ async function movie(client: Client, documentId: unknown, revision: unknown, wor
   });
   await completedJob(client, job, 60_000);
   const output = await client.callTool({
-    name: "render.artifacts",
+    name: "job.result",
     arguments: { job_id: job["job_id"] },
   });
   expect(output.isError, JSON.stringify(output)).not.toBe(true);

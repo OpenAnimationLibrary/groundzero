@@ -75,6 +75,9 @@ class KnownViolation:
 
 
 KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = ()
+# Tools whose results page only for some job kinds: job.result pages analysis rows, and a
+# render job's artifacts come whole, without a paging key (jobs contract).
+PAGED_BY_KIND = frozenset({"job.result"})
 
 
 @dataclass(frozen=True)
@@ -314,6 +317,8 @@ def _paged_limits(catalog: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     limits = {}
     for tool in catalog:
         properties = tool["inputSchema"]["properties"]
+        if tool["name"] in PAGED_BY_KIND:
+            continue
         if tool["annotations"]["readOnlyHint"] and "limit" in properties:
             if "offset" in properties or "start_index" in properties:
                 limits[tool["name"]] = properties["limit"]["maximum"]

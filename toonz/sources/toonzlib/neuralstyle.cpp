@@ -77,6 +77,7 @@ struct Session::Impl {
   void stop() {
     if (process.state() != QProcess::NotRunning) {
       process.kill();
+      if (execution) execution->helperKilled();
       process.waitForFinished(3000);
     }
     if (execution && process.state() != QProcess::NotRunning)

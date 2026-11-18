@@ -368,7 +368,7 @@ def _render_dpi_frames(case: NativeAcceptance, document: str) -> list[tuple[int,
     case.assertEqual(job["source_revision"], revision)
     status = case.wait_job(job["job_id"])
     case.assertEqual(status["status"], "completed", status)
-    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     case.assertEqual([artifact["frame"] for artifact in artifacts], [0, 1])
     frames = []
     for artifact in artifacts:

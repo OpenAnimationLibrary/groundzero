@@ -887,6 +887,58 @@
     "toonz/sources/toonz/tests/automation_rig_test.cpp"
    ]
   },
+  "job.cancel": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_job_repeated_status_and_cancel",
+    "ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal",
+    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
+   ]
+  },
+  "job.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_list_filters_and_paging",
+    "ci-scripts/mcp_acceptance.py::test_job_states_and_refused_second_submit",
+    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
+    "ci-scripts/mcp_acceptance.py::test_read_only_render_cancel_and_host_loss_leave_nothing"
+   ]
+  },
+  "job.result": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
+    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
+  "job.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_movie_cancel_while_encoding_is_forced",
+    "ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal",
+    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
+    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
+    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
+    "ci-scripts/mcp_shot.py"
+   ]
+  },
   "level.create": {
    "origin": "worker",
    "toolset": "core",
@@ -1396,8 +1448,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
     "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
+    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp"
    ]
   },
@@ -1408,6 +1460,7 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes",
     "ci-scripts/mcp_acceptance.py::test_project_reads_hold_the_file_boundary",
+    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_project_scenes_refuse_a_folder_swapped_after_validation"
    ]
   },
@@ -1460,34 +1513,6 @@
     "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission"
    ]
   },
-  "render.artifacts": {
-   "origin": "worker",
-   "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
-  },
-  "render.cancel": {
-   "origin": "worker",
-   "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp"
-   ]
-  },
   "render.capabilities": {
    "origin": "worker",
    "toolset": "core",
@@ -1517,28 +1542,12 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
     "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_read_only_render_admission_refuses_unsafe_content",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
-  },
-  "render.status": {
-   "origin": "worker",
-   "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_render_worker_killed_mid_preview_then_new_worker",
-    "ci-scripts/mcp_acceptance.py::test_linked_input_changes_while_a_render_runs",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
    ]
   },
@@ -1588,10 +1597,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_job_record_identity_inputs_limits",
     "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
     "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
-    "ci-scripts/mcp_acceptance.py::test_runtime_formats_native_vs_admitted",
-    "ci-scripts/mcp_acceptance.py::test_runtime_media_identity"
+    "ci-scripts/mcp_acceptance.py::test_runtime_formats_native_vs_admitted"
    ]
   },
   "scene.create": {
@@ -1628,10 +1637,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_private_files_end_with_their_document_and_worker",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
     "ci-scripts/mcp_acceptance.py::test_document_ids_do_not_alias_after_close_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -1718,7 +1727,9 @@
    "toolset": "core",
    "writes": false,
    "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_reports_each_change"
+    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_reports_each_change",
+    "ci-scripts/mcp_acceptance.py::test_read_only_content_digests_hold_their_deadlines",
+    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_checks_content_within_bounds"
    ]
   },
   "scene.summary": {
@@ -1837,6 +1848,7 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
     "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
+    "ci-scripts/mcp_acceptance.py::test_shared_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "toonz/sources/toonz/tests/automation_shared_test.cpp"
    ]
@@ -3474,8 +3486,8 @@
    "classification": "exposed",
    "tools": [
     "render.preview",
-    "render.status",
-    "render.artifacts",
+    "job.status",
+    "job.result",
     "artifact.read"
    ],
    "disposition": {
@@ -3489,21 +3501,35 @@
    "classification": "exposed",
    "tools": [
     "render.submit",
-    "render.status",
-    "render.artifacts"
+    "job.status",
+    "job.result"
    ],
    "disposition": {
     "kind": "implemented"
    }
   },
   {
-   "id": "render.cancel_job",
+   "id": "job.cancel_job",
    "domain": "Rendering and review",
    "outcome": "Request cancellation of a render job and poll it to a terminal state.",
    "classification": "exposed",
    "tools": [
-    "render.cancel",
-    "render.status"
+    "job.cancel",
+    "job.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "job.list_jobs",
+   "domain": "Rendering and review",
+   "outcome": "List the worker's retained jobs newest first, filtered by document, kind and state, and read a finished job's result.",
+   "classification": "exposed",
+   "tools": [
+    "job.list",
+    "job.status",
+    "job.result"
    ],
    "disposition": {
     "kind": "implemented"

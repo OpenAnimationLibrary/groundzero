@@ -126,8 +126,9 @@ def _require_worker_identity(case: NativeAcceptance, report: dict[str, Any]) -> 
     build = worker["build"]
     case.assertEqual(set(build), {"application", "version", "build_digest"})
     case.assertEqual(build["build_digest"], verified_build_digest(case.native_executable))
-    platform = case.success("automation.capabilities", {})["platform"]
-    case.assertEqual(report["platform"], platform)
+    capabilities = case.success("automation.capabilities", {})
+    case.assertEqual(worker, capabilities["worker"])
+    case.assertEqual(report["platform"], capabilities["platform"])
 
 
 def _require_toolsets(case: NativeAcceptance, report: dict[str, Any]) -> None:

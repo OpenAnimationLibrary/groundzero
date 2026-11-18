@@ -1,3 +1,4 @@
+#include "automation_jobs.h"
 #include "automation.h"
 #include "automation_dispatch.h"
 #include "automation_fx.h"
@@ -357,8 +358,7 @@ QJsonObject waitForJob(Context& context, const QString& job) {
   QEventLoop loop;
   QTimer poll, limit;
   QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
-    status =
-        executeRender(context, "render.status", {{"job_id", job}}).toObject();
+    status = executeJobs(context, "job.status", {{"job_id", job}}).toObject();
     const QString state = status.value("status").toString();
     if (state == "completed" || state == "failed" || state == "canceled" ||
         state == "deadline_exceeded")
@@ -388,17 +388,18 @@ void renderDeadline(Context& context) {
   context.renderDeadlineMs = 1;
   const QString late       = submitSequence(context, document);
   const QJsonObject ended  = waitForJob(context, late);
-  require(ended.value("status") == "deadline_exceeded" &&
-              ended.value("writers_closed").toBool() &&
-              ended.value("error").toString().contains("deadline"),
-          "A render past its deadline must end as deadline_exceeded");
+  require(
+      ended.value("status") == "deadline_exceeded" &&
+          ended.value("writers_closed").toBool() &&
+          ended.value("failure").isNull() &&
+          ended.value("termination").toObject().value("mode") == "cooperative",
+      "A render past its deadline must end as deadline_exceeded");
   rejects(
-      context,
-      [&] { executeRender(context, "render.artifacts", {{"job_id", late}}); },
+      context, [&] { executeJobs(context, "job.result", {{"job_id", late}}); },
       "artifacts_unavailable");
   context.renderDeadlineMs = 200;
   const QString canceled   = submitSequence(context, document);
-  executeRender(context, "render.cancel", {{"job_id", canceled}});
+  executeJobs(context, "job.cancel", {{"job_id", canceled}});
   require(waitForJob(context, canceled).value("status") == "canceled",
           "A caller's cancellation must not be reported as a deadline");
   context.renderDeadlineMs = budget;

@@ -24,7 +24,7 @@ class TXshLevel;
 namespace GroundzeroAutomation {
 
 struct ReadOnlyScene;
-struct RenderState;
+class JobRegistry;
 struct SceneHostRegistry;
 struct RuntimeState;
 
@@ -82,7 +82,10 @@ struct Document final {
 
 class Context final {
 public:
-  Context(QString workspace, QStringList inputRoots, bool helpersContained = false);
+  // privateRoot, inside the workspace, holds the worker project and the copies
+  // of level and sound files it writes; it defaults to the workspace itself.
+  Context(QString workspace, QStringList inputRoots,
+          bool helpersContained = false, QString privateRoot = QString());
   ~Context();
   Context(const Context&)            = delete;
   Context& operator=(const Context&) = delete;
@@ -99,20 +102,29 @@ public:
   QJsonArray documents() const;
   std::shared_ptr<TProject> project() const;
   QString workspace() const;
+  // A named directory of worker-private files, such as levels or sounds.
+  QString privateDirectory(const QString& name) const;
   QString resolvePath(const QString& path, bool write) const;
   QStringList inputRoots() const;
   void markMutationStarted();
   void resetMutationStarted();
+  // Removes the private level and sound files of one document.
+  void removePrivateFiles(Document& document) const;
   bool mutationStarted() const;
   // A failure after this mark is kept in the operation receipt as it is.
   void markFailureRecorded();
   bool failureRecorded() const;
   bool helpersContained() const;
-  std::shared_ptr<RenderState> renderState;
   // Probe results cached for the worker's life; created on first use.
   std::shared_ptr<RuntimeState> runtimeState;
   // Set once by the dispatcher: the toolset names of its catalog.
   QStringList toolsets;
+  // Every job this process runs, created on first use.
+  std::shared_ptr<JobRegistry> jobs;
+  // The worker instance that owns this process's jobs and its monotonic start
+  // time; a scene host receives both from its worker.
+  QString workerInstance;
+  qint64 workerEpochMs = 0;
   // Set once from validated startup configuration; empty disables media tools.
   QString mediaToolsDirectory;
   // Wall-clock budget of one render job; past it the job ends as
@@ -139,8 +151,10 @@ public:
 #ifdef BUILD_UI_PORT_TESTS
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
+  // Test-only: the --test-path-swap arguments, handed on to scene hosts.
+  QStringList pathSwap;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
-  // fail-after-final-frame, encoder-failure, stray-callbacks,
+  // hold-writers, fail-after-final-frame, encoder-failure, stray-callbacks,
   // gl-context-failure or teardown-hang (worker teardown never finishes).
   QString renderFault;
   // Test-only file-writing fault: publish makes the final rename fail.
@@ -149,6 +163,7 @@ public:
 
 private:
   QString m_workspace;
+  QString m_privateRoot;
   QStringList m_inputRoots;
   std::shared_ptr<TProject> m_project;
   std::map<QString, std::unique_ptr<Document>> m_documents;
@@ -182,21 +197,18 @@ QJsonValue executeRender(Context& context, const QString& method,
                          const QJsonObject& params);
 QJsonValue executePersistence(Context& context, const QString& method,
                               const QJsonObject& params);
-// Request cancellation on the application thread without waiting for callbacks.
-void requestRenderCancellation(Context& context);
 // The id of a render job that has not reached a terminal state, or empty.
 QString activeRenderJob(Context& context);
 // The render jobs this process retains.
 int renderJobCount(Context& context);
-// Cancel every render job and wait up to budgetMs for their writers to close;
-// true when every job has ended.
-bool shutdownRender(Context& context, int budgetMs);
 // Removes the unfinished job output of workers that exited without finishing
 // it. Completed output and output of a live worker stay.
 void sweepAbandonedRenders(Context& context);
-std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
-                                                 Document& document,
-                                                 const QString& directory);
+// Publish and reopen a private snapshot package; `manifestSha256`, when given,
+// receives the package manifest's SHA-256.
+std::unique_ptr<ToonzScene> createRenderSnapshot(
+    Context& context, Document& document, const QString& directory,
+    QString* manifestSha256 = nullptr);
 void validateAutomationScene(ToonzScene& scene);
 
 #ifdef BUILD_UI_PORT_TESTS

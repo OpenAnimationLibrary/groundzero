@@ -5,6 +5,7 @@
 #include "toonz/mediacache.h"
 
 #include "tiio_ffmpeg.h"
+#include "tnzimage.h"
 #include "tsystem.h"
 #include "tsound.h"
 #include "timageinfo.h"
@@ -12,6 +13,7 @@
 #include "trop.h"
 
 #include <QAbstractEventDispatcher>
+#include <atomic>
 #include <QDebug>
 #include <QEventLoop>
 #include <QElapsedTimer>
@@ -22,6 +24,19 @@
 #include <QThread>
 #include <QTimer>
 #include <QWaitCondition>
+
+namespace {
+std::atomic<int> forcedExits{0};
+
+// Kill a still-running ffmpeg process and count it as a forced exit.
+void forceExit(QProcess& process) {
+  if (process.state() == QProcess::NotRunning) return;
+  process.kill();
+  ++forcedExits;
+}
+}  // namespace
+
+int ffmpegForcedExits() { return forcedExits.load(); }
 #include <QUuid>
 #include <QDir>
 #include <QFile>
@@ -296,7 +311,7 @@ bool Ffmpeg::waitFfmpeg(QProcess &process, bool async) const {
   QTimer cancelTimer;
   if (async) {
     QObject::connect(&cancelTimer, &QTimer::timeout, &process, [&] {
-      if (m_abortRequested.load()) process.kill();
+      if (m_abortRequested.load()) forceExit(process);
     });
     cancelTimer.start(100);
   }
@@ -304,7 +319,7 @@ bool Ffmpeg::waitFfmpeg(QProcess &process, bool async) const {
       ? ThirdParty::waitAsyncProcess(process, m_ffmpegTimeoutMs) == 0
       : process.waitForFinished(m_ffmpegTimeoutMs);
   if (!finished && process.state() != QProcess::NotRunning) {
-    process.kill();
+    forceExit(process);
     process.waitForFinished(3000);
   }
   return finished && process.exitStatus() == QProcess::NormalExit &&
@@ -456,10 +471,10 @@ protected:
       process.closeWriteChannel();
       result = waitForExit(process);
     }
-    if (canceled() && process.state() != QProcess::NotRunning) process.kill();
+    if (canceled()) forceExit(process);
     if (process.state() != QProcess::NotRunning &&
         (result == TimedOut || !process.waitForFinished(kPipeExitGraceMs))) {
-      process.kill();
+      forceExit(process);
       process.waitForFinished(kPipeExitGraceMs);
     }
 
@@ -1057,7 +1072,7 @@ TRasterImageP Ffmpeg::getImage(int frameIndex) {
   // Native rasters start at the bottom. Copy rows in their final order instead
   // of copying the whole image and then reading/writing it again to mirror.
   for (int y = 0; y < ly; ++y)
-    memcpy(ret->pixels(y), qi.constScanLine(ly - 1 - y),
+    memcpy(static_cast<void*>(ret->pixels(y)), qi.constScanLine(ly - 1 - y),
            size_t(lx) * sizeof(TPixel32));
   ret->unlock();
   return TRasterImageP(ret);

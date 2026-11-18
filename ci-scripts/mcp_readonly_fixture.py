@@ -259,9 +259,7 @@ def _render_and_analysis(case: NativeAcceptance, document: str, ids: dict[str, s
     job = case.mutate("render.preview", document, frame=0, width=32, height=32)["job_id"]
     case.assertEqual(case.wait_job(job)["status"], "completed")
     ids["job"] = job
-    ids["artifact"] = case.success("render.artifacts", {"job_id": job})["artifacts"][0][
-        "artifact_id"
-    ]
+    ids["artifact"] = case.success("job.result", {"job_id": job})["artifacts"][0]["artifact_id"]
     path = case.inputs / "speech.dat"
     path.write_bytes(dat_file(DAT_CUES))
     imported = case.mutate(
@@ -309,7 +307,7 @@ def _read_only_documents(
     job = call(case, worker, "render.preview", params)["job_id"]
     case.assertEqual(wait(case, worker, job)["status"], "completed")
     ids["read_only_job"] = job
-    artifacts = call(case, worker, "render.artifacts", {"job_id": job})["artifacts"]
+    artifacts = call(case, worker, "job.result", {"job_id": job})["artifacts"]
     ids["read_only_artifact"] = artifacts[0]["artifact_id"]
     ids["project_a"] = project
     ids["project_shot"] = project_id(case, worker, "Shot A")

@@ -58,14 +58,14 @@ def linked_input_changes_while_a_render_runs(case: NativeAcceptance) -> None:
         height=SIZE,
     )
     for label, change in _mutations(case, case.fixture):
-        status = case.success("render.status", {"job_id": job["job_id"]})
+        status = case.success("job.status", {"job_id": job["job_id"]})
         with case.subTest(change=label):
             case.assertIn(status["status"], RUNNING | {"completed"}, status)
             change()
     final = case.wait_job(job["job_id"])
     case.assertEqual(final["status"], "completed", final)
     case.assertEqual(final["failed_frames"], 0, final)
-    artifacts = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"]
+    artifacts = case.success("job.result", {"job_id": job["job_id"]})["artifacts"]
     case.assertEqual(len(artifacts), FRAMES)
     _check_pixels(case, artifacts[0])
 
@@ -80,7 +80,7 @@ def import_keeps_its_own_copy_when_the_source_changes(case: NativeAcceptance) ->
     write_fixture(case.fixture, size=64)
     job = case.mutate("render.preview", document, frame=0, width=SIZE, height=SIZE)
     case.assertEqual(case.wait_job(job["job_id"])["status"], "completed")
-    artifact = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"][0]
+    artifact = case.success("job.result", {"job_id": job["job_id"]})["artifacts"][0]
     _check_pixels(case, artifact)
 
 
@@ -93,7 +93,7 @@ def artifact_swapped_for_a_link_is_refused(case: NativeAcceptance) -> None:
     document = case.create("Artifact link")
     job = case.mutate("render.preview", document, frame=0, width=8, height=8)
     case.assertEqual(case.wait_job(job["job_id"])["status"], "completed")
-    artifact = case.success("render.artifacts", {"job_id": job["job_id"]})["artifacts"][0]
+    artifact = case.success("job.result", {"job_id": job["job_id"]})["artifacts"][0]
     path = case.workspace / "renders" / job["job_id"] / "frames" / "frame.0001.png"
     copy = case.directory / "identical-copy.png"
     shutil.copyfile(path, copy)

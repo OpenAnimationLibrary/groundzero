@@ -207,3 +207,21 @@ test.each([false, true])("signals a worker only while it is unreaped (reaped %s)
     vi.useRealTimers();
   }
 });
+
+test.skipIf(process.platform === "win32")(
+  "records a request timeout as the cause of worker loss, killed by the adapter",
+  async () => {
+    const child = spawn("/bin/sleep", ["30"], { stdio: ["pipe", "pipe", "pipe"] });
+    const closed = once(child, "close");
+    const connection = new WorkerConnection(child, 200);
+    expect(connection.loss()).toBeUndefined();
+    await expect(connection.request("read")).rejects.toMatchObject({ code: "WORKER_UNAVAILABLE" });
+    await closed;
+    expect(connection.loss()).toEqual({
+      cause: "request_timeout",
+      adapter_killed_worker: true,
+      exit_code: null,
+      signal: "SIGTERM",
+    });
+  },
+);
