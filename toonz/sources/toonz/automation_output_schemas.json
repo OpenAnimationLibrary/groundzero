@@ -12727,6 +12727,11 @@
   "project.inspect": {
     "additionalProperties": false,
     "properties": {
+      "alternates": {
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
       "arbitrary_scene_open": {
         "type": "boolean"
       },
@@ -12774,10 +12779,134 @@
         "minItems": 0,
         "type": "array"
       },
+      "file_path_rules": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_non_alphabet_suffix": {
+            "type": "boolean"
+          },
+          "letter_count_for_suffix": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "no_separator_format_allowed": {
+            "type": "boolean"
+          },
+          "use_standard": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accept_non_alphabet_suffix",
+          "letter_count_for_suffix",
+          "no_separator_format_allowed",
+          "use_standard"
+        ],
+        "type": "object"
+      },
+      "file_revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "folder": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "folders": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alias": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "authority": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "coded_path": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "exists": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resolved_path": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              ]
+            },
+            "scene_dependent": {
+              "type": "boolean"
+            },
+            "use_scene_path": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "alias",
+            "authority",
+            "coded_path",
+            "exists",
+            "resolved_path",
+            "scene_dependent",
+            "use_scene_path"
+          ],
+          "type": "object"
+        },
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "format": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "kind": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
       "live_gui_mutation": {
         "type": "boolean"
       },
       "mode": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "project_file": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "project_id": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
@@ -12801,15 +12930,52 @@
           "open"
         ],
         "type": "object"
+      },
+      "scene_defaults": {
+        "additionalProperties": false,
+        "properties": {
+          "camera_height_in": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "camera_height_px": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "camera_width_in": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "camera_width_px": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "frame_rate": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          }
+        },
+        "required": [
+          "camera_height_in",
+          "camera_height_px",
+          "camera_width_in",
+          "camera_width_px",
+          "frame_rate"
+        ],
+        "type": "object"
+      },
+      "version": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
       }
     },
-    "required": [
-      "arbitrary_scene_open",
-      "documents",
-      "live_gui_mutation",
-      "mode",
-      "read_only_documents"
-    ],
+    "required": [],
     "type": "object"
   },
   "project.list": {
@@ -13034,6 +13200,172 @@
       "roots",
       "projects",
       "standalone",
+      "listing_revision",
+      "offset",
+      "limit",
+      "discovered",
+      "next_offset",
+      "scan"
+    ],
+    "type": "object"
+  },
+  "project.scenes": {
+    "additionalProperties": false,
+    "properties": {
+      "discovered": {
+        "maximum": 20000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "items": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "scene",
+                "folder"
+              ],
+              "type": "string"
+            },
+            "modified": {
+              "oneOf": [
+                {
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "relative_path": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "size_bytes": {
+              "oneOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "path",
+            "relative_path",
+            "kind",
+            "size_bytes",
+            "modified"
+          ],
+          "type": "object"
+        },
+        "maxItems": 128,
+        "minItems": 0,
+        "type": "array"
+      },
+      "limit": {
+        "maximum": 128,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "listing_revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 20000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "offset": {
+        "maximum": 20000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "project_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      },
+      "scan": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "entries_visited": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "enum": [
+                "depth_limit",
+                "entry_limit",
+                "time_limit",
+                "hash_budget",
+                "skipped_links",
+                "unreadable"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 0,
+            "type": "array"
+          },
+          "skipped_links": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "complete",
+          "reasons",
+          "entries_visited",
+          "skipped_links"
+        ],
+        "type": "object"
+      },
+      "scenes_folder": {
+        "oneOf": [
+          {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "project_id",
+      "scenes_folder",
+      "items",
       "listing_revision",
       "offset",
       "limit",
@@ -15606,6 +15938,392 @@
     ],
     "type": "object"
   },
+  "scene.inventory": {
+    "additionalProperties": false,
+    "properties": {
+      "discovered": {
+        "maximum": 65536,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "items": {
+        "items": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "column_count": {
+                  "maximum": 9999,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "depth": {
+                  "maximum": 16,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "frame_count": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "instance_count": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "level_id": {
+                  "oneOf": [
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "oneOf": [
+                    {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sheet_path": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "column_id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "level_id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "column_id",
+                      "level_id"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "sheet_path",
+                "level_id",
+                "name",
+                "depth",
+                "column_count",
+                "frame_count",
+                "instance_count"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "camstand_visible": {
+                  "type": "boolean"
+                },
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "duplicate_name": {
+                  "type": "boolean"
+                },
+                "first_frame": {
+                  "oneOf": [
+                    {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "index": {
+                  "maximum": 9999,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "kind": {
+                  "enum": [
+                    "level",
+                    "child",
+                    "sound",
+                    "sound_text",
+                    "palette",
+                    "mesh",
+                    "generator",
+                    "empty",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                "last_frame": {
+                  "oneOf": [
+                    {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "level_ids": {
+                  "items": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "level_ids_truncated": {
+                  "type": "boolean"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "maxLength": 256,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "opacity": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "preview_visible": {
+                  "type": "boolean"
+                },
+                "sheet_path": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "column_id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "level_id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "column_id",
+                      "level_id"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "column_id",
+                "sheet_path",
+                "index",
+                "kind",
+                "name",
+                "preview_visible",
+                "camstand_visible",
+                "locked",
+                "opacity",
+                "first_frame",
+                "last_frame",
+                "level_ids",
+                "level_ids_truncated",
+                "duplicate_name"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "duplicate_name": {
+                  "type": "boolean"
+                },
+                "is_current_camera": {
+                  "type": "boolean"
+                },
+                "kind": {
+                  "enum": [
+                    "table",
+                    "column",
+                    "camera",
+                    "pegbar",
+                    "spline",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "maxLength": 256,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "object_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "parent_id": {
+                  "oneOf": [
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sheet_path": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "column_id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "level_id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "column_id",
+                      "level_id"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "object_id",
+                "sheet_path",
+                "kind",
+                "name",
+                "parent_id",
+                "locked",
+                "is_current_camera",
+                "duplicate_name"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "maxItems": 128,
+        "minItems": 0,
+        "type": "array"
+      },
+      "limit": {
+        "maximum": 128,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 65536,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "offset": {
+        "maximum": 65536,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "reasons": {
+        "items": {
+          "enum": [
+            "row_limit",
+            "depth_limit",
+            "cycle",
+            "sheet_limit"
+          ],
+          "type": "string"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
+      "section": {
+        "enum": [
+          "sheets",
+          "columns",
+          "stage_objects"
+        ],
+        "type": "string"
+      },
+      "source_revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "traversal_complete": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "document_id",
+      "source_revision",
+      "section",
+      "items",
+      "offset",
+      "limit",
+      "discovered",
+      "next_offset",
+      "traversal_complete",
+      "reasons"
+    ],
+    "type": "object"
+  },
   "scene.open": {
     "additionalProperties": false,
     "properties": {
@@ -17091,6 +17809,96 @@
       "objects",
       "operation_id",
       "revision"
+    ],
+    "type": "object"
+  },
+  "scene.source_status": {
+    "additionalProperties": false,
+    "properties": {
+      "changed": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "change": {
+              "enum": [
+                "modified",
+                "missing",
+                "replaced",
+                "unreadable"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "change"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "changed_count": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "checked_files": {
+        "maximum": 65536,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "current_fingerprint": {
+        "oneOf": [
+          {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "elapsed_ms": {
+        "maximum": 30000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "fingerprint_at_open": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "state": {
+        "enum": [
+          "unchanged",
+          "changed",
+          "missing"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "document_id",
+      "state",
+      "fingerprint_at_open",
+      "current_fingerprint",
+      "changed",
+      "changed_count",
+      "checked_files",
+      "elapsed_ms"
     ],
     "type": "object"
   },
