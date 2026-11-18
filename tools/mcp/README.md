@@ -394,11 +394,14 @@ steps from the top sheet; a sub-xsheet exposed twice is two sheet rows with one
 that instance are listed, and the sheets below it. Names repeated within a sheet are
 `duplicate_name`. Child-sheet column handles name inventory rows; column tools accept
 top-sheet columns only. It works on editable documents too and never creates objects.
-`scene.source_status` re-stats every file pinned at open and reports each change as
+`scene.source_status` re-checks every file pinned at open and reports each change as
 `modified`, `replaced` (a new file in its place), `missing` or `unreadable`, with
 `state: "missing"` when the scene file itself is gone; editable documents return
-`unsupported_target`. On volumes with coarse timestamps (HFS+: one second, exFAT: ten
-milliseconds) a same-size rewrite in place within one tick is not detected.
+`unsupported_target`. Its `verification` says what was compared:
+`content_checked_files` were compared by content as well, `metadata_only_files` by size,
+time and file id only, with the first 64 `metadata_only_paths`. On volumes with coarse
+timestamps (HFS+: one second, exFAT: ten milliseconds) a same-size rewrite in place
+within one tick is detected for content-checked files only.
 
 `project.inspect` with a `project_id` from `project.list` parses that project file in
 a parse helper (10 seconds, 1 GiB) and returns its format, version, file-path rules,
@@ -419,10 +422,12 @@ or a shipped library texture; a camera without a finite positive size and DPI al
 blocks. A rendered level whose file is missing or did not load fails the
 `dependencies` check first and returns `missing_dependency`. `render.preflight`
 reports all of these for a read-only document, with the worker's own lane and
-retention checks. Every file the
-scene reads is stat-pinned at open (size, nanosecond modification time and file id);
-a render re-checks the pins before it starts and before it publishes, and returns or
-fails with `source_changed` when a source changed. Results report
+retention checks. Every file the scene reads is pinned at open by size, nanosecond
+modification time and file id; each regular file up to 64 MiB is also pinned by a
+SHA-256 of its content while the scene's content-pinned total stays within 512 MiB (the
+open result's `content_pinned_file_count`). A render re-checks the pins before it starts
+and before it publishes, and a read that decodes drawings re-checks that level's pins;
+each returns or fails with `source_changed` when a source changed. Results report
 `snapshot_inputs: "linked-source-stat-pinned"` and the `source_fingerprint`.
 `scene.discard` stops the host and removes its private copy and outputs; it is
 refused with `render_busy` while one of the document's jobs is running.
