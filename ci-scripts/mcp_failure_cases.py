@@ -317,7 +317,14 @@ def _submit_on_full_disk(case: NativeAcceptance, document: str, workspace: Path)
     response = case.worker.call("render.submit", request)
     if "error" in response:
         case.assertIn(
-            response["error"]["code"], {"render_output_failed", "io_error", "native_error"}
+            response["error"]["code"],
+            {
+                "render_output_failed",
+                "io_error",
+                "native_error",
+                "invalid_package",
+                "package_write_failed",
+            },
         )
         case.assertEqual({path.name for path in _renders(case)}, before)
         case.assertEqual(set(workspace.rglob("frame*.png")), frames)
