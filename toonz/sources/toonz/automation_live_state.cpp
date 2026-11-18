@@ -1,5 +1,7 @@
 #include "automation_live_state.h"
 
+#include "automation_build_identity.h"
+
 #include <QCryptographicHash>
 #include <QJsonDocument>
 
@@ -33,7 +35,9 @@ SharedState::SharedState(QString instanceId, QString mode)
               {"admission_observation_cached", true},
               {"write_admission", false},
               {"reasons", QJsonArray{"starting"}},
-              {"limits", limits()}};
+              {"limits", limits()},
+              {"protocol", liveProtocol},
+              {"build", buildIdentity()}};
 }
 
 void SharedState::checkAvailable() const {
@@ -265,6 +269,8 @@ void SharedState::updateStatus(QJsonObject status) {
   status.insert("instance_id", m_instanceId);
   status.insert("mode", m_mode);
   status.insert("limits", limits());
+  status.insert("protocol", liveProtocol);
+  status.insert("build", buildIdentity());
   status.insert("busy_observation_cached", true);
   status.insert("admission_observation_cached", true);
   if (m_mode != "edit" || m_writesDisabled)

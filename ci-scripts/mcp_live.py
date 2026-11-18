@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -40,17 +41,57 @@ def stage_fixture(arguments: argparse.Namespace, directory: Path, session: Path)
     return fixture
 
 
-def validate_evidence(fixture: Path, report: dict[str, Any]) -> None:
+def file_sha256(path: Path) -> str:
+    """Return the SHA-256 of one file, read in bounded chunks.
+
+    Args:
+        path: The file to hash.
+
+    Returns:
+        The lowercase hexadecimal digest.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_build(fixture: Path, sdk: dict[str, Any], executable: Path) -> str:
+    """Require the hello and live.capabilities to name the executable this run started.
+
+    Args:
+        fixture: The retained evidence directory from the completed app process.
+        sdk: Evidence written by the official SDK journey process.
+        executable: The native application the runner launched.
+
+    Returns:
+        The executable's SHA-256 that both handshake records carried.
+    """
+    expected = file_sha256(executable)
+    security = json.loads((fixture / "security-boundaries.json").read_text(encoding="utf-8"))
+    for label, build in (
+        ("connector hello", security.get("hello_build")),
+        ("live.capabilities", sdk.get("capabilities_build")),
+    ):
+        if not isinstance(build, dict) or build.get("executable_sha256") != expected:
+            raise AssertionError(f"The {label} build is not the launched executable's SHA-256")
+    return expected
+
+
+def validate_evidence(fixture: Path, report: dict[str, Any], executable: Path) -> None:
     """Require independent SDK and native completion records from the same run.
 
     Args:
         fixture: The retained evidence directory from the completed app process.
         report: Runner result receiving validated completion counts.
+        executable: The native application the runner launched.
     """
     sdk = json.loads((fixture / "sdk.json").read_text(encoding="utf-8"))
     native = json.loads((fixture / "native.json").read_text(encoding="utf-8"))
     if sdk.get("status") != "passed" or native.get("status") != "passed":
         raise AssertionError("Live SDK and independent native observations must both pass")
+    report["executable_sha256"] = validate_build(fixture, sdk, executable)
     validate_clients(sdk)
     validate_phases(native)
     if native.get("sdk_exit_code") != 0 or native.get("sdk_exit_status") != "normal":
@@ -183,7 +224,7 @@ def qualify(arguments: argparse.Namespace, report: dict[str, Any], session: Path
             if result.returncode != 0:
                 raise AssertionError("Live GUI qualification failed; inspect native-output.txt")
             confirm_process_group_exit(state)
-            validate_evidence(fixture, report)
+            validate_evidence(fixture, report, arguments.executable)
         finally:
             (arguments.output / "native-output.txt").write_bytes(state.get("output", b""))
             report["process_tree_stopped"] = state["safe_to_release"]

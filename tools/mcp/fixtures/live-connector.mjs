@@ -11,7 +11,11 @@ const methods = [
   "live.receipt",
   "live.capabilities",
 ];
+const build = { application: "groundzero", version: "1.8", executable_sha256: "c".repeat(64) };
+const identity = { protocol: "groundzero-live-v2", build };
 const hello = {
+  protocol: "groundzero-live-v2",
+  build,
   instance_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   client_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
   mode: "edit",
@@ -33,12 +37,32 @@ function frame(value) {
   return output;
 }
 
+function refusal(code, message = "The connector refused before its hello.") {
+  const editor = { protocol: "groundzero-live-v1", build: null };
+  return { refusal: { code, message, details: { connector: identity, editor } } };
+}
+
+function refuse() {
+  const value = mode === "oversized-refusal" ? refusal("build_mismatch", "x".repeat(513)) : null;
+  const code = mode.slice("refusal-".length);
+  process.stdout.write(frame(value ?? refusal(code)), () => process.exit(2));
+}
+
+const helloChanges = {
+  "invalid-hello": () => (hello.mode = "admin"),
+  "invalid-identity": () => (hello.instance_id = "not-an-instance-uuid"),
+  "wrong-limits": () => (hello.limits.pending_per_client = 16),
+  "unversioned-hello": () => delete hello.protocol,
+  "previous-hello": () => (hello.protocol = "groundzero-live-v1"),
+  "invalid-build": () => (hello.build = { ...build, executable_sha256: "short" }),
+};
+
 function initial() {
   if (mode === "no-hello") return;
-  if (mode === "invalid-hello") hello.mode = "admin";
-  if (mode === "invalid-identity") hello.instance_id = "not-an-instance-uuid";
-  if (mode === "wrong-limits") hello.limits.pending_per_client = 16;
+  if (mode.startsWith("refusal-") || mode === "oversized-refusal") return refuse();
+  helloChanges[mode]?.();
   process.stdout.write(frame(hello));
+  if (mode === "late-refusal") process.stdout.write(frame(refusal("build_mismatch")));
 }
 
 function malformed(request) {

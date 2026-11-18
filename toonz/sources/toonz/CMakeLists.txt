@@ -198,6 +198,7 @@ endif()
 set(HEADERS
     automation.h
     automation_animation.h
+    automation_build_identity.h
     automation_fx_profile.h
     automation_path.h
     automation_audio.h
@@ -330,6 +331,7 @@ set(SOURCES
     automation_scene_host.cpp
     automation_scene_content.cpp
     automation_scene_inventory.cpp
+    automation_build_identity.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp
@@ -1202,6 +1204,7 @@ if(BUILD_UI_PORT_TESTS)
     set_tests_properties(mcp_path_authority PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_path_test)
     add_executable(mcp_live_protocol_test
+        automation_build_identity.cpp
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_protocol_test.cpp)
     target_compile_definitions(mcp_live_protocol_test PRIVATE
@@ -1215,6 +1218,7 @@ if(BUILD_UI_PORT_TESTS)
     set_tests_properties(mcp_live_protocol PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_live_protocol_test)
     add_executable(mcp_live_race_test
+        automation_build_identity.cpp
         automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
         tests/automation_live_race_test.cpp)
     target_compile_definitions(mcp_live_race_test PRIVATE
@@ -1261,9 +1265,11 @@ if(BUILD_UI_PORT_TESTS)
         set_tests_properties(mcp_containment PROPERTIES TIMEOUT 90)
         add_dependencies(OpenToonz mcp_containment_test)
         add_executable(mcp_live_security_test
+            automation_build_identity.cpp
             automation_error.cpp automation_live_protocol.cpp
             automation_live_security.cpp automation_live_security_posix.cpp
-            automation_live_connector.cpp tests/automation_live_security_test.cpp)
+            automation_live_connector.cpp automation_live_state.cpp
+            automation_live_transport.cpp tests/automation_live_security_test.cpp)
         target_include_directories(mcp_live_security_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
         set_target_properties(mcp_live_security_test PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")

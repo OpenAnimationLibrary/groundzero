@@ -8,6 +8,7 @@
 #include <cstdio>
 
 #include "automation.h"
+#include "automation_build_identity.h"
 #include "automation_live_protocol.h"
 #include "automation_live_security.h"
 
@@ -115,33 +116,139 @@ QByteArray receiveHello(QLocalSocket& socket) {
   failed("authentication_failed");
 }
 
+QJsonValue peerIdentity(const QJsonValue& protocol, const QJsonValue& build) {
+  if (!protocol.isString() || protocol.toString().isEmpty() ||
+      protocol.toString().size() > 64)
+    failed("authentication_failed");
+  return QJsonObject{
+      {"protocol", protocol},
+      {"build", validBuildIdentity(build) ? build : QJsonValue()}};
+}
+
+[[noreturn]] void mismatch(const QString& code, const QJsonValue& editor) {
+  throw Error(code,
+              "The editor is another build or bridge version. Start the "
+              "editor and the adapter from one build.",
+              {{"connector", liveIdentity()}, {"editor", editor}});
+}
+
+void rejectEditorRefusal(const QJsonObject& message) {
+  if (message.keys() != QStringList{"error"}) return;
+  const QJsonObject error = message.value("error").toObject();
+  const QString code      = error.value("code").toString();
+  const QJsonObject editor =
+      error.value("details").toObject().value("editor").toObject();
+  if (error.keys() != QStringList{"code", "details"} ||
+      error.value("details").toObject().keys() != QStringList{"editor"} ||
+      editor.keys() != QStringList{"build", "protocol"} ||
+      (code != "protocol_mismatch" && code != "build_mismatch"))
+    failed("authentication_failed");
+  mismatch(code, peerIdentity(editor.value("protocol"), editor.value("build")));
+}
+
 void validateHello(const QJsonObject& hello, const SecuritySession& session,
                    const QString& client) {
-  const QStringList keys{"client_id", "instance_id", "limits", "mode", "tools"};
+  const QStringList keys{"build", "client_id", "instance_id", "limits",
+                         "mode",  "protocol",  "tools"};
   if (hello.keys() != keys || hello.value("client_id") != client ||
       hello.value("instance_id") != session.instanceId() ||
       hello.value("mode") != session.mode())
     failed("authentication_failed");
+  const QJsonValue editor =
+      peerIdentity(hello.value("protocol"), hello.value("build"));
+  if (hello.value("protocol") != QJsonValue(liveProtocol))
+    mismatch("protocol_mismatch", editor);
+  if (hello.value("build") != QJsonValue(buildIdentity()))
+    mismatch("build_mismatch", editor);
   if (hello.value("tools") != QJsonValue(operations()) ||
       hello.value("limits") != QJsonValue(limits()))
     failed("invalid_capabilities");
 }
 
-void authenticate(QLocalSocket& socket, const SecuritySession& session) {
+QByteArray framed(const QByteArray& body) {
+  QByteArray frame(4, '\0');
+  qToBigEndian<quint32>(quint32(body.size()),
+                        reinterpret_cast<uchar*>(frame.data()));
+  return frame + body;
+}
+
+// Returns the editor's hello frame unchanged once every check has passed.
+QByteArray authenticate(QLocalSocket& socket, const SecuritySession& session) {
   socket.setReadBufferSize(maximumResponseBytes + 4);
   socket.connectToServer(session.endpoint());
   if (!socket.waitForConnected(connectionTimeout)) failed("live_unavailable");
   session.verifyServer(socket.socketDescriptor());
   const QString client = secureUuid();
-  const QJsonObject auth{{"protocol", "groundzero-live-v1"},
+  const QJsonObject auth{{"protocol", liveProtocol},
+                         {"build", buildIdentity()},
                          {"instance_id", session.instanceId()},
                          {"client_id", client},
                          {"token", QString::fromLatin1(session.token())}};
   send(socket, frameMessage(auth, maximumRequestBytes));
-  const QJsonObject hello =
-      parseMessage(receiveHello(socket), maximumResponseBytes);
+  const QByteArray body   = receiveHello(socket);
+  const QJsonObject hello = parseMessage(body, maximumResponseBytes);
+  rejectEditorRefusal(hello);
   validateHello(hello, session, client);
-  writeOutput(frameMessage(hello, maximumResponseBytes));
+  return framed(body);
+}
+
+QString refusalCode(const QString& code) {
+  static const QStringList codes{"protocol_mismatch",     "build_mismatch",
+                                 "authentication_failed", "live_unavailable",
+                                 "invalid_capabilities",  "live_security",
+                                 "connector_io",          "invalid_frame"};
+  if (codes.contains(code)) return code;
+  if (code == "live_disconnected") return "live_unavailable";
+  if (code == "invalid_params") return "invalid_frame";
+  return "connector_io";
+}
+
+QString refusalMessage(const QString& code) {
+  static const QMap<QString, QString> messages{
+      {"protocol_mismatch",
+       "The editor runs another live bridge version. Start the editor and the "
+       "adapter from one build."},
+      {"build_mismatch",
+       "The editor is another build. Start the editor and the adapter from "
+       "one build."},
+      {"authentication_failed",
+       "The editor did not authenticate this connector. Check the session "
+       "file and reconnect."},
+      {"live_unavailable",
+       "The editor's live endpoint is not reachable. Start live automation "
+       "and reconnect."},
+      {"invalid_capabilities",
+       "The editor advertised another live catalog or limits. Start the "
+       "editor and the adapter from one build."},
+      {"live_security",
+       "The live session file or endpoint failed its security checks. Start "
+       "a new live session."},
+      {"connector_io", "The live connector cannot use its own process I/O."},
+      {"invalid_frame", "The editor sent a malformed handshake frame."}};
+  return messages.value(code);
+}
+
+QJsonValue connectorIdentity() {
+  try {
+    return liveIdentity();
+  } catch (...) {
+    return QJsonValue();
+  }
+}
+
+// One bounded frame replaces the hello; the token and endpoint never appear.
+void writeRefusal(const Error& error) {
+  const QString code = refusalCode(error.code);
+  const QJsonValue editor =
+      error.code == code && error.details.contains("editor")
+          ? error.details.value("editor")
+          : QJsonValue();
+  const QJsonObject refusal{
+      {"code", code},
+      {"message", refusalMessage(code)},
+      {"details",
+       QJsonObject{{"connector", connectorIdentity()}, {"editor", editor}}}};
+  writeOutput(frameMessage({{"refusal", refusal}}, maximumResponseBytes));
 }
 
 #ifdef Q_OS_WIN
@@ -263,9 +370,23 @@ class Forwarder final {
   QElapsedTimer m_clock;
 };
 
+int failedConnector(const Error& error, bool helloSent) {
+  if (helloSent) {
+    reportFailure(error.code.toUtf8());
+    return 1;
+  }
+  try {
+    writeRefusal(error);
+  } catch (...) {
+    reportFailure("connector_io");
+  }
+  return 2;
+}
+
 }  // namespace
 
 int runConnector(int argc, char* argv[]) {
+  bool helloSent = false;
   try {
     if (argc != 3) failed("invalid_arguments");
     QCoreApplication application(argc, argv);
@@ -273,18 +394,21 @@ int runConnector(int argc, char* argv[]) {
     if (arguments.size() != 3 || arguments[1] != "--automation-live-connect")
       failed("invalid_arguments");
     prepareInput();
+    buildIdentity();
     const auto session = SecuritySession::read(arguments[2]);
     QLocalSocket socket;
-    authenticate(socket, *session);
+    writeOutput(authenticate(socket, *session));
+    helloSent = true;
     Forwarder(socket).run();
     socket.abort();
     return 0;
   } catch (const Error& error) {
-    reportFailure(error.code.toUtf8());
+    return failedConnector(error, helloSent);
   } catch (...) {
-    reportFailure("internal_error");
+    return failedConnector(
+        Error("internal_error", "The live connector failed internally."),
+        helloSent);
   }
-  return 1;
 }
 
 }  // namespace Live

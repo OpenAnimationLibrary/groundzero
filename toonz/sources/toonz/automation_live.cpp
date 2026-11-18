@@ -1,4 +1,5 @@
 #include "automation_live.h"
+#include "automation_build_identity.h"
 #include "automation_live_protocol.h"
 #include "automation_live_security.h"
 #include "automation_live_state.h"
@@ -55,6 +56,7 @@ public:
     if (m_options.mode != "inspect" && m_options.mode != "edit")
       throw Error("invalid_params",
                   "Choose the inspect or edit live launch mode.");
+    buildIdentity();
     m_started  = true;
     m_security = std::make_shared<SecuritySession>(m_options.sessionPath,
                                                    m_options.mode);

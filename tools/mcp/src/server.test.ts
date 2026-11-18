@@ -21,6 +21,11 @@ const tool = {
 };
 
 const closers: (() => Promise<void>)[] = [];
+const liveBuild = {
+  application: "groundzero" as const,
+  version: "1.8",
+  executable_sha256: "c".repeat(64),
+};
 
 async function connected(server: ReturnType<typeof createServer>): Promise<Client> {
   const client = new Client({ name: "adapter-test", version: "1.0.0" });
@@ -176,6 +181,8 @@ async function liveSession(mode: "inspect" | "edit") {
   const server = await createLiveServer(
     { request, close: () => {} },
     {
+      protocol: "groundzero-live-v2",
+      build: liveBuild,
       instanceId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
       mode,
@@ -228,6 +235,8 @@ test("rejects a live catalog that adds detached authority or omits an approved m
       createLiveServer(
         { request: async () => ({}), close: () => {} },
         {
+          protocol: "groundzero-live-v2",
+          build: liveBuild,
           instanceId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
           clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
           mode: "edit",

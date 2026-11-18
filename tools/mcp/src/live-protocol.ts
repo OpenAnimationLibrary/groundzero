@@ -12,7 +12,31 @@ export const LIVE_TOOL_NAMES = new Set([
   "live.capabilities",
 ]);
 
+export const LIVE_PROTOCOL = "groundzero-live-v2";
+const REFUSAL_CODES = new Set([
+  "protocol_mismatch",
+  "build_mismatch",
+  "authentication_failed",
+  "live_unavailable",
+  "invalid_capabilities",
+  "live_security",
+  "connector_io",
+  "invalid_frame",
+]);
+const MISMATCH_CODES = new Set(["protocol_mismatch", "build_mismatch"]);
+export const LIVE_RECOVERY =
+  "Reconnect to the same instance and query live.receipt with the original operation_id. " +
+  "Do not blindly replay edits; a new instance requires inspection.";
+
+export interface LiveBuild {
+  application: "groundzero";
+  version: string;
+  executable_sha256: string;
+}
+
 export interface LiveHello {
+  protocol: string;
+  build: LiveBuild;
   instanceId: string;
   clientId: string;
   mode: "inspect" | "edit";
@@ -21,6 +45,7 @@ export interface LiveHello {
 }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const sha256 = /^[0-9a-f]{64}$/;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 /** Require exact envelope fields before accepting connector data.
@@ -70,18 +95,108 @@ export function decodeLiveJson(bytes: Buffer): unknown {
  */
 export function liveHello(value: unknown): LiveHello {
   if (!isObject(value)) throw new Error("Expected an authenticated live hello");
-  exactFields(value, ["instance_id", "client_id", "mode", "tools", "limits"]);
-  const instanceId = liveIdentity(value["instance_id"]);
-  const clientId = liveIdentity(value["client_id"]);
+  if ("refusal" in value) throw liveRefusal(value);
+  exactFields(value, ["protocol", "build", "instance_id", "client_id", "mode", "tools", "limits"]);
+  if (value["protocol"] !== LIVE_PROTOCOL) {
+    throw new Error("Live hello uses another bridge protocol");
+  }
   const mode = value["mode"];
   if (mode !== "inspect" && mode !== "edit") throw new Error("Unknown live permission mode");
-  const tools = value["tools"];
-  const limits = value["limits"];
+  const { tools, limits } = liveCatalog(value["tools"], value["limits"]);
+  return {
+    protocol: LIVE_PROTOCOL,
+    build: liveBuild(value["build"]),
+    instanceId: liveIdentity(value["instance_id"]),
+    clientId: liveIdentity(value["client_id"]),
+    mode,
+    tools,
+    limits,
+  };
+}
+
+function liveCatalog(tools: unknown, limits: unknown) {
   if (!Array.isArray(tools) || tools.length !== LIVE_TOOL_NAMES.size || !isObject(limits)) {
     throw new Error("Live hello requires the exact live catalog and limits");
   }
   checkLimits(limits);
-  return { instanceId, clientId, mode, tools, limits };
+  return { tools, limits };
+}
+
+function liveBuild(value: unknown): LiveBuild {
+  if (!isObject(value)) throw new Error("Live build identity must be an object");
+  exactFields(value, ["application", "version", "executable_sha256"]);
+  const version = value["version"];
+  const digest = value["executable_sha256"];
+  if (
+    value["application"] !== "groundzero" ||
+    typeof version !== "string" ||
+    version.length < 1 ||
+    version.length > 64 ||
+    typeof digest !== "string" ||
+    !sha256.test(digest)
+  ) {
+    throw new Error("Invalid live build identity");
+  }
+  return { application: "groundzero", version, executable_sha256: digest };
+}
+
+function peerIdentity(value: unknown, nullableBuild: boolean): unknown {
+  if (value === null) return null;
+  if (!isObject(value)) throw new Error("Invalid live refusal identity");
+  exactFields(value, ["protocol", "build"]);
+  const protocol = value["protocol"];
+  if (typeof protocol !== "string" || protocol.length < 1 || protocol.length > 64) {
+    throw new Error("Invalid live refusal protocol");
+  }
+  const build = nullableBuild && value["build"] === null ? null : liveBuild(value["build"]);
+  return { protocol, build };
+}
+
+/** Map the connector's one framed refusal, sent instead of a hello, to an MCP error.
+ *
+ * Args:
+ *   value: The connector's first frame, holding only a refusal.
+ * Returns:
+ *   LIVE_INCOMPATIBLE for a protocol or build mismatch, else LIVE_UNAVAILABLE naming the cause.
+ */
+export function liveRefusal(value: Record<string, unknown>): WorkerError {
+  const { code, message, connector, editor } = refusalFields(value);
+  if (MISMATCH_CODES.has(code)) {
+    return new WorkerError("LIVE_INCOMPATIBLE", message, {
+      cause: code,
+      connector,
+      editor,
+      recovery: "Start the editor and the adapter from one build.",
+    });
+  }
+  return new WorkerError("LIVE_UNAVAILABLE", message, {
+    cause: code,
+    outcome_unknown: false,
+    instance_id: null,
+    recovery: LIVE_RECOVERY,
+  });
+}
+
+function refusalFields(value: Record<string, unknown>) {
+  exactFields(value, ["refusal"]);
+  const refusal = value["refusal"];
+  if (!isObject(refusal)) throw new Error("Invalid live refusal");
+  exactFields(refusal, ["code", "message", "details"]);
+  const { code, message, details } = refusal;
+  if (typeof code !== "string" || !REFUSAL_CODES.has(code)) {
+    throw new Error("Unknown live refusal code");
+  }
+  if (typeof message !== "string" || message.length < 1 || message.length > 512) {
+    throw new Error("Invalid live refusal message");
+  }
+  if (!isObject(details)) throw new Error("Invalid live refusal details");
+  exactFields(details, ["connector", "editor"]);
+  return {
+    code,
+    message,
+    connector: peerIdentity(details["connector"], false),
+    editor: peerIdentity(details["editor"], true),
+  };
 }
 
 function liveIdentity(value: unknown): string {
