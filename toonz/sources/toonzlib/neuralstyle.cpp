@@ -73,8 +73,10 @@ struct Session::Impl {
       process.kill();
       process.waitForFinished(3000);
     }
-    process.readAllStandardOutput();
-    process.readAllStandardError();
+    if (process.isOpen()) {
+      process.readAllStandardOutput();
+      process.readAllStandardError();
+    }
     reference.clear();
     sequence = 0;
     if (ownsLease) {
