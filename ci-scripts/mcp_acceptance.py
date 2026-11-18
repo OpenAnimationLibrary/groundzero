@@ -802,6 +802,15 @@ class NativeAcceptance(unittest.TestCase):
     def test_project_scenes_refuse_a_folder_swapped_after_validation(self) -> None:
         mcp_file_project_cases.project_scenes_refuse_a_folder_swapped_after_validation(self)
 
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_project_listings_stay_in_the_folder_they_pinned(self) -> None:
+        mcp_file_project_cases.project_list_stays_in_the_folder_it_pinned(self)
+        mcp_file_project_cases.project_scenes_stays_in_the_folder_it_pinned(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_shared_listings_stay_in_the_folder_they_pinned(self) -> None:
+        mcp_file_shared_cases.shared_listings_stay_in_the_folder_they_pinned(self)
+
     def test_shared_roots_hold_the_file_boundary(self) -> None:
         mcp_file_shared_cases.shared_roots_hold_the_file_boundary(self)
 

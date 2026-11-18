@@ -38,7 +38,7 @@ ItemKind itemKind(const QString& kind) {
   throw Error("invalid_params", "kind must be template or pose_set.");
 }
 
-QString itemName(const QFileInfo& info, const ItemKind& kind) {
+QString itemName(const EntryInfo& info, const ItemKind& kind) {
   const QString suffix = '.' + kind.extension;
   const QString name   = info.fileName();
   return name.endsWith(suffix) ? name.chopped(suffix.size()) : QString();
@@ -142,7 +142,7 @@ Identity readIdentity(const QString& directory, const QString& name,
 }
 
 struct Candidate final {
-  QFileInfo info;
+  EntryInfo info;
   QString name;
   bool oversized = false;
 };
@@ -151,7 +151,7 @@ struct Candidate final {
 QVector<Candidate> candidates(const SharedFolder& folder, const ItemKind& kind,
                               int* symlinks = nullptr, int* unsafe = nullptr) {
   QVector<Candidate> result;
-  for (const QFileInfo& info : folder.entries) {
+  for (const EntryInfo& info : folder.entries) {
     const SharedEntryKind entry = sharedEntryKind(info);
     const bool matches = info.fileName().endsWith('.' + kind.extension);
     if (entry == SharedEntryKind::Symlink && matches && symlinks) ++*symlinks;
@@ -405,7 +405,7 @@ QStringList levelFiles(const QString& root, const QString& relative) {
     const QString parent    = QFileInfo(relative).path();
     const QString directory = root + '/' + parent;
     if (QFileInfo(directory).isDir() && !QFileInfo(directory).isSymLink())
-      for (const QFileInfo& entry : readSharedFolder(directory).entries)
+      for (const EntryInfo& entry : readSharedFolder(directory).entries)
         if (sharedEntryKind(entry) == SharedEntryKind::File &&
             TFilePath(entry.fileName().toStdWString()).getLevelNameW() ==
                 main.withoutParentDir().getLevelNameW())
@@ -428,7 +428,7 @@ int unreferencedFiles(const QString& root, const QString& folder,
   const QFileInfo info(directory);
   if (!info.isDir() || info.isSymLink() || info.isJunction()) return 0;
   int count = 0;
-  for (const QFileInfo& entry : readSharedFolder(directory).entries)
+  for (const EntryInfo& entry : readSharedFolder(directory).entries)
     if (sharedEntryKind(entry) == SharedEntryKind::File &&
         !referenced.contains(relative + '/' + entry.fileName()))
       count = std::min(count + 1, DependencyFiles);
@@ -641,6 +641,10 @@ QJsonObject itemThumbnail(Context& context, const QJsonObject& params) {
     if (icon.status == "missing")
       throw Error("asset_unavailable", "The template has no thumbnail.",
                   {{"reason", "missing"}});
+    if (icon.path.isEmpty())
+      throw Error("asset_unavailable",
+                  "The template thumbnail is a link or cannot be resolved.",
+                  {{"reason", "unavailable"}});
     const SharedFile file = readSharedFile(icon.path, IconBytes);
     result                = encodedImage(file.bytes);
     revision              = file.revision;

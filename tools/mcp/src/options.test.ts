@@ -79,6 +79,17 @@ test("rejects relative, missing, and incomplete media tool directories", async (
   );
 });
 
+test("refuses a single-valued launch option given twice, naming the flag", async () => {
+  const path = await workspace();
+  const executable = ["--executable", process.execPath];
+  await expect(
+    parseOptions([...executable, "--workspace", path, "--workspace", path]),
+  ).rejects.toThrow("Specify --workspace at most once");
+  await expect(
+    parseOptions([...executable, "--executable", process.execPath, "--workspace", path]),
+  ).rejects.toThrow("Specify --executable at most once");
+});
+
 test("rejects symlink media directories and symlink executables", async () => {
   const path = await workspace();
   await mediaTools(path);

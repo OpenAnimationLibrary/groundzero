@@ -1,4 +1,5 @@
 #include "automation_scene_host.h"
+#include "automation_files.h"
 #include "automation_shared_parse.h"
 
 #include "tcolorstyles.h"
@@ -23,6 +24,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <algorithm>
+
 #include <QFile>
 #include <QFileInfo>
 
@@ -259,9 +262,18 @@ struct Loader final {
     const QString folder = QFileInfo(level.getQString()).absolutePath();
     if (!folders.contains(folder)) {
       QHash<QString, QStringList>& names = folders[folder];
-      const QFileInfoList entries        = QDir(folder).entryInfoList(
-          QDir::Files | QDir::NoSymLinks, QDir::Name);
-      for (const QFileInfo& entry : entries) {
+      QVector<EntryInfo> entries;
+      try {
+        listApprovedDirectory(folder, entries);
+      } catch (const Error&) {
+        entries.clear();
+      }
+      std::sort(entries.begin(), entries.end(),
+                [](const EntryInfo& left, const EntryInfo& right) {
+                  return left.fileName() < right.fileName();
+                });
+      for (const EntryInfo& entry : entries) {
+        if (!entry.isFile()) continue;
         const TFilePath member(entry.absoluteFilePath().toStdWString());
         names[QString::fromStdWString(member.getLevelNameW())].append(
             entry.absoluteFilePath());

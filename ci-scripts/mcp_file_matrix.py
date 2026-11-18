@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import unicodedata
+import unittest
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -370,6 +371,15 @@ def nfc_alias_of_decomposed(layout: Layout) -> str:
     return str(path.with_name(unicodedata.normalize("NFC", path.name)))
 
 
+def hard_link_outside(layout: Layout) -> str:
+    original = layout.existing(layout.outside / layout.leaf("original"))
+    if not original.is_file():
+        raise unittest.SkipTest("only a file can have a second hard link")
+    link = layout.base / layout.leaf("hard")
+    os.link(original, link)
+    return str(link)
+
+
 def volume_absolute(layout: Layout) -> str:
     assert layout.volume is not None
     return str(layout.target(layout.volume))
@@ -484,6 +494,7 @@ VOLUME: list[Scenario] = [
 BY_MODE: dict[str, list[Scenario]] = {
     "read": [
         ("read-only folder", read_only_directory, ADMIT, _denied),
+        ("hard link to a file outside", hard_link_outside, ADMIT, _denied),
         ("an input in the workspace", workspace_file, ADMIT, _denied),
         ("bare name resolves against the workspace", relative_name, DENY, _absent),
         ("named pipe", fifo, DENY, _absent),
@@ -492,6 +503,7 @@ BY_MODE: dict[str, list[Scenario]] = {
         ("read-only folder", read_only_directory, DENY, _absent),
         ("the read-only input root", input_root_target, DENY, _denied),
         ("existing destination", existing_destination, DENY, _collision),
+        ("hard link to a file outside as destination", hard_link_outside, DENY, _collision),
         ("missing parent folder", missing_parent, DENY, _absent),
         ("named pipe as destination", fifo, DENY, _collision),
     ],

@@ -6,7 +6,6 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
 
@@ -29,13 +28,15 @@ bool linkLike(const QFileInfo& info) {
   return info.isSymLink() || info.isJunction();
 }
 
-char entryCode(const QFileInfo& info) {
+bool linkLike(const EntryInfo& info) { return info.isSymLink(); }
+
+char entryCode(const EntryInfo& info) {
   if (linkLike(info)) return 'l';
   if (info.isDir()) return 'd';
   return info.isFile() ? 'f' : 'o';
 }
 
-QByteArray listingLine(const QFileInfo& info) {
+QByteArray listingLine(const EntryInfo& info) {
   const char code   = entryCode(info);
   const bool file   = code == 'f';
   const qint64 size = file ? info.size() : 0;
@@ -158,7 +159,7 @@ QString resolveSharedPath(const QString& root, const QStringList& segments) {
   return current;
 }
 
-SharedEntryKind sharedEntryKind(const QFileInfo& entry) {
+SharedEntryKind sharedEntryKind(const EntryInfo& entry) {
   if (linkLike(entry)) return SharedEntryKind::Symlink;
   if (entry.fileName().startsWith('.')) return SharedEntryKind::Hidden;
   if (!safeSharedName(entry.fileName())) return SharedEntryKind::Unsafe;
@@ -167,21 +168,18 @@ SharedEntryKind sharedEntryKind(const QFileInfo& entry) {
 }
 
 SharedFolder readSharedFolder(const QString& directory) {
-  if (!QFileInfo(directory).isReadable())
-    throw Error("io_error", "Cannot read the shared folder.");
-  QDirIterator iterator(directory, QDir::AllEntries | QDir::Hidden |
-                                       QDir::System | QDir::NoDotAndDotDot);
   SharedFolder folder;
+  const ListResult listed =
+      listApprovedDirectory(directory, folder.entries, SharedFolderEntries);
+  if (listed == ListResult::TooMany)
+    throw Error("resource_limit",
+                "The shared folder has more than 8192 entries.",
+                {{"limit", SharedFolderEntries}});
+  if (listed != ListResult::Listed)
+    throw Error("io_error", "Cannot read the shared folder.");
   QVector<QByteArray> lines;
-  while (iterator.hasNext()) {
-    iterator.next();
-    if (folder.entries.size() == SharedFolderEntries)
-      throw Error("resource_limit",
-                  "The shared folder has more than 8192 entries.",
-                  {{"limit", SharedFolderEntries}});
-    folder.entries.append(iterator.fileInfo());
-    lines.append(listingLine(iterator.fileInfo()));
-  }
+  for (const EntryInfo& entry : folder.entries)
+    lines.append(listingLine(entry));
   std::sort(lines.begin(), lines.end());
   QCryptographicHash hash(QCryptographicHash::Sha256);
   for (const QByteArray& line : lines) hash.addData(line + '\n');

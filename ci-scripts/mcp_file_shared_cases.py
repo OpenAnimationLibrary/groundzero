@@ -189,7 +189,7 @@ def _library_probes(roots: Roots) -> list[Probe]:
             "thumbnail swapped for a link outside",
             "library.thumbnail",
             "Copied",
-            frozenset({"asset_unavailable", "io_error"}),
+            frozenset({"asset_unavailable"}),
             _swap_for_link(thumbnail, stray),
         ),
     ]
@@ -242,3 +242,39 @@ def shared_roots_hold_the_file_boundary(case: NativeAcceptance) -> None:
     for probe in probes:
         with case.subTest(method=probe.method, probe=probe.label):
             _run(case, worker, roots, probe)
+
+
+def shared_listings_stay_in_the_folder_they_pinned(case: NativeAcceptance) -> None:
+    """List the shared folder that was pinned, never the one swapped in after it.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    tag = uuid.uuid4().hex[:6]
+    studio, library = case.directory / "studio", case.directory / "library"
+    palettes = studio / GLOBAL
+    folder = palettes / f"Pinned{tag}"
+    decoy = case.directory / f"decoy-{tag}"
+    folder.mkdir(parents=True)
+    decoy.mkdir()
+    roots = Roots(studio, library, decoy, None, tag)
+    roots.palette(folder, "Original")
+    roots.palette(decoy, "Decoy")
+    _build_library(case, _package_scene(case), library)
+    worker = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / f"shared-pinned-{tag}.log",
+        shared_roots={"studio_palettes": studio, "library": library},
+        test_arguments=("--test-path-swap", str(folder), str(decoy), "pinned"),
+    )
+    case.addCleanup(worker.close)
+    params = {"root": "studio_palettes", "folder": f"{GLOBAL}/{folder.name}"}
+    response = worker.call("studio_palette.list", params)
+    case.assertTrue(Path(str(folder) + ".fired").exists(), "the hook never swapped the folder")
+    case.assertNotIn("Decoy", str(response))
+    if "error" in response:
+        case.assertEqual(response["error"]["code"], "path_denied", response)
+    else:
+        case.assertIn("Original", str(response))
