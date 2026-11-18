@@ -3,7 +3,10 @@ import type { ChildProcess } from "node:child_process";
 import { EventEmitter, once } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { setTimeout as pause } from "node:timers/promises";
 import { afterEach, expect, test, vi } from "vitest";
+import { processStart } from "#mcp/process-identity";
+import type { StartProbe } from "#mcp/process-identity";
 import { WorkerConnection } from "#mcp/worker";
 
 const connections: WorkerConnection[] = [];
@@ -151,7 +154,12 @@ test.each([true, false])(
     vi.useFakeTimers();
     try {
       const child = new ExitedChild();
-      const connection = new WorkerConnection(child as unknown as ChildProcess, 1_000, supervised);
+      const connection = new WorkerConnection(
+        child as unknown as ChildProcess,
+        1_000,
+        supervised,
+        () => "started",
+      );
       connection.close();
       child.exit();
       vi.advanceTimersByTime(10_000);
@@ -169,7 +177,12 @@ test.each([true, false])(
     vi.useFakeTimers();
     try {
       const child = new ExitedChild();
-      const connection = new WorkerConnection(child as unknown as ChildProcess, 1_000, supervised);
+      const connection = new WorkerConnection(
+        child as unknown as ChildProcess,
+        1_000,
+        supervised,
+        () => "started",
+      );
       const pending = connection.request("read").catch((error: unknown) => error);
       child.exit();
       vi.advanceTimersByTime(10_000);
@@ -179,5 +192,34 @@ test.each([true, false])(
     } finally {
       vi.useRealTimers();
     }
+  },
+);
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A real child: the adapter signals it while its ID and start time are the ones recorded,
+// and leaves alone a process that holds the same ID with another start time.
+test.skipIf(process.platform === "win32").each([false, true])(
+  "signals a timed-out worker only while its ID names the started process (recycled %s)",
+  async (recycled) => {
+    let reused = false;
+    const probe: StartProbe = (pid) => (reused ? "a later process" : processStart(pid));
+    const child = spawn("/bin/sleep", ["30"], { stdio: ["pipe", "pipe", "pipe"] });
+    const closed = once(child, "close");
+    const connection = new WorkerConnection(child, 200, false, probe);
+    reused = recycled;
+    await expect(connection.request("read")).rejects.toMatchObject({ code: "WORKER_UNAVAILABLE" });
+    await pause(500);
+    expect(alive(child.pid ?? 0)).toBe(recycled);
+    if (recycled) child.kill("SIGKILL");
+    const [, signal] = await closed;
+    expect(signal).toBe(recycled ? "SIGKILL" : "SIGTERM");
   },
 );

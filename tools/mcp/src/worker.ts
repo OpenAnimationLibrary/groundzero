@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WorkerError, isObject } from "#mcp/errors";
 import type { WorkerOptions } from "#mcp/options";
+import { ProcessIdentity, processStart } from "#mcp/process-identity";
+import type { StartProbe } from "#mcp/process-identity";
 
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 256 * 1024;
@@ -36,14 +38,25 @@ export class WorkerConnection {
   private failure: WorkerError | undefined;
   private shutdownTimer: ReturnType<typeof setTimeout> | undefined;
   private nativeExit: string | undefined;
+  private readonly identity: ProcessIdentity | undefined;
 
+  /** Own a started worker or supervisor, the leader of its own process group.
+   *
+   * Args:
+   *   child: The process this adapter started.
+   *   timeoutMs: Upper bound for one native response.
+   *   supervised: Whether the child is the POSIX helper supervisor.
+   *   probe: Reads a process's start time, to tell the child from a recycled ID.
+   */
   constructor(
     child: ChildProcess,
     private readonly timeoutMs = 120_000,
     private readonly supervised = false,
+    private readonly probe: StartProbe = processStart,
   ) {
     requirePipes(child);
     this.child = child;
+    this.identity = ProcessIdentity.of(child.pid, probe);
     child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
     child.stdout.on("error", (error: Error) => this.fail(error.message));
     child.stdin.on("error", (error: Error) => this.fail(error.message));
@@ -130,19 +143,25 @@ export class WorkerConnection {
       this.stopSupervisor();
       return;
     }
-    this.child.kill("SIGTERM");
-    this.shutdownTimer = setTimeout(() => this.child.kill("SIGKILL"), 2_000);
+    this.signal("SIGTERM");
+    this.shutdownTimer = setTimeout(() => this.signal("SIGKILL"), 2_000);
     this.shutdownTimer.unref();
   }
 
   private stopSupervisor(): void {
     if (!this.child.connected) {
-      this.child.kill("SIGTERM");
+      this.signal("SIGTERM");
       return;
     }
     this.child.send("stop", (error: Error | null) => {
-      if (error) this.child.kill("SIGTERM");
+      if (error) this.signal("SIGTERM");
     });
+  }
+
+  // A child that exited may have had its ID, and so its group ID, reused by an unrelated
+  // process; only the process started here, by ID and start time, is signalled.
+  private signal(name: NodeJS.Signals): void {
+    if (this.identity?.isCurrent(this.probe)) this.child.kill(name);
   }
 
   private receive(chunk: Buffer): void {

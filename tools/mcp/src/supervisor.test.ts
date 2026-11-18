@@ -7,8 +7,10 @@ import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { isObject } from "#mcp/errors";
+import { processStart } from "#mcp/process-identity";
+import type { StartProbe } from "#mcp/process-identity";
 import { WorkerConnection } from "#mcp/worker";
 
 const supervisors: { child: ChildProcess; diagnostics: Buffer[]; expected: string }[] = [];
@@ -18,6 +20,7 @@ function start(
   timeoutMs = 5_000,
   expected = "",
   mode: string[] = [],
+  probe: StartProbe = processStart,
 ): { child: ChildProcess; connection: WorkerConnection } {
   const child = spawn(
     process.execPath,
@@ -32,7 +35,7 @@ function start(
   const diagnostics: Buffer[] = [];
   child.stderr?.on("data", (chunk: Buffer) => diagnostics.push(chunk));
   supervisors.push({ child, diagnostics, expected });
-  return { child, connection: new WorkerConnection(child, timeoutMs, true) };
+  return { child, connection: new WorkerConnection(child, timeoutMs, true, probe) };
 }
 
 async function processTree(
@@ -262,3 +265,32 @@ posix("contains descendants even when no media tools were granted", async () => 
     }
   }
 });
+
+// The supervisor leads the worker's process group. Once its control channel is gone the
+// adapter falls back to a signal, and sends it only while the leader's ID still names
+// the process it started: a recycled ID, here a different start time, is left alone.
+posix.each([false, true])(
+  "signals the supervisor group leader only while it is the started process (recycled %s)",
+  async (recycled) => {
+    let reused = false;
+    const probe: StartProbe = (pid) => (reused ? "a later process" : processStart(pid));
+    const { child, connection } = start(5_000, "", [], probe);
+    await processTree(connection);
+    const pid = child.pid ?? 0;
+    const kill = vi.spyOn(child, "kill");
+    // Node emits no close for a child whose channel the parent disconnected.
+    const exited = once(child, "exit");
+    process.kill(pid, "SIGSTOP");
+    try {
+      child.disconnect();
+      reused = recycled;
+      connection.close();
+      await pause(2_500);
+      expect(kill.mock.calls).toEqual(recycled ? [] : [["SIGTERM"]]);
+      expect(alive(pid)).toBe(true);
+    } finally {
+      process.kill(pid, "SIGCONT");
+      await exited;
+    }
+  },
+);
