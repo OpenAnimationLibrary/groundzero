@@ -411,7 +411,8 @@ int publishAndWait(int& argc, char* argv[]) {
 void reusedProcessId(const QString& directory) {
   const QString path = directory + "/dead.json";
   QProcess editor;
-  editor.start(QCoreApplication::applicationFilePath(), {"--test-publish", path});
+  editor.start(QCoreApplication::applicationFilePath(),
+               {"--test-publish", path});
   require(editor.waitForReadyRead(5000) &&
               editor.readAllStandardOutput() == "published\n",
           "The dead-editor fixture did not publish");
@@ -458,9 +459,9 @@ void reusedProcessId(const QString& directory) {
           "A new editor changed or removed the dead editor's files");
   reused.kill();
   reused.waitForFinished(3000);
-  require(QFile::remove(path) &&
-              QFile::remove(grant.value("endpoint").toString()),
-          "Cannot remove the dead editor's files");
+  require(
+      QFile::remove(path) && QFile::remove(grant.value("endpoint").toString()),
+      "Cannot remove the dead editor's files");
 }
 void replacementCleanup(SecuritySession& publisher, const QString& path) {
   const QString socket = publisher.endpoint();
