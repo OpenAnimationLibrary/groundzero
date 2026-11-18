@@ -193,6 +193,19 @@ def read_only_inventory_bounds_its_rows(case: NativeAcceptance) -> None:
 # ---------------------------------------------------------------- source status
 
 
+def _preflight_agrees(case: NativeAcceptance, document: str, changed: dict[str, Any]) -> None:
+    """Sources changed since open fail source_pins with the paths scene.source_status names;
+    dependencies, which reports what the scene lacked at open, still passes."""
+    params = {"expected_revision": "0", "kind": "preview", "frame": 0}
+    report = read(case, "render.preflight", document, **params)
+    checks = {check["id"]: check for check in report["checks"]}
+    case.assertEqual(checks["dependencies"]["status"], "pass", report)
+    pins = checks["source_pins"]
+    case.assertEqual((pins["status"], pins["code"]), ("fail", "source_changed"), report)
+    case.assertEqual(set(pins["details"]["paths"]), {row["path"] for row in changed["changed"]})
+    case.assertEqual(report["first_failure"], "source_pins")
+
+
 def read_only_source_status_reports_each_change(case: NativeAcceptance) -> None:
     """Modified, replaced and missing pins are told apart; a missing scene is missing;
     a decoding read of a changed level is refused."""
@@ -214,6 +227,7 @@ def read_only_source_status_reports_each_change(case: NativeAcceptance) -> None:
     )
     case.assertEqual((changed["state"], changed["changed_count"]), ("changed", 3))
     case.assertNotEqual(changed["current_fingerprint"], unchanged["fingerprint_at_open"])
+    _preflight_agrees(case, document, changed)
     summary = read(case, "scene.summary", document)
     ink = next(level["level_id"] for level in summary["levels"] if level["name"] == "Ink")
     refuse(
