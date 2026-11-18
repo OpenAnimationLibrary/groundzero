@@ -1,6 +1,7 @@
 #pragma once
 
 #include "automation.h"
+#include "automation_files.h"
 
 #include <QFileInfo>
 #include <QVector>
@@ -19,7 +20,7 @@ struct SharedFile final {
 
 // Every entry of one folder and its listing revision.
 struct SharedFolder final {
-  QVector<QFileInfo> entries;
+  QVector<EntryInfo> entries;
   QString revision;
 };
 
@@ -57,12 +58,14 @@ QStringList sharedSegments(const QString& path, bool allowEmpty);
 QString resolveSharedPath(const QString& root, const QStringList& segments);
 
 // Classify one directory entry without following links.
-SharedEntryKind sharedEntryKind(const QFileInfo& entry);
+SharedEntryKind sharedEntryKind(const EntryInfo& entry);
 
-// Read at most SharedFolderEntries entries of a folder.
+// Read at most SharedFolderEntries entries of a folder through a descriptor
+// pinned to it.
 //
 // Throws:
-//   Error: resource_limit above the entry bound, io_error when unreadable.
+//   Error: resource_limit above the entry bound, io_error when unreadable,
+//   path_denied when the folder was replaced after it was approved.
 SharedFolder readSharedFolder(const QString& directory);
 
 // Read the folder twice around the work and retry once when it changed.

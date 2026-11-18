@@ -108,6 +108,23 @@ private:
     return dpi * placement.inv();
   }
 
+  // getColumnPlacement() without creating stage objects: a read-only user
+  // scene may omit them, and a preflight must not add any. A missing column
+  // object places as a default one under the table.
+  bool columnPlacement(TAffine& result, int frame, int column) const {
+    TStageObjectTree* tree = m_sheet->getStageObjectTree();
+    TStageObject* camera =
+        tree->getStageObject(tree->getCurrentCameraId(), false);
+    if (!camera) return false;
+    if (tree->getStageObject(TStageObjectId::ColumnId(column), false))
+      return getColumnPlacement(result, m_sheet, frame, column, false);
+    TStageObject* table = tree->getStageObject(TStageObjectId::TableId, false);
+    return TStageObject::perspective(
+        result, camera->getPlacement(frame), camera->getZ(frame),
+        table ? table->getPlacement(frame) : TAffine(),
+        table ? table->getZ(frame) : 0, table ? table->getGlobalNoScaleZ() : 0);
+  }
+
   std::vector<TAffine> affines(TFx* fx, int frame) {
     const TAffine view = camera(frame);
     std::vector<TAffine> result;
@@ -115,7 +132,7 @@ private:
       TAffine column;
       // A column behind the camera renders nothing through fx.
       if (placement != kXsheetPlacement &&
-          !getColumnPlacement(column, m_sheet, frame, placement, false))
+          !columnPlacement(column, frame, placement))
         continue;
       result.push_back(view * column);
     }

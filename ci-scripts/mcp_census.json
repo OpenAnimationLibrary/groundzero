@@ -285,8 +285,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_changed_render_artifact_is_rejected",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "ci-scripts/mcp_acceptance.py::test_artifact_swapped_for_a_link_is_refused",
     "ci-scripts/mcp_acceptance.py::test_audio_movie_render_stays_video_only",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
    ]
@@ -422,8 +422,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
     "ci-scripts/mcp_acceptance.py::test_dead_workers_directories_are_swept_and_live_ones_are_not",
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
     "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
   },
@@ -930,10 +930,10 @@
    "toolset": "shared-library",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
     "ci-scripts/mcp_acceptance.py::test_library_unreadable_dependency_is_refused_not_hidden",
-    "ci-scripts/mcp_acceptance.py::test_shared_parser_failures_leave_worker_serving",
-    "ci-scripts/mcp_acceptance.py::test_shared_parsers_refuse_damaged_files"
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on"
    ]
   },
   "library.list": {
@@ -944,7 +944,7 @@
     "ci-scripts/mcp_acceptance.py::test_library_listing_pages_are_capped",
     "ci-scripts/mcp_acceptance.py::test_library_listing_revision_tracks_real_changes",
     "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_library_case_fold_collisions_are_reported",
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
     "toonz/sources/toonz/tests/automation_shared_test.cpp"
    ]
   },
@@ -956,6 +956,7 @@
     "ci-scripts/mcp_acceptance.py::test_library_thumbnails_are_bounded",
     "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
     "ci-scripts/mcp_acceptance.py::test_library_pose_thumbnails_are_bounded",
+    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "toonz/sources/toonz/tests/automation_shared_test.cpp"
    ]
   },
@@ -1386,7 +1387,7 @@
     "ci-scripts/mcp_acceptance.py::test_project_inspect_reports_the_private_workspace",
     "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
     "ci-scripts/mcp_acceptance.py::test_project_inspect_refuses_arguments",
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes"
+    "ci-scripts/mcp_acceptance.py::test_project_reads_hold_the_file_boundary"
    ]
   },
   "project.list": {
@@ -1396,8 +1397,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
     "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
+    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp"
    ]
   },
@@ -1406,7 +1407,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes"
+    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes",
+    "ci-scripts/mcp_acceptance.py::test_project_reads_hold_the_file_boundary",
+    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
+    "ci-scripts/mcp_acceptance.py::test_project_scenes_refuse_a_folder_swapped_after_validation"
    ]
   },
   "raster.export_png": {
@@ -1533,7 +1537,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "ci-scripts/mcp_acceptance.py::test_render_worker_killed_mid_preview_then_new_worker",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
+    "ci-scripts/mcp_acceptance.py::test_linked_input_changes_while_a_render_runs",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -1626,10 +1630,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_private_files_end_with_their_document_and_worker",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
     "ci-scripts/mcp_acceptance.py::test_document_ids_do_not_alias_after_close_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
     "tools/mcp/src/native.test.ts",
@@ -1753,7 +1757,9 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
     "ci-scripts/mcp_acceptance.py::test_shared_root_flags_are_explicit_and_read_only",
+    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "toonz/sources/toonz/tests/automation_shared_test.cpp",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
@@ -1821,6 +1827,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
     "ci-scripts/mcp_acceptance.py::test_shared_parsers_refuse_damaged_files",
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
+    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "toonz/sources/toonz/tests/automation_shared_test.cpp"
    ]
   },
@@ -1830,6 +1838,9 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
+    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
+    "ci-scripts/mcp_acceptance.py::test_shared_listings_stay_in_the_folder_they_pinned",
+    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "toonz/sources/toonz/tests/automation_shared_test.cpp"
    ]
   },

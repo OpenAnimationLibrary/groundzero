@@ -47,8 +47,9 @@ REPEATS = 2
 PRIVATE_CACHES = (
     Cache(
         "workspace/runtime_*",
-        "A read of a shared studio palette or Library file runs a parse helper that makes and "
-        "removes its own scratch directory inside the worker's runtime directory, which "
+        "A read of a shared studio palette or Library file, and a graphics probe of "
+        "runtime.inspect, render.capabilities or render.preflight, runs a parse helper that "
+        "makes and removes its own scratch directory inside the worker's runtime directory, which "
         "changes only that directory's modification time; a scratch entry left behind is "
         "still reported as new",
         fields=("mtime_ns",),

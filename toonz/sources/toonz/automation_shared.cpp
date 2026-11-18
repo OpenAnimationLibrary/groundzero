@@ -1,21 +1,15 @@
 #include "automation_shared.h"
+#include "automation_files.h"
 
 #include "toonz/libraryitems.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
 
 #include <algorithm>
-
-#ifndef _WIN32
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
 
 namespace GroundzeroAutomation {
 namespace {
@@ -34,13 +28,15 @@ bool linkLike(const QFileInfo& info) {
   return info.isSymLink() || info.isJunction();
 }
 
-char entryCode(const QFileInfo& info) {
+bool linkLike(const EntryInfo& info) { return info.isSymLink(); }
+
+char entryCode(const EntryInfo& info) {
   if (linkLike(info)) return 'l';
   if (info.isDir()) return 'd';
   return info.isFile() ? 'f' : 'o';
 }
 
-QByteArray listingLine(const QFileInfo& info) {
+QByteArray listingLine(const EntryInfo& info) {
   const char code   = entryCode(info);
   const bool file   = code == 'f';
   const qint64 size = file ? info.size() : 0;
@@ -157,10 +153,13 @@ QString resolveSharedPath(const QString& root, const QStringList& segments) {
   if (QFileInfo(current).canonicalFilePath() != current)
     throw Error("not_found",
                 "The shared entry does not exist with exactly this name.");
+#ifdef BUILD_UI_PORT_TESTS
+  firePathSwap("validated", current);
+#endif
   return current;
 }
 
-SharedEntryKind sharedEntryKind(const QFileInfo& entry) {
+SharedEntryKind sharedEntryKind(const EntryInfo& entry) {
   if (linkLike(entry)) return SharedEntryKind::Symlink;
   if (entry.fileName().startsWith('.')) return SharedEntryKind::Hidden;
   if (!safeSharedName(entry.fileName())) return SharedEntryKind::Unsafe;
@@ -169,21 +168,18 @@ SharedEntryKind sharedEntryKind(const QFileInfo& entry) {
 }
 
 SharedFolder readSharedFolder(const QString& directory) {
-  if (!QFileInfo(directory).isReadable())
-    throw Error("io_error", "Cannot read the shared folder.");
-  QDirIterator iterator(directory, QDir::AllEntries | QDir::Hidden |
-                                       QDir::System | QDir::NoDotAndDotDot);
   SharedFolder folder;
+  const ListResult listed =
+      listApprovedDirectory(directory, folder.entries, SharedFolderEntries);
+  if (listed == ListResult::TooMany)
+    throw Error("resource_limit",
+                "The shared folder has more than 8192 entries.",
+                {{"limit", SharedFolderEntries}});
+  if (listed != ListResult::Listed)
+    throw Error("io_error", "Cannot read the shared folder.");
   QVector<QByteArray> lines;
-  while (iterator.hasNext()) {
-    iterator.next();
-    if (folder.entries.size() == SharedFolderEntries)
-      throw Error("resource_limit",
-                  "The shared folder has more than 8192 entries.",
-                  {{"limit", SharedFolderEntries}});
-    folder.entries.append(iterator.fileInfo());
-    lines.append(listingLine(iterator.fileInfo()));
-  }
+  for (const EntryInfo& entry : folder.entries)
+    lines.append(listingLine(entry));
   std::sort(lines.begin(), lines.end());
   QCryptographicHash hash(QCryptographicHash::Sha256);
   for (const QByteArray& line : lines) hash.addData(line + '\n');
@@ -220,28 +216,11 @@ void requireListingRevision(const QJsonObject& params,
 namespace {
 
 void openRegularFile(QFile& file, const QString& path) {
-#ifdef _WIN32
-  const QFileInfo info(path);
-  if (!info.isFile() || linkLike(info))
+  const OpenResult opened = openApprovedFile(file, path);
+  if (opened == OpenResult::NotRegular)
     throw Error("not_found", "The shared entry is not a regular file.");
-  file.setFileName(path);
-  if (!file.open(QIODevice::ReadOnly))
+  if (opened != OpenResult::Opened)
     throw Error("io_error", "Cannot open the shared file.");
-#else
-  const int descriptor = ::open(QFile::encodeName(path).constData(),
-                                O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
-  if (descriptor < 0) throw Error("io_error", "Cannot open the shared file.");
-  struct stat status{};
-  if (fstat(descriptor, &status) != 0 || !S_ISREG(status.st_mode)) {
-    ::close(descriptor);
-    throw Error("not_found", "The shared entry is not a regular file.");
-  }
-  if (!file.open(descriptor, QIODevice::ReadOnly,
-                 QFileDevice::AutoCloseHandle)) {
-    ::close(descriptor);
-    throw Error("io_error", "Cannot open the shared file.");
-  }
-#endif
 }
 
 }  // namespace

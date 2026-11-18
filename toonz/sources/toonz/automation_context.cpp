@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_files.h"
 #include "automation_path.h"
 
 #include "toonz/fxdag.h"
@@ -20,6 +21,8 @@
 
 namespace GroundzeroAutomation {
 namespace {
+
+constexpr int MaxNameBytes = 255;
 
 QString opaqueId(const QString& kind) {
   return kind + "_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -53,9 +56,12 @@ QString normalizedWorkerPath(const QString& path) {
       normalized.contains('\\'))
     throw Error("invalid_path",
                 "Use a nonempty path with forward-slash separators.");
-  for (const QString& part : normalized.split('/'))
+  for (const QString& part : normalized.split('/')) {
     if (part == "..")
       throw Error("invalid_path", "Parent traversal is not allowed.");
+    if (part.toUtf8().size() > MaxNameBytes)
+      throw Error("invalid_path", "A path component is longer than 255 bytes.");
+  }
   return normalized;
 }
 
@@ -72,9 +78,13 @@ QString canonicalAncestor(const QString& path) {
   }
   const QFileInfo existing(ancestor);
   const QString canonical = existing.canonicalFilePath();
-  if (existing.isSymLink() || canonical != ancestor)
+  if (existing.isSymLink())
     throw Error("path_denied",
                 "Symbolic links are not allowed in worker paths.");
+  if (canonical != ancestor)
+    throw Error("path_denied",
+                "Name the path exactly as it is stored: no symbolic link, "
+                "and no case or Unicode-normalization variant of a name.");
   return canonical;
 }
 
@@ -185,13 +195,17 @@ TStageObject* Document::object(const QString& handle) const {
               "The stage object is no longer in this document.");
 }
 
-Context::Context(QString workspacePath, QStringList inputRoots, bool helpersContained)
+Context::Context(QString workspacePath, QStringList inputRoots,
+                 bool helpersContained, QString privateRoot)
     : m_workspace(canonicalDirectory(workspacePath))
+    , m_privateRoot(privateRoot.isEmpty() ? m_workspace
+                                          : canonicalDirectory(privateRoot))
     , m_project(std::make_shared<TProject>())
     , m_helpersContained(helpersContained) {
   for (const QString& root : inputRoots)
     m_inputRoots.append(canonicalDirectory(root));
-  const QString projectDirectory = resolvePath(opaqueId("project"), true);
+  const QString projectDirectory =
+      resolvePath(privateDirectory(opaqueId("project")), true);
   createDirectory(projectDirectory);
   const std::vector<std::string> folders = {
       TProject::Inputs,  TProject::Drawings, TProject::Scenes,
@@ -261,10 +275,32 @@ Document& Context::addReadOnlyDocument(std::unique_ptr<ToonzScene> scene,
   return *inserted.first->second;
 }
 
+// Level and sound files the worker wrote for a document are named by a
+// UUID inside its private directories; they end with the document.
+void Context::removePrivateFiles(Document& document) const {
+  TLevelSet* cast = document.scene->getLevelSet();
+  for (int index = 0; index < cast->getLevelCount(); ++index) {
+    const QFileInfo file(QString::fromStdWString(
+        cast->getLevel(index)->getPath().getWideString()));
+    const QString name = file.fileName();
+    for (const QString& kind : {QString("levels"), QString("sounds")}) {
+      if (name.size() < 36 || file.absolutePath() != privateDirectory(kind))
+        continue;
+      const QDir directory(file.absolutePath());
+      for (const QString& entry :
+           directory.entryList({name.left(36) + "*"}, QDir::Files))
+        QFile::remove(directory.filePath(entry));
+    }
+  }
+}
+
 void Context::removeDocument(const QString& id) {
-  if (m_documents.erase(id) == 0)
+  const auto found = m_documents.find(id);
+  if (found == m_documents.end())
     throw Error("document_not_found",
                 "The document handle is unknown or has expired.");
+  if (!found->second->readOnly) removePrivateFiles(*found->second);
+  m_documents.erase(found);
 }
 
 QJsonArray Context::documents() const {
@@ -279,6 +315,9 @@ QJsonArray Context::documents() const {
 
 std::shared_ptr<TProject> Context::project() const { return m_project; }
 QString Context::workspace() const { return m_workspace; }
+QString Context::privateDirectory(const QString& name) const {
+  return QDir(m_privateRoot).filePath(name);
+}
 QStringList Context::inputRoots() const { return m_inputRoots; }
 void Context::markMutationStarted() { m_mutationStarted = true; }
 void Context::resetMutationStarted() {
@@ -301,6 +340,9 @@ QString Context::resolvePath(const QString& path, bool write) const {
   const QString canonical = canonicalAncestor(absolute);
   if (!allowedPath(absolute, canonical, roots))
     throw Error("path_denied", "The path is outside the allowed roots.");
+#ifdef BUILD_UI_PORT_TESTS
+  firePathSwap("validated", absolute);
+#endif
   return absolute;
 }
 

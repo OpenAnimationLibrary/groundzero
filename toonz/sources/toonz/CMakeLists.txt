@@ -211,6 +211,7 @@ set(HEADERS
     automation_effects.h
     automation_containment.h
     automation_ownership.h
+    automation_files.h
     automation_production.h
     automation_assistance.h
     automation_neural.h
@@ -297,6 +298,7 @@ set(SOURCES
     automation_context.cpp
     automation_containment.cpp
     automation_ownership.cpp
+    automation_files.cpp
     automation_error.cpp
     automation_dispatch.cpp
     automation_effects.cpp
@@ -1319,6 +1321,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_shared_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_files_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_scene_host_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_storyboard_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_lipsync_test.cpp)
