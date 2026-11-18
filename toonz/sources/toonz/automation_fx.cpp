@@ -283,8 +283,8 @@ QJsonArray portsDescription(TFx* fx, Document* document = nullptr) {
   return ports;
 }
 
-QJsonObject catalogEntry(const QString& type) {
-  TFxP fx = makeEffect(type);
+QJsonObject catalogEntry(const QString& type, const EffectFactory& factory) {
+  TFxP fx = factory(type);
   QJsonObject entry{
       {"type", type},
       {"available", true},
@@ -300,11 +300,11 @@ QJsonObject catalogEntry(const QString& type) {
   return entry;
 }
 
-QJsonValue effectCatalog() {
+QJsonValue effectCatalog(const EffectFactory& factory = makeEffect) {
   QJsonArray effects;
   for (const auto& type : allowedTypes()) {
     try {
-      effects.append(catalogEntry(type));
+      effects.append(catalogEntry(type, factory));
     } catch (const Error& error) {
       if (error.code != "UNAVAILABLE_FX") throw;
       effects.append(QJsonObject{
@@ -1242,6 +1242,10 @@ QJsonArray authoringOperations() {
 }  // namespace
 
 TFxP makeAutomationEffect(const QString& type) { return makeEffect(type); }
+
+QJsonValue automationFxCatalog(const EffectFactory& factory) {
+  return effectCatalog(factory);
+}
 
 QJsonObject describeAutomationFx(Document& document, TFx* fx) {
   return describeFx(document, fx);

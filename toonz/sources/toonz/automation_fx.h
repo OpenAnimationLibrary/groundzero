@@ -4,6 +4,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
+#include <functional>
+
 class ToonzScene;
 class QString;
 
@@ -11,6 +13,11 @@ namespace GroundzeroAutomation {
 
 struct Document;
 TFxP makeAutomationEffect(const QString& type);
+using EffectFactory = std::function<TFxP(const QString&)>;
+// fx.catalog built with the given factory; a type whose factory throws
+// UNAVAILABLE_FX is reported as available:false. The worker uses the real
+// factory.
+QJsonValue automationFxCatalog(const EffectFactory& factory);
 QJsonObject describeAutomationFx(Document& document, TFx* fx);
 QByteArray automationFxPresetBytes(TFx* fx, const QString& path);
 QString automationFxName(const QJsonObject& params);

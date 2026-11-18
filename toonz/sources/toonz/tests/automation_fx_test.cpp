@@ -146,6 +146,48 @@ void testCatalog(Context& context, Document& document) {
   }
 }
 
+void testCatalogWithFailingFactory() {
+  const QString missing = "STD_blurFx";
+  const QJsonObject healthy =
+      automationFxCatalog(makeAutomationEffect).toObject();
+  const EffectFactory failing = [&missing](const QString& type) {
+    if (type == missing)
+      throw Error("UNAVAILABLE_FX", "Builtin effect is not registered.",
+                  {{"type", type}});
+    return makeAutomationEffect(type);
+  };
+  const QJsonObject degraded = automationFxCatalog(failing).toObject();
+  const QJsonArray expected  = healthy.value("effects").toArray();
+  const QJsonArray actual    = degraded.value("effects").toArray();
+  require(actual.size() == expected.size() && actual.size() == 31,
+          "A failing factory changed the catalog size");
+  int absent = 0;
+  for (int index = 0; index < actual.size(); ++index) {
+    const QJsonObject entry = actual[index].toObject();
+    if (entry.value("type") == missing) {
+      ++absent;
+      require(entry.value("available") == false &&
+                  entry.value("reason").isString() &&
+                  !entry.contains("parameters"),
+              "An unavailable type was not reported as available:false");
+    } else {
+      require(entry == expected[index].toObject(),
+              "A failing factory changed another type's entry");
+    }
+  }
+  require(absent == 1, "The failing type was not reported exactly once");
+  const EffectFactory broken = [](const QString&) -> TFxP {
+    throw Error("NATIVE_FAILURE", "Unrelated failure.");
+  };
+  bool propagated = false;
+  try {
+    automationFxCatalog(broken);
+  } catch (const Error& error) {
+    propagated = error.code == "NATIVE_FAILURE";
+  }
+  require(propagated, "An unrelated factory failure was reported as absence");
+}
+
 QStringList parameterNames(const QJsonArray& parameters) {
   QStringList names;
   for (const QJsonValue& parameter : parameters)
@@ -741,6 +783,7 @@ void runAutomationFxTests(Context& context) {
   Document& document = context.addDocument(std::make_unique<ToonzScene>());
   testCatalog(context, document);
   testHiddenParametersAreNotPublic(context, document);
+  testCatalogWithFailingFactory();
   testGenerator(context, document);
   testConnections(context, document);
   testImplicitCycles(context, document);
