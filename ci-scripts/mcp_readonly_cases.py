@@ -47,8 +47,9 @@ REPEATS = 2
 PRIVATE_CACHES = (
     Cache(
         "workspace/runtime_*",
-        "A read of a shared studio palette or Library file runs a parse helper that makes and "
-        "removes its own scratch directory inside the worker's runtime directory, which "
+        "A read of a shared studio palette or Library file, and a graphics probe of "
+        "runtime.inspect, render.capabilities or render.preflight, runs a parse helper that "
+        "makes and removes its own scratch directory inside the worker's runtime directory, which "
         "changes only that directory's modification time; a scratch entry left behind is "
         "still reported as new",
         fields=("mtime_ns",),
@@ -73,22 +74,7 @@ class KnownViolation:
     defect: str
 
 
-PREFLIGHT_STAGE_OBJECTS = (
-    "render.preflight's FX checks read the camera and column placements with "
-    "TXsheet::getStageObject, which creates missing stage objects in the scene host's "
-    "in-memory scene of a read-only document that has none"
-)
-KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = (
-    KnownViolation(
-        "render.preflight" + READ_ONLY_SUFFIX,
-        SETTLED,
-        "stage objects went from",
-        PREFLIGHT_STAGE_OBJECTS,
-    ),
-    KnownViolation(
-        "render.preflight" + READ_ONLY_SUFFIX, SETTLED, "summary changed", PREFLIGHT_STAGE_OBJECTS
-    ),
-)
+KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = ()
 # Tools whose results page only for some job kinds: job.result pages analysis rows, and a
 # render job's artifacts come whole, without a paging key (jobs contract).
 PAGED_BY_KIND = frozenset({"job.result"})

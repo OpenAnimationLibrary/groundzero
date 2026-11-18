@@ -124,7 +124,7 @@ def _require_worker_identity(case: NativeAcceptance, report: dict[str, Any]) -> 
     worker = report["worker"]
     case.assertEqual(len(worker["instance_id"]), 36)
     build = worker["build"]
-    case.assertEqual(build["application"], "groundzero")
+    case.assertEqual(set(build), {"application", "version", "build_digest"})
     case.assertEqual(build["build_digest"], verified_build_digest(case.native_executable))
     capabilities = case.success("automation.capabilities", {})
     case.assertEqual(worker, capabilities["worker"])

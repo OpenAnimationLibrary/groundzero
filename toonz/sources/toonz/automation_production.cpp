@@ -1,4 +1,5 @@
 #include "automation_production.h"
+#include "automation_files.h"
 #include "automation_fx.h"
 #include "automation_scene_host.h"
 
@@ -658,7 +659,17 @@ void fileObservation(QJsonObject& row, const QString& path) {
     row.insert("path_kind", "unsupported");
     return;
   }
-  if (!QFile(path).open(QIODevice::ReadOnly)) {
+  QFile probe;
+  OpenResult opened = OpenResult::Failed;
+  try {
+    opened = openApprovedFile(probe, path);
+  } catch (const Error&) {
+    row.insert("authority", "denied");
+    row.insert("availability", "forbidden");
+    row.insert("resolved_path", QJsonValue());
+    return;
+  }
+  if (opened != OpenResult::Opened) {
     row.insert("availability", "unreadable");
     return;
   }

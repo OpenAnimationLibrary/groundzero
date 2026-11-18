@@ -121,8 +121,13 @@ def job_states_and_refused_second_submit(case: NativeAcceptance) -> None:
 
 
 def job_record_identity_inputs_limits(case: NativeAcceptance) -> None:
-    """A job names its worker and build, its admitted request, limits and outputs."""
+    """A job names its worker and build, its admitted request, limits and outputs.
+
+    The job record, automation.capabilities and runtime.inspect report one worker identity:
+    the registry's instance id and the shared build digest.
+    """
     worker = case.success("automation.capabilities", {})["worker"]
+    case.assertEqual(case.success("runtime.inspect", {})["worker"], worker)
     document = case.create()
     job = case.mutate("render.preview", document, **PREVIEW)
     record = case.wait_job(job["job_id"])

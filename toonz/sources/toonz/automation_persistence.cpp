@@ -3,6 +3,7 @@
 #include "automation_rig.h"
 #include "automation_vector_opacity.h"
 #include "automation.h"
+#include "automation_files.h"
 #include "automation_audio.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
@@ -79,8 +80,8 @@ QByteArray readRegularFile(const QString& directory, const QString& relative) {
     throw Error("invalid_package",
                 "A package file is missing or outside its directory.",
                 {{"file", relative}});
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
+  QFile file;
+  if (openApprovedFile(file, path) != OpenResult::Opened)
     throw Error("package_read_failed", "Cannot open a package file.",
                 {{"file", relative}});
   const QByteArray bytes = file.read(MaxPackageBytes + 1);
@@ -505,15 +506,18 @@ Package publishPackage(Context& context, Document& document,
         "Choose a new package directory; existing paths are not overwritten.");
   if (!QDir(target.absolutePath()).exists())
     throw Error("missing_parent", "Create the package parent directory first.");
-  QTemporaryDir staging(target.absolutePath() + "/.mcp-package-XXXXXX");
+  if (!QFileInfo(target.absolutePath()).isWritable())
+    throw Error("package_write_failed",
+                "The package parent directory is not writable.");
+  QTemporaryDir staging(context.runtimeDirectory + "/package-XXXXXX");
   if (!staging.isValid())
     throw Error("package_write_failed",
                 "Cannot create a private package staging directory.");
   const Package package = writePackage(document, staging.path());
   reopenPackage(context, staging.path(), package);
   context.markMutationStarted();
-  if (QFileInfo(path).exists() || context.writeFaultArmed("publish") ||
-      !QDir().rename(staging.path(), path))
+  if (context.writeFaultArmed("publish") ||
+      !publishApproved(staging.path(), path))
     throw Error("package_write_failed",
                 "Cannot publish the verified package directory.");
   staging.setAutoRemove(false);

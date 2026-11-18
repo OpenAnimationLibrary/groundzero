@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_fx.h"
+#include "automation_files.h"
 #include "automation_scene_host.h"
 #include "automation_fx_profile.h"
 #include "automation_macro.h"
@@ -597,8 +598,8 @@ QByteArray readPresetFile(const QString& path) {
     throw Error("INVALID_PRESET", "Preset files must be regular owned files.");
   if (info.size() > maximumPresetBytes)
     throw Error("RESOURCE_LIMIT", "Preset files are limited to 1 MiB.");
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
+  QFile file;
+  if (openApprovedFile(file, path) != OpenResult::Opened)
     throw Error("PRESET_READ_FAILED", "Cannot open the preset file.");
   const QByteArray bytes = file.read(maximumPresetBytes + 1);
   if (file.error() != QFileDevice::NoError || bytes.size() != info.size())
@@ -677,6 +678,9 @@ QString newPresetDirectory(Context& context, const QJsonObject& params) {
         "Choose a new preset directory; existing paths are not overwritten.");
   if (!QDir(target.absolutePath()).exists())
     throw Error("MISSING_PARENT", "Create the preset parent directory first.");
+  if (!QFileInfo(target.absolutePath()).isWritable())
+    throw Error("PRESET_WRITE_FAILED",
+                "The preset parent directory is not writable.");
   if (publishedPresets.size() >= 128)
     throw Error("RESOURCE_LIMIT",
                 "This worker has reached its 128 published preset limit.");
@@ -689,8 +693,7 @@ QJsonValue savePreset(Context& context, Document& document,
   requireEditable(fx);
   TFx* native             = parameterFx(fx);
   const QString directory = newPresetDirectory(context, params);
-  QTemporaryDir staging(QFileInfo(directory).absolutePath() +
-                        "/.mcp-preset-XXXXXX");
+  QTemporaryDir staging(context.runtimeDirectory + "/preset-XXXXXX");
   if (!staging.isValid())
     throw Error("PRESET_WRITE_FAILED",
                 "Cannot create a private preset staging directory.");
@@ -706,7 +709,7 @@ QJsonValue savePreset(Context& context, Document& document,
       QJsonDocument(manifest).toJson(QJsonDocument::Compact);
   writePresetFile(staging.path() + "/manifest.json", manifestBytes);
   context.markMutationStarted();
-  if (QFileInfo::exists(directory) || !QDir().rename(staging.path(), directory))
+  if (!publishApproved(staging.path(), directory))
     throw Error("PRESET_WRITE_FAILED",
                 "Cannot publish the verified preset directory.");
   staging.setAutoRemove(false);

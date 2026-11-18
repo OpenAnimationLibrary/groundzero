@@ -28,6 +28,13 @@ import mcp_curve_cases
 import mcp_drawing_cases
 import mcp_edit_limit_cases
 import mcp_failure_cases
+import mcp_file_cases
+import mcp_file_change_cases
+import mcp_file_inert_cases
+import mcp_file_launch_cases
+import mcp_file_project_cases
+import mcp_file_race_cases
+import mcp_file_shared_cases
 import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
@@ -791,6 +798,78 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_dead_workers_directories_are_swept_and_live_ones_are_not(self) -> None:
         mcp_failure_cases.dead_workers_directories_are_swept_and_live_ones_are_not(self)
+
+    def test_file_tools_are_all_qualified(self) -> None:
+        mcp_file_cases.file_tools_are_all_qualified(self)
+
+    def test_read_tools_hold_the_file_boundary(self) -> None:
+        mcp_file_cases.read_tools_hold_the_file_boundary(self)
+
+    def test_write_tools_hold_the_file_boundary(self) -> None:
+        mcp_file_cases.write_tools_hold_the_file_boundary(self)
+
+    def test_published_tools_hold_the_file_boundary(self) -> None:
+        mcp_file_cases.published_tools_hold_the_file_boundary(self)
+
+    def test_linked_input_changes_while_a_render_runs(self) -> None:
+        mcp_file_change_cases.linked_input_changes_while_a_render_runs(self)
+
+    def test_import_keeps_its_own_copy_when_the_source_changes(self) -> None:
+        mcp_file_change_cases.import_keeps_its_own_copy_when_the_source_changes(self)
+
+    def test_artifact_swapped_for_a_link_is_refused(self) -> None:
+        mcp_file_change_cases.artifact_swapped_for_a_link_is_refused(self)
+
+    def test_instruction_like_text_is_returned_as_data_and_never_acted_on(self) -> None:
+        mcp_file_inert_cases.instruction_like_text_is_returned_as_data_and_never_acted_on(self)
+
+    def test_project_reads_hold_the_file_boundary(self) -> None:
+        mcp_file_project_cases.project_reads_hold_the_file_boundary(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_project_scenes_refuse_a_folder_swapped_after_validation(self) -> None:
+        mcp_file_project_cases.project_scenes_refuse_a_folder_swapped_after_validation(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_project_listings_stay_in_the_folder_they_pinned(self) -> None:
+        mcp_file_project_cases.project_list_stays_in_the_folder_it_pinned(self)
+        mcp_file_project_cases.project_scenes_stays_in_the_folder_it_pinned(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_shared_listings_stay_in_the_folder_they_pinned(self) -> None:
+        mcp_file_shared_cases.shared_listings_stay_in_the_folder_they_pinned(self)
+
+    def test_shared_roots_hold_the_file_boundary(self) -> None:
+        mcp_file_shared_cases.shared_roots_hold_the_file_boundary(self)
+
+    def test_launch_options_naming_a_root_are_all_qualified(self) -> None:
+        mcp_file_launch_cases.launch_options_naming_a_root_are_all_qualified(self)
+
+    def test_launch_roots_refuse_unsafe_paths(self) -> None:
+        mcp_file_launch_cases.launch_roots_refuse_unsafe_paths(self)
+
+    def test_launch_roots_are_canonical_and_never_widen(self) -> None:
+        mcp_file_launch_cases.launch_roots_are_canonical_and_never_widen(self)
+
+    def test_launch_roots_on_another_volume_work_and_stay_separate(self) -> None:
+        mcp_file_launch_cases.launch_roots_on_another_volume_work_and_stay_separate(self)
+
+    def test_launch_roots_that_cannot_be_read_stay_unreadable(self) -> None:
+        mcp_file_launch_cases.launch_roots_that_cannot_be_read_stay_unreadable(self)
+
+    def test_launch_roots_with_odd_names_are_admitted_as_names(self) -> None:
+        mcp_file_launch_cases.launch_roots_with_odd_names_are_admitted_as_names(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_swapped_paths_are_refused_after_validation(self) -> None:
+        mcp_file_race_cases.swapped_paths_are_refused_after_validation(self)
+
+    @worker_only("needs the --test-path-swap test hook, which the adapter never passes")
+    def test_swapped_paths_cannot_redirect_a_pinned_directory(self) -> None:
+        mcp_file_race_cases.swapped_paths_cannot_redirect_a_pinned_directory(self)
+
+    def test_private_files_end_with_their_document_and_worker(self) -> None:
+        mcp_failure_cases.private_files_end_with_their_document_and_worker(self)
 
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=self.output))

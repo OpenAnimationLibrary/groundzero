@@ -320,26 +320,6 @@ def _jobs(f: Fixture) -> list[Call]:
     ]
 
 
-def _preflight_preview(f: Fixture, document: str) -> dict[str, Any]:
-    revision = f.revision(document)
-    return {"document_id": document, "expected_revision": revision, "kind": "preview", "frame": 0}
-
-
-def _preflight(f: Fixture) -> list[Call]:
-    preview = _preflight_preview(f, f.document)
-    sequence = {key: value for key, value in preview.items() if key != "frame"}
-    sequence.update(kind="sequence", start_frame=0, end_frame=1)
-    return [
-        Call("preview", preview),
-        Call("sequence", sequence),
-        Call("stale", {**preview, "expected_revision": "1"}, "stale_revision"),
-    ]
-
-
-def _runtime(_f: Fixture) -> list[Call]:
-    return [Call("no probes", {}), Call("unknown probe", {"probes": ["audio"]}, SCHEMA)]
-
-
 def _artifact(f: Fixture) -> list[Call]:
     return [
         Call("preview", {"artifact_id": f.ids["artifact"]}),
@@ -486,10 +466,6 @@ def _ro_jobs(_f: Fixture, document: str) -> list[Call]:
     return [Call("document's jobs", {"document_id": document})]
 
 
-def _ro_preflight(f: Fixture, document: str) -> list[Call]:
-    return [Call("preview", _preflight_preview(f, document))]
-
-
 def _ro_summary(f: Fixture, document: str) -> list[Call]:
     return [
         *_ro_document(f, document),
@@ -606,6 +582,57 @@ def _ro_source_status(_f: Fixture, document: str) -> list[Call]:
     return [
         Call("unchanged", pinned),
         Call("stale", {**pinned, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
+def _runtime(_f: Fixture) -> list[Call]:
+    return [
+        Call("cached", {}),
+        Call("graphics probe", {"probes": ["graphics"]}),
+        Call("media probe without media tools", {"probes": ["media"]}),
+        Call("both probes", {"probes": ["graphics", "media"]}),
+        Call("no probe named", {"probes": []}, SCHEMA),
+        Call("unknown probe", {"probes": ["disk"]}, SCHEMA),
+    ]
+
+
+def _preflight_request(**extra: Any) -> dict[str, Any]:
+    return {"kind": "preview", "frame": 0, **extra}
+
+
+def _preflight(f: Fixture) -> list[Call]:
+    sequence: dict[str, Any] = {"kind": "sequence", "start_frame": 0, "end_frame": 2}
+    failing: dict[str, Any] = {**sequence, "start_frame": 5, "end_frame": 1, "format": "mp4"}
+    return [
+        Call("preview", _pinned(f, **_preflight_request())),
+        Call("sequence", _pinned(f, None, **sequence)),
+        Call("every check failing", _pinned(f, None, **failing, width=33, height=32)),
+        Call("reopened", _pinned(f, f.reopened, **_preflight_request())),
+        Call("without content", _pinned(f, f.bare, **_preflight_request())),
+        Call("stale", _stale(f, **_preflight_request()), "stale_revision"),
+        Call(
+            "preview with a range",
+            _pinned(f, **_preflight_request(start_frame=0)),
+            "invalid_params",
+        ),
+        Call(
+            "unknown",
+            {"document_id": _missing("document"), "expected_revision": "0", **_preflight_request()},
+            "document_not_found",
+        ),
+    ]
+
+
+def _ro_preflight(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    sequence = {"kind": "sequence", "start_frame": 0, "end_frame": 1}
+    return [
+        Call("preview", {**pinned, **_preflight_request()}),
+        Call("sequence", {**pinned, **sequence}),
+        Call("mp4", {**pinned, **sequence, "format": "mp4"}),
+        Call(
+            "stale", {**pinned, **_preflight_request(), "expected_revision": "1"}, "stale_revision"
+        ),
     ]
 
 

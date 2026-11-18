@@ -82,7 +82,10 @@ struct Document final {
 
 class Context final {
 public:
-  Context(QString workspace, QStringList inputRoots, bool helpersContained = false);
+  // privateRoot, inside the workspace, holds the worker project and the copies
+  // of level and sound files it writes; it defaults to the workspace itself.
+  Context(QString workspace, QStringList inputRoots,
+          bool helpersContained = false, QString privateRoot = QString());
   ~Context();
   Context(const Context&)            = delete;
   Context& operator=(const Context&) = delete;
@@ -99,10 +102,14 @@ public:
   QJsonArray documents() const;
   std::shared_ptr<TProject> project() const;
   QString workspace() const;
+  // A named directory of worker-private files, such as levels or sounds.
+  QString privateDirectory(const QString& name) const;
   QString resolvePath(const QString& path, bool write) const;
   QStringList inputRoots() const;
   void markMutationStarted();
   void resetMutationStarted();
+  // Removes the private level and sound files of one document.
+  void removePrivateFiles(Document& document) const;
   bool mutationStarted() const;
   // A failure after this mark is kept in the operation receipt as it is.
   void markFailureRecorded();
@@ -144,6 +151,8 @@ public:
 #ifdef BUILD_UI_PORT_TESTS
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
+  // Test-only: the --test-path-swap arguments, handed on to scene hosts.
+  QStringList pathSwap;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
   // hold-writers, fail-after-final-frame, encoder-failure, stray-callbacks or
   // gl-context-failure.
@@ -154,6 +163,7 @@ public:
 
 private:
   QString m_workspace;
+  QString m_privateRoot;
   QStringList m_inputRoots;
   std::shared_ptr<TProject> m_project;
   std::map<QString, std::unique_ptr<Document>> m_documents;

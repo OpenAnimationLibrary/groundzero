@@ -2,6 +2,7 @@
 #include "automation_build_identity.h"
 #include "automation_jobs.h"
 #include "automation_dispatch.h"
+#include "automation_files.h"
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
 #include "automation_ownership.h"
@@ -96,6 +97,7 @@ struct Options {
   QString childFault;
   QString renderFault;
   QString writeFault;
+  QStringList pathSwap;
 #endif
 };
 
@@ -302,6 +304,11 @@ Options parseOptions(const QStringList& arguments) {
     }
     if (key == "--test-write-fault" && index + 1 < arguments.size()) {
       options.writeFault = arguments[++index];
+      continue;
+    }
+    if (key == "--test-path-swap" && index + 3 < arguments.size()) {
+      options.pathSwap = arguments.mid(index + 1, 3);
+      index += 3;
       continue;
     }
 #endif
@@ -547,6 +554,7 @@ int domainTestResult(Context& context) {
     runAutomationAudioTests(context);
     runAutomationRigTests(context);
     runAutomationSharedTests(context);
+    runAutomationFilesTests(context);
     runAutomationStoryboardTests(context);
     runAutomationLipsyncTests(context);
     runAutomationProductionTests(context);
@@ -598,7 +606,8 @@ int executeDomainTests(QApplication& application, Context& context) {
 int executeWorker(QApplication& application, QFile& output,
                   const Options& options, bool helpersContained,
                   const QString& runtime) {
-  Context context(options.workspace, options.inputRoots, helpersContained);
+  Context context(options.workspace, options.inputRoots, helpersContained,
+                  runtime);
   context.mediaToolsDirectory = options.mediaToolsDirectory;
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)
@@ -606,6 +615,9 @@ int executeWorker(QApplication& application, QFile& output,
   context.childFault = options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
+  context.pathSwap    = options.pathSwap;
+  if (!options.pathSwap.isEmpty())
+    armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif
   context.sharedRoots         = options.sharedRoots;
   context.runtimeDirectory    = runtime;

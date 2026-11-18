@@ -44,7 +44,11 @@ The workspace must already exist and use a canonical directory path without
 symlinks. Add `--input-root /work/reference` for each additional existing directory
 the worker may read. Writes stay inside the workspace. Choose a new dedicated
 workspace for a session; these roots are fixed at launch and cannot be broadened
-by a tool call. The executable must include native automation support and its
+by a tool call. A single-valued option such as `--workspace` or `--media-tools`
+given twice is refused with the flag named. Reads admit a hard link inside a root
+like the file it names, since the two are indistinguishable; outputs are
+published without replacing anything, so a hard link never lets a tool change a
+file outside the root. The executable must include native automation support and its
 normal libraries, codecs, and application resources.
 
 Movie rendering requires an explicit `--media-tools /opt/groundzero/media` startup
