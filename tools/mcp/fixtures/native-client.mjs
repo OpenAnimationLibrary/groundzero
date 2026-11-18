@@ -221,16 +221,16 @@ async function main() {
     return closePromise;
   };
   const stop = (error) => {
-    failure = error;
+    failure ??= error;
     process.stdin.destroy();
     void close().catch((closeError) => {
-      failure = closeError;
+      failure ??= closeError;
     });
   };
   const interrupted = () => stop(new Error("MCP shot fixture was interrupted"));
   client.onclose = () => {
     if (!closing) {
-      failure = new Error("MCP adapter disconnected unexpectedly");
+      failure ??= new Error("MCP adapter disconnected unexpectedly");
       process.stdin.destroy();
     }
   };
@@ -240,6 +240,8 @@ async function main() {
   try {
     await connect(client);
     await serve(client);
+  } catch (error) {
+    failure ??= error;
   } finally {
     await close();
     process.removeListener("SIGTERM", interrupted);

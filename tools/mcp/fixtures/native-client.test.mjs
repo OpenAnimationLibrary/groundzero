@@ -1,5 +1,11 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { rm } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { fakeNativeExecutable } from "./fake-native.mjs";
 
 const { adapterArguments, bridgeResult, parseRequest, readFrames } = await import(
   new URL("native-client.mjs", import.meta.url).href
@@ -172,4 +178,30 @@ test.each([
   [["--automation-worker", "--workspace", "/w"], undefined, "absolute"],
 ])("refuses launches that are not plain worker grants: %j", (argv, executable, message) => {
   expect(() => adapterArguments(argv, executable, "/cli.js")).toThrow(message);
+});
+
+test("reports a terminated session as interrupted rather than as its broken input", async () => {
+  const { directory, workspace, executable } = await fakeNativeExecutable();
+  try {
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(new URL("native-client.mjs", import.meta.url)), "--automation-worker"].concat([
+        "--workspace",
+        workspace,
+      ]),
+      { env: { ...process.env, GROUNDZERO_NATIVE_EXECUTABLE: executable } },
+    );
+    let diagnostics = "";
+    child.stderr.on("data", (chunk) => (diagnostics += chunk));
+    const exited = once(child, "exit");
+    child.stdin.write(JSON.stringify({ id: "one", method: "probe.echo", params: { value: 7 } }));
+    child.stdin.write("\n");
+    const [line] = await once(createInterface({ input: child.stdout }), "line");
+    expect(JSON.parse(line)).toEqual({ id: "one", result: { value: 7 } });
+    child.kill("SIGTERM");
+    expect(await exited).toEqual([1, null]);
+    expect(diagnostics).toBe("MCP shot fixture failed: Error: MCP shot fixture was interrupted\n");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
