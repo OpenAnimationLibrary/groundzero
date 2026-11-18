@@ -4,7 +4,7 @@ import { EventEmitter, once } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
-import { WorkerConnection } from "#mcp/worker";
+import { CLOSE_GRACE_MS, WorkerConnection } from "#mcp/worker";
 
 const connections: WorkerConnection[] = [];
 
@@ -122,8 +122,8 @@ test("close signals a worker that outlives the end of its input by the grace per
   const started = performance.now();
   connection.close();
   expect(await exited).toEqual([null, "SIGTERM"]);
-  expect(performance.now() - started).toBeGreaterThanOrEqual(1_900);
-});
+  expect(performance.now() - started).toBeGreaterThanOrEqual(CLOSE_GRACE_MS - 100);
+}, 10_000);
 
 // Stands in for the supervisor process at the signalling boundary: the PID it
 // had is free for reuse once it has exited, so nothing may signal it after.
@@ -201,7 +201,7 @@ test.each([false, true])("signals a worker only while it is unreaped (reaped %s)
     const connection = new WorkerConnection(child as unknown as ChildProcess, 1_000);
     connection.close();
     if (reaped) child.exitCode = 0;
-    vi.advanceTimersByTime(2_500);
+    vi.advanceTimersByTime(CLOSE_GRACE_MS + 500);
     expect(child.kill.mock.calls).toEqual(reaped ? [] : [["SIGTERM"]]);
   } finally {
     vi.useRealTimers();

@@ -9,7 +9,7 @@ import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
 import { isObject } from "#mcp/errors";
-import { WorkerConnection } from "#mcp/worker";
+import { CLOSE_GRACE_MS, WorkerConnection } from "#mcp/worker";
 
 const supervisors: { child: ChildProcess; diagnostics: Buffer[]; expected: string }[] = [];
 const posix = test.skipIf(process.platform === "win32");
@@ -222,7 +222,8 @@ function shellWord(value: string): string {
 }
 
 async function requireDescendantExit(port: number, pid: number): Promise<void> {
-  const deadline = performance.now() + 5_000;
+  // The close grace, then the supervisor's SIGTERM-to-SIGKILL interval, then slack.
+  const deadline = performance.now() + CLOSE_GRACE_MS + 3_000;
   while (await listening(port)) {
     if (performance.now() >= deadline) {
       process.kill(pid, "SIGKILL");
@@ -283,7 +284,7 @@ posix.each([false, true])(
         process.kill(pid, "SIGKILL");
         await exited;
       }
-      await pause(2_500);
+      await pause(CLOSE_GRACE_MS + 500);
       expect(kill.mock.calls).toEqual(reaped ? [] : [["SIGTERM"]]);
     } finally {
       if (!reaped) {

@@ -608,9 +608,15 @@ supervisor. The native worker verifies its parent socket credentials and a bound
 startup handshake. A separate native guardian terminates its current group when
 that channel disappears or receives unexpected data, including after supervisor
 loss. When the MCP connection closes, the worker's input ends, so it cancels its
-renders and removes their partial output as when run directly; group cleanup
-follows if it is still running two seconds later. Timeouts trigger group cleanup
-at once. Windows startup requires an owned kill-on-close Job Object before
+renders and removes their partial output as when run directly. A worker whose
+input has ended exits within 3 seconds: it cancels render jobs and closes their
+writers (unfinished output removed, finished output kept), ends its scene hosts
+together and clears its image cache, each within its own budget, and a request
+still running when input ends gets only what remains of those 3 seconds. Past the
+deadline it ends itself with exit code 3, leaving what a killed worker leaves,
+which the next worker in that workspace sweeps away. Group cleanup follows if it
+is still running four seconds after its input ended. Timeouts trigger group
+cleanup at once. Windows startup requires an owned kill-on-close Job Object before
 accepting requests. Raw POSIX workers remain usable for existing operations but
 have no verified helper containment.
 
