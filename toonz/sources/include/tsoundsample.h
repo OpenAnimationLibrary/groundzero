@@ -396,11 +396,6 @@ public:
   typedef short ChannelValueType;
   typedef TMono16Sample ChannelSampleType;
 
-  TStereo16Sample(TINT32 v) {
-    channel[0] = (short)(v << 16);
-    channel[1] = (short)(v & 0xFFFF);
-  }
-
   TStereo16Sample(short lchan = 0, short rchan = 0) {
     channel[0] = lchan;
     channel[1] = rchan;
