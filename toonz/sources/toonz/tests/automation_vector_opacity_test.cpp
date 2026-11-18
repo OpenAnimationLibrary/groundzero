@@ -546,6 +546,39 @@ void lassoRefusals(Context& context, Document& document, const QString& level) {
   }
 }
 
+void boundsUseCenterlines(Context& context, Document& document,
+                          const QString& level) {
+  const auto image = drawingOf({{20, 40, 40, 20, 1}});
+  auto params      = drawingTarget(document, level, image, 44);
+  params.insert("query", QJsonObject{{"mode", "centerline_bounds"},
+                                     {"relation", "contained"},
+                                     {"x0", -50},
+                                     {"y0", -50},
+                                     {"x1", 100},
+                                     {"y1", 50}});
+  const auto result =
+      executeDrawing(context, "vector.select", params).toObject();
+  require(result.value("stroke_indices").toArray() == QJsonArray{0},
+          "Centerline bounds used the thick box");
+  require(
+      result.value("rule").toObject().value("geometry") == "centerline_bbox",
+      "The bounds rule is not reported");
+  params.insert(
+      "query",
+      QJsonObject{{"mode", "lasso"},
+                  {"relation", "contained"},
+                  {"points", QJsonArray{QJsonObject{{"x", -50}, {"y", -50}},
+                                        QJsonObject{{"x", 100}, {"y", -50}},
+                                        QJsonObject{{"x", 100}, {"y", 50}},
+                                        QJsonObject{{"x", -50}, {"y", 50}}}}});
+  require(executeDrawing(context, "vector.select", params)
+              .toObject()
+              .value("stroke_indices")
+              .toArray()
+              .isEmpty(),
+          "A lasso contained a stroke whose thick box leaves it");
+}
+
 void handleLifetime(Context& context, Document& document,
                     const QString& level) {
   const auto image = drawingOf({{0, 10, 0, 2, 1}, {0, 10, 5, 2, 1}});
@@ -603,6 +636,7 @@ void inspectionAndSelection(Context& context, Document& document) {
   summaryNamesUndefinedStyles(context, document, level);
   lassoMatchesEditor(context, document, level);
   lassoRefusals(context, document, level);
+  boundsUseCenterlines(context, document, level);
   handleLifetime(context, document, level);
 }
 }  // namespace
