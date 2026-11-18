@@ -90,6 +90,12 @@ std::string fidsToString(const std::vector<TFrameId> &fids) {
   return str;
 }
 
+// The reference frames are frames of the level a color model was taken from,
+// and the color model viewer shows each of them. Levels have no hard frame
+// limit; a million frames is 11.5 hours at 24 fps. A damaged range can claim
+// two billion.
+const long long maxRefLevelFids = 1000000;
+
 // convert loaded string to refLevelFids
 std::vector<TFrameId> strToFids(std::string fidsStr) {
   std::vector<TFrameId> ret;
@@ -98,12 +104,19 @@ std::vector<TFrameId> strToFids(std::string fidsStr) {
   for (const auto &chunk : chunks) {
     QStringList nums = chunk.split('-', Qt::SkipEmptyParts);
     assert(nums.count() > 0 && nums.count() <= 2);
+    if (nums.isEmpty())
+      throw TException("palette, bad reference frames: " + fidsStr);
+    const int first = nums[0].toInt();
+    const int last  = nums.count() == 1 ? first : nums[1].toInt();
+    // In 64 bits: last - first + 1 may not fit an int
+    if ((long long)ret.size() + std::max(0LL, (long long)last - first + 1) >
+        maxRefLevelFids)
+      throw TException("palette, too many reference frames: " + fidsStr);
     if (nums.count() == 1)
-      ret.push_back(TFrameId(nums[0].toInt()));
+      ret.push_back(TFrameId(first));
     else {  // nums.count() == 2
-      assert(nums[0].toInt() < nums[1].toInt());
-      for (int i = nums[0].toInt(); i <= nums[1].toInt(); i++)
-        ret.push_back(TFrameId(i));
+      assert(first < last);
+      for (int i = first; i <= last; i++) ret.push_back(TFrameId(i));
     }
   }
   return ret;
