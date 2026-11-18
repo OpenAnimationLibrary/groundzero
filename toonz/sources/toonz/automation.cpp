@@ -87,6 +87,8 @@ struct Options {
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
   QString childFault;
+  QString renderFault;
+  QString writeFault;
 #endif
 };
 
@@ -265,6 +267,14 @@ Options parseOptions(const QStringList& arguments) {
     }
     if (key == "--test-child-fault" && index + 1 < arguments.size()) {
       options.childFault = arguments[++index];
+      continue;
+    }
+    if (key == "--test-render-fault" && index + 1 < arguments.size()) {
+      options.renderFault = arguments[++index];
+      continue;
+    }
+    if (key == "--test-write-fault" && index + 1 < arguments.size()) {
+      options.writeFault = arguments[++index];
       continue;
     }
 #endif
@@ -564,6 +574,8 @@ int executeWorker(QApplication& application, QFile& output,
   if (options.testRenderDeadlineMs > 0)
     context.renderDeadlineMs = options.testRenderDeadlineMs;
   context.childFault = options.childFault;
+  context.renderFault = options.renderFault;
+  context.writeFault  = options.writeFault;
 #endif
   context.sharedRoots         = options.sharedRoots;
   context.runtimeDirectory    = runtime;
@@ -576,6 +588,7 @@ int executeWorker(QApplication& application, QFile& output,
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testDomains) return executeDomainTests(application, context);
 #endif
+  sweepAbandonedRenders(context);
   Dispatcher dispatcher(context);
   InputThread reader(
       application,

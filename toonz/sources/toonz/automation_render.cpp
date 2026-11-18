@@ -34,6 +34,7 @@
 #include <QImage>
 #include <QImageReader>
 #include <QJsonArray>
+#include <QLockFile>
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
@@ -306,11 +307,68 @@ public:
   qint64 bytes         = 0;
   bool writersClosed   = false;
   double frameRate     = 0;
+  // Held while the job's output is unfinished, so a later worker can tell
+  // abandoned output from a live worker's.
+  std::unique_ptr<QLockFile> ownership;
+  QString fault;
 
   bool terminal() const {
     return status == JobStatus::Completed || status == JobStatus::Failed ||
            status == JobStatus::Canceled ||
            status == JobStatus::DeadlineExceeded;
+  }
+
+  bool requested(int frame) const {
+    return frame >= request.start && frame <= request.end &&
+           (frame - request.start) % request.step == 0;
+  }
+
+  void claimOutput() {
+    ownership.reset(new QLockFile(directory + "/.owner.lock"));
+    ownership->setStaleLockTime(0);
+    if (!ownership->tryLock(0))
+      throw Error("render_output_failed",
+                  "A new private render output directory could not be "
+                  "claimed.");
+  }
+
+  // Ends the job's claim on its directory; output that never completed is
+  // removed, so a canceled or failed job leaves no partial files behind.
+  void releaseOutput(bool keep) {
+    if (ownership) ownership->unlock();
+    ownership.reset();
+    if (!keep) QDir(directory).removeRecursively();
+  }
+
+  bool holding(const char* point, std::function<void()> resume) {
+    if (fault != point || cancellation) return false;
+    QTimer::singleShot(10, QCoreApplication::instance(), std::move(resume));
+    return true;
+  }
+
+  // Test hook: callbacks the native renderer would never send, before and
+  // after the job ends.
+  void injectStrayCallbacks(bool settled) {
+    TException stray(L"Injected stray frame failure.");
+    if (settled) {
+      onFrameCompleted(request.start);
+      onFrameFailed(request.start, stray);
+      onSequenceFinished(outputPath(), MovieRenderer::CompletionStatus::Failed,
+                         L"Injected late sequence failure.");
+      return;
+    }
+    onFrameCompleted(request.end);
+    onFrameCompleted(request.end + 1000);
+    onFrameFailed(request.end + 7, stray);
+  }
+
+  void settled() {
+#ifdef BUILD_UI_PORT_TESTS
+    if (fault != "stray-callbacks") return;
+    const auto self = shared_from_this();
+    QTimer::singleShot(30, QCoreApplication::instance(),
+                       [self]() { self->injectStrayCallbacks(true); });
+#endif
   }
 
   QJsonObject describe() const {
@@ -365,12 +423,24 @@ public:
     artifacts.clear();
     status = JobStatus::Failed;
     releaseNativeState();
+    releaseOutput(false);
+    settled();
   }
 
-  // The terminal state of a job stopped before it published artifacts.
+  // The terminal state of a job stopped before it published artifacts. The
+  // native writers must already be closed.
   void stop() {
+    artifacts.clear();
     status =
         deadlineExceeded ? JobStatus::DeadlineExceeded : JobStatus::Canceled;
+    releaseOutput(false);
+    settled();
+  }
+
+  void complete() {
+    status = JobStatus::Completed;
+    releaseOutput(true);
+    settled();
   }
 
   // Stops the job as cancellation does when its wall-clock budget runs out,
@@ -420,10 +490,15 @@ public:
 
   void buildFrame() {
     expireNeural();
+#ifdef BUILD_UI_PORT_TESTS
+    if (holding("hold-launch",
+                [self = shared_from_this()]() { self->buildFrame(); }))
+      return;
+#endif
     if (cancellation) {
       writersClosed = true;
-      stop();
       releaseNativeState();
+      stop();
       return;
     }
     try {
@@ -440,8 +515,7 @@ public:
       if (nextFrame <= request.end) {
         scheduleBuild();
       } else {
-        status = JobStatus::Running;
-        renderer->start();
+        launch();
       }
     } catch (const Error& exception) {
       writersClosed = true;
@@ -456,6 +530,23 @@ public:
       writersClosed = true;
       fail("The native frame graph could not be prepared.");
     }
+  }
+
+  void launch() {
+#ifdef BUILD_UI_PORT_TESTS
+    if (holding("hold-dispatch",
+                [self = shared_from_this()]() { self->launch(); }))
+      return;
+    if (fault == "stray-callbacks") injectStrayCallbacks(false);
+#endif
+    if (cancellation) {
+      writersClosed = true;
+      releaseNativeState();
+      stop();
+      return;
+    }
+    status = JobStatus::Running;
+    renderer->start();
   }
 
   void cancel() {
@@ -479,7 +570,7 @@ public:
   bool onFrameCompleted(int frame) override {
     const auto self = shared_from_this();
     QTimer::singleShot(0, QCoreApplication::instance(), [self, frame]() {
-      if (self->terminal()) return;
+      if (self->terminal() || !self->requested(frame)) return;
       self->completed.insert(frame);
       if (!self->cancellation &&
           int(self->completed.size()) == self->request.count())
@@ -494,7 +585,8 @@ public:
         QString::fromStdWString(exception.getMessage()).left(2048);
     QTimer::singleShot(0, QCoreApplication::instance(),
                        [self, frame, message]() {
-                         if (self->terminal()) return;
+                         if (self->terminal() || !self->requested(frame))
+                           return;
                          self->failed.insert(frame);
                          self->error = message;
                        });
@@ -515,6 +607,7 @@ public:
 
   void finish(MovieRenderer::CompletionStatus result,
               const QString& diagnostic) {
+    if (terminal()) return;
     expireNeural();
     writersClosed = true;
     // The native terminal callback and render-end cleanup run on this thread.
@@ -525,6 +618,12 @@ public:
       stop();
       return;
     }
+#ifdef BUILD_UI_PORT_TESTS
+    if (fault == "encoder-failure") {
+      fail("The encoder failed while finalizing the output (injected).");
+      return;
+    }
+#endif
     if (result == MovieRenderer::CompletionStatus::Failed) {
       fail(diagnostic.isEmpty() ? "Native rendering failed." : diagnostic);
       return;
@@ -533,7 +632,26 @@ public:
       fail("Rendering ended without completing every requested frame.");
       return;
     }
+#ifdef BUILD_UI_PORT_TESTS
+    if (fault == "fail-after-final-frame") {
+      fail("The job failed right after its final frame (injected).");
+      return;
+    }
+#endif
     status = JobStatus::Finalizing;
+    publish();
+  }
+
+  void publish() {
+#ifdef BUILD_UI_PORT_TESTS
+    if (holding("hold-publication",
+                [self = shared_from_this()]() { self->publish(); }))
+      return;
+#endif
+    if (cancellation) {
+      stop();
+      return;
+    }
     if (request.format == Format::Mp4) return verifyMovie();
     nextVerification = request.start;
     scheduleVerification();
@@ -584,7 +702,7 @@ public:
     artifact.movieMetadata = std::move(metadata);
     bytes                  = artifact.bytes;
     artifacts.push_back(std::move(artifact));
-    status = JobStatus::Completed;
+    complete();
   }
 
   void scheduleVerification() {
@@ -596,7 +714,6 @@ public:
   void verifyFrame() {
     expireNeural();
     if (cancellation) {
-      artifacts.clear();
       stop();
       return;
     }
@@ -620,7 +737,7 @@ public:
       const QString diagnostic =
           publicationCheck ? publicationCheck() : QString();
       if (!diagnostic.isEmpty()) return fail(diagnostic);
-      status = JobStatus::Completed;
+      complete();
     } catch (const Error& exception) {
       fail(exception.message);
     } catch (const std::exception& exception) {
@@ -816,18 +933,29 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   job->directory =
       context.resolvePath(context.workspace() + "/renders/" + job->id, true);
   context.markMutationStarted();
-  if (QFileInfo::exists(job->directory) ||
-      !QDir().mkpath(job->directory + "/frames"))
-    throw Error("render_output_failed",
-                "A new private render output directory could not be created.");
-  if (document.readOnly) {
-    linkReadOnlySources(*job, document);
-    job->snapshot = loadReadOnlySnapshot(context, document);
-  } else {
-    job->snapshot =
-        createRenderSnapshot(context, document, job->directory + "/snapshot");
+#ifdef BUILD_UI_PORT_TESTS
+  job->fault = context.renderFault;
+#endif
+  try {
+    if (QFileInfo::exists(job->directory) ||
+        !QDir().mkpath(job->directory + "/frames"))
+      throw Error(
+          "render_output_failed",
+          "A new private render output directory could not be created.");
+    job->claimOutput();
+    if (document.readOnly) {
+      linkReadOnlySources(*job, document);
+      job->snapshot = loadReadOnlySnapshot(context, document);
+    } else {
+      job->snapshot =
+          createRenderSnapshot(context, document, job->directory + "/snapshot");
+    }
+    configureSnapshot(*job);
+  } catch (...) {
+    job->releaseOutput(false);
+    if (!QFileInfo::exists(job->directory)) context.resetMutationStarted();
+    throw;
   }
-  configureSnapshot(*job);
   state.jobs.emplace(job->id, job);
   job->scheduleDeadline(context.renderDeadlineMs);
   job->scheduleBuild();
@@ -887,13 +1015,23 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
   job->directory = context.resolvePath(context.workspace() + "/renders/" + job->id, true);
   checkNeuralDeadline(deadline);
   context.markMutationStarted();
-  if (QFileInfo::exists(job->directory) || !QDir().mkpath(job->directory + "/frames"))
-    throw Error("render_output_failed", "Cannot create a private Neural preview output directory.");
-  job->snapshot = createRenderSnapshot(context, document, job->directory + "/snapshot");
-  checkNeuralDeadline(deadline);
-  attachNeuralPreview(*job, preview);
-  configureSnapshot(*job);
-  checkNeuralDeadline(deadline);
+  try {
+    if (QFileInfo::exists(job->directory) ||
+        !QDir().mkpath(job->directory + "/frames"))
+      throw Error("render_output_failed",
+                  "Cannot create a private Neural preview output directory.");
+    job->claimOutput();
+    job->snapshot =
+        createRenderSnapshot(context, document, job->directory + "/snapshot");
+    checkNeuralDeadline(deadline);
+    attachNeuralPreview(*job, preview);
+    configureSnapshot(*job);
+    checkNeuralDeadline(deadline);
+  } catch (...) {
+    job->releaseOutput(false);
+    if (!QFileInfo::exists(job->directory)) context.resetMutationStarted();
+    throw;
+  }
   state.jobs.emplace(job->id, job);
   job->observeNeuralDeadline();
   job->scheduleBuild();
@@ -1097,6 +1235,20 @@ QString activeRenderJob(Context& context) {
   for (const auto& entry : context.renderState->jobs)
     if (!entry.second->terminal()) return entry.first;
   return QString();
+}
+
+void sweepAbandonedRenders(Context& context) {
+  const QDir renders(context.workspace() + "/renders");
+  for (const QFileInfo& entry :
+       renders.entryInfoList({"job_*"}, QDir::Dirs | QDir::NoDotAndDotDot)) {
+    const QString lock = entry.absoluteFilePath() + "/.owner.lock";
+    if (!QFileInfo::exists(lock)) continue;
+    QLockFile owner(lock);
+    owner.setStaleLockTime(0);
+    if (!owner.tryLock(0)) continue;
+    owner.unlock();
+    QDir(entry.absoluteFilePath()).removeRecursively();
+  }
 }
 
 void shutdownRender(Context& context) {

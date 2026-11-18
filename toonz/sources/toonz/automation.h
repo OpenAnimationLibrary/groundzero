@@ -121,9 +121,24 @@ public:
   QString sceneHostDocument;
   // The worker's scene host processes, keyed by read-only document.
   std::shared_ptr<SceneHostRegistry> sceneHosts;
+  // Whether a test-only file-writing fault is armed at the named point; always
+  // false outside test builds.
+  bool writeFaultArmed(const char* point) const {
+#ifdef BUILD_UI_PORT_TESTS
+    return writeFault == point;
+#else
+    Q_UNUSED(point);
+    return false;
+#endif
+  }
 #ifdef BUILD_UI_PORT_TESTS
   // Test-only fault (crash, hang or memory) injected into child processes.
   QString childFault;
+  // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
+  // fail-after-final-frame, encoder-failure or stray-callbacks.
+  QString renderFault;
+  // Test-only file-writing fault: publish makes the final rename fail.
+  QString writeFault;
 #endif
 
 private:
@@ -168,6 +183,9 @@ QString activeRenderJob(Context& context);
 // The render jobs this process retains.
 int renderJobCount(Context& context);
 void shutdownRender(Context& context);
+// Removes the unfinished job output of workers that exited without finishing
+// it. Completed output and output of a live worker stay.
+void sweepAbandonedRenders(Context& context);
 std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
                                                  Document& document,
                                                  const QString& directory);
