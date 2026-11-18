@@ -10,6 +10,7 @@ import { setTimeout as pause } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { isObject } from "#mcp/errors";
+import { MAX_LINE_BYTES } from "#mcp/stdio-guard";
 
 interface FakeNative {
   directory: string;
@@ -41,11 +42,32 @@ async function nativeRequests(log: string): Promise<string[]> {
   return (await readFile(log, "utf8")).trim().split("\n");
 }
 
+type Frame = Record<string, unknown>;
+
+/** Accept an MCP message, or the JSON-RPC error with a null id that answers a malformed line. */
+function mcpFrame(line: string): Frame {
+  const value: unknown = JSON.parse(line);
+  if (isObject(value) && value["id"] === null) {
+    expect(Object.keys(value).sort()).toEqual(["error", "id", "jsonrpc"]);
+    expect(value["jsonrpc"]).toBe("2.0");
+    expect(Object.keys(value["error"] as object).sort()).toEqual(["code", "message"]);
+    return value;
+  }
+  return parseJSONRPCMessage(value) as Frame;
+}
+
 /** Parse adapter stdout, requiring every byte to belong to a newline-ended MCP frame. */
-function mcpFrames(stdout: string): JSONRPCMessage[] {
+function mcpFrames(stdout: string): Frame[] {
   expect(stdout === "" || stdout.endsWith("\n")).toBe(true);
-  const lines = stdout.split("\n").filter((line) => line !== "");
-  return lines.map((line) => parseJSONRPCMessage(JSON.parse(line)));
+  return stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map(mcpFrame);
+}
+
+function malformedReply(id: number | string | null, code: number): Frame {
+  const message = code === -32700 ? "Parse error" : "Invalid Request";
+  return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
 class RawAdapter {
@@ -78,14 +100,14 @@ class RawAdapter {
   async response(id: number): Promise<Record<string, unknown>> {
     const deadline = performance.now() + 15_000;
     while (performance.now() < deadline) {
-      const found = this.frames().find((frame) => "id" in frame && frame.id === id);
-      if (found) return found as Record<string, unknown>;
+      const found = this.frames().find((frame) => frame["id"] === id);
+      if (found) return found;
       await pause(20);
     }
     throw new Error(`No response to request ${id}: ${this.stderr}`);
   }
 
-  frames(): JSONRPCMessage[] {
+  frames(): Frame[] {
     const complete = this.stdout.slice(0, this.stdout.lastIndexOf("\n") + 1);
     return mcpFrames(complete);
   }
@@ -130,42 +152,87 @@ test.each([
   expect(stderr).toMatch(/^Groundzero MCP startup failed: /u);
 });
 
-posix(
-  "keeps stdout to MCP frames through malformed input, native noise and large results",
-  async () => {
-    const { args, log } = await nativeGrants();
-    const adapter = new RawAdapter(args, log);
-    for (const frame of [
-      "{malformed json",
-      "[]",
-      JSON.stringify([{ jsonrpc: "2.0", id: 90, method: "ping" }]),
-      JSON.stringify({ jsonrpc: "1.0", id: 91, method: "ping" }),
-      JSON.stringify({ jsonrpc: "2.0", id: { nested: true }, method: "ping" }),
-      JSON.stringify({ jsonrpc: "2.0", id: 92, method: "tools/call", params: "probe.echo" }),
-      JSON.stringify({ jsonrpc: "2.0", id: 93 }),
-    ]) {
-      adapter.write(frame);
-    }
-    adapter.write({ jsonrpc: "2.0", id: 1, method: "ping" });
-    expect(await adapter.response(1)).toMatchObject({ result: {} });
-    adapter.call(2, "probe.noise", { bytes: 256 * 1024 });
-    expect(toolResult(await adapter.response(2))["structuredContent"]).toEqual({
-      written: 256 * 1024,
-    });
-    adapter.call(3, "probe.large", { bytes: 7 * 1024 * 1024 });
-    const large = toolResult(await adapter.response(3))["structuredContent"];
-    expect(isObject(large) && typeof large["text"] === "string" && large["text"].length).toBe(
-      7 * 1024 * 1024,
-    );
-    expect(await adapter.end()).toBe(0);
-    expect(adapter.stderr).toContain("native diagnostic native diagnostic");
-    expect(await nativeRequests(log)).toEqual([
-      "automation.capabilities",
-      "probe.noise",
-      "probe.large",
-    ]);
-  },
-);
+posix("answers each malformed line once, forwards none and keeps serving", async () => {
+  const { args, log } = await nativeGrants();
+  const adapter = new RawAdapter(args, log);
+  adapter.call(1, "probe.echo", { value: 1 });
+  await adapter.response(1);
+  const secret = "SECRET-INPUT";
+  const lines: [string, Frame | undefined][] = [
+    [`{malformed json ${secret}`, malformedReply(null, -32700)],
+    [`\u0001 ${secret}`, malformedReply(null, -32700)],
+    ["[]", malformedReply(null, -32600)],
+    [JSON.stringify([{ jsonrpc: "2.0", id: 90, method: "ping" }]), malformedReply(null, -32600)],
+    [JSON.stringify({ jsonrpc: "1.0", id: 91, method: "ping" }), malformedReply(91, -32600)],
+    [
+      JSON.stringify({ jsonrpc: "2.0", id: { secret }, method: "ping" }),
+      malformedReply(null, -32600),
+    ],
+    [
+      JSON.stringify({ jsonrpc: "1.0", id: "x".repeat(129), method: "ping" }),
+      malformedReply(null, -32600),
+    ],
+    [
+      JSON.stringify({ jsonrpc: "2.0", id: 92, method: "tools/call", params: secret }),
+      malformedReply(92, -32600),
+    ],
+    [
+      JSON.stringify({ jsonrpc: "2.0", id: "ninety-three" }),
+      malformedReply("ninety-three", -32600),
+    ],
+    [JSON.stringify({ jsonrpc: "1.0", method: "notifications/initialized" }), undefined],
+    [JSON.stringify({ jsonrpc: "1.0", id: 94, result: { secret } }), undefined],
+    [JSON.stringify({ jsonrpc: "2.0", error: secret }), undefined],
+    ["", undefined],
+    ["   \r", undefined],
+  ];
+  for (const [line] of lines) adapter.write(line);
+  adapter.write({ jsonrpc: "2.0", id: 2, method: "ping" });
+  expect(await adapter.response(2)).toMatchObject({ result: {} });
+  await pause(200);
+  const replies = adapter.frames().filter((frame) => frame["id"] !== 1 && frame["id"] !== 2);
+  expect(replies).toEqual(lines.flatMap(([, reply]) => (reply ? [reply] : [])));
+  expect(await adapter.end()).toBe(0);
+  expect(adapter.stdout).not.toContain(secret);
+  expect(await nativeRequests(log)).toEqual(["automation.capabilities", "probe.echo"]);
+});
+
+posix("answers a line at the 10 MiB bound and closes the session on a longer one", async () => {
+  const { args, log } = await nativeGrants();
+  const adapter = new RawAdapter(args, log);
+  adapter.write("x".repeat(MAX_LINE_BYTES));
+  adapter.write({ jsonrpc: "2.0", id: 1, method: "ping" });
+  expect(await adapter.response(1)).toMatchObject({ result: {} });
+  adapter.write("y".repeat(MAX_LINE_BYTES + 1));
+  adapter.write({ jsonrpc: "2.0", id: 2, method: "ping" });
+  await pause(500);
+  expect(adapter.frames()).toEqual([
+    malformedReply(null, -32700),
+    { jsonrpc: "2.0", id: 1, result: {} },
+  ]);
+  expect(await adapter.end()).toBe(0);
+});
+
+posix("keeps stdout to MCP frames through native noise and large results", async () => {
+  const { args, log } = await nativeGrants();
+  const adapter = new RawAdapter(args, log);
+  adapter.call(2, "probe.noise", { bytes: 256 * 1024 });
+  expect(toolResult(await adapter.response(2))["structuredContent"]).toEqual({
+    written: 256 * 1024,
+  });
+  adapter.call(3, "probe.large", { bytes: 7 * 1024 * 1024 });
+  const large = toolResult(await adapter.response(3))["structuredContent"];
+  expect(isObject(large) && typeof large["text"] === "string" && large["text"].length).toBe(
+    7 * 1024 * 1024,
+  );
+  expect(await adapter.end()).toBe(0);
+  expect(adapter.stderr).toContain("native diagnostic native diagnostic");
+  expect(await nativeRequests(log)).toEqual([
+    "automation.capabilities",
+    "probe.noise",
+    "probe.large",
+  ]);
+});
 
 posix.each(["probe.crash", "probe.stdout_noise"])(
   "keeps stdout to MCP frames when %s ends the native worker",
@@ -196,7 +263,7 @@ posix("abandons a cancelled call without answering it or touching native state",
   await pause(600);
   adapter.call(2, "probe.echo", { value: 2 });
   expect(toolResult(await adapter.response(2))["structuredContent"]).toEqual({ value: 2 });
-  expect(adapter.frames().filter((frame) => "id" in frame && frame.id === 1)).toEqual([]);
+  expect(adapter.frames().filter((frame) => frame["id"] === 1)).toEqual([]);
   expect(await adapter.end()).toBe(0);
   expect(await nativeRequests(log)).toEqual([
     "automation.capabilities",

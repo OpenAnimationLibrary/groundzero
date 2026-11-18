@@ -4,6 +4,7 @@ import { parseOptions } from "#mcp/options";
 import { launchLive } from "#mcp/live";
 import { createLiveServer, createServer } from "#mcp/server";
 import type { NativeApi } from "#mcp/server";
+import { guardedStdioTransport } from "#mcp/stdio-guard";
 import { launchWorker } from "#mcp/worker";
 
 async function main(): Promise<void> {
@@ -13,22 +14,25 @@ async function main(): Promise<void> {
     for (const worker of workers) worker.close();
     workers.clear();
   };
-  const handle = serveStdio(async () => {
-    const worker = "liveSession" in options ? launchLive(options) : launchWorker(options);
-    workers.add(worker);
-    const close = () => {
-      worker.close();
-      workers.delete(worker);
-    };
-    try {
-      const api = { request: worker.request.bind(worker), close };
-      if ("ready" in worker) return await createLiveServer(api, await worker.ready);
-      return await createServer(api, "toolsets" in options ? options.toolsets : ["core"]);
-    } catch (error) {
-      close();
-      throw error;
-    }
-  });
+  const handle = serveStdio(
+    async () => {
+      const worker = "liveSession" in options ? launchLive(options) : launchWorker(options);
+      workers.add(worker);
+      const close = () => {
+        worker.close();
+        workers.delete(worker);
+      };
+      try {
+        const api = { request: worker.request.bind(worker), close };
+        if ("ready" in worker) return await createLiveServer(api, await worker.ready);
+        return await createServer(api, "toolsets" in options ? options.toolsets : ["core"]);
+      } catch (error) {
+        close();
+        throw error;
+      }
+    },
+    { transport: guardedStdioTransport() },
+  );
   const stop = () => {
     closeWorkers();
     void handle.close().catch((error: unknown) => {
