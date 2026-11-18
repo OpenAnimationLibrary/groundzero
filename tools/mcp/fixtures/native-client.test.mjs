@@ -10,9 +10,14 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { fakeNativeExecutable } from "./fake-native.mjs";
 
-const { adapterArguments, bridgeResult, cancelledCall, parseRequest, readFrames } = await import(
-  new URL("native-client.mjs", import.meta.url).href
-);
+const {
+  adapterArguments,
+  bridgeResult,
+  cancelledCall,
+  parseRequest,
+  readFrames,
+  requireDeclaredError,
+} = await import(new URL("native-client.mjs", import.meta.url).href);
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=";
 const image = { type: "image", mimeType: "image/png", data: png };
@@ -250,4 +255,12 @@ test("cancels a call through MCP only after it has reached the adapter", async (
     await client.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("refuses an error code the called tool does not declare", () => {
+  const error = { error: { code: "stale", message: "", details: {} } };
+  expect(() => requireDeclaredError("scene.summary", error, ["stale"])).not.toThrow();
+  expect(() => requireDeclaredError("scene.summary", { result: {} }, [])).not.toThrow();
+  expect(() => requireDeclaredError("toolsets.list", error, undefined)).not.toThrow();
+  expect(() => requireDeclaredError("scene.summary", error, ["other"])).toThrow(/undeclared/u);
 });

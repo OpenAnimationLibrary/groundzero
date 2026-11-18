@@ -5,6 +5,15 @@ import {
   fromJsonSchema,
 } from "@modelcontextprotocol/server";
 import type { CallToolResult, JsonSchemaType, Tool } from "@modelcontextprotocol/server";
+import {
+  ADAPTER_ERRORS,
+  EFFECTS_SCHEMA,
+  ERRORS_SCHEMA,
+  conformingResult,
+  declarationMeta,
+  successValidator,
+} from "#mcp/declarations";
+import type { Validator } from "#mcp/declarations";
 import { WorkerError, errorResult, isObject } from "#mcp/errors";
 import { boundedResult, toolResult } from "#mcp/results";
 import { LIVE_TOOL_NAMES } from "#mcp/live-protocol";
@@ -19,30 +28,40 @@ export interface NativeApi {
 interface NativeTool extends Tool {
   description: string;
   annotations: NonNullable<Tool["annotations"]>;
+  effects?: Record<string, unknown>;
+  errors?: string[];
 }
 
-const descriptorSchema: Parameters<typeof fromJsonSchema>[0] = {
-  type: "object" as const,
-  required: ["name", "description", "inputSchema", "annotations"],
-  properties: {
-    name: { type: "string", pattern: "^[a-zA-Z0-9_.-]{1,128}$" },
-    description: { type: "string", maxLength: 8192 },
-    inputSchema: {
-      type: "object",
-      required: ["type"],
-      properties: { type: { const: "object" } },
-    },
-    annotations: {
-      type: "object",
-      properties: {
-        readOnlyHint: { type: "boolean" },
-        destructiveHint: { type: "boolean" },
-        idempotentHint: { type: "boolean" },
-        openWorldHint: { type: "boolean" },
-      },
-    },
-  },
+const objectSchema = {
+  type: "object",
+  required: ["type"],
+  properties: { type: { const: "object" } },
 };
+
+function descriptorSchema(declared: boolean): Parameters<typeof fromJsonSchema>[0] {
+  const required = ["name", "description", "inputSchema", "annotations"];
+  return {
+    type: "object" as const,
+    required: declared ? [...required, "effects", "errors"] : required,
+    properties: {
+      name: { type: "string", pattern: "^[a-zA-Z0-9_.-]{1,128}$" },
+      description: { type: "string", maxLength: 8192 },
+      inputSchema: objectSchema,
+      outputSchema: objectSchema,
+      annotations: {
+        type: "object",
+        properties: {
+          readOnlyHint: { type: "boolean" },
+          destructiveHint: { type: "boolean" },
+          idempotentHint: { type: "boolean" },
+          openWorldHint: { type: "boolean" },
+        },
+      },
+      effects: EFFECTS_SCHEMA,
+      errors: ERRORS_SCHEMA,
+    },
+  };
+}
 
 const MAX_CATALOG_TOOLS = 1024;
 
@@ -51,18 +70,36 @@ async function discover(worker: NativeApi, requested: string[]): Promise<Toolset
   if (!isObject(result) || result["protocol_version"] !== 2) {
     throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 2");
   }
-  const tools = await catalog(result["tools"]);
+  const tools = await catalog(result["tools"], true);
   return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
 }
 
-async function catalog(entries: unknown): Promise<Tool[]> {
+function forwarded(tool: NativeTool): Tool {
+  const entry: Tool = {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    annotations: tool.annotations,
+  };
+  if (tool.outputSchema !== undefined) entry.outputSchema = tool.outputSchema;
+  if (tool.effects !== undefined && tool.errors !== undefined) {
+    const errors = [
+      ...tool.errors,
+      ...ADAPTER_ERRORS.filter((code) => !tool.errors?.includes(code)),
+    ];
+    entry._meta = declarationMeta(tool.effects, errors);
+  }
+  return entry;
+}
+
+async function catalog(entries: unknown, declared: boolean): Promise<Tool[]> {
   if (!Array.isArray(entries) || entries.length > MAX_CATALOG_TOOLS) {
     throw new WorkerError(
       "INVALID_CATALOG",
       `Expected at most ${MAX_CATALOG_TOOLS} native tool descriptors`,
     );
   }
-  const schema = fromJsonSchema<NativeTool>(descriptorSchema);
+  const schema = fromJsonSchema<NativeTool>(descriptorSchema(declared));
   const tools: Tool[] = [];
   const names = new Set<string>();
   for (const entry of entries) {
@@ -73,12 +110,7 @@ async function catalog(entries: unknown): Promise<Tool[]> {
       throw new WorkerError("INVALID_CATALOG", "Duplicate native tool name");
     }
     names.add(tool.name);
-    tools.push({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      annotations: tool.annotations,
-    });
+    tools.push(forwarded(tool));
   }
   return tools;
 }
@@ -121,7 +153,7 @@ export function createServer(
  *   An MCP server with no detached-worker tools or fallback.
  */
 export async function createLiveServer(connection: NativeApi, hello: LiveHello): Promise<Server> {
-  const tools = await catalog(hello.tools);
+  const tools = await catalog(hello.tools, false);
   if (
     tools.length !== LIVE_TOOL_NAMES.size ||
     tools.some((tool) => !LIVE_TOOL_NAMES.has(tool.name))
@@ -132,19 +164,29 @@ export async function createLiveServer(connection: NativeApi, hello: LiveHello):
   return serverWithTools(connection, async () => compiled, true);
 }
 
+interface Compiled {
+  tool: Tool;
+  input: Validator;
+  output: Validator | undefined;
+}
+
 interface Catalog {
   tools: Tool[];
   state: ToolsetState | undefined;
-  validators: Map<string, Validator>;
+  validators: Map<string, Compiled>;
 }
 
 function compile(tools: Tool[], state?: ToolsetState): Catalog {
   const validators = new Map(
     tools.map((tool) => [
       tool.name,
-      // SDK Tool permits optional undefined fields; native JSON cannot contain them.
-      // fromJsonSchema compiles and validates the unchanged schema before any call.
-      fromJsonSchema<Record<string, unknown>>(tool.inputSchema as JsonSchemaType),
+      {
+        tool,
+        // SDK Tool permits optional undefined fields; native JSON cannot contain them.
+        // fromJsonSchema compiles and validates the unchanged schema before any call.
+        input: fromJsonSchema<Record<string, unknown>>(tool.inputSchema as JsonSchemaType),
+        output: successValidator(tool),
+      },
     ]),
   );
   return { tools, state, validators };
@@ -201,14 +243,18 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
       boundedResult({ content: [] }, context.mcpReq.id);
       const { state, validators } = await load();
       const name = request.params.name;
-      const validator = validators.get(name);
-      if (!validator) throw new WorkerError("UNKNOWN_TOOL", `Unknown tool: ${name}`);
+      const compiled = validators.get(name);
+      if (!compiled) throw new WorkerError("UNKNOWN_TOOL", `Unknown tool: ${name}`);
       state?.requireEnabled(name);
-      const args = await validArguments(validator, request.params.arguments ?? {});
-      result =
+      const args = await validArguments(compiled.input, request.params.arguments ?? {});
+      result = await conformingResult(
+        compiled.tool,
+        compiled.output,
+        args,
         state?.isToolsetTool(name) === true
           ? toolResult(await toolsetCall(state, server, name, args))
-          : nativeToolResult(await worker.request(name, args), live);
+          : nativeToolResult(await worker.request(name, args), live),
+      );
     } catch (error) {
       result = errorResult(error);
     }
@@ -221,8 +267,6 @@ function serverWithTools(worker: NativeApi, load: () => Promise<Catalog>, live: 
   });
   return server;
 }
-
-type Validator = ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;
 
 async function validArguments(
   validator: Validator,

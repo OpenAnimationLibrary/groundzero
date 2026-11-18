@@ -140,6 +140,22 @@ export function bridgeResult(method, response) {
   return { result: metadata };
 }
 
+/** Require a tool error's code to be one the listed tool declares in `_meta`.
+ *
+ * Args:
+ *   method: The advertised MCP tool called by the fixture.
+ *   outcome: The bridged result or error.
+ *   declared: The tool's `_meta["groundzero/errors"]`, if it publishes one.
+ */
+export function requireDeclaredError(method, outcome, declared) {
+  if (!outcome.error || declared === undefined) return;
+  assert(Array.isArray(declared), `${method} publishes a malformed error list`);
+  assert(
+    declared.includes(outcome.error.code),
+    `${method} returned undeclared error code ${outcome.error.code}`,
+  );
+}
+
 /** Turn the worker command line this fixture stands in for into the adapter's.
  *
  * Args:
@@ -205,6 +221,9 @@ async function serve(client, transport) {
   assert.equal(catalog.nextCursor, undefined, "Unexpected paginated tool catalog");
   const names = new Set(catalog.tools.map((tool) => tool.name));
   assert.equal(names.size, catalog.tools.length, "Duplicate MCP tool names");
+  const declared = new Map(
+    catalog.tools.map((tool) => [tool.name, tool._meta?.["groundzero/errors"]]),
+  );
   let calls = 0;
   let images = 0;
   for await (const frame of readFrames(process.stdin)) {
@@ -216,6 +235,7 @@ async function serve(client, transport) {
           request.method,
           await client.callTool({ name: request.method, arguments: request.params }),
         );
+    if (!request.cancel) requireDeclaredError(request.method, outcome, declared.get(request.method));
     await writeFrame({ id: request.id, ...outcome });
     calls += 1;
     if (outcome.result?.image) images += 1;

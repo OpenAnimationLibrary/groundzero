@@ -1,4 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/server";
+import { declarationMeta, outputSchema, sessionEffects } from "#mcp/declarations";
 import { WorkerError, isObject } from "#mcp/errors";
 
 /** Most native tools one session may expose at once. */
@@ -28,29 +29,85 @@ const namesSchema = {
   },
 };
 
+const listing = {
+  toolsets: {
+    type: "array",
+    minItems: 1,
+    maxItems: MAX_TOOLSETS,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["name", "description", "tool_count", "enabled"],
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 32 },
+        description: { type: "string", minLength: 1, maxLength: 1024 },
+        tool_count: { type: "integer", minimum: 0, maximum: 1024 },
+        enabled: { type: "boolean" },
+      },
+    },
+  },
+  exposed_tool_count: { type: "integer", minimum: 0, maximum: MAX_EXPOSED_TOOLS },
+};
+
+function listingSchema(changes: boolean) {
+  const properties = changes ? { ...listing, changed: { type: "boolean" } } : listing;
+  return outputSchema({
+    type: "object",
+    additionalProperties: false,
+    required: Object.keys(properties),
+    properties,
+  });
+}
+
+const LOAD_ERRORS = [
+  "INVALID_ARGUMENTS",
+  "WORKER_UNAVAILABLE",
+  "INVALID_CATALOG",
+  "INCOMPATIBLE_WORKER",
+  "RESULT_TOO_LARGE",
+];
+
+function toolsetTool(name: string, description: string, changes: boolean, errors: string[]): Tool {
+  return {
+    name,
+    description,
+    inputSchema: changes
+      ? namesSchema
+      : { type: "object", additionalProperties: false, properties: {} },
+    outputSchema: listingSchema(changes),
+    annotations: {
+      readOnlyHint: !changes,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: declarationMeta(sessionEffects(changes ? "session" : "read"), [
+      ...LOAD_ERRORS,
+      ...errors,
+    ]),
+  };
+}
+
 /** Adapter-owned tools that switch which native toolsets this session exposes. */
 export const TOOLSET_TOOLS: Tool[] = [
-  {
-    name: "toolsets.list",
-    description:
-      "List the native toolsets, what each covers, how many tools it has and whether it is enabled.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  },
-  {
-    name: "toolsets.enable",
-    description:
-      "Expose the tools of the named toolsets in this session. The tool list then changes.",
-    inputSchema: namesSchema,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  },
-  {
-    name: "toolsets.disable",
-    description:
-      "Hide the tools of the named toolsets in this session. The core toolset stays enabled.",
-    inputSchema: namesSchema,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  },
+  toolsetTool(
+    "toolsets.list",
+    "List the native toolsets, what each covers, how many tools it has and whether it is enabled.",
+    false,
+    [],
+  ),
+  toolsetTool(
+    "toolsets.enable",
+    "Expose the tools of the named toolsets in this session. The tool list then changes.",
+    true,
+    ["UNKNOWN_TOOLSET", "TOOLSET_LIMIT"],
+  ),
+  toolsetTool(
+    "toolsets.disable",
+    "Hide the tools of the named toolsets in this session. The core toolset stays enabled.",
+    true,
+    ["UNKNOWN_TOOLSET", "TOOLSET_REQUIRED"],
+  ),
 ];
 
 const TOOLSET_TOOL_NAMES = new Set(TOOLSET_TOOLS.map((tool) => tool.name));
