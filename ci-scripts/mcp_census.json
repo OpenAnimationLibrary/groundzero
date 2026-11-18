@@ -1396,8 +1396,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
     "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
+    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp"
    ]
   },
@@ -1408,6 +1408,7 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes",
     "ci-scripts/mcp_acceptance.py::test_project_reads_hold_the_file_boundary",
+    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_project_scenes_refuse_a_folder_swapped_after_validation"
    ]
   },
@@ -1837,6 +1838,7 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
     "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
+    "ci-scripts/mcp_acceptance.py::test_shared_listings_stay_in_the_folder_they_pinned",
     "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
     "toonz/sources/toonz/tests/automation_shared_test.cpp"
    ]

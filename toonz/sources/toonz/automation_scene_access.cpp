@@ -133,7 +133,22 @@ struct Scan final {
 };
 
 // The workspace's private runtime, render outputs and worker projects.
-bool skippedDirectory(const Context& context, const QFileInfo& entry) {
+// Entries of one approved folder in name order, listed through a descriptor
+// pinned to it; a folder that cannot be read lists nothing.
+QVector<EntryInfo> listedEntries(const QString& folder, bool& readable,
+                                 bool& truncated, int maximum) {
+  QVector<EntryInfo> entries;
+  const ListResult result = listApprovedDirectory(folder, entries, maximum);
+  readable                = result != ListResult::Failed;
+  truncated               = result == ListResult::TooMany;
+  std::sort(entries.begin(), entries.end(),
+            [](const EntryInfo& left, const EntryInfo& right) {
+              return left.fileName() < right.fileName();
+            });
+  return entries;
+}
+
+bool skippedDirectory(const Context& context, const EntryInfo& entry) {
   if (QFileInfo(entry.absolutePath()).canonicalFilePath() !=
       context.workspace())
     return false;
@@ -145,17 +160,25 @@ bool skippedDirectory(const Context& context, const QFileInfo& entry) {
               .isFile());
 }
 
-QStringList alternateFiles(const QString& folder, const QString& chosen) {
-  QStringList filters{"tahomaproject.xml"};
-  for (const QString& suffix : projectSuffixes()) filters.append("*" + suffix);
+QStringList alternateFiles(const QVector<EntryInfo>& entries,
+                           const QString& chosen) {
   QStringList result;
-  const QStringList names = QDir(folder).entryList(
-      filters, QDir::Files | QDir::NoSymLinks, QDir::Name);
-  for (const QString& name : names) {
-    const QString path = QDir(folder).filePath(name);
-    if (path != chosen && result.size() < MaxAlternates) result.append(path);
+  for (const EntryInfo& entry : entries) {
+    const QString name = entry.fileName();
+    bool project       = name == "tahomaproject.xml";
+    for (const QString& suffix : projectSuffixes())
+      project = project || name.endsWith(suffix);
+    if (!project || !entry.isFile() || entry.absoluteFilePath() == chosen)
+      continue;
+    if (result.size() < MaxAlternates) result.append(entry.absoluteFilePath());
   }
   return result;
+}
+
+QStringList alternateFiles(const QString& folder, const QString& chosen) {
+  bool readable  = false;
+  bool truncated = false;
+  return alternateFiles(listedEntries(folder, readable, truncated, 0), chosen);
 }
 
 void hashProject(Scan& scan, ProjectRow& row) {
@@ -185,19 +208,23 @@ void hashProject(Scan& scan, ProjectRow& row) {
   row.status   = "ok";
 }
 
-void detectProject(Scan& scan, const QString& folder) {
+void detectProject(Scan& scan, const QString& folder,
+                   const QVector<EntryInfo>& entries) {
   const TFilePath native =
       TProjectManager::instance()->projectFolderToProjectPath(
           TFilePath(folder.toStdWString()));
   const QString file = native.getQString();
-  const QFileInfo info(file);
-  if (!info.exists()) return;
-  if (info.isSymLink()) {
+  const QString name = QFileInfo(file).fileName();
+  const auto found   = std::find_if(
+      entries.begin(), entries.end(),
+      [&](const EntryInfo& entry) { return entry.fileName() == name; });
+  if (found == entries.end()) return;
+  if (found->isSymLink()) {
     ++scan.links;
     scan.incomplete("skipped_links");
     return;
   }
-  if (!info.isFile() || projectFormat(file).isEmpty()) return;
+  if (!found->isFile() || projectFormat(file).isEmpty()) return;
   if (int(scan.rows.size()) >= MaxProjects) {
     scan.incomplete("entry_limit");
     return;
@@ -206,9 +233,9 @@ void detectProject(Scan& scan, const QString& folder) {
   row.file       = file;
   row.folder     = folder;
   row.name       = QFileInfo(folder).fileName();
-  row.size       = info.size();
-  row.alternates = alternateFiles(folder, file);
-  if (row.name.isEmpty()) row.name = info.completeBaseName();
+  row.size       = found->size();
+  row.alternates = alternateFiles(entries, file);
+  if (row.name.isEmpty()) row.name = QFileInfo(file).completeBaseName();
   hashProject(scan, row);
   scan.rows.push_back(row);
 }
@@ -228,16 +255,17 @@ bool scanBudget(Scan& scan) {
 void scanFolder(Scan& scan, const QString& folder, int depth) {
   if (!scanBudget(scan) || scan.visited.contains(folder)) return;
   scan.visited.insert(folder);
-  detectProject(scan, folder);
-  const QDir directory(folder);
-  if (!directory.isReadable()) {
+  bool readable  = false;
+  bool truncated = false;
+  const QVector<EntryInfo> entries =
+      listedEntries(folder, readable, truncated, MaxScanEntries + 1);
+  if (!readable) {
     scan.incomplete("unreadable");
     return;
   }
-  const QFileInfoList entries = directory.entryInfoList(
-      QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
-      QDir::Name);
-  for (const QFileInfo& entry : entries) {
+  if (truncated) scan.incomplete("entry_limit");
+  detectProject(scan, folder, entries);
+  for (const EntryInfo& entry : entries) {
     ++scan.entries;
     if (!scanBudget(scan)) return;
     if (entry.fileName().startsWith('.')) continue;
@@ -339,9 +367,6 @@ QJsonValue listProjects(Context& context, const QJsonObject& params) {
   scan.timer.start();
   const QStringList folders = scanFolders(context, params);
   for (const QString& folder : folders) scanFolder(scan, folder, 0);
-  for (const QString& folder : folders)
-    if (QFileInfo(folder).canonicalFilePath() != folder)
-      throw Error("path_denied", "The folder changed while it was listed.");
   std::sort(
       scan.rows.begin(), scan.rows.end(),
       [](const ProjectRow& a, const ProjectRow& b) { return a.file < b.file; });
@@ -480,6 +505,8 @@ QStringList hostArguments(const Context& context, const QString& directory,
 #ifdef BUILD_UI_PORT_TESTS
   if (!context.childFault.isEmpty())
     arguments << "--test-child-fault" << context.childFault;
+  if (!context.pathSwap.isEmpty())
+    arguments << "--test-path-swap" << context.pathSwap;
 #endif
   return arguments;
 }
@@ -804,7 +831,7 @@ struct SceneScan final {
   }
 };
 
-QJsonObject sceneRow(const QFileInfo& entry, const QString& root) {
+QJsonObject sceneRow(const EntryInfo& entry, const QString& root) {
   const bool folder = entry.isDir();
   return {
       {"path", entry.absoluteFilePath()},
@@ -816,10 +843,13 @@ QJsonObject sceneRow(const QFileInfo& entry, const QString& root) {
 
 void scanScenes(SceneScan& scan, const QString& folder, const QString& root,
                 int depth) {
-  const QFileInfoList entries = QDir(folder).entryInfoList(
-      QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
-      QDir::Name);
-  for (const QFileInfo& entry : entries) {
+  bool readable  = false;
+  bool truncated = false;
+  const QVector<EntryInfo> entries =
+      listedEntries(folder, readable, truncated, MaxSceneEntries + 1);
+  if (!readable) return scan.incomplete("unreadable");
+  if (truncated) scan.incomplete("entry_limit");
+  for (const EntryInfo& entry : entries) {
     if (++scan.entries > MaxSceneEntries) return scan.incomplete("entry_limit");
     if (scan.timer.elapsed() > MaxScanMs) return scan.incomplete("time_limit");
     if (entry.fileName().startsWith('.')) continue;
@@ -910,8 +940,6 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
   }
   const QString folder = sceneSubfolder(context, root, params);
   scanScenes(scan, folder, root, 0);
-  if (QFileInfo(folder).canonicalFilePath() != folder)
-    throw Error("path_denied", "The folder changed while it was listed.");
   return scenesPage(params, scan, params.value("project_id").toString(), root);
 }
 

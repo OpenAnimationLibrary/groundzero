@@ -528,6 +528,7 @@ int domainTestResult(Context& context) {
     runAutomationAudioTests(context);
     runAutomationRigTests(context);
     runAutomationSharedTests(context);
+    runAutomationFilesTests(context);
     runAutomationStoryboardTests(context);
     runAutomationLipsyncTests(context);
     runAutomationProductionTests(context);
@@ -586,6 +587,7 @@ int executeWorker(QApplication& application, QFile& output,
   context.childFault = options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
+  context.pathSwap    = options.pathSwap;
   if (!options.pathSwap.isEmpty())
     armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif

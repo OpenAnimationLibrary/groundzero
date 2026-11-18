@@ -1,16 +1,20 @@
 #pragma once
 
+#include <QDateTime>
 #include <QString>
+#include <QVector>
 
 class QFile;
 
 namespace GroundzeroAutomation {
 
-// Opening and publishing files at paths that Context::resolvePath or a shared
-// root walk approved, without trusting those paths a second time. A path that
-// was approved can be replaced by a link before it is used, so the directory
-// that holds the file is opened by descriptor, proven to be the approved
-// directory, and only then is the file opened or published relative to it.
+// Opening, listing and publishing files at paths that Context::resolvePath or
+// a shared root walk approved, without trusting those paths a second time. A
+// path that was approved can be replaced by a link before it is used, so the
+// directory that holds the file is opened by descriptor (a handle on Windows),
+// proven to be the approved directory, and only then is the file opened,
+// listed or published relative to it. Where the platform cannot do that, the
+// call fails; it never falls back to a path-based open.
 
 enum class OpenResult { Opened, NotRegular, Failed };
 
@@ -34,6 +38,61 @@ OpenResult openApprovedFile(QFile& file, const QString& path);
 //   Error: path_denied when a component of the path was redirected.
 bool publishApproved(const QString& staged, const QString& path);
 
+// One entry of a pinned directory, described without following links. A
+// symbolic link, a junction or any other reparse point is a link: it is
+// neither a file nor a directory here.
+class EntryInfo final {
+public:
+  enum class Kind { File, Directory, Link, Other };
+
+  EntryInfo() = default;
+  EntryInfo(const QString& directory, const QString& name, Kind kind,
+            qint64 size, qint64 modifiedMs, bool writable)
+      : m_directory(directory)
+      , m_name(name)
+      , m_kind(kind)
+      , m_size(size)
+      , m_modifiedMs(modifiedMs)
+      , m_writable(writable) {}
+
+  QString fileName() const { return m_name; }
+  QString absolutePath() const { return m_directory; }
+  QString absoluteFilePath() const { return m_directory + '/' + m_name; }
+  QString suffix() const {
+    const int dot = m_name.lastIndexOf('.');
+    return dot < 0 ? QString() : m_name.mid(dot + 1);
+  }
+  bool isDir() const { return m_kind == Kind::Directory; }
+  bool isFile() const { return m_kind == Kind::File; }
+  bool isSymLink() const { return m_kind == Kind::Link; }
+  bool isJunction() const { return m_kind == Kind::Link; }
+  bool isWritable() const { return m_writable; }
+  qint64 size() const { return m_size; }
+  QDateTime lastModified() const {
+    return QDateTime::fromMSecsSinceEpoch(m_modifiedMs);
+  }
+
+private:
+  QString m_directory;
+  QString m_name;
+  Kind m_kind         = Kind::Other;
+  qint64 m_size       = 0;
+  qint64 m_modifiedMs = 0;
+  bool m_writable     = false;
+};
+
+enum class ListResult { Listed, Failed, TooMany };
+
+// List the entries of the approved directory, in no particular order and
+// without "." and "..", through a descriptor pinned to it. At most `maximum`
+// entries are returned when it is positive; more yield TooMany. Failed means
+// the directory cannot be opened or read.
+//
+// Throws:
+//   Error: path_denied when a component of the path was redirected.
+ListResult listApprovedDirectory(const QString& directory,
+                                 QVector<EntryInfo>& entries, int maximum = 0);
+
 #ifdef BUILD_UI_PORT_TESTS
 // Test-only: the next time `stage` is reached with a path at or below `path`
 // (stages: validated, after a path is approved; pinned, after its directory is
@@ -42,6 +101,9 @@ bool publishApproved(const QString& staged, const QString& path);
 void armPathSwap(const QString& path, const QString& target,
                  const QString& stage);
 void firePathSwap(const QString& stage, const QString& path);
+// Native domain test of this module.
+class Context;
+void runAutomationFilesTests(Context& context);
 #endif
 
 }  // namespace GroundzeroAutomation

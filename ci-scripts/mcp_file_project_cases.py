@@ -162,3 +162,59 @@ def project_scenes_refuse_a_folder_swapped_after_validation(case: NativeAcceptan
     case.assertTrue(Path(str(folder) + ".fired").exists(), "the hook never swapped the folder")
     case.assertIn("error", response, f"the swapped folder was listed: {response}")
     case.assertNotIn("stray", str(response))
+
+
+def _hooked(case: NativeAcceptance, swap: Path, target: Path, stage: str) -> Worker:
+    worker = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / f"pinned-{uuid.uuid4().hex[:6]}.log",
+        test_arguments=("--test-path-swap", str(swap), str(target), stage),
+    )
+    case.addCleanup(worker.close)
+    return worker
+
+
+def project_list_stays_in_the_folder_it_pinned(case: NativeAcceptance) -> None:
+    """List the folder that was pinned even when its path is swapped right after.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    marker = uuid.uuid4().hex[:6]
+    folder = case.inputs / f"Pinned{marker}"
+    decoy = case.directory / f"decoy-{marker}"
+    for path, name in ((folder, f"Pinned{marker}"), (decoy, f"Decoy{marker}")):
+        path.mkdir()
+        (path / f"{name}_otprj.xml").write_text(project_xml({}))
+    worker = _hooked(case, folder, decoy, "pinned")
+    response = worker.call("project.list", {"folder": str(folder)})
+    case.assertTrue(Path(str(folder) + ".fired").exists(), "the hook never swapped the folder")
+    case.assertNotIn("error", response, response)
+    names = [row["name"] for row in response["result"]["projects"]]
+    case.assertTrue(set(names) <= {f"Pinned{marker}"}, response)
+    case.assertEqual(response["result"]["scan"]["entries_visited"], 1, response)
+    case.assertNotIn("Decoy", str(response))
+
+
+def project_scenes_stays_in_the_folder_it_pinned(case: NativeAcceptance) -> None:
+    """List the scenes folder that was pinned even when its path is swapped right after.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    marker = uuid.uuid4().hex[:6]
+    folder = case.inputs / "Show" / "scenes" / f"act-{marker}"
+    decoy = case.directory / f"decoy-{marker}"
+    worker = _hooked(case, folder, decoy, "pinned")
+    identity, _scenes = _show(case, worker)
+    decoy.mkdir()
+    (decoy / "decoy.tnz").write_text("scene")
+    folder.mkdir()
+    (folder / "real.tnz").write_text("scene")
+    response = worker.call("project.scenes", {"project_id": identity, "folder": folder.name})
+    case.assertTrue(Path(str(folder) + ".fired").exists(), "the hook never swapped the folder")
+    case.assertNotIn("error", response, response)
+    case.assertIn("real.tnz", str(response))
+    case.assertNotIn("decoy", str(response))

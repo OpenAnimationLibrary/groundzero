@@ -1,7 +1,6 @@
 #include "automation_shared.h"
 #include "automation_shared_parse.h"
 
-#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QRegularExpression>
 #include <QSet>
@@ -143,7 +142,7 @@ QString childPath(const QString& folder, const QString& name) {
 }
 
 struct ListedEntry final {
-  QFileInfo info;
+  EntryInfo info;
   bool folder = false;
   QString folded;
 };
@@ -158,7 +157,7 @@ struct Skipped final {
   }
 };
 
-void classify(const QFileInfo& info, const QString& folder, int depth,
+void classify(const EntryInfo& info, const QString& folder, int depth,
               QVector<ListedEntry>& admitted, Skipped& skipped) {
   switch (sharedEntryKind(info)) {
   case SharedEntryKind::Symlink:
@@ -211,7 +210,7 @@ QJsonObject listingPage(const SharedFolder& listing, const QString& folder,
                         int depth, const QJsonObject& params) {
   QVector<ListedEntry> admitted;
   Skipped skipped;
-  for (const QFileInfo& info : listing.entries)
+  for (const EntryInfo& info : listing.entries)
     classify(info, folder, depth, admitted, skipped);
   std::sort(admitted.begin(), admitted.end(),
             [](const ListedEntry& left, const ListedEntry& right) {
@@ -414,7 +413,7 @@ struct Scan final {
   }
 };
 
-void scanPalette(Scan& scan, const QString& role, const QFileInfo& info,
+void scanPalette(Scan& scan, const QString& role, const EntryInfo& info,
                  const QString& path) {
   if (info.size() > PaletteBytes) {
     scan.reasons.insert("oversized_files");
@@ -433,7 +432,7 @@ void scanPalette(Scan& scan, const QString& role, const QFileInfo& info,
       {"root", role}, {"path", path}, {"size_bytes", double(info.size())}});
 }
 
-void scanEntry(Scan& scan, const QString& role, const QFileInfo& info,
+void scanEntry(Scan& scan, const QString& role, const EntryInfo& info,
                const QString& path, QVector<QPair<QString, int>>& pending,
                int depth) {
   switch (sharedEntryKind(info)) {
@@ -462,18 +461,19 @@ void scanRoot(Scan& scan, const QString& role, const QString& root) {
     const auto [relative, depth] = pending.takeLast();
     if (scan.timer.elapsed() > ScanMilliseconds) return scan.stop("time_limit");
     const QString directory = relative.isEmpty() ? root : root + '/' + relative;
-    if (!QFileInfo(directory).isReadable()) {
+    QVector<EntryInfo> listed;
+    const ListResult result =
+        listApprovedDirectory(directory, listed, ScanEntries + 1);
+    if (result == ListResult::Failed) {
       scan.reasons.insert("unreadable_entries");
       continue;
     }
     ++scan.directories;
-    QDirIterator iterator(directory, QDir::AllEntries | QDir::Hidden |
-                                         QDir::System | QDir::NoDotAndDotDot);
-    while (iterator.hasNext() && !scan.stopped) {
-      iterator.next();
+    for (const EntryInfo& entry : listed) {
+      if (scan.stopped) break;
       if (++scan.entries > ScanEntries) return scan.stop("entry_limit");
-      scanEntry(scan, role, iterator.fileInfo(),
-                childPath(relative, iterator.fileName()), pending, depth);
+      scanEntry(scan, role, entry, childPath(relative, entry.fileName()),
+                pending, depth);
     }
   }
 }
