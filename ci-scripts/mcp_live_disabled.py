@@ -9,6 +9,7 @@ disabled, and write the same profile and settings files.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -31,7 +32,7 @@ COMPARED = (
     "live_objects",
     "bridge_threads",
     "grant_files",
-    "unix_sockets",
+    "bridge_sockets",
     "tcp_listeners",
     "scene",
 )
@@ -124,6 +125,11 @@ def launch(arguments: argparse.Namespace, label: str, control: bool) -> dict[str
             if result.returncode != 0 or evidence.get("status") != "passed":
                 raise AssertionError(f"The {label} launch failed; inspect {output.name}")
             evidence["files"] = written_files(directory)
+            evidence["settings"] = {
+                path: normalized(directory / path, directory).decode("utf-8", errors="replace")
+                for path in evidence["files"]
+                if path.endswith(".ini")
+            }
     return evidence
 
 
@@ -144,7 +150,22 @@ def compare(control: dict[str, Any], plain: dict[str, Any]) -> None:
         if control["files"][path] != plain["files"][path]
     )
     if added or changed:
-        raise AssertionError(f"Launches wrote different files: {added + changed}")
+        differences = [
+            line
+            for path in changed
+            if path in control["settings"]
+            for line in difflib.unified_diff(
+                plain["settings"][path].splitlines(),
+                control["settings"][path].splitlines(),
+                f"plain/{path}",
+                f"control/{path}",
+                lineterm="",
+                n=0,
+            )
+        ]
+        raise AssertionError(
+            f"Launches wrote different files: {added + changed}\n" + "\n".join(differences[:40])
+        )
 
 
 def parse_arguments() -> argparse.Namespace:

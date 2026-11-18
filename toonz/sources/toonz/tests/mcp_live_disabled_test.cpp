@@ -101,6 +101,14 @@ QStringList lsof(const QStringList& selection) {
 #endif
 }
 
+// Local sockets of this process bound to a live endpoint name.
+int bridgeSockets() {
+  int count = 0;
+  for (const QString& line : lsof({"-U"}))
+    if (line.contains("/gz-live-")) ++count;
+  return count;
+}
+
 QJsonArray windows() {
   QStringList entries;
   for (QWidget* widget : QApplication::topLevelWidgets())
@@ -141,10 +149,10 @@ QJsonObject observe(QMainWindow* window, const QString& grants) {
           {"bridge_threads", int(std::count(threads.begin(), threads.end(),
                                             QJsonValue("gz-live-bridge")))},
           {"threads", threads.size()},
-          {"grant_files",
-           QJsonArray::fromStringList(QDir(grants).entryList(
-               QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden))},
-          {"unix_sockets", lsof({"-U"}).size()},
+          {"grant_files", QJsonArray::fromStringList(QDir(grants).entryList(
+                              QDir::AllEntries | QDir::NoDotAndDotDot |
+                              QDir::Hidden | QDir::System))},
+          {"bridge_sockets", bridgeSockets()},
           {"tcp_listeners",
            QJsonArray::fromStringList(lsof({"-iTCP", "-sTCP:LISTEN"}))},
           {"scene", scene()}};
@@ -156,7 +164,8 @@ void requireDisabled(const QJsonObject& state) {
           "A disabled launch created live automation UI or timers");
   require(state.value("bridge_threads") == 0,
           "A disabled launch started the live transport thread");
-  require(state.value("grant_files").toArray().isEmpty(),
+  require(state.value("grant_files").toArray().isEmpty() &&
+              state.value("bridge_sockets") == 0,
           "A disabled launch created a live session file or socket");
   require(state.value("tcp_listeners").toArray().isEmpty(),
           "A disabled launch opened a TCP listener");
@@ -184,15 +193,15 @@ QJsonObject control(QMainWindow* window, const QString& grants,
     writeEvidence(evidence);
     require(live.value("live_objects").toInt() > 0 &&
                 live.value("bridge_threads") == 1 &&
-                live.value("grant_files") == QJsonArray{"control.json"} &&
-                live.value("unix_sockets").toInt() >
-                    disabled.value("unix_sockets").toInt() &&
+                live.value("grant_files").toArray().size() == 2 &&
+                live.value("grant_files").toArray().contains("control.json") &&
+                live.value("bridge_sockets").toInt() > 0 &&
                 live.value("tcp_listeners").toArray().isEmpty(),
             "The observations did not see a running live session");
     ui.stop();
     const QJsonObject stopped = observe(window, grants);
     for (const char* key :
-         {"bridge_threads", "grant_files", "unix_sockets", "scene"})
+         {"bridge_threads", "grant_files", "bridge_sockets", "scene"})
       require(stopped.value(key) == disabled.value(key),
               "Stopping a live session left bridge state behind");
     result = {{"live", live}, {"stopped", stopped}};
