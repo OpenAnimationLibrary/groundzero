@@ -176,6 +176,7 @@ class Shot:
 
     def __init__(self, worker: Worker, output: Path) -> None:
         self.worker, self.output = worker, output
+        self.workspace = output / "workspace"
         self.revisions: dict[str, str] = {}
         self.operations = 0
         self.proof: dict[str, Any] = {"status": "running", "title": "Moonlight courier"}
@@ -292,7 +293,7 @@ def author_layer(shot: Shot, document: str, name: str, art: Canvas) -> dict[str,
         "raster.export_png",
         document,
         **target,
-        path=str(shot.output / "workspace" / f"{name}-authored.png"),
+        path=str(shot.workspace / f"{name}-authored.png"),
     )
     checksum = pixel_hash(decode_png(Path(exported["path"]).read_bytes())[2])
     require(checksum == pixel_hash(art.pixels), f"Native painting changed original {name} pixels")
@@ -398,7 +399,7 @@ def compose(shot: Shot, document: str, layers: list[dict[str, Any]]) -> str:
 def export_background(shot: Shot, document: str, layer: dict[str, Any], label: str) -> str:
     """Fingerprint the entire background drawing through the native PNG export path."""
     target = {"level_id": layer["level_id"], "drawing_id": DRAWING}
-    path = shot.output / "workspace" / f"background-{label}.png"
+    path = shot.workspace / f"background-{label}.png"
     result = shot.write("raster.export_png", document, **target, path=str(path))
     return pixel_hash(decode_png(Path(result["path"]).read_bytes())[2])
 
@@ -433,9 +434,7 @@ def prove_effect_edit(shot: Shot, document: str, glow: str, background: dict[str
     background_hash = export_background(shot, document, background, "before")
     before = shot.preview(document, "before-glow")
     check_environment(before, 60)
-    shot.write(
-        "scene.save_copy", document, directory=str(shot.output / "workspace" / "before-edit")
-    )
+    shot.write("scene.save_copy", document, directory=str(shot.workspace / "before-edit"))
     set_parameters(shot, document, glow, {"brightness": 55})
     after = shot.preview(document, "after-glow")
     shot.proof["environment_oracle"] = check_environment(after, 60)
@@ -510,7 +509,7 @@ def check_drawings(shot: Shot, document: str, levels: list[dict[str, Any]]) -> N
             "raster.export_png",
             document,
             **target,
-            path=str(shot.output / "workspace" / f"{level['name']}-reopened.png"),
+            path=str(shot.workspace / f"{level['name']}-reopened.png"),
         )
         require(
             pixel_hash(decode_png(Path(exported["path"]).read_bytes())[2])
@@ -521,9 +520,7 @@ def check_drawings(shot: Shot, document: str, levels: list[dict[str, Any]]) -> N
 
 def reopen(shot: Shot, document: str, expected_pixels: str) -> str:
     """Discard the source, independently reopen its collected package, and verify editability."""
-    saved = shot.write(
-        "scene.save_copy", document, directory=str(shot.output / "workspace" / "shot")
-    )
+    saved = shot.write("scene.save_copy", document, directory=str(shot.workspace / "shot"))
     shot.proof["native_package"] = str(Path(saved["package_directory"]).relative_to(shot.output))
     shot.write("scene.discard", document)
     opened = shot.write("scene.open", path=saved["package_directory"])["document_id"]
@@ -730,8 +727,8 @@ def check_movie_artifact(shot: Shot, job: dict[str, Any]) -> tuple[Path, dict[st
     require(item["audio"] is False, "The shot movie unexpectedly contains audio")
     relative = Path(item["workspace_relative_path"])
     require(not relative.is_absolute(), "Movie artifact path must be workspace relative")
-    path = (shot.output / "workspace" / relative).resolve(strict=True)
-    require(path.is_relative_to(shot.output / "workspace"), "Movie artifact escaped its workspace")
+    path = (shot.workspace / relative).resolve(strict=True)
+    require(path.is_relative_to(shot.workspace), "Movie artifact escaped its workspace")
     data = path.read_bytes()
     require(item["size_bytes"] == len(data) > 0, "Movie artifact byte count changed")
     require(item["sha256"] == hashlib.sha256(data).hexdigest(), "Movie artifact checksum changed")
@@ -917,6 +914,144 @@ def create_shot(shot: Shot, media_tools: Path | None = None) -> None:
         render_reservation_bytes=(WIDTH * HEIGHT * 4 + 65536) * FRAMES,
         retained_job_reservation_bytes=reserved,
     )
+
+
+COMPACT_SIZE = (96, 54)
+COMPACT_FRAMES = 12
+COMPACT_SKY = ((11, 20, 43, 255), (49, 91, 112, 255))
+COMPACT_COURIER_TRAVEL = (-20, 20)
+COMPACT_COURIER_SIZE = 24
+COMPACT_MOON, COMPACT_BUILDING, COMPACT_WATER = (80, 10), (30, 40), (10, 51)
+BUILDING: Pixel = (23, 47, 66, 255)
+WATER: Pixel = (13, 34, 52, 255)
+
+
+def compact_harbor() -> Canvas:
+    """A miniature harbor with a transparent sky: a moon, a building and water."""
+    art = Canvas(*COMPACT_SIZE)
+    art.ellipse((75, 5, 85, 15), CREAM)
+    art.rectangle((20, 30, 40, 48), BUILDING)
+    art.rectangle((0, 48, COMPACT_SIZE[0], COMPACT_SIZE[1]), WATER)
+    return art
+
+
+def compact_courier() -> Canvas:
+    """A miniature courier: a cream disc with an ink core."""
+    art = Canvas(COMPACT_COURIER_SIZE, COMPACT_COURIER_SIZE)
+    art.ellipse((1, 1, 23, 23), CREAM)
+    art.ellipse((8, 8, 16, 16), INK)
+    return art
+
+
+def compact_shot(shot: Shot, tag: str = "") -> dict[str, Any]:
+    """Build the first-shot journey in miniature: background, courier on a peg, sky, glow, over.
+
+    The same tools as the 120-frame journey in the same order, on a 96 by 54 camera, so a
+    failure-injection case can afford to build it many times. `tag` is added to the level names so
+    that two shots built on one worker do not export to the same file. Returns the handles the
+    failure cases edit: the document, the effects and the courier's peg.
+    """
+    width, height = COMPACT_SIZE
+    document = shot.write(
+        "scene.create",
+        name="Compact courier",
+        width_px=width,
+        height_px=height,
+        width_in=width / DPI,
+        height_in=height / DPI,
+        frame_rate=24,
+    )["document_id"]
+    layers = [
+        author_layer(shot, document, f"Harbor{tag}", compact_harbor()),
+        author_layer(shot, document, f"Courier{tag}", compact_courier()),
+    ]
+    peg = shot.write("object.create", document, name="Courier flight", kind="pegbar")
+    shot.write(
+        "object.parent",
+        document,
+        object_id=layers[1]["object_id"],
+        parent_id=peg["object_id"],
+        placement_policy="preserve_local",
+    )
+    travel = [
+        (0, COMPACT_COURIER_TRAVEL[0] / DPI),
+        (COMPACT_FRAMES - 1, COMPACT_COURIER_TRAVEL[1] / DPI),
+    ]
+    set_motion(shot, document, peg["object_id"], {"x": ("inch", travel)})
+    effects = compact_effects(shot, document, layers)
+    return {"document": document, "peg": peg["object_id"], "layers": layers, **effects}
+
+
+def compact_effects(shot: Shot, document: str, layers: list[dict[str, Any]]) -> dict[str, str]:
+    """Wire the sky, the courier's glow and the two overs, and make the last over the output."""
+    sky = effect(shot, document, "STD_iwa_LinearGradientFx", "Sky gradient")
+    set_parameters(
+        shot,
+        document,
+        sky,
+        {
+            "startPoint": [0, 27],
+            "endPoint": [0, -27],
+            "startColor": list(COMPACT_SKY[0]),
+            "endColor": list(COMPACT_SKY[1]),
+        },
+    )
+    graph = shot.read("fx.graph", {"document_id": document})
+    columns = {item["column_id"]: item["fx_id"] for item in graph["effects"] if "column_id" in item}
+    background, courier = [columns[layer["column_id"]] for layer in layers]
+    for target in (background, courier):
+        shot.write("fx.terminal.set", document, fx_id=target, enabled=False)
+    environment = effect(shot, document, "overFx", "Harbor over sky")
+    connect(shot, document, environment, {"Source1": background, "Source2": sky})
+    glow = effect(shot, document, "STD_glowFx", "Courier halo")
+    set_parameters(
+        shot,
+        document,
+        glow,
+        {"value": 2, "brightness": 0, "fade": 100, "color": [82, 214, 255, 255]},
+    )
+    connect(shot, document, glow, {"Source": courier, "Light": courier})
+    final = effect(shot, document, "overFx", "Courier over harbor")
+    connect(shot, document, final, {"Source1": glow, "Source2": environment})
+    output = graph["current_output_fx_id"]
+    connect(shot, document, output, {"source": final})
+    return {
+        "sky": sky,
+        "environment": environment,
+        "glow": glow,
+        "final": final,
+        "output": output,
+        "courier_fx": courier,
+        "background_fx": background,
+    }
+
+
+def check_compact_frame(pixels: list[Pixel], frame: int) -> None:
+    """Check a rendered frame of the compact shot against what its construction fixes.
+
+    The oracle does not read the render of any earlier state: the landmarks are the colors the
+    harbor was painted with, the sky is the gradient's range and direction, and the courier's
+    ink core sits where the peg's two keys put it. A shot whose graph is valid and whose render
+    succeeds but whose picture is wrong fails here.
+    """
+    width, height = COMPACT_SIZE
+    for name, (x, y), expected in (
+        ("moon", COMPACT_MOON, CREAM),
+        ("building", COMPACT_BUILDING, BUILDING),
+        ("water", COMPACT_WATER, WATER),
+    ):
+        actual = pixels[y * width + x]
+        require(actual == expected, f"Frame {frame} lost the authored {name}: {actual}")
+    upper, lower = pixels[8 * width + 4], pixels[38 * width + 4]
+    for pixel in (upper, lower):
+        low, high = COMPACT_SKY
+        inside = all(low[i] <= pixel[i] <= high[i] for i in range(3)) and pixel[3] == 255
+        require(inside, f"Frame {frame} sky left the gradient's color range: {pixel}")
+    require(lower[1] >= upper[1] + 4, f"Frame {frame} sky lost its top-to-bottom gradient")
+    first, last = COMPACT_COURIER_TRAVEL
+    centre = width // 2 + round(first + (last - first) * frame / (COMPACT_FRAMES - 1))
+    core = pixels[(height // 2) * width + centre]
+    require(core == INK, f"Frame {frame}: the courier's core is not at x={centre}: {core}")
 
 
 def record_failure(shot: Shot, error: Exception) -> None:
