@@ -493,7 +493,9 @@ def fx_remap_and_offset_layer_targets_are_described(case: NativeAcceptance) -> N
     peg = _peg(case, document)
     layer = case.mutate("offset_layer.create", document, object_id=peg["object_id"], name="Layer")
     layer_id = layer["layer"]["layer_id"]
-    stage = case.success("animation.channels", {"document_id": document, **peg})
+    stage = case.success(
+        "animation.channels", {"document_id": document, "object_id": peg["object_id"]}
+    )
     case.assertEqual(_descriptor(stage, "x")["kind"], "stage_channel")
     case.assertEqual(_descriptor(stage, "x")["target"], peg)
     layered = case.success(
