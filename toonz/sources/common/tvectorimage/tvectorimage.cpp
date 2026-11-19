@@ -1494,8 +1494,12 @@ img->m_imp->m_strokes[i]->m_groupId==idNew;
       else  // if we are inside a group, the images must become part of that
             // group
       {
+        // An ungrouped stroke takes the whole id chain of the entered group:
+        // TGroupId(parent, id) would keep only the parent's innermost id
         tarStroke->m_groupId =
-            TGroupId(m_imp->m_insideGroup, tarStroke->m_groupId);
+            tarStroke->m_groupId.isGrouped() != 0
+                ? TGroupId(m_imp->m_insideGroup, tarStroke->m_groupId)
+                : m_imp->m_insideGroup;
         m_imp->insertStrokeAt(tarStroke, index);
       }
 
@@ -1504,6 +1508,11 @@ img->m_imp->m_strokes[i]->m_groupId==idNew;
   }
 
   notifyChangedStrokes(changedStrokeArray, std::vector<TStroke *>(), false);
+
+  // The entered group's own strokes must form one run, or the drawing changes
+  // order when it is saved and loaded: order them as the loader does, as
+  // group() does
+  if (m_imp->m_insideGroup != TGroupId()) m_imp->rearrangeMultiGroup();
 }
 //-------------------------------------------------------------------
 

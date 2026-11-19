@@ -1085,6 +1085,12 @@ if(BUILD_RELIABILITY_TESTS)
         toonzlib image tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME malformed_palette COMMAND malformed_palette_test)
     set_tests_properties(malformed_palette PROPERTIES TIMEOUT 120)
+    # A vector drawing keeps its stroke order and group tree through a PLI
+    # save and load, also after a merge into an entered group
+    add_executable(groupstrokeorder_test image/tests/groupstrokeorder_test.cpp)
+    target_link_libraries(groupstrokeorder_test PRIVATE image tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME groupstrokeorder COMMAND groupstrokeorder_test)
+    set_tests_properties(groupstrokeorder PROPERTIES TIMEOUT 60)
 endif()
 if(BUILD_TGL_BATCH_TESTS)
     add_subdirectory(common/tgl/tests tglbatchtests)
