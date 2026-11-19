@@ -264,7 +264,8 @@ def run_acceptance(worktree: Path, app: Path, names: list[str], options: argpars
 
     case_class = mcp_acceptance.NativeAcceptance
     case_class.executable = app
-    case_class.output = Path(tempfile.mkdtemp(prefix="gzq-break-", dir=SCRATCH))
+    # The worker takes paths as they are stored, so the folder is named without a link.
+    case_class.output = Path(tempfile.mkdtemp(prefix="gzq-break-", dir=SCRATCH)).resolve()
     case_class.media_tools = options.media_tools
     suite = unittest.TestSuite(case_class(f"test_{name}") for name in names)
     result = unittest.TextTestRunner(verbosity=1).run(suite)
