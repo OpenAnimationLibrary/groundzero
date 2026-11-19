@@ -1,0 +1,1331 @@
+{
+ "schema_version": 1,
+ "operations": [
+  "inspect",
+  "create",
+  "modify",
+  "duplicate",
+  "reorder",
+  "remove",
+  "persist",
+  "recover"
+ ],
+ "definitions": {
+  "inspect": "read it back",
+  "create": "make a new one",
+  "modify": "change one in place",
+  "duplicate": "make an independent copy",
+  "reorder": "change its position among its peers",
+  "remove": "delete it",
+  "persist": "it is written to a saved package",
+  "recover": "it returns after a loss: reopen the package, or undo"
+ },
+ "families": [
+  {
+   "id": "document",
+   "name": "Draft scene document",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "scene.summary",
+      "automation.list_documents",
+      "scene.validate",
+      "scene.dependencies"
+     ]
+    },
+    "create": {
+     "tools": [
+      "scene.create",
+      "scene.open",
+      "scene.open_read_only"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "scene.settings"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "scene.save_copy",
+      "scene.open"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "documents are unordered; the worker lists them by handle"
+    },
+    "remove": {
+     "tools": [
+      "scene.discard"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    },
+    "recover": {
+     "disposition": "no_undo",
+     "reason": "a draft scene has no undo history; recover by reopening a saved package or by editing back"
+    }
+   }
+  },
+  {
+   "id": "package",
+   "name": "Saved scene package",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "scene.package_info"
+     ]
+    },
+    "create": {
+     "tools": [
+      "scene.save_copy"
+     ]
+    },
+    "modify": {
+     "disposition": "unsupported",
+     "reason": "a package is immutable once published; save a new one"
+    },
+    "duplicate": {
+     "tools": [
+      "scene.save_copy"
+     ]
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "a package has no order"
+    },
+    "remove": {
+     "disposition": "restricted",
+     "reason": "no tool deletes a published package: publication never replaces and cleanup of files is an operator task"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_acceptance.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    }
+   }
+  },
+  {
+   "id": "project",
+   "name": "Project",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "project.inspect",
+      "project.list",
+      "project.scenes"
+     ]
+    },
+    "create": {
+     "disposition": "planned",
+     "outcome": "project.create_and_select"
+    },
+    "modify": {
+     "disposition": "planned",
+     "outcome": "project.create_and_select"
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "project.portable_collection"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "projects have no order"
+    },
+    "remove": {
+     "disposition": "restricted",
+     "reason": "projects are user folders; no tool deletes one"
+    },
+    "persist": {
+     "disposition": "planned",
+     "outcome": "project.create_and_select"
+    },
+    "recover": {
+     "disposition": "planned",
+     "outcome": "scene.recover_autosave"
+    }
+   }
+  },
+  {
+   "id": "level",
+   "name": "Level",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "level.inspect",
+      "scene.summary"
+     ]
+    },
+    "create": {
+     "tools": [
+      "level.create",
+      "level.import"
+     ]
+    },
+    "modify": {
+     "disposition": "planned",
+     "outcome": "level.rename_replace_remove"
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "level.rename_replace_remove"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "cast.organize_and_relink"
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "level.rename_replace_remove"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_acceptance.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_acceptance.py"
+    }
+   }
+  },
+  {
+   "id": "drawing",
+   "name": "Drawing",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "drawing.inspect",
+      "level.inspect",
+      "vector.inspect",
+      "raster.read_pixels"
+     ]
+    },
+    "create": {
+     "tools": [
+      "drawing.create",
+      "raster.import_png",
+      "vector.text.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "vector.edit",
+      "vector.fill",
+      "vector.transform",
+      "vector.opacity.set",
+      "vector.opacity.profile.set",
+      "raster.patch",
+      "drawing.renumber"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "drawing.clone"
+     ]
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "drawing.reorder_merge_replace"
+    },
+    "remove": {
+     "tools": [
+      "drawing.remove"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_drawing_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_drawing_cases.py"
+    }
+   }
+  },
+  {
+   "id": "cast_entry",
+   "name": "Cast entry (a level or sound source in the cast)",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "cast.list",
+      "cast.usage",
+      "scene.dependencies"
+     ]
+    },
+    "create": {
+     "tools": [
+      "level.create",
+      "level.import",
+      "audio.import"
+     ]
+    },
+    "modify": {
+     "disposition": "planned",
+     "outcome": "cast.organize_and_relink"
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "cast.organize_and_relink"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "cast.organize_and_relink"
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "level.rename_replace_remove"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_acceptance.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_acceptance.py"
+    }
+   }
+  },
+  {
+   "id": "column",
+   "name": "Level column",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "scene.summary",
+      "scene.inventory"
+     ]
+    },
+    "create": {
+     "tools": [
+      "column.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "column.update"
+     ]
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "timeline.cell_and_time_edits"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "timeline.cell_and_time_edits"
+    },
+    "remove": {
+     "tools": [
+      "column.delete"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_property_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_property_cases.py"
+    }
+   }
+  },
+  {
+   "id": "cell_range",
+   "name": "Cell range (exposures)",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "column.cells"
+     ]
+    },
+    "create": {
+     "tools": [
+      "column.expose",
+      "lipsync.apply"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "column.expose",
+      "drawing.renumber"
+     ]
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "timeline.cell_and_time_edits"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "timeline.retime"
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "timeline.cell_and_time_edits"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    }
+   }
+  },
+  {
+   "id": "stage_object",
+   "name": "Stage object (peg)",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "rig.inspect",
+      "rig.evaluate",
+      "scene.summary",
+      "scene.inventory"
+     ]
+    },
+    "create": {
+     "tools": [
+      "object.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "object.parent",
+      "object.handles.set",
+      "object.pivot.set"
+     ]
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "stage.object_lifecycle"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "stage objects are ordered only by their parent links (object.parent)"
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "stage.object_lifecycle"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_rig_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_rig_cases.py"
+    }
+   }
+  },
+  {
+   "id": "camera",
+   "name": "Camera",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "camera.inspect",
+      "scene.summary"
+     ]
+    },
+    "create": {
+     "disposition": "planned",
+     "outcome": "camera.create_and_select"
+    },
+    "modify": {
+     "tools": [
+      "camera.update",
+      "scene.settings"
+     ]
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "camera.create_and_select"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "camera.create_and_select"
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "camera.create_and_select"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_w2_cases.py"
+    }
+   }
+  },
+  {
+   "id": "curve",
+   "name": "Animation curve (keys)",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "animation.channels",
+      "animation.keys",
+      "animation.sample"
+     ]
+    },
+    "create": {
+     "tools": [
+      "animation.set_keys"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "animation.set_keys",
+      "animation.retime_curve",
+      "live.stage.set_key_value"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "animation.copy_curve"
+     ]
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "keys are ordered by their frame; animation.retime_curve moves a whole curve and a single-key move is not a tool"
+    },
+    "remove": {
+     "tools": [
+      "animation.delete_keys"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_property_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_property_cases.py"
+    }
+   }
+  },
+  {
+   "id": "fx_node",
+   "name": "FX node (effect, generator column, macro)",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "fx.graph",
+      "fx.catalog",
+      "fx.parameter.get",
+      "fx.recipe.list"
+     ]
+    },
+    "create": {
+     "tools": [
+      "fx.create",
+      "fx.macro.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "fx.parameter.set",
+      "fx.parameter.set_key",
+      "fx.rename",
+      "fx.enabled.set",
+      "fx.connect",
+      "fx.disconnect",
+      "fx.terminal.set",
+      "fx.output.select",
+      "live.fx.set_scalar_value"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "fx.duplicate"
+     ]
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "the effect graph is a graph; terminal order follows fx.terminal.set"
+    },
+    "remove": {
+     "tools": [
+      "fx.delete",
+      "fx.macro.expand"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_fx_authoring_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_fx_authoring_cases.py"
+    }
+   }
+  },
+  {
+   "id": "fx_preset",
+   "name": "FX preset package",
+   "cells": {
+    "inspect": {
+     "disposition": "unsupported",
+     "reason": "a preset is read only by fx.preset.apply"
+    },
+    "create": {
+     "tools": [
+      "fx.preset.save"
+     ]
+    },
+    "modify": {
+     "disposition": "unsupported",
+     "reason": "a published preset is immutable"
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "a preset is published once; save another"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "presets have no order"
+    },
+    "remove": {
+     "disposition": "restricted",
+     "reason": "published presets are files; no tool deletes them"
+    },
+    "persist": {
+     "tools": [
+      "fx.preset.save"
+     ],
+     "evidence": "mcp_fx_authoring_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "fx.preset.apply"
+     ],
+     "evidence": "mcp_fx_authoring_cases.py"
+    }
+   }
+  },
+  {
+   "id": "palette_style",
+   "name": "Palette style",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "palette.inspect",
+      "palette.pages",
+      "studio_palette.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "palette.create_style",
+      "palette.clone_style"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "palette.update_style",
+      "palette.rename_style"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "palette.clone_style"
+     ]
+    },
+    "reorder": {
+     "tools": [
+      "palette.style.move"
+     ]
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "palette.other_style_types"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_palette_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_palette_cases.py"
+    }
+   }
+  },
+  {
+   "id": "palette_page",
+   "name": "Palette page",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "palette.pages",
+      "palette.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "palette.page.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "palette.page.rename"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies a page; palette.clone_style copies one style at a time"
+    },
+    "reorder": {
+     "tools": [
+      "palette.page.move"
+     ]
+    },
+    "remove": {
+     "tools": [
+      "palette.page.remove"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_palette_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_palette_cases.py"
+    }
+   }
+  },
+  {
+   "id": "sound_column",
+   "name": "Sound column",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "audio.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "audio.column.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "audio.column.set_volume"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies a sound column"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "timeline.cell_and_time_edits"
+    },
+    "remove": {
+     "disposition": "planned",
+     "outcome": "timeline.cell_and_time_edits"
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_audio_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_audio_cases.py"
+    }
+   }
+  },
+  {
+   "id": "sound_clip",
+   "name": "Sound clip",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "audio.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "audio.clip.place"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "audio.clip.update"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "audio.clip.place"
+     ]
+    },
+    "reorder": {
+     "tools": [
+      "audio.clip.update"
+     ]
+    },
+    "remove": {
+     "tools": [
+      "audio.clip.remove"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_audio_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_audio_cases.py"
+    }
+   }
+  },
+  {
+   "id": "storyboard_panel",
+   "name": "Storyboard panel",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "storyboard.panels"
+     ]
+    },
+    "create": {
+     "tools": [
+      "storyboard.panel.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "storyboard.panel.update"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies a panel"
+    },
+    "reorder": {
+     "disposition": "planned",
+     "outcome": "storyboard.reorder_and_retime"
+    },
+    "remove": {
+     "tools": [
+      "storyboard.panel.delete"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_storyboard_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_storyboard_cases.py"
+    }
+   }
+  },
+  {
+   "id": "motion_path",
+   "name": "Motion path",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "motion_path.list",
+      "motion_path.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "motion_path.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "motion_path.update",
+      "motion_path.rename",
+      "object.path.attach",
+      "object.path.detach"
+     ]
+    },
+    "duplicate": {
+     "tools": [
+      "motion_path.duplicate"
+     ]
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "paths have no order"
+    },
+    "remove": {
+     "tools": [
+      "motion_path.delete"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_motion_path_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_motion_path_cases.py"
+    }
+   }
+  },
+  {
+   "id": "hook",
+   "name": "Level hook",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "hook.inspect",
+      "rig.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "hook.set"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "hook.set"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies a hook to another drawing"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "hooks have no order"
+    },
+    "remove": {
+     "tools": [
+      "hook.delete"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_rig_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_rig_cases.py"
+    }
+   }
+  },
+  {
+   "id": "offset_layer",
+   "name": "Offset layer",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "rig.inspect",
+      "animation.channels"
+     ]
+    },
+    "create": {
+     "tools": [
+      "offset_layer.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "offset_layer.update"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies an offset layer"
+    },
+    "reorder": {
+     "tools": [
+      "offset_layer.update"
+     ]
+    },
+    "remove": {
+     "tools": [
+      "offset_layer.delete"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_rig_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_rig_cases.py"
+    }
+   }
+  },
+  {
+   "id": "vector_stroke",
+   "name": "Vector stroke",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "vector.inspect",
+      "vector.select",
+      "vector.opacity.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "vector.edit"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "vector.edit",
+      "vector.transform",
+      "vector.fill",
+      "vector.opacity.set",
+      "vector.opacity.profile.set"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies strokes between drawings"
+    },
+    "reorder": {
+     "tools": [
+      "vector.order.move"
+     ]
+    },
+    "remove": {
+     "tools": [
+      "vector.edit"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_group_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_group_cases.py"
+    }
+   }
+  },
+  {
+   "id": "vector_group",
+   "name": "Vector stroke group",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "vector.structure"
+     ]
+    },
+    "create": {
+     "tools": [
+      "vector.group.create"
+     ]
+    },
+    "modify": {
+     "disposition": "unsupported",
+     "reason": "a group is ungrouped and grouped again"
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "no tool copies a group"
+    },
+    "reorder": {
+     "tools": [
+      "vector.order.move"
+     ]
+    },
+    "remove": {
+     "tools": [
+      "vector.group.remove"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_group_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_group_cases.py"
+    }
+   }
+  },
+  {
+   "id": "lipsync_analysis",
+   "name": "Lip-sync analysis",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "lipsync.inspect"
+     ]
+    },
+    "create": {
+     "tools": [
+      "lipsync.import"
+     ]
+    },
+    "modify": {
+     "disposition": "unsupported",
+     "reason": "an analysis is immutable"
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "import the timing file again"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "cues are ordered by time"
+    },
+    "remove": {
+     "disposition": "unsupported",
+     "reason": "an analysis lives until its worker ends"
+    },
+    "persist": {
+     "disposition": "unsupported",
+     "reason": "an analysis is not saved; lipsync.apply saves its cells with the scene"
+    },
+    "recover": {
+     "disposition": "unsupported",
+     "reason": "import the timing file again"
+    }
+   }
+  },
+  {
+   "id": "shared_library_item",
+   "name": "Studio palette and Library item",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "shared.roots",
+      "studio_palette.list",
+      "studio_palette.inspect",
+      "studio_palette.find",
+      "library.list",
+      "library.inspect",
+      "library.thumbnail"
+     ]
+    },
+    "create": {
+     "disposition": "planned",
+     "outcome": "library.publish_and_insert"
+    },
+    "modify": {
+     "disposition": "planned",
+     "outcome": "library.publish_and_insert"
+    },
+    "duplicate": {
+     "disposition": "planned",
+     "outcome": "library.publish_and_insert"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "shared items have no order"
+    },
+    "remove": {
+     "disposition": "restricted",
+     "reason": "shared roots are read-only to every tool"
+    },
+    "persist": {
+     "disposition": "restricted",
+     "reason": "shared roots are read-only to every tool"
+    },
+    "recover": {
+     "disposition": "restricted",
+     "reason": "shared roots are read-only to every tool"
+    }
+   }
+  },
+  {
+   "id": "render_job",
+   "name": "Render, check or analysis job",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "job.status",
+      "job.list",
+      "job.result",
+      "artifact.read",
+      "render.preflight",
+      "render.capabilities"
+     ]
+    },
+    "create": {
+     "tools": [
+      "render.preview",
+      "render.submit",
+      "scene.check.submit",
+      "drawing.analysis.submit",
+      "assistance.neural.preview"
+     ]
+    },
+    "modify": {
+     "disposition": "unsupported",
+     "reason": "a job record is immutable"
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "submit the request again"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "jobs are listed newest first"
+    },
+    "remove": {
+     "tools": [
+      "job.cancel"
+     ]
+    },
+    "persist": {
+     "disposition": "planned",
+     "outcome": "render.job_registry"
+    },
+    "recover": {
+     "disposition": "planned",
+     "outcome": "render.job_registry"
+    }
+   }
+  },
+  {
+   "id": "published_file",
+   "name": "Published file (PNG, WAV, preset)",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "artifact.read"
+     ]
+    },
+    "create": {
+     "tools": [
+      "raster.export_png",
+      "audio.mixdown",
+      "fx.preset.save"
+     ]
+    },
+    "modify": {
+     "disposition": "unsupported",
+     "reason": "publication never replaces a file"
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "publish again to a new name"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "files have no order"
+    },
+    "remove": {
+     "disposition": "restricted",
+     "reason": "published files are removed by the operator, not by a tool"
+    },
+    "persist": {
+     "tools": [
+      "raster.export_png",
+      "audio.mixdown",
+      "fx.preset.save"
+     ],
+     "evidence": [
+      "mcp_acceptance.py",
+      "mcp_audio_cases.py",
+      "mcp_fx_authoring_cases.py"
+     ]
+    },
+    "recover": {
+     "disposition": "unsupported",
+     "reason": "a published file is not tracked after publication"
+    }
+   }
+  }
+ ],
+ "outside": {
+  "toolsets.enable": "session configuration; it changes which tools are advertised, not a scene resource",
+  "toolsets.disable": "session configuration; it changes which tools are advertised, not a scene resource"
+ }
+}
