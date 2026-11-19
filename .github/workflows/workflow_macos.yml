@@ -129,7 +129,15 @@ jobs:
       - name: Select SeExpr parser tools
         run: |
           brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"
-          brew --prefix flex | sed 's|$|/bin|' >> "$GITHUB_PATH"
+          # SeExpr pins Flex 2.6.4. An image without flex gets Homebrew's
+          # current one (2.6.16 on macos-15 arm64); macOS's own /usr/bin/flex
+          # is 2.6.4, so use it when Homebrew's is a different version.
+          flex_bin="$(brew --prefix flex)/bin"
+          if "$flex_bin/flex" --version | grep -qx 'flex 2.6.4'; then
+            echo "$flex_bin" >> "$GITHUB_PATH"
+          else
+            echo "Homebrew $("$flex_bin/flex" --version) is not 2.6.4; using $(/usr/bin/flex --version) from /usr/bin"
+          fi
 
       - name: Set up cache
         run: |
