@@ -931,6 +931,34 @@ void validateConnection(FxDag* graph, TFx* destination, TFxPort* port,
         "Connection would create a cycle, including Xsheet terminal links.");
 }
 
+// A native connection that does not take effect is undone: the port gets its
+// previous source back, and a refusal that changed nothing is reported as one
+// rather than as a partial change. The test fault point native:fx-connect
+// makes the native call leave the port empty.
+void setPortSource(Context& context, Document& document, TFxPort* port,
+                   TFx* source) {
+  TFxP previous      = port->getFx();
+  const bool started = context.mutationStarted();
+  context.markMutationStarted();
+  try {
+    port->setFx(writeFaultFires(context, "native:fx-connect") ? nullptr
+                                                              : source);
+    if (port->getFx() == source) return;
+  } catch (...) {
+    port->setFx(previous.getPointer());
+    throw;
+  }
+  port->setFx(previous.getPointer());
+  const bool restored = port->getFx() == previous.getPointer();
+  if (restored && !started) context.resetMutationStarted();
+  throw Error("NATIVE_FAILURE", "Native port connection did not take effect.",
+              {{"reason", "silent_refusal"},
+               {"restored", restored},
+               {"previous_source_fx_id",
+                previous ? QJsonValue(document.idForFx(previous.getPointer()))
+                         : QJsonValue()}});
+}
+
 QJsonValue connectEffect(Context& context, Document& document,
                          const QJsonObject& params, bool disconnect) {
   validateAutomationFxGraph(*document.scene);
@@ -941,17 +969,7 @@ QJsonValue connectEffect(Context& context, Document& document,
                     : ownedFx(document, requiredString(params, "source_fx_id"));
   validateConnection(dag(document), destination, port, source);
   if (port->getFx() == source) return describeFx(document, destination);
-  TFxP previous = port->getFx();
-  context.markMutationStarted();
-  try {
-    port->setFx(source);
-    if (port->getFx() != source)
-      throw Error("NATIVE_FAILURE",
-                  "Native port connection did not take effect.");
-  } catch (...) {
-    port->setFx(previous.getPointer());
-    throw;
-  }
+  setPortSource(context, document, port, source);
   return describeFx(document, destination);
 }
 

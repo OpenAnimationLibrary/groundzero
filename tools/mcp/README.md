@@ -325,9 +325,13 @@ to 0–200, HSV percentage scales to 0–400 and multiply offsets to −255–25
 truncates fractional offsets toward zero in its native integer kernel. Parameters
 with native menu choices accept integers only, and a color without a native matte
 requires alpha 255. Every admitted effect uses its catalog `native_fx_version` and
-scalar linear animation keys. These bounds also apply to presets, macro members,
-scene packages and render snapshots, so a scene saved with a value outside them does
-not reopen. Each catalog entry also lists `extent_parameters`, `constraints`,
+scalar linear animation keys; `fx.parameter.set_key` on a parameter that cannot
+animate (a menu choice or a switch) is `NOT_ANIMATABLE`: use `fx.parameter.set`. These
+bounds also apply to presets, macro members, scene packages and render snapshots, so a
+scene saved with a value outside them does not reopen. A connection the native graph
+does not take is undone: the port keeps its previous source and `fx.connect` fails with
+`NATIVE_FAILURE`, `reason: silent_refusal`, `restored` and `previous_source_fx_id`,
+never turning the link into a disconnection. Each catalog entry also lists `extent_parameters`, `constraints`,
 `required_inputs`, `seed_parameters` and `replay_class`. There is no live editor
 connection or undo history in this profile.
 

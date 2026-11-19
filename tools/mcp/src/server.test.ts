@@ -305,6 +305,17 @@ test.each([
   await expectUnusableCatalog(catalog, /^(INCOMPATIBLE_WORKER|INVALID_CATALOG)$/u);
 });
 
+test.each([0, 2, 4, "3", null])(
+  "refuses native protocol version %s, older or newer, before exposing any tool",
+  async (version) => {
+    const catalog = { protocol_version: version, tools: [{ ...tool, ...declared }] };
+    await expectUnusableCatalog(
+      { ...catalog, toolsets: core([tool.name]) },
+      /^INCOMPATIBLE_WORKER$/u,
+    );
+  },
+);
+
 test("compiles and rejects invalid native schemas before accepting tool calls", async () => {
   const invalid = {
     ...tool,

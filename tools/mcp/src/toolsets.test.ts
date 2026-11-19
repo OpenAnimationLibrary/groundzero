@@ -141,6 +141,24 @@ test("disabling hides tools again but never disables core", async () => {
   expect(await names(client)).not.toContain("audio.mixdown");
 });
 
+test("disabling a toolset withdraws its tools from calls, not only from the listing", async () => {
+  const { client, request, changes } = await session(["audio"]);
+  const before = await client.callTool({ name: "audio.mixdown", arguments: {} });
+  expect(before.structuredContent).toEqual({ ok: "audio.mixdown" });
+  await client.callTool({ name: "toolsets.disable", arguments: { names: ["audio"] } });
+  await vi.waitFor(() => expect(changes).toHaveBeenCalledTimes(1));
+  const calls = request.mock.calls.length;
+  const after = await client.callTool({ name: "audio.mixdown", arguments: {} });
+  expect(after.structuredContent).toMatchObject({
+    error: { code: "TOOLSET_DISABLED", details: { toolset: "audio" } },
+  });
+  expect(request).toHaveBeenCalledTimes(calls);
+  await client.callTool({ name: "toolsets.enable", arguments: { names: ["audio"] } });
+  await vi.waitFor(() => expect(changes).toHaveBeenCalledTimes(2));
+  const again = await client.callTool({ name: "audio.mixdown", arguments: {} });
+  expect(again.structuredContent).toEqual({ ok: "audio.mixdown" });
+});
+
 test("rejects unknown toolset names without changing the session", async () => {
   const { client, changes } = await session();
   const result = await client.callTool({
