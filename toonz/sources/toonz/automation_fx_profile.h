@@ -36,6 +36,12 @@ QJsonObject automationFxChannelSchema(TFx* fx, TParam* param,
 // True when a constraint of the type reads the parameter, so its curves keep
 // linear keys with step 1.
 bool automationFxLinearOnly(TFx* fx, const std::string& name);
+// The SC-4 descriptor fields of one parameter, beside its schema: kind,
+// default (native units; colors as 0..255 components), bounds {admitted,
+// native, slider, source}, measure, unit (as animation.channels names it),
+// and for menus their choices {id, label} with label_is_identity false.
+QJsonObject automationFxParameterFacts(TFx* fx, TParam* param,
+                                       const std::string& name);
 // Throws INVALID_PARAMS or OUT_OF_RANGE when a number leaves its schema.
 void validateAutomationFxNumber(const QJsonValue& value,
                                 const QJsonObject& schema);

@@ -310,10 +310,12 @@ QJsonValue parameterValue(TParam* param, double frame) {
 QJsonObject parameterDescription(TFx* fx, TParam* param, const QString& name,
                                  double frame) {
   const QJsonObject schema = profileSchema(fx, param, name);
-  QJsonObject result{{"name", name},
-                     {"animatable", param->isAnimatable()},
-                     {"supported", !schema.isEmpty()},
-                     {"schema", schema}};
+  QJsonObject result =
+      automationFxParameterFacts(parameterFx(fx), param, name.toStdString());
+  result.insert("name", name);
+  result.insert("animatable", param->isAnimatable());
+  result.insert("supported", !schema.isEmpty());
+  result.insert("schema", schema);
   if (schema.isEmpty()) {
     result["unsupported_reason"] =
         "Complex or external-resource parameter is not editable.";
@@ -387,9 +389,17 @@ QJsonArray portGroupsDescription(TFx* fx) {
 
 QJsonObject catalogEntry(const QString& type, const EffectFactory& factory) {
   TFxP fx = factory(type);
+  const std::string plugin = fx->getPluginId();
   QJsonObject entry{
       {"type", type},
       {"available", true},
+      {"origin",
+       QJsonObject{
+           {"kind", "builtin"},
+           {"plugin_id", plugin.empty()
+                             ? QJsonValue()
+                             : QJsonValue(QString::fromStdString(plugin))}}},
+      {"hidden", TFx::getFxInfo(type.toStdString()).m_isHidden},
       {"native_fx_version", fx->getFxVersion()},
       {"authoring", QJsonArray{"rename", "enabled.set", "duplicate",
                                "preset.save", "preset.apply"}},
@@ -415,6 +425,7 @@ QJsonValue effectCatalog(const EffectFactory& factory = makeEffect) {
     }
   }
   return QJsonObject{{"profile", automationFxProfileName()},
+                     {"menu_categories", "not_reported"},
                      {"external_dependencies", QJsonArray{}},
                      {"effects", effects},
                      {"output_creation_type", "output"}};
@@ -1666,16 +1677,65 @@ QJsonValue changeParameter(Context& context, Document& document,
   return result;
 }
 
+// Why a write to fx's parameters is refused or reaches further than fx, for
+// fx.parameter.get: a locked column of any linked member, an effect outside
+// the profile, or a linked group whose members all change; null otherwise.
+QJsonValue parameterConstraint(Document& document, TFx* fx) {
+  for (TFx* node : linkedNodes(fx)) {
+    try {
+      requireColumnEditable(document, node);
+    } catch (const Error&) {
+      auto* column = static_cast<TColumnFx*>(node);
+      return QJsonObject{
+          {"kind", "locked_column"},
+          {"via", column->getXshColumn()
+                      ? QJsonValue(document.idForColumn(column->getXshColumn()))
+                      : QJsonValue()}};
+    }
+  }
+  if (!allowedTypes().contains(
+          QString::fromStdString(parameterFx(fx)->getFxType())))
+    return QJsonObject{{"kind", "outside_profile"}, {"via", QJsonValue()}};
+  const QJsonValue linked = automationFxLinkedGroup(document, fx);
+  if (linked.isObject())
+    return QJsonObject{{"kind", "linked_parameters"},
+                       {"via", linked.toObject().value("group_id")}};
+  return QJsonValue();
+}
+
 QJsonValue getParameters(Context&, Document& document,
                          const QJsonObject& params) {
   TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
   if (dynamic_cast<TMacroFx*>(fx))
     throw Error("UNSUPPORTED_PARAMETER",
                 "Expand the macro before reading member parameters.");
-  const int frame = integerParam(params, "frame", 0, 1000000, 0);
+  const int frame         = integerParam(params, "frame", 0, 1000000, 0);
+  const QJsonValue effect = parameterConstraint(document, fx);
+  QJsonArray described;
+  for (const QJsonValue& value : parameterDescriptions(fx, frame)) {
+    QJsonObject item     = value.toObject();
+    const bool supported = item.value("supported").toBool();
+    TParam* param        = parameterFx(fx)->getParams()->getParam(
+        item.value("name").toString().toStdString());
+    item.insert("animated", param->hasKeyframes());
+    item.insert("sample", supported ? QJsonValue(QJsonObject{
+                                          {"frame", frame},
+                                          {"value", item.value("value")}})
+                                    : QJsonValue());
+    item.insert("edit_constraint",
+                !effect.isNull() || supported
+                    ? effect
+                    : QJsonValue(QJsonObject{{"kind", "unsupported_type"},
+                                             {"via", QJsonValue()}}));
+    described.append(item);
+  }
+  TFx* native = parameterFx(fx);
   return QJsonObject{{"fx_id", document.idForFx(fx)},
+                     {"revision", document.revisionText()},
+                     {"type", QString::fromStdString(native->getFxType())},
+                     {"native_fx_version", native->getFxVersion()},
                      {"frame", frame},
-                     {"parameters", parameterDescriptions(fx, frame)}};
+                     {"parameters", described}};
 }
 
 QJsonArray authoringOperations() {

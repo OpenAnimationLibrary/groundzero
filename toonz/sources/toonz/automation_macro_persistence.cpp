@@ -248,8 +248,10 @@ QByteArray automationMacroFingerprint(ToonzScene& scene,
   const QByteArray serialized =
       QJsonDocument(state).toJson(QJsonDocument::Compact);
   if (serialized.size() > 1024 * 1024)
-    throw Error("RESOURCE_LIMIT",
-                "Macro roundtrip state exceeds the 1 MiB verification limit.");
+    throw Error(
+        "RESOURCE_LIMIT",
+        "The FX graph roundtrip state (macros, links, port groups, schematic "
+        "groups and placement) exceeds the 1 MiB verification limit.");
   return QCryptographicHash::hash(serialized, QCryptographicHash::Sha256);
 }
 }  // namespace GroundzeroAutomation

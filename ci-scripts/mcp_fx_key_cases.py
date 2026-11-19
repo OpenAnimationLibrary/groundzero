@@ -9,6 +9,7 @@ or a speed handle outside the parameter's admitted bounds is refused with the do
 from __future__ import annotations
 
 import base64
+import json
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
@@ -327,3 +328,69 @@ def fx_key_writes_through_links_and_refusals(case: NativeAcceptance) -> None:
             case.handler_failure("animation.set_keys", case.write_params(document, params), code)
     cycle = {"fx_id": first, **RED, "enabled": True}
     case.schema_failure("animation.set_cycle", case.write_params(document, cycle))
+
+
+def _parameter(items: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    return next(item for item in items if item["name"] == name)
+
+
+@acceptance_case
+def fx_parameter_descriptors_separate_defaults_bounds_and_units(case: NativeAcceptance) -> None:
+    """Catalog and fx.parameter.get descriptors give kind, default, admitted, native and slider
+    bounds with their source, measure and unit, menu choices by id, origin and hidden status;
+    fx.parameter.get adds the sample, whether the parameter is animated and its edit
+    constraint (none, a linked group or a locked column)."""
+    catalog = case.success("fx.catalog", {})
+    case.assertLess(len(json.dumps(catalog)), 64 * 1024)
+    case.assertEqual(catalog["menu_categories"], "not_reported")
+    entries = {entry["type"]: entry for entry in catalog["effects"] if entry["available"]}
+    blur = entries["STD_blurFx"]
+    case.assertEqual(
+        (blur["origin"], blur["hidden"]), ({"kind": "builtin", "plugin_id": "STD"}, False)
+    )
+    case.assertEqual(blur["profile_version"], blur["native_fx_version"])
+    value = _parameter(blur["parameters"], "value")
+    case.assertEqual(
+        (value["kind"], value["default"], value["measure"], value["unit"]),
+        ("number", 20, "fxLength", BLUR["unit"]),
+    )
+    case.assertEqual(
+        value["bounds"],
+        {
+            "admitted": {"minimum": 0, "maximum": 200},
+            "native": {"minimum": 0, "maximum": None},
+            "slider": value["bounds"]["slider"],
+            "source": "profile",
+        },
+    )
+    color = _parameter(entries["colorCardFx"]["parameters"], "color")
+    case.assertEqual((color["kind"], color["default"]), ("color", [0, 255, 0, 255]))
+    case.assertEqual(color["bounds"]["admitted"], {"minimum": 0, "maximum": 255})
+    curve = _parameter(entries["STD_iwa_LinearGradientFx"]["parameters"], "curveType")
+    case.assertEqual((curve["kind"], curve["label_is_identity"]), ("enum", False))
+    case.assertEqual([choice["id"] for choice in curve["choices"]], curve["schema"]["enum"])
+    document = case.create("Descriptors")
+    first = _card(case, document, "First")
+    second = _card(case, document, "Second")
+    request = {"document_id": document, "fx_id": first, "frame": 3}
+    read = case.success("fx.parameter.get", request)
+    case.assertEqual(
+        (read["revision"], read["type"], read["frame"]),
+        (case.revisions[document], "colorCardFx", 3),
+    )
+    shown = _parameter(read["parameters"], "color")
+    case.assertEqual(shown["sample"], {"frame": 3, "value": shown["value"]})
+    case.assertEqual((shown["animated"], shown["edit_constraint"]), (False, None))
+    group = case.mutate("fx.link.add", document, fx_id=second, linked_to_fx_id=first)
+    _set(case, document, first, RED, [Key(0, 0.5, "linear")])
+    shown = _parameter(case.success("fx.parameter.get", request)["parameters"], "color")
+    case.assertTrue(shown["animated"])
+    case.assertEqual(
+        shown["edit_constraint"],
+        {"kind": "linked_parameters", "via": group["linked_group"]["group_id"]},
+    )
+    graph = case.success("fx.graph", {"document_id": document})["effects"]
+    column = next(e["column_id"] for e in graph if e["fx_id"] == second)
+    case.mutate("column.update", document, column_id=column, locked=True)
+    shown = _parameter(case.success("fx.parameter.get", request)["parameters"], "color")
+    case.assertEqual(shown["edit_constraint"], {"kind": "locked_column", "via": column})

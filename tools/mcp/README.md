@@ -336,8 +336,20 @@ scene saved with a value outside them does not reopen. A connection the native g
 does not take is undone: the port keeps its previous source and `fx.connect` fails with
 `NATIVE_FAILURE`, `reason: silent_refusal`, `restored` and `previous_source_fx_id`,
 never turning the link into a disconnection. Each catalog entry also lists `extent_parameters`, `constraints`,
-`required_inputs`, `seed_parameters` and `replay_class`. There is no live editor
-connection or undo history in this profile.
+`required_inputs`, `seed_parameters`, `replay_class`, `profile_version`, `origin`
+(`kind: builtin` and the native `plugin_id`) and `hidden`; `menu_categories` is
+`not_reported` (the editor's menu layout is not in the worker's runtime). Each parameter of
+the catalog and of `fx.parameter.get`, `set` and `set_key` describes its `kind` (`number`,
+`integer_choice`, `integer`, `enum`, `boolean`, `color`, `point` or `unsupported`), its
+`default` (color components 0 to 255), `bounds` with `admitted` (what the worker accepts),
+`native` and `slider` ranges (a null side is unbounded) and their `source`, its `measure`
+and `unit` (as `animation.channels` names it), and for menus `choices` of `{id, label}`
+where the id is the value. `fx.parameter.get` also gives the result's `revision`, `type` and
+`native_fx_version`, and per parameter `sample {frame, value}`, `animated` and
+`edit_constraint`: null, `locked_column` (via the column), `outside_profile`,
+`unsupported_type`, or `linked_parameters` (via the group: a write changes every member).
+Parameters still carry `value` and `keyframes`; their removal waits for the next protocol
+version. There is no live editor connection or undo history in this profile.
 
 A linear gradient's start and end points must be equal or at least 0.001 apart at
 every frame, keys included. A violation fails with `PARAMETER_CONSTRAINT`, naming

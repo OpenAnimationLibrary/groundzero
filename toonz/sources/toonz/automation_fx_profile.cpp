@@ -484,6 +484,138 @@ bool automationFxLinearOnly(TFx* fx, const std::string& name) {
   return constrainedParameter(requireProfile(fx), name);
 }
 
+namespace {
+
+// A native side at the type's extreme is unbounded (null).
+QJsonValue nativeSide(double value) {
+  return std::abs(value) >= 1e300 ? QJsonValue() : QJsonValue(value);
+}
+
+QJsonValue rangeObject(const QJsonValue& minimum, const QJsonValue& maximum) {
+  return QJsonObject{{"minimum", minimum}, {"maximum", maximum}};
+}
+
+TDoubleParam* firstCurve(TParam* param) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param)) return number;
+  if (auto* point = dynamic_cast<TPointParam*>(param)) return channel(point, 0);
+  if (auto* pixel = dynamic_cast<TPixelParam*>(param)) return channel(pixel, 0);
+  return nullptr;
+}
+
+QString parameterKind(TParam* param) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param))
+    return number->getUIChoices().empty() ? "number" : "integer_choice";
+  if (dynamic_cast<TIntParam*>(param)) return "integer";
+  if (dynamic_cast<TEnumParam*>(param)) return "enum";
+  if (dynamic_cast<TBoolParam*>(param)) return "boolean";
+  if (dynamic_cast<TPixelParam*>(param)) return "color";
+  if (dynamic_cast<TPointParam*>(param)) return "point";
+  return "unsupported";
+}
+
+QJsonValue defaultValue(TParam* param) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param))
+    return number->getDefaultValue();
+  if (auto* pixel = dynamic_cast<TPixelParam*>(param)) {
+    const TPixel32 color = pixel->getDefaultValue();
+    return QJsonArray{color.r, color.g, color.b, color.m};
+  }
+  if (auto* point = dynamic_cast<TPointParam*>(param)) {
+    const TPointD value = point->getDefaultValue();
+    return QJsonArray{value.x, value.y};
+  }
+  if (auto* integer = dynamic_cast<TIntParam*>(param))
+    return integer->getDefaultValue();
+  if (auto* enumeration = dynamic_cast<TEnumParam*>(param))
+    return enumeration->getDefaultValue();
+  if (auto* boolean = dynamic_cast<TBoolParam*>(param))
+    return boolean->getDefaultValue();
+  return QJsonValue();
+}
+
+QJsonValue nativeBounds(TParam* param) {
+  if (auto* integer = dynamic_cast<TIntParam*>(param)) {
+    int minimum = 0, maximum = 0;
+    integer->getValueRange(minimum, maximum);
+    return rangeObject(nativeSide(minimum <= -2147483647 ? -1e300 : minimum),
+                       nativeSide(maximum >= 2147483647 ? 1e300 : maximum));
+  }
+  TDoubleParam* curve = firstCurve(param);
+  double minimum = 0, maximum = 0, step = 0;
+  if (!curve || dynamic_cast<TPixelParam*>(param) ||
+      !curve->getValueRange(minimum, maximum, step))
+    return QJsonValue();
+  return rangeObject(nativeSide(minimum), nativeSide(maximum));
+}
+
+QJsonValue sliderBounds(TParam* param) {
+  TDoubleParam* curve = firstCurve(param);
+  double minimum = 0, maximum = 0;
+  if (!curve || dynamic_cast<TPixelParam*>(param) ||
+      !curve->getUISliderRange(minimum, maximum))
+    return QJsonValue();
+  return rangeObject(minimum, maximum);
+}
+
+QJsonValue admittedBounds(const QJsonObject& schema) {
+  const QJsonObject numbers = schema.value("type") == "array"
+                                  ? schema.value("items").toObject()
+                                  : schema;
+  if (!numbers.contains("minimum") || numbers.contains("enum"))
+    return QJsonValue();
+  return rangeObject(numbers.value("minimum"), numbers.value("maximum"));
+}
+
+QJsonArray choices(TParam* param) {
+  QJsonArray result;
+  if (auto* enumeration = dynamic_cast<TEnumParam*>(param))
+    for (int index = 0; index < enumeration->getItemCount(); ++index) {
+      int value;
+      std::string caption;
+      enumeration->getItem(index, value, caption);
+      result.append(QJsonObject{{"id", value},
+                                {"label", QString::fromStdString(caption)}});
+    }
+  if (auto* number = dynamic_cast<TDoubleParam*>(param)) {
+    const auto& labels = number->getUIChoices();
+    for (int index = 0; index < static_cast<int>(labels.size()); ++index)
+      result.append(QJsonObject{
+          {"id", index}, {"label", QString::fromStdString(labels[index])}});
+  }
+  return result;
+}
+
+}  // namespace
+
+QJsonObject automationFxParameterFacts(TFx* fx, TParam* param,
+                                       const std::string& name) {
+  const QJsonObject schema  = automationFxParameterSchema(fx, param, name);
+  const char* source        = schema.isEmpty()                      ? "none"
+                              : findBound(requireProfile(fx), name) ? "profile"
+                                                                    : "native";
+  TDoubleParam* curve       = firstCurve(param);
+  const std::string measure = curve ? curve->getMeasureName() : std::string();
+  QJsonObject result{
+      {"kind", parameterKind(param)},
+      {"default", defaultValue(param)},
+      {"bounds", QJsonObject{{"admitted", admittedBounds(schema)},
+                             {"native", nativeBounds(param)},
+                             {"slider", sliderBounds(param)},
+                             {"source", source}}},
+      {"measure",
+       curve ? QJsonValue(QString::fromStdString(measure)) : QJsonValue()},
+      {"unit", !curve ? QJsonValue()
+               : measure.empty()
+                   ? QJsonValue("scalar")
+                   : QJsonValue("native_" + QString::fromStdString(measure))}};
+  const QJsonArray menu = choices(param);
+  if (!menu.isEmpty()) {
+    result.insert("choices", menu);
+    result.insert("label_is_identity", false);
+  }
+  return result;
+}
+
 void validateAutomationFxNumber(const QJsonValue& value,
                                 const QJsonObject& schema) {
   if (!value.isDouble() || !std::isfinite(value.toDouble()))
@@ -577,11 +709,10 @@ QJsonObject automationFxProfileDescription(const QString& type) {
   for (const char* constraint : profile->constraints)
     constraints.append(constraintDescription(constraint));
   for (const char* port : profile->requiredInputs) inputs.append(port);
-  return {{"seed_parameters", QJsonArray{}},
-          {"constraints", constraints},
-          {"extent_parameters", extents},
-          {"required_inputs", inputs},
-          {"replay_class", "stateless"}};
+  return {
+      {"profile_version", profile->version}, {"seed_parameters", QJsonArray{}},
+      {"constraints", constraints},          {"extent_parameters", extents},
+      {"required_inputs", inputs},           {"replay_class", "stateless"}};
 }
 
 QJsonArray automationFxProfileDiagnostics(TFx* fx) {

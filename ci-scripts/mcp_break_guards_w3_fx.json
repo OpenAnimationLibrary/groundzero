@@ -99,5 +99,21 @@
         ]
       }
     ]
+  },
+  {
+    "id": "fx-parameter-get-linked-constraint",
+    "file": "toonz/sources/toonz/automation_fx.cpp",
+    "find": "  if (linked.isObject())\n    return QJsonObject{{\"kind\", \"linked_parameters\"},",
+    "replace": "  if (false && linked.isObject())\n    return QJsonObject{{\"kind\", \"linked_parameters\"},",
+    "native": true,
+    "why": "fx.parameter.get says that a write to a linked effect's parameter changes every member of its group.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "fx_parameter_descriptors_separate_defaults_bounds_and_units"
+        ]
+      }
+    ]
   }
 ]
