@@ -132,7 +132,7 @@
   {
     "id": "fx-matrix-cell-fails-outside-tolerance",
     "file": "ci-scripts/mcp_fx_matrix_cases.py",
-    "find": "over = [name for name in observed if observed[name] > limits[name]]",
+    "find": "over = [name for name in limits if observed[name] > limits[name]]",
     "replace": "over = []",
     "why": "A measurement outside its tolerance makes the cell failed.",
     "tests": [
