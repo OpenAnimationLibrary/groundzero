@@ -151,6 +151,10 @@ std::vector<ContentRow> renderBlockers(Document& document);
 QJsonObject renderReport(Document& document);
 // Per-effect admission object of fx.graph for either kind of document.
 QJsonObject fxAdmission(Document& document, TFx* fx);
+// The admission class of a graph node: "xsheet", "output", "column", "macro",
+// "unknown" or, for an effect, "external_code", "file_resource",
+// "builtin_admitted" or "builtin_other".
+QString fxNodeClass(TFx* fx);
 // True when a read-only document may describe the node in full.
 bool fxAdmitted(TFx* fx);
 // The section 6.4 scene.validate issue rows of a read-only document.

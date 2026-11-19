@@ -297,6 +297,7 @@ void runAutomationFxAuthoringTests(Context& context);
 void runAutomationColorCompositeTests(Context& context);
 void runAutomationFxFinishingTests(Context& context);
 void runAutomationFxPreflightTests(Context& context);
+void runAutomationFxAdmissionTests();
 void runAutomationGroupTests(Context& context);
 void runAutomationMediaProcessTests(Context& context);
 #endif

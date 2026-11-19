@@ -746,6 +746,8 @@ namespace {
 
 int domainTestResult(Context& context) {
   try {
+    // First: the registry holds only the application's own types.
+    runAutomationFxAdmissionTests();
     runAutomationFxTests(context);
     runAutomationFxAuthoringTests(context);
     runAutomationColorCompositeTests(context);
