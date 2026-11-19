@@ -469,7 +469,11 @@
   },
   "scene.source_status": {
     "handler": null,
-    "read": []
+    "read": [
+      "content_checked_files",
+      "metadata_only_files",
+      "metadata_only_paths"
+    ]
   },
   "scene.summary": {
     "handler": "sceneSummary",
