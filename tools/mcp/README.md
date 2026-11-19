@@ -459,7 +459,7 @@ weight and path curves are still refused as before.
 back, and `edit_via`, the tool that edits it. Name exactly one of `object_id` (stage
 channels; with `layer_id` that offset layer's channels and weight), `fx_id` (every numeric
 parameter component of the effect, named parameter-dot-component for pixel and point
-parameters), or `column_id` (the `time_remap`
+parameters, such as the Red component of a color), or `column_id` (the `time_remap`
 curve of a level column, with `remap_enabled`). `animation.keys` and `animation.sample`
 read the same targets by passing `fx_id` or `column_id` with the descriptor's `channel` and
 `unit`. Effect parameter and remap curves are read only here (`writable` is false): edit an

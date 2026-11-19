@@ -436,14 +436,14 @@ def fx_remap_and_offset_layer_targets_are_described(case: NativeAcceptance) -> N
     described = case.success("animation.channels", {"document_id": document, "fx_id": effect})
     case.assertNotIn("object_id", described)
     names = {item["channel"] for item in described["channels"]}
-    case.assertTrue({"color.r", "color.g", "color.b", "color.m"} <= names, names)
-    red = _descriptor(described, "color.r")
+    case.assertTrue({"color.Red", "color.Green", "color.Blue", "color.Alpha"} <= names, names)
+    red = _descriptor(described, "color.Red")
     case.assertEqual(red["kind"], "fx_parameter")
     case.assertEqual(red["edit_via"], "fx.parameter.set_key")
     case.assertFalse(red["writable"])
     case.assertEqual(red["key_count"], 2)
     case.assertEqual(red["target"]["fx_id"], effect)
-    channel = {"channel": "color.r", "unit": red["unit"]}
+    channel = {"channel": "color.Red", "unit": red["unit"]}
     keys = case.success("animation.keys", {"document_id": document, "fx_id": effect, **channel})
     case.assertEqual(keys["value_space"], "fx_parameter")
     case.assertEqual([key["frame"] for key in keys["keys"]], [0, 4])
