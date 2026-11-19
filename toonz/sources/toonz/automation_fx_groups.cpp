@@ -427,6 +427,20 @@ QJsonArray fxGraphOperations() {
                 "the editor places it when it opens the scene. Positions "
                 "change no render.",
                 layout, {"document_id", "positions"}, true)};
+  QJsonObject ports = document;
+  ports["fx_id"]    = idSchema();
+  ports["group"]    = idSchema();
+  ports["sources"]  = QJsonObject{{"type", "array"},
+                                  {"items", idSchema()},
+                                  {"minItems", 0},
+                                  {"maxItems", 64}};
+  operations.append(operation(
+      "fx.port_group.set",
+      "Set the sources of a dynamic port group in order (index 0 is the "
+      "first port, the top of an over's stack). The group takes the editor's "
+      "normal form: one empty port after the sources, at least its minimum.",
+      ports, {"document_id", "fx_id", "group", "sources"}, true));
+  for (const QJsonValue& entry : fxLinkOperations()) operations.append(entry);
   return operations;
 }
 

@@ -342,6 +342,7 @@ set(SOURCES
     automation_fx.cpp
     automation_fx_journal.cpp
     automation_fx_groups.cpp
+    automation_fx_link.cpp
     automation_fx_preflight.cpp
     automation_fx_profile.cpp
     automation_fx_recipes.cpp

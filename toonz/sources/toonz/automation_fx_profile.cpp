@@ -509,6 +509,14 @@ std::vector<AutomationFxExtent> automationFxExtents(const std::string& type) {
   return extents;
 }
 
+int automationFxMaxGroupPorts(const std::string& type) {
+  // The image combinations composite their Source group in port order
+  // (common/tfx/binaryFx.cpp); 64 bounds one node's inputs.
+  static const std::set<std::string> combinations{"overFx", "multFx",
+                                                  "screenFx", "blendFx"};
+  return combinations.count(type) ? 64 : 0;
+}
+
 bool automationFxNeedsPositiveDeterminant(const std::string& type) {
   const TypeProfile* profile = findProfile(type);
   return profile && profile->positiveDeterminant;

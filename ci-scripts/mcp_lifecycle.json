@@ -603,7 +603,10 @@
       "fx.terminal.set",
       "fx.output.select",
       "live.fx.set_scalar_value",
-      "fx.layout.set"
+      "fx.layout.set",
+      "fx.link.add",
+      "fx.link.remove",
+      "fx.port_group.set"
      ]
     },
     "duplicate": {

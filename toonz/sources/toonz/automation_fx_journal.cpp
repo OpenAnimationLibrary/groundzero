@@ -11,6 +11,7 @@
 #include "tfxattributes.h"
 #include "tmacrofx.h"
 #include "tnotanimatableparam.h"
+#include "tzeraryfx.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
 #include "toonz/fxdag.h"
@@ -1073,6 +1074,41 @@ QJsonObject automationFxGraphView(Document& document) {
     if (kind == Group) groups.insert(parts.value(1), entry->state);
   }
   return {{"nodes", nodes}, {"linked_groups", linked}, {"groups", groups}};
+}
+
+QJsonValue automationFxLinkedGroup(Document& document, TFx* node) {
+  FxGraphJournal& journal = journalOf(document);
+  TFx* native             = nativeFx(node);
+  if (native->getLinkedFx() == native) return QJsonValue();
+  std::vector<std::pair<quint64, QString>> members;
+  TFx* member = native;
+  for (int guard = 0; guard < kMaximumRingMembers; ++guard) {
+    TFx* owner = member;
+    if (auto* zerary = dynamic_cast<TZeraryFx*>(member))
+      if (zerary->getColumnFx()) owner = zerary->getColumnFx();
+    members.push_back(
+        {automationFxSequence(document, owner), document.idForFx(owner)});
+    member = member->getLinkedFx();
+    if (!member || member == native) break;
+  }
+  std::sort(members.begin(), members.end());
+  QString& group = journal.linkHandles[members.front().second];
+  if (group.isEmpty())
+    group = "fxlink_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QJsonArray ids;
+  for (const auto& entry : members) ids.append(entry.second);
+  return QJsonObject{{"group_id", group}, {"fx_ids", ids}};
+}
+
+QStringList automationFxDifferingParameters(TFx* first, TFx* second) {
+  ParameterDigests a, b;
+  addParameters(a, nativeFx(first), {});
+  addParameters(b, nativeFx(second), {});
+  QStringList names;
+  for (size_t index = 0; index < a.size() && index < b.size(); ++index)
+    if (a[index].first != b[index].first || a[index].second != b[index].second)
+      names.append(a[index].first);
+  return names;
 }
 
 #ifdef BUILD_UI_PORT_TESTS

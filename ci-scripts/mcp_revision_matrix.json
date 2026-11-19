@@ -1205,6 +1205,48 @@
      }
     }
    ]
+  },
+  "fx_blurs": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur2"
+     },
+     "save": {
+      "blur2": "fx_id"
+     }
+    }
+   ]
+  },
+  "fx_linked_blurs": {
+   "extends": "fx_blurs",
+   "steps": [
+    {
+     "tool": "fx.link.add",
+     "args": {
+      "fx_id": "$blur2",
+      "linked_to_fx_id": "$blur"
+     }
+    }
+   ]
+  },
+  "fx_over": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "overFx",
+      "name": "Over"
+     },
+     "save": {
+      "over": "fx_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -7603,6 +7645,109 @@
    "noop": {
     "policy": "preserves",
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.link.add": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_blurs",
+   "changes": "links an effect's parameters to another effect's",
+   "success": {
+    "args": {
+     "fx_id": "$blur2",
+     "linked_to_fx_id": "$blur"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "linked_to_fx_id": "$card"
+     },
+     "code": "link_incompatible"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "An effect already in the group is a no-op."
+   }
+  },
+  "fx.link.remove": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_linked_blurs",
+   "changes": "gives a linked effect its own parameters",
+   "success": {
+    "args": {
+     "fx_id": "$blur2"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "An unlinked effect is a no-op."
+   }
+  },
+  "fx.port_group.set": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_over",
+   "changes": "the sources and ports of a dynamic port group",
+   "success": {
+    "args": {
+     "fx_id": "$over",
+     "group": "Source",
+     "sources": [
+      "$card",
+      "$blur",
+      "$card"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$over",
+      "group": "Light",
+      "sources": []
+     },
+     "code": "unknown_port_group"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Sources equal to the current ones leave the group alone."
    }
   }
  },

@@ -138,6 +138,72 @@ void requireColumnEditable(Document& document, TFx* fx) {
                 "Unlock the column and stage object before modifying it.");
 }
 
+// The name of a curve of param that the editor has locked, or a null
+// string. A lock is editor session state (TDoubleParam::isEditorLocked); the
+// worker refuses to change a locked curve as the Function Editor does.
+QString lockedCurve(TParam* param, const QString& name, int depth = 0) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param))
+    return number->isEditorLocked() ? name : QString();
+  auto* set = dynamic_cast<TParamSet*>(param);
+  if (!set || depth > 16) return {};
+  for (int index = 0; index < set->getParamCount(); ++index) {
+    const QString locked = lockedCurve(
+        set->getParam(index).getPointer(),
+        name + "." + QString::fromStdString(set->getParamName(index)),
+        depth + 1);
+    if (!locked.isNull()) return locked;
+  }
+  return {};
+}
+
+void requireUnlockedCurve(Document& document, TFx* fx, TParam* param,
+                          const QString& name) {
+  const QString channel = lockedCurve(param, name);
+  if (channel.isNull()) return;
+  throw Error("locked", "The curve is locked in the editor; unlock it first.",
+              {{"reason", "curve_locked"},
+               {"fx_id", document.idForFx(fx)},
+               {"parameter", name},
+               {"channel", channel}});
+}
+
+void requireUnlockedCurves(Document& document, TFx* fx) {
+  TParamContainer* params = parameterFx(fx)->getParams();
+  for (int index = 0; index < params->getParamCount(); ++index)
+    requireUnlockedCurve(document, fx, params->getParam(index),
+                         QString::fromStdString(params->getParamName(index)));
+}
+
+// The nodes that share fx's parameters, fx included, in ring order. A
+// parameter edit of one is an edit of all, so each must be editable.
+std::vector<TFx*> linkedNodes(TFx* fx) {
+  TFx* native = parameterFx(fx);
+  std::vector<TFx*> nodes{fx};
+  TFx* member = native->getLinkedFx();
+  for (int guard = 0; member && member != native && guard < 1024; ++guard) {
+    auto* zerary = dynamic_cast<TZeraryFx*>(member);
+    nodes.push_back(zerary && zerary->getColumnFx() ? zerary->getColumnFx()
+                                                    : member);
+    member = member->getLinkedFx();
+  }
+  return nodes;
+}
+
+// Every member of fx's linked group is in an unlocked column; the result's
+// affected_fx_ids lists them in creation order with the group id.
+void requireLinkedEditable(Document& document, TFx* fx) {
+  for (TFx* node : linkedNodes(fx)) requireColumnEditable(document, node);
+}
+
+void addAffected(Document& document, TFx* fx, QJsonObject& result) {
+  const QJsonValue group = automationFxLinkedGroup(document, fx);
+  result["linked_group_id"] =
+      group.isNull() ? QJsonValue() : group.toObject().value("group_id");
+  result["affected_fx_ids"] = group.isNull()
+                                  ? QJsonArray{document.idForFx(fx)}
+                                  : group.toObject().value("fx_ids").toArray();
+}
+
 // Names the affected effect in a constraint failure raised by action.
 template <typename Action>
 auto constraintForFx(Document& document, TFx* node, Action action) {
@@ -274,6 +340,17 @@ QJsonArray parameterDescriptions(TFx* fx, double frame) {
   return result;
 }
 
+// The group a port belongs to and its position in it, or null.
+QJsonValue portGroup(TFx* fx, TFxPort* port) {
+  const int group = port->getGroupIndex();
+  if (group < 0 || group >= fx->dynamicPortGroupsCount()) return QJsonValue();
+  const TFxPortDG* ports = fx->dynamicPortGroup(group);
+  const auto& members    = ports->ports();
+  const auto found       = std::find(members.begin(), members.end(), port);
+  return QJsonObject{{"prefix", QString::fromStdString(ports->portsPrefix())},
+                     {"position", static_cast<int>(found - members.begin())}};
+}
+
 QJsonArray portsDescription(TFx* fx, Document* document = nullptr) {
   QJsonArray ports;
   for (int index = 0; index < fx->getInputPortCount(); ++index) {
@@ -282,12 +359,29 @@ QJsonArray portsDescription(TFx* fx, Document* document = nullptr) {
         {"name", QString::fromStdString(fx->getInputPortName(index))},
         {"type", "raster"},
         {"control", port->isaControlPort()},
-        {"connected", port->isConnected()}};
+        {"connected", port->isConnected()},
+        {"group", portGroup(fx, port)}};
     if (document && port->isConnected())
       entry["source_fx_id"] = document->idForFx(port->getFx());
     ports.append(entry);
   }
   return ports;
+}
+
+// A node's dynamic port groups: prefix, the native minimum, the most
+// fx.port_group.set accepts and whether the worker edits the group.
+QJsonArray portGroupsDescription(TFx* fx) {
+  QJsonArray groups;
+  const int maximum = automationFxMaxGroupPorts(fx->getFxType());
+  for (int group = 0; group < fx->dynamicPortGroupsCount(); ++group) {
+    const TFxPortDG* ports = fx->dynamicPortGroup(group);
+    groups.append(
+        QJsonObject{{"prefix", QString::fromStdString(ports->portsPrefix())},
+                    {"min_ports", ports->minPortsCount()},
+                    {"max_ports", std::max(maximum, ports->minPortsCount())},
+                    {"editable", maximum > 0}});
+  }
+  return groups;
 }
 
 QJsonObject catalogEntry(const QString& type, const EffectFactory& factory) {
@@ -300,6 +394,7 @@ QJsonObject catalogEntry(const QString& type, const EffectFactory& factory) {
                                "preset.save", "preset.apply"}},
       {"generator", dynamic_cast<TZeraryFx*>(fx.getPointer()) != nullptr},
       {"ports", portsDescription(fx.getPointer())},
+      {"port_groups", portGroupsDescription(fx.getPointer())},
       {"parameters", parameterDescriptions(fx.getPointer(), 0)}};
   const QJsonObject profile = automationFxProfileDescription(type);
   for (auto field = profile.begin(); field != profile.end(); ++field)
@@ -337,6 +432,7 @@ QJsonObject describeFx(Document& document, TFx* fx, FxDag* graph = nullptr) {
                                      native->getAttributes()->isEnabled()},
                      {"native_fx_version", native->getFxVersion()},
                      {"ports", portsDescription(fx, &document)},
+                     {"port_groups", portGroupsDescription(fx)},
                      {"terminal", graph->getTerminalFxs()->containsFx(fx)},
                      {"diagnostics", diagnostics(native)}};
   if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
@@ -928,7 +1024,8 @@ QJsonValue applyPreset(Context& context, Document& document,
                        const QJsonObject& params) {
   TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
   requireEditable(fx);
-  requireColumnEditable(document, fx);
+  requireLinkedEditable(document, fx);
+  requireUnlockedCurves(document, fx);
   TFx* native            = parameterFx(fx);
   const QByteArray bytes = admittedPreset(context, native, params);
   PrivateDirectory staging(context.scratchDirectory() + "/preset-apply-XXXXXX");
@@ -948,11 +1045,12 @@ QJsonValue applyPreset(Context& context, Document& document,
     replacePresetParameters(native, candidate.getPointer(), backup.getPointer(),
                             bytes, staging.path());
   }
-  const QString id = document.idForFx(fx);
-  return QJsonObject{{"changed", changed},
-                     {"fx_id", id},
-                     {"affected_fx_ids", QJsonArray{id}},
+  QJsonObject result{{"changed", changed},
+                     {"fx_id", document.idForFx(fx)},
                      {"sha256", QString::fromLatin1(presetDigest(bytes))}};
+  addAffected(document, fx, result);
+  result.remove("linked_group_id");
+  return result;
 }
 
 void appendInputs(TFx* fx, FxDag* graph, std::vector<TFx*>& pending) {
@@ -1062,11 +1160,17 @@ TFxPort* editablePort(TFx* fx, const QString& name) {
   if (!dynamic_cast<TOutputFx*>(fx) && !dynamic_cast<TMacroFx*>(fx))
     requireEditable(fx);
   TFxPort* port = fx->getInputPort(name.toStdString());
-  if (!port)
-    throw Error("UNKNOWN_PORT",
-                "Effect has no input port with this exact name.",
-                {{"port", name}});
-  return port;
+  if (port) return port;
+  QJsonObject details{{"port", name}};
+  for (int group = 0; group < fx->dynamicPortGroupsCount(); ++group) {
+    const QString prefix =
+        QString::fromStdString(fx->dynamicPortGroup(group)->portsPrefix());
+    if (!name.startsWith(prefix)) continue;
+    details["port_group"] = prefix;
+    details["use"]        = "fx.port_group.set";
+  }
+  throw Error("UNKNOWN_PORT", "Effect has no input port with this exact name.",
+              details);
 }
 
 void validateConnection(FxDag* graph, TFx* destination, TFxPort* port,
@@ -1124,6 +1228,138 @@ QJsonValue connectEffect(Context& context, Document& document,
   if (port->getFx() == source) return describeFx(document, destination);
   setPortSource(context, document, port, source);
   return describeFx(document, destination);
+}
+
+// The ports of one dynamic group of fx, in port array order.
+std::vector<std::pair<std::string, TFxPort*>> groupPorts(TFx* fx, int group) {
+  std::vector<std::pair<std::string, TFxPort*>> ports;
+  for (int index = 0; index < fx->getInputPortCount(); ++index)
+    if (fx->getInputPort(index)->getGroupIndex() == group)
+      ports.push_back({fx->getInputPortName(index), fx->getInputPort(index)});
+  return ports;
+}
+
+int editableGroup(TFx* fx, const QString& prefix) {
+  QJsonArray prefixes;
+  const bool editable = automationFxMaxGroupPorts(fx->getFxType()) > 0;
+  for (int group = 0; group < fx->dynamicPortGroupsCount(); ++group) {
+    const QString name =
+        QString::fromStdString(fx->dynamicPortGroup(group)->portsPrefix());
+    if (editable) prefixes.append(name);
+    if (editable && name == prefix) return group;
+  }
+  throw Error("unknown_port_group",
+              "The effect has no editable dynamic port group with this "
+              "prefix.",
+              {{"group", prefix}, {"groups", prefixes}});
+}
+
+std::vector<TFx*> groupSources(Document& document, TFx* fx, TFxPort* sample,
+                               const QJsonArray& ids, int maximum) {
+  if (ids.size() > maximum)
+    throw Error("resource_limit", "Too many sources for this port group.",
+                {{"limit", "group_ports"}, {"maximum", maximum}});
+  std::vector<TFx*> sources;
+  for (const QJsonValue& id : ids) {
+    TFx* source = ownedFx(document, id.toString());
+    validateConnection(dag(document), fx, sample, source);
+    sources.push_back(source);
+  }
+  return sources;
+}
+
+// The editor's normal form: ports reused in array order, port i fed by
+// sources[i], one empty port after them, at least the group's minimum.
+int targetPortCount(int minimum, int maximum, int sources) {
+  return std::max(minimum, std::min(sources + 1, maximum));
+}
+
+bool groupMatches(TFx* fx, int group, const std::vector<TFx*>& sources,
+                  int count) {
+  const auto ports = groupPorts(fx, group);
+  if (static_cast<int>(ports.size()) != count) return false;
+  for (int index = 0; index < count; ++index)
+    if (ports[index].second->getFx() !=
+        (index < static_cast<int>(sources.size()) ? sources[index] : nullptr))
+      return false;
+  return true;
+}
+
+// Grows the group to count ports with the editor's names (prefix plus the
+// first free number from the group size up), checking each name first: the
+// native addInputPort deletes a port whose name exists.
+QJsonArray growGroup(TFx* fx, int group, int count) {
+  const std::string prefix = fx->dynamicPortGroup(group)->portsPrefix();
+  QJsonArray added;
+  while (static_cast<int>(groupPorts(fx, group).size()) < count) {
+    int number = static_cast<int>(groupPorts(fx, group).size()) + 1;
+    while (fx->getInputPort(prefix + std::to_string(number))) ++number;
+    if (!fx->addInputPort(prefix + std::to_string(number), new TRasterFxPort,
+                          group))
+      throw Error("NATIVE_FAILURE",
+                  "Native port creation did not take effect.");
+    added.append(QString::fromStdString(prefix + std::to_string(number)));
+  }
+  return added;
+}
+
+QJsonArray shrinkGroup(TFx* fx, int group, int count) {
+  QJsonArray removed;
+  for (auto ports                                    = groupPorts(fx, group);
+       static_cast<int>(ports.size()) > count; ports = groupPorts(fx, group)) {
+    ports.back().second->setFx(nullptr);
+    if (!fx->removeInputPort(ports.back().first))
+      throw Error("NATIVE_FAILURE", "Native port removal did not take effect.");
+    removed.append(QString::fromStdString(ports.back().first));
+  }
+  return removed;
+}
+
+QJsonValue setPortGroup(Context& context, Document& document,
+                        const QJsonObject& params) {
+  validateAutomationFxGraph(*document.scene);
+  TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
+  if (dynamic_cast<TMacroFx*>(fx))
+    throw Error("unknown_port_group",
+                "Expand the macro to edit its members' port groups.");
+  requireEditable(fx);
+  requireColumnEditable(document, fx);
+  const int group   = editableGroup(fx, requiredString(params, "group"));
+  const int minimum = fx->dynamicPortGroup(group)->minPortsCount();
+  const int maximum = automationFxMaxGroupPorts(fx->getFxType());
+  const auto sources =
+      groupSources(document, fx, groupPorts(fx, group).front().second,
+                   params.value("sources").toArray(), maximum);
+  const int count    = targetPortCount(minimum, maximum, int(sources.size()));
+  const bool changed = !groupMatches(fx, group, sources, count);
+  QJsonArray added, removed;
+  if (changed) {
+    context.markMutationStarted();
+    added            = growGroup(fx, group, count);
+    removed          = shrinkGroup(fx, group, count);
+    const auto ports = groupPorts(fx, group);
+    for (int index = 0; index < count; ++index)
+      ports[index].second->setFx(index < int(sources.size()) ? sources[index]
+                                                             : nullptr);
+    if (!groupMatches(fx, group, sources, count))
+      throw Error("NATIVE_FAILURE",
+                  "Native port group edit did not take effect.");
+  }
+  QJsonArray ports;
+  for (const auto& port : groupPorts(fx, group))
+    ports.append(QJsonObject{
+        {"name", QString::fromStdString(port.first)},
+        {"source_fx_id", port.second->getFx() ? QJsonValue(document.idForFx(
+                                                    port.second->getFx()))
+                                              : QJsonValue()}});
+  return QJsonObject{{"changed", changed},
+                     {"fx_id", document.idForFx(fx)},
+                     {"group", params.value("group")},
+                     {"ports", ports},
+                     {"ports_added", added},
+                     {"ports_removed", removed},
+                     {"min_ports", minimum},
+                     {"max_ports", maximum}};
 }
 
 void requireTerminalEditable(TFx* fx) {
@@ -1219,6 +1455,10 @@ QJsonValue deleteEffect(Context& context, Document& document,
   auto* output     = dynamic_cast<TOutputFx*>(fx);
   requireDeletable(document, fx);
   context.markMutationStarted();
+  // A member leaving the graph is unlinked first, as the editor does, so no
+  // ring keeps an effect the scene no longer saves.
+  TFx* native = output ? fx : parameterFx(fx);
+  if (native->getLinkedFx() != native) native->unlinkParams();
   while (fx->getOutputConnectionCount() > 0)
     fx->getOutputConnection(0)->setFx(nullptr);
   fx->disconnectAll();
@@ -1393,15 +1633,19 @@ QJsonValue changeParameter(Context& context, Document& document,
   TFx* fx            = ownedFx(document, requiredString(params, "fx_id"));
   const QString name = requiredString(params, "parameter");
   TParam* param      = editableParameter(fx, name);
-  requireColumnEditable(document, fx);
+  requireLinkedEditable(document, fx);
+  requireUnlockedCurve(document, fx, param, name);
   const int frame        = integerParam(params, "frame", 0, 1000000, 0);
   const QJsonValue value = params.value("value");
   validateValue(value, profileSchema(fx, param, name));
   validateParameterEdit(param, key);
   constraintForFx(document, fx,
                   [&] { validateEditedProfile(fx, name, value, frame, key); });
-  if (unchangedParameter(param, value, frame, key))
-    return parameterDescription(fx, param, name, frame);
+  if (unchangedParameter(param, value, frame, key)) {
+    QJsonObject result = parameterDescription(fx, param, name, frame);
+    addAffected(document, fx, result);
+    return result;
+  }
   TParamP backup = param->clone();
   context.markMutationStarted();
   try {
@@ -1411,7 +1655,9 @@ QJsonValue changeParameter(Context& context, Document& document,
     param->copy(backup.getPointer());
     throw;
   }
-  return parameterDescription(fx, param, name, frame);
+  QJsonObject result = parameterDescription(fx, param, name, frame);
+  addAffected(document, fx, result);
+  return result;
 }
 
 QJsonValue getParameters(Context&, Document& document,
@@ -1491,6 +1737,31 @@ bool isAutomationFxTypeAvailable(const QString& type) {
   return allowedTypes().contains(type) && typeAvailable(type);
 }
 
+namespace {
+// I-2: a parameter ring links 2 to 64 effects of one type and version, all
+// in the scene graph; a ring that a hostile file built otherwise is refused.
+void validateLinkRings(const std::set<TFx*>& members) {
+  std::set<TFx*> natives;
+  for (TFx* fx : members)
+    if (!dynamic_cast<TMacroFx*>(fx) && !dynamic_cast<TOutputFx*>(fx))
+      natives.insert(parameterFx(fx));
+  for (TFx* native : natives) {
+    TFx* member = native->getLinkedFx();
+    int size    = 1;
+    for (; member && member != native; member = member->getLinkedFx()) {
+      if (++size > 64 || natives.count(member) == 0 ||
+          member->getFxType() != native->getFxType() ||
+          member->getFxVersion() != native->getFxVersion())
+        throw Error("INVALID_GRAPH",
+                    "A linked parameter group links effects outside the "
+                    "graph, of different types, or more than 64.");
+    }
+    if (!member)
+      throw Error("INVALID_GRAPH", "A linked parameter group is not a ring.");
+  }
+}
+}  // namespace
+
 void validateAutomationFxGraph(ToonzScene& scene) {
   const std::set<TFx*> members = sceneMembers(scene);
   if (members.size() > 4096)
@@ -1500,6 +1771,7 @@ void validateAutomationFxGraph(ToonzScene& scene) {
   FxDag* graph   = sheet->getFxDag();
   validateAutomationMacros(scene, members);
   for (TFx* fx : members) validateNode(fx, sheet);
+  validateLinkRings(members);
   validateEdges(members, graph);
 }
 
@@ -1644,6 +1916,10 @@ QJsonValue executeFx(Context& context, const QString& method,
   Document& document = context.document(requiredString(params, "document_id"));
   if (method.startsWith("fx.macro."))
     return executeMacro(context, document, method, params);
+  if (method == "fx.port_group.set")
+    return setPortGroup(context, document, params);
+  if (method.startsWith("fx.link."))
+    return executeFxLink(context, document, method, params);
   if (method.startsWith("fx.group.") || method == "fx.layout.set")
     return executeFxGraph(context, document, method, params);
   if (method == "fx.graph.delta")
@@ -1687,6 +1963,10 @@ QJsonValue executeFx(Context& context, const QString& method,
 
 void automationRequireColumnEditable(Document& document, TFx* fx) {
   requireColumnEditable(document, fx);
+}
+
+void automationRequireUnlockedCurves(Document& document, TFx* fx) {
+  requireUnlockedCurves(document, fx);
 }
 
 TFx* automationOwnedFx(Document& document, const QString& id) {

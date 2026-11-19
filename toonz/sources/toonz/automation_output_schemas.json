@@ -9052,6 +9052,41 @@
               "minItems": 0,
               "type": "array"
             },
+            "port_groups": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "editable": {
+                    "type": "boolean"
+                  },
+                  "max_ports": {
+                    "maximum": 65,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "min_ports": {
+                    "maximum": 64,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "prefix": {
+                    "maxLength": 32,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "editable",
+                  "max_ports",
+                  "min_ports",
+                  "prefix"
+                ],
+                "type": "object"
+              },
+              "maxItems": 4,
+              "minItems": 0,
+              "type": "array"
+            },
             "ports": {
               "items": {
                 "additionalProperties": false,
@@ -9061,6 +9096,33 @@
                   },
                   "control": {
                     "type": "boolean"
+                  },
+                  "group": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "position": {
+                            "maximum": 127,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "prefix": {
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "position",
+                          "prefix"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "name": {
                     "maxLength": 65536,
@@ -9998,6 +10060,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -10007,6 +10104,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,
@@ -10914,6 +11038,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -10923,6 +11082,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,
@@ -12523,6 +12709,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -12532,6 +12753,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,
@@ -13442,6 +13690,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -13451,6 +13734,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,
@@ -14376,6 +14686,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -14385,6 +14730,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,
@@ -14799,6 +15171,41 @@
               "minimum": -1.7976931348623157e+308,
               "type": "number"
             },
+            "port_groups": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "editable": {
+                    "type": "boolean"
+                  },
+                  "max_ports": {
+                    "maximum": 65,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "min_ports": {
+                    "maximum": 64,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "prefix": {
+                    "maxLength": 32,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "editable",
+                  "max_ports",
+                  "min_ports",
+                  "prefix"
+                ],
+                "type": "object"
+              },
+              "maxItems": 4,
+              "minItems": 0,
+              "type": "array"
+            },
             "ports": {
               "items": {
                 "additionalProperties": false,
@@ -14808,6 +15215,33 @@
                   },
                   "control": {
                     "type": "boolean"
+                  },
+                  "group": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "position": {
+                            "maximum": 127,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "prefix": {
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "position",
+                          "prefix"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "name": {
                     "maxLength": 65536,
@@ -18644,6 +19078,1503 @@
     ],
     "type": "object"
   },
+  "fx.link.add": {
+    "additionalProperties": false,
+    "properties": {
+      "affected_fx_ids": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "changed": {
+        "type": "boolean"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "fx_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "graph_delta": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "generator_wrapper": {
+                                  "type": "boolean"
+                                },
+                                "group_ids": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "fxgroup_[0-9a-f-]{36}",
+                                    "type": "string"
+                                  },
+                                  "maxItems": 16,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "linked_group_id": {
+                                  "oneOf": [
+                                    {
+                                      "maxLength": 128,
+                                      "minLength": 1,
+                                      "pattern": "fxlink_[0-9a-f-]{36}",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "macro": {
+                                  "type": "boolean"
+                                },
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "port_names": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 128,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "position": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "x": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        },
+                                        "y": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "x",
+                                        "y"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "terminal": {
+                                  "type": "boolean"
+                                },
+                                "type": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "generator_wrapper",
+                                "group_ids",
+                                "linked_group_id",
+                                "macro",
+                                "name",
+                                "port_names",
+                                "position",
+                                "terminal",
+                                "type"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "aspects": {
+                          "items": {
+                            "enum": [
+                              "name",
+                              "enabled",
+                              "ports",
+                              "terminal",
+                              "parameters",
+                              "position",
+                              "groups",
+                              "link",
+                              "macro_members"
+                            ],
+                            "type": "string"
+                          },
+                          "maxItems": 9,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "generator_wrapper": {
+                                  "type": "boolean"
+                                },
+                                "group_ids": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "fxgroup_[0-9a-f-]{36}",
+                                    "type": "string"
+                                  },
+                                  "maxItems": 16,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "linked_group_id": {
+                                  "oneOf": [
+                                    {
+                                      "maxLength": 128,
+                                      "minLength": 1,
+                                      "pattern": "fxlink_[0-9a-f-]{36}",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "macro": {
+                                  "type": "boolean"
+                                },
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "port_names": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 128,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "position": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "x": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        },
+                                        "y": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "x",
+                                        "y"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "terminal": {
+                                  "type": "boolean"
+                                },
+                                "type": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "generator_wrapper",
+                                "group_ids",
+                                "linked_group_id",
+                                "macro",
+                                "name",
+                                "port_names",
+                                "position",
+                                "terminal",
+                                "type"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "change": {
+                          "enum": [
+                            "created",
+                            "removed",
+                            "changed",
+                            "transient"
+                          ],
+                          "type": "string"
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "node"
+                        },
+                        "parameters_changed": {
+                          "items": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 256,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "parameters_truncated": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "aspects",
+                        "before",
+                        "cause",
+                        "change",
+                        "fx_id",
+                        "kind",
+                        "parameters_changed",
+                        "parameters_truncated"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "edge"
+                        },
+                        "port": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "fx_id",
+                        "kind",
+                        "port"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "type": "boolean"
+                        },
+                        "before": {
+                          "type": "boolean"
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "terminal"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "fx_id",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "const": "current_output"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after_fx_ids": {
+                          "items": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 64,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "before_fx_ids": {
+                          "items": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 64,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "group_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "fxlink_[0-9a-f-]{36}",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "linked_group"
+                        }
+                      },
+                      "required": [
+                        "after_fx_ids",
+                        "before_fx_ids",
+                        "cause",
+                        "group_id",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "change": {
+                          "enum": [
+                            "created",
+                            "removed",
+                            "renamed",
+                            "membership"
+                          ],
+                          "type": "string"
+                        },
+                        "group_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "fxgroup_[0-9a-f-]{36}",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "group"
+                        },
+                        "member_count_after": {
+                          "maximum": 16384,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "member_count_before": {
+                          "maximum": 16384,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "name_after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "name_before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cause",
+                        "change",
+                        "group_id",
+                        "kind",
+                        "member_count_after",
+                        "member_count_before",
+                        "name_after",
+                        "name_before"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 512,
+                "minItems": 0,
+                "type": "array"
+              },
+              "evidence_kind": {
+                "const": "structural"
+              },
+              "from_revision": {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "[0-9]{1,20}",
+                "type": "string"
+              },
+              "revision": {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "[0-9]{1,20}",
+                "type": "string"
+              },
+              "tool": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "total_entries": {
+                "maximum": 65536,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "entries",
+              "evidence_kind",
+              "from_revision",
+              "revision",
+              "tool",
+              "total_entries",
+              "truncated"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "linked_group": {
+        "additionalProperties": false,
+        "properties": {
+          "fx_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 2,
+            "type": "array"
+          },
+          "group_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "fxlink_[0-9a-f-]{36}",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fx_ids",
+          "group_id"
+        ],
+        "type": "object"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "overwritten_parameters": {
+        "items": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 256,
+        "minItems": 0,
+        "type": "array"
+      },
+      "revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "pattern": "[0-9]{1,20}",
+        "type": "string"
+      }
+    },
+    "required": [
+      "affected_fx_ids",
+      "changed",
+      "document_id",
+      "fx_id",
+      "graph_delta",
+      "linked_group",
+      "operation_id",
+      "overwritten_parameters",
+      "revision"
+    ],
+    "type": "object"
+  },
+  "fx.link.remove": {
+    "additionalProperties": false,
+    "properties": {
+      "changed": {
+        "type": "boolean"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "fx_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "graph_delta": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "generator_wrapper": {
+                                  "type": "boolean"
+                                },
+                                "group_ids": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "fxgroup_[0-9a-f-]{36}",
+                                    "type": "string"
+                                  },
+                                  "maxItems": 16,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "linked_group_id": {
+                                  "oneOf": [
+                                    {
+                                      "maxLength": 128,
+                                      "minLength": 1,
+                                      "pattern": "fxlink_[0-9a-f-]{36}",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "macro": {
+                                  "type": "boolean"
+                                },
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "port_names": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 128,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "position": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "x": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        },
+                                        "y": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "x",
+                                        "y"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "terminal": {
+                                  "type": "boolean"
+                                },
+                                "type": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "generator_wrapper",
+                                "group_ids",
+                                "linked_group_id",
+                                "macro",
+                                "name",
+                                "port_names",
+                                "position",
+                                "terminal",
+                                "type"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "aspects": {
+                          "items": {
+                            "enum": [
+                              "name",
+                              "enabled",
+                              "ports",
+                              "terminal",
+                              "parameters",
+                              "position",
+                              "groups",
+                              "link",
+                              "macro_members"
+                            ],
+                            "type": "string"
+                          },
+                          "maxItems": 9,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "generator_wrapper": {
+                                  "type": "boolean"
+                                },
+                                "group_ids": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "fxgroup_[0-9a-f-]{36}",
+                                    "type": "string"
+                                  },
+                                  "maxItems": 16,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "linked_group_id": {
+                                  "oneOf": [
+                                    {
+                                      "maxLength": 128,
+                                      "minLength": 1,
+                                      "pattern": "fxlink_[0-9a-f-]{36}",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "macro": {
+                                  "type": "boolean"
+                                },
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "port_names": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 128,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "position": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "x": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        },
+                                        "y": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "x",
+                                        "y"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "terminal": {
+                                  "type": "boolean"
+                                },
+                                "type": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "generator_wrapper",
+                                "group_ids",
+                                "linked_group_id",
+                                "macro",
+                                "name",
+                                "port_names",
+                                "position",
+                                "terminal",
+                                "type"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "change": {
+                          "enum": [
+                            "created",
+                            "removed",
+                            "changed",
+                            "transient"
+                          ],
+                          "type": "string"
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "node"
+                        },
+                        "parameters_changed": {
+                          "items": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 256,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "parameters_truncated": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "aspects",
+                        "before",
+                        "cause",
+                        "change",
+                        "fx_id",
+                        "kind",
+                        "parameters_changed",
+                        "parameters_truncated"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "edge"
+                        },
+                        "port": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "fx_id",
+                        "kind",
+                        "port"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "type": "boolean"
+                        },
+                        "before": {
+                          "type": "boolean"
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "terminal"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "fx_id",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "const": "current_output"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after_fx_ids": {
+                          "items": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 64,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "before_fx_ids": {
+                          "items": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 64,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "group_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "fxlink_[0-9a-f-]{36}",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "linked_group"
+                        }
+                      },
+                      "required": [
+                        "after_fx_ids",
+                        "before_fx_ids",
+                        "cause",
+                        "group_id",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "change": {
+                          "enum": [
+                            "created",
+                            "removed",
+                            "renamed",
+                            "membership"
+                          ],
+                          "type": "string"
+                        },
+                        "group_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "fxgroup_[0-9a-f-]{36}",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "group"
+                        },
+                        "member_count_after": {
+                          "maximum": 16384,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "member_count_before": {
+                          "maximum": 16384,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "name_after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "name_before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cause",
+                        "change",
+                        "group_id",
+                        "kind",
+                        "member_count_after",
+                        "member_count_before",
+                        "name_after",
+                        "name_before"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 512,
+                "minItems": 0,
+                "type": "array"
+              },
+              "evidence_kind": {
+                "const": "structural"
+              },
+              "from_revision": {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "[0-9]{1,20}",
+                "type": "string"
+              },
+              "revision": {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "[0-9]{1,20}",
+                "type": "string"
+              },
+              "tool": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "total_entries": {
+                "maximum": 65536,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "entries",
+              "evidence_kind",
+              "from_revision",
+              "revision",
+              "tool",
+              "total_entries",
+              "truncated"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "group_before": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "fx_ids": {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "minItems": 2,
+                "type": "array"
+              },
+              "group_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "fxlink_[0-9a-f-]{36}",
+                "type": "string"
+              }
+            },
+            "required": [
+              "fx_ids",
+              "group_id"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "remaining_group": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "fx_ids": {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "minItems": 2,
+                "type": "array"
+              },
+              "group_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "fxlink_[0-9a-f-]{36}",
+                "type": "string"
+              }
+            },
+            "required": [
+              "fx_ids",
+              "group_id"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "pattern": "[0-9]{1,20}",
+        "type": "string"
+      }
+    },
+    "required": [
+      "changed",
+      "document_id",
+      "fx_id",
+      "graph_delta",
+      "group_before",
+      "operation_id",
+      "remaining_group",
+      "revision"
+    ],
+    "type": "object"
+  },
   "fx.macro.create": {
     "additionalProperties": false,
     "properties": {
@@ -19531,6 +21462,41 @@
             "minimum": -1.7976931348623157e+308,
             "type": "number"
           },
+          "port_groups": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "editable": {
+                  "type": "boolean"
+                },
+                "max_ports": {
+                  "maximum": 65,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min_ports": {
+                  "maximum": 64,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "prefix": {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "editable",
+                "max_ports",
+                "min_ports",
+                "prefix"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "minItems": 0,
+            "type": "array"
+          },
           "ports": {
             "items": {
               "additionalProperties": false,
@@ -19540,6 +21506,33 @@
                 },
                 "control": {
                   "type": "boolean"
+                },
+                "group": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "position": {
+                          "maximum": 127,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "prefix": {
+                          "maxLength": 32,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "position",
+                        "prefix"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "name": {
                   "maxLength": 65536,
@@ -21086,6 +23079,16 @@
   "fx.parameter.set": {
     "additionalProperties": false,
     "properties": {
+      "affected_fx_ids": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
       "animatable": {
         "type": "boolean"
       },
@@ -21751,6 +23754,19 @@
         "minItems": 0,
         "type": "array"
       },
+      "linked_group_id": {
+        "oneOf": [
+          {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "fxlink_[0-9a-f-]{36}",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
       "name": {
         "maxLength": 65536,
         "minLength": 0,
@@ -21806,6 +23822,16 @@
   "fx.parameter.set_key": {
     "additionalProperties": false,
     "properties": {
+      "affected_fx_ids": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
       "animatable": {
         "type": "boolean"
       },
@@ -22476,6 +24502,19 @@
         "minItems": 0,
         "type": "array"
       },
+      "linked_group_id": {
+        "oneOf": [
+          {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "fxlink_[0-9a-f-]{36}",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
       "name": {
         "maxLength": 65536,
         "minLength": 0,
@@ -22524,6 +24563,769 @@
       "document_id",
       "graph_delta",
       "operation_id",
+      "revision"
+    ],
+    "type": "object"
+  },
+  "fx.port_group.set": {
+    "additionalProperties": false,
+    "properties": {
+      "changed": {
+        "type": "boolean"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "fx_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "graph_delta": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "generator_wrapper": {
+                                  "type": "boolean"
+                                },
+                                "group_ids": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "fxgroup_[0-9a-f-]{36}",
+                                    "type": "string"
+                                  },
+                                  "maxItems": 16,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "linked_group_id": {
+                                  "oneOf": [
+                                    {
+                                      "maxLength": 128,
+                                      "minLength": 1,
+                                      "pattern": "fxlink_[0-9a-f-]{36}",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "macro": {
+                                  "type": "boolean"
+                                },
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "port_names": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 128,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "position": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "x": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        },
+                                        "y": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "x",
+                                        "y"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "terminal": {
+                                  "type": "boolean"
+                                },
+                                "type": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "generator_wrapper",
+                                "group_ids",
+                                "linked_group_id",
+                                "macro",
+                                "name",
+                                "port_names",
+                                "position",
+                                "terminal",
+                                "type"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "aspects": {
+                          "items": {
+                            "enum": [
+                              "name",
+                              "enabled",
+                              "ports",
+                              "terminal",
+                              "parameters",
+                              "position",
+                              "groups",
+                              "link",
+                              "macro_members"
+                            ],
+                            "type": "string"
+                          },
+                          "maxItems": 9,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "generator_wrapper": {
+                                  "type": "boolean"
+                                },
+                                "group_ids": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "fxgroup_[0-9a-f-]{36}",
+                                    "type": "string"
+                                  },
+                                  "maxItems": 16,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "linked_group_id": {
+                                  "oneOf": [
+                                    {
+                                      "maxLength": 128,
+                                      "minLength": 1,
+                                      "pattern": "fxlink_[0-9a-f-]{36}",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "macro": {
+                                  "type": "boolean"
+                                },
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 0,
+                                  "type": "string"
+                                },
+                                "port_names": {
+                                  "items": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 128,
+                                  "minItems": 0,
+                                  "type": "array"
+                                },
+                                "position": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "x": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        },
+                                        "y": {
+                                          "maximum": 1000000,
+                                          "minimum": -1000000,
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "x",
+                                        "y"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "terminal": {
+                                  "type": "boolean"
+                                },
+                                "type": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "generator_wrapper",
+                                "group_ids",
+                                "linked_group_id",
+                                "macro",
+                                "name",
+                                "port_names",
+                                "position",
+                                "terminal",
+                                "type"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "change": {
+                          "enum": [
+                            "created",
+                            "removed",
+                            "changed",
+                            "transient"
+                          ],
+                          "type": "string"
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "node"
+                        },
+                        "parameters_changed": {
+                          "items": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 256,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "parameters_truncated": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "aspects",
+                        "before",
+                        "cause",
+                        "change",
+                        "fx_id",
+                        "kind",
+                        "parameters_changed",
+                        "parameters_truncated"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "edge"
+                        },
+                        "port": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "fx_id",
+                        "kind",
+                        "port"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "type": "boolean"
+                        },
+                        "before": {
+                          "type": "boolean"
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fx_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "terminal"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "fx_id",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "const": "current_output"
+                        }
+                      },
+                      "required": [
+                        "after",
+                        "before",
+                        "cause",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "after_fx_ids": {
+                          "items": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 64,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "before_fx_ids": {
+                          "items": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 64,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "group_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "fxlink_[0-9a-f-]{36}",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "linked_group"
+                        }
+                      },
+                      "required": [
+                        "after_fx_ids",
+                        "before_fx_ids",
+                        "cause",
+                        "group_id",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "cause": {
+                          "oneOf": [
+                            {
+                              "enum": [
+                                "requested",
+                                "implicit"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "change": {
+                          "enum": [
+                            "created",
+                            "removed",
+                            "renamed",
+                            "membership"
+                          ],
+                          "type": "string"
+                        },
+                        "group_id": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "fxgroup_[0-9a-f-]{36}",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "group"
+                        },
+                        "member_count_after": {
+                          "maximum": 16384,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "member_count_before": {
+                          "maximum": 16384,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "name_after": {
+                          "oneOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "name_before": {
+                          "oneOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cause",
+                        "change",
+                        "group_id",
+                        "kind",
+                        "member_count_after",
+                        "member_count_before",
+                        "name_after",
+                        "name_before"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 512,
+                "minItems": 0,
+                "type": "array"
+              },
+              "evidence_kind": {
+                "const": "structural"
+              },
+              "from_revision": {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "[0-9]{1,20}",
+                "type": "string"
+              },
+              "revision": {
+                "maxLength": 80,
+                "minLength": 1,
+                "pattern": "[0-9]{1,20}",
+                "type": "string"
+              },
+              "tool": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "total_entries": {
+                "maximum": 65536,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "entries",
+              "evidence_kind",
+              "from_revision",
+              "revision",
+              "tool",
+              "total_entries",
+              "truncated"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "group": {
+        "maxLength": 32,
+        "minLength": 1,
+        "type": "string"
+      },
+      "max_ports": {
+        "maximum": 65,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "min_ports": {
+        "maximum": 64,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "ports": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "source_fx_id": {
+              "oneOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "source_fx_id"
+          ],
+          "type": "object"
+        },
+        "maxItems": 65,
+        "minItems": 1,
+        "type": "array"
+      },
+      "ports_added": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 65,
+        "minItems": 0,
+        "type": "array"
+      },
+      "ports_removed": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 128,
+        "minItems": 0,
+        "type": "array"
+      },
+      "revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "pattern": "[0-9]{1,20}",
+        "type": "string"
+      }
+    },
+    "required": [
+      "changed",
+      "document_id",
+      "fx_id",
+      "graph_delta",
+      "group",
+      "max_ports",
+      "min_ports",
+      "operation_id",
+      "ports",
+      "ports_added",
+      "ports_removed",
       "revision"
     ],
     "type": "object"
@@ -24614,6 +27416,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -24623,6 +27460,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,
@@ -25539,6 +28403,41 @@
         "minLength": 0,
         "type": "string"
       },
+      "port_groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "editable": {
+              "type": "boolean"
+            },
+            "max_ports": {
+              "maximum": 65,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_ports": {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "prefix": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "editable",
+            "max_ports",
+            "min_ports",
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "maxItems": 4,
+        "minItems": 0,
+        "type": "array"
+      },
       "ports": {
         "items": {
           "additionalProperties": false,
@@ -25548,6 +28447,33 @@
             },
             "control": {
               "type": "boolean"
+            },
+            "group": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "maximum": 127,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "prefix": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "prefix"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "name": {
               "maxLength": 65536,

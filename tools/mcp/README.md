@@ -438,6 +438,27 @@ would not read back the same. A grouped
 effect cannot join a macro (`INVALID_MACRO`, `reason: grouped_member`); `fx.rename` also
 renames a macro, and a new macro takes its root's position.
 
+`fx.link.add {fx_id, linked_to_fx_id}` links an effect's parameters to another effect of the
+same type, version and parameters, as the editor's linked effects: it takes that group's
+values and keys (`overwritten_parameters` names the ones that differed), keeps its own
+connections, name and placement, and refuses an effect already in another group
+(`already_linked`), a different type (`link_incompatible`), the Xsheet node, outputs, macros
+and level columns (`unsupported_link`) and groups over 64. Every parameter edit of a member
+(`fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`) then changes them all, is
+refused when any member's column is locked, and reports `affected_fx_ids` and
+`linked_group_id`. `fx.link.remove` gives one member its own copy with equal values;
+deleting a member unlinks it first; `fx.duplicate` always makes an independent copy. Links
+survive save and reopen. A parameter whose curve the editor locked refuses every write with
+`locked` (`reason: curve_locked`, naming the channel).
+
+Over, multiply, screen and blend have a dynamic `Source` port group (catalog and graph
+`port_groups`: prefix, minimum 2, maximum 64; each port names its `group` and position).
+`fx.port_group.set {fx_id, group, sources}` sets its sources in order, index 0 being the
+first port, the top of an over's stack; the group takes the editor's form, one empty port
+after the sources and at least the minimum, adding ports named `Source<n>` and removing
+them from the end. `fx.connect` to a port the group no longer has is `UNKNOWN_PORT` with
+`port_group` and `use: fx.port_group.set`. A grown group copies into macros and reopens in
+order.
 
 PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
 pixels per image. Vector drawings are limited to 4096 strokes and 32768 control
@@ -1290,8 +1311,9 @@ the adapter and the live editor bridge add the rest.
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
 - `fx-finishing` toolset (1):
   `fx.recipe.list`
-- `fx-graph` toolset (4):
-  `fx.group.create`, `fx.group.remove`, `fx.group.rename`, `fx.layout.set`
+- `fx-graph` toolset (7):
+  `fx.group.create`, `fx.group.remove`, `fx.group.rename`, `fx.layout.set`, `fx.link.add`,
+  `fx.link.remove`, `fx.port_group.set`
 - `lipsync` toolset (3):
   `lipsync.apply`, `lipsync.import`, `lipsync.inspect`
 - `rigging` toolset (10):

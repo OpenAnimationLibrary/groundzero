@@ -530,6 +530,16 @@
    "toolset": "fx-graph",
    "writes": true
   },
+  "fx.link.add": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.link.remove": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
   "fx.macro.create": {
    "origin": "worker",
    "toolset": "core",
@@ -558,6 +568,11 @@
   "fx.parameter.set_key": {
    "origin": "worker",
    "toolset": "core",
+   "writes": true
+  },
+  "fx.port_group.set": {
+   "origin": "worker",
+   "toolset": "fx-graph",
    "writes": true
   },
   "fx.preset.apply": {
@@ -2658,12 +2673,15 @@
   {
    "id": "fx.linked_parameters",
    "domain": "Effects",
-   "outcome": "Link or unlink parameters between effects and edit dynamic port groups.",
-   "classification": "not_exposed",
-   "tools": [],
+   "outcome": "Link or unlink the parameters of effects of one type, and set the sources of dynamic port groups.",
+   "classification": "exposed",
+   "tools": [
+    "fx.link.add",
+    "fx.link.remove",
+    "fx.port_group.set"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W3"
+    "kind": "implemented"
    }
   },
   {

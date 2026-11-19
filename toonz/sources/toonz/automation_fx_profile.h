@@ -44,6 +44,9 @@ QJsonObject automationFxProfileDescription(const QString& type);
 QJsonArray automationFxProfileDiagnostics(TFx* fx);
 std::vector<AutomationFxExtent> automationFxExtents(const std::string& type);
 bool automationFxNeedsPositiveDeterminant(const std::string& type);
+// How many ports a dynamic port group of an admitted type may hold through
+// fx.port_group.set; 0 when the worker does not edit that group.
+int automationFxMaxGroupPorts(const std::string& type);
 QJsonObject automationFxProvenance(TFx* fx);
 
 }  // namespace GroundzeroAutomation

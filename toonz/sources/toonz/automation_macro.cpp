@@ -5,6 +5,7 @@
 #include "tfx.h"
 #include "tfxattributes.h"
 #include "tmacrofx.h"
+#include "trasterfx.h"
 #include "tparamcontainer.h"
 #include "toonz/fxdag.h"
 #include "toonz/tcolumnfxset.h"
@@ -46,6 +47,15 @@ TFxP memberCopy(TFx* source) {
   require(source->getLinkedFx() == source,
           "Expand linked parameter groups before macro grouping.");
   TFxP copy = makeAutomationEffect(type);
+  // Group ports beyond the constructor's, in array order, so connections
+  // copy by name (fx.port_group.set grows over groups).
+  for (int index = copy->getInputPortCount();
+       index < source->getInputPortCount(); ++index) {
+    const int group = source->getInputPort(index)->getGroupIndex();
+    require(group >= 0 && copy->addInputPort(source->getInputPortName(index),
+                                             new TRasterFxPort, group),
+            "A macro member's grown port group could not be copied.");
+  }
   copy->setFxVersion(source->getFxVersion());
   copy->getParams()->copy(source->getParams());
   copy->setName(source->getName());

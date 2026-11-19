@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QString>
+#include <QStringList>
 
 class TFx;
 
@@ -56,6 +57,20 @@ int automationFxGroupIdOrZero(Document& document, const QString& handle);
 // "linked_groups" maps a linked group handle to its members in creation
 // order; "groups" maps a schematic group handle to its name and member count.
 QJsonObject automationFxGraphView(Document& document);
+
+// The linked group of a node, {group_id, fx_ids in creation order}, or null
+// when its parameters are its own. The group id is the handle registered for
+// the member created first.
+QJsonValue automationFxLinkedGroup(Document& document, TFx* node);
+
+// Public parameters whose values or keys differ between two effects of one
+// type.
+QStringList automationFxDifferingParameters(TFx* first, TFx* second);
+
+// The fx-graph link tools: fx.link.add and fx.link.remove.
+QJsonArray fxLinkOperations();
+QJsonValue executeFxLink(Context& context, Document& document,
+                         const QString& method, const QJsonObject& params);
 
 #ifdef BUILD_UI_PORT_TESTS
 // Test builds snapshot after every write and refuse one whose effect

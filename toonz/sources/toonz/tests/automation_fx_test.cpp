@@ -934,6 +934,47 @@ void testGraphJournalCost(Context& context) {
   context.removeDocument(document.id);
 }
 
+// K2: a curve the editor locked refuses every parameter write before any
+// change; unlocking admits the same call.
+void testCurveLockRefusesEdits(Context& context, Document& document) {
+  const QString blur = create(context, document, "STD_blurFx");
+  auto* value        = dynamic_cast<TDoubleParam*>(
+      document.fx(blur)->getParams()->getParam("value"));
+  const double before = value->getDefaultValue();
+  value->setEditorLocked(true);
+  const QJsonObject set{{"fx_id", blur}, {"parameter", "value"}, {"value", 4}};
+  QJsonObject key = set;
+  key["frame"]    = 2;
+  expectError(context, "locked",
+              [&] { call(context, document, "fx.parameter.set", set); });
+  expectError(context, "locked",
+              [&] { call(context, document, "fx.parameter.set_key", key); });
+  require(value->getDefaultValue() == before && !value->hasKeyframes(),
+          "A locked curve must not change");
+  value->setEditorLocked(false);
+  call(context, document, "fx.parameter.set", set);
+  require(value->getDefaultValue() == 4,
+          "An unlocked curve must accept the refused write");
+  const QString card = create(context, document, "colorCardFx");
+  auto* wrapper      = dynamic_cast<TZeraryColumnFx*>(document.fx(card));
+  auto* color        = dynamic_cast<TPixelParam*>(
+      wrapper->getZeraryFx()->getParams()->getParam("color"));
+  color->getGreen()->setEditorLocked(true);
+  try {
+    call(context, document, "fx.parameter.set",
+         {{"fx_id", card},
+          {"parameter", "color"},
+          {"value", QJsonArray{1, 2, 3, 255}}});
+    throw std::runtime_error("A locked color channel accepted a write");
+  } catch (const Error& error) {
+    require(error.code == "locked" &&
+                error.details.value("reason") == "curve_locked" &&
+                error.details.value("channel").toString().startsWith("color."),
+            "A locked channel must be named in the refusal");
+  }
+  color->getGreen()->setEditorLocked(false);
+}
+
 }  // namespace
 
 void runAutomationFxTests(Context& context) {
@@ -956,6 +997,7 @@ void runAutomationFxTests(Context& context) {
   testGraphValidation(context, document);
   testGraphOwnership(context, document);
   testAdmission(context, document);
+  testCurveLockRefusesEdits(context, document);
   context.removeDocument(document.id);
   testAssetBudget(context);
   testGraphJournalSteps(context);
