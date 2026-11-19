@@ -1877,7 +1877,8 @@
       "alpha": {
         "enum": [
           "straight",
-          "opaque"
+          "opaque",
+          "premultiplied"
         ],
         "type": "string"
       },
@@ -1916,14 +1917,6 @@
         "required": [],
         "type": "object"
       },
-      "color_space": {
-        "const": "nonlinear",
-        "type": "string"
-      },
-      "color_space_gamma": {
-        "const": 2.2,
-        "type": "number"
-      },
       "completed_frames": {
         "maximum": 120,
         "minimum": 0,
@@ -1940,7 +1933,8 @@
           "alpha": {
             "enum": [
               "straight",
-              "opaque"
+              "opaque",
+              "premultiplied"
             ],
             "type": "string"
           },
@@ -2049,17 +2043,207 @@
             ],
             "type": "object"
           },
-          "color_depth_bits": {
-            "const": 8,
-            "type": "integer"
+          "color": {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "additionalProperties": false,
+                "properties": {
+                  "alpha": {
+                    "enum": [
+                      "straight",
+                      "opaque",
+                      "premultiplied"
+                    ],
+                    "type": "string"
+                  },
+                  "channels": {
+                    "enum": [
+                      "rgba",
+                      "rgb"
+                    ],
+                    "type": "string"
+                  },
+                  "gamma": {
+                    "maximum": 10,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "primaries": {
+                    "const": "unspecified",
+                    "type": "string"
+                  },
+                  "range": {
+                    "enum": [
+                      "full",
+                      "limited"
+                    ],
+                    "type": "string"
+                  },
+                  "referred": {
+                    "enum": [
+                      "display",
+                      "linear_light"
+                    ],
+                    "type": "string"
+                  },
+                  "sample": {
+                    "enum": [
+                      "uint8",
+                      "half",
+                      "float"
+                    ],
+                    "type": "string"
+                  },
+                  "tagged": {
+                    "const": false,
+                    "type": "boolean"
+                  },
+                  "transfer": {
+                    "enum": [
+                      "power",
+                      "linear"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "pipeline": {
+                "additionalProperties": false,
+                "properties": {
+                  "bpp": {
+                    "enum": [
+                      32,
+                      64,
+                      128
+                    ],
+                    "maximum": 128,
+                    "minimum": 32,
+                    "type": "integer"
+                  },
+                  "channel_bits": {
+                    "enum": [
+                      8,
+                      16,
+                      32
+                    ],
+                    "maximum": 32,
+                    "minimum": 8,
+                    "type": "integer"
+                  },
+                  "float": {
+                    "type": "boolean"
+                  },
+                  "gamma": {
+                    "maximum": 10,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "linear": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "enum": [
+                      "profile_default",
+                      "scene"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "scene_settings": {
+                "additionalProperties": false,
+                "properties": {
+                  "bpp": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "gamma": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "linear": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            },
+            "required": [],
+            "type": "object"
           },
-          "color_space": {
-            "const": "nonlinear",
-            "type": "string"
-          },
-          "color_space_gamma": {
-            "const": 2.2,
-            "type": "number"
+          "conversions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "accepted": {
+                  "type": "boolean"
+                },
+                "class": {
+                  "enum": [
+                    "inherent",
+                    "avoidable"
+                  ],
+                  "type": "string"
+                },
+                "count": {
+                  "maximum": 1048576,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "fx_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "depremultiply_truncation",
+                    "yuv420_subsampling",
+                    "lossy_video_codec",
+                    "alpha_flattened_black",
+                    "half_float_range",
+                    "quantize_to_8bit",
+                    "clip_hdr",
+                    "fx_integer_intermediate",
+                    "linearize_quantized",
+                    "output_setting_ignored"
+                  ],
+                  "type": "string"
+                },
+                "member_key": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "setting": {
+                  "enum": [
+                    "time_stretch",
+                    "stereoscopic",
+                    "field_prevalence",
+                    "shrink",
+                    "multimedia",
+                    "clapperboard",
+                    "render_gamma",
+                    "aspect_export",
+                    "audio"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 64,
+            "minItems": 0,
+            "type": "array"
           },
           "crop": {
             "additionalProperties": false,
@@ -2154,10 +2338,39 @@
             "minimum": 1,
             "type": "integer"
           },
+          "omissions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scene": {},
+                "setting": {
+                  "enum": [
+                    "time_stretch",
+                    "stereoscopic",
+                    "field_prevalence",
+                    "shrink",
+                    "multimedia",
+                    "clapperboard",
+                    "render_gamma",
+                    "aspect_export",
+                    "audio"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          },
           "profile": {
             "enum": [
               "rgba8-png",
-              "opaque8-mp4"
+              "opaque8-mp4",
+              "rgba-half-exr",
+              "rgba-float-exr"
             ],
             "type": "string"
           },
@@ -2171,14 +2384,14 @@
           "alpha",
           "audio",
           "camera",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
+          "color",
+          "conversions",
           "crop",
           "fit_scale",
           "frame_rate",
           "frames",
           "height",
+          "omissions",
           "profile",
           "width"
         ],
@@ -2240,13 +2453,6 @@
             "type": "null"
           }
         ]
-      },
-      "format": {
-        "enum": [
-          "png",
-          "mp4"
-        ],
-        "type": "string"
       },
       "frame_count": {
         "maximum": 120,
@@ -2389,7 +2595,9 @@
       "profile": {
         "enum": [
           "rgba8-png",
-          "opaque8-mp4"
+          "opaque8-mp4",
+          "rgba-half-exr",
+          "rgba-float-exr"
         ],
         "type": "string"
       },
@@ -2602,10 +2810,7 @@
       "end_frame",
       "step",
       "frame_rate",
-      "format",
       "profile",
-      "color_space",
-      "color_space_gamma",
       "alpha"
     ],
     "type": "object"
@@ -12338,7 +12543,8 @@
           "alpha": {
             "enum": [
               "straight",
-              "opaque"
+              "opaque",
+              "premultiplied"
             ],
             "type": "string"
           },
@@ -12377,14 +12583,6 @@
             "required": [],
             "type": "object"
           },
-          "color_space": {
-            "const": "nonlinear",
-            "type": "string"
-          },
-          "color_space_gamma": {
-            "const": 2.2,
-            "type": "number"
-          },
           "completed_frames": {
             "maximum": 120,
             "minimum": 0,
@@ -12401,7 +12599,8 @@
               "alpha": {
                 "enum": [
                   "straight",
-                  "opaque"
+                  "opaque",
+                  "premultiplied"
                 ],
                 "type": "string"
               },
@@ -12497,17 +12696,207 @@
                 "required": [],
                 "type": "object"
               },
-              "color_depth_bits": {
-                "const": 8,
-                "type": "integer"
+              "color": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "alpha": {
+                        "enum": [
+                          "straight",
+                          "opaque",
+                          "premultiplied"
+                        ],
+                        "type": "string"
+                      },
+                      "channels": {
+                        "enum": [
+                          "rgba",
+                          "rgb"
+                        ],
+                        "type": "string"
+                      },
+                      "gamma": {
+                        "maximum": 10,
+                        "minimum": 0.1,
+                        "type": "number"
+                      },
+                      "primaries": {
+                        "const": "unspecified",
+                        "type": "string"
+                      },
+                      "range": {
+                        "enum": [
+                          "full",
+                          "limited"
+                        ],
+                        "type": "string"
+                      },
+                      "referred": {
+                        "enum": [
+                          "display",
+                          "linear_light"
+                        ],
+                        "type": "string"
+                      },
+                      "sample": {
+                        "enum": [
+                          "uint8",
+                          "half",
+                          "float"
+                        ],
+                        "type": "string"
+                      },
+                      "tagged": {
+                        "const": false,
+                        "type": "boolean"
+                      },
+                      "transfer": {
+                        "enum": [
+                          "power",
+                          "linear"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "pipeline": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bpp": {
+                        "enum": [
+                          32,
+                          64,
+                          128
+                        ],
+                        "maximum": 128,
+                        "minimum": 32,
+                        "type": "integer"
+                      },
+                      "channel_bits": {
+                        "enum": [
+                          8,
+                          16,
+                          32
+                        ],
+                        "maximum": 32,
+                        "minimum": 8,
+                        "type": "integer"
+                      },
+                      "float": {
+                        "type": "boolean"
+                      },
+                      "gamma": {
+                        "maximum": 10,
+                        "minimum": 0.1,
+                        "type": "number"
+                      },
+                      "linear": {
+                        "type": "boolean"
+                      },
+                      "source": {
+                        "enum": [
+                          "profile_default",
+                          "scene"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "scene_settings": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bpp": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "gamma": {
+                        "maximum": 1.7976931348623157e+308,
+                        "minimum": -1.7976931348623157e+308,
+                        "type": "number"
+                      },
+                      "linear": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  }
+                },
+                "required": [],
+                "type": "object"
               },
-              "color_space": {
-                "const": "nonlinear",
-                "type": "string"
-              },
-              "color_space_gamma": {
-                "const": 2.2,
-                "type": "number"
+              "conversions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "class": {
+                      "enum": [
+                        "inherent",
+                        "avoidable"
+                      ],
+                      "type": "string"
+                    },
+                    "count": {
+                      "maximum": 1048576,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "fx_id": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "depremultiply_truncation",
+                        "yuv420_subsampling",
+                        "lossy_video_codec",
+                        "alpha_flattened_black",
+                        "half_float_range",
+                        "quantize_to_8bit",
+                        "clip_hdr",
+                        "fx_integer_intermediate",
+                        "linearize_quantized",
+                        "output_setting_ignored"
+                      ],
+                      "type": "string"
+                    },
+                    "member_key": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "setting": {
+                      "enum": [
+                        "time_stretch",
+                        "stereoscopic",
+                        "field_prevalence",
+                        "shrink",
+                        "multimedia",
+                        "clapperboard",
+                        "render_gamma",
+                        "aspect_export",
+                        "audio"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 64,
+                "minItems": 0,
+                "type": "array"
               },
               "crop": {
                 "additionalProperties": false,
@@ -12589,10 +12978,39 @@
                 "minimum": 1,
                 "type": "integer"
               },
+              "omissions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "scene": {},
+                    "setting": {
+                      "enum": [
+                        "time_stretch",
+                        "stereoscopic",
+                        "field_prevalence",
+                        "shrink",
+                        "multimedia",
+                        "clapperboard",
+                        "render_gamma",
+                        "aspect_export",
+                        "audio"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "minItems": 0,
+                "type": "array"
+              },
               "profile": {
                 "enum": [
                   "rgba8-png",
-                  "opaque8-mp4"
+                  "opaque8-mp4",
+                  "rgba-half-exr",
+                  "rgba-float-exr"
                 ],
                 "type": "string"
               },
@@ -12657,13 +13075,6 @@
                 "type": "null"
               }
             ]
-          },
-          "format": {
-            "enum": [
-              "png",
-              "mp4"
-            ],
-            "type": "string"
           },
           "frame_count": {
             "maximum": 120,
@@ -12806,7 +13217,9 @@
           "profile": {
             "enum": [
               "rgba8-png",
-              "opaque8-mp4"
+              "opaque8-mp4",
+              "rgba-half-exr",
+              "rgba-float-exr"
             ],
             "type": "string"
           },
@@ -13947,7 +14360,8 @@
                   "alpha": {
                     "enum": [
                       "straight",
-                      "opaque"
+                      "opaque",
+                      "premultiplied"
                     ],
                     "type": "string"
                   },
@@ -13989,14 +14403,6 @@
                     ],
                     "type": "object"
                   },
-                  "color_space": {
-                    "const": "nonlinear",
-                    "type": "string"
-                  },
-                  "color_space_gamma": {
-                    "const": 2.2,
-                    "type": "number"
-                  },
                   "completed_frames": {
                     "maximum": 120,
                     "minimum": 0,
@@ -14013,7 +14419,8 @@
                       "alpha": {
                         "enum": [
                           "straight",
-                          "opaque"
+                          "opaque",
+                          "premultiplied"
                         ],
                         "type": "string"
                       },
@@ -14109,17 +14516,207 @@
                         "required": [],
                         "type": "object"
                       },
-                      "color_depth_bits": {
-                        "const": 8,
-                        "type": "integer"
+                      "color": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "output": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "alpha": {
+                                "enum": [
+                                  "straight",
+                                  "opaque",
+                                  "premultiplied"
+                                ],
+                                "type": "string"
+                              },
+                              "channels": {
+                                "enum": [
+                                  "rgba",
+                                  "rgb"
+                                ],
+                                "type": "string"
+                              },
+                              "gamma": {
+                                "maximum": 10,
+                                "minimum": 0.1,
+                                "type": "number"
+                              },
+                              "primaries": {
+                                "const": "unspecified",
+                                "type": "string"
+                              },
+                              "range": {
+                                "enum": [
+                                  "full",
+                                  "limited"
+                                ],
+                                "type": "string"
+                              },
+                              "referred": {
+                                "enum": [
+                                  "display",
+                                  "linear_light"
+                                ],
+                                "type": "string"
+                              },
+                              "sample": {
+                                "enum": [
+                                  "uint8",
+                                  "half",
+                                  "float"
+                                ],
+                                "type": "string"
+                              },
+                              "tagged": {
+                                "const": false,
+                                "type": "boolean"
+                              },
+                              "transfer": {
+                                "enum": [
+                                  "power",
+                                  "linear"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [],
+                            "type": "object"
+                          },
+                          "pipeline": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "bpp": {
+                                "enum": [
+                                  32,
+                                  64,
+                                  128
+                                ],
+                                "maximum": 128,
+                                "minimum": 32,
+                                "type": "integer"
+                              },
+                              "channel_bits": {
+                                "enum": [
+                                  8,
+                                  16,
+                                  32
+                                ],
+                                "maximum": 32,
+                                "minimum": 8,
+                                "type": "integer"
+                              },
+                              "float": {
+                                "type": "boolean"
+                              },
+                              "gamma": {
+                                "maximum": 10,
+                                "minimum": 0.1,
+                                "type": "number"
+                              },
+                              "linear": {
+                                "type": "boolean"
+                              },
+                              "source": {
+                                "enum": [
+                                  "profile_default",
+                                  "scene"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [],
+                            "type": "object"
+                          },
+                          "scene_settings": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "bpp": {
+                                "maximum": 2147483647,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "gamma": {
+                                "maximum": 1.7976931348623157e+308,
+                                "minimum": -1.7976931348623157e+308,
+                                "type": "number"
+                              },
+                              "linear": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [],
+                            "type": "object"
+                          }
+                        },
+                        "required": [],
+                        "type": "object"
                       },
-                      "color_space": {
-                        "const": "nonlinear",
-                        "type": "string"
-                      },
-                      "color_space_gamma": {
-                        "const": 2.2,
-                        "type": "number"
+                      "conversions": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "accepted": {
+                              "type": "boolean"
+                            },
+                            "class": {
+                              "enum": [
+                                "inherent",
+                                "avoidable"
+                              ],
+                              "type": "string"
+                            },
+                            "count": {
+                              "maximum": 1048576,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "fx_id": {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "kind": {
+                              "enum": [
+                                "depremultiply_truncation",
+                                "yuv420_subsampling",
+                                "lossy_video_codec",
+                                "alpha_flattened_black",
+                                "half_float_range",
+                                "quantize_to_8bit",
+                                "clip_hdr",
+                                "fx_integer_intermediate",
+                                "linearize_quantized",
+                                "output_setting_ignored"
+                              ],
+                              "type": "string"
+                            },
+                            "member_key": {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "setting": {
+                              "enum": [
+                                "time_stretch",
+                                "stereoscopic",
+                                "field_prevalence",
+                                "shrink",
+                                "multimedia",
+                                "clapperboard",
+                                "render_gamma",
+                                "aspect_export",
+                                "audio"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [],
+                          "type": "object"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array"
                       },
                       "crop": {
                         "additionalProperties": false,
@@ -14201,10 +14798,39 @@
                         "minimum": 1,
                         "type": "integer"
                       },
+                      "omissions": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "scene": {},
+                            "setting": {
+                              "enum": [
+                                "time_stretch",
+                                "stereoscopic",
+                                "field_prevalence",
+                                "shrink",
+                                "multimedia",
+                                "clapperboard",
+                                "render_gamma",
+                                "aspect_export",
+                                "audio"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [],
+                          "type": "object"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array"
+                      },
                       "profile": {
                         "enum": [
                           "rgba8-png",
-                          "opaque8-mp4"
+                          "opaque8-mp4",
+                          "rgba-half-exr",
+                          "rgba-float-exr"
                         ],
                         "type": "string"
                       },
@@ -14269,13 +14895,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "format": {
-                    "enum": [
-                      "png",
-                      "mp4"
-                    ],
-                    "type": "string"
                   },
                   "frame_count": {
                     "maximum": 120,
@@ -14413,7 +15032,9 @@
                   "profile": {
                     "enum": [
                       "rgba8-png",
-                      "opaque8-mp4"
+                      "opaque8-mp4",
+                      "rgba-half-exr",
+                      "rgba-float-exr"
                     ],
                     "type": "string"
                   },
@@ -15248,7 +15869,8 @@
           "alpha": {
             "enum": [
               "straight",
-              "opaque"
+              "opaque",
+              "premultiplied"
             ],
             "type": "string"
           },
@@ -15290,14 +15912,6 @@
             ],
             "type": "object"
           },
-          "color_space": {
-            "const": "nonlinear",
-            "type": "string"
-          },
-          "color_space_gamma": {
-            "const": 2.2,
-            "type": "number"
-          },
           "completed_frames": {
             "maximum": 120,
             "minimum": 0,
@@ -15314,7 +15928,8 @@
               "alpha": {
                 "enum": [
                   "straight",
-                  "opaque"
+                  "opaque",
+                  "premultiplied"
                 ],
                 "type": "string"
               },
@@ -15410,17 +16025,207 @@
                 "required": [],
                 "type": "object"
               },
-              "color_depth_bits": {
-                "const": 8,
-                "type": "integer"
+              "color": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "alpha": {
+                        "enum": [
+                          "straight",
+                          "opaque",
+                          "premultiplied"
+                        ],
+                        "type": "string"
+                      },
+                      "channels": {
+                        "enum": [
+                          "rgba",
+                          "rgb"
+                        ],
+                        "type": "string"
+                      },
+                      "gamma": {
+                        "maximum": 10,
+                        "minimum": 0.1,
+                        "type": "number"
+                      },
+                      "primaries": {
+                        "const": "unspecified",
+                        "type": "string"
+                      },
+                      "range": {
+                        "enum": [
+                          "full",
+                          "limited"
+                        ],
+                        "type": "string"
+                      },
+                      "referred": {
+                        "enum": [
+                          "display",
+                          "linear_light"
+                        ],
+                        "type": "string"
+                      },
+                      "sample": {
+                        "enum": [
+                          "uint8",
+                          "half",
+                          "float"
+                        ],
+                        "type": "string"
+                      },
+                      "tagged": {
+                        "const": false,
+                        "type": "boolean"
+                      },
+                      "transfer": {
+                        "enum": [
+                          "power",
+                          "linear"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "pipeline": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bpp": {
+                        "enum": [
+                          32,
+                          64,
+                          128
+                        ],
+                        "maximum": 128,
+                        "minimum": 32,
+                        "type": "integer"
+                      },
+                      "channel_bits": {
+                        "enum": [
+                          8,
+                          16,
+                          32
+                        ],
+                        "maximum": 32,
+                        "minimum": 8,
+                        "type": "integer"
+                      },
+                      "float": {
+                        "type": "boolean"
+                      },
+                      "gamma": {
+                        "maximum": 10,
+                        "minimum": 0.1,
+                        "type": "number"
+                      },
+                      "linear": {
+                        "type": "boolean"
+                      },
+                      "source": {
+                        "enum": [
+                          "profile_default",
+                          "scene"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "scene_settings": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bpp": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "gamma": {
+                        "maximum": 1.7976931348623157e+308,
+                        "minimum": -1.7976931348623157e+308,
+                        "type": "number"
+                      },
+                      "linear": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  }
+                },
+                "required": [],
+                "type": "object"
               },
-              "color_space": {
-                "const": "nonlinear",
-                "type": "string"
-              },
-              "color_space_gamma": {
-                "const": 2.2,
-                "type": "number"
+              "conversions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "class": {
+                      "enum": [
+                        "inherent",
+                        "avoidable"
+                      ],
+                      "type": "string"
+                    },
+                    "count": {
+                      "maximum": 1048576,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "fx_id": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "depremultiply_truncation",
+                        "yuv420_subsampling",
+                        "lossy_video_codec",
+                        "alpha_flattened_black",
+                        "half_float_range",
+                        "quantize_to_8bit",
+                        "clip_hdr",
+                        "fx_integer_intermediate",
+                        "linearize_quantized",
+                        "output_setting_ignored"
+                      ],
+                      "type": "string"
+                    },
+                    "member_key": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "setting": {
+                      "enum": [
+                        "time_stretch",
+                        "stereoscopic",
+                        "field_prevalence",
+                        "shrink",
+                        "multimedia",
+                        "clapperboard",
+                        "render_gamma",
+                        "aspect_export",
+                        "audio"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 64,
+                "minItems": 0,
+                "type": "array"
               },
               "crop": {
                 "additionalProperties": false,
@@ -15502,10 +16307,39 @@
                 "minimum": 1,
                 "type": "integer"
               },
+              "omissions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "scene": {},
+                    "setting": {
+                      "enum": [
+                        "time_stretch",
+                        "stereoscopic",
+                        "field_prevalence",
+                        "shrink",
+                        "multimedia",
+                        "clapperboard",
+                        "render_gamma",
+                        "aspect_export",
+                        "audio"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "minItems": 0,
+                "type": "array"
+              },
               "profile": {
                 "enum": [
                   "rgba8-png",
-                  "opaque8-mp4"
+                  "opaque8-mp4",
+                  "rgba-half-exr",
+                  "rgba-float-exr"
                 ],
                 "type": "string"
               },
@@ -15570,13 +16404,6 @@
                 "type": "null"
               }
             ]
-          },
-          "format": {
-            "enum": [
-              "png",
-              "mp4"
-            ],
-            "type": "string"
           },
           "frame_count": {
             "maximum": 120,
@@ -15734,7 +16561,9 @@
           "profile": {
             "enum": [
               "rgba8-png",
-              "opaque8-mp4"
+              "opaque8-mp4",
+              "rgba-half-exr",
+              "rgba-float-exr"
             ],
             "type": "string"
           },
@@ -20764,9 +21593,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "r"
-        ],
+        "required": [],
         "type": "object"
       },
       "document_id": {
@@ -21663,9 +22490,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "r"
-              ],
+              "required": [],
               "type": "object"
             },
             "color_space": {
@@ -21719,9 +22544,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "r"
-        ],
+        "required": [],
         "type": "object"
       },
       "document_id": {
@@ -22668,10 +23491,25 @@
   "render.capabilities": {
     "additionalProperties": false,
     "properties": {
+      "avoidable_conversions": {
+        "items": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 16,
+        "minItems": 0,
+        "type": "array"
+      },
       "frame_origin": {
         "maximum": 1.7976931348623157e+308,
         "minimum": -1.7976931348623157e+308,
         "type": "number"
+      },
+      "free_space_margin_bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
       },
       "graphics": {
         "additionalProperties": false,
@@ -22824,6 +23662,11 @@
         "minLength": 0,
         "type": "string"
       },
+      "job_storage_bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
       "max_active_jobs": {
         "maximum": 1.7976931348623157e+308,
         "minimum": -1.7976931348623157e+308,
@@ -22944,6 +23787,64 @@
       "png_writer_available": {
         "type": "boolean"
       },
+      "profile_table": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alpha": {
+              "enum": [
+                "straight",
+                "opaque",
+                "premultiplied"
+              ],
+              "type": "string"
+            },
+            "frame_file_bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "inline_read": {
+              "type": "boolean"
+            },
+            "pipeline_bpp": {
+              "maximum": 128,
+              "minimum": 32,
+              "type": "integer"
+            },
+            "profile": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "reserve_bytes_per_pixel": {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sample": {
+              "enum": [
+                "uint8",
+                "half",
+                "float"
+              ],
+              "type": "string"
+            },
+            "transfer": {
+              "enum": [
+                "power",
+                "linear"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "maxItems": 16,
+        "minItems": 0,
+        "type": "array"
+      },
       "profiles": {
         "items": {
           "maxLength": 65536,
@@ -23020,6 +23921,7 @@
                 "writer",
                 "media_tools",
                 "encoder",
+                "conversions",
                 "dependencies",
                 "storage",
                 "lane",
@@ -23042,8 +23944,8 @@
           "required": [],
           "type": "object"
         },
-        "maxItems": 15,
-        "minItems": 15,
+        "maxItems": 16,
+        "minItems": 16,
         "type": "array"
       },
       "document_id": {
@@ -23059,7 +23961,8 @@
               "alpha": {
                 "enum": [
                   "straight",
-                  "opaque"
+                  "opaque",
+                  "premultiplied"
                 ],
                 "type": "string"
               },
@@ -23155,17 +24058,207 @@
                 "required": [],
                 "type": "object"
               },
-              "color_depth_bits": {
-                "const": 8,
-                "type": "integer"
+              "color": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "alpha": {
+                        "enum": [
+                          "straight",
+                          "opaque",
+                          "premultiplied"
+                        ],
+                        "type": "string"
+                      },
+                      "channels": {
+                        "enum": [
+                          "rgba",
+                          "rgb"
+                        ],
+                        "type": "string"
+                      },
+                      "gamma": {
+                        "maximum": 10,
+                        "minimum": 0.1,
+                        "type": "number"
+                      },
+                      "primaries": {
+                        "const": "unspecified",
+                        "type": "string"
+                      },
+                      "range": {
+                        "enum": [
+                          "full",
+                          "limited"
+                        ],
+                        "type": "string"
+                      },
+                      "referred": {
+                        "enum": [
+                          "display",
+                          "linear_light"
+                        ],
+                        "type": "string"
+                      },
+                      "sample": {
+                        "enum": [
+                          "uint8",
+                          "half",
+                          "float"
+                        ],
+                        "type": "string"
+                      },
+                      "tagged": {
+                        "const": false,
+                        "type": "boolean"
+                      },
+                      "transfer": {
+                        "enum": [
+                          "power",
+                          "linear"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "pipeline": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bpp": {
+                        "enum": [
+                          32,
+                          64,
+                          128
+                        ],
+                        "maximum": 128,
+                        "minimum": 32,
+                        "type": "integer"
+                      },
+                      "channel_bits": {
+                        "enum": [
+                          8,
+                          16,
+                          32
+                        ],
+                        "maximum": 32,
+                        "minimum": 8,
+                        "type": "integer"
+                      },
+                      "float": {
+                        "type": "boolean"
+                      },
+                      "gamma": {
+                        "maximum": 10,
+                        "minimum": 0.1,
+                        "type": "number"
+                      },
+                      "linear": {
+                        "type": "boolean"
+                      },
+                      "source": {
+                        "enum": [
+                          "profile_default",
+                          "scene"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "scene_settings": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "bpp": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "gamma": {
+                        "maximum": 1.7976931348623157e+308,
+                        "minimum": -1.7976931348623157e+308,
+                        "type": "number"
+                      },
+                      "linear": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  }
+                },
+                "required": [],
+                "type": "object"
               },
-              "color_space": {
-                "const": "nonlinear",
-                "type": "string"
-              },
-              "color_space_gamma": {
-                "const": 2.2,
-                "type": "number"
+              "conversions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "class": {
+                      "enum": [
+                        "inherent",
+                        "avoidable"
+                      ],
+                      "type": "string"
+                    },
+                    "count": {
+                      "maximum": 1048576,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "fx_id": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "depremultiply_truncation",
+                        "yuv420_subsampling",
+                        "lossy_video_codec",
+                        "alpha_flattened_black",
+                        "half_float_range",
+                        "quantize_to_8bit",
+                        "clip_hdr",
+                        "fx_integer_intermediate",
+                        "linearize_quantized",
+                        "output_setting_ignored"
+                      ],
+                      "type": "string"
+                    },
+                    "member_key": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "setting": {
+                      "enum": [
+                        "time_stretch",
+                        "stereoscopic",
+                        "field_prevalence",
+                        "shrink",
+                        "multimedia",
+                        "clapperboard",
+                        "render_gamma",
+                        "aspect_export",
+                        "audio"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 64,
+                "minItems": 0,
+                "type": "array"
               },
               "crop": {
                 "additionalProperties": false,
@@ -23247,10 +24340,39 @@
                 "minimum": 1,
                 "type": "integer"
               },
+              "omissions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "scene": {},
+                    "setting": {
+                      "enum": [
+                        "time_stretch",
+                        "stereoscopic",
+                        "field_prevalence",
+                        "shrink",
+                        "multimedia",
+                        "clapperboard",
+                        "render_gamma",
+                        "aspect_export",
+                        "audio"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "minItems": 0,
+                "type": "array"
+              },
               "profile": {
                 "enum": [
                   "rgba8-png",
-                  "opaque8-mp4"
+                  "opaque8-mp4",
+                  "rgba-half-exr",
+                  "rgba-float-exr"
                 ],
                 "type": "string"
               },
@@ -23281,6 +24403,7 @@
               "writer",
               "media_tools",
               "encoder",
+              "conversions",
               "dependencies",
               "storage",
               "lane",
@@ -23333,7 +24456,8 @@
       "alpha": {
         "enum": [
           "straight",
-          "opaque"
+          "opaque",
+          "premultiplied"
         ],
         "type": "string"
       },
@@ -23372,14 +24496,6 @@
         "required": [],
         "type": "object"
       },
-      "color_space": {
-        "const": "nonlinear",
-        "type": "string"
-      },
-      "color_space_gamma": {
-        "const": 2.2,
-        "type": "number"
-      },
       "completed_frames": {
         "maximum": 120,
         "minimum": 0,
@@ -23396,7 +24512,8 @@
           "alpha": {
             "enum": [
               "straight",
-              "opaque"
+              "opaque",
+              "premultiplied"
             ],
             "type": "string"
           },
@@ -23505,17 +24622,207 @@
             ],
             "type": "object"
           },
-          "color_depth_bits": {
-            "const": 8,
-            "type": "integer"
+          "color": {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "additionalProperties": false,
+                "properties": {
+                  "alpha": {
+                    "enum": [
+                      "straight",
+                      "opaque",
+                      "premultiplied"
+                    ],
+                    "type": "string"
+                  },
+                  "channels": {
+                    "enum": [
+                      "rgba",
+                      "rgb"
+                    ],
+                    "type": "string"
+                  },
+                  "gamma": {
+                    "maximum": 10,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "primaries": {
+                    "const": "unspecified",
+                    "type": "string"
+                  },
+                  "range": {
+                    "enum": [
+                      "full",
+                      "limited"
+                    ],
+                    "type": "string"
+                  },
+                  "referred": {
+                    "enum": [
+                      "display",
+                      "linear_light"
+                    ],
+                    "type": "string"
+                  },
+                  "sample": {
+                    "enum": [
+                      "uint8",
+                      "half",
+                      "float"
+                    ],
+                    "type": "string"
+                  },
+                  "tagged": {
+                    "const": false,
+                    "type": "boolean"
+                  },
+                  "transfer": {
+                    "enum": [
+                      "power",
+                      "linear"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "pipeline": {
+                "additionalProperties": false,
+                "properties": {
+                  "bpp": {
+                    "enum": [
+                      32,
+                      64,
+                      128
+                    ],
+                    "maximum": 128,
+                    "minimum": 32,
+                    "type": "integer"
+                  },
+                  "channel_bits": {
+                    "enum": [
+                      8,
+                      16,
+                      32
+                    ],
+                    "maximum": 32,
+                    "minimum": 8,
+                    "type": "integer"
+                  },
+                  "float": {
+                    "type": "boolean"
+                  },
+                  "gamma": {
+                    "maximum": 10,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "linear": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "enum": [
+                      "profile_default",
+                      "scene"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "scene_settings": {
+                "additionalProperties": false,
+                "properties": {
+                  "bpp": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "gamma": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "linear": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            },
+            "required": [],
+            "type": "object"
           },
-          "color_space": {
-            "const": "nonlinear",
-            "type": "string"
-          },
-          "color_space_gamma": {
-            "const": 2.2,
-            "type": "number"
+          "conversions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "accepted": {
+                  "type": "boolean"
+                },
+                "class": {
+                  "enum": [
+                    "inherent",
+                    "avoidable"
+                  ],
+                  "type": "string"
+                },
+                "count": {
+                  "maximum": 1048576,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "fx_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "depremultiply_truncation",
+                    "yuv420_subsampling",
+                    "lossy_video_codec",
+                    "alpha_flattened_black",
+                    "half_float_range",
+                    "quantize_to_8bit",
+                    "clip_hdr",
+                    "fx_integer_intermediate",
+                    "linearize_quantized",
+                    "output_setting_ignored"
+                  ],
+                  "type": "string"
+                },
+                "member_key": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "setting": {
+                  "enum": [
+                    "time_stretch",
+                    "stereoscopic",
+                    "field_prevalence",
+                    "shrink",
+                    "multimedia",
+                    "clapperboard",
+                    "render_gamma",
+                    "aspect_export",
+                    "audio"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 64,
+            "minItems": 0,
+            "type": "array"
           },
           "crop": {
             "additionalProperties": false,
@@ -23610,10 +24917,39 @@
             "minimum": 1,
             "type": "integer"
           },
+          "omissions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scene": {},
+                "setting": {
+                  "enum": [
+                    "time_stretch",
+                    "stereoscopic",
+                    "field_prevalence",
+                    "shrink",
+                    "multimedia",
+                    "clapperboard",
+                    "render_gamma",
+                    "aspect_export",
+                    "audio"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          },
           "profile": {
             "enum": [
               "rgba8-png",
-              "opaque8-mp4"
+              "opaque8-mp4",
+              "rgba-half-exr",
+              "rgba-float-exr"
             ],
             "type": "string"
           },
@@ -23627,14 +24963,14 @@
           "alpha",
           "audio",
           "camera",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
+          "color",
+          "conversions",
           "crop",
           "fit_scale",
           "frame_rate",
           "frames",
           "height",
+          "omissions",
           "profile",
           "width"
         ],
@@ -23696,13 +25032,6 @@
             "type": "null"
           }
         ]
-      },
-      "format": {
-        "enum": [
-          "png",
-          "mp4"
-        ],
-        "type": "string"
       },
       "frame_count": {
         "maximum": 120,
@@ -23845,7 +25174,9 @@
       "profile": {
         "enum": [
           "rgba8-png",
-          "opaque8-mp4"
+          "opaque8-mp4",
+          "rgba-half-exr",
+          "rgba-float-exr"
         ],
         "type": "string"
       },
@@ -24058,10 +25389,7 @@
       "end_frame",
       "step",
       "frame_rate",
-      "format",
       "profile",
-      "color_space",
-      "color_space_gamma",
       "alpha"
     ],
     "type": "object"
@@ -24072,7 +25400,8 @@
       "alpha": {
         "enum": [
           "straight",
-          "opaque"
+          "opaque",
+          "premultiplied"
         ],
         "type": "string"
       },
@@ -24111,14 +25440,6 @@
         "required": [],
         "type": "object"
       },
-      "color_space": {
-        "const": "nonlinear",
-        "type": "string"
-      },
-      "color_space_gamma": {
-        "const": 2.2,
-        "type": "number"
-      },
       "completed_frames": {
         "maximum": 120,
         "minimum": 0,
@@ -24135,7 +25456,8 @@
           "alpha": {
             "enum": [
               "straight",
-              "opaque"
+              "opaque",
+              "premultiplied"
             ],
             "type": "string"
           },
@@ -24244,17 +25566,207 @@
             ],
             "type": "object"
           },
-          "color_depth_bits": {
-            "const": 8,
-            "type": "integer"
+          "color": {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "additionalProperties": false,
+                "properties": {
+                  "alpha": {
+                    "enum": [
+                      "straight",
+                      "opaque",
+                      "premultiplied"
+                    ],
+                    "type": "string"
+                  },
+                  "channels": {
+                    "enum": [
+                      "rgba",
+                      "rgb"
+                    ],
+                    "type": "string"
+                  },
+                  "gamma": {
+                    "maximum": 10,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "primaries": {
+                    "const": "unspecified",
+                    "type": "string"
+                  },
+                  "range": {
+                    "enum": [
+                      "full",
+                      "limited"
+                    ],
+                    "type": "string"
+                  },
+                  "referred": {
+                    "enum": [
+                      "display",
+                      "linear_light"
+                    ],
+                    "type": "string"
+                  },
+                  "sample": {
+                    "enum": [
+                      "uint8",
+                      "half",
+                      "float"
+                    ],
+                    "type": "string"
+                  },
+                  "tagged": {
+                    "const": false,
+                    "type": "boolean"
+                  },
+                  "transfer": {
+                    "enum": [
+                      "power",
+                      "linear"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "pipeline": {
+                "additionalProperties": false,
+                "properties": {
+                  "bpp": {
+                    "enum": [
+                      32,
+                      64,
+                      128
+                    ],
+                    "maximum": 128,
+                    "minimum": 32,
+                    "type": "integer"
+                  },
+                  "channel_bits": {
+                    "enum": [
+                      8,
+                      16,
+                      32
+                    ],
+                    "maximum": 32,
+                    "minimum": 8,
+                    "type": "integer"
+                  },
+                  "float": {
+                    "type": "boolean"
+                  },
+                  "gamma": {
+                    "maximum": 10,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "linear": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "enum": [
+                      "profile_default",
+                      "scene"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "scene_settings": {
+                "additionalProperties": false,
+                "properties": {
+                  "bpp": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "gamma": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "linear": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            },
+            "required": [],
+            "type": "object"
           },
-          "color_space": {
-            "const": "nonlinear",
-            "type": "string"
-          },
-          "color_space_gamma": {
-            "const": 2.2,
-            "type": "number"
+          "conversions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "accepted": {
+                  "type": "boolean"
+                },
+                "class": {
+                  "enum": [
+                    "inherent",
+                    "avoidable"
+                  ],
+                  "type": "string"
+                },
+                "count": {
+                  "maximum": 1048576,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "fx_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "depremultiply_truncation",
+                    "yuv420_subsampling",
+                    "lossy_video_codec",
+                    "alpha_flattened_black",
+                    "half_float_range",
+                    "quantize_to_8bit",
+                    "clip_hdr",
+                    "fx_integer_intermediate",
+                    "linearize_quantized",
+                    "output_setting_ignored"
+                  ],
+                  "type": "string"
+                },
+                "member_key": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "setting": {
+                  "enum": [
+                    "time_stretch",
+                    "stereoscopic",
+                    "field_prevalence",
+                    "shrink",
+                    "multimedia",
+                    "clapperboard",
+                    "render_gamma",
+                    "aspect_export",
+                    "audio"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 64,
+            "minItems": 0,
+            "type": "array"
           },
           "crop": {
             "additionalProperties": false,
@@ -24349,10 +25861,39 @@
             "minimum": 1,
             "type": "integer"
           },
+          "omissions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "scene": {},
+                "setting": {
+                  "enum": [
+                    "time_stretch",
+                    "stereoscopic",
+                    "field_prevalence",
+                    "shrink",
+                    "multimedia",
+                    "clapperboard",
+                    "render_gamma",
+                    "aspect_export",
+                    "audio"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          },
           "profile": {
             "enum": [
               "rgba8-png",
-              "opaque8-mp4"
+              "opaque8-mp4",
+              "rgba-half-exr",
+              "rgba-float-exr"
             ],
             "type": "string"
           },
@@ -24366,14 +25907,14 @@
           "alpha",
           "audio",
           "camera",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
+          "color",
+          "conversions",
           "crop",
           "fit_scale",
           "frame_rate",
           "frames",
           "height",
+          "omissions",
           "profile",
           "width"
         ],
@@ -24435,13 +25976,6 @@
             "type": "null"
           }
         ]
-      },
-      "format": {
-        "enum": [
-          "png",
-          "mp4"
-        ],
-        "type": "string"
       },
       "frame_count": {
         "maximum": 120,
@@ -24584,7 +26118,9 @@
       "profile": {
         "enum": [
           "rgba8-png",
-          "opaque8-mp4"
+          "opaque8-mp4",
+          "rgba-half-exr",
+          "rgba-float-exr"
         ],
         "type": "string"
       },
@@ -24797,10 +26333,7 @@
       "end_frame",
       "step",
       "frame_rate",
-      "format",
       "profile",
-      "color_space",
-      "color_space_gamma",
       "alpha"
     ],
     "type": "object"
@@ -28523,12 +30056,7 @@
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "r",
-                  "g",
-                  "b",
-                  "a"
-                ],
+                "required": [],
                 "type": "object"
               },
               "mode": {
@@ -28692,12 +30220,7 @@
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "r",
-                  "g",
-                  "b",
-                  "a"
-                ],
+                "required": [],
                 "type": "object"
               },
               "mode": {
@@ -29874,12 +31397,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "r",
-                "g",
-                "b",
-                "a"
-              ],
+              "required": [],
               "type": "object"
             },
             "color_filter_id": {
@@ -29982,12 +31500,7 @@
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "r",
-                  "g",
-                  "b",
-                  "a"
-                ],
+                "required": [],
                 "type": "object"
               },
               "mode": {
@@ -30151,12 +31664,7 @@
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "r",
-                  "g",
-                  "b",
-                  "a"
-                ],
+                "required": [],
                 "type": "object"
               },
               "mode": {
@@ -31672,11 +33180,7 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "b",
-              "g",
-              "r"
-            ],
+            "required": [],
             "type": "object"
           },
           "end_frame": {
@@ -31876,11 +33380,7 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "b",
-              "g",
-              "r"
-            ],
+            "required": [],
             "type": "object"
           },
           "end_frame": {
@@ -32040,11 +33540,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "b",
-                "g",
-                "r"
-              ],
+              "required": [],
               "type": "object"
             },
             "end_frame": {

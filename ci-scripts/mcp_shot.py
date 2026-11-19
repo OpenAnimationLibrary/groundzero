@@ -864,7 +864,7 @@ def render_movie(shot: Shot, document: str, media_tools: Path) -> None:
     job = shot.write(
         "render.submit",
         document,
-        format="mp4",
+        profile="opaque8-mp4",
         start_frame=0,
         end_frame=FRAMES - 1,
         step=1,

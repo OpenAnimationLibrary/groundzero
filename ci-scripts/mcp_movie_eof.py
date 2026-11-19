@@ -143,7 +143,13 @@ def movie_eof_interrupts_encoder_finalization(case: NativeAcceptance) -> None:
     _start_worker(case, media)
     document, _level, _column = case.populated_scene()
     job = case.mutate(
-        "render.submit", document, format="mp4", start_frame=0, end_frame=2, width=32, height=32
+        "render.submit",
+        document,
+        profile="opaque8-mp4",
+        start_frame=0,
+        end_frame=2,
+        width=32,
+        height=32,
     )
     marker, status = _await_encoder(case, job["job_id"])
     observed = json.loads(marker.read_text(encoding="utf-8"))

@@ -48,8 +48,8 @@
    "evidence": {
     "kind": "enum",
     "tool": "render.submit",
-    "property": "format",
-    "value": "mp4"
+    "property": "profile",
+    "value": "opaque8-mp4"
    }
   },
   {
@@ -180,9 +180,14 @@
    "tokens": [
     "EXR"
    ],
-   "role": "level files in a read-only user scene",
-   "state": "refused",
-   "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+   "role": "half and float image sequence output (render.submit); EXR level files in a read-only user scene are still reported not_applicable and not loaded",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "render.submit",
+    "property": "profile",
+    "value": "rgba-half-exr"
+   }
   },
   {
    "id": "svg",

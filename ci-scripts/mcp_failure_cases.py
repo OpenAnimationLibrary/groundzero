@@ -243,7 +243,7 @@ def render_encoder_failure_publishes_nothing(case: NativeAcceptance) -> None:
     _fault_worker(case, "encoder", "--test-render-fault", "encoder-failure", media=True)
     document = _scene(case)
     baseline = _descendants(case.worker.process.pid)
-    movie = {"format": "mp4", **SEQUENCE}
+    movie = {"profile": "opaque8-mp4", **SEQUENCE}
     job = case.mutate("render.submit", document, **movie)["job_id"]
     ended = _ends(case, job, "failed", "encoder")
     case.assertEqual(

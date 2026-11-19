@@ -7,6 +7,7 @@
 #include "automation_neural.h"
 #include "automation_ownership.h"
 #include "automation_scene_host.h"
+#include "automation_render_profile.h"
 #include "automation_runtime.h"
 #include "stdfx/neuralstyleworker.h"
 #include "toonz/fxdag.h"
@@ -23,6 +24,8 @@
 #include "toonz/toonzscene.h"
 #include "toutputproperties.h"
 #include "tlevel_io.h"
+#include "tmacrofx.h"
+#include "trasterfx.h"
 #include "tproperty.h"
 #include "tiio.h"
 #include "texception.h"
@@ -39,6 +42,7 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QStorageInfo>
 #include <QJsonArray>
 #include <QThread>
 #include <QTimer>
@@ -59,7 +63,6 @@ constexpr int kMaxDimension      = 2048;
 constexpr int kPreviewDimension  = 1024;
 constexpr qint64 kInlineBytes    = 4 * 1024 * 1024;
 constexpr qint64 kFrameBytes     = 20 * 1024 * 1024;
-constexpr qint64 kWorkspaceBytes = 128 * 1024 * 1024;
 
 static QJsonObject stringSchema() {
   return {{"type", "string"}, {"minLength", 1}};
@@ -69,22 +72,23 @@ static QJsonObject integerSchema(int minimum, int maximum) {
   return {{"type", "integer"}, {"minimum", minimum}, {"maximum", maximum}};
 }
 
-enum class Format { Png, Mp4 };
-
-static QString formatText(Format format) {
-  return format == Format::Mp4 ? "mp4" : "png";
+static RenderProfile readProfile(const QJsonObject& params) {
+  return params.contains("profile")
+             ? profileFromText(requiredString(params, "profile"))
+             : RenderProfile::Rgba8Png;
 }
 
-static Format readFormat(const QJsonObject& params) {
-  const QString format =
-      params.contains("format") ? requiredString(params, "format") : "png";
-  if (format == "png") return Format::Png;
-  if (format == "mp4") return Format::Mp4;
-  throw Error("invalid_params", "The render format must be png or mp4.");
+static QStringList readAccepted(const QJsonObject& params) {
+  QStringList accepted;
+  for (const QJsonValue& kind : params.value("accept_conversions").toArray())
+    accepted.append(kind.toString());
+  return accepted;
 }
 
 struct Request final {
-  Format format = Format::Png;
+  RenderProfile profile  = RenderProfile::Rgba8Png;
+  QString pipelineSource = "profile_default";
+  QStringList accepted;
   int width     = 0;
   int height    = 0;
   int start     = 0;
@@ -103,8 +107,11 @@ struct Request final {
     output.setAspectRatio(aspectRatio);
     return output.getOutputSize(TDimension(width, height));
   }
+  bool movie() const { return profileInfo(profile).movie; }
   qint64 reserveBytes() const {
-    return (qint64(width) * height * 4 + 65536) * count();
+    return (qint64(width) * height * profileInfo(profile).reserveBytesPerPixel +
+            65536) *
+           count();
   }
 };
 
@@ -120,6 +127,19 @@ struct Plan final {
   TDimensionD cameraSize;
   TPointD dpi;
   double frameRate = 0;
+  SceneOutputFacts scene;
+  RenderPipeline pipeline;
+  QJsonArray omissions;
+  std::vector<Conversion> conversions;
+
+  // Avoidable conversions the request did not accept.
+  QStringList unaccepted() const {
+    QStringList kinds;
+    for (const Conversion& conversion : conversions)
+      if (!conversion.accepted && !kinds.contains(conversion.kind))
+        kinds.append(conversion.kind);
+    return kinds;
+  }
 
   int bound() const {
     return kind == Kind::Preview ? kPreviewDimension : kMaxDimension;
@@ -136,6 +156,7 @@ static void readCamera(Plan& plan, ToonzScene& scene) {
   plan.cameraSize = camera->getSize();
   plan.dpi        = camera->getDpi();
   plan.frameRate = scene.getProperties()->getOutputProperties()->getFrameRate();
+  plan.scene      = readSceneOutputFacts(scene);
   if (plan.camera.lx <= 0 || plan.camera.ly <= 0)
     throw Error("invalid_camera",
                 "The scene camera must have positive dimensions.");
@@ -185,18 +206,32 @@ static Plan readPlan(const QJsonObject& params, ToonzScene& scene, Kind kind) {
   if (kind == Kind::Preview) {
     request.start = integerParam(params, "frame", 0, 1000000, 0);
     request.end   = request.start;
-    return plan;
+  } else {
+    request.profile = readProfile(params);
+    request.pipelineSource =
+        params.value("pipeline").toString("profile_default");
+    request.accepted = readAccepted(params);
+    request.start    = integerParam(params, "start_frame", 0, 1000000, 0);
+    request.end  = integerParam(params, "end_frame", 0, 1000000, request.start);
+    request.step = integerParam(params, "step", 1, 1000000, 1);
   }
-  request.format = readFormat(params);
-  request.start  = integerParam(params, "start_frame", 0, 1000000, 0);
-  request.end    = integerParam(params, "end_frame", 0, 1000000, request.start);
-  request.step   = integerParam(params, "step", 1, 1000000, 1);
+  plan.pipeline =
+      resolvePipeline(request.profile, request.pipelineSource, plan.scene);
+  plan.omissions =
+      outputOmissions(plan.scene, request.aspectMode, request.aspectRatio);
   return plan;
 }
 
+static QJsonArray conversionRows(const Plan& plan) {
+  QJsonArray rows;
+  for (const Conversion& conversion : plan.conversions)
+    rows.append(conversion.toJson());
+  return rows;
+}
+
 static QJsonObject effectiveOutput(const Plan& plan) {
-  const Request& request = plan.request;
-  const bool movie       = request.format == Format::Mp4;
+  const Request& request  = plan.request;
+  const ProfileInfo& info = profileInfo(request.profile);
   QJsonObject result{
       {"width", request.width},
       {"height", request.height},
@@ -206,11 +241,11 @@ static QJsonObject effectiveOutput(const Plan& plan) {
                              {"step", request.step},
                              {"count", request.count()}}},
       {"frame_rate", plan.frameRate},
-      {"profile", movie ? "opaque8-mp4" : "rgba8-png"},
-      {"color_depth_bits", 8},
-      {"color_space", "nonlinear"},
-      {"color_space_gamma", 2.2},
-      {"alpha", movie ? "opaque" : "straight"},
+      {"profile", info.name},
+      {"color", colorReport(request.profile, plan.pipeline, plan.scene)},
+      {"conversions", conversionRows(plan)},
+      {"omissions", plan.omissions},
+      {"alpha", info.alpha},
       {"audio", false},
       {"camera",
        QJsonObject{{"resolution", QJsonObject{{"width", plan.camera.lx},
@@ -232,8 +267,9 @@ static QJsonObject effectiveOutput(const Plan& plan) {
 }
 
 struct Artifact final {
-  Format format = Format::Png;
+  RenderProfile profile = RenderProfile::Rgba8Png;
   QJsonObject movieMetadata;
+  QString relativePath;
   QDateTime lastModified;
   QString id;
   QString path;
@@ -243,23 +279,32 @@ struct Artifact final {
   int height   = 0;
   qint64 bytes = 0;
 
+  bool exr() const { return profileInfo(profile).linearOutput; }
+
   QJsonObject metadata() const {
-    if (format == Format::Mp4) {
+    if (profileInfo(profile).movie) {
       QJsonObject result = movieMetadata;
       result.insert("artifact_id", id);
       result.insert("kind", "movie");
       result.insert("mime_type", "video/mp4");
       return result;
     }
-    return {{"kind", "image"},
-            {"artifact_id", id},
-            {"frame", frame},
-            {"width", width},
-            {"height", height},
-            {"mime_type", "image/png"},
-            {"size_bytes", double(bytes)},
-            {"sha256", sha256},
-            {"alpha", "straight"}};
+    QJsonObject result{{"kind", exr() ? "exr" : "image"},
+                       {"artifact_id", id},
+                       {"frame", frame},
+                       {"width", width},
+                       {"height", height},
+                       {"mime_type", exr() ? "image/x-exr" : "image/png"},
+                       {"size_bytes", double(bytes)},
+                       {"sha256", sha256},
+                       {"alpha", profileInfo(profile).alpha}};
+    if (exr()) {
+      result.insert("profile", profileInfo(profile).name);
+      result.insert("sample", profileInfo(profile).sample);
+      result.insert("transfer", "linear");
+      result.insert("workspace_relative_path", relativePath);
+    }
+    return result;
   }
 };
 
@@ -287,8 +332,48 @@ static QByteArray readOutput(const QString& path, qint64 limit) {
   return data;
 }
 
+static QString sha256Hex(const QByteArray& data) {
+  return QString::fromLatin1(
+      QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+}
+
+// An EXR frame: its header, offset table and chunk framing must describe one
+// whole RGBA frame of the profile's sample type at the requested size.
+static Artifact verifyExrOutput(const QString& path, int frame,
+                                const Request& request, const QString& id) {
+  const ProfileInfo& info = profileInfo(request.profile);
+  const QByteArray data   = readOutput(path, info.frameFileLimit);
+  const ExrFacts facts    = readExrFacts(data);
+  const TDimension size   = request.outputSize();
+  if (facts.width != size.lx || facts.height != size.ly)
+    throw Error("invalid_artifact",
+                "The rendered EXR dimensions differ from the request.");
+  if (facts.sample != info.sample ||
+      facts.channels != QStringList{"A", "B", "G", "R"} ||
+      facts.compression != 3)
+    throw Error("invalid_artifact",
+                "The rendered EXR channels, sample type or compression "
+                "differ from the profile.",
+                {{"sample", facts.sample},
+                 {"channels", QJsonArray::fromStringList(facts.channels)},
+                 {"compression", facts.compression}});
+  Artifact artifact;
+  artifact.profile      = request.profile;
+  artifact.id           = id;
+  artifact.path         = path;
+  artifact.frame        = frame;
+  artifact.width        = facts.width;
+  artifact.height       = facts.height;
+  artifact.bytes        = data.size();
+  artifact.sha256       = sha256Hex(data);
+  artifact.lastModified = QFileInfo(path).lastModified();
+  return artifact;
+}
+
 static Artifact verifyOutput(const QString& path, int frame,
                              const Request& request, const QString& id) {
+  if (profileInfo(request.profile).linearOutput)
+    return verifyExrOutput(path, frame, request, id);
   const QByteArray data = readOutput(path, kFrameBytes);
   QBuffer buffer;
   buffer.setData(data);
@@ -311,8 +396,7 @@ static Artifact verifyOutput(const QString& path, int frame,
   artifact.width  = decoded.width();
   artifact.height = decoded.height();
   artifact.bytes  = data.size();
-  artifact.sha256 = QString::fromLatin1(
-      QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+  artifact.sha256 = sha256Hex(data);
   return artifact;
 }
 
@@ -380,6 +464,7 @@ class RenderJob final : public Job,
                         public std::enable_shared_from_this<RenderJob> {
 public:
   JobCommon common;
+  RenderPipeline pipeline;
   QString directory;
   QString workspace;
   QString mediaToolsDirectory;
@@ -551,25 +636,20 @@ public:
     current.stalled    = stalledNow();
     QJsonObject result = commonRecord(*context, current, statusText(status),
                                       terminal(), limits, progress, outputs);
-    const QJsonObject fields{
-        {"frame_count", request.count()},
-        {"completed_frames", int(completed.size())},
-        {"failed_frames", int(failed.size())},
-        {"writers_closed", writersClosed},
-        {"width", request.width},
-        {"height", request.height},
-        {"start_frame", request.start},
-        {"end_frame", request.end},
-        {"step", request.step},
-        {"frame_rate", frameRate},
-        {"format", formatText(request.format)},
-        {"profile",
-         request.format == Format::Mp4 ? "opaque8-mp4" : "rgba8-png"},
-        {"color_space", "nonlinear"},
-        {"color_space_gamma", 2.2},
-        {"alpha", request.format == Format::Mp4 ? "opaque" : "straight"},
-        {"fx_provenance", provenance},
-        {"effective", effective}};
+    const QJsonObject fields{{"frame_count", request.count()},
+                             {"completed_frames", int(completed.size())},
+                             {"failed_frames", int(failed.size())},
+                             {"writers_closed", writersClosed},
+                             {"width", request.width},
+                             {"height", request.height},
+                             {"start_frame", request.start},
+                             {"end_frame", request.end},
+                             {"step", request.step},
+                             {"frame_rate", frameRate},
+                             {"profile", profileInfo(request.profile).name},
+                             {"alpha", profileInfo(request.profile).alpha},
+                             {"fx_provenance", provenance},
+                             {"effective", effective}};
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
       result.insert(it.key(), it.value());
     if (!assistance.isEmpty()) result.insert("assistance", assistance);
@@ -577,8 +657,10 @@ public:
   }
 
   TFilePath outputPath() const {
-    const QString suffix =
-        request.format == Format::Mp4 ? "/movie.mp4" : "/frames/frame..png";
+    const ProfileInfo& info = profileInfo(request.profile);
+    const QString suffix    = info.movie
+                                  ? QString("/movie.mp4")
+                                  : QString("/frames/frame..") + info.extension;
     return TFilePath((directory + suffix).toStdWString());
   }
 
@@ -601,6 +683,11 @@ public:
   // record names its hash and that hash can then be checked; with the artifacts
   // it stays until the worker ends, so that job.result can still serve them.
   void removeSnapshotFiles() {
+#ifdef BUILD_UI_PORT_TESTS
+    // Test hook: keep the configured scene and its artwork for the native
+    // batch renderer to render as the fidelity oracle.
+    if (fault == "keep-oracle-scene") return;
+#endif
     const QString folder = directory + "/snapshot";
     try {
       QVector<EntryInfo> entries;
@@ -857,7 +944,7 @@ public:
           diagnostic.isEmpty() ? "Native rendering failed." : diagnostic;
       if (glUnavailable(diagnostic) || glUnavailable(frameError))
         fail("gl_unavailable", "render", message);
-      else if (request.format == Format::Mp4)
+      else if (request.movie())
         fail("writer_failed", "encode", message);
       else
         fail("render_failed", "render", message);
@@ -892,7 +979,7 @@ public:
       stop();
       return;
     }
-    if (request.format == Format::Mp4) return verifyMovie();
+    if (request.movie()) return verifyMovie();
     nextVerification = request.start;
     scheduleVerification();
   }
@@ -926,7 +1013,7 @@ public:
     if (!failure.isEmpty())
       return fail("verification_failed", "verify", failure);
     Artifact artifact;
-    artifact.format = Format::Mp4;
+    artifact.profile = request.profile;
     artifact.id     = jobRegistry(*context).newArtifactId();
     artifact.path   = QString::fromStdWString(outputPath().getWideString());
     artifact.lastModified = QFileInfo(artifact.path).lastModified();
@@ -965,6 +1052,7 @@ public:
       Artifact artifact = verifyOutput(
           QString::fromStdWString(path.getWideString()), nextVerification,
           request, jobRegistry(*context).newArtifactId());
+      artifact.relativePath = QDir(workspace).relativeFilePath(artifact.path);
       bytes += artifact.bytes;
       if (bytes > request.reserveBytes())
         throw Error("render_limit",
@@ -1006,6 +1094,33 @@ static void configurePng(TOutputProperties& output) {
   alpha->setValue(true);
 }
 
+template <class Property>
+static Property* writerProperty(TPropertyGroup* properties, const char* name) {
+  auto* property = properties
+                       ? dynamic_cast<Property*>(properties->getProperty(name))
+                       : nullptr;
+  if (!property)
+    throw Error("render_unavailable",
+                "The native EXR writer lacks one of its fixed options.",
+                {{"option", name}});
+  return property;
+}
+
+// EXR frames: RGBA, the profile's sample type, scanlines, lossless ZIP, and
+// linearized with the pipeline's gamma so no second adjustment happens.
+static void configureExr(RenderJob& job, TOutputProperties& output) {
+  TPropertyGroup* properties = output.getFileFormatProperties("exr");
+  const bool half = job.request.profile == RenderProfile::RgbaHalfExr;
+  writerProperty<TEnumProperty>(properties, "Bits Per Pixel")
+      ->setValue(half ? L"128(RGBA)_HF" : L"128(RGBA)_F");
+  writerProperty<TEnumProperty>(properties, "Compression Type")
+      ->setValue(L"ZIP");
+  writerProperty<TEnumProperty>(properties, "Storage Type")
+      ->setValue(L"Store Image as Scanlines");
+  writerProperty<TDoubleProperty>(properties, "Color Space Gamma")
+      ->setValue(job.pipeline.gamma);
+}
+
 static void configureMovie(RenderJob& job, TOutputProperties& output) {
   TPropertyGroup* properties = output.getFileFormatProperties("mp4");
   if (!properties)
@@ -1031,9 +1146,9 @@ static void configureSnapshot(RenderJob& job) {
       job.snapshot->getProperties()->getOutputProperties();
   job.frameRate = output->getFrameRate();
   TRenderSettings settings;
-  settings.m_bpp              = 32;
-  settings.m_linearColorSpace = false;
-  settings.m_colorSpaceGamma  = 2.2;
+  settings.m_bpp              = job.pipeline.bpp;
+  settings.m_linearColorSpace = job.pipeline.linear;
+  settings.m_colorSpaceGamma  = job.pipeline.gamma;
   settings.m_gamma            = 1.0;
   settings.m_timeStretchFrom  = 1.0;
   settings.m_timeStretchTo    = 1.0;
@@ -1051,10 +1166,17 @@ static void configureSnapshot(RenderJob& job) {
   output->getBoardSettings()->setActive(false);
   output->setPath(job.outputPath());
   output->formatTemplateFId() = TFrameId(1);
-  if (job.request.format == Format::Mp4)
+  if (job.request.movie())
     configureMovie(job, *output);
+  else if (profileInfo(job.request.profile).linearOutput)
+    configureExr(job, *output);
   else
     configurePng(*output);
+#ifdef BUILD_UI_PORT_TESTS
+  if (job.fault == "keep-oracle-scene")
+    job.snapshot->saveCopy(
+        TFilePath((job.directory + "/snapshot/oracle.tnz").toStdWString()));
+#endif
   job.renderer.reset(
       new MovieRenderer(job.snapshot.get(), job.outputPath(), 1, false));
   job.renderer->setRenderSettings(settings);
@@ -1068,10 +1190,10 @@ static void configureSnapshot(RenderJob& job) {
 
 // Every check render.preflight reports, in the order render jobs apply them.
 static const QStringList CheckIds{
-    "frame_range", "dimensions",       "scene_numbering", "fx_graph",
-    "fx_extent",   "graphics",         "writer",          "media_tools",
-    "encoder",     "dependencies",     "storage",         "lane",
-    "retention",   "render_admission", "source_pins"};
+    "frame_range", "dimensions",  "scene_numbering",  "fx_graph",
+    "fx_extent",   "graphics",    "writer",           "media_tools",
+    "encoder",     "conversions", "dependencies",     "storage",
+    "lane",        "retention",   "render_admission", "source_pins"};
 
 struct Check final {
   QString id;
@@ -1114,6 +1236,9 @@ public:
       : m_context(context), m_document(document), m_plan(std::move(plan)) {}
 
   QJsonArray provenance;
+
+  // The plan with the conversions the conversions check found.
+  const Plan& plan() const { return m_plan; }
 
   void run(const QStringList& ids, bool stopAtFailure) {
     for (const QString& id : ids) {
@@ -1170,6 +1295,7 @@ private:
         {"writer", &RenderChecks::writer},
         {"media_tools", &RenderChecks::mediaTools},
         {"encoder", &RenderChecks::encoder},
+        {"conversions", &RenderChecks::conversions},
         {"dependencies", &RenderChecks::dependencies},
         {"storage", &RenderChecks::storage},
         {"lane", &RenderChecks::lane},
@@ -1188,7 +1314,7 @@ private:
     return false;
   }
 
-  bool movie() const { return m_plan.request.format == Format::Mp4; }
+  bool movie() const { return m_plan.request.movie(); }
 
   void frameRange(Check& check) {
     if (m_plan.framesValid()) return;
@@ -1214,14 +1340,13 @@ private:
                         {{"reason", "mp4_even_dimensions_step_1"}});
     if (!m_plan.framesValid())
       return check.skip("not_run", "frame_range_failed");
-    if (request.count() > kMaxFrames ||
-        request.reserveBytes() > kWorkspaceBytes)
+    if (request.count() > kMaxFrames || request.reserveBytes() > RenderJobBytes)
       check.fail("render_limit", "Reduce the frame count or output dimensions.",
                  {{"reason", "frames_or_reservation"},
                   {"frame_count", request.count()},
                   {"max_frames", kMaxFrames},
                   {"reserve_bytes", double(request.reserveBytes())},
-                  {"max_bytes", double(kWorkspaceBytes)}});
+                  {"max_bytes", double(RenderJobBytes)}});
   }
 
   void sceneNumbering(Check& check) {
@@ -1275,14 +1400,16 @@ private:
             "writer.");
       return;
     }
-    std::unique_ptr<Tiio::Writer> png(Tiio::makeWriter("png"));
-    if (!png)
-      check.unavailable("png_writer_unavailable",
-                        "The native PNG writer is unavailable.");
+    const char* extension = profileInfo(m_plan.request.profile).extension;
+    std::unique_ptr<Tiio::Writer> writer(Tiio::makeWriter(extension));
+    if (!writer)
+      check.unavailable(QString(extension) + "_writer_unavailable",
+                        "The native image writer of this profile is "
+                        "unavailable.");
   }
 
   void mediaTools(Check& check) {
-    if (!movie()) return check.skip("not_applicable", "png");
+    if (!movie()) return check.skip("not_applicable", "image_sequence");
     if (m_context.mediaToolsDirectory.isEmpty())
       return check.unavailable(
           "media_tools_not_configured",
@@ -1296,7 +1423,7 @@ private:
   }
 
   void encoder(Check& check) {
-    if (!movie()) return check.skip("not_applicable", "png");
+    if (!movie()) return check.skip("not_applicable", "image_sequence");
     if (!passed("media_tools"))
       return check.skip("not_run", "media_tools_failed");
     const MediaProbe& probe = *m_context.runtimeState->media;
@@ -1337,11 +1464,23 @@ private:
     const qint64 reserved =
         jobRegistry(m_context).reservedBytes(JobLane::Render) +
         m_plan.request.reserveBytes();
-    if (reserved > kWorkspaceBytes)
+    if (reserved > RenderWorkerBytes)
+      return check.fail(
+          "render_limit",
+          "This worker has reached its render output storage limit.",
+          {{"reason", "worker_reservation"},
+           {"reserved_bytes", double(reserved)},
+           {"max_bytes", double(RenderWorkerBytes)}});
+    const qint64 available =
+        QStorageInfo(m_context.workspace()).bytesAvailable();
+    if (available < m_plan.request.reserveBytes() + RenderFreeSpaceMargin)
       check.fail("render_limit",
-                 "This worker has reached its render output storage limit.",
-                 {{"reserved_bytes", double(reserved)},
-                  {"max_bytes", double(kWorkspaceBytes)}});
+                 "The workspace volume has too little free space for this "
+                 "render.",
+                 {{"reason", "workspace_free_space"},
+                  {"available_bytes", double(available)},
+                  {"reserve_bytes", double(m_plan.request.reserveBytes())},
+                  {"margin_bytes", double(RenderFreeSpaceMargin)}});
   }
 
   void lane(Check& check) {
@@ -1399,9 +1538,63 @@ private:
     }
   }
 
+  static bool computesInFloat(TFx* fx) {
+    auto* raster = dynamic_cast<TRasterFx*>(fx);
+    return raster && raster->canComputeInFloat();
+  }
+
+  // The effect a provenance row names: a macro member, a generator column's
+  // effect or the node itself.
+  static TFx* evaluatedEffect(TFx* node, const QString& memberKey) {
+    if (auto* macro = dynamic_cast<TMacroFx*>(node)) {
+      for (const TFxP& member : macro->getFxs())
+        if (QString::fromStdWString(member->getFxId()) == memberKey)
+          return member.getPointer();
+      return nullptr;
+    }
+    if (auto* wrapper = dynamic_cast<TZeraryColumnFx*>(node))
+      return wrapper->getZeraryFx();
+    return node;
+  }
+
+  // Whether each effect the render evaluates computes in float, as its node
+  // and the effect itself both must for a float tile to pass unconverted.
+  std::vector<EffectPrecision> effectPrecision() const {
+    std::vector<EffectPrecision> rows;
+    for (const QJsonValue& value : provenance) {
+      const QJsonObject entry = value.toObject();
+      EffectPrecision row;
+      row.fxId      = entry.value("fx_id").toString();
+      row.memberKey = entry.value("member_key").toString();
+      row.type      = entry.value("type").toString();
+      TFx* node     = m_document.fx(row.fxId);
+      TFx* effect   = evaluatedEffect(node, row.memberKey);
+      row.float32 = effect && computesInFloat(node) && computesInFloat(effect);
+      rows.push_back(row);
+    }
+    return rows;
+  }
+
+  // Every conversion the request makes; avoidable ones it did not accept
+  // refuse the job (contract w3-fidelity §4).
+  void conversions(Check& check) {
+    if (m_plan.pipeline.bpp == 128 && !passed("fx_extent"))
+      return check.skip("not_run", "fx_extent_failed");
+    m_plan.conversions = renderConversions(
+        m_plan.request.profile, m_plan.pipeline, effectPrecision(),
+        m_plan.omissions, m_plan.request.accepted);
+    const QStringList unaccepted = m_plan.unaccepted();
+    if (unaccepted.isEmpty()) return;
+    check.fail("unaccepted_conversion",
+               "The render makes avoidable conversions the request did not "
+               "accept; list them in accept_conversions or change the profile "
+               "or pipeline.",
+               {{"conversions", QJsonArray::fromStringList(unaccepted)}});
+  }
+
   Context& m_context;
   Document& m_document;
-  const Plan m_plan;
+  Plan m_plan;
   std::vector<Check> m_checks;
   QStringList m_probes;
 };
@@ -1426,7 +1619,10 @@ static QJsonObject admittedRequest(const QJsonObject& params,
   result.insert("start_frame", request.start);
   result.insert("end_frame", request.end);
   result.insert("step", request.step);
-  result.insert("format", formatText(request.format));
+  result.insert("profile", profileInfo(request.profile).name);
+  result.insert("pipeline", request.pipelineSource);
+  result.insert("accept_conversions",
+                QJsonArray::fromStringList(request.accepted));
   return result;
 }
 
@@ -1443,6 +1639,7 @@ static std::shared_ptr<RenderJob> newJob(Context& context, Document& document,
   job->common.submittedMs = registry.elapsedMs();
   job->common.request     = admittedRequest(params, plan);
   job->request            = plan.request;
+  job->pipeline           = plan.pipeline;
   job->effective          = effectiveOutput(plan);
   job->workspace          = context.workspace();
   try {
@@ -1476,7 +1673,8 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
   RenderChecks checks(context, document, plan);
   checks.run(CheckIds, true);
   checks.requireReady();
-  auto job = newJob(context, document, plan, kindText(plan.kind), params);
+  auto job =
+      newJob(context, document, checks.plan(), kindText(plan.kind), params);
   job->provenance          = checks.provenance;
   job->mediaToolsDirectory = context.mediaToolsDirectory;
   context.markMutationStarted();
@@ -1514,7 +1712,8 @@ static QJsonValue submit(Context& context, const QJsonObject& params,
 
 static void requirePreflightFields(const QJsonObject& params,
                                    const QString& kind) {
-  const QStringList sequence{"start_frame", "end_frame", "step", "format"};
+  const QStringList sequence{"start_frame", "end_frame",          "step",
+                             "profile",     "accept_conversions", "pipeline"};
   const bool preview = kind == "preview";
   bool valid         = params.contains("frame") == preview;
   for (const QString& field : sequence)
@@ -1525,7 +1724,8 @@ static void requirePreflightFields(const QJsonObject& params,
   if (!valid)
     throw Error("invalid_params",
                 "kind preview takes frame only; kind sequence takes "
-                "start_frame, end_frame and optional step and format.");
+                "start_frame, end_frame and optional step, profile, "
+                "pipeline and accept_conversions.");
 }
 
 static QJsonValue preflight(Context& context, const QJsonObject& params) {
@@ -1617,15 +1817,17 @@ static QJsonValue submitNeural(Context& context, const QJsonObject& params) {
   return job->record();
 }
 
-static void validateMovieArtifact(Context& context, const Artifact& artifact) {
-  if (artifact.format != Format::Mp4) return;
+// Movies and EXR frames are served as verified file metadata, so their files
+// must still be the ones verified at publication.
+static void validateFileArtifact(Context& context, const Artifact& artifact) {
+  if (!profileInfo(artifact.profile).movie && !artifact.exr()) return;
   const QString path = context.resolvePath(artifact.path, false);
   const QFileInfo info(path);
   validateOutputFile(info, artifact.path, artifact.bytes);
   if (path != artifact.path || info.size() != artifact.bytes ||
       info.lastModified() != artifact.lastModified)
     throw Error("invalid_artifact",
-                "The movie artifact changed after verified publication.");
+                "The artifact file changed after verified publication.");
 }
 
 static QJsonValue artifactList(Context& context, const RenderJob& job) {
@@ -1635,7 +1837,7 @@ static QJsonValue artifactList(Context& context, const RenderJob& job) {
                 {{"status", statusText(job.status)}});
   QJsonArray artifacts;
   for (const Artifact& artifact : job.artifacts) {
-    validateMovieArtifact(context, artifact);
+    validateFileArtifact(context, artifact);
     artifacts.append(artifact.metadata());
   }
   return QJsonObject{{"job", job.record()}, {"artifacts", artifacts}};
@@ -1647,9 +1849,12 @@ QJsonValue RenderJob::result(Context& owner, const QJsonObject&) {
 
 static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
                                     const Artifact& artifact) {
-  if (artifact.format != Format::Png)
-    throw Error("unsupported_artifact_kind",
-                "Movie artifacts are delivered as verified file metadata.");
+  if (artifact.profile != RenderProfile::Rgba8Png)
+    throw Error(
+        "unsupported_artifact_kind",
+        "Movie and EXR artifacts are served as verified file "
+        "metadata by job.result, not inline.",
+        {{"kind", artifact.metadata().value("kind")}, {"hint", "job.result"}});
   const QString path = context.resolvePath(artifact.path, false);
   if (path != artifact.path)
     throw Error("invalid_artifact",
@@ -1689,10 +1894,26 @@ static QJsonObject renderCapabilities(Context& context) {
   ensureGraphicsProbe(context);
   ensureMediaProbe(context);
   std::unique_ptr<Tiio::Writer> writer(Tiio::makeWriter("png"));
+  std::unique_ptr<Tiio::Writer> exr(Tiio::makeWriter("exr"));
   QJsonArray profiles;
   if (graphicsState(context).usable()) {
     if (writer) profiles.append("rgba8-png");
     if (mediaState(context).usable()) profiles.append("opaque8-mp4");
+    if (exr) profiles.append("rgba-half-exr");
+    if (exr) profiles.append("rgba-float-exr");
+  }
+  QJsonArray table;
+  for (const QString& name : profileNames()) {
+    const ProfileInfo& info = profileInfo(profileFromText(name));
+    table.append(
+        QJsonObject{{"profile", info.name},
+                    {"pipeline_bpp", info.defaultBpp},
+                    {"sample", info.sample},
+                    {"alpha", info.alpha},
+                    {"transfer", info.linearOutput ? "linear" : "power"},
+                    {"reserve_bytes_per_pixel", info.reserveBytesPerPixel},
+                    {"frame_file_bytes", double(info.frameFileLimit)},
+                    {"inline_read", name == "rgba8-png"}});
   }
   QJsonObject movie = mp4Report(context);
   movie.insert("media_tools_configured",
@@ -1706,6 +1927,9 @@ static QJsonObject renderCapabilities(Context& context) {
   movie.insert("alpha", "opaque");
   movie.insert("matte", "black");
   return {{"profiles", profiles},
+          {"profile_table", table},
+          {"avoidable_conversions",
+           QJsonArray::fromStringList(avoidableConversionKinds())},
           {"mp4", movie},
           {"png_writer_available", bool(writer)},
           {"graphics", graphicsReport(context)},
@@ -1715,7 +1939,9 @@ static QJsonObject renderCapabilities(Context& context) {
           {"max_active_jobs", 1},
           {"max_retained_jobs", JobsPerLane},
           {"inline_image_bytes", double(kInlineBytes)},
-          {"storage_budget_bytes", double(kWorkspaceBytes)},
+          {"storage_budget_bytes", double(RenderWorkerBytes)},
+          {"job_storage_bytes", double(RenderJobBytes)},
+          {"free_space_margin_bytes", double(RenderFreeSpaceMargin)},
           {"frame_origin", 0},
           {"snapshot_inputs", "qualified-collected-native-scene"},
           {"read_only_snapshot_inputs", linkedSnapshotInputs()},
@@ -1759,6 +1985,27 @@ static QJsonObject aspectExportSchema() {
   return {{"oneOf", QJsonArray{none, fitted}}};
 }
 
+// profile, pipeline and accept_conversions of render.submit and
+// render.preflight.
+static std::vector<std::pair<QString, QJsonObject>> fidelitySchemas() {
+  return {
+      {"profile",
+       QJsonObject{{"type", "string"},
+                   {"enum", QJsonArray::fromStringList(profileNames())},
+                   {"default", "rgba8-png"}}},
+      {"pipeline", QJsonObject{{"type", "string"},
+                               {"enum", QJsonArray{"profile_default", "scene"}},
+                               {"default", "profile_default"}}},
+      {"accept_conversions",
+       QJsonObject{
+           {"type", "array"},
+           {"items", QJsonObject{{"type", "string"},
+                                 {"enum", QJsonArray::fromStringList(
+                                              avoidableConversionKinds())}}},
+           {"minItems", 1},
+           {"maxItems", 5}}}};
+}
+
 QJsonArray renderOperations() {
   using RenderDetail::integerSchema;
   using RenderDetail::jobOperation;
@@ -1773,9 +2020,8 @@ QJsonArray renderOperations() {
   sequence.insert("start_frame", integerSchema(0, 1000000));
   sequence.insert("end_frame", integerSchema(0, 1000000));
   sequence.insert("step", integerSchema(1, 1000000));
-  sequence.insert("format", QJsonObject{{"type", "string"},
-                                        {"enum", QJsonArray{"png", "mp4"}},
-                                        {"default", "png"}});
+  for (const auto& [name, schema] : fidelitySchemas())
+    sequence.insert(name, schema);
   sequence.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
   sequence.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
   sequence.insert("aspect_export", aspectExportSchema());
@@ -1792,8 +2038,8 @@ QJsonArray renderOperations() {
   check.insert("start_frame", integerSchema(0, 1000000));
   check.insert("end_frame", integerSchema(0, 1000000));
   check.insert("step", integerSchema(1, 1000000));
-  check.insert("format", QJsonObject{{"type", "string"},
-                                     {"enum", QJsonArray{"png", "mp4"}}});
+  for (const auto& [name, schema] : fidelitySchemas())
+    check.insert(name, schema);
   check.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
   check.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
   check.insert("aspect_export", aspectExportSchema());
@@ -1808,14 +2054,19 @@ QJsonArray renderOperations() {
                 "Run every check that render.preview or render.submit runs "
                 "before a job exists, without starting one, and report the "
                 "effective output: size, fit, frames, rate, profile, alpha, "
-                "color, camera DPI and crop.",
+                "color pipeline and output, every conversion and every scene "
+                "output setting the render does not apply, camera DPI and "
+                "crop.",
                 check, {"document_id", "expected_revision", "kind"}),
       jobOperation("render.preview",
                    "Start an immutable one-frame native PNG preview job.",
                    preview, {"document_id", "frame"}),
       jobOperation("render.submit",
-                   "Start a bounded immutable PNG sequence or opaque MP4 job; "
-                   "MP4 requires even dimensions and step 1.",
+                   "Start a bounded immutable image-sequence or movie job in "
+                   "an output profile (8-bit PNG, opaque MP4, half or float "
+                   "EXR); avoidable precision or setting losses must be "
+                   "accepted by name. MP4 requires even dimensions and step "
+                   "1.",
                    sequence, {"document_id", "start_frame", "end_frame"}),
       operation("artifact.read",
                 "Read an owned PNG artifact as a bounded inline image.",

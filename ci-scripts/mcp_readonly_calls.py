@@ -666,7 +666,12 @@ def _preflight_request(**extra: Any) -> dict[str, Any]:
 
 def _preflight(f: Fixture) -> list[Call]:
     sequence: dict[str, Any] = {"kind": "sequence", "start_frame": 0, "end_frame": 2}
-    failing: dict[str, Any] = {**sequence, "start_frame": 5, "end_frame": 1, "format": "mp4"}
+    failing: dict[str, Any] = {
+        **sequence,
+        "start_frame": 5,
+        "end_frame": 1,
+        "profile": "opaque8-mp4",
+    }
     return [
         Call("preview", _pinned(f, **_preflight_request())),
         Call("sequence", _pinned(f, None, **sequence)),
@@ -693,7 +698,7 @@ def _ro_preflight(_f: Fixture, document: str) -> list[Call]:
     return [
         Call("preview", {**pinned, **_preflight_request()}),
         Call("sequence", {**pinned, **sequence}),
-        Call("mp4", {**pinned, **sequence, "format": "mp4"}),
+        Call("mp4", {**pinned, **sequence, "profile": "opaque8-mp4"}),
         Call(
             "stale", {**pinned, **_preflight_request(), "expected_revision": "1"}, "stale_revision"
         ),

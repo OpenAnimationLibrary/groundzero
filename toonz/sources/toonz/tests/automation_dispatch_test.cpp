@@ -230,8 +230,10 @@ QString bytePressure(Context& context, Dispatcher& dispatcher) {
 QJsonValue escapedCancellation(Context& context, const QString& method,
                                const QJsonObject& params) {
   QJsonObject response = executeJobs(context, method, params).toObject();
+  // Sized so the escaped receipt of a render job record lands between 12 and
+  // 16 KiB.
   response.insert("failure", QJsonObject{{"code", "padding"},
-                                         {"message", QString(2048, QChar(1))}});
+                                         {"message", QString(1800, QChar(1))}});
   return response;
 }
 

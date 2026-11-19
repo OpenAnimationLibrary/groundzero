@@ -201,7 +201,7 @@ def render_aspect_export_is_explicit_per_job(case: NativeAcceptance) -> None:
             "kind": "sequence",
             "start_frame": 0,
             "end_frame": 1,
-            "format": "mp4",
+            "profile": "opaque8-mp4",
             "width": 64,
             "height": 36,
             "aspect_export": {"mode": "crop", "ratio": 1.5},

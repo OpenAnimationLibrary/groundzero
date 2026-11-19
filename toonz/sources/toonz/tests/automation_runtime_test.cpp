@@ -291,18 +291,18 @@ void preflightOrderAndCodes(Context& context) {
           .toObject();
   Document& document =
       context.document(created.value("document_id").toString());
-  const QStringList order{"frame_range",  "dimensions",       "scene_numbering",
-                          "fx_graph",     "fx_extent",        "graphics",
-                          "writer",       "media_tools",      "encoder",
-                          "dependencies", "storage",          "lane",
-                          "retention",    "render_admission", "source_pins"};
+  const QStringList order{
+      "frame_range", "dimensions",  "scene_numbering",  "fx_graph",
+      "fx_extent",   "graphics",    "writer",           "media_tools",
+      "encoder",     "conversions", "dependencies",     "storage",
+      "lane",        "retention",   "render_admission", "source_pins"};
   const QJsonObject broken = preflightReport(dispatcher, document,
                                              {{"kind", "sequence"},
                                               {"start_frame", 9},
                                               {"end_frame", 3},
                                               {"width", 2048},
                                               {"height", 2048},
-                                              {"format", "mp4"}});
+                                              {"profile", "opaque8-mp4"}});
   QStringList ids;
   for (const QJsonValue& check : broken.value("checks").toArray())
     ids.append(check.toObject().value("id").toString());

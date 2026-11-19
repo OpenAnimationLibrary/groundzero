@@ -14,6 +14,7 @@
 #include "automation_sheet_record.h"
 #include "automation_cells.h"
 #include "automation_scene_host.h"
+#include "automation_render_profile.h"
 #include "automation_runtime.h"
 #include "automation_shared_parse.h"
 #include "automation_shutdown.h"
@@ -693,6 +694,7 @@ int domainTestResult(Context& context) {
     runAutomationMediaProcessTests(context);
     runAutomationSceneHostTests(context);
     runAutomationRuntimeTests(context);
+    runAutomationRenderProfileTests();
     runAutomationJobsTests(context);
     runAutomationJournalTests(context);
     runAutomationSceneCheckTests(context);
