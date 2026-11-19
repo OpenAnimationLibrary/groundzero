@@ -591,11 +591,12 @@ private:
   qint64 m_drawings     = 0;
 };
 
-// The traversal reasons of the dependency walk and the sheet walk, as the
-// analysis reasons the jobs contract defines.
+// The traversal reasons of the dependency walk and the sheet walk as analysis
+// reasons: the sheet walk's depth_limit and cycle keep their names.
 QString analysisReason(const QString& reason) {
   static const QStringList limits{"record_limit", "level_limit", "fx_limit",
                                   "column_limit", "row_limit"};
+  if (reason == "depth_limit" || reason == "cycle") return reason;
   return limits.contains(reason) ? "row_limit" : "unsupported_level";
 }
 

@@ -783,6 +783,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_scene_check_analysis_job_after_worker_loss(self) -> None:
         mcp_scene_check_cases.analysis_job_after_worker_loss(self)
 
+    def test_scene_check_analysis_admission_across_hosts(self) -> None:
+        mcp_scene_check_cases.analysis_admission_across_hosts(self)
+
     def test_scene_check_read_only_runs_in_the_host(self) -> None:
         mcp_scene_check_cases.read_only_checks_run_in_the_host(self)
 

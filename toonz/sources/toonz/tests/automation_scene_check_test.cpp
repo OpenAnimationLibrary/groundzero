@@ -237,6 +237,35 @@ void inventoryListsLevelRows(Context& context) {
   require(nested, "A level inside a sub-xsheet did not name that sheet");
 }
 
+// 17 levels, each with its own palette of 4000 unused styles, give more
+// unused-style rows than a job keeps.
+void rowLimit(Context& context) {
+  Fixture fixture(context);
+  ToonzScene& scene = *fixture.document.scene;
+  for (int index = 0; index < 17; ++index) {
+    TXshSimpleLevel* level =
+        scene.createNewLevel(PLI_XSHLEVEL, L"Wide" + std::to_wstring(index))
+            ->getSimpleLevel();
+    TPalette* palette = new TPalette();
+    for (int style = 0; style < 4000; ++style)
+      palette->getPage(0)->addStyle(
+          palette->addStyle(new TSolidColorStyle(TPixel32::Green)));
+    level->setPalette(palette);
+    TVectorImageP image = new TVectorImage;
+    Fixture::addStroke(image, 1, index);
+    level->setFrame(TFrameId(1), image);
+    scene.getTopXsheet()->setCell(0, index + 2, TXshCell(level, TFrameId(1)));
+  }
+  const QString id = fixture.submit("unused_styles").value("job_id").toString();
+  require(fixture.finish(id).value("status") == "completed",
+          "The wide scan did not complete");
+  const QJsonObject result = fixture.job("job.result", id);
+  require(result.value("total_rows").toInt() == 65536 &&
+              !result.value("complete").toBool() &&
+              result.value("reasons").toArray() == QJsonArray{"row_limit"},
+          "A scan past 65,536 rows did not stop at the limit with row_limit");
+}
+
 void secondCheckIsBusy(Context& context) {
   Fixture fixture(context);
   setSceneCheckItemDelayMs(5);
@@ -246,7 +275,8 @@ void secondCheckIsBusy(Context& context) {
     fixture.submit("inventory");
   } catch (const Error& error) {
     busy = error.code == "analysis_busy" &&
-           error.details.value("active_job_id") == id;
+           error.details.value("active_job_id") == id &&
+           error.details.value("lane") == "analysis";
   }
   fixture.job("job.cancel", id);
   setSceneCheckItemDelayMs(0);
@@ -263,6 +293,7 @@ void runAutomationSceneCheckTests(Context& context) {
       {"cancel ends at once with rows", cancelEndsAtOnceWithRows},
       {"a write ends the scan", writeEndsTheScan},
       {"inventory lists level rows", inventoryListsLevelRows},
+      {"row limit", rowLimit},
       {"a second check is busy", secondCheckIsBusy}};
   for (const auto& test : cases) {
     test.second(context);

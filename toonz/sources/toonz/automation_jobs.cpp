@@ -252,13 +252,15 @@ void JobRegistry::admitAnalysis(const QString& hostActive,
   const QString local = active(JobLane::Analysis);
   const QString busy  = local.isEmpty() ? hostActive : local;
   if (!busy.isEmpty())
-    throw Error("analysis_busy",
-                "Wait for the active analysis job to finish or cancel it.",
-                {{"active_job_id", busy}});
+    throw Error(
+        "analysis_busy",
+        "Wait for the active analysis job to finish or cancel it.",
+        {{"active_job_id", busy}, {"lane", laneText(JobLane::Analysis)}});
   if (retained(JobLane::Analysis) + hostRetained >= JobsPerLane)
     throw Error("resource_limit",
                 "This worker has reached its analysis job limit.",
-                {{"limit", "retained_analysis_jobs"}});
+                {{"limit", "retained_analysis_jobs"},
+                 {"lane", laneText(JobLane::Analysis)}});
 }
 
 void JobRegistry::add(std::shared_ptr<Job> job) {

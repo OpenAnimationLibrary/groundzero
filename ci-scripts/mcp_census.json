@@ -1320,8 +1320,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_unused_styles_job",
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_admission_across_hosts",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_job_after_worker_loss",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1609,10 +1609,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_admission_across_hosts",
     "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
     "ci-scripts/mcp_acceptance.py::test_scene_check_read_only_runs_in_the_host",
     "ci-scripts/mcp_acceptance.py::test_scene_check_retention_refuses_the_33rd_check",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_inventory_cancel_keeps_partial_rows",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_scene_check_test.cpp"
    ]
