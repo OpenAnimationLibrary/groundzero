@@ -392,3 +392,51 @@ def cell_retiming_follows_the_native_functions(case: NativeAcceptance) -> None:
         },
     )
     save_and_reopen(case, document, "retime")
+
+
+@acceptance_case
+def a_batch_with_one_bad_target_is_refused_whole_by_every_tool_that_takes_a_list(
+    case: NativeAcceptance,
+) -> None:
+    """Every tool of the sheet that names several columns refuses the whole list when one is
+    locked or unknown: the error says which, no column changes and the revision stays."""
+    document, level, (free, locked, spare) = _fixture(case, 3)
+    _counting(case, document, level, free)
+    _counting(case, document, level, spare)
+    case.mutate("column.update", document, column_id=locked, locked=True)
+    before = {column: _rows(case, document, column, 12) for column in (free, spare)}
+    revision = case.revisions[document]
+    window = {"start_frame": 2, "length": 3}
+    lists = {
+        "cells.clear": window,
+        "cells.remove": window,
+        "cells.insert": window,
+        "cells.retime": {**window, "operation": {"kind": "reverse"}},
+    }
+    for tool, arguments in lists.items():
+        with case.subTest(tool=tool):
+            error = _refused(
+                case, tool, document, "locked", column_ids=[free, locked, spare], **arguments
+            )
+            case.assertEqual(error["details"]["column_ids"], [locked])
+            error = case.handler_failure(
+                tool,
+                case.write_params(
+                    document, {"column_ids": [free, "column_bogus", spare], **arguments}
+                ),
+                "invalid_handle",
+            )
+            case.assertEqual(case.revisions[document], revision)
+            for column, rows in before.items():
+                case.assertEqual(_rows(case, document, column, 12), rows)
+    order = [
+        c["column_id"] for c in case.success("scene.summary", {"document_id": document})["columns"]
+    ]
+    error = case.handler_failure(
+        "column.move",
+        case.write_params(document, {"column_ids": [spare, "column_bogus"], "before_position": 0}),
+        "invalid_handle",
+    )
+    summary = case.success("scene.summary", {"document_id": document})["columns"]
+    case.assertEqual([c["column_id"] for c in summary], order)
+    case.assertEqual(case.revisions[document], revision)

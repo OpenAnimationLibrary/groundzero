@@ -11,6 +11,7 @@ on disk must fail the comparison.
 from __future__ import annotations
 
 import base64
+import os
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -118,13 +119,18 @@ def corpus_baselines_are_reproduced_by_this_builds_batch_renderer(case: NativeAc
 
     The batch renderer is the `tcomposer` target of the build next to the application; a build
     made without it cannot run this case (build it with the build tool's `--target tcomposer`).
+    The case skips then, unless `GZ_REQUIRE_BATCH_RENDERER` is set, as a qualification run
+    sets it: a required backend that is missing fails the run.
     """
     tcomposer = find_tcomposer(case.native_executable.parent)
     if tcomposer is None:
-        case.skipTest(
+        message = (
             f"no tcomposer next to {case.native_executable.name}: build the tcomposer target of "
             "this build to qualify the corpus baselines against it"
         )
+        if os.environ.get("GZ_REQUIRE_BATCH_RENDERER"):
+            case.fail(message)
+        case.skipTest(message)
         return
     manifest = load_manifest()
     for name in manifest["scenes"]:

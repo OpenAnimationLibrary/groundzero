@@ -91,12 +91,19 @@ void modelCellPlan(CellPlan& plan);
 /// Apply every plan natively, restore column names and compare each column
 /// with its model.
 ///
-/// The caller has checked every bound and marked the mutation started.
+/// The caller has checked every bound. The mutation is marked started just
+/// before each native write, so a refusal of the first write is a plain
+/// rejection with nothing changed, and a later failure lists the writes that
+/// landed under `completed`. A write fault armed at `native:set-cells` refuses
+/// the first write, as `TXsheet::setCells` does for a cell it will not take;
+/// armed at `native:set-cells-later` it refuses the first write after one has
+/// landed.
 ///
 /// Throws:
 ///   Error: `native_error` naming the column and first differing row when a
 ///     native call refuses or the native cells differ from the model.
-void applyCellPlans(Document& document, std::vector<CellPlan>& plans);
+void applyCellPlans(Context& context, Document& document,
+                    std::vector<CellPlan>& plans);
 
 /// Run the cell model domain tests.
 void runAutomationCellsTests(Context& context);
