@@ -17,6 +17,7 @@
  "non_tool_tokens": [
   "details.blockers",
   "details.cause",
+  "details.cause_code",
   "details.check",
   "details.job_id",
   "details.missing",
@@ -27,6 +28,7 @@
   "details.releasable",
   "details.scope",
   "details.slice",
+  "details.stage",
   "details.status",
   "details.toolset",
   "formats.admitted"
@@ -512,6 +514,16 @@
   "column.update": {
    "origin": "worker",
    "toolset": "core",
+   "writes": true
+  },
+  "delivery.preflight": {
+   "origin": "worker",
+   "toolset": "delivery",
+   "writes": false
+  },
+  "delivery.publish": {
+   "origin": "worker",
+   "toolset": "delivery",
    "writes": true
   },
   "drawing.analysis.submit": {
@@ -3054,6 +3066,19 @@
    "classification": "exposed",
    "tools": [
     "review.compare.submit"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.publish_to_output_root",
+   "domain": "Rendering and review",
+   "outcome": "Publish completed renders' verified frames, movies and EXR files into a granted output root as a delivery directory with a manifest, after a preflight that names every file and check, never replacing anything and reporting a failure file by file.",
+   "classification": "exposed",
+   "tools": [
+    "delivery.preflight",
+    "delivery.publish"
    ],
    "disposition": {
     "kind": "implemented"

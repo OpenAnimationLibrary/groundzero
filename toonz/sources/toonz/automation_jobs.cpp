@@ -740,6 +740,11 @@ QJsonObject recordHostDiscard(Context& context, const QString& id,
   return result;
 }
 
+std::shared_ptr<Job> retainedJobForResult(Context& context, const QString& id) {
+  answeredWithoutRegistry(context, "job.result", id);
+  return jobRegistry(context).require(id);
+}
+
 QJsonValue executeJobs(Context& context, const QString& method,
                        const QJsonObject& params) {
   if (method == "job.list") return listJobs(context, params);

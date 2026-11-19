@@ -9,6 +9,7 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_hook.h"
+#include "automation_delivery.h"
 #include "automation_import.h"
 #include "automation_files.h"
 #include "automation_intake.h"
@@ -310,7 +311,11 @@ const QMap<QString, QString>& toolsetDescriptions() {
        "retime and replace exposures."},
       {"intake",
        "Image intake: preflight of PNG files and sequences, import with an "
-       "explicit copy or link choice, and import provenance."}};
+       "explicit copy or link choice, and import provenance."},
+      {"delivery",
+       "Publication of completed render jobs into a granted output root: a "
+       "preflight of every file and check, and a verified no-replace "
+       "publication with its delivery.json manifest."}};
   return descriptions;
 }
 
@@ -450,6 +455,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(runtimeOperations(), executeRuntime, "core");
   add(jobOperations(), executeJobs, "core");
   add(persistenceOperations(), executePersistence, "core");
+  add(deliveryOperations(), executeDelivery, "delivery");
   add(importOperations(), executeImport, "core");
   add(journalOperations(), executeJournal, "core");
   add(productionOperations(), executeProduction, "core");

@@ -117,6 +117,9 @@ CapabilityState mediaState(Context& context);
 QJsonObject graphicsReport(Context& context);
 // {writer_registered, muxer_default_video_codec, encoder, encoder_available}.
 QJsonObject mp4Report(Context& context);
+// {ffmpeg, ffprobe} as {version_line, sha256} once the media tools were
+// probed in this process; null before.
+QJsonValue mediaToolIdentity(Context& context);
 // Whether the native mp4 level writer is registered in this process.
 bool mp4WriterRegistered();
 // Re-stat both media files and re-hash on change; false when either changed.

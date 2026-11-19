@@ -223,6 +223,7 @@ set(HEADERS
     automation_import.h
     automation_production.h
     automation_root_publish.h
+    automation_delivery.h
     automation_scene_check.h
     automation_assistance.h
     automation_neural.h
@@ -367,6 +368,7 @@ set(SOURCES
     automation_import.cpp
     automation_import_job.cpp
     automation_root_publish.cpp
+    automation_delivery.cpp
     automation_production.cpp
     automation_scene_check.cpp
     automation_assistance.cpp

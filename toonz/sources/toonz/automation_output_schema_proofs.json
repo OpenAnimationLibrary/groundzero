@@ -274,6 +274,23 @@
     "handler": "updateColumn",
     "read": []
   },
+  "delivery.preflight": {
+    "handler": "preflight",
+    "read": [
+      "detail",
+      "job_id",
+      "kind",
+      "name",
+      "state"
+    ]
+  },
+  "delivery.publish": {
+    "handler": "publish",
+    "read": [
+      "job_id",
+      "kind"
+    ]
+  },
   "drawing.analysis.submit": {
     "handler": "submitDrawingAnalysis",
     "read": [
