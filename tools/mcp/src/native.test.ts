@@ -663,3 +663,50 @@ test("drives a rig journey in the rigging toolset through actual MCP stdio", asy
     }
   }
 }, 30_000);
+
+test("advertises a catalog that Claude Code and Codex can both load", async () => {
+  const executable = process.env["GROUNDZERO_EXECUTABLE"];
+  if (!executable) throw new Error("test:native requires GROUNDZERO_EXECUTABLE");
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "groundzero-mcp-clients-")));
+  const client = new Client({ name: "client-catalog-test", version: "1.0.0" });
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
+          "--executable",
+          executable,
+          "--workspace",
+          workspace,
+          "--toolsets",
+          "all",
+        ],
+        env: environment(),
+        stderr: "inherit",
+      }),
+    );
+    const { tools } = await client.listTools();
+    const qualified = tools.map((tool) => `mcp__groundzero__${tool.name.replace(/[^\w-]/gu, "_")}`);
+    expect(new Set(qualified).size).toBe(tools.length);
+    expect(Math.max(...qualified.map((name) => name.length))).toBeLessThanOrEqual(64);
+    const combinators = ["anyOf", "oneOf", "allOf"];
+    const rootUnions = tools
+      .filter((tool) => combinators.some((keyword) => keyword in tool.inputSchema))
+      .map((tool) => tool.name);
+    expect(rootUnions).toEqual(["drawing.create"]);
+    for (const tool of tools) {
+      expect(tool.inputSchema.type, tool.name).toBe("object");
+      expect(tool.inputSchema, tool.name).not.toHaveProperty("$schema");
+      for (const property of Object.keys(tool.inputSchema.properties ?? {})) {
+        expect(property, tool.name).toMatch(/^[A-Za-z0-9_.-]{1,64}$/u);
+      }
+    }
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }
+}, 30_000);
