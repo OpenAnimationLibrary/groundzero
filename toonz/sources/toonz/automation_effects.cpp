@@ -80,7 +80,7 @@ const QHash<QString, Declaration>& declarations() {
       {"audio.inspect", {kInspect, {"revision_conflict"}}},
       {"audio.mixdown",
        {kExport,
-        {"already_exists", "io_error", "missing_parent", "timing_conflict"}}},
+        {"already_exists", "io_error", "missing_parent", "publication_unsupported", "timing_conflict"}}},
       {"automation.capabilities", {kInspectWorker, {}}},
       {"automation.list_documents", {kInspectWorker, {}}},
       {"camera.inspect", {kInspect, {}}},
@@ -126,8 +126,7 @@ const QHash<QString, Declaration>& declarations() {
          "PRESET_READ_FAILED", "RESOURCE_LIMIT", "UNREGISTERED_PRESET"}}},
       {"fx.preset.save",
        {kExport,
-        {"ALREADY_EXISTS", "INVALID_PARAMS", "MISSING_PARENT",
-         "PRESET_WRITE_FAILED", "RESOURCE_LIMIT"}}},
+        {"ALREADY_EXISTS", "INVALID_PARAMS", "MISSING_PARENT", "PRESET_WRITE_FAILED", "RESOURCE_LIMIT", "publication_unsupported"}}},
       {"fx.recipe.list", {kInspectWorker, {}}},
       {"fx.rename", {kEdit, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
       {"fx.terminal.set", {kEdit, {}}},
@@ -135,6 +134,14 @@ const QHash<QString, Declaration>& declarations() {
        {kEdit, {"has_dependents", "locked", "missing_key", "not_found"}}},
       {"hook.inspect", {kInspect, {"unsupported_level"}}},
       {"hook.set", {kEdit, {"locked", "missing_drawing"}}},
+      {"job.cancel",
+       {ToolEffects{"job_control", "none", {}, "controls", {}, true}, {}}},
+      {"job.list", {kJobRead, {}}},
+      {"job.result",
+       {kJobRead,
+        {"artifacts_unavailable", "invalid_artifact", "result_unavailable",
+         "scene_host_failed"}}},
+      {"job.status", {kJobRead, {"scene_host_failed"}}},
       {"level.create", {kAdd, {"name_conflict"}}},
       {"level.import",
        {kImport, {"invalid_asset", "name_conflict", "unsupported_precision"}}},
@@ -193,16 +200,12 @@ const QHash<QString, Declaration>& declarations() {
         {"invalid_path", "invalid_project", "io_error", "not_found",
          "path_denied", "resource_limit", "revision_conflict"}}},
       {"raster.export_png",
-       {kExport, {"already_exists", "asset_unavailable", "io_error"}}},
+       {kExport, {"already_exists", "asset_unavailable", "io_error", "publication_unsupported"}}},
       {"raster.import_png",
        {kEditFromFile,
         {"already_exists", "asset_unavailable", "unsupported_precision"}}},
       {"raster.patch", {kEdit, {}}},
       {"raster.read_pixels", {kInspect, {"not_found", "unsupported_type"}}},
-      {"render.artifacts",
-       {kJobRead, {"artifacts_unavailable", "scene_host_failed"}}},
-      {"render.cancel",
-       {ToolEffects{"job_control", "none", {}, "controls", {}, true}, {}}},
       {"render.capabilities", {kInspectWorker, {}}},
       {"render.preflight",
        {ToolEffects{"read",
@@ -217,7 +220,6 @@ const QHash<QString, Declaration>& declarations() {
             "job_start", "reads", {"writes_private"}, "starts", {}, false},
         {"fx_preflight_failed", "missing_dependency", "render_blocked",
          "render_busy", "render_unavailable", "source_changed"}}},
-      {"render.status", {kJobRead, {"scene_host_failed"}}},
       {"render.submit",
        {ToolEffects{"job_start",
                     "reads",
@@ -273,10 +275,7 @@ const QHash<QString, Declaration>& declarations() {
          "unregistered_package"}}},
       {"scene.save_copy",
        {kExport,
-        {"already_exists", "empty_level", "invalid_package", "missing_drawing",
-         "missing_level", "missing_parent", "package_limit",
-         "package_write_failed", "reader_unavailable", "scene_limit",
-         "unsupported_column", "unsupported_level", "writer_unavailable"}}},
+        {"already_exists", "empty_level", "invalid_package", "missing_drawing", "missing_level", "missing_parent", "package_limit", "package_write_failed", "publication_unsupported", "reader_unavailable", "scene_limit", "unsupported_column", "unsupported_level", "writer_unavailable"}}},
       {"scene.settings", {kEdit, {"timing_conflict"}}},
       {"scene.source_status",
        {ToolEffects{"read", "reads", {"reads_roots"}, "none", {}, false},
@@ -570,14 +569,14 @@ QJsonObject descriptorSchema() {
       required);
 }
 
-// The platform description runtime.inspect also reports.
-QJsonObject platformSchema() {
+// A field of the result runtime.inspect also reports, such as the platform.
+QJsonObject runtimeFieldSchema(const QString& field) {
   return successSchemas()
       .value("runtime.inspect")
       .toObject()
       .value("properties")
       .toObject()
-      .value("platform")
+      .value(field)
       .toObject();
 }
 
@@ -607,7 +606,8 @@ QJsonObject capabilitiesResultSchema() {
        {"media_tools_configured", QJsonObject{{"type", "boolean"}}},
        {"isolation",
         QJsonObject{{"type", "string"}, {"const", "private_process"}}},
-       {"platform", platformSchema()},
+       {"platform", runtimeFieldSchema("platform")},
+       {"worker", runtimeFieldSchema("worker")},
        {"read_only_scenes", readOnlyScenesSchema()}});
 }
 

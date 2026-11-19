@@ -547,10 +547,10 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   m_context.resetMutationStarted();
   try {
     QJsonObject result = applyWrite(entry, method, params);
+    checkResultSize(result, control);
 #ifdef BUILD_UI_PORT_TESTS
     checkResult(entry.descriptor, result);
 #endif
-    checkResultSize(result, control);
     rememberReceipt(operationId, {fingerprint, {{"result", result}}},
                     controlJob);
     return result;
