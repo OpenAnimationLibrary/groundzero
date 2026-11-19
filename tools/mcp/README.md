@@ -950,10 +950,10 @@ starts parse helpers (10 seconds and 1 GiB each, up to 64 files) on the copies, 
 crashing decoder ends one helper, and the files a failed helper did not answer are
 decoded again one per helper to name the file. One row per file gives `result`
 (`decoded`, `corrupt`, `unreadable`, `unsupported_format` for movies, PSD and every
-format outside PLI, TLV, PNG, TIFF, TGA, BMP, JPEG, WAV and AIFF, `too_large` above
+format without a decoder in the check, `too_large` above
 256 MiB, `missing`, `outside_roots`, `crashed`, `timeout`, `memory` or
 `skipped_budget`), with `frames_checked`, `width`, `height` and `message`. A PNG must
-have every chunk and its CRC, a JPEG its EOI marker, a BMP and a sound file the length
+have every chunk and its CRC, and other images and sound files the end marker or length
 their headers declare. `max_files` (default 4096) and `max_bytes` (default 2 GiB) end
 the check incomplete with `file_budget` or `byte_budget`.
 `job.result` pages the rows (up to 256 per page) with a `summary`, `complete` and
