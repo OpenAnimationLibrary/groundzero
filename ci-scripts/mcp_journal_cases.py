@@ -373,10 +373,11 @@ def _assert_publication(case: NativeAcceptance, verdict: dict[str, Any] | None) 
     published = verdict is not None and verdict["kind"] == "published"
     case.assertEqual(target.exists(), published or verdict is None)
     case.assertEqual(staging_left(case.workspace), [])
-    if verdict is not None and verdict["evidence"]["target"] is not None:
+    if verdict is not None and verdict["evidence"]["location"] is not None:
         found = "matches" if published else "absent"
         case.assertEqual(
-            (verdict["evidence"]["target"], verdict["evidence"]["found"]), ("package", found)
+            (verdict["evidence"]["location"]["path"], verdict["evidence"]["found"]),
+            ("package", found),
         )
 
 
@@ -630,7 +631,10 @@ def recipe_resume_lists_and_settles_unresolved(case: NativeAcceptance) -> None:
     case.assertEqual([row["operation_id"] for row in unresolved], [saved])
     settled = status(case, saved)
     case.assertEqual(settled["verdict"]["kind"], "published")
-    case.assertEqual(settled["verdict"]["evidence"]["target"], "save-b")
+    case.assertEqual(
+        settled["verdict"]["evidence"]["location"],
+        {"root": "workspace", "path": "save-b", "input_index": None, "root_sha256": None},
+    )
     case.assertEqual(case.failure("scene.save_copy", second)["code"], "operation_interrupted")
     packages = sorted(path.name for path in case.workspace.glob("save-*"))
     case.assertEqual(packages, ["save-a", "save-b"])

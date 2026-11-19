@@ -16329,7 +16329,8 @@
                       "absent",
                       "matches",
                       "differs",
-                      "not_applicable"
+                      "not_applicable",
+                      "root_not_granted"
                     ],
                     "type": "string"
                   },
@@ -16345,6 +16346,61 @@
                       }
                     ]
                   },
+                  "location": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "input_index": {
+                            "oneOf": [
+                              {
+                                "maximum": 15,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "path": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "root": {
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                            "type": "string"
+                          },
+                          "root_sha256": {
+                            "oneOf": [
+                              {
+                                "maxLength": 64,
+                                "minLength": 1,
+                                "pattern": "^[0-9a-f]{64}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "root",
+                          "path",
+                          "input_index",
+                          "root_sha256"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "outputs_present": {
                     "oneOf": [
                       {
@@ -16354,25 +16410,13 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "target": {
-                    "oneOf": [
-                      {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
                   }
                 },
                 "required": [
-                  "target",
                   "expected_sha256",
                   "found",
                   "job_id",
+                  "location",
                   "outputs_present"
                 ],
                 "type": "object"
@@ -23365,6 +23409,54 @@
         "minLength": 0,
         "type": "string"
       },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
       "operation_id": {
         "maxLength": 65536,
         "minLength": 0,
@@ -23428,6 +23520,7 @@
     "required": [
       "admission",
       "document_id",
+      "location",
       "operation_id",
       "package_directory",
       "package_id",
@@ -24357,6 +24450,54 @@
         "minItems": 0,
         "type": "array"
       },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
       "package_id": {
         "maxLength": 72,
         "minLength": 1,
@@ -24587,6 +24728,54 @@
         "minLength": 0,
         "type": "string"
       },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
       "manifest_path": {
         "maxLength": 65536,
         "minLength": 0,
@@ -24629,6 +24818,7 @@
     },
     "required": [
       "document_id",
+      "location",
       "manifest_path",
       "operation_id",
       "package_directory",

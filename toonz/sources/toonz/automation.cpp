@@ -742,6 +742,7 @@ void openJournal(Context& context, const Options& options,
   start.workspace       = context.workspace();
   start.instance        = jobRegistry(context).instance();
   start.runtimeName     = QFileInfo(runtime).fileName();
+  start.inputRoots      = context.inputRoots();
   start.authorityDigest = authorityReport(context).value("digest").toString();
   // The build digest every other report names; computed on another thread
   // since prefetchBuildIdentity, so this waits for what is left of it.

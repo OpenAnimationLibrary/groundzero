@@ -74,6 +74,8 @@ public:
     QString instance;
     QString runtimeName;
     QString authorityDigest;
+    // The canonical input roots, which locations name by digest.
+    QStringList inputRoots;
     // The shared build digest (runtime.inspect, the live handshake).
     QString buildDigest;
     JournalLimits limits;
@@ -113,6 +115,9 @@ public:
   // The verdict for an admitted operation without outcome, from its effect
   // class and, for a publication, what is at its target now.
   JournalVerdict verdict(const JournalOperation& operation) const;
+  // The absolute path of a location {root, path} in a root this worker
+  // holds with the same canonical path, or empty.
+  QString locatedPath(const QJsonObject& location) const;
   // The recorded response ({result} or {error}) of a completed or failed
   // operation; throws journal_unavailable when its blob is missing or altered.
   QJsonObject response(const JournalOperation& operation) const;
@@ -238,6 +243,12 @@ QString journalContentDigest(const QString& path);
 void recordPublicationIntent(Context& context, const QString& staged,
                              const QString& target,
                              const QJsonObject& extra = {});
+
+// Where a package or publication lies, with no absolute path:
+// {root: workspace | input, path (root-relative), input_index, root_sha256
+// (of the canonical input root)}.
+QJsonObject packageLocation(const Context& context, const QString& absolute);
+bool sameLocation(const QJsonObject& first, const QJsonObject& second);
 
 // The worker's journal, or null outside a worker.
 Journal* workspaceJournal(Context& context);

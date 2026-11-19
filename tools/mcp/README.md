@@ -248,7 +248,9 @@ refused with `path_denied`, `details.reason` `reserved`.
   never run again: a retry is `operation_interrupted` with a `verdict`:
   `lost_with_worker` (its change lived in that worker's memory), `not_published` or
   `published`/`published_changed` (a file publication, checked against the digest
-  its intent recorded before the final rename), or `job_unknown`.
+  its intent recorded before the final rename), or `job_unknown`. A publication
+  whose `location` lies in a root this worker does not hold is reported with
+  `found: "root_not_granted"` and left for a worker that holds it.
 - `operation.status {operation_id}` reports what the journal holds for one ID and
   what a retry would do; `operation.list` lists operations newest first (default:
   unresolved, meaning in progress or interrupted), paged with `before_seq`;
@@ -649,10 +651,16 @@ of its exact `manifest.json` (`package_id: "package:<hex>"`, `registered`). `sce
 and `scene.package_info` admit a package by that registered content, wherever it
 now lies inside the workspace or an input root and whichever worker of the
 workspace saved it: the manifest must hash to a registered id, and every file must
-match the registered manifest. `scene.open` copies the files into the worker's
-private storage, checking each while copying, and loads the copy, which goes with
-the document. The result says how it was admitted (`admission`: `this_worker` or
-`workspace_registry`), `package_id`, `relocated` (moved since it was saved),
+match the registered manifest. There is no other admission and no per-worker
+package count. `scene.open` copies the files into the worker's private storage,
+checking each while copying, and loads only the copy, which goes with the
+document; this holds for a package the same worker just saved. Results and the
+journal name a package's place as `location {root, path, input_index,
+root_sha256}`: `root` is `workspace` or `input` (with the input root's index and
+the SHA-256 of its canonical path), `path` is relative to it, and no absolute path
+is recorded. The result says how it was admitted (`admission`: `this_worker`, saved
+by this worker, or `workspace_registry`), `location`, `package_id`, `relocated`
+(moved since it was saved),
 `published_by {worker_instance_id, current}` and `provenance`. Editing the
 manifest cannot authorize a changed scene. Refusals are `unregistered_package`
 with `details.reason` `not_registered` (another workspace, or never saved),

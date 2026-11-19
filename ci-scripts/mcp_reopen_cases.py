@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
+import platform
 import shutil
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,8 +45,19 @@ def _without_ids(value: Any) -> Any:
     return value
 
 
+def _sorted(value: Any) -> Any:
+    """The FX graph lists nodes in the order the loader made them: compare as sets."""
+    if isinstance(value, dict):
+        return {key: _sorted(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return sorted((_sorted(item) for item in value), key=json.dumps)
+    return value
+
+
 def _shape(case: NativeAcceptance, document: str) -> Any:
-    return _without_ids(case.success("scene.summary", {"document_id": document}))
+    summary = _without_ids(case.success("scene.summary", {"document_id": document}))
+    graph = _without_ids(case.success("fx.graph", {"document_id": document}))
+    return [summary, _sorted(graph)]
 
 
 def _macro_scene(case: NativeAcceptance) -> str:
@@ -86,6 +101,35 @@ def relocated_package_reopens_in_a_new_worker(case: NativeAcceptance) -> None:
     case.assertEqual((info["admission"], info["relocated"]), ("workspace_registry", True))
     again = case.mutate("scene.open", None, path=str(inside / "manifest.json"))
     case.assertEqual(_frames(case, again["document_id"]), frames)
+    case.assertEqual(again["location"]["root"], "input")
+    volume = _input_volume(case)
+    if volume is not None:
+        shutil.move(str(inside), volume / "elsewhere")
+        far = case.mutate("scene.open", None, path=str(volume / "elsewhere"))
+        case.assertEqual(_frames(case, far["document_id"]), frames)
+
+
+def _input_volume(case: NativeAcceptance) -> Path | None:
+    """A disk image mounted inside the input root: another volume the worker may read."""
+    if platform.system() != "Darwin":
+        return None
+    image = case.directory / "input-volume.dmg"
+    mount = case.inputs / "volume"
+    mount.mkdir()
+    subprocess.run(
+        ["hdiutil", "create", "-size", "32m", "-fs", "APFS", "-volname", "gzqin", str(image)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["hdiutil", "attach", str(image), "-mountpoint", str(mount), "-nobrowse"],
+        check=True,
+        capture_output=True,
+    )
+    case.addCleanup(
+        subprocess.run, ["hdiutil", "detach", "-force", str(mount)], capture_output=True
+    )
+    return mount
 
 
 def _refused(case: NativeAcceptance, path: Path) -> dict[str, Any]:
@@ -215,3 +259,66 @@ def expired_registration_says_so(case: NativeAcceptance) -> None:
     newest = case.mutate("scene.open", None, path=saved[-1]["package_directory"])
     case.assertEqual(newest["admission"], "workspace_registry")
     case.assertLessEqual(case.success("journal.status", {})["retained"]["packages"], 4)
+
+
+def _forge(package: Path) -> None:
+    """Change one asset and rewrite the manifest so it lists the change consistently."""
+    manifest = json.loads((package / "manifest.json").read_text())
+    entry = next(row for row in manifest["files"] if row["path"].startswith("assets/"))
+    asset = package / entry["path"]
+    asset.write_bytes(asset.read_bytes() + b"\0")
+    data = asset.read_bytes()
+    entry.update(size_bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+    (package / "manifest.json").write_text(json.dumps(manifest, indent=4, sort_keys=True))
+
+
+@acceptance_case
+def forged_package_with_consistent_manifest_is_refused(case: NativeAcceptance) -> None:
+    """A copy whose asset and manifest were both edited to agree is a manifest nobody
+    registered: it is refused and nothing of it is loaded."""
+    document, _level, _column = case.populated_scene()
+    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "real"))
+    forged = case.workspace / "forged"
+    shutil.copytree(saved["package_directory"], forged)
+    _forge(forged)
+    before = case.success("automation.list_documents", {})
+    error = _refused(case, forged)
+    case.assertEqual(
+        (error["code"], error["details"]["reason"]), ("unregistered_package", "not_registered")
+    )
+    info = case.failure("scene.package_info", {"path": str(forged)})
+    case.assertEqual(info["code"], "unregistered_package")
+    case.assertEqual(case.success("automation.list_documents", {}), before)
+    case.assertEqual(list(case.workspace.glob("runtime_*/opened-*")), [])
+
+
+@acceptance_case
+def own_package_loads_from_a_private_copy(case: NativeAcceptance) -> None:
+    """The worker that saved a package also loads it from a private copy: a file changed
+    after the save is refused, and an unchanged package opens from its copy."""
+    document, _level, _column = case.populated_scene()
+    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "own"))
+    opened = case.mutate("scene.open", None, path=saved["package_directory"])
+    case.assertEqual((opened["admission"], opened["relocated"]), ("this_worker", False))
+    case.assertEqual(opened["location"], saved["location"])
+    case.assertEqual(len(list(case.workspace.glob("runtime_*/opened-*"))), 1)
+    manifest = json.loads(Path(saved["manifest_path"]).read_text())
+    asset = Path(saved["package_directory"]) / next(
+        row["path"] for row in manifest["files"] if row["path"].startswith("assets/")
+    )
+    asset.write_bytes(asset.read_bytes() + b"\0")
+    case.assertEqual(_refused(case, Path(saved["package_directory"]))["code"], "invalid_package")
+    case.assertEqual(len(list(case.workspace.glob("runtime_*/opened-*"))), 1)
+
+
+@acceptance_case
+def more_than_128_saves_per_worker(case: NativeAcceptance) -> None:
+    """A worker saves as many packages as the registry holds, past the old 128 per worker."""
+    document = case.create("Many saves")
+    for index in range(129):
+        saved = case.mutate(
+            "scene.save_copy", document, directory=str(case.workspace / f"save-{index:03d}")
+        )
+        case.assertIs(saved["registered"], True)
+    last = case.mutate("scene.open", None, path=saved["package_directory"])
+    case.assertEqual(last["location"]["path"], "save-128")

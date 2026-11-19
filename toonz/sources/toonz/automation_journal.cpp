@@ -814,7 +814,7 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
     verdict.insert("reconciled", true);
     return verdict;
   }
-  QJsonObject evidence{{"target", QJsonValue()},
+  QJsonObject evidence{{"location", QJsonValue()},
                        {"expected_sha256", QJsonValue()},
                        {"found", "not_applicable"},
                        {"job_id", QJsonValue()},
@@ -825,12 +825,18 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
   } else if (operation.effectClass == "publication") {
     kind = "not_published";
     if (!operation.intent.isEmpty()) {
-      const QString target = operation.intent.value("target").toString();
-      const QString expected =
-          operation.intent.value("expected_sha256").toString();
-      const QString absolute = QDir(m_start.workspace).filePath(target);
-      evidence.insert("target", target);
-      evidence.insert("expected_sha256", expected);
+      const QJsonObject location =
+          operation.intent.value("location").toObject();
+      const QString absolute = locatedPath(location);
+      evidence.insert("location", location);
+      evidence.insert("expected_sha256",
+                      operation.intent.value("expected_sha256"));
+      // A location in a root this worker does not hold is not judged here:
+      // a worker that holds it reconciles the operation.
+      if (absolute.isEmpty()) {
+        evidence.insert("found", "root_not_granted");
+        return {{"kind", kind}, {"reconciled", false}, {"evidence", evidence}};
+      }
       const QFileInfo info(absolute);
       const bool present = info.exists() || info.isSymLink();
       const bool matches =
@@ -847,7 +853,10 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
 
 JournalVerdict Journal::reconcile(const JournalOperation& operation) {
   JournalVerdict computed = verdict(operation);
-  if (computed.value("reconciled").toBool() || !available()) return computed;
+  if (computed.value("reconciled").toBool() || !available() ||
+      computed.value("evidence").toObject().value("found") ==
+          "root_not_granted")
+    return computed;
   // A package that reached its target is this operation's: registered, so
   // scene.open admits it like any other this workspace published.
   const QJsonObject package = operation.intent.value("package").toObject();
@@ -855,7 +864,7 @@ JournalVerdict Journal::reconcile(const JournalOperation& operation) {
       !m_packages.contains(package.value("package_id").toString())) {
     QJsonObject fields = package;
     fields.insert("operation_id", operation.operationId);
-    fields.insert("path", operation.intent.value("target"));
+    fields.insert("location", operation.intent.value("location"));
     fields.insert("published_by", operation.writer);
     registerPackage(fields);
     ++m_registeredByRecovery;
@@ -1281,22 +1290,70 @@ void recordPublicationIntent(Context& context, const QString& staged,
                              const QString& target, const QJsonObject& extra) {
   Journal* journal = workspaceJournal(context);
   if (!journal || context.writeOperation.isEmpty()) return;
-  const QString content   = contentDigest(staged);
-  const QString manifest  = QFileInfo(staged).isDir()
-                                ? contentDigest(staged + "/manifest.json")
-                                : QString();
-  const QString workspace = context.workspace();
-  const QString relative  = target.startsWith(workspace + '/')
-                                ? target.mid(workspace.size() + 1)
-                                : target;
-  QJsonObject fields      = extra;
+  const QString content  = contentDigest(staged);
+  const QString manifest = QFileInfo(staged).isDir()
+                               ? contentDigest(staged + "/manifest.json")
+                               : QString();
+  QJsonObject fields     = extra;
   fields.insert("operation_id", context.writeOperation);
-  fields.insert("target", relative);
+  fields.insert("location", packageLocation(context, target));
   fields.insert("expected_sha256", manifest.isEmpty() ? content : manifest);
   fields.insert("content_sha256", content);
   fields.insert("manifest_sha256", optional(manifest));
   journal->intent(fields);
   writeFaultFires(context, "journal:intent");
+}
+
+namespace {
+
+QString rootDigest(const QString& root) {
+  return QString::fromLatin1(sha256Hex(root.toUtf8()));
+}
+
+QJsonObject location(const QString& root, const QString& path,
+                     const QJsonValue& index, const QJsonValue& digest) {
+  return {{"root", root},
+          {"path", path},
+          {"input_index", index},
+          {"root_sha256", digest}};
+}
+
+QString beneath(const QString& path, const QString& root) {
+  return path.startsWith(root + '/') ? path.mid(root.size() + 1) : QString();
+}
+
+}  // namespace
+
+QJsonObject packageLocation(const Context& context, const QString& absolute) {
+  const QString inWorkspace = beneath(absolute, context.workspace());
+  if (!inWorkspace.isEmpty())
+    return location("workspace", inWorkspace, QJsonValue(), QJsonValue());
+  const QStringList inputs = context.inputRoots();
+  for (int index = 0; index < inputs.size(); ++index) {
+    const QString inInput = beneath(absolute, inputs.at(index));
+    if (!inInput.isEmpty())
+      return location("input", inInput, index, rootDigest(inputs.at(index)));
+  }
+  throw Error("internal_error",
+              "A package path lies outside every root of this worker.");
+}
+
+bool sameLocation(const QJsonObject& first, const QJsonObject& second) {
+  return first.value("root") == second.value("root") &&
+         first.value("path") == second.value("path") &&
+         first.value("root_sha256") == second.value("root_sha256");
+}
+
+QString Journal::locatedPath(const QJsonObject& where) const {
+  const QString path = where.value("path").toString();
+  if (path.isEmpty() || path.startsWith('/') || path.contains("..")) return {};
+  if (where.value("root") == "workspace")
+    return QDir(m_start.workspace).filePath(path);
+  if (where.value("root") != "input") return {};
+  for (const QString& root : m_start.inputRoots)
+    if (rootDigest(root) == where.value("root_sha256").toString())
+      return QDir(root).filePath(path);
+  return {};
 }
 
 QJsonObject Journal::absentStatus() {

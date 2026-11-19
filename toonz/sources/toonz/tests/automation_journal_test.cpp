@@ -177,13 +177,24 @@ void verdictsFollowTheEffectClass(const QString& workspace) {
     for (const char* kind : {"memory", "job", "publication"})
       require(dead->admit(admission(QString("op-") + kind, kind)), "refused");
     require(dead->admit(admission("op-written", "publication")), "refused");
+    require(dead->admit(admission("op-elsewhere", "publication")), "refused");
+    dead->intent({{"operation_id", "op-elsewhere"},
+                  {"location", QJsonObject{{"root", "input"},
+                                           {"path", "package"},
+                                           {"input_index", 0},
+                                           {"root_sha256", QString(64, 'f')}}},
+                  {"expected_sha256", QString(64, 'a')},
+                  {"content_sha256", QString(64, 'a')}});
     QFile target(workspace + "/written.txt");
     require(target.open(QIODevice::WriteOnly) && target.write("data") == 4,
             "cannot write the target");
     target.close();
     const QString digest = journalContentDigest(workspace + "/written.txt");
     dead->intent({{"operation_id", "op-written"},
-                  {"target", "written.txt"},
+                  {"location", QJsonObject{{"root", "workspace"},
+                                           {"path", "written.txt"},
+                                           {"input_index", QJsonValue()},
+                                           {"root_sha256", QJsonValue()}}},
                   {"expected_sha256", digest},
                   {"content_sha256", digest}});
   }
@@ -195,6 +206,12 @@ void verdictsFollowTheEffectClass(const QString& workspace) {
   require(kind("op-job") == "job_unknown", "job verdict");
   require(kind("op-publication") == "not_published", "publication verdict");
   require(kind("op-written") == "published", "published verdict");
+  const QJsonObject elsewhere =
+      journal->verdict(*journal->find("op-elsewhere"));
+  require(elsewhere.value("evidence").toObject().value("found") ==
+                  "root_not_granted" &&
+              elsewhere.value("reconciled") == false,
+          "a location in a root this worker lacks was judged or reconciled");
   require(journal->verdict(*journal->find("op-written")).value("reconciled") ==
               true,
           "the start-up recovery did not reconcile a dead worker's operation");

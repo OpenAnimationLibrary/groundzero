@@ -369,9 +369,13 @@
       "evidence",
       "expected_sha256",
       "found",
+      "input_index",
       "kind",
       "outputs_present",
+      "path",
       "reconciled",
+      "root",
+      "root_sha256",
       "target"
     ]
   },
@@ -500,7 +504,11 @@
   },
   "scene.open": {
     "handler": "openPackage",
-    "read": []
+    "read": [
+      "input_index",
+      "root",
+      "root_sha256"
+    ]
   },
   "scene.open_read_only": {
     "handler": "openReadOnly",
@@ -510,12 +518,20 @@
     "handler": null,
     "read": [
       "current",
+      "input_index",
+      "path",
+      "root",
+      "root_sha256",
       "worker_instance_id"
     ]
   },
   "scene.save_copy": {
     "handler": "saveCopy",
-    "read": []
+    "read": [
+      "input_index",
+      "root",
+      "root_sha256"
+    ]
   },
   "scene.settings": {
     "handler": "updateSettings",
