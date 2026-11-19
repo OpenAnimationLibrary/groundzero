@@ -556,7 +556,7 @@ def _delete_request(step: Step, handles: dict[str, dict[str, str]]) -> tuple[str
     return "object.delete", {
         "object_id": handles["peg"][step["object"]],
         "children_policy": step["policy"],
-        "report_frames": [],
+        "report_frames": [0],
     }
 
 

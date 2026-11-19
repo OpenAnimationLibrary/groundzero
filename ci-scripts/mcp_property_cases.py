@@ -259,7 +259,8 @@ class Session:
     def _observe_groups(self, named: dict[str, str]) -> dict[str, Any]:
         keys = {number: key for key, number in self.handles["group"].items()}
         found = {}
-        for group in self.read("object.groups", {})["groups"]:
+        revision = self.case.revisions[self.document]
+        for group in self.read("object.groups", {"expected_revision": revision})["groups"]:
             parent = group["parent_group_number"]
             found[keys.get(group["group_number"], f"?{group['group_number']}")] = {
                 "name": group["name"],
