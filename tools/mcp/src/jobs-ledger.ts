@@ -181,7 +181,7 @@ export class JobLedger {
       ...record,
       status: "unknown",
       terminal: true,
-      worker_loss: loss,
+      worker_loss: { ...loss, reconcile_with: "operation.status" },
       ...(loss.adapter_killed_worker
         ? { termination: { mode: "forced", forced_processes: ["worker"] } }
         : {}),

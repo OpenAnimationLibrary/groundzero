@@ -19,7 +19,20 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  tool: string;
+  operationId: string | undefined;
 }
+
+/** A write that was sent and not answered when its worker was lost. */
+export interface PendingOperation {
+  tool: string;
+  operation_id: string;
+}
+
+const LOST_RECOVERY =
+  "Do not replay writes in this session. Start a new session on the same workspace and " +
+  "call operation.status for each operation_id in pending_operations: the workspace " +
+  "journal tells whether it completed, failed or was interrupted";
 
 function nativeError(value: unknown): WorkerError {
   if (!isObject(value) || typeof value["code"] !== "string") {
@@ -99,12 +112,14 @@ export class WorkerConnection {
     if (Buffer.byteLength(frame) > MAX_REQUEST_BYTES) {
       return Promise.reject(new WorkerError("LIMIT_EXCEEDED", "Request exceeds 256 KiB"));
     }
+    const operation = params["operation_id"];
+    const operationId = typeof operation === "string" ? operation : undefined;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(
         () => this.fail(`Timed out waiting for ${method}`, "request_timeout"),
         this.timeoutMs,
       );
-      this.pending.set(id, { resolve, reject, timeout });
+      this.pending.set(id, { resolve, reject, timeout, tool: method, operationId });
       this.child.stdin.write(frame, (error) => {
         if (error) this.fail(`Cannot write native request: ${error.message}`);
       });
@@ -136,7 +151,8 @@ export class WorkerConnection {
     this.lossCause = cause;
     this.failure = new WorkerError("WORKER_UNAVAILABLE", message, {
       outcome_unknown: this.pending.size > 0,
-      recovery: "Inspect saved workspace state before restarting; do not replay writes",
+      pending_operations: this.pendingOperations(),
+      recovery: LOST_RECOVERY,
     });
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);
@@ -152,6 +168,16 @@ export class WorkerConnection {
     this.child.stdin.end();
     this.shutdownTimer = setTimeout(() => this.stop(), CLOSE_GRACE_MS);
     this.shutdownTimer.unref();
+  }
+
+  // The writes sent and not answered, which a later session settles by operation_id.
+  private pendingOperations(): PendingOperation[] {
+    const operations: PendingOperation[] = [];
+    for (const pending of this.pending.values()) {
+      if (pending.operationId === undefined) continue;
+      operations.push({ tool: pending.tool, operation_id: pending.operationId });
+    }
+    return operations;
   }
 
   private stop(): void {
