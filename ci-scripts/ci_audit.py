@@ -8,7 +8,9 @@ reachable from every environment), and audit the recent failures.
       the kind of failure
   ci_audit.py --recent [N]
       the last N (default 60) failed runs of the repository, grouped by
-      workflow and by cause, so that a recurring failure shows up
+      workflow and by cause, then by failure signature (the failing test or
+      phase and the stable part of its message), so that a failure that
+      recurs across runs or branches shows up whatever its label
 
 Uses the gh CLI (REST only). The repository is read from the git remotes, or
 set CI_AUDIT_REPO=owner/name.
@@ -30,6 +32,41 @@ COMPILER_TODO = (
     "const/signature mismatch, or a Qt 5/6 API difference"
 )
 
+# Windows structured exceptions, as the crash handler and debuggers name them
+WINDOWS_EXCEPTION = (
+    r"\bEXCEPTION_(?:ACCESS_VIOLATION|ARRAY_BOUNDS_EXCEEDED|DATATYPE_MISALIGNMENT|FLT_[A-Z_]+|"
+    r"ILLEGAL_INSTRUCTION|IN_PAGE_ERROR|INT_[A-Z_]+|INVALID_DISPOSITION|"
+    r"NONCONTINUABLE_EXCEPTION|PRIV_INSTRUCTION|STACK_OVERFLOW)\b|"
+    r"\bSTATUS_(?:ACCESS_VIOLATION|STACK_OVERFLOW|STACK_BUFFER_OVERRUN|HEAP_CORRUPTION|"
+    r"ILLEGAL_INSTRUCTION)\b|\bstack overflow\b|\b0xC[0-9A-F]{7}\b"
+)
+# The Windows crash handler exits with status 1 after writing its report, so
+# a status alone does not show the crash: its report markers and frames do
+CRASH_REPORT = r"==== Backtrace ====|\bCrash Reason:|\bNative integration exception\b"
+# Frames alone are weaker evidence: the diagnostic of a timed-out process
+# prints them too, so they are only tried after the timeout hint
+CRASH_FRAMES = r"\{[\w.\-]+:\d+\} <[\w.\-]+\.(?:dll|exe)>"
+CRASH_STATUS = (
+    r"(?:exit(?:ed)?(?: with)?(?: code| status)?|return(?: code)?|status)[:= ]+"
+    r"-(?:[2-9]|[12]\d|3[01]|\d{6,})\b"
+)
+POSIX_CRASH = (
+    r"\b(?:SIG(?:SEGV|ABRT|BUS|ILL|FPE)|SegFault|segmentation fault|access violation|"
+    r"heap corruption)\b|\b3221226529\b"
+)
+CRASH_TODO = "inspect the original crash dump or stack trace and the last completed checkpoint"
+NATIVE_CRASH = f"{POSIX_CRASH}|{WINDOWS_EXCEPTION}|{CRASH_STATUS}|{CRASH_REPORT}"
+TEST_FAILURE = (
+    r"\btests? failed\b|Exception:|\*\*\*Failed|Test +#\d+|\bNative UI regression\b|"
+    r"\bFAIL:|Traceback \(most recent call last\)|\bAssertionError\b"
+)
+SANITIZER_REPORT = (
+    r"\b(?:heap-use-after-free|heap-buffer-overflow|stack-buffer-overflow|"
+    r"global-buffer-overflow|stack-use-after-(?:return|scope)|new-delete-type-mismatch|"
+    r"alloc-dealloc-mismatch|attempting double-free|detected memory leaks)\b|"
+    r"\b(?:ERROR|SUMMARY): (?:Address|Leak|Undefined|Thread)Sanitizer\b|\bruntime error:"
+)
+
 # (pattern, kind, what to do), most specific first
 HINTS = [
     (
@@ -39,7 +76,7 @@ HINTS = [
     ),
     (
         r": (fatal )?error:|error: ‘|\b(?:fatal )?error (?:C|LNK)\d{4}:|"
-        r"undefined reference|ld returned|^FAILED:",
+        r"undefined reference|ld returned|^FAILED:|\bFAILED: \[code=\d+\]",
         "compile or link error",
         COMPILER_TODO,
     ),
@@ -50,11 +87,15 @@ HINTS = [
         "there is a compile error earlier in the same run; fix that first",
     ),
     (
-        r"\b(?:SIGSEGV|SegFault|segmentation fault|access violation|heap corruption)\b|"
-        r"\b(?:3221226529|0xc0000421)\b|"
-        r"(?:exit(?:ed)?(?: with)?(?: code| status)?|return(?: code)?|status)[:= ]+-11\b",
+        SANITIZER_REPORT,
+        "sanitizer error",
+        "the first frame of the report names the faulting function; "
+        "fix the lifetime, size or ownership error there",
+    ),
+    (
+        NATIVE_CRASH,
         "native crash",
-        "inspect the original crash dump or stack trace and the last completed checkpoint",
+        CRASH_TODO,
     ),
     (
         r"\b(?:apt(?:-get)?|package mirror)\b|Temporary failure (?:resolving|in name resolution)|"
@@ -69,7 +110,12 @@ HINTS = [
         "inspect the timed-out step and its diagnostics before deciding whether to retry",
     ),
     (
-        r"\btests? failed\b|Exception:|\*\*\*Failed|Test +#\d+|\bNative UI regression\b",
+        CRASH_FRAMES,
+        "native crash",
+        CRASH_TODO,
+    ),
+    (
+        TEST_FAILURE,
         "a test failed",
         "read the test output in the annotation; run it by hand only in CI",
     ),
@@ -171,6 +217,99 @@ def clean(message):
     """One line of an annotation, without paths of the runner."""
     message = message.replace("/home/runner/work/groundzero/groundzero/", "")
     return re.sub(r"\s+", " ", message).strip()
+
+
+# Generic wrappers say that a step failed, not what failed
+GENERIC_FAILURE = re.compile(r"Process completed with exit code \d+\.?", re.IGNORECASE)
+REPORT_SECTION = re.compile(
+    r"\s(?:Recent phases|Failure context|Output tail|Crash diagnostics for [\w.\-]+):|\s--- "
+)
+PHASE_NAME = re.compile(r"(?<![\w\-])([a-z][a-z0-9]*(?:-[a-z0-9]+)+): ")
+TOP_FRAME = re.compile(r"\b\d+> ([\w:~<>]+) \{[\w.\-]+:\d+\}")
+SIGNATURE_LENGTH = 260
+SIGNATURE_LISTED = 15
+
+PATH_TOKEN = re.compile(
+    r"(?<![\w.\-])(?:[A-Za-z]:[\\/]|\.{0,2}/)[^\s'\"()<>\[\]]+|"
+    r"(?<![\w.\-/\\])[\w.\-+@~]+(?:[\\/][\w.\-+@~]+){2,}"
+)
+NORMALISATIONS = [
+    (re.compile(r"\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?"), "<time>"),
+    (re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|sec|seconds?|s|min|minutes?)\b"), "<duration>"),
+    (re.compile(r"\b0x[0-9a-f]{9,16}\b", re.IGNORECASE), "<addr>"),
+    (re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b"), "<hash>"),
+    (re.compile(r"\btmp[0-9A-Za-z_]{6,}\b"), "tmp<id>"),
+]
+REPEATED_WORD = re.compile(r"(\S+)(?: \1(?!\S))+")
+SOURCE_POSITION = re.compile(r"(\.[A-Za-z]{1,5})(?::\d+(?::\d+)?|\(\d+(?:,\d+)?\))")
+NUMBER = re.compile(r"(?<!status )(?<!code )(?<![\w.\-])-?\d+(?:\.\d+)?(?!\w)")
+
+
+def basename(match):
+    return re.split(r"[\\/]", match.group(0))[-1]
+
+
+def normalise(text):
+    """Remove what differs between runs of the same failure.
+
+    Args:
+        text: One cleaned annotation line.
+
+    Returns:
+        The text with timestamps, durations, addresses, hashes, directories,
+        source positions and counters replaced by placeholders. Exit statuses
+        are kept, as the status is part of what failed.
+    """
+    for pattern, placeholder in NORMALISATIONS:
+        text = pattern.sub(placeholder, text)
+    text = PATH_TOKEN.sub(basename, text)
+    text = SOURCE_POSITION.sub(r"\1", text)
+    text = re.sub(r"\s+", " ", NUMBER.sub("N", text)).strip()
+    return REPEATED_WORD.sub(r"\1", text)
+
+
+def signature(text, place=""):
+    """Name a failure by what failed, not by when or where it ran.
+
+    The signature is the annotation's title (the test or phase), the first
+    line of its message and, for a crash reported only by its exit status, the
+    last phase that was running and the top frame of the crash report, all
+    normalised so that the same failure on another run, branch or platform
+    gives the same string.
+
+    Args:
+        text: Annotation text as returned by annotations(), with an optional
+            "[title] " prefix.
+        place: File and line of the annotation, if it names a source file.
+
+    Returns:
+        The signature, or an empty string for a generic wrapper such as
+        "Process completed with exit code 1." that does not say what failed.
+    """
+    title = ""
+    titled = re.match(r"\[([^\]]+)\] (.*)", text)
+    if titled:
+        title, text = titled.groups()
+    if GENERIC_FAILURE.fullmatch(text):
+        return ""
+    text = re.sub(r"^Failure: ", "", text)
+    section = REPORT_SECTION.search(text)
+    headline = text[: section.start()] if section else text
+    details = []
+    if section and "FAIL:" not in headline:
+        phases = text[section.start() :].split("Failure context:")[0]
+        found = PHASE_NAME.findall(phases)
+        if found:
+            details.append(f"last phase: {found[-1]}")
+        frame = TOP_FRAME.search(text)
+        if frame:
+            details.append(f"top frame: {frame.group(1)}")
+    context = f"({'; '.join(details)})" if details else ""
+    parts = [f"[{title}]" if title else "", place, headline, context]
+    result = normalise(" ".join(part for part in parts if part))
+    if len(result) > SIGNATURE_LENGTH:
+        result = result[:SIGNATURE_LENGTH].rsplit(" ", 1)[0] + " ..."
+    return result
 
 
 def annotations(rp, check_id):
@@ -313,6 +452,7 @@ def audit_recent(limit):
     runs = gh_items(f"repos/{rp}/actions/runs?status=failure", "workflow_runs", limit)
     print(f"CI audit: the last {len(runs)} failed runs of {rp}\n")
     groups = collections.defaultdict(list)
+    occurrences = collections.defaultdict(list)
     for run_ in runs:
         jobs = gh_items(f"repos/{rp}/actions/runs/{run_['id']}/jobs", "jobs")
         causes = set()
@@ -324,6 +464,9 @@ def audit_recent(limit):
             if not notes:
                 kinds.add("no failure annotation (inspect the job log)")
             causes.update(f"{job['name']}: {kind}" for kind in kinds)
+            for place, text in notes:
+                if sig := signature(text, place):
+                    occurrences[sig].append((run_, job["name"]))
         if not causes:
             causes.add("(no failed job found)")
         for cause in causes:
@@ -332,11 +475,38 @@ def audit_recent(limit):
         branches = sorted({i["head_branch"] or "(no branch)" for i in items})[:4]
         latest = max(i["created_at"] for i in items)[:10]
         print(f"{len(items):3}x  {workflow} / {cause}   (latest {latest}; {', '.join(branches)})")
+    print_recurring_signatures(occurrences)
     print(
         "\nA cause that repeats is a workflow or code problem to fix, not "
         "bad luck: audit it with ci_audit.py <branch> and fix the root cause."
     )
     return 0
+
+
+def print_recurring_signatures(occurrences):
+    """List the failure signatures that appear in more than one run.
+
+    Args:
+        occurrences: Maps a signature to (workflow run, job name) pairs.
+    """
+    recurring = []
+    for sig, found in occurrences.items():
+        run_ids = {run_["id"] for run_, _ in found}
+        if len(run_ids) > 1:
+            recurring.append((len(run_ids), sig, found))
+    print("\nFailure signatures that recur across runs:")
+    if not recurring:
+        print("  none: every distinct failure message appears in one run only")
+        return
+    recurring.sort(key=lambda item: (-item[0], item[1]))
+    for count, sig, found in recurring[:SIGNATURE_LISTED]:
+        branches = {run_["head_branch"] or "(no branch)" for run_, _ in found}
+        jobs = sorted({job for _, job in found})
+        latest = max(run_["created_at"] for run_, _ in found)[:10]
+        print(f"{count:3}x  {sig}")
+        print(f"       {len(branches)} branch(es), latest {latest}; jobs: {', '.join(jobs[:4])}")
+    if len(recurring) > SIGNATURE_LISTED:
+        print(f"  ... {len(recurring) - SIGNATURE_LISTED} more recurring signatures")
 
 
 def positive_count(value):
