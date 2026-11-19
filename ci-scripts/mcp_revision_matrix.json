@@ -7190,7 +7190,7 @@
    "bumps": "document revision",
    "reads": [
     {
-     "tool": "scene.summary"
+     "tool": "scene.properties.inspect"
     }
    ],
    "success": {
@@ -7237,7 +7237,7 @@
    "bumps": "document revision",
    "reads": [
     {
-     "tool": "scene.summary"
+     "tool": "scene.properties.inspect"
     }
    ],
    "success": {

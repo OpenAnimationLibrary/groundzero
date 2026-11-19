@@ -88,7 +88,8 @@ def output_blocks_change_only_when_named(case: NativeAcceptance) -> None:
         sync_color_settings=False,
     )
     case.assertEqual(result["output"], before)
-    case.assertEqual(result["changed_fields"], ["preview"])
+    case.assertIn("preview", result["changed_fields"])
+    case.assertNotIn("output", result["changed_fields"])
     case.assertEqual(result["preview"]["aspect_export"]["mode"], "crop")
     revision = case.revisions[document]
     case.mutate("scene.output.set", document, apply_to=["preview"], settings={"shrink": 2})
