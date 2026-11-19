@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
 from mcp_corpus_compare import CORPUS, check, compare_scene, load_manifest
-from mcp_native_oracle import SIGNAL_EXITS, OracleError, find_tcomposer, render_with_tcomposer
+from mcp_native_oracle import OracleError, find_tcomposer, render_with_tcomposer
 from mcp_scene_access_cases import _op, discard, open_scene, project_id, wait
 from mcp_studio_palette_cases import call, tree_digest
 from mcp_w2_cases import _noise_png
@@ -144,8 +144,6 @@ def corpus_baselines_are_reproduced_by_this_builds_batch_renderer(case: NativeAc
             except OracleError as error:
                 case.fail(str(error))
             case.assertEqual(compare_scene(manifest, name, frames), [], name)
-    if SIGNAL_EXITS:
-        print(f"tcomposer died of a signal and was run again: {SIGNAL_EXITS}")
 
 
 @acceptance_case

@@ -173,9 +173,6 @@ def find_tcomposer(app_directory: Path) -> Path | None:
     return candidate if candidate.is_file() and os.access(candidate, os.X_OK) else None
 
 
-SIGNAL_EXITS: list[str] = []
-
-
 def _run(
     command: list[str], output: Path, environment: dict[str, str], timeout: float, scene: Path
 ) -> subprocess.CompletedProcess[str]:
@@ -239,12 +236,6 @@ def render_with_tcomposer(
         "QT_QPA_PLATFORM": "cocoa" if sys.platform == "darwin" else "xcb",
     }
     done = _run(command, output, environment, timeout, scene)
-    if done.returncode < 0:
-        # The renderer died of a signal in Qt's event loop (a crash report shows the dispatch of
-        # an event, not scene code), once in about twenty runs. It is retried once, and the
-        # signal is recorded in SIGNAL_EXITS so that a run can show how often it happens.
-        SIGNAL_EXITS.append(f"{scene.name}: signal {-done.returncode}")
-        done = _run(command, output, environment, timeout, scene)
     written = sorted(output.glob("frame.*.png"))
     if done.returncode != 0 or len(written) != len(frames):
         tail = (done.stdout + done.stderr)[-600:]
