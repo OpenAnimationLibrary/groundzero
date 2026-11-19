@@ -35,7 +35,7 @@ constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
 constexpr int maximumControlReceipts = 2 * JobsPerLane;
 constexpr qint64 maximumControlBytes = 16 * 1024;
 // The error envelope of every outputSchema bounds messages to 2048 characters.
-constexpr int maximumErrorMessage = 2048;
+constexpr int maximumErrorMessage   = 2048;
 constexpr int maximumDescribedTools = 16;
 
 qint64 receiptSize(const QJsonObject& response) {

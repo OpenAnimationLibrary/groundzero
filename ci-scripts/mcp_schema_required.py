@@ -3,7 +3,7 @@
 A field may be required only when its tool's handler, or a function it calls without a
 condition in any automation source, writes the key outside any if, loop, switch, lambda or
 conditional expression; or when a reviewer read the handler and lists the key under `read`
-in automation_output_schemas_review.json. Every tool with an output schema needs a review
+in automation_output_schema_proofs.json. Every tool with an output schema needs a review
 entry, so a new tool cannot arrive with fields required by observation alone. `--relax`
 drops every required field that is neither proven nor read, and records the entries.
 """
@@ -19,7 +19,7 @@ from typing import Any
 
 from mcp_schema_keys import CALL, DEFINITION, HANDLER, SCHEMAS, SOURCES, WRITTEN, sources
 
-REVIEW = SOURCES / "automation_output_schemas_review.json"
+REVIEW = SOURCES / "automation_output_schema_proofs.json"
 WRITE_KEYS = {"document_id", "revision", "operation_id"}
 CONTROL = re.compile(r"(\bif|\bfor|\bwhile|\bswitch|\bcatch|\])\s*$")
 GUARD = re.compile(r"\s*(if|else|for|while|case|default)\b")
@@ -172,7 +172,7 @@ def problems(schemas: dict[str, Any], review: dict[str, Any], texts: dict[Path, 
     for tool, schema in sorted(schemas.items()):
         if tool not in review:
             messages.append(
-                f"{tool}: no entry in automation_output_schemas_review.json; read its handler "
+                f"{tool}: no entry in automation_output_schema_proofs.json; read its handler "
                 "and add one, listing under read the required fields you confirmed"
             )
             continue
