@@ -91,6 +91,11 @@ export class JobLedger {
     for (const record of jobRecords(value)) this.record(record, originRequestCancelled);
   }
 
+  /** Drop a job the worker released with job.discard, so a lost worker never lists it. */
+  forget(jobId: string): void {
+    this.entries.delete(jobId);
+  }
+
   get size(): number {
     return this.entries.size;
   }

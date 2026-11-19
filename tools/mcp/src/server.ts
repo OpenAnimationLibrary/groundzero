@@ -377,7 +377,8 @@ function sessionResult(state: ToolsetState | undefined, name: string, value: unk
 
 // A native call whose job records go to the session ledger. A cancelled MCP request is
 // abandoned, never cancelled natively: a job it started is recorded as such. After the
-// worker is lost, job.status and job.list answer from the ledger.
+// worker is lost, job.status and job.list answer from the ledger, which forgets the jobs
+// job.discard released.
 async function ledgerRequest(
   worker: NativeApi,
   ledger: JobLedger,
@@ -387,7 +388,8 @@ async function ledgerRequest(
 ): Promise<unknown> {
   try {
     const value = await worker.request(name, args);
-    ledger.observe(value, signal.aborted);
+    if (name === "job.discard") ledger.forget(String(args["job_id"]));
+    else ledger.observe(value, signal.aborted);
     return name === "job.list" ? ledger.annotate(value) : value;
   } catch (error) {
     const answer = ledgerAnswer(worker, ledger, name, args, error);

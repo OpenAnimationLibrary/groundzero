@@ -15262,6 +15262,79 @@
     ],
     "type": "object"
   },
+  "job.discard": {
+    "additionalProperties": false,
+    "properties": {
+      "discarded": {
+        "const": true,
+        "type": "boolean"
+      },
+      "final_status": {
+        "enum": [
+          "completed",
+          "failed",
+          "canceled",
+          "deadline_exceeded"
+        ],
+        "type": "string"
+      },
+      "freed_bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "job_id": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "render_preview",
+          "render_sequence",
+          "neural_preview",
+          "drawing_analysis",
+          "scene_check"
+        ],
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "retained_jobs": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "maximum": 32,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "render": {
+            "maximum": 32,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "analysis",
+          "render"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "discarded",
+      "final_status",
+      "freed_bytes",
+      "job_id",
+      "kind",
+      "operation_id",
+      "retained_jobs"
+    ],
+    "type": "object"
+  },
   "job.list": {
     "additionalProperties": false,
     "properties": {

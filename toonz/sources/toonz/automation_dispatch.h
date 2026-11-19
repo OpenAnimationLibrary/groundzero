@@ -6,6 +6,8 @@
 #include <QSet>
 #include <QStringList>
 
+#include <deque>
+
 namespace GroundzeroAutomation {
 
 // Every tool's input schema is a plain object at its root: type "object" and no
@@ -44,6 +46,9 @@ private:
     QByteArray fingerprint;
     QByteArray request;
     QJsonObject response;
+    // The workspace journal holds this outcome, so an exact retry can be
+    // answered from it once the in-memory copy is dropped.
+    bool durable = false;
   };
   Receipt receiptKey(const QString& method, const QJsonObject& params) const;
   void add(const QJsonArray& operations, Handler handler,
@@ -51,9 +56,12 @@ private:
   void addWorkerOperation(QJsonObject descriptor);
   QJsonArray toolsetCatalog() const;
   QJsonObject capabilities(const QJsonObject& params) const;
-  void checkReceiptCapacity(bool control) const;
+  void checkReceiptCapacity(bool control);
+  bool receiptsFit() const;
+  void dropDurableReceipts();
   void rememberReceipt(const QString& operationId, const Receipt& receipt,
                        const QString& controlJob);
+  void forgetJob(const QString& id);
   QJsonObject replayReceipt(const Receipt& receipt, const Receipt& key) const;
   quint64 checkRevision(const QJsonObject& params) const;
   QJsonValue execute(const QString& method, const QJsonObject& params);
@@ -65,7 +73,7 @@ private:
                          const QJsonObject& params, quint64 revision);
   bool admit(Journal& journal, const QString& method, const QJsonObject& params,
              const Receipt& key, const QString& writeClass);
-  void recordOutcome(Journal* journal, const QString& operationId,
+  bool recordOutcome(Journal* journal, const QString& operationId,
                      const QJsonObject& response);
   void recordJobStart(Journal* journal, const QString& operationId,
                       const QJsonObject& result);
@@ -83,6 +91,9 @@ private:
   QHash<QString, Entry> m_entries;
   QHash<QString, Receipt> m_receipts;
   QSet<QString> m_controlJobs;
+  // Ordinary receipts the journal holds, oldest first: the ones that may be
+  // dropped from memory to make room.
+  std::deque<QString> m_droppable;
   // Jobs whose terminal record is in the journal.
   QSet<QString> m_journaledJobs;
   qint64 m_receiptBytes = 0;

@@ -1,4 +1,4 @@
-"""Exercise bounded cancellation receipts after ordinary write admission fills."""
+"""Exercise cancellation receipts and ordinary receipts past the in-memory receipt limit."""
 
 from __future__ import annotations
 
@@ -54,8 +54,6 @@ def _cancel_once(case: NativeAcceptance, params: dict[str, Any], document: str) 
     other_method = case.write_params(document, {"width_px": 32})
     other_method["operation_id"] = params["operation_id"]
     case.assertEqual(case.failure("scene.settings", other_method)["code"], "operation_conflict")
-    fresh = case.write_params(None, {"job_id": params["job_id"]})
-    case.assertEqual(case.failure("job.cancel", fresh)["code"], "resource_limit")
     return result
 
 
@@ -71,7 +69,9 @@ def _close_naturally(case: NativeAcceptance) -> None:
 
 @acceptance_case
 def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> None:
-    """Keep bounded first-cancel receipts independent of ordinary write capacity.
+    """Keep first-cancel receipts in their own reserve, and never refuse a write at the
+    in-memory receipt limit while the journal holds the receipts: the oldest leave memory
+    and their exact retries return the recorded result unchanged.
 
     Args:
         case: A fresh native-worker acceptance fixture.
@@ -126,16 +126,18 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
         )
         result = case.success("job.result", {"job_id": job_id})
         case.assertEqual(result["artifacts"], retained["artifacts"]["artifacts"])
-    exhausted = case.write_params(None, {"job_id": "unknown-job-after-reserve-full"})
-    case.assertEqual(case.failure("job.cancel", exhausted)["code"], "resource_limit")
-    fresh = case.write_params(document, {"width_px": 64})
-    case.assertEqual(case.failure("scene.settings", fresh)["code"], "resource_limit")
+    unknown = case.write_params(None, {"job_id": "unknown-job-after-reserve-full"})
+    case.assertEqual(case.failure("job.cancel", unknown)["code"], "unknown_job")
+    again = case.success("job.cancel", case.write_params(None, {"job_id": job["job_id"]}))
+    case.assertEqual(again["status"], "canceled", again)
     case.assertEqual(case.success("scene.settings", ordinary_params), ordinary_result)
     case.assertEqual(case.success("job.cancel", cancel), canceled)
     case.assertEqual(case.success("job.cancel", early_cancel), early_result)
     ordinary_conflict = {"job_id": job["job_id"], "operation_id": ordinary_params["operation_id"]}
     case.assertEqual(case.failure("job.cancel", ordinary_conflict)["code"], "operation_conflict")
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
+    fresh = case.write_params(document, {"width_px": 64})
+    case.revisions[document] = case.success("scene.settings", fresh)["revision"]
     case.assertEqual(len(case.success("automation.list_documents", {})["documents"]), 1)
     case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 4)
     evidence: dict[str, Any] = {

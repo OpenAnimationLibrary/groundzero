@@ -419,12 +419,27 @@ public:
   bool stopping          = false;
   // When a poll answered off the application thread asked the job to stop.
   std::atomic<qint64> interruptMs{-1};
+  // The wall-clock budget's timer, owned by the application until it ends.
+  QTimer* deadlineTimer = nullptr;
 
   QString id() const override { return common.id; }
   JobLane lane() const override { return JobLane::Render; }
   QString documentId() const override { return common.documentId; }
   qint64 reservedBytes() const override { return request.reserveBytes(); }
   QJsonValue result(Context& owner, const QJsonObject&) override;
+
+  // job.discard: the claim goes first, so no descriptor stays open, then the
+  // private directory with everything in it.
+  qint64 removeOutputs() override {
+    ownership.release();
+    return removeJobDirectory(directory);
+  }
+
+  QStringList artifactIds() const override {
+    QStringList ids;
+    for (const Artifact& artifact : artifacts) ids.append(artifact.id);
+    return ids;
+  }
 
   bool terminal() const override {
     return status == JobStatus::Completed || status == JobStatus::Failed ||
@@ -456,6 +471,8 @@ public:
   // Records the end time and every child process killed on the way there.
   void ended() {
     common.endedMs = now();
+    if (deadlineTimer) deadlineTimer->deleteLater();
+    deadlineTimer = nullptr;
     if (ffmpegForcedExits() > encoderExitsBefore) forced("encoder");
     if (neuralExecution && neuralExecution->helperWasKilled())
       forced("neural_helper");
@@ -646,16 +663,20 @@ public:
   }
 
   // Stops the job as cancellation does when its wall-clock budget runs out,
-  // unless it already ended or the caller canceled it first.
+  // unless it already ended or the caller canceled it first. The timer holds
+  // the job weakly and goes when the job ends, so a finished job that is
+  // discarded is freed at once, not when its budget would have run out.
   void scheduleDeadline(int milliseconds) {
-    const auto self = shared_from_this();
-    QTimer::singleShot(milliseconds, QCoreApplication::instance(),
-                       [self, milliseconds]() {
-                         Q_UNUSED(milliseconds);
-                         if (self->terminal() || self->cancellation) return;
-                         self->deadlineExceeded = true;
-                         self->requestStop();
-                       });
+    const std::weak_ptr<RenderJob> weak = shared_from_this();
+    deadlineTimer = new QTimer(QCoreApplication::instance());
+    deadlineTimer->setSingleShot(true);
+    QObject::connect(deadlineTimer, &QTimer::timeout, [weak]() {
+      const auto self = weak.lock();
+      if (!self || self->terminal() || self->cancellation) return;
+      self->deadlineExceeded = true;
+      self->requestStop();
+    });
+    deadlineTimer->start(milliseconds);
   }
 
   void expireNeural() {
@@ -1337,11 +1358,16 @@ private:
     const qint64 reserved =
         jobRegistry(m_context).reservedBytes(JobLane::Render) +
         m_plan.request.reserveBytes();
-    if (reserved > kWorkspaceBytes)
-      check.fail("render_limit",
-                 "This worker has reached its render output storage limit.",
-                 {{"reserved_bytes", double(reserved)},
-                  {"max_bytes", double(kWorkspaceBytes)}});
+    if (reserved <= kWorkspaceBytes) return;
+    QJsonObject details = retentionDetails(m_context, JobLane::Render);
+    details.insert("limit", "render_storage");
+    details.insert("reserved_bytes", double(reserved));
+    details.insert("max_bytes", double(kWorkspaceBytes));
+    check.fail("render_limit",
+               "This worker has reached its render output storage limit. "
+               "Release finished jobs you no longer need with job.discard "
+               "(details.releasable lists the oldest), then submit again.",
+               details);
   }
 
   void lane(Check& check) {
@@ -1354,9 +1380,8 @@ private:
 
   void retention(Check& check) {
     if (jobRegistry(m_context).retained(JobLane::Render) >= JobsPerLane)
-      check.fail("render_limit",
-                 "This worker has reached its render job limit.",
-                 {{"max_retained_jobs", JobsPerLane}});
+      check.fail("render_limit", retentionMessage(JobLane::Render),
+                 retentionDetails(m_context, JobLane::Render));
   }
 
   static bool dependencyReason(const ContentRow& row) {
@@ -1678,6 +1703,7 @@ static QJsonValue artifactRead(Context& context, const QString& id) {
     for (const Artifact& artifact : job->artifacts)
       if (artifact.id == id) return readImageArtifact(context, *job, artifact);
   }
+  refuseDiscardedArtifact(context, id);
   const bool ours =
       id.startsWith("artifact_" + registry.instance().left(8) + "_");
   throw Error("unknown_artifact", "This worker has no artifact with this id.",

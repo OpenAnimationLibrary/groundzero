@@ -284,6 +284,17 @@ void maintenanceKeepsTheLimits(const QString& workspace) {
   require(reader->status().value("retained").toObject() ==
               journal->status().value("retained").toObject(),
           "a second reader sees a different journal");
+  // Full receipts are answered from their lines, also after compaction moved
+  // them; the index keeps no inline response.
+  for (const auto& source : {journal, reader})
+    for (int index = 26; index < 30; ++index) {
+      const JournalOperation* kept =
+          source->find("op-" + QString::number(index));
+      require(kept && !kept->outcome.contains("response") &&
+                  source->response(*kept) ==
+                      QJsonObject{{"result", QJsonObject{{"n", index}}}},
+              "a full receipt is not answered from its line after compaction");
+    }
 }
 
 void reservedPathsAreRefused(Context& context) {

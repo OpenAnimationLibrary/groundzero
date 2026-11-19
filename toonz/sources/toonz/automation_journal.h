@@ -37,6 +37,9 @@ struct JournalLimits final {
   int packages            = 4096;
   qint64 packageBytes     = qint64(512) * 1024 * 1024;
   int jobs                = 4096;
+  // Receipts the dispatcher keeps in memory; older ones the journal holds
+  // are dropped and answered from it.
+  int memoryReceipts      = 2048;
   int lockWaitMs          = 5000;
   int outcomeLockWaitMs   = 30000;
   // --test-journal-limits small: rotation, compaction and expiry in seconds.
@@ -56,12 +59,16 @@ struct JournalOperation final {
   QString writer;
   qint64 admittedSeq  = 0;
   qint64 admittedAtMs = 0;
-  // The stage, intent, outcome and reconcile records; empty when absent.
+  // The stage, intent, outcome and reconcile records; empty when absent. An
+  // outcome's inline response is not kept in memory: it is read back from
+  // its line (segment and byte offset) when a retry needs it.
   QJsonObject stage;
   QJsonObject intent;
   // scene.open's pin on the package it copies from.
   QJsonObject pin;
   QJsonObject outcome;
+  QString responseSegment;
+  qint64 responseOffset = -1;
   QJsonObject reconcile;
   // Set for an operation compacted to a stub: its state then.
   QString stubState;
@@ -111,6 +118,7 @@ public:
   QString unavailableReason() const { return m_reason; }
   const QString& instance() const { return m_start.instance; }
   const QString& authorityDigest() const { return m_start.authorityDigest; }
+  const JournalLimits& limits() const { return m_start.limits; }
 
   // Reads what other workers appended since the last read; takes no lock.
   void refresh();
@@ -196,6 +204,9 @@ private:
   void scanSegment(Segment& segment, bool recovery);
   void applyRecord(const QJsonObject& record, Segment& segment);
   void apply(const QJsonObject& record);
+  // The outcome record of an operation whose response was not kept in
+  // memory, read back from its segment; empty when it is not there.
+  QJsonObject outcomeLine(const JournalOperation& operation) const;
   // Quarantines and cuts off a torn last line (and, with verifyLast, a last
   // line whose hash is wrong); returns the bytes cut, or -1 on an I/O error.
   qint64 repairTail(Segment& segment, bool verifyLast);
@@ -255,6 +266,9 @@ private:
   QJsonArray m_damage;
   QJsonArray m_quarantined;
   QJsonObject m_lastRecovery;
+  // Where the record being applied starts: its segment and byte offset.
+  QString m_applyingSegment;
+  qint64 m_applyingOffset = -1;
   bool m_locked       = false;
   bool m_recovering   = false;
   qint64 m_lastSeq    = 0;

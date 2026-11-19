@@ -58,8 +58,16 @@ public:
     if (m_interruptMs < 0) m_interruptMs = requestedMs;
   }
   QJsonValue result(Context&, const QJsonObject&) override { return {}; }
+  qint64 removeOutputs() override {
+    ++removals;
+    return m_bytes;
+  }
+  QStringList artifactIds() const override { return artifacts; }
   qint64 interruptMs() const { return m_interruptMs; }
   qint64 cancelMs() const { return m_cancelMs; }
+  void finish() { m_terminal = true; }
+  int removals = 0;
+  QStringList artifacts;
 
 private:
   QString m_id;
@@ -328,6 +336,121 @@ void shutdownSettlement(Context& context) {
   context.jobs = saved;
 }
 
+Error refusedCall(Context& context, const QString& method, const QString& id) {
+  return refused([&]() { executeJobs(context, method, {{"job_id", id}}); });
+}
+
+// job.discard leaves a running job alone, then releases it once terminal: its
+// files go, the lane frees a slot, and every later call on the id or its
+// artifacts answers job_discarded.
+void discardReleases(Context& context) {
+  const auto saved      = context.jobs;
+  context.jobs          = std::make_shared<JobRegistry>(instance, 0);
+  JobRegistry& registry = *context.jobs;
+  const auto job =
+      std::make_shared<FakeJob>(registry.newJobId(), JobLane::Render, false, 9);
+  job->artifacts = QStringList{"artifact_12345678_a", "artifact_12345678_b"};
+  registry.add(job);
+  registry.publish();
+  const Error running = refusedCall(context, "job.discard", job->id());
+  require(running.code == "in_use" &&
+              running.details.value("reason") == "not_terminal" &&
+              running.details.value("next") == "job.cancel" &&
+              job->removals == 0 && registry.find(job->id()),
+          "A running job was discarded");
+  job->finish();
+  const QJsonObject released =
+      executeJobs(context, "job.discard", {{"job_id", job->id()}}).toObject();
+  require(released.value("discarded") == true &&
+              released.value("freed_bytes") == 9 &&
+              released.value("final_status") == "completed" &&
+              released.value("retained_jobs").toObject().value("render") == 0 &&
+              job->removals == 1,
+          "A terminal job's discard did not remove its outputs once");
+  require(!registry.find(job->id()) && registry.newestFirst().isEmpty() &&
+              registry.retained(JobLane::Render) == 0 &&
+              registry.answerPoll(job->id(), false).isNull(),
+          "A discarded job still holds a slot, a listing or a poll copy");
+  for (const char* method :
+       {"job.status", "job.result", "job.cancel", "job.discard"}) {
+    const Error error = refusedCall(context, method, job->id());
+    require(error.code == "job_discarded" &&
+                error.details.value("job_id") == job->id() &&
+                error.details.value("final_status") == "completed",
+            "A discarded job's id was not answered job_discarded");
+  }
+  require(job->removals == 1, "A second discard removed outputs again");
+  require(refused([&]() {
+            refuseDiscardedArtifact(context, "artifact_12345678_b");
+          }).details.value("artifact_id") == "artifact_12345678_b",
+          "A discarded job's artifact was not answered job_discarded");
+  refuseDiscardedArtifact(context, "artifact_12345678_other");
+  require(
+      executeJobs(context, "job.list", {}).toObject().value("total").toInt() ==
+          0,
+      "job.list still lists a discarded job");
+  context.jobs = saved;
+}
+
+void discardMemoryIsBounded() {
+  JobRegistry registry(instance, 0);
+  const QString first = registry.newJobId();
+  registry.discard(first, {{"job_id", first}}, {"artifact_first"});
+  for (int index = 1; index < DiscardedJobIds; ++index)
+    registry.discard(registry.newJobId(), {}, {});
+  require(!registry.discarded(first).isEmpty(),
+          "A worker forgot a discarded job before its bound");
+  registry.discard(registry.newJobId(), {}, {});
+  require(registry.discarded(first).isEmpty() &&
+              registry.discardedArtifactJob("artifact_first") == first,
+          "Discarded jobs are not bounded at 1024");
+  QStringList artifacts;
+  for (int index = 0; index < DiscardedArtifactIds; ++index)
+    artifacts.append("artifact_" + QString::number(index));
+  registry.discard(registry.newJobId(), {}, artifacts);
+  require(registry.discardedArtifactJob("artifact_first").isEmpty() &&
+              !registry.discardedArtifactJob("artifact_0").isEmpty(),
+          "Discarded artifacts are not bounded at 8192");
+}
+
+// A refusal at the limit names the oldest terminal jobs of the lane, never a
+// running one or another lane's, and job.discard as the next call.
+void retentionNamesReleasable(Context& context) {
+  const auto saved       = context.jobs;
+  context.jobs           = std::make_shared<JobRegistry>(instance, 0);
+  JobRegistry& registry  = *context.jobs;
+  const QString finished = registry.newJobId();
+  registry.add(std::make_shared<FakeJob>(finished, JobLane::Render, true));
+  registry.add(
+      std::make_shared<FakeJob>(registry.newJobId(), JobLane::Render, false));
+  QStringList analysis;
+  for (int index = 0; index < JobsPerLane; ++index) {
+    analysis.append(registry.newJobId());
+    registry.add(
+        std::make_shared<FakeJob>(analysis.last(), JobLane::Analysis, true));
+  }
+  const Error full          = refused([&]() { registry.admitAnalysis({}, 0); });
+  const QJsonObject details = full.details;
+  const QJsonArray rows     = details.value("releasable").toArray();
+  require(full.code == "resource_limit" &&
+              details.value("retained") == JobsPerLane &&
+              details.value("releasable_count") == JobsPerLane &&
+              details.value("next") == "job.discard" &&
+              rows.size() == ReleasableListed &&
+              rows.at(0).toObject().value("job_id") == analysis.at(0) &&
+              rows.at(7).toObject().value("job_id") == analysis.at(7) &&
+              full.message.contains("job.discard"),
+          "The retention refusal does not name the oldest releasable jobs");
+  const QJsonObject render    = retentionDetails(context, JobLane::Render);
+  const QJsonArray renderRows = render.value("releasable").toArray();
+  require(render.value("retained") == 2 &&
+              render.value("releasable_count") == 1 && renderRows.size() == 1 &&
+              renderRows.at(0).toObject().value("job_id") == finished &&
+              render.value("limit") == "retained_render_jobs",
+          "Retention details listed a running job or mixed the lanes");
+  context.jobs = saved;
+}
+
 void runAutomationJobsTests(Context& context) {
   const std::pair<const char*, std::function<void()>> cases[]{
       {"identifiers", identifiers},
@@ -336,6 +459,10 @@ void runAutomationJobsTests(Context& context) {
       {"unknown ids", unknownIds},
       {"order", order},
       {"published polls", publishedPolls},
+      {"discard releases", [&context]() { discardReleases(context); }},
+      {"discard memory is bounded", discardMemoryIsBounded},
+      {"retention names releasable",
+       [&context]() { retentionNamesReleasable(context); }},
       {"cancellation and termination",
        [&context]() { cancellationAndTermination(context); }},
       {"shutdown settlement", [&context]() { shutdownSettlement(context); }}};

@@ -513,6 +513,14 @@
       "source_copy"
     ]
   },
+  "job.discard": {
+    "handler": "discardJob",
+    "read": [
+      "final_status",
+      "kind",
+      "job_id"
+    ]
+  },
   "job.list": {
     "handler": "listJobs",
     "read": [

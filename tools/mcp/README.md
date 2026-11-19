@@ -366,13 +366,15 @@ values. Launched with `--strict-results`, as the acceptance tests do, the adapte
 instead returns `INVALID_RESULT` with the tool, `outcome` (`applied` for a write,
 `none` for a read), the `operation_id` and at most 16 failing paths.
 
-Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
-budget. The first cancellation for each retained job, at most 64, has separate
-reserved receipt capacity, capped at 16 KiB per result. That cancellation
-and its exact retry remain available when ordinary receipt capacity is exhausted.
-Further cancellation requests with new operation IDs use ordinary capacity;
-reuse the first ID to retrieve its receipt. Status queries remain available,
-and reusing an operation ID for different arguments always conflicts.
+Workers keep up to 2,048 ordinary write receipts in memory within a 64 MiB serialized
+budget. Past that, the oldest receipts the workspace journal holds leave memory and no
+write is refused: an exact retry of such an operation is answered from the journal with
+the result it recorded, unchanged (a later worker adds a `receipt`), until journal
+retention turns it into a stub (`receipt_expired`). A receipt the journal does not hold
+is never dropped; a worker whose journal is unavailable refuses writes as before. The
+first cancellation for each retained job, at most 64, has separate reserved receipt
+capacity, capped at 16 KiB per result. Status queries remain available, and reusing an
+operation ID for different arguments always conflicts.
 
 The native profile supports detached scenes, PNG imports, exposures, camera and
 peg animation, vector strokes and fills, RGBA8 and Toonz raster pixels, and solid
@@ -1282,12 +1284,32 @@ outputs_present}` when its worker died first; `job.result` for it is
 `artifacts_unavailable` or `result_unavailable` with `details.reason`
 `previous_worker`.
 
+A worker keeps every finished job, with its files and its results, until the client
+releases it: call `job.discard` (`job_id`, `operation_id`) once you no longer need a
+job's result or artifacts. It works on any job kind, but only on a terminal job: a running
+one is refused with `in_use`, `details.reason` `not_terminal` and `details.next`
+`job.cancel`. It removes the job's private directory (for a render, the frames or movie
+and the snapshot manifest), frees its slot in the lane, and returns `job_id`, `kind`,
+`final_status`, `discarded: true`, `freed_bytes` and `retained_jobs {render, analysis}`;
+an exact retry returns the same result, in a later worker too. Afterwards `job.status`,
+`job.result`, `job.cancel`, `job.discard` and `artifact.read` of the job or its artifacts
+answer `job_discarded` (`details.job_id`, `kind`, `final_status`,
+`discarded_by_operation_id`), also after a worker restart, and `job.list` no longer lists
+it. Nothing is released without this call: at 32 retained jobs a lane refuses the next one
+(`render_limit`, or `resource_limit` for analysis) with `details.releasable`, the oldest
+finished jobs (at most 8: `job_id`, `kind`, `status`, `document_id`, `ended_ms`),
+`releasable_count`, `retained`, `lane`, `limit` and `next: "job.discard"`; discard the jobs
+you are done with and submit again. A job of a read-only document is released through its
+scene host the same way; one whose host has ended is released with the document's
+`scene.discard`. Jobs of an earlier worker cannot be discarded (`unknown_job`,
+`other_worker`): their files are removed when the next worker starts.
+
 A render job of an editable draft renders from a private snapshot of the draft's scene and
 artwork. The snapshot exists while the job runs, even if the draft is discarded meanwhile.
 When the job ends, whatever its outcome, the scene and artwork are removed; only
 `snapshot/manifest.json`, whose SHA-256 the record names, stays with the artifacts that
-`job.result` serves until the worker ends. A job that failed or was canceled keeps nothing. A
-later worker removes everything a dead worker left.
+`job.result` serves until the job is discarded or the worker ends. A job that failed or was
+canceled keeps nothing. A later worker removes everything a dead worker left.
 
 `vector.inspect` returns each stroke's art `role` (`line_art`, `colour_art`, `underlay`
 or `overlay`, derived with the editor's rule: a stroke whose control points all have
@@ -1559,7 +1581,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (128):
+- `core` toolset (129):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1571,25 +1593,26 @@ the adapter and the live editor bridge add the rest.
   `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
   `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
   `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
-  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `journal.status`,
-  `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
-  `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
-  `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
-  `object.path.detach`, `operation.list`, `operation.status`, `package.remove`,
-  `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
-  `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
-  `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.create`,
-  `project.duplicate`, `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`,
-  `raster.import_png`, `raster.patch`, `raster.read_pixels`, `render.capabilities`,
-  `render.preflight`, `render.preview`, `render.submit`, `runtime.inspect`,
-  `scene.check.submit`, `scene.create`, `scene.dependencies`, `scene.discard`,
-  `scene.import_editable`, `scene.import_plan`, `scene.inventory`, `scene.open`,
-  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.save_preflight`,
-  `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
-  `tool.describe`, `vector.edit`, `vector.export_svg`, `vector.fill`, `vector.group.create`,
-  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
-  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
-  `vector.structure`, `vector.text.create`, `vector.transform`
+  `fx.terminal.set`, `job.cancel`, `job.discard`, `job.list`, `job.result`, `job.status`,
+  `journal.status`, `level.create`, `level.import`, `level.inspect`, `motion_path.create`,
+  `motion_path.delete`, `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`,
+  `motion_path.rename`, `motion_path.update`, `object.create`, `object.parent`,
+  `object.path.attach`, `object.path.detach`, `operation.list`, `operation.status`,
+  `package.remove`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
+  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
+  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
+  `project.create`, `project.duplicate`, `project.inspect`, `project.list`, `project.scenes`,
+  `raster.export_png`, `raster.import_png`, `raster.patch`, `raster.read_pixels`,
+  `render.capabilities`, `render.preflight`, `render.preview`, `render.submit`,
+  `runtime.inspect`, `scene.check.submit`, `scene.create`, `scene.dependencies`,
+  `scene.discard`, `scene.import_editable`, `scene.import_plan`, `scene.inventory`,
+  `scene.open`, `scene.open_read_only`, `scene.package_info`, `scene.save_copy`,
+  `scene.save_preflight`, `scene.settings`, `scene.source_status`, `scene.summary`,
+  `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`, `vector.export_svg`,
+  `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
+  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
+  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
+  `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

@@ -91,18 +91,24 @@ test("lists ledger rows newest first with filters, paging and their observer", (
   expect(ledger.list({ document_id: "document_b" }, exit)["total"]).toBe(0);
 });
 
-const jobTools = ["render.preview", "job.status", "job.list", "job.cancel", "job.result"].map(
-  (name) => ({
-    name,
-    description: name,
-    inputSchema: { type: "object", properties: {}, additionalProperties: true },
-    annotations: { readOnlyHint: !name.includes("preview") && name !== "job.cancel" },
-    toolset: "core",
-    outputSchema: outputSchema({ type: "object" }),
-    effects: sessionEffects("read"),
-    errors: ["invalid_params"],
-  }),
-);
+const writingJobTools = new Set(["render.preview", "job.cancel", "job.discard"]);
+const jobTools = [
+  "render.preview",
+  "job.status",
+  "job.list",
+  "job.cancel",
+  "job.result",
+  "job.discard",
+].map((name) => ({
+  name,
+  description: name,
+  inputSchema: { type: "object", properties: {}, additionalProperties: true },
+  annotations: { readOnlyHint: !writingJobTools.has(name) },
+  toolset: "core",
+  outputSchema: outputSchema({ type: "object" }),
+  effects: sessionEffects("read"),
+  errors: ["invalid_params"],
+}));
 const closers: (() => Promise<void>)[] = [];
 
 afterEach(async () => {
@@ -152,6 +158,27 @@ test("crash recovery answers status and list from the ledger and nothing else", 
   expect(result.structuredContent).toMatchObject({ error: { code: "WORKER_UNAVAILABLE" } });
   const unseen = await client.callTool({ name: "job.status", arguments: { job_id: "job_b" } });
   expect(unseen.structuredContent).toMatchObject({ error: { code: "WORKER_UNAVAILABLE" } });
+});
+
+test("a discarded job leaves the ledger, so a lost worker never lists it", async () => {
+  let answer: (method: string) => Promise<unknown> = async () => record("job_a", "completed");
+  const { client, lose } = await jobSession((method) => answer(method));
+  await client.callTool({ name: "render.preview", arguments: {} });
+  answer = async () => ({
+    job_id: "job_a",
+    kind: "render_preview",
+    final_status: "completed",
+    discarded: true,
+    freed_bytes: 10,
+    retained_jobs: { render: 0, analysis: 0 },
+  });
+  await client.callTool({ name: "job.discard", arguments: { job_id: "job_a" } });
+  answer = unavailable;
+  lose(exit);
+  const listed = await client.callTool({ name: "job.list", arguments: {} });
+  expect(listed.structuredContent).toMatchObject({ jobs: [], total: 0 });
+  const status = await client.callTool({ name: "job.status", arguments: { job_id: "job_a" } });
+  expect(status.structuredContent).toMatchObject({ error: { code: "WORKER_UNAVAILABLE" } });
 });
 
 test("an MCP-cancelled job start is recorded, listed and never cancelled natively", async () => {
