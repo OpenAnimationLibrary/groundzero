@@ -1336,11 +1336,12 @@ the adapter and the live editor bridge add the rest.
 - `shared-library` toolset (7):
   `library.inspect`, `library.list`, `library.thumbnail`, `shared.roots`, `studio_palette.find`,
   `studio_palette.inspect`, `studio_palette.list`
-- `sheet` toolset (18):
+- `sheet` toolset (22):
   `camera.create`, `camera.duplicate`, `camera.list`, `camera.remove`, `camera.select`,
   `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.retime`,
-  `cells.set`, `column.duplicate`, `column.kinds`, `column.move`, `scene.guides.set`,
-  `scene.output.set`, `scene.properties.inspect`
+  `cells.set`, `column.duplicate`, `column.kinds`, `column.move`, `level.duplicate`,
+  `level.remove`, `level.rename`, `level.settings.set`, `scene.guides.set`, `scene.output.set`,
+  `scene.properties.inspect`
 - `storyboard` toolset (4):
   `storyboard.panel.create`, `storyboard.panel.delete`, `storyboard.panel.update`,
   `storyboard.panels`
