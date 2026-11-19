@@ -221,3 +221,35 @@ def project_scenes_stays_in_the_folder_it_pinned(case: NativeAcceptance) -> None
     case.assertNotIn("error", response, response)
     case.assertIn("real.tnz", str(response))
     case.assertNotIn("decoy", str(response))
+
+
+@acceptance_case
+def project_writers_hold_the_file_boundary(case: NativeAcceptance) -> None:
+    """Refuse a project folder outside the workspace or behind a link, leaving nothing.
+
+    The project writers take a folder whose last component is the project's name, so the
+    name rule answers before the path matrix would; this drives their path refusals.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    source = case.mutate("project.create", None, directory=str(case.workspace / "Source"))
+    outside = case.directory / "outside"
+    outside.mkdir()
+    os.symlink(outside, case.workspace / "link")
+    targets = {
+        "outside the roots": outside / "Show",
+        "an input root": case.inputs / "Show",
+        "behind a link": case.workspace / "link" / "Show",
+        "climbing out": case.workspace / ".." / "Show",
+    }
+    calls = {"project.create": {}, "project.duplicate": {"project_id": source["project_id"]}}
+    for tool, arguments in calls.items():
+        for label, target in targets.items():
+            with case.subTest(tool=tool, target=label):
+                before = Observation(case, [case.inputs, outside, case.workspace])
+                params = case.write_params(None, {**arguments, "directory": str(target)})
+                error = case.failure(tool, params)
+                case.assertIn(error["code"], {"path_denied", "invalid_path"}, error)
+                quiet, detail = before.unchanged()
+                case.assertTrue(quiet, f"{tool} {label} left traces: {detail}")
