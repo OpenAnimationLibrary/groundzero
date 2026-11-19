@@ -309,6 +309,7 @@ void partialCancellation(Context& context, Dispatcher& dispatcher) {
 
 QString domainToolset(const QString& name) {
   if (name.startsWith("audio.")) return "audio";
+  if (name.startsWith("delivery.")) return "delivery";
   if (name.startsWith("storyboard.")) return "storyboard";
   if (name.startsWith("lipsync.")) return "lipsync";
   if (name.startsWith("rig.") || name.startsWith("hook.") ||
