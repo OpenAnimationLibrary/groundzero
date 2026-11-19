@@ -260,10 +260,14 @@ def end_of_input_during_a_region_rebuild(case: NativeAcceptance) -> None:
     nothing left behind: the job is cancelled and the rebuild, on a private clone, ends with
     the process."""
     document, level = mcp_analysis_cases._heavy_level(case, drawings=1, strokes=2400)
+    began = time.monotonic()
     job = mcp_analysis_cases._submit(case, document, level, check="regions")["job_id"]
+    submitted = time.monotonic() - began
     mcp_analysis_cases._wait_started(case, job)
+    started = time.monotonic() - began
     time.sleep(0.3)
-    case.assertFalse(case.success("job.status", {"job_id": job})["terminal"])
+    status = case.success("job.status", {"job_id": job})
+    case.assertFalse(status["terminal"], (submitted, started, status["status"]))
     elapsed, code = close_and_time(case, case.worker)
     case.assertEqual(code, 0)
     case.assertLess(elapsed, DEADLINE + SLACK)

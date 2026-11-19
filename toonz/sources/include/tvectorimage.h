@@ -87,6 +87,10 @@ public:
 
   //! Return a clone of image
   TVectorImageP clone() const;
+  //! Like clone(), but leaves the regions to be built by the next
+  //! findRegions(): the copy takes time linear in the strokes, where clone()
+  //! of an image that has regions builds them again before it returns.
+  TVectorImageP cloneWithoutRegions() const;
 
   //! Clone an editor snapshot while retaining the entered nested group.
   //! Unlike clone(), this preserves editing context without changing source.

@@ -16,6 +16,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QMutexLocker>
 #include <QJsonDocument>
 #include <QRunnable>
 #include <QThreadPool>
@@ -260,31 +261,42 @@ QJsonObject drawingRow(const QString& kind, const QString& levelId,
 
 constexpr int kMaxDrawingStrokes = 4096;
 
-// Regions of one detached clone, built off the application thread. The clone
-// is private to the task, so nothing here touches a document.
+// Regions of one detached clone, copied and built off the application thread.
+// The copy reads the document's drawing under the drawing's own lock, as the
+// library's other readers do; everything after it touches only the clone.
 struct Rebuild final {
+  TVectorImageP source;
   TVectorImageP image;
   std::map<int, int> byStyle;
   int regions = 0;
   QString error;
   std::atomic<bool> done{false};
-  // The job was cancelled: nothing is delivered and nothing shared is touched.
+  // The job was cancelled: nothing is delivered and nothing shared is touched
+  // from here on, apart from a copy already under way.
   std::atomic<bool> abandoned{false};
 };
 
 void runRebuild(const std::shared_ptr<Rebuild>& rebuild) {
   try {
-    rebuild->image->findRegions();
-    rebuild->regions = int(rebuild->image->getRegionCount());
-    for (int index = 0; index < rebuild->regions; ++index)
-      ++rebuild->byStyle[rebuild->image->getRegion(index)->getStyle()];
+    if (!rebuild->abandoned) {
+      {
+        QMutexLocker lock(rebuild->source->getMutex());
+        rebuild->image = rebuild->source->cloneWithoutRegions();
+      }
+      rebuild->source = TVectorImageP();
+      rebuild->image->findRegions();
+      rebuild->regions = int(rebuild->image->getRegionCount());
+      for (int index = 0; index < rebuild->regions; ++index)
+        ++rebuild->byStyle[rebuild->image->getRegion(index)->getStyle()];
+    }
   } catch (const std::exception& error) {
     rebuild->error = QString::fromUtf8(error.what());
   } catch (...) {
     rebuild->error = "The native region rebuild raised an unrecognized error.";
   }
-  rebuild->image = TVectorImageP();
-  rebuild->done  = true;
+  rebuild->source = TVectorImageP();
+  rebuild->image  = TVectorImageP();
+  rebuild->done   = true;
 }
 
 // One region rebuild runs at a time, as the lane admits one analysis job; a
@@ -740,12 +752,12 @@ bool DrawingAnalysisJob::admitDrawing(
 bool DrawingAnalysisJob::startRebuild(const TFrameId& frame,
                                       const TVectorImageP& image) {
   Pending pending;
-  pending.frame          = frame;
-  pending.strokes        = strokeStyleUsage(*image);
-  pending.rebuild        = std::make_shared<Rebuild>();
-  pending.rebuild->image = image->clone();
-  const auto rebuild     = pending.rebuild;
-  m_pending              = std::move(pending);
+  pending.frame           = frame;
+  pending.strokes         = strokeStyleUsage(*image);
+  pending.rebuild         = std::make_shared<Rebuild>();
+  pending.rebuild->source = image;
+  const auto rebuild      = pending.rebuild;
+  m_pending               = std::move(pending);
   if (rebuildInline) {
     runRebuild(rebuild);
     return finishRebuild();

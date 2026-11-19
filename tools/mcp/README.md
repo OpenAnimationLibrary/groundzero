@@ -596,10 +596,13 @@ for an id this document never issued). `vector.opacity.set` and
 style), `regions` or `roles`. The record's `analysis` reports the `estimate`, the running
 `cost`, the `budget` and `complete` with its `reasons`; `job.result` pages the rows (up
 to 256 per page, 65,536 per job) with `next_offset` null on the last page. Regions are
-built on detached clones on a worker thread, so the document is never touched and the
-application thread keeps answering: its slices (one drawing's clone and scan, or at most
-two million raster pixels) stay under 50 ms apart from image loading, and a cancellation
-ends the job at once while a rebuild in flight finishes unseen. A write
+built on detached clones, copied and built on a worker thread, so the document is never
+changed and the application thread keeps answering: its slices (one drawing's style count,
+a batch of at most two million raster pixels, or some milliseconds of the size estimate)
+stay under 50 ms apart from image loading. Submit estimates at most 32 drawings; the job
+estimates the rest first and ends `failed` with `resource_limit` if the whole estimate is
+over budget. A cancellation ends the job at once and a rebuild in flight is abandoned; the
+worker does not wait for it at exit. A write
 to the document ends the job `failed` with `revision_changed`; `job.cancel` ends it
 `canceled` with the rows gathered so far. A second analysis while one runs is refused with
 `analysis_busy`. A read-only document refuses `drawing.analysis.submit` with

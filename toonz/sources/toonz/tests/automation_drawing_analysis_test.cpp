@@ -327,7 +327,7 @@ void cancelAndDeadline(Context& context) {
   context.removeDocument(document.id);
 }
 
-Fixture gridLevel(Context& context, int strokes) {
+Fixture gridLevel(Context& context, int strokes, bool computed = false) {
   auto& document      = context.addDocument(std::make_unique<ToonzScene>());
   const QString level = createLevel(context, document, "vector");
   auto* simple        = document.level(level)->getSimpleLevel();
@@ -344,6 +344,10 @@ Fixture gridLevel(Context& context, int strokes) {
     image->addStroke(stroke);
   }
   image->setPalette(simple->getPalette());
+  if (computed) {
+    image->findRegions();
+    image->getRegion(0)->setStyle(3);
+  }
   simple->setFrame(TFrameId(1), TImageP(image.getPointer()));
   return {&document, level, simple};
 }
@@ -364,7 +368,7 @@ qint64 pump(const std::function<bool()>& done, int timeoutMs = 60000) {
 }
 
 void rebuildLeavesTheApplicationThread(Context& context) {
-  const auto fixture    = gridLevel(context, 1200);
+  const auto fixture    = gridLevel(context, 1200, true);
   Document& document    = *fixture.document;
   JobRegistry& registry = jobRegistry(context);
   const QString job     = jobOf(startDrawingAnalysisScheduled(
@@ -382,6 +386,15 @@ void rebuildLeavesTheApplicationThread(Context& context) {
   require(ended.value("status") == "completed",
           "The threaded rebuild did not complete");
   require(gap < 100, "The application thread was held by the rebuild");
+  const TVectorImageP source    = fixture.simple->getFrame(TFrameId(1), false);
+  const TVectorImageP reference = source->clone();
+  int painted                   = 0;
+  for (UINT index = 0; index < reference->getRegionCount(); ++index)
+    painted += reference->getRegion(index)->getStyle() != 0;
+  const auto row = resultOf(context, job).value("rows").toArray()[0].toObject();
+  require(row.value("regions").toInt() == int(reference->getRegionCount()) &&
+              row.value("painted").toInt() == painted && painted > 0,
+          "The rebuild differs from the document's own regions");
   require(drawingAnalysisLongestSliceMs(context, job) < 50,
           "A slice exceeded its bound");
   require(ended.value("analysis")
@@ -395,7 +408,7 @@ void rebuildLeavesTheApplicationThread(Context& context) {
 }
 
 void cancelDuringRebuild(Context& context) {
-  const auto fixture    = gridLevel(context, 1200);
+  const auto fixture    = gridLevel(context, 1200, true);
   Document& document    = *fixture.document;
   JobRegistry& registry = jobRegistry(context);
   const QString job     = jobOf(startDrawingAnalysisScheduled(
@@ -515,7 +528,7 @@ void estimateOverBudgetEndsTheJob(Context& context) {
 }
 
 void newJobAfterACancelledRebuild(Context& context) {
-  const auto big  = gridLevel(context, 1200);
+  const auto big  = gridLevel(context, 1200, true);
   Document& first = *big.document;
   const QString a = jobOf(startDrawingAnalysisScheduled(
       context, first, params(first, big.level, "regions"), AnalysisBudget()));

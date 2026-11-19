@@ -1211,6 +1211,24 @@ TVectorImageP TVectorImage::clone() const {
 
 //-----------------------------------------------------------------------------
 
+TVectorImageP TVectorImage::cloneWithoutRegions() const {
+  TVectorImage *out = new TVectorImage;
+  out->m_imp->m_autocloseTolerance = m_imp->m_autocloseTolerance;
+  out->m_imp->m_maxGroupId         = m_imp->m_maxGroupId;
+  out->m_imp->m_maxGhostGroupId    = m_imp->m_maxGhostGroupId;
+  for (int i = 0; i < (int)m_imp->m_strokes.size(); i++) {
+    out->m_imp->m_strokes.push_back(new VIStroke(*(m_imp->m_strokes[i])));
+    out->m_imp->m_strokes.back()->m_s->setId(m_imp->m_strokes[i]->m_s->getId());
+  }
+  m_imp->cloneRegions(*out->m_imp, false);
+  out->setPalette(getPalette());
+  out->m_imp->m_computedAlmostOnce = m_imp->m_computedAlmostOnce;
+  out->m_imp->m_justLoaded         = m_imp->m_justLoaded;
+  return TVectorImageP(out);
+}
+
+//-----------------------------------------------------------------------------
+
 TVectorImageP TVectorImage::cloneWithGroupContext() const {
   QMutexLocker lock(m_imp->m_mutex);
   TVectorImageP copy = clone();
