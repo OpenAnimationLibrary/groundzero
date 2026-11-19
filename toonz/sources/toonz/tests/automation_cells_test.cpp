@@ -128,12 +128,41 @@ void testRefusedWriteIsReported(Context& context) {
   require(refused, "a refused native write must be a native_error");
 }
 
+// A native result that differs from the model is reported even when every
+// native call returned true.
+void testDivergenceIsReported(Context& context) {
+  Fixture fixture(context);
+  Document& document = context.addDocument(std::move(fixture.scene));
+  const QString id   = document.id;
+  TXsheet& sheet     = *document.scene->getXsheet();
+  sheet.setCell(0, 0, TXshCell(fixture.level, TFrameId(1)));
+  CellPlan plan;
+  plan.column   = sheet.getColumn(0);
+  plan.index    = 0;
+  plan.columnId = "diverging";
+  plan.before   = CellModel::read(sheet, 0);
+  plan.ops      = {{CellOp::Clear, 0, 1, {}}};
+  modelCellPlan(plan);
+  plan.after = plan.before;
+  std::vector<CellPlan> plans{plan};
+  bool reported = false;
+  try {
+    applyCellPlans(document, plans);
+  } catch (const Error& error) {
+    reported = error.code == "native_error" &&
+               error.details.value("frame").toInt() == 0;
+  }
+  context.removeDocument(id);
+  require(reported, "a native result unlike the model must be reported");
+}
+
 }  // namespace
 
 void runAutomationCellsTests(Context& context) {
   testEdges();
   testModelMatchesNative(context);
   testRefusedWriteIsReported(context);
+  testDivergenceIsReported(context);
   std::cout << "automation-cells-test: model and native PASS" << std::endl;
 }
 
