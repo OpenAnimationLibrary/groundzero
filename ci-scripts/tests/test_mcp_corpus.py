@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import shutil
 import struct
 import sys
@@ -392,6 +393,13 @@ class CompareSceneTest(unittest.TestCase):
 
 
 class RegenerationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # These tests run in CI too, where the guard refuses every regeneration.
+        environment = mock.patch.dict("os.environ")
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("CI", None)
+
     def test_a_regeneration_without_a_reason_or_in_ci_is_refused(self) -> None:
         with self.assertRaisesRegex(SystemExit, "reason"):
             build.refuse_unless_deliberate("fix")
