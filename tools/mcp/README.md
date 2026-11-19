@@ -953,8 +953,9 @@ decoded again one per helper to name the file. One row per file gives `result`
 format without a decoder in the check, `too_large` above
 256 MiB, `missing`, `outside_roots`, `crashed`, `timeout`, `memory` or
 `skipped_budget`), with `frames_checked`, `width`, `height` and `message`. A PNG must
-have every chunk and its CRC, and other images and sound files the end marker or length
-their headers declare. `max_files` (default 4096) and `max_bytes` (default 2 GiB) end
+have every chunk and its CRC, WAV and AIFF files the sample length their headers declare
+and two other image formats their end marker or declared length; the remaining formats
+are as strict as their native decoders. `max_files` (default 4096) and `max_bytes` (default 2 GiB) end
 the check incomplete with `file_budget` or `byte_budget`.
 `job.result` pages the rows (up to 256 per page) with a `summary`, `complete` and
 `reasons`. The work runs on the worker's main thread in steps that stop once 20 ms have
