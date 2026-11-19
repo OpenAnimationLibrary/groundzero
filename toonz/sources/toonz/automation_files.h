@@ -199,7 +199,17 @@ QString rootPathProblem(const QString& relative, int creating);
 //   opened as the granted canonical directory.
 int openRootDirectory(const QString& root, const QString& relative);
 
+// The path below `root` of the directory at `relative` as the file system
+// stores its names (which may differ from `relative` in Unicode
+// normalization), reached as openRootDirectory reaches it; empty when it is
+// missing. Throws as openRootDirectory.
+QString storedPathBelow(const QString& root, const QString& relative);
+
 #ifndef _WIN32
+// The path below `root` of the directory open at `descriptor`, in its stored
+// spelling; empty for the root itself or a directory outside it.
+QString storedRelativePath(const QString& root, int descriptor);
+
 // What an entry is, read without following a link: device, inode, link
 // count, size, modification time and kind.
 struct FileIdentity final {

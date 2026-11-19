@@ -712,6 +712,11 @@ int openRootDirectory(const QString&, const QString&) {
               "Output roots are not available on this platform yet.");
 }
 
+QString storedPathBelow(const QString& root, const QString& relative) {
+  openRootDirectory(root, relative);
+  return {};
+}
+
 #else
 
 int openRootDirectory(const QString& root, const QString& relative) {
@@ -744,6 +749,25 @@ int openRootDirectory(const QString& root, const QString& relative) {
     current = next;
   }
   return current;
+}
+
+QString storedRelativePath(const QString& root, int descriptor) {
+  const QStringList parts = descriptorPath(descriptor).split('/');
+  const QStringList above = QDir::cleanPath(root).split('/');
+  if (parts.size() <= above.size()) return {};
+  const auto form = QString::NormalizationForm_C;
+  for (int index = 0; index < above.size(); ++index)
+    if (parts.at(index).normalized(form) != above.at(index).normalized(form))
+      return {};
+  return parts.mid(above.size()).join('/');
+}
+
+QString storedPathBelow(const QString& root, const QString& relative) {
+  const int directory = openRootDirectory(root, relative);
+  if (directory < 0) return {};
+  const QString stored = storedRelativePath(root, directory);
+  ::close(directory);
+  return stored;
 }
 
 bool identityAt(int directory, const QString& name, FileIdentity* identity) {

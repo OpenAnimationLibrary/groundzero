@@ -43,9 +43,9 @@ QString stagingContainerName(const QString& operationId) {
 
 #ifdef _WIN32
 
-void publishToRoot(Context&, const QString&, const RootTarget&,
-                   const QVector<StagedEntry>&, const QJsonObject&,
-                   const QString&) {
+QString publishToRoot(Context&, const QString&, const RootTarget&,
+                      const QVector<StagedEntry>&, const QJsonObject&,
+                      const QString&) {
   throw Error("root_unavailable",
               "Output roots are not available on this platform yet.");
 }
@@ -365,10 +365,10 @@ bool rootDirectoryExists(const QString& rootPath, const QString& relative) {
   return directory.get() >= 0;
 }
 
-void publishToRoot(Context& context, const QString& staged,
-                   const RootTarget& target,
-                   const QVector<StagedEntry>& entries,
-                   const QJsonObject& intent, const QString& failureCode) {
+QString publishToRoot(Context& context, const QString& staged,
+                      const RootTarget& target,
+                      const QVector<StagedEntry>& entries,
+                      const QJsonObject& intent, const QString& failureCode) {
   const Descriptor parent(openRootDirectory(target.rootPath, target.parent));
   if (parent.get() < 0)
     throw Error("missing_parent", "Create the package parent directory first.");
@@ -378,9 +378,13 @@ void publishToRoot(Context& context, const QString& staged,
                 "Choose a new package directory; existing paths are not "
                 "overwritten.");
   context.markMutationStarted();
-  const QString relative =
-      target.parent.isEmpty() ? target.name : target.parent + '/' + target.name;
-  const QJsonObject location = outputLocation(context, target.root, relative);
+  // The parent as the file system spells it, so the recorded location is
+  // the one text that reaches the package again.
+  const auto stored = [&] {
+    const QString above = storedRelativePath(target.rootPath, parent.get());
+    return above.isEmpty() ? target.name : above + '/' + target.name;
+  };
+  const QJsonObject location = outputLocation(context, target.root, stored());
   const QString name = stagingContainerName(context.writeOperation.isEmpty()
                                                 ? QUuid::createUuid().toString()
                                                 : context.writeOperation);
@@ -399,7 +403,12 @@ void publishToRoot(Context& context, const QString& staged,
   if (writeFaultFires(context, "publish:copied"))
     throw copyError(failureCode, "Cannot publish the copied package.", "copy",
                     QString());
-  if (durable) recordPublicationIntentAt(context, staged, location, intent);
+  // The parent may have been moved meanwhile: the package goes where its
+  // pinned descriptor is, and the intent names that place.
+  if (durable)
+    recordPublicationIntentAt(context, staged,
+                              outputLocation(context, target.root, stored()),
+                              intent);
   switch (renameBetween(container.descriptor(), target.name, parent.get(),
                         target.name)) {
   case PublishResult::Published:
@@ -422,6 +431,7 @@ void publishToRoot(Context& context, const QString& staged,
                            "The package was published but its folder could "
                            "not be flushed to disk.",
                            "flush", QString(), true);
+  return stored();
 }
 
 namespace {

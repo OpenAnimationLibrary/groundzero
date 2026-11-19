@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
 from mcp_journal_cases import SCENE, restart
@@ -113,3 +115,112 @@ def receipts_conflict_when_roots_change(case: NativeAcceptance) -> None:
     restart(case, "no-roots")
     error = case.failure("scene.create", params)
     case.assertEqual(error["details"]["reason"], "grant_changed")
+
+
+def _root_calls(case: NativeAcceptance, document: str, path: str, root: str) -> dict[str, Any]:
+    """Every tool that takes a path below an output root, called with one path."""
+    return {
+        "scene.save_copy": case.write_params(document, {"directory": path, "root": root}),
+        "scene.open": case.write_params(None, {"path": path, "root": root}),
+        "scene.package_info": {"path": path, "root": root},
+        "package.remove": case.write_params(
+            None, {"directory": path, "root": root, "expected_package_id": "package:" + "0" * 64}
+        ),
+        "scene.save_preflight": {
+            "document_id": document,
+            "expected_revision": case.revisions[document],
+            "directory": path,
+            "root": root,
+        },
+    }
+
+
+def _codes(case: NativeAcceptance, document: str, path: str, root: str) -> dict[str, Any]:
+    codes = {}
+    for tool, params in _root_calls(case, document, path, root).items():
+        response = case.worker.call(tool, params)
+        if "error" in response:
+            error = response["error"]
+            codes[tool] = (error["code"], error["details"].get("reason"))
+        else:
+            check = {row["name"]: row for row in response["result"].get("checks", [])}
+            codes[tool] = ("result", check.get("path", {}).get("code"))
+    return codes
+
+
+@acceptance_case
+def output_root_paths_hold_the_boundary(case: NativeAcceptance) -> None:
+    """Paths below an output root refuse traversal, links on the way and roots not granted
+    or replaced by a link; a hard-linked package file is never removed; nothing is written
+    outside the root."""
+    root = _roots(case, "deliveries")["deliveries"]
+    outside = case.directory / "outside"
+    outside.mkdir()
+    (root / "linked").symlink_to(outside)
+    _granted(case, _flags({"deliveries": root}, ("deliveries",)))
+    document = case.create("Boundary")
+    for path in ("../escape", "a/../b", "/absolute", "a//b"):
+        with case.subTest(path=path):
+            codes = _codes(case, document, path, "deliveries")
+            case.assertEqual(set(codes.values()), {("invalid_path", "grammar")}, codes)
+    codes = _codes(case, document, "linked/pkg", "deliveries")
+    preflight = codes.pop("scene.save_preflight")
+    case.assertEqual(preflight, ("result", "path_denied"))
+    case.assertEqual({code for code, _reason in codes.values()}, {"path_denied"}, codes)
+    codes = _codes(case, document, "pkg", "absent")
+    case.assertEqual({code for code, _reason in codes.values()}, {"root_unavailable"}, codes)
+    case.assertEqual(os.listdir(outside), [])
+    saved = case.mutate("scene.save_copy", document, directory="pkg", root="deliveries")
+    os.link(root / "pkg" / "scene.tnz", case.directory / "outside-link.tnz")
+    params = case.write_params(
+        None,
+        {"directory": "pkg", "root": "deliveries", "expected_package_id": saved["package_id"]},
+    )
+    error = case.failure("package.remove", params)
+    case.assertEqual((error["code"], error["details"]["reason"]), ("invalid_package", "hard_link"))
+    case.assertTrue((root / "pkg" / "scene.tnz").exists())
+    moved = case.directory / "moved-root"
+    root.rename(moved)
+    root.symlink_to(moved)
+    try:
+        error = case.failure(
+            "scene.save_copy", case.write_params(document, {"directory": "x", "root": "deliveries"})
+        )
+        case.assertEqual(error["code"], "root_unavailable")
+    finally:
+        root.unlink()
+        moved.rename(root)
+    case.assertEqual(sorted(os.listdir(root)), ["linked", "pkg"])
+
+
+@acceptance_case(worker_only="needs --test-write-fault, which the adapter never passes")
+def output_root_parent_swapped_during_publish_is_not_followed(case: NativeAcceptance) -> None:
+    """A parent moved and replaced by a link while a save copies into it is not followed:
+    the package is published where the pinned parent now lies, and the result and journal
+    name that place in its stored spelling."""
+    root = _roots(case, "deliveries")["deliveries"]
+    (root / "shots").mkdir()
+    outside = case.directory / "outside"
+    outside.mkdir()
+    flags = _flags({"deliveries": root}) + ("--test-write-fault", "journal:intent:hold")
+    _granted(case, flags)
+    document = case.create("Swapped")
+    request = case.write_params(document, {"directory": "shots/pkg", "root": "deliveries"})
+    answer: dict[str, Any] = {}
+    saving = threading.Thread(
+        target=lambda: answer.update(case.worker.call("scene.save_copy", request))
+    )
+    saving.start()
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not [
+        name for name in os.listdir(root / "shots") if name.startswith(".groundzero-staging-")
+    ]:
+        time.sleep(0.05)
+    (root / "shots").rename(root / "moved")
+    (root / "shots").symlink_to(outside)
+    saving.join(timeout=60)
+    case.assertEqual(answer["result"]["location"]["path"], "moved/pkg")
+    case.assertEqual(os.listdir(outside), [])
+    case.assertTrue((root / "moved" / "pkg" / "manifest.json").is_file())
+    opened = case.mutate("scene.open", None, path="moved/pkg", root="deliveries")
+    case.assertEqual(opened["package_id"], answer["result"]["package_id"])

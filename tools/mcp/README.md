@@ -182,7 +182,9 @@ a later worker that holds the same root removes a container whose claim no live
 worker holds (only the files the manifest names, its marker and the folders they
 leave empty; anything else stays and is listed in `journal.status.last_recovery
 .staging_residue`), and a worker without the root reports `found: root_not_granted`.
-Results name the package by `location` only: `package_directory`, `scene_path` and
+Results name the package by `location` only, its `path` spelled as the file system
+stores the names (read from the published directory itself, so a parent moved during
+the save is named where the package went): `package_directory`, `scene_path` and
 `manifest_path` are null in an output root. Every save also reports
 `manifest_sha256`, `files`, `bytes`, `save_mode` and `staging` (`private_rename` in
 the workspace, `private_then_copy` in an output root), and every manifest states

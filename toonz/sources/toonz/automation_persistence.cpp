@@ -61,6 +61,8 @@ struct Package final {
   // its intent carries (empty without a journal).
   QByteArray manifestBytes;
   QJsonObject registration;
+  // In an output root: where it was published, below the root, as stored.
+  QString storedRelative;
 };
 
 constexpr qint64 MaxManifestBytes = 2 * 1024 * 1024;
@@ -628,8 +630,9 @@ Package publishPackage(Context& context, Document& document,
           : QJsonObject{{"package", package.registration}};
   if (!workspace) {
     // The private staging stays private: its files are copied, never moved.
-    publishToRoot(context, staging.path(), rootTarget(target),
-                  stagedEntries(package), intent, "package_write_failed");
+    package.storedRelative =
+        publishToRoot(context, staging.path(), rootTarget(target),
+                      stagedEntries(package), intent, "package_write_failed");
     return package;
   }
   publishStaged(context, staging.path(), target.absolute,
@@ -747,9 +750,10 @@ Admission registryAdmission(Context& context, const QString& directory) {
 Admission admitPackage(Context& context, const QJsonObject& params) {
   if (params.contains("root")) {
     const PackageTarget target = packageTarget(context, params, "path", false);
-    if (!rootDirectoryExists(target.rootPath, target.relative))
-      refuseUnregistered("not_registered");
-    return registryAdmission(context, target.absolute);
+    // The stored spelling, which the registry recorded at publication.
+    const QString stored = storedPathBelow(target.rootPath, target.relative);
+    if (stored.isEmpty()) refuseUnregistered("not_registered");
+    return registryAdmission(context, QDir(target.rootPath).filePath(stored));
   }
   QString path = context.resolvePath(requiredString(params, "path"), false);
   if (QFileInfo(path).fileName() == "manifest.json")
@@ -832,9 +836,11 @@ QJsonObject saveCopy(Context& context, const QJsonObject& params) {
   Document& document = context.document(requiredString(params, "document_id"));
   const PackageTarget target =
       packageTarget(context, params, "directory", true);
-  const bool workspace       = target.root == "workspace";
-  const QString directory    = target.absolute;
-  const Package package      = publishPackage(context, document, target);
+  const bool workspace  = target.root == "workspace";
+  const Package package = publishPackage(context, document, target);
+  const QString directory =
+      workspace ? target.absolute
+                : QDir(target.rootPath).filePath(package.storedRelative);
   const QJsonObject location = packageLocation(context, directory);
   Journal* journal           = workspaceJournal(context);
   const bool registered      = journal && !package.registration.isEmpty();
@@ -931,6 +937,12 @@ Removal admitRemoval(Context& context, const QJsonObject& params) {
   removal.rootPath = workspace ? context.workspace() : removal.target.rootPath;
   if (!rootDirectoryExists(removal.rootPath, removal.target.relative))
     throw Error("not_found", "No package directory is at this path.");
+  if (!workspace) {
+    removal.target.relative =
+        storedPathBelow(removal.rootPath, removal.target.relative);
+    removal.target.absolute =
+        QDir(removal.rootPath).filePath(removal.target.relative);
+  }
   const QString directory = removal.target.absolute;
   const QByteArray bytes  = readRegularFile(directory, "manifest.json");
   removal.packageId       = "package:" + QString::fromLatin1(digest(bytes));

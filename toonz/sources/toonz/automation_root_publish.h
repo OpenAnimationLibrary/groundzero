@@ -50,10 +50,13 @@ QString stagingContainerName(const QString& operationId);
 //   publication_unsupported, or `failureCode` with details.stage (stage, copy,
 //   publish or flush), details.reason staged_changed when a staged file no
 //   longer matches its entry, and details.published.
-void publishToRoot(Context& context, const QString& staged,
-                   const RootTarget& target,
-                   const QVector<StagedEntry>& entries,
-                   const QJsonObject& intent, const QString& failureCode);
+//
+// Returns the published directory's path below the root in its stored
+// spelling, which the journal records and results report.
+QString publishToRoot(Context& context, const QString& staged,
+                      const RootTarget& target,
+                      const QVector<StagedEntry>& entries,
+                      const QJsonObject& intent, const QString& failureCode);
 
 // Before any work: the target's parent exists, is writable and does not hold
 // the name. Throws missing_parent, already_exists, package_write_failed (not
