@@ -790,8 +790,9 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
     document = case.create()
     peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
     frames = [6, 7, 8, 9, 10, 11, 11.5, 11.9, 12]
-    # Handles as long as the span leave the frame axis flat at a point, where the worker's
-    # root finder is good to about 1e-3 and not to 1e-5.
+    # Handles as long as the span make the frame axis stationary at frame 9: every parameter
+    # near 0.5 reaches it, so the editor's closed form and the model's bisection pick values of
+    # the parameter 4e-6 apart and the curve differs by about 3e-4 there.
     for outgoing, incoming, expected_match, tolerance in (
         (4, -1, True, 1e-5),
         (0, -3, True, 1e-5),
