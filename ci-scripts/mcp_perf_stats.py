@@ -227,3 +227,20 @@ def propose_budget(summary: Summary) -> dict[str, Any]:
         "basis": "three times the median, or the slowest trial plus three noise units",
         "agreed": False,
     }
+
+
+def advisory_budget(summary: Summary, seconds: float) -> dict[str, Any]:
+    """Say whether a median is over an advisory budget, with the load it was measured under.
+
+    A budget here is taken under the owner's standing instruction and can be changed by the
+    owner; going over it is reported, never raised, and no qualification layer fails on it.
+    """
+    if summary.counted < MINIMUM_TRIALS:
+        return {"status": "unmeasured", "budget_seconds": seconds, "counted": summary.counted}
+    return {
+        "status": "over budget" if summary.median > seconds else "within budget",
+        "advisory": True,
+        "median_seconds": summary.median,
+        "budget_seconds": seconds,
+        "maximum_load": summary.maximum_load,
+    }

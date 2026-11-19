@@ -453,5 +453,31 @@
         "pattern": "test_mcp_perf_stats.py"
       }
     ]
+  },
+  {
+    "id": "perf-budget-over-detected",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"over budget\" if summary.median > seconds else \"within budget\"",
+    "replace": "\"within budget\"",
+    "why": "A median over an advisory budget is reported.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-budget-not-gate",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"advisory\": True,",
+    "replace": "\"advisory\": False,",
+    "why": "A budget is advisory: it is labelled so in every report.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
   }
 ]

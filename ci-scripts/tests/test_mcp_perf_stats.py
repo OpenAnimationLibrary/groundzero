@@ -183,5 +183,28 @@ class BudgetTest(unittest.TestCase):
             stats.propose_budget(stats.summarize(trials([1.0, 1.0])))
 
 
+class AdvisoryBudgetTest(unittest.TestCase):
+    def test_a_median_over_the_budget_is_reported_with_its_load_and_never_raises(self) -> None:
+        summary = stats.summarize(trials([2.0, 2.1, 1.9, 2.0]))
+        report = stats.advisory_budget(summary, 1.0)
+        self.assertEqual(report["status"], "over budget")
+        self.assertIs(report["advisory"], True)
+        self.assertEqual(report["maximum_load"], 1.0)
+
+    def test_a_median_inside_the_budget_is_within(self) -> None:
+        summary = stats.summarize(trials([0.5, 0.6, 0.4, 0.5]))
+        self.assertEqual(stats.advisory_budget(summary, 1.0)["status"], "within budget")
+
+    def test_too_few_finished_trials_leave_the_budget_unmeasured(self) -> None:
+        summary = stats.summarize(trials([5.0, 5.0], outcome="ok"))
+        self.assertEqual(stats.advisory_budget(summary, 1.0)["status"], "unmeasured")
+
+    def test_failed_trials_do_not_bring_a_slow_run_inside_the_budget(self) -> None:
+        mixed = trials([2.0, 2.0, 2.0]) + trials([0.001] * 10, outcome="failed")
+        self.assertEqual(
+            stats.advisory_budget(stats.summarize(mixed), 1.0)["status"], "over budget"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
